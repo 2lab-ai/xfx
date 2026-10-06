@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ba90ad2 [debug] · Run /help for commands
+
+┃ write one please
+
+● 1 tool call · 1 write
+└ Wrote a.txt +1
+
+  wrote a.txt (one)
+
+  0s (↑5 ↓40)
+
+┃ write two please
+
+● 2 tool calls · 1 read · 1 write
+├ Read a.txt
+└ Wrote a.txt +1 / -1
+
+  wrote a.txt (two)
+
+  0s (↑5 ↓40)
+
+* undo: Restored <scratch>/work/a.txt
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+

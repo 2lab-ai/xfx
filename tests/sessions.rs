@@ -207,6 +207,10 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
             output_tokens: Some(7),
+            requests: Vec::new(),
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
         },
         SessionEvent::PermissionGrantRecorded {
             tool: "edit_file".to_string(),
@@ -1627,6 +1631,79 @@ fn ask_saves_a_turn_by_default_and_no_save_writes_nothing() {
         "--no-save must not create {}",
         sandbox.profile_dir().display()
     );
+}
+
+#[test]
+fn a_saved_turn_records_what_its_request_cost_and_when_counting_began() {
+    // The Gateway's bill for one answer, in the shape it streams one
+    // (`vercel-labs/fx@c1db9191 src/gateway/client.zig:3313-3395`).
+    let body = sse_body(&[
+        json!({ "type": "response-metadata", "modelId": "fake/model-a",
+                "timestamp": "2026-10-07T01:02:03.456Z" }),
+        text_delta("answer_0", "billed answer"),
+        json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 12000, "cacheRead": 4000 },
+                "outputTokens": { "total": 800, "reasoning": 0 }
+            },
+            "providerMetadata": { "gateway": {
+                "routing": { "canonicalSlug": "fake/model-a" },
+                "cost": "0.0125",
+                "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
+            } }
+        }),
+    ]);
+    let gateway = FakeGateway::start(vec![Reply::Sse(body)]);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["ask", "count this"],
+        &gateway_env(&gateway.chat_url(), TEST_KEY),
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let ids = sandbox.saved_ids();
+    let log = fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join(EVENTS_FILE))
+        .expect("read log");
+    let frame: Value = log
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("a frame"))
+        .find(|frame| frame["event"]["kind"] == "usage_recorded")
+        .expect("the turn recorded its usage");
+    assert_eq!(
+        frame["event"]["requests"][0],
+        json!({
+            "at_ms": 1_791_334_923_456_i64,
+            "duration_ms": frame["event"]["requests"][0]["duration_ms"],
+            "model": "fake/model-a",
+            "input_tokens": 12000,
+            "output_tokens": 800,
+            "cache_read_tokens": 4000,
+            "cache_write_tokens": 0,
+            "reasoning_tokens": 0,
+            "cost": 0.0125,
+            "generation_id": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
+        })
+    );
+    // The meter's own totals, beside it, as they always were.
+    assert_eq!(frame["event"]["input_tokens"], 12000);
+
+    // And the moment `/usage` began counting, kept once in the profile.
+    let marker = sandbox.profile_dir().join("usage.json");
+    let started: Value =
+        serde_json::from_str(&fs::read_to_string(&marker).expect("usage.json")).expect("json");
+    assert!(
+        started["tracking_started_at_ms"].as_i64().is_some(),
+        "{started}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&marker).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    run.assert_no_secret();
 }
 
 #[test]

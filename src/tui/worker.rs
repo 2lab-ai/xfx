@@ -76,7 +76,7 @@ use futures_util::FutureExt;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
-use super::approval::{ControlChannel, TuiPrompter};
+use super::approval::{ControlChannel, Deferred, TuiPrompter};
 use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
     UiEventSink,
@@ -258,6 +258,8 @@ pub(crate) struct WorkHandle {
     steering: Steering,
     /// The number the last steer was sent under.
     steers: Arc<AtomicU64>,
+    /// What `/usage`'s session scope reads, as the runtime last published it.
+    spend: SessionSpend,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -276,22 +278,66 @@ pub(crate) struct WorkHandle {
 /// **The lock guards a store and a clone and nothing else.** Neither side holds
 /// it across I/O, a channel or an `.await`, so the UI thread's wait on it is
 /// the length of copying one struct.
+///
+/// `/trace` reads the same board, for the same reason and at the same moment:
+/// the snapshot and what only a report needs beside it ([`TraceFacts`]) are
+/// published together, under one lock, so a report never pairs one moment's
+/// model with another moment's session.
 #[derive(Clone)]
-pub(crate) struct StatusBoard(Arc<Mutex<StatusSnapshot>>);
+pub(crate) struct StatusBoard(Arc<Mutex<Board>>);
+
+/// What one publication holds.
+struct Board {
+    status: StatusSnapshot,
+    trace: TraceFacts,
+}
+
+/// What `/trace` reads of the runtime thread beside `/status`'s snapshot.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TraceFacts {
+    /// The profile the session store is in and the conversation's session,
+    /// once a prompt has opened one: where the report reads the session's log
+    /// back from (`super::trace`), on a thread of its own and never this one.
+    pub(crate) session: Option<(std::path::PathBuf, SessionId)>,
+    /// The settings files as the configuration in force resolved them -- the
+    /// runtime's, which a `/provider` re-reads, not the one the UI launched
+    /// with.
+    pub(crate) settings: crate::trace::Settings,
+}
 
 impl StatusBoard {
     fn new(snapshot: StatusSnapshot) -> Self {
-        Self(Arc::new(Mutex::new(snapshot)))
+        Self(Arc::new(Mutex::new(Board {
+            status: snapshot,
+            trace: TraceFacts::default(),
+        })))
     }
 
-    /// Replaces what `/status` will read next.
+    /// Replaces what `/status` will read next, and nothing else: a case's
+    /// stand-in for the runtime ([`WorkHandle::publish_status`]).
+    #[cfg(test)]
     fn publish(&self, snapshot: StatusSnapshot) {
-        *self.lock() = snapshot;
+        self.lock().status = snapshot;
+    }
+
+    /// Replaces what `/status` and `/trace` will read next, together.
+    fn publish_with(&self, snapshot: StatusSnapshot, trace: TraceFacts) {
+        *self.lock() = Board {
+            status: snapshot,
+            trace,
+        };
     }
 
     /// The snapshot the runtime last published.
     pub(crate) fn read(&self) -> StatusSnapshot {
-        self.lock().clone()
+        self.lock().status.clone()
+    }
+
+    /// The snapshot and the trace facts the runtime last published, as one
+    /// publication left them.
+    fn read_with_trace(&self) -> (StatusSnapshot, TraceFacts) {
+        let board = self.lock();
+        (board.status.clone(), board.trace.clone())
     }
 
     /// A board no runtime publishes to, seeded the way `spawn` seeds one:
@@ -312,7 +358,7 @@ impl StatusBoard {
 
     /// Never poisoned in practice -- nothing that holds it can panic -- and a
     /// snapshot is whole either way: it is replaced by one assignment.
-    fn lock(&self) -> MutexGuard<'_, StatusSnapshot> {
+    fn lock(&self) -> MutexGuard<'_, Board> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -464,6 +510,12 @@ impl WorkHandle {
         self.status.read()
     }
 
+    /// What `/trace` reads of the runtime: the same snapshot, and the facts
+    /// published beside it ([`TraceFacts`]). Never waits for the runtime.
+    pub(crate) fn trace_facts(&self) -> (StatusSnapshot, TraceFacts) {
+        self.status.read_with_trace()
+    }
+
     /// Puts a change to the session's authority in force at once, and hands
     /// the runtime the record of it. Never blocks, never full.
     ///
@@ -503,6 +555,18 @@ impl WorkHandle {
     /// every grant that publication counted is out of force.
     pub(crate) fn grants_reset_since_published(&self) -> bool {
         self.grants.read().0 < self.live.resets()
+    }
+
+    /// The live conversation's recorded spend, for `/usage`'s session scope,
+    /// from the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn spent(&self) -> Spent {
+        self.spend.read()
+    }
+
+    /// Stands in for the runtime's publication of the conversation's spend.
+    #[cfg(test)]
+    pub(crate) fn publish_spent(&self, spent: Spent) {
+        self.spend.publish(spent);
     }
 
     /// A handle onto channels with no runtime behind them, and both receiving
@@ -556,6 +620,7 @@ impl WorkHandle {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
+                spend: SessionSpend::default(),
             },
             work_rx,
             control_rx,
@@ -620,6 +685,40 @@ impl LastReply {
     }
 
     fn get(&self) -> Option<Arc<str>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// What `/usage`'s session scope reads, as the runtime last published it:
+/// the live conversation's recorded spend and when its session began.
+///
+/// Upstream reads its session scope synchronously, from the session it holds
+/// (`loadUsageSnapshot(.session)`, `app_commands.zig:1207-1212`). Here the
+/// conversation is the runtime thread's, which may be a minute into a turn or
+/// parked at an approval; so the runtime **publishes** it beside `/status`'s
+/// snapshot ([`Runtime::publish`]) and the UI reads the newest one -- as of the
+/// last turn's end, mid-turn, as `/status`'s counts are.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionSpend(Arc<Mutex<Spent>>);
+
+/// One publication of [`SessionSpend`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Spent {
+    pub(crate) usage: crate::session::RecordedUsage,
+    /// When the session began, for the wall clock ([`Runtime`]'s
+    /// `began_ms`); `None` only before the runtime has published at all.
+    pub(crate) started_at_ms: Option<i64>,
+}
+
+impl SessionSpend {
+    fn publish(&self, spent: Spent) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = spent;
+    }
+
+    pub(crate) fn read(&self) -> Spent {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -819,6 +918,8 @@ pub(crate) fn spawn(
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
+    let spend = SessionSpend::default();
+    let publishes_spend = spend.clone();
     let session_cancel = cancel.clone();
     let stop = cancel.mirror();
     let steering = Steering::new();
@@ -845,6 +946,7 @@ pub(crate) fn spawn(
             state.grants = publishes_grants;
             state.live = loops_live;
             state.steering = loops_steering;
+            state.spend = publishes_spend;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -882,6 +984,7 @@ pub(crate) fn spawn(
                 stop,
                 steering,
                 steers: Arc::new(AtomicU64::new(0)),
+                spend,
             },
             resumable: None,
         },
@@ -1035,6 +1138,19 @@ struct Runtime {
     /// machine, closed when it ends. The band holds the same one
     /// ([`WorkHandle::steer`]).
     steering: Steering,
+    /// Where `/usage`'s session scope reads the conversation's spend from,
+    /// written by [`Runtime::publish`] beside the other two.
+    spend: SessionSpend,
+    /// When the session `/usage` calls the session began, for its wall clock:
+    /// this runtime's start, the moment `/new` or a provider switch dropped
+    /// the conversation, or the resumed session's own creation.
+    ///
+    /// Upstream's session exists from launch and its clock with it (`reset`,
+    /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
+    /// was created (`:1810-1816`). xfx opens the session log at the first
+    /// prompt, so the log's own creation is the first prompt's time, and the
+    /// clock is kept here instead.
+    began_ms: i64,
 }
 
 impl Runtime {
@@ -1084,6 +1200,8 @@ impl Runtime {
             grants: Grants::default(),
             live: LiveAuthority::new(config_mode),
             steering: Steering::new(),
+            spend: SessionSpend::default(),
+            began_ms: crate::session::event::system_now_ms(),
         }
     }
 
@@ -1102,16 +1220,31 @@ impl Runtime {
     /// that tells the UI so, so a `/status` typed the moment a turn is seen to
     /// end already reads that turn in its count.
     fn publish(&self) {
-        self.board.publish(status_snapshot(
-            &self.config,
-            self.model(),
-            self.conversation.as_ref(),
-        ));
+        self.board.publish_with(
+            status_snapshot(&self.config, self.model(), self.conversation.as_ref()),
+            TraceFacts {
+                session: self.conversation.as_ref().map(|conversation| {
+                    (
+                        self.store.profile_dir().to_path_buf(),
+                        conversation.recorder.id().clone(),
+                    )
+                }),
+                settings: crate::trace::Settings::of(&self.config),
+            },
+        );
         // The reset count first: a reset landing between the two reads makes
         // this publication older than it is, never newer, and an older one is
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.grant_lines());
+        self.spend.publish(Spent {
+            usage: self
+                .conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.state().usage.clone())
+                .unwrap_or_default(),
+            started_at_ms: Some(self.began_ms),
+        });
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1255,6 +1388,19 @@ impl Runtime {
         self.conversation
             .as_mut()
             .ok_or_else(|| "the conversation could not be opened".to_string())
+    }
+
+    /// `/undo` against the conversation as it stands: its newest change as of
+    /// `through` taken back ([`crate::tools::mutate::undo_through`]), or
+    /// nothing when there is no conversation -- a session that has asked
+    /// nothing has changed nothing, and one `/new` or a provider switch
+    /// dropped took its changes with it.
+    fn undo(&self, through: crate::tools::undo::Mark) -> crate::tools::undo::Undone {
+        self.conversation
+            .as_ref()
+            .map_or(crate::tools::undo::Undone::Nothing, |conversation| {
+                crate::tools::mutate::undo_through(&conversation.tools, through)
+            })
     }
 
     /// `/rename`: the title written into the conversation's session, which is
@@ -1433,6 +1579,8 @@ impl Runtime {
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
                 });
         }
+        // A resumed session's clock is its own: from when it was created.
+        self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
     }
 
@@ -1505,6 +1653,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
@@ -1783,6 +1932,9 @@ async fn turn_loop(
                 // Nothing is running, so the turn after this moment is the next
                 // one: the change is made now.
                 Some(TurnControl::Model(change)) => Taken::Model(change),
+                // Nothing is running, so nothing is changing the files: the
+                // undo is done now, as upstream's always is.
+                Some(TurnControl::Undo { through }) => Taken::Undo(through),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -1830,6 +1982,10 @@ async fn turn_loop(
                 }
                 continue;
             }
+            Taken::Undo(through) => {
+                run_undo(&state, events, through, false).await;
+                continue;
+            }
             Taken::Nothing => continue,
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
@@ -1864,6 +2020,9 @@ async fn turn_loop(
             }
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
+            }
+            TurnWork::Credits => {
+                run_credits(&mut state, events, &cancel, &control, &mut queue).await
             }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
@@ -1940,6 +2099,7 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
@@ -1978,6 +2138,8 @@ enum Taken {
     Reset(usize),
     /// `/model`, between turns: applied now.
     Model(ModelChange),
+    /// `/undo`, between turns: done now, as of the position it was typed at.
+    Undo(crate::tools::undo::Mark),
     /// A message that means nothing here.
     Nothing,
     /// A change to the session's authority, or the channel that carries them
@@ -2288,6 +2450,16 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
+    // `/settings`' effort row: the effort is the session's from here on, and
+    // that is all -- the band chose it, wrote it and said so
+    // ([`ModelChange::effort_only`]).
+    if change.effort_only {
+        if let Some(effort) = change.effort {
+            state.effort = effort;
+            state.publish();
+        }
+        return Ended::Turn;
+    }
     let mut ended = Ended::Turn;
     if !change.announced {
         state.selector.retry_after_failure();
@@ -2373,11 +2545,24 @@ async fn apply_deferred(
     queue: &mut Queue<'_>,
 ) -> Ended {
     loop {
-        let changes = control.take_deferred();
-        if changes.is_empty() {
+        let deferred = control.take_deferred();
+        if deferred.is_empty() {
             return ended;
         }
-        for change in changes {
+        for item in deferred {
+            let change = match item {
+                // Done whatever ended: an undo needs no socket, and the file
+                // is what the person asked about -- a `/quit` after it does
+                // not take it back.
+                Deferred::Undo {
+                    through,
+                    after_reset,
+                } => {
+                    run_undo(state, events, through, after_reset).await;
+                    continue;
+                }
+                Deferred::Model(change) => change,
+            };
             if ended == Ended::Session && !change.announced {
                 continue;
             }
@@ -2392,6 +2577,43 @@ async fn apply_deferred(
             };
         }
     }
+}
+
+/// `/undo`, and what became of it (`commandUndoLast`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_commands.zig:1242-1290`): the
+/// conversation's newest change as of `through` -- the position the keystroke
+/// saw -- taken back ([`Runtime::undo`]) and upstream's sentence for it,
+/// neutral whatever it says, as upstream's is.
+///
+/// `after_reset` is an undo typed after a reset this runtime has not acted on
+/// yet ([`Deferred::Undo`]): it is answered for the conversation that reset
+/// starts, which has nothing to take back, and the one about to be dropped is
+/// not touched.
+///
+/// Nothing is written to the session log and nothing is said to the model:
+/// upstream's tracker is not in its session store and its conversation is not
+/// told (`change_tracker.zig`; `commandUndoLast` writes a notice and nothing
+/// else). Through `send_terminal`, like every answer about something already
+/// done: a file has changed by the time this is sent.
+async fn run_undo(
+    state: &Runtime,
+    events: &Sender<UiEvent>,
+    through: crate::tools::undo::Mark,
+    after_reset: bool,
+) {
+    let undone = if after_reset {
+        crate::tools::undo::Undone::Nothing
+    } else {
+        state.undo(through)
+    };
+    bridge::send_terminal(
+        events,
+        UiEvent::Undone(super::notice::Notice::neutral(
+            crate::tools::undo::TOPIC,
+            undone.sentence(),
+        )),
+    )
+    .await;
 }
 
 /// `/rename`, and whether it was written down (`handleRenameCommand`,
@@ -2451,6 +2673,34 @@ async fn run_catalog(
     // is waiting for any more, and the conclusion below still closes the item
     // either way.
     let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+    ended
+}
+
+/// `/credits`: asks the configured provider what its account has left, and
+/// answers with the notice ([`UiEvent::Credits`]).
+///
+/// **Here, never on the thread that holds the terminal**: the Gateway's
+/// answer is a socket, and upstream's blocking wait for it on its UI thread
+/// (`commandShowCredits`, `app_commands.zig:2052-2082`) is the one part of
+/// its behaviour this does not copy. Raced against the control channel like a
+/// catalog load, so a Ctrl-C stops a question nobody wants answered any more;
+/// a cancelled one says nothing.
+async fn run_credits(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let (answer, ended) =
+        raced_against_control(crate::credits::fetch(&state.config), control, |through| {
+            turn.cancel();
+            queue.abandon(through);
+        })
+        .await;
+    let _ = bridge::send_ui(events, &turn.token, UiEvent::Credits(answer)).await;
     bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
     ended
 }
@@ -2524,6 +2774,14 @@ async fn raced_against_control<F: Future>(
                 // aside until it is over ([`ControlChannel::defer`]). Nothing
                 // here stops.
                 Some(TurnControl::Model(change)) => control.defer(change),
+                // `/undo` while this work runs: put aside the same way
+                // ([`TurnControl::Undo`] says why not at once), and marked when
+                // a reset has already been read here -- that undo was typed in
+                // the conversation the reset starts, which has changed nothing
+                // yet, rather than in the one it drops once this work is over.
+                Some(TurnControl::Undo { through }) => {
+                    control.defer_undo(through, matches!(ended, Ended::Reset(_)));
+                }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -2800,6 +3058,7 @@ mod tests {
         ProposedAction, TargetScope,
     };
     use crate::provider::Wire;
+    use crate::tools::undo::Mark;
 
     /// A configuration from a home and a workspace that exist and hold no
     /// settings.
@@ -2914,6 +3173,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -2976,6 +3236,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -3017,6 +3278,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -3376,6 +3638,7 @@ mod tests {
             stop: CancelToken::new(),
             steering: Steering::new(),
             steers: Arc::new(AtomicU64::new(0)),
+            spend: SessionSpend::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -4420,6 +4683,72 @@ mod tests {
     }
 
     #[test]
+    fn the_session_scope_reads_the_conversations_spend_and_a_clock_a_reset_restarts() {
+        let (_home, _workspace, mut state) = recording();
+        let spend = SessionSpend::default();
+        state.spend = spend.clone();
+        // From the runtime's start, as upstream's session is from launch.
+        state.began_ms = 1_000;
+        let recorder = &mut state
+            .conversation
+            .as_mut()
+            .expect("the fixture opened a conversation")
+            .recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: Some(0.01),
+                generation_id: None,
+            }],
+            unaccounted: false,
+            lines_added: 4,
+            lines_removed: 1,
+        });
+        state.publish();
+        let spent = spend.read();
+        assert_eq!(spent.started_at_ms, Some(1_000));
+        assert_eq!(spent.usage.requests.len(), 1);
+        assert_eq!((spent.usage.lines_added, spent.usage.lines_removed), (4, 1));
+
+        // `/new`: no spend, and a clock started again.
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        on_a_runtime(async {
+            drop_conversation(&mut state, &events, 0).await;
+        });
+        let spent = spend.read();
+        assert!(spent.usage.requests.is_empty());
+        assert!(
+            spent.started_at_ms.is_some_and(|at| at > 1_000),
+            "{spent:?}"
+        );
+    }
+
+    #[test]
+    fn credits_on_llmux_asks_nobody_and_says_upstreams_sentence() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.provider = crate::provider::ProviderId::Llmux;
+        let answer = on_a_runtime(crate::credits::fetch(&config));
+        assert_eq!(
+            answer,
+            crate::credits::Answer::Failed(crate::credits::UNAVAILABLE.to_string())
+        );
+    }
+
+    #[test]
     fn the_handle_reads_the_reply_the_runtime_published() {
         let (handle, _work, _control) = WorkHandle::detached();
         assert_eq!(handle.last_reply(), None);
@@ -4866,6 +5195,7 @@ mod tests {
                 stop: CancelToken::new(),
                 steering: Steering::new(),
                 steers: Arc::new(AtomicU64::new(0)),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -5164,6 +5494,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn,
+                effort_only: false,
             },
         )
     }
@@ -5250,6 +5581,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             },
         );
         assert_eq!(
@@ -5284,6 +5616,38 @@ mod tests {
         assert_eq!(effort, &low, "a model change dropped the session's effort");
         assert_eq!(settings(home.path())["effort"], "low");
         assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
+    }
+
+    #[test]
+    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
+        // band wrote `effort` and said so; the runtime only takes it up. The
+        // model stays, and the profile is not touched -- in particular no
+        // `models` entry is written for a model some other layer chose.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"theme":"dark"}"#,
+        )
+        .expect("seed");
+        let model = state.model().to_string();
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "something/else".to_string(),
+                effort: Some(high.clone()),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            },
+        );
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(state.effort, high);
+        assert_eq!(state.model(), model, "the model moved");
+        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
     }
 
     #[test]
@@ -5369,6 +5733,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         control_tx
             .send(TurnControl::Model(asked.clone()))
@@ -5383,7 +5748,7 @@ mod tests {
         ));
         assert!(stops.is_empty(), "a model change stopped the work");
         assert_eq!(ended, Ended::Turn);
-        assert_eq!(control.take_deferred(), vec![asked]);
+        assert_eq!(control.take_deferred(), vec![Deferred::Model(asked)]);
         assert!(control.take_deferred().is_empty(), "taken twice");
     }
 
@@ -5412,6 +5777,7 @@ mod tests {
             picker: true,
             announced: true,
             next_turn: true,
+            effort_only: false,
         });
         control.defer(ModelChange {
             name: "unresolved".to_string(),
@@ -5419,6 +5785,7 @@ mod tests {
             picker: false,
             announced: false,
             next_turn: true,
+            effort_only: false,
         });
         let ended = on_a_runtime(apply_deferred(
             &mut state,
@@ -5438,6 +5805,279 @@ mod tests {
         assert!(
             events_rx.try_recv().is_err(),
             "the unresolved one was applied"
+        );
+    }
+
+    /// Runs one tool call through the conversation's own tools, as a turn's
+    /// step would.
+    fn ran(state: &Runtime, name: &str, input: serde_json::Value) -> crate::tools::ToolResult {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        crate::tools::Registry::builtin()
+            .execute(
+                &ToolCall {
+                    id: format!("call-{name}"),
+                    name: name.to_string(),
+                    input,
+                },
+                &conversation.tools,
+            )
+            .expect("an advertised tool")
+    }
+
+    /// `name` as the conversation's tools locate it.
+    fn in_workspace(state: &Runtime, name: &str) -> std::path::PathBuf {
+        state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .tools
+            .scope()
+            .primary()
+            .join(name)
+    }
+
+    /// The body of the next event, which has to be `/undo`'s answer, neutral.
+    fn undo_said(events: &mut Receiver<UiEvent>) -> String {
+        match events.try_recv() {
+            Ok(UiEvent::Undone(notice)) => {
+                assert_eq!(notice.topic, "undo");
+                assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+                notice.body
+            }
+            other => panic!("not an undo's answer: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_undo_takes_back_the_conversations_newest_change_and_says_so() {
+        let (_home, _workspace, state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let path = in_workspace(&state, "a.txt");
+        let made = ran(
+            &state,
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "one\n"}),
+        );
+        assert!(made.ok, "{}", made.output);
+
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", path.display())
+        );
+        assert!(!path.exists(), "the created file is still there");
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+    }
+
+    #[test]
+    fn a_session_that_has_asked_nothing_has_nothing_to_undo() {
+        let (_home, _workspace, state) = a_runtime_that_can_open_one();
+        assert!(state.conversation.is_none());
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+    }
+
+    #[test]
+    fn a_reset_or_a_resume_leaves_the_changes_before_it_behind() {
+        // Upstream clears its tracker on the transition `/new`, `/clear`,
+        // `/reset` and `/resume` share (`app_session_runtime.zig:1922`, `:1999`),
+        // and its own resume test is answered `Nothing to undo.` with the files
+        // as they were (`tests/e2e/tui-resume.test.ts:6029-6037`).
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let path = in_workspace(&state, "a.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"})
+            )
+            .ok
+        );
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .id()
+            .to_string();
+
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        assert!(matches!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Fresh { through: 0 })
+        ));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+
+        state
+            .resume_by_id(&id, &CancelToken::new())
+            .expect("the session resumes");
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("still there"),
+            "made\n"
+        );
+    }
+
+    #[test]
+    fn an_undo_while_work_runs_waits_for_it_and_one_after_a_reset_is_the_fresh_ones() {
+        // Put aside, never a stop. Ahead of a reset it is about the
+        // conversation that reset drops; behind one it is about the
+        // conversation the reset starts.
+        let typed = Mark::now();
+        let undo = TurnControl::Undo { through: typed };
+        for (messages, after_reset) in [
+            (vec![undo.clone()], false),
+            (vec![undo.clone(), TurnControl::Reset { through: 0 }], false),
+            (vec![TurnControl::Reset { through: 0 }, undo.clone()], true),
+        ] {
+            let (control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            let resets = messages
+                .iter()
+                .filter(|message| matches!(message, TurnControl::Reset { .. }))
+                .count();
+            for message in messages {
+                control_tx.send(message).expect("alive");
+            }
+            let mut stops = Vec::new();
+            let _ = on_a_runtime(raced_against_control(
+                async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                },
+                &control,
+                |through| stops.push(through),
+            ));
+            assert_eq!(stops.len(), resets, "an undo stopped the work");
+            // The keystroke's position, carried as it came: the work that
+            // runs on does not move it.
+            assert_eq!(
+                control.take_deferred(),
+                vec![Deferred::Undo {
+                    through: typed,
+                    after_reset
+                }]
+            );
+        }
+    }
+
+    #[test]
+    fn an_undo_put_aside_is_done_once_the_work_is_over_even_when_the_session_is() {
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let path = in_workspace(&state, "a.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"})
+            )
+            .ok
+        );
+        // One typed behind a reset: answered for the fresh conversation, and
+        // the change it would have reached is left alone.
+        control.defer_undo(Mark::now(), true);
+        // One typed before it, and a `/quit` after both: still done.
+        control.defer_undo(Mark::now(), false);
+        let ended = on_a_runtime(apply_deferred(
+            &mut state,
+            Ended::Session,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Session);
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", path.display())
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn an_undo_put_aside_takes_back_what_was_newest_when_it_was_typed() {
+        // fx undoes at the keystroke; this runtime does it once the work is
+        // over. The work committed a second change after the `/undo` was
+        // typed: that one stays, and the one that was newest at the keystroke
+        // is taken back.
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let first = in_workspace(&state, "a.txt");
+        let second = in_workspace(&state, "b.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "one\n"})
+            )
+            .ok
+        );
+        // The keystroke, as the band sends it, read while the work runs.
+        control_tx
+            .send(TurnControl::Undo {
+                through: Mark::now(),
+            })
+            .expect("alive");
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            },
+            &control,
+            |_| {},
+        ));
+        // The same work goes on to change another file.
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "b.txt", "content": "two\n"})
+            )
+            .ok
+        );
+
+        on_a_runtime(apply_deferred(
+            &mut state, ended, &events_tx, &cancel, &control, &mut queue,
+        ));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", first.display())
+        );
+        assert!(!first.exists(), "the change typed at was not taken back");
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("the later change stays"),
+            "two\n"
+        );
+        // And it is the next `/undo`'s.
+        on_a_runtime(run_undo(&state, &events_tx, Mark::now(), false));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", second.display())
         );
     }
 
@@ -6106,6 +6746,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         }
     }
 
@@ -6119,6 +6760,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         }
     }
 

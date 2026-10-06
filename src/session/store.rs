@@ -495,6 +495,26 @@ pub struct DurableState {
     /// The title the user gave the session, the last `session_renamed` in the
     /// log. Outranks the one derived from the first prompt ([`Self::title`]).
     pub renamed: Option<String>,
+    /// What the session's `usage_recorded` frames say about its spend, for
+    /// `/usage` ([`crate::usage`]).
+    pub usage: RecordedUsage,
+}
+
+/// What a session's `usage_recorded` frames add up to, kept per request
+/// rather than summed: `/usage` windows them by time, and a sum cannot be cut
+/// at a window's edge.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RecordedUsage {
+    /// Every request the session's turns completed, in log order.
+    pub requests: Vec<crate::session::RequestUsage>,
+    /// When each frame that predates request records was written: a turn's
+    /// usage that was recorded only as totals, which no window can place
+    /// (upstream's `legacy` completeness, `usage_report.zig:90-95`).
+    pub legacy_at_ms: Vec<i64>,
+    /// When each turn that may have been billed without a record ended.
+    pub unaccounted_at_ms: Vec<i64>,
+    pub lines_added: u64,
+    pub lines_removed: u64,
 }
 
 impl DurableState {
@@ -514,6 +534,7 @@ impl DurableState {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            usage: RecordedUsage::default(),
         }
     }
 
@@ -1175,6 +1196,18 @@ pub struct SessionList {
     pub skipped_invalid: usize,
 }
 
+/// What [`SessionStore::usage_since`] found.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UsageScan {
+    /// Each readable session's recorded spend.
+    pub sessions: Vec<RecordedUsage>,
+    /// One entry per session that could not be read: when its manifest says it
+    /// was last written, or `None` when not even that could be read.
+    pub unreadable: Vec<Option<i64>>,
+    /// Whether the scan cap left sessions unread.
+    pub truncated: bool,
+}
+
 /// One session read in full.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionDetail {
@@ -1555,6 +1588,58 @@ impl SessionStore {
             truncated,
             skipped_invalid: skipped,
         })
+    }
+
+    /// What every session written since `since_ms` recorded about its spend,
+    /// for `/usage` ([`crate::usage`]).
+    ///
+    /// Each session is replayed through its published boundary and
+    /// cross-checked against its manifest, as [`Self::detail`] does, so a
+    /// window adds up only what a resume would believe. A session last written
+    /// before `since_ms` is not opened: nothing it holds is that recent. One
+    /// that cannot be read is **reported, not skipped** -- its spend is missing
+    /// from whichever windows it could be in, and the dashboard has to say so.
+    /// The store's scan cap applies, newest kept, as it does to a listing.
+    pub fn usage_since(&self, since_ms: i64) -> Result<UsageScan, SessionError> {
+        self.verify_store_dirs()?;
+        let mut scan = UsageScan::default();
+        let entries = match fs::read_dir(&self.sessions_dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(scan),
+            Err(err) => return Err(io_error(&self.sessions_dir, err)),
+        };
+        let mut names: Vec<String> = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|err| io_error(&self.sessions_dir, err))?;
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+        names.sort();
+        if names.len() > self.scan_cap {
+            names.drain(..names.len() - self.scan_cap);
+            scan.truncated = true;
+        }
+        for name in names {
+            // Not a session's name is not a session: a stray file beside them
+            // holds no spend.
+            let Ok(id) = SessionId::parse(&name) else {
+                continue;
+            };
+            let manifest = match self.read_manifest(&id) {
+                Ok(manifest) => manifest,
+                Err(_) => {
+                    scan.unreadable.push(None);
+                    continue;
+                }
+            };
+            if manifest.updated_at_ms < since_ms {
+                continue;
+            }
+            match self.replay(&id, &manifest) {
+                Ok(replay) => scan.sessions.push(replay.state.usage),
+                Err(_) => scan.unreadable.push(Some(manifest.updated_at_ms)),
+            }
+        }
+        Ok(scan)
     }
 
     /// One session, replayed and cross-checked against its manifest.
@@ -1994,12 +2079,26 @@ impl SessionRecorder {
             return;
         }
         let kind = event.kind();
+        // A turn that recorded what its requests cost is the moment `/usage`
+        // began counting, if none has been before it ([`crate::usage::start_tracking`]).
+        let counted = matches!(
+            &event,
+            SessionEvent::UsageRecorded { requests, unaccounted, .. }
+                if !requests.is_empty() || *unaccounted
+        );
         let outcome = self
             .store
             .append(&mut self.session, event)
             .and_then(|()| self.store.publish(&mut self.session));
-        if let Err(err) = outcome {
-            self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
+        match outcome {
+            Err(err) => {
+                self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
+            }
+            Ok(()) if counted => crate::usage::start_tracking(
+                self.store.profile_dir(),
+                self.session.state().updated_at_ms,
+            ),
+            Ok(()) => {}
         }
     }
 
@@ -2176,7 +2275,23 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
+            requests,
+            unaccounted,
+            lines_added,
+            lines_removed,
         } => {
+            // A frame with neither requests nor a cut-off one is one a binary
+            // before request records wrote: usage that happened and cannot be
+            // placed in any window.
+            if requests.is_empty() && !unaccounted {
+                state.usage.legacy_at_ms.push(envelope.timestamp_ms);
+            }
+            if *unaccounted {
+                state.usage.unaccounted_at_ms.push(envelope.timestamp_ms);
+            }
+            state.usage.requests.extend(requests.iter().cloned());
+            state.usage.lines_added = state.usage.lines_added.saturating_add(*lines_added);
+            state.usage.lines_removed = state.usage.lines_removed.saturating_add(*lines_removed);
             state.total_input_tokens = state
                 .total_input_tokens
                 .saturating_add(input_tokens.unwrap_or(0));
@@ -2890,10 +3005,18 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(3),
                 output_tokens: Some(4),
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
             },
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
             },
         ])
         .expect("reduces");
@@ -3461,6 +3584,10 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(6),
                 output_tokens: Some(40),
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Final {
