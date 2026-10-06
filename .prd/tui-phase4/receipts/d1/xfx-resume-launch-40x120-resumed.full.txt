@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-a4d7861 [debug] · Run /help for commands
+x𝒇x v0.1.0-214b7f8 [debug] · Run /help for commands
 * session resumed: first question alpha
 
 ┃ first question alpha

@@ -25,11 +25,12 @@ so what the first launch left on the screen is not above the second one in
 either binary's `relaunched`/`resumed` snaps; the history keeps the rows that
 had scrolled off before it.
 
-The xfx binary is `target/debug/xfx`, built at `a4d7861` -- this branch with
-`plan/tui-phase4` (`0204be9`) merged into it -- and its banner shows that
-revision. The receipt was first taken on the branch before either merge and
-again at `1482ec6` (`e50a8f0` merged); every comparison below came out the
-same each time but the streaming one, which T2 changed (see below). Sanitized: no scratch path appears in any
+The xfx binary is `target/debug/xfx`, built at `214b7f8` -- this branch with
+`plan/tui-phase4` (`f7d6118`) merged into it -- and its banner shows that
+revision. The receipt was first taken on the branch before any merge, and
+again at `1482ec6` (`e50a8f0` merged) and `a4d7861` (`0204be9` merged); every
+comparison below came out the same each time but the streaming one, which T2
+changed (see below). Sanitized: no scratch path appears in any
 capture; the host name tmux restores as the window title after xfx's exit is
 written `<host>`. `.ansi` files are tmux's re-serialization of cell attributes
 (`capture-pane -e`), not the programs' wire bytes.
@@ -37,7 +38,7 @@ written `<host>`. `.ansi` files are tmux's re-serialization of cell attributes
 ## What matches
 
 Every pair below is identical row for row, SGR included, **except row 1 where
-row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-a4d7861
+row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-214b7f8
 [debug]`). Where row 1 is the resume notice the whole `.ansi` file is
 identical.
 
@@ -73,7 +74,7 @@ identical.
   card, then `* session: resume is unavailable until the response finishes`
   with upstream's SGR, and no picker. Row 7, the activity row, differs in two
   things the clock decides -- `• Generating` against ` Generating` is the
-  blink phase at the moment of the snap, and `↓65` against `↓71` is how much
+  blink phase at the moment of the snap, and `↓73` against `↓71` is how much
   had streamed by then. (Before T2 merged, the notice landed under the
   answer's wrapped rows rather than under the card; T2 holds the unfinished
   line whole, as upstream does.)
