@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-067e401 [debug] · Run /help for commands
+x𝒇x v0.1.0-2c0d7b2 [debug] · Run /help for commands
 
 ┃ draft words
 

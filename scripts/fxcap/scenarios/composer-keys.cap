@@ -17,6 +17,16 @@ snap cp-open
 key Escape
 wait 0.7
 snap cp-esc
+# A choice with levels goes on into the effort column, the draft still lent;
+# Escape puts the column away and the draft comes back.
+key C-p
+wait 1.2
+key Down Enter
+wait 0.7
+snap cp-effort
+key Escape
+wait 0.7
+snap cp-effort-esc
 key C-u
 type foo.bar
 key M-BSpace
