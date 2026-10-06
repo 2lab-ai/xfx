@@ -54,9 +54,12 @@ use crate::permission::Grant;
 use crate::provider::Wire;
 
 use super::event::{
-    new_identifier, system_now_ms, EventEnvelope, RecordedToolCall, SessionEvent, TurnConclusion,
-    EVENT_SCHEMA_VERSION,
+    new_identifier, system_now_ms, EventEnvelope, RecordedImage, RecordedToolCall, SessionEvent,
+    TurnConclusion, EVENT_SCHEMA_VERSION,
 };
+
+/// The directory beside a session's log that holds the copies of its images.
+pub const IMAGES_DIR: &str = "images";
 
 /// The directory holding every session, under the profile home.
 pub const SESSIONS_DIR_NAME: &str = "sessions";
@@ -433,10 +436,36 @@ pub struct ReplayedHistory {
     pub notices: Vec<String>,
 }
 
+/// One image a turn's prompt carried, and its saved copy once read back.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TurnImage {
+    #[serde(flatten)]
+    pub recorded: RecordedImage,
+    /// The copy the session kept, as far as this process knows it.
+    #[serde(skip)]
+    pub snapshot: Snapshot,
+}
+
+/// Where a turn image's bytes stand.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Snapshot {
+    /// Not read: a listing reads the log and not the images beside it.
+    #[default]
+    Unread,
+    /// Read, and the digest it was recorded with: what a later request sends.
+    Loaded(Arc<[u8]>),
+    /// Could not be used, for this reason: it is not sent, and the user is
+    /// told so ([`DurableState::history_messages`]).
+    Unusable(String),
+}
+
 /// One complete exchange: what was asked, what happened, and how it ended.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HistoryTurn {
     pub user: String,
+    /// The images the prompt carried, in the order they were attached.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<TurnImage>,
     pub steps: Vec<TurnStep>,
     /// `None` for a turn whose conclusion never reached the log, which is what a
     /// crash mid-turn looks like.
@@ -649,7 +678,34 @@ impl DurableState {
 /// does not replay on `active` is dropped with a line in `notices`.
 pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String>) -> Vec<Message> {
     let mut out = Vec::new();
-    out.push(Message::user(turn.user.clone()));
+    // Every image the prompt carried goes with it again, as upstream
+    // re-sends the history's images on every request
+    // (`cap/fx-image-40x120-bodies/002-completion.json`) -- the bytes
+    // the session saved, checked against the digest it saved them
+    // with. One it could not read back is left out and said so, the
+    // way a dropped reasoning record is: the prompt still names it.
+    let mut images = Vec::new();
+    for image in &turn.images {
+        let label = crate::image::MediaType::parse(&image.recorded.media_type);
+        match (&image.snapshot, label) {
+            (Snapshot::Loaded(bytes), Some(media_type)) => images.push((media_type, bytes)),
+            (Snapshot::Unusable(reason), _) => notices.push(format!(
+                "xfx: image #{} of this session could not be read back ({reason}), \
+                 so it was not sent again",
+                image.recorded.id
+            )),
+            _ => notices.push(format!(
+                "xfx: image #{} of this session was not read back, so it was not sent \
+                 again",
+                image.recorded.id
+            )),
+        }
+    }
+    out.push(if images.is_empty() {
+        Message::user(turn.user.clone())
+    } else {
+        Message::user_with_images(turn.user.clone(), images)
+    });
     let opened = out.len();
     let mut pending: Vec<Message> = Vec::new();
     let mut awaiting: Vec<String> = Vec::new();
@@ -1769,6 +1825,11 @@ impl SessionStore {
         let mut hasher = Sha256::new();
         hasher.update(&replay.bytes);
 
+        // The images its prompts carried, read back now so every request of
+        // the continued conversation can send them again.
+        let mut state = replay.state;
+        read_snapshots(&dir, &mut state);
+
         let mut session = WritableSession {
             id,
             dir,
@@ -1779,7 +1840,7 @@ impl SessionStore {
             hasher,
             next_seq: manifest.last_event_seq + 1,
             event_ids: replay.event_ids,
-            state: replay.state,
+            state,
             manifest: Some(manifest),
             poisoned: None,
         };
@@ -2178,10 +2239,146 @@ impl SessionRecorder {
     }
 }
 
+impl SessionRecorder {
+    /// Saves a copy of each of `images` beside the log and records them on the
+    /// turn the last user message opened.
+    ///
+    /// The copies come first and the record after, so a log never names a copy
+    /// that is not there; each is `images/` + [`crate::image::snapshot_name`],
+    /// owner-only, written once and `fsync`ed, as upstream keeps its own
+    /// (`session_store.zig:102-118`, mode 0600). A copy that cannot be written
+    /// is this recorder's failure, reported after the turn like any other --
+    /// the turn still sends the images, which it holds in memory.
+    pub fn attach_images(&mut self, images: &[crate::image::Image]) {
+        if images.is_empty() || self.failure.is_some() {
+            return;
+        }
+        if let Err(err) = save_snapshots(self.session.dir(), images) {
+            self.failure = Some(format!("cannot save the attached images: {err}"));
+            return;
+        }
+        self.commit(SessionEvent::ImagesAttached {
+            images: images
+                .iter()
+                .map(|image| RecordedImage {
+                    id: image.id,
+                    path: image.path.display().to_string(),
+                    media_type: image.media_type.label().to_string(),
+                    sha256: image.sha256.clone(),
+                    bytes: image.bytes.len() as u64,
+                })
+                .collect(),
+        });
+        if self.failure.is_some() {
+            return;
+        }
+        // The bytes are the ones just saved, so the state that re-sends them
+        // holds them without reading them back.
+        if let Some(turn) = self.session.state.turns.last_mut() {
+            for (kept, image) in turn.images.iter_mut().zip(images) {
+                kept.snapshot = Snapshot::Loaded(Arc::clone(&image.bytes));
+            }
+        }
+    }
+}
+
 impl TurnJournal for SessionRecorder {
     fn record(&mut self, event: SessionEvent) {
         self.commit(event);
     }
+
+    fn attach_images(&mut self, images: &[crate::image::Image]) {
+        SessionRecorder::attach_images(self, images);
+    }
+}
+
+/// Writes each image's copy into `dir`'s [`IMAGES_DIR`], creating it
+/// owner-only. A copy already there with the same name is the same bytes by
+/// construction -- the name carries the digest -- and is checked rather than
+/// trusted.
+fn save_snapshots(dir: &Path, images: &[crate::image::Image]) -> Result<(), SessionError> {
+    let folder = dir.join(IMAGES_DIR);
+    match fs::create_dir(&folder) {
+        Ok(()) => set_private_dir_mode(&folder)?,
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(err) => return Err(io_error(&folder, err)),
+    }
+    verify_private(&folder, 0o700)?;
+    for image in images {
+        let path = folder.join(image.snapshot_name());
+        match create_private_file(&path) {
+            Ok(mut file) => {
+                file.write_all(&image.bytes)
+                    .and_then(|()| file.sync_all())
+                    .map_err(|err| io_error(&path, err))?;
+            }
+            Err(SessionError::Io { source, .. })
+                if source.kind() == io::ErrorKind::AlreadyExists =>
+            {
+                if let Err(reason) = read_snapshot(&path, &image.sha256, image.bytes.len() as u64) {
+                    return Err(SessionError::Io {
+                        path,
+                        source: io::Error::new(io::ErrorKind::AlreadyExists, reason),
+                    });
+                }
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    sync_directory(&folder)
+}
+
+/// Reads back the copy of every image `state`'s turns carried, from `dir`.
+///
+/// Each is checked before it is believed: a regular file reached without
+/// following a symlink, the size it was recorded with, and the digest. One that
+/// fails any of them is [`Snapshot::Unusable`] with the reason, and the
+/// conversation goes on without it.
+fn read_snapshots(dir: &Path, state: &mut DurableState) {
+    let folder = dir.join(IMAGES_DIR);
+    for turn in &mut state.turns {
+        for image in &mut turn.images {
+            let path = folder.join(crate::image::snapshot_name(
+                image.recorded.id,
+                &image.recorded.sha256,
+            ));
+            image.snapshot =
+                match read_snapshot(&path, &image.recorded.sha256, image.recorded.bytes) {
+                    Ok(bytes) => Snapshot::Loaded(bytes),
+                    Err(reason) => Snapshot::Unusable(reason),
+                };
+        }
+    }
+}
+
+/// One copy, checked, or why it cannot be used.
+fn read_snapshot(path: &Path, sha256: &str, size: u64) -> Result<Arc<[u8]>, String> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(path).map_err(|err| match err.kind() {
+        io::ErrorKind::NotFound => "its saved copy is missing".to_string(),
+        _ => format!("its saved copy cannot be opened: {err}"),
+    })?;
+    let metadata = file
+        .metadata()
+        .map_err(|err| format!("its saved copy cannot be read: {err}"))?;
+    if !metadata.is_file() || metadata.len() != size || size > crate::image::MAX_IMAGE_BYTES {
+        return Err("its saved copy is not the file that was saved".to_string());
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    (&mut file)
+        .take(size)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("its saved copy cannot be read: {err}"))?;
+    if crate::image::digest(&bytes) != sha256 {
+        return Err("its saved copy is not the file that was saved".to_string());
+    }
+    Ok(Arc::from(bytes))
 }
 
 // ---------------------------------------------------------------------------
@@ -2249,6 +2446,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         }
         SessionEvent::UserMessage { text } => state.turns.push(HistoryTurn {
             user: text.clone(),
+            images: Vec::new(),
             steps: Vec::new(),
             outcome: None,
             timing: TurnTiming {
@@ -2260,6 +2458,29 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                 last: envelope.seq,
             },
         }),
+        SessionEvent::ImagesAttached { images } => {
+            let turn = open_turn(state, "an image", envelope.seq)?;
+            // Right behind the message that names them, once: anything else is
+            // not the order a turn writes them in.
+            if !turn.steps.is_empty() || !turn.images.is_empty() {
+                return Err("a turn's images appear after its first step or twice".to_string());
+            }
+            for image in images {
+                if crate::image::MediaType::parse(&image.media_type).is_none() {
+                    return Err(format!("an image names the type `{}`", image.media_type));
+                }
+                if !is_digest(&image.sha256) || image.bytes > crate::image::MAX_IMAGE_BYTES {
+                    return Err(format!(
+                        "image #{} has a digest or a size xfx would not have written",
+                        image.id
+                    ));
+                }
+                turn.images.push(TurnImage {
+                    recorded: image.clone(),
+                    snapshot: Snapshot::Unread,
+                });
+            }
+        }
         SessionEvent::AssistantMessage {
             text,
             tool_calls,
@@ -3182,6 +3403,9 @@ mod tests {
                             ..
                         } => format!("result {call_id} {output} error={error}"),
                         ContentPart::RawBlocks(_) => "raw".to_string(),
+                        ContentPart::Image { media_type, .. } => {
+                            format!("image {}", media_type.label())
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(" | ");
@@ -3743,6 +3967,237 @@ mod tests {
         match store.resume_without_waiting(&Selector::Id(id.clone()), &workspace) {
             Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
             other => panic!("a held session was not refused as busy: {other:?}"),
+        }
+    }
+
+    /// A recorder on a fresh session in a private profile under `root`, and
+    /// the workspace it was opened in.
+    fn recorder_in(root: &Path) -> (SessionStore, SessionRecorder, SessionId, PathBuf) {
+        let store = SessionStore::open(&root.join("profile")).expect("a store");
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let id = SessionId::generate();
+        let session = store
+            .create(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                },
+            )
+            .expect("a session");
+        let recorder = SessionRecorder::new(store.clone(), session);
+        (store, recorder, id, workspace)
+    }
+
+    fn shot(id: u32) -> crate::image::Image {
+        crate::image::Image::new(
+            id,
+            PathBuf::from("/w/shot.png"),
+            crate::image::MediaType::Png,
+            Arc::from(crate::image::fixture::SHOT_PNG),
+        )
+    }
+
+    fn images_of(message: &Message) -> usize {
+        message
+            .content
+            .iter()
+            .filter(|part| matches!(part, crate::gateway::protocol::ContentPart::Image { .. }))
+            .count()
+    }
+
+    #[test]
+    fn a_turns_images_are_saved_beside_the_log_and_sent_again_after_a_resume() {
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #3][Image #4] what is in this image?".to_string(),
+        });
+        recorder.attach_images(&[shot(3), shot(4)]);
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
+
+        // The live state sends them without reading them back.
+        let live = recorder.state().history_messages(Wire::VercelGateway);
+        assert_eq!(images_of(&live.messages[0]), 2);
+        assert!(live.notices.is_empty(), "{:?}", live.notices);
+
+        // Each copy is owner-only, in an owner-only directory, under the name
+        // the digest gives it, and byte for byte what was attached.
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        let name = shot(3).snapshot_name();
+        let copy = folder.join(&name);
+        assert_eq!(
+            std::fs::read(&copy).expect("a copy"),
+            crate::image::fixture::SHOT_PNG
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode =
+                |path: &Path| std::fs::metadata(path).expect("mode").permissions().mode() & 0o777;
+            assert_eq!(mode(&folder), 0o700);
+            assert_eq!(mode(&copy), 0o600);
+        }
+        // The log names them by reference: no bytes in it.
+        let log = std::fs::read_to_string(store.session_dir(&id).join(EVENTS_FILE)).expect("log");
+        assert!(log.contains("\"kind\":\"images_attached\""), "{log}");
+        assert!(
+            !log.contains(crate::image::fixture::SHOT_PNG_BASE64),
+            "{log}"
+        );
+        drop(recorder);
+
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let state = resumed.session.state();
+        assert_eq!(state.turns[0].images.len(), 2);
+        assert_eq!(state.turns[0].images[0].recorded.id, 3);
+        let replay = state.history_messages(Wire::AnthropicMessages);
+        assert_eq!(images_of(&replay.messages[0]), 2, "{:?}", replay.messages);
+        assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+    }
+
+    #[test]
+    fn a_copy_changed_or_gone_since_it_was_saved_is_not_sent_and_the_user_is_told() {
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1][Image #2] compare".to_string(),
+        });
+        recorder.attach_images(&[shot(1), shot(2)]);
+        assert_eq!(recorder.failure(), None);
+        drop(recorder);
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        // One replaced with other bytes of the same length, one removed.
+        let mut tampered = crate::image::fixture::SHOT_PNG.to_vec();
+        tampered[40] ^= 0xff;
+        std::fs::write(folder.join(shot(1).snapshot_name()), &tampered).expect("tamper");
+        std::fs::remove_file(folder.join(shot(2).snapshot_name())).expect("remove");
+
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("a session whose images are gone still resumes");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::VercelGateway);
+        assert_eq!(images_of(&replay.messages[0]), 0);
+        assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
+        assert!(
+            replay.notices[0].contains("image #1")
+                && replay.notices[0].contains("not the file that was saved"),
+            "{:?}",
+            replay.notices
+        );
+        assert!(
+            replay.notices[1].contains("image #2") && replay.notices[1].contains("missing"),
+            "{:?}",
+            replay.notices
+        );
+    }
+
+    #[test]
+    fn a_saved_copy_that_is_a_symlink_is_not_followed() {
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1]".to_string(),
+        });
+        recorder.attach_images(&[shot(1)]);
+        drop(recorder);
+        let copy = store
+            .session_dir(&id)
+            .join(IMAGES_DIR)
+            .join(shot(1).snapshot_name());
+        let elsewhere = root.path().join("elsewhere.png");
+        std::fs::write(&elsewhere, crate::image::fixture::SHOT_PNG).expect("a decoy");
+        std::fs::remove_file(&copy).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &copy).expect("a symlink");
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::VercelGateway);
+        assert_eq!(images_of(&replay.messages[0]), 0);
+        assert_eq!(replay.notices.len(), 1, "{:?}", replay.notices);
+    }
+
+    #[test]
+    fn images_belong_right_behind_the_message_that_names_them() {
+        let record = |id: u32| RecordedImage {
+            id,
+            path: "/w/shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let opened = |extra: Vec<SessionEvent>| {
+            let mut events = vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "[Image #1]".to_string(),
+                },
+            ];
+            events.extend(extra);
+            reduce(events)
+        };
+        let state = opened(vec![SessionEvent::ImagesAttached {
+            images: vec![record(1)],
+        }])
+        .expect("reduced");
+        assert_eq!(state.turns[0].images.len(), 1);
+        assert_eq!(state.turns[0].images[0].snapshot, Snapshot::Unread);
+        // Before any message, twice, or after a step: not the order a turn
+        // writes them in.
+        assert!(reduce(vec![
+            started(),
+            SessionEvent::ImagesAttached {
+                images: vec![record(1)]
+            }
+        ])
+        .is_err());
+        assert!(opened(vec![
+            SessionEvent::ImagesAttached {
+                images: vec![record(1)]
+            },
+            SessionEvent::ImagesAttached {
+                images: vec![record(2)]
+            },
+        ])
+        .is_err());
+        assert!(opened(vec![
+            SessionEvent::AssistantMessage {
+                text: "hi".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::ImagesAttached {
+                images: vec![record(1)]
+            },
+        ])
+        .is_err());
+        // A type, a digest or a size xfx would not have written.
+        let mut bmp = record(1);
+        bmp.media_type = "image/bmp".to_string();
+        let mut short = record(1);
+        short.sha256 = "abc".to_string();
+        let mut huge = record(1);
+        huge.bytes = crate::image::MAX_IMAGE_BYTES + 1;
+        for bad in [bmp, short, huge] {
+            assert!(opened(vec![SessionEvent::ImagesAttached { images: vec![bad] }]).is_err());
         }
     }
 

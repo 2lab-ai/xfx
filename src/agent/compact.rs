@@ -2012,6 +2012,7 @@ mod tests {
     fn said(user: &str, reply: &str, seq: u64) -> HistoryTurn {
         HistoryTurn {
             user: user.to_string(),
+            images: Vec::new(),
             steps: vec![TurnStep::Assistant {
                 text: reply.to_string(),
                 tool_calls: Vec::new(),
@@ -2033,6 +2034,7 @@ mod tests {
     fn read_turn(seq: u64) -> HistoryTurn {
         HistoryTurn {
             user: "question one".to_string(),
+            images: Vec::new(),
             steps: vec![
                 TurnStep::Assistant {
                     text: String::new(),

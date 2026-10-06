@@ -3016,6 +3016,7 @@ fn answer_step(text: &str) -> Completion {
 
 fn turn(prompt: &str, tools: ToolContext) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),

@@ -1,0 +1,5 @@
+[
+ {"delayMs":50,"chunks":["It is ","a small red square."]},
+ {"delayMs":50,"chunks":["Still ","red."]},
+ {"delayMs":50,"chunks":["Red, ","again."]}
+]

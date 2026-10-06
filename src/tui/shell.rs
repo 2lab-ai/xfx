@@ -79,6 +79,7 @@ use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface}
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
 use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
+use super::clipboard_image::ClipboardReads;
 use super::compaction::{self, Compaction};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
@@ -1165,6 +1166,17 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// The clipboard reads `/paste` and Ctrl-V started, and what each found
+    /// ([`super::clipboard_image`]).
+    clipboard_reads: ClipboardReads,
+    /// The number the next attached image takes. Spent only when a badge
+    /// lands and never given back, so no two images in one process answer to
+    /// one `[Image #N]` (`allocateImageId`, `image_attachments.zig:1366-1370`);
+    /// a resumed session moves it past every number its prompts name.
+    images_next: u32,
+    /// The home directory `/image ~/…` is read under: the one the
+    /// configuration found its profile in.
+    home: Option<std::path::PathBuf>,
     /// The `/trace` reports still being built, written and copied on their own
     /// threads, and how each went ([`super::trace`]).
     traces: Traces,
@@ -1762,8 +1774,15 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            clipboard_reads: ClipboardReads::new(clipboard.clone()),
             traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
+            images_next: 1,
+            home: config
+                .profile_dir
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf),
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
@@ -2538,6 +2557,9 @@ impl Shell {
         self.tally = Tally::default();
         self.context_used = None;
         self.forget_session_title();
+        // Past every image number the session's prompts already name, so a
+        // new attachment's `[Image #N]` is never one of theirs.
+        self.images_next = self.images_next.max(replay.next_image);
         if wipe {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
@@ -2632,7 +2654,7 @@ impl Shell {
             // the provider said, or the estimate of what it wrote.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
-                input.consume(&turn.user);
+                input.consume(&turn.sent);
                 let output = output.unwrap_or_else(|| streamed.estimate());
                 self.run_mark(Mark::Summary(summary_line(
                     seconds,
@@ -6394,6 +6416,8 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // And so is a clipboard image.
+        self.settle_clipboard_reads();
         // So is a file index or a directory listing.
         self.settle_files();
         // And a report.
@@ -6529,6 +6553,81 @@ impl Shell {
                 notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
             });
         }
+    }
+
+    /// Puts each clipboard image that has been read into the draft at the
+    /// caret, or says why there is none, in the order the reads finished.
+    ///
+    /// Upstream's `attachClipboard` (`image_commands.zig:86-104`): an image is
+    /// a badge and **no notice** -- the composer is the answer; a clipboard
+    /// with no image is a neutral notice; a system with no way to read one
+    /// says nothing at all; anything else is an error naming what failed.
+    fn settle_clipboard_reads(&mut self) {
+        while let Some(read) = self.clipboard_reads.finished() {
+            match read {
+                Ok((media_type, bytes)) => {
+                    let id = self.images_next;
+                    let mut image = crate::image::Image::new(
+                        id,
+                        std::path::PathBuf::new(),
+                        media_type,
+                        std::sync::Arc::from(bytes),
+                    );
+                    // Named by the copy the session keeps of it, which is what
+                    // upstream links a clipboard badge to: the source was a
+                    // temporary file and is gone.
+                    image.path = std::path::PathBuf::from(image.snapshot_name());
+                    if !self.attach(image) {
+                        self.announce(notice::Notice::neutral(
+                            crate::image::TOPIC,
+                            crate::image::INPUT_FULL,
+                        ));
+                    }
+                }
+                Err(crate::clipboard::ImageReadError::NoImage) => {
+                    self.announce(notice::Notice::neutral(
+                        crate::image::TOPIC,
+                        crate::image::NO_CLIPBOARD_IMAGE,
+                    ));
+                }
+                Err(crate::clipboard::ImageReadError::Unsupported) => {}
+                Err(crate::clipboard::ImageReadError::Failed(name)) => {
+                    self.announce(notice::Notice::error(
+                        crate::image::TOPIC,
+                        format!("failed to paste clipboard image: {name}"),
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Puts `image`'s badge into the draft at the caret, the image behind it,
+    /// and spends its number. `false` when the composer has no room for the
+    /// badge, which spends nothing.
+    ///
+    /// The insertion is a boundary of the edit history rather than an entry
+    /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
+    /// an undo does not take an attachment back -- deleting its badge does.
+    fn attach(&mut self, image: crate::image::Image) -> bool {
+        let id = image.id;
+        let Some(next) = id.checked_add(1) else {
+            return false;
+        };
+        let kind = EntityKind::Image {
+            token: std::sync::Arc::from(crate::image::token(id)),
+            image: std::sync::Arc::new(image),
+        };
+        if self
+            .editor
+            .insert_entity(&crate::image::badge(id), kind)
+            .is_none()
+        {
+            return false;
+        }
+        self.images_next = next;
+        self.edit_history.boundary();
+        self.amended(None);
+        true
     }
 
     /// Says how each `/trace` that has finished went, in upstream's one
@@ -7444,6 +7543,16 @@ impl Shell {
             Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
+            // `/paste`'s read, at the caret -- except while a menu reads the
+            // composer as its search, where a badge would be a query: upstream
+            // skips it while its model picker borrows the composer
+            // (`app_input_runtime.zig:1561-1567`).
+            Action::PasteImage => {
+                if self.model_menu.is_none() && self.help_menu.is_none() && self.sessions.is_none()
+                {
+                    self.paste_image();
+                }
+            }
             // Super+A, Super+C, Super+X (`select_all`, `copy_selection`,
             // `cut_selection`, `app_input_runtime.zig:350-385`).
             Action::SelectAll => {
@@ -7473,6 +7582,17 @@ impl Shell {
                 }
             }
             Action::Tab | Action::Ignore => {}
+        }
+    }
+
+    /// Starts reading the clipboard's image; its badge lands when the read
+    /// answers ([`Self::settle_clipboard_reads`]).
+    fn paste_image(&mut self) {
+        if !self.clipboard_reads.start() {
+            self.announce(notice::Notice::error(
+                crate::image::TOPIC,
+                "failed to paste clipboard image: SystemResources",
+            ));
         }
     }
 
@@ -7755,6 +7875,10 @@ impl Shell {
             self.compaction = None;
         }
         let text = self.editor.text().to_string();
+        if let Some((cut, submitted)) = self.after_badges(&text) {
+            self.run_command_after_badges(&text, cut, &submitted);
+            return;
+        }
         let submitted = router::classify(&text);
         // **Before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
@@ -7889,13 +8013,30 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // The images whose badges the draft holds, in the order they stand:
+        // what goes after the prompt's text on the wire.
+        let images: Vec<crate::image::Image> = self
+            .editor
+            .entities()
+            .images()
+            .map(|image| crate::image::Image::clone(image))
+            .collect();
+        // An image counts as the token the prompt names it by, as upstream's
+        // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
+        // #3][Image #4] what is in this image?`). Read before the draft goes.
+        let counted = self.editor.entities().with_image_tokens(text);
+        let work = if images.is_empty() {
+            TurnWork::Submit(prompt)
+        } else {
+            TurnWork::Attached { prompt, images }
+        };
         // Whether it will wait behind a turn that is running -- the turn the
         // activity row is about, as upstream's steer waits on an active
         // operation. Work the session has stopped or reset is not one: a
         // prompt typed after it goes out as soon as that work unwinds, and its
         // card is written at once, as it always was.
         let waits = self.activity.working();
-        match self.work.submit(TurnWork::Submit(prompt)) {
+        match self.work.submit(work) {
             Ok(()) => {
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
@@ -7906,7 +8047,7 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
                 let mut estimate = Estimator::default();
-                estimate.consume(text);
+                estimate.consume(&counted);
                 if waits {
                     self.prompts
                         .push_back((estimate.estimate(), title, Some(text.to_string())));
@@ -8083,6 +8224,64 @@ impl Shell {
     /// answer it.
     fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
+        self.edited(None);
+        self.gestures.submitted();
+        router::route(submitted, self);
+    }
+
+    /// Where a command typed after image badges begins, and the command, when
+    /// the draft is that: blanks, one or more badges with blanks between them,
+    /// and then a line that names a command (`pendingImagesPrefixEnd`,
+    /// `input_submit_runtime.zig:718-736`, `:945-969`).
+    ///
+    /// The one way `/images` can see an attachment, and the way a second
+    /// `/image` lands beside the first: the command runs with the badges kept.
+    /// A line after them that names no command is a prompt like any other, and
+    /// the badges go with it.
+    fn after_badges(&self, text: &str) -> Option<(usize, Submitted)> {
+        let blanks = |at: usize| {
+            at + text[at..].len()
+                - text[at..]
+                    .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                    .len()
+        };
+        let mut at = blanks(0);
+        let mut badges = 0usize;
+        while let Some(span) = self
+            .editor
+            .entities()
+            .spans()
+            .iter()
+            .find(|span| span.start == at && span.image().is_some())
+        {
+            badges += 1;
+            at = blanks(span.end);
+        }
+        if badges == 0 {
+            return None;
+        }
+        match router::classify(&text[at..]) {
+            submitted @ Submitted::Command { .. } => Some((at, submitted)),
+            _ => None,
+        }
+    }
+
+    /// Runs `submitted` with the badges in front of `cut` kept in the composer,
+    /// as upstream's `submitSlashCommand` keeps its retained prefix
+    /// (`input_submit_runtime.zig:1000-1047`). The command is recorded in the
+    /// history as the command alone: the badges stay where they were.
+    fn run_command_after_badges(&mut self, text: &str, cut: usize, submitted: &Submitted) {
+        self.history
+            .record(HistoryEntry::new(text[cut..].to_string(), Vec::new()));
+        let mut kept = Entities::new();
+        for span in self.editor.entities().spans() {
+            if span.end <= cut {
+                kept.register(span.clone());
+            }
+        }
+        self.take_draft();
+        let restored = self.editor.set_text(&text[..cut], kept);
+        debug_assert!(restored, "a prefix of the draft fits where the draft did");
         self.edited(None);
         self.gestures.submitted();
         router::route(submitted, self);
@@ -8523,6 +8722,77 @@ impl CommandHandlers for Shell {
     /// could not be started is said before the level, as upstream says a
     /// failed one, and a save that fails later is said when it does
     /// ([`Self::settle_saves`]).
+    /// `/image <path>` (and `/img`): upstream's `attachPath`
+    /// (`image_commands.zig:22-57`). Nothing after it is the usage line, an
+    /// error with no topic; a path that cannot be attached says why under
+    /// `images`; one that can puts its badge at the caret and says
+    /// `attached image: <name>`. The file is read now, whole, and what was read
+    /// is what every request sends ([`crate::image`]).
+    fn image(&mut self, argument: &str) {
+        if argument.trim_matches([' ', '\t']).is_empty() {
+            self.write_notice(&notice::Notice::error("", crate::image::USAGE));
+            return;
+        }
+        match crate::image::load(&self.workspace, self.home.as_deref(), argument) {
+            Err(problem) => self.announce(notice::Notice::error(
+                crate::image::TOPIC,
+                problem.to_string(),
+            )),
+            Ok((path, media_type, bytes)) => {
+                let image = crate::image::Image::new(
+                    self.images_next,
+                    path,
+                    media_type,
+                    std::sync::Arc::from(bytes),
+                );
+                let name = image.name();
+                let body = if self.attach(image) {
+                    format!("attached image: {name}")
+                } else {
+                    crate::image::INPUT_FULL.to_string()
+                };
+                self.announce(notice::Notice::neutral(crate::image::TOPIC, body));
+            }
+        }
+    }
+
+    /// `/images [clear]`: upstream's `managePending`
+    /// (`image_commands.zig:58-84`). `clear` drops every attachment -- the
+    /// badges are the attachments, so the draft they stand in goes -- and
+    /// anything else lists them, `N pending` with one ` - <name> (<type>)` row
+    /// each. Neutral throughout, under `images`.
+    ///
+    /// The list is the badges in the draft, in the order they stand: the only
+    /// way to have one when this runs is to have typed the command after them
+    /// ([`Self::submit`]'s retained badges).
+    fn images(&mut self, argument: &str) {
+        if argument.trim_matches([' ', '\t']) == "clear" {
+            self.clear_composer();
+            self.announce(notice::Notice::neutral(
+                crate::image::TOPIC,
+                crate::image::CLEARED,
+            ));
+            return;
+        }
+        let rows: Vec<String> = self
+            .editor
+            .entities()
+            .images()
+            .map(|image| format!(" - {} ({})", image.name(), image.media_type.label()))
+            .collect();
+        let body = if rows.is_empty() {
+            crate::image::NONE_PENDING.to_string()
+        } else {
+            format!("{} pending\n{}", rows.len(), rows.join("\n"))
+        };
+        self.announce(notice::Notice::neutral(crate::image::TOPIC, body));
+    }
+
+    /// `/paste`: the clipboard's image, as Ctrl-V reads it.
+    fn paste(&mut self) {
+        self.paste_image();
+    }
+
     fn sound(&mut self, argument: &str) {
         let Some(request) = crate::sound::Request::parse(argument) else {
             self.write_notice(&notice::Notice::error("", crate::sound::USAGE));
@@ -15583,6 +15853,19 @@ mod tests {
                     "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/paste" {
+                // The clipboard is read on a thread of its own, so its answer
+                // is the read's -- this shell reads nowhere, and says so
+                // (`super::copy::NOWHERE`).
+                assert_eq!(
+                    read_settled(&mut shell),
+                    said(notice::Notice::error(
+                        "images",
+                        "failed to paste clipboard image: FileNotFound"
+                    )),
+                    "/paste did not answer"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/settings" {
                 assert!(shell.settings_menu.is_some(), "/settings opened no menu");
                 assert!(
@@ -17412,6 +17695,7 @@ mod tests {
             title: title.map(str::to_string),
             turns,
             model: None,
+            next_image: 1,
         }
     }
 
@@ -17424,6 +17708,7 @@ mod tests {
     ) -> HydratedTurn {
         HydratedTurn {
             user: user.to_string(),
+            sent: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
             started_at_ms: 0,
@@ -17732,6 +18017,7 @@ mod tests {
                     ),
                     HydratedTurn {
                         user: "and then".to_string(),
+                        sent: "and then".to_string(),
                         steps: Vec::new(),
                         ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
                         started_at_ms: 0,
@@ -25532,6 +25818,440 @@ mod tests {
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());
+    }
+
+    // -- /image, /images, /paste and Ctrl-V ---------------------------------
+
+    /// A workspace holding upstream's capture files -- `shot.png` (the 73-byte
+    /// PNG), `notes.txt`, `huge.png` one byte over the ceiling with a PNG
+    /// signature, and a directory -- and the shell reading from it.
+    struct Attaching {
+        shell: Fixture,
+        _root: tempfile::TempDir,
+        workspace: std::path::PathBuf,
+    }
+
+    fn attaching() -> Attaching {
+        let root = tempfile::tempdir().expect("a root");
+        let workspace = root.path().canonicalize().expect("canonical").join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        std::fs::write(workspace.join("shot.png"), crate::image::fixture::SHOT_PNG).expect("shot");
+        std::fs::write(workspace.join("notes.txt"), "not an image").expect("notes");
+        std::fs::create_dir(workspace.join("pics")).expect("a directory");
+        let huge = std::fs::File::create(workspace.join("huge.png")).expect("huge");
+        huge.set_len(crate::image::MAX_IMAGE_BYTES + 1)
+            .expect("sparse");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(workspace.join("huge.png"))
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, &crate::image::fixture::SHOT_PNG[..8])
+            })
+            .expect("a signature");
+        let mut shell = shell(40, 120);
+        shell.workspace = workspace.clone();
+        shell.home = Some(root.path().to_path_buf());
+        Attaching {
+            shell,
+            _root: root,
+            workspace,
+        }
+    }
+
+    impl std::ops::Deref for Attaching {
+        type Target = Fixture;
+        fn deref(&self) -> &Fixture {
+            &self.shell
+        }
+    }
+
+    impl std::ops::DerefMut for Attaching {
+        fn deref_mut(&mut self) -> &mut Fixture {
+            &mut self.shell
+        }
+    }
+
+    /// The images the draft's badges attach, by number.
+    fn attached_ids(shell: &Shell) -> Vec<u32> {
+        shell
+            .editor
+            .entities()
+            .images()
+            .map(|image| image.id)
+            .collect()
+    }
+
+    #[test]
+    fn image_with_nothing_after_it_is_the_usage_error_with_no_topic() {
+        // `fx-image-40x120-bare.ansi`: `✗ usage: /image <path>`, the error's
+        // glyph and no topic (`image_commands.zig:24-27`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/image\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("", "usage: /image <path>"))
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_attached_is_refused_in_upstreams_words() {
+        // `fx-image-40x120-{missing,unsupported,toolarge}.ansi`.
+        for (line, body) in [
+            (&b"/image nope.png\r"[..], "image file not found"),
+            (b"/image notes.txt\r", "unsupported image type"),
+            (b"/image huge.png\r", "image exceeds the 20 MiB limit"),
+            (b"/image pics\r", "failed to attach image: NotRegularFile"),
+            (
+                b"/image ~nobody/x.png\r",
+                "failed to attach image: InvalidPath",
+            ),
+        ] {
+            let mut shell = attaching();
+            shell.route_bytes(line);
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("images", body)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+            assert!(shell.editor.is_empty(), "a refused image left a badge");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "a refusal reached the runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn a_path_spelled_inside_the_workspace_may_not_read_outside_it_through_a_symlink() {
+        let mut shell = attaching();
+        let outside = shell
+            .workspace
+            .parent()
+            .expect("a parent")
+            .join("secret.png");
+        std::fs::write(&outside, crate::image::fixture::SHOT_PNG).expect("outside");
+        std::os::unix::fs::symlink(&outside, shell.workspace.join("link.png")).expect("a link");
+        shell.route_bytes(b"/image link.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "failed to attach image: PathOutsideWorkspace"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+    }
+
+    #[test]
+    fn an_attached_image_is_a_badge_at_the_caret_and_one_neutral_notice() {
+        // `fx-image-40x120-attached.ansi`: `* images: attached image:
+        // shot.png`, and the composer `┃ [Image 1]`.
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "images",
+                "attached image: shot.png"
+            ))
+        );
+        assert_eq!(shell.editor.text(), "[Image 1]");
+        assert_eq!(attached_ids(&shell), [1]);
+        // Nothing went to the runtime: an attachment waits for its prompt.
+        assert!(shell.sent.try_recv().is_err());
+        // The quoted and the escaped spellings of a path are the same file,
+        // and `~` is the home directory.
+        let home = shell.home.clone().expect("a home");
+        std::fs::write(home.join("home.png"), crate::image::fixture::SHOT_PNG).expect("home");
+        for line in [
+            &b"/img \"shot.png\"\r"[..],
+            b"/img sh\\ot.png\r",
+            b"/img ~/home.png\r",
+        ] {
+            shell.route_bytes(line);
+        }
+        assert_eq!(attached_ids(&shell), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_command_typed_after_the_badges_runs_with_the_badges_kept() {
+        // `fx-image-40x120-two-attached.ansi`: `/img shot.png` and then
+        // `/image shot.png` typed straight after its badge leave
+        // `┃ [Image 3][Image 4]` (`pendingImagesPrefixEnd`,
+        // `input_submit_runtime.zig:718-736`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/img shot.png\r");
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.editor.text(), "[Image 1][Image 2]");
+        shell.document();
+        // `fx-image-40x120-images-listed.ansi`: one notice, a row per image,
+        // and the composer keeps what it had.
+        shell.route_bytes(b" /images\r");
+        assert_eq!(
+            shell.document(),
+            [
+                "* images: 2 pending",
+                "   - shot.png (image/png)",
+                "   - shot.png (image/png)",
+                ""
+            ]
+        );
+        assert_eq!(shell.editor.text(), "[Image 1][Image 2] ");
+        assert_eq!(attached_ids(&shell), [1, 2]);
+        // A word after the badges that names no command is a prompt, and the
+        // badges go with it.
+        shell.route_bytes(b"/nosuch\r");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images }
+                if prompt == "[Image #1][Image #2] /nosuch" && images.len() == 2
+        ));
+    }
+
+    #[test]
+    fn images_clear_drops_every_attachment_and_the_draft_they_stood_in() {
+        // `fx-image-40x120-images-cleared.ansi`.
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" /images clear\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("images", "cleared pending images"))
+        );
+        assert!(shell.editor.is_empty());
+        // And a number spent is never handed out again.
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [2]);
+    }
+
+    #[test]
+    fn images_with_nothing_attached_says_so_and_any_other_word_lists() {
+        // `fx-image-40x120-images-empty.ansi`; `/images foo` lists too, only
+        // `clear` is a word (`image_commands.zig:58-84`).
+        for line in [&b"/images\r"[..], b"/images foo\r", b"/images clear\r"] {
+            let mut shell = attaching();
+            shell.route_bytes(line);
+            let body = if line == b"/images clear\r" {
+                "cleared pending images"
+            } else {
+                "no pending images"
+            };
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("images", body))
+            );
+        }
+    }
+
+    #[test]
+    fn deleting_the_badge_drops_the_image_and_nothing_brings_it_back() {
+        // `fx-image-cu-40x120-after.ansi`: Ctrl-U, then `/images` says none
+        // (`kill_ring.zig:562-584`: `placeholder backing dropped kind=image`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x15");
+        assert!(shell.editor.is_empty());
+        shell.document();
+        shell.route_bytes(b"/images\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("images", "no pending images"))
+        );
+        // A yank of the killed badge is its words, and so is an undo of the
+        // delete: neither attaches the image again.
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x15\x19");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert!(attached_ids(&shell).is_empty());
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x7f");
+        assert!(
+            shell.editor.is_empty(),
+            "a backspace at a badge takes it whole"
+        );
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "[Image 3]");
+        assert!(attached_ids(&shell).is_empty());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 3]".to_string()));
+    }
+
+    #[test]
+    fn a_prompt_sends_its_badges_as_tokens_with_the_images_after_them() {
+        // `fx-image-40x120-sent.ansi` and its `001-completion.json`: the card
+        // shows the badges, the prompt says `[Image #N]`, and the images go
+        // in the order they were attached.
+        let mut shell = attaching();
+        shell.route_bytes(b"/img shot.png\r");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" what is in this image?\r");
+        let TurnWork::Attached { prompt, images } = shell.picks_up() else {
+            panic!("the images were not handed to the runtime");
+        };
+        assert_eq!(prompt, "[Image #1][Image #2] what is in this image?");
+        assert_eq!(
+            images.iter().map(|image| image.id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        // The summary's `↑` counts the tokens, as upstream's composer holds
+        // them: 12 here, where the badges alone would be 11
+        // (`fx-image-40x120-sent`, `0s (↑12 ↓40)`).
+        assert_eq!(
+            shell.prompts.back().map(|(estimate, ..)| *estimate),
+            Some(12)
+        );
+        assert!(images
+            .iter()
+            .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
+        assert_eq!(
+            shell.document(),
+            card("[Image 1][Image 2] what is in this image?")
+        );
+        assert!(shell.editor.is_empty());
+        // The bytes are the ones attached: the file changing afterwards is
+        // not what was sent.
+        std::fs::write(shell.workspace.join("shot.png"), b"GIF89a").expect("replace");
+        assert_eq!(&*images[0].bytes, crate::image::fixture::SHOT_PNG);
+    }
+
+    #[test]
+    fn a_prompt_of_badges_alone_is_sent_with_its_images() {
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r\r");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images } if prompt == "[Image #1]" && images.len() == 1
+        ));
+    }
+
+    /// Settles the band until the clipboard read has answered: the document
+    /// rows it wrote, or none when it put a badge in the draft instead.
+    fn read_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let before = shell.editor.text().to_string();
+        loop {
+            shell.settle_band(Instant::now());
+            let document = shell.document();
+            if !document.is_empty() {
+                return document;
+            }
+            if shell.editor.text() != before {
+                return Vec::new();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the clipboard read never answered"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn ctrl_v_puts_the_clipboard_image_at_the_caret_with_no_notice() {
+        // `image_commands.zig:86-104`: a badge and a repaint, no notice -- and
+        // the image is named by the copy the session will keep of it.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        shell.route_bytes(b"look ");
+        shell.route_bytes(b"\x16");
+        let written = read_settled(&mut shell);
+        assert!(
+            written.is_empty(),
+            "a pasted image wrote a notice: {written:?}"
+        );
+        assert_eq!(shell.editor.text(), "look [Image 1]");
+        let name =
+            crate::image::snapshot_name(1, &crate::image::digest(crate::image::fixture::SHOT_PNG));
+        shell.route_bytes(b" /images\r");
+        // `look ` is not a badge, so this is a prompt, not the command.
+        assert!(matches!(shell.picks_up(), TurnWork::Attached { .. }));
+        shell.document();
+        // `/paste` is the same read.
+        shell.route_bytes(b"/paste\r");
+        assert!(read_settled(&mut shell).is_empty());
+        shell.route_bytes(b" /images\r");
+        assert_eq!(
+            shell.document(),
+            [
+                "* images: 1 pending".to_string(),
+                format!("   - {} (image/png)", name.replace("image-1-", "image-2-")),
+                String::new()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_clipboard_with_no_image_or_no_reader_says_so() {
+        // No image: neutral. No reader: upstream's error name -- which is
+        // also what the capture harness's do-nothing `osascript` produces
+        // (`fx-paste-40x120-paste.ansi`).
+        let empty = crate::clipboard::fake::FakeTool::holding(None);
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(empty.clipboard());
+        shell.route_bytes(b"/paste\r");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "no image found on clipboard"
+            ))
+        );
+        let mut shell = attaching();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::error(
+                "images",
+                "failed to paste clipboard image: FileNotFound"
+            ))
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn an_image_the_composer_has_no_room_for_is_not_attached_and_says_so() {
+        // `writeInputFullNotice` (`image_commands.zig:9-19`): neutral, under
+        // `images`, and nothing in the draft -- reached by a clipboard image
+        // arriving at a draft the badge does not fit beside.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        let room = "[Image 1]".len() - 1;
+        assert!(shell
+            .editor
+            .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
+            .is_some());
+        let before = shell.editor.text().len();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "input is full; image not attached"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.editor.text().len(), before, "the draft changed");
+        // The number was not spent: the next image that fits is #1.
+        shell.take_draft();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [1]);
+    }
+
+    #[test]
+    fn a_resumed_session_numbers_new_images_past_the_ones_it_holds() {
+        let mut shell = attaching();
+        let mut saved = replay(Some("pictures"), Vec::new());
+        saved.next_image = 5;
+        shell.hydrate(saved, false);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [5]);
     }
 
     // -----------------------------------------------------------------------
