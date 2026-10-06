@@ -53,3 +53,30 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 - Floating band (fcc8e44): `Geometry::floated`, appends fill the rows the band moved down from, resize pins the band at the bottom (Tension: fx re-renders its owned band on resize; xfx cannot know where a terminal reflowed its rows).
 - Transcript look (3efe232): rail card, markdown answer in the two-column gutter, code/table/rule blocks, dim turn summary. Test fixtures being moved to the new truth on `fix/tui-phase4-tests`.
 - Capture harness committed: `scripts/fxcap/` (isolated tmux socket, empty HOME, fake key, loopback fake gateway on an OS-picked port).
+
+### R3 — 2026-10-06
+
+- Tests moved to the transcript truth (6228b88); defects it surfaced fixed (e153ff3): summary out count at arrival, bold on every card line, retint of dim rows and markdown styles.
+- Activity row is fx's (ca044a1): `• Generating (2s) (↑4 ↓61)`, no blank above (the document's own gap), one below. 30x100 streaming pair matches row for row.
+- Harness: shims `open`/`pbcopy`/`pbpaste`/`afplay`/`osascript` and sets `FX_NO_OPEN_BROWSER=1` — a research run before this opened two sign-in tabs in the user's browser (nothing entered; reported to the user).
+- Command research done (read-only, captures in the session scratchpad): `research/general-session.md`, `account-model.md`, `appearance-security-ext.md`.
+
+## Unit plan (dispatch order; shared files force the waves)
+
+| Wave | Unit | Rows | Depends on |
+|---|---|---|---|
+| 1 | WU-B slash popup | F2 | activity geometry |
+| 1 | C0 notices + dispatch (no slash echo, exact match, `✗ command: Unknown command. Try /help.`) + OSC 2 title | F5 notices, A12 shape | — |
+| 2 | C1 `/help` catalog footer (All + category tabs, filter, Enter runs) | A1 | WU-B |
+| 2 | C2 `/clear` = `/new` = `/reset`: one reset — transcript to scrollback, new session, welcome | A2–A4 | C0 |
+| 2 | C3 `/status`, `/version`, `/stats` notices | A10, A12, A35 | C0 |
+| 2 | C4 `/copy` (pbcopy, raw markdown of the last reply) | A21 | C0 |
+| 2 | C5 `/quit` resume line, title cleared on exit | A36 | C0 |
+| 3 | D1 `/resume` picker + replay; `/rename` with a stored title | A5, A6, F8 | C1, C2 |
+| 3 | D2 `/model` picker (tabs, facts, effort) + `/model <q>` fuzzy | A15 | C1 |
+| 3 | D3 `/provider` picker rows (sign-in columns gated #88) | A9 | C1 |
+| 3 | D4 `/settings`, `/statusline`, `/sound` (bell), `/permissions` | A16, A25, A31, A32 | C1 |
+| 3 | E `@` file picker, composer contracts | F3, F4 | WU-B |
+| 3 | F tool lines/groups, approvals, full transcript, resize, interrupt, native clear | F5–F11 | C0 |
+| 4 | G backends: `/usage`, `/credits`, `/undo`, `/workspace`, `/allowlist`, `/compact`, `/fast`, `/ultrafast`, `/image(s)`, `/paste`, `/trace`, `/mcp`, `/skills` | B rows | per row |
+| — | X/G shown as nothing: `/feedback` (Vercel form), `/alias` (fx placeholder; a stub breaks `check-no-stubs`), `/shell` (fx login-shell snapshot), `/login` `/logout` (#88) | — | — |
