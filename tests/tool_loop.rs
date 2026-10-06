@@ -1359,6 +1359,7 @@ fn calls_step(calls: Vec<ToolCall>) -> ScriptedStep {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         },
     }
 }
@@ -1374,6 +1375,7 @@ fn final_step(text: &str) -> ScriptedStep {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         },
     }
 }
@@ -2291,6 +2293,10 @@ async fn a_fatal_turn_journals_every_sentence_even_when_the_stream_refuses_the_f
             "tool_result",
             "tool_feedback",
             "tool_feedback",
+            // The turn's one request completed before the revocation, and a
+            // request that completed is spend `/usage` counts: it is recorded
+            // even though the turn failed, just ahead of the conclusion.
+            "usage_recorded",
             "turn_concluded"
         ],
         "the order changed when the stream broke"
@@ -2433,6 +2439,8 @@ async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
             "tool_result",
             "tool_feedback",
             "tool_feedback",
+            // The completed request, recorded for `/usage` though the turn failed.
+            "usage_recorded",
             "turn_concluded"
         ]
     );
@@ -3321,4 +3329,244 @@ fn the_ask_help_page_documents_add_dir() {
     let run = sandbox.run(&["ask", "--help"], &[]);
     assert_eq!(run.code, Some(0));
     assert!(run.stdout.contains("--add-dir"), "{}", run.stdout);
+}
+
+// ---------------------------------------------------------------------------
+// what a turn records for `/usage`
+// ---------------------------------------------------------------------------
+
+/// A provider that answers each step with the next result of its script,
+/// failures included.
+struct FallibleProvider {
+    results: std::cell::RefCell<VecDeque<Result<Completion, ProviderError>>>,
+}
+
+impl FallibleProvider {
+    fn new(results: Vec<Result<Completion, ProviderError>>) -> Self {
+        Self {
+            results: std::cell::RefCell::new(results.into()),
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for FallibleProvider {
+    async fn stream(
+        &self,
+        _request: &CompletionRequest,
+        _deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        self.results
+            .borrow_mut()
+            .pop_front()
+            .expect("the provider was called more times than the script allows")
+    }
+}
+
+/// A Gateway bill for one request.
+fn bill(
+    model: &str,
+    cost: f64,
+    input: u64,
+    output: u64,
+    id: &str,
+) -> xfx::gateway::protocol::Billing {
+    xfx::gateway::protocol::Billing {
+        at_ms: 1_700_000_000_000,
+        model: model.to_string(),
+        generation_id: Some(id.to_string()),
+        cost,
+        input_tokens: input,
+        output_tokens: output,
+        cache_read_tokens: input / 2,
+        cache_write_tokens: 0,
+        reasoning_tokens: Some(0),
+    }
+}
+
+/// The one `usage_recorded` frame a turn journaled.
+fn usage_frame(journal: &RecordingJournal) -> &SessionEvent {
+    let mut frames = journal
+        .events
+        .iter()
+        .filter(|event| matches!(event, SessionEvent::UsageRecorded { .. }));
+    let frame = frames.next().expect("the turn recorded its usage");
+    assert!(frames.next().is_none(), "one frame per turn");
+    frame
+}
+
+#[tokio::test]
+async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_changed() {
+    let tree = Tree::new();
+    let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
+    let mut first = calls_step(vec![write_call("c1", "new.md", "one\ntwo\n")]);
+    first.completion.billing = Some(bill(
+        "fake/model-a",
+        0.0125,
+        12000,
+        800,
+        "gen_01JABCDEFGHJKMNPQRSTVWXYZ0",
+    ));
+    let mut second = final_step("done");
+    second.completion.billing = Some(bill(
+        "anthropic/claude-opus-5",
+        0.421,
+        52000,
+        3100,
+        "gen_01JABCDEFGHJKMNPQRSTVWXYZ1",
+    ));
+    second.completion.usage = Usage {
+        input_tokens: Some(52000),
+        output_tokens: Some(3100),
+    };
+    let provider = ScriptedProvider::new(vec![first, second]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("write it", tools),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    let SessionEvent::UsageRecorded {
+        input_tokens,
+        output_tokens,
+        requests,
+        unaccounted,
+        lines_added,
+        lines_removed,
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    // The meter's two totals are still the answering step's.
+    assert_eq!((*input_tokens, *output_tokens), (Some(52000), Some(3100)));
+    let billed: Vec<(&str, Option<f64>, Option<&str>)> = requests
+        .iter()
+        .map(|request| {
+            (
+                request.model.as_str(),
+                request.cost,
+                request.generation_id.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        billed,
+        [
+            (
+                "fake/model-a",
+                Some(0.0125),
+                Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ0")
+            ),
+            (
+                "anthropic/claude-opus-5",
+                Some(0.421),
+                Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1")
+            ),
+        ]
+    );
+    assert_eq!(requests[0].cache_read_tokens, 6000);
+    assert_eq!(requests[0].at_ms, 1_700_000_000_000);
+    assert!(!unaccounted);
+    assert_eq!((*lines_added, *lines_removed), (2, 0));
+    assert_eq!(
+        journal.kinds()[journal.kinds().len() - 2..],
+        ["usage_recorded", "turn_concluded"]
+    );
+}
+
+#[tokio::test]
+async fn a_request_nobody_billed_is_recorded_as_asked_with_no_cost() {
+    let tree = Tree::new();
+    let mut answer = final_step("hi");
+    answer.completion.usage = Usage {
+        input_tokens: Some(1200),
+        output_tokens: Some(40),
+    };
+    let provider = ScriptedProvider::new(vec![answer]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("hi", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+    let SessionEvent::UsageRecorded { requests, .. } = usage_frame(&journal) else {
+        unreachable!()
+    };
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.model, "vendor/model");
+    assert_eq!((request.input_tokens, request.output_tokens), (1200, 40));
+    assert_eq!(
+        (request.cost, request.generation_id.as_deref()),
+        (None, None)
+    );
+    assert!(request.at_ms > 0);
+}
+
+#[tokio::test]
+async fn a_request_lost_after_it_was_sent_is_recorded_as_spend_nobody_reported() {
+    let tree = Tree::new();
+    let provider = FallibleProvider::new(vec![
+        Ok(calls_step(vec![read_call("c1", "missing.md")]).completion),
+        Err(ProviderError::Transport {
+            subject: "the Gateway",
+            detail: "the connection reset".to_string(),
+        }),
+    ]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("read it", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect_err("a broken stream ends the turn");
+    let SessionEvent::UsageRecorded {
+        input_tokens,
+        output_tokens,
+        requests,
+        unaccounted,
+        ..
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    // A failed turn had no answering step, so it has no totals.
+    assert_eq!((*input_tokens, *output_tokens), (None, None));
+    assert_eq!(requests.len(), 1, "the step that completed is kept");
+    assert!(*unaccounted, "the lost one may have been billed");
+}
+
+#[tokio::test]
+async fn a_request_the_endpoint_refused_records_nothing_about_spend() {
+    let tree = Tree::new();
+    let provider = FallibleProvider::new(vec![Err(ProviderError::Status {
+        subject: "the Gateway",
+        status: 400,
+        body: "bad request".to_string(),
+        retryable: false,
+        retry_after: None,
+    })]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("hi", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect_err("a refusal ends the turn");
+    assert_eq!(journal.kinds(), ["user_message", "turn_concluded"]);
 }

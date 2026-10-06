@@ -233,6 +233,8 @@ pub(crate) struct WorkHandle {
     live: LiveAuthority,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// What `/usage`'s session scope reads, as the runtime last published it.
+    spend: SessionSpend,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -446,6 +448,18 @@ impl WorkHandle {
         self.grants.read().0 < self.live.resets()
     }
 
+    /// The live conversation's recorded spend, for `/usage`'s session scope,
+    /// from the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn spent(&self) -> Spent {
+        self.spend.read()
+    }
+
+    /// Stands in for the runtime's publication of the conversation's spend.
+    #[cfg(test)]
+    pub(crate) fn publish_spent(&self, spent: Spent) {
+        self.spend.publish(spent);
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -494,6 +508,7 @@ impl WorkHandle {
                 permissions,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             work_rx,
             control_rx,
@@ -558,6 +573,40 @@ impl LastReply {
     }
 
     fn get(&self) -> Option<Arc<str>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// What `/usage`'s session scope reads, as the runtime last published it:
+/// the live conversation's recorded spend and when its session began.
+///
+/// Upstream reads its session scope synchronously, from the session it holds
+/// (`loadUsageSnapshot(.session)`, `app_commands.zig:1207-1212`). Here the
+/// conversation is the runtime thread's, which may be a minute into a turn or
+/// parked at an approval; so the runtime **publishes** it beside `/status`'s
+/// snapshot ([`Runtime::publish`]) and the UI reads the newest one -- as of the
+/// last turn's end, mid-turn, as `/status`'s counts are.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionSpend(Arc<Mutex<Spent>>);
+
+/// One publication of [`SessionSpend`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Spent {
+    pub(crate) usage: crate::session::RecordedUsage,
+    /// When the session began, for the wall clock ([`Runtime`]'s
+    /// `began_ms`); `None` only before the runtime has published at all.
+    pub(crate) started_at_ms: Option<i64>,
+}
+
+impl SessionSpend {
+    fn publish(&self, spent: Spent) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = spent;
+    }
+
+    pub(crate) fn read(&self) -> Spent {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -757,6 +806,8 @@ pub(crate) fn spawn(
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
+    let spend = SessionSpend::default();
+    let publishes_spend = spend.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -779,6 +830,7 @@ pub(crate) fn spawn(
             state.reply = loops_reply;
             state.grants = publishes_grants;
             state.live = loops_live;
+            state.spend = publishes_spend;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -813,6 +865,7 @@ pub(crate) fn spawn(
                 permissions: permissions_tx,
                 live,
                 grants,
+                spend,
             },
             resumable: None,
         },
@@ -969,6 +1022,19 @@ struct Runtime {
     /// with: written into the session that reset starts, once it has dropped
     /// the one it left ([`write_renamed_after_reset`]).
     renamed_after_reset: Vec<String>,
+    /// Where `/usage`'s session scope reads the conversation's spend from,
+    /// written by [`Runtime::publish`] beside the other two.
+    spend: SessionSpend,
+    /// When the session `/usage` calls the session began, for its wall clock:
+    /// this runtime's start, the moment `/new` or a provider switch dropped
+    /// the conversation, or the resumed session's own creation.
+    ///
+    /// Upstream's session exists from launch and its clock with it (`reset`,
+    /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
+    /// was created (`:1810-1816`). xfx opens the session log at the first
+    /// prompt, so the log's own creation is the first prompt's time, and the
+    /// clock is kept here instead.
+    began_ms: i64,
 }
 
 impl Runtime {
@@ -1018,6 +1084,8 @@ impl Runtime {
             grants: Grants::default(),
             live: LiveAuthority::new(config_mode),
             renamed_after_reset: Vec::new(),
+            spend: SessionSpend::default(),
+            began_ms: crate::session::event::system_now_ms(),
         }
     }
 
@@ -1046,6 +1114,14 @@ impl Runtime {
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.grant_lines());
+        self.spend.publish(Spent {
+            usage: self
+                .conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.state().usage.clone())
+                .unwrap_or_default(),
+            started_at_ms: Some(self.began_ms),
+        });
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1379,6 +1455,8 @@ impl Runtime {
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
                 });
         }
+        // A resumed session's clock is its own: from when it was created.
+        self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
     }
 
@@ -1451,6 +1529,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
@@ -1828,6 +1907,9 @@ async fn turn_loop(
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
+            TurnWork::Credits => {
+                run_credits(&mut state, events, &cancel, &control, &mut queue).await
+            }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
             // there is no socket to stop and nothing a Ctrl-C would shorten.
@@ -1904,6 +1986,7 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
@@ -2514,6 +2597,34 @@ async fn run_catalog(
     ended
 }
 
+/// `/credits`: asks the configured provider what its account has left, and
+/// answers with the notice ([`UiEvent::Credits`]).
+///
+/// **Here, never on the thread that holds the terminal**: the Gateway's
+/// answer is a socket, and upstream's blocking wait for it on its UI thread
+/// (`commandShowCredits`, `app_commands.zig:2052-2082`) is the one part of
+/// its behaviour this does not copy. Raced against the control channel like a
+/// catalog load, so a Ctrl-C stops a question nobody wants answered any more;
+/// a cancelled one says nothing.
+async fn run_credits(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let (answer, ended) =
+        raced_against_control(crate::credits::fetch(&state.config), control, |through| {
+            turn.cancel();
+            queue.abandon(through);
+        })
+        .await;
+    let _ = bridge::send_ui(events, &turn.token, UiEvent::Credits(answer)).await;
+    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+    ended
+}
+
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -2958,6 +3069,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -3017,6 +3129,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -3055,6 +3168,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -3411,6 +3525,7 @@ mod tests {
             permissions: mpsc::unbounded_channel().0,
             live: LiveAuthority::new(PermissionMode::Auto),
             grants: Grants::default(),
+            spend: SessionSpend::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -4455,6 +4570,72 @@ mod tests {
     }
 
     #[test]
+    fn the_session_scope_reads_the_conversations_spend_and_a_clock_a_reset_restarts() {
+        let (_home, _workspace, mut state) = recording();
+        let spend = SessionSpend::default();
+        state.spend = spend.clone();
+        // From the runtime's start, as upstream's session is from launch.
+        state.began_ms = 1_000;
+        let recorder = &mut state
+            .conversation
+            .as_mut()
+            .expect("the fixture opened a conversation")
+            .recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: Some(0.01),
+                generation_id: None,
+            }],
+            unaccounted: false,
+            lines_added: 4,
+            lines_removed: 1,
+        });
+        state.publish();
+        let spent = spend.read();
+        assert_eq!(spent.started_at_ms, Some(1_000));
+        assert_eq!(spent.usage.requests.len(), 1);
+        assert_eq!((spent.usage.lines_added, spent.usage.lines_removed), (4, 1));
+
+        // `/new`: no spend, and a clock started again.
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        on_a_runtime(async {
+            drop_conversation(&mut state, &events, 0).await;
+        });
+        let spent = spend.read();
+        assert!(spent.usage.requests.is_empty());
+        assert!(
+            spent.started_at_ms.is_some_and(|at| at > 1_000),
+            "{spent:?}"
+        );
+    }
+
+    #[test]
+    fn credits_on_llmux_asks_nobody_and_says_upstreams_sentence() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.provider = crate::provider::ProviderId::Llmux;
+        let answer = on_a_runtime(crate::credits::fetch(&config));
+        assert_eq!(
+            answer,
+            crate::credits::Answer::Failed(crate::credits::UNAVAILABLE.to_string())
+        );
+    }
+
+    #[test]
     fn the_handle_reads_the_reply_the_runtime_published() {
         let (handle, _work, _control) = WorkHandle::detached();
         assert_eq!(handle.last_reply(), None);
@@ -5025,6 +5206,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -6711,6 +6893,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         }
     }
 
@@ -6724,6 +6907,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         }
     }
 

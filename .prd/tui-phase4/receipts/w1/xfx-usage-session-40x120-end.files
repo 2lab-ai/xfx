@@ -1,0 +1,14 @@
+=== ~/.xfx/sessions/1791323360693-a5a95707813b3563/events.jsonl (1881 bytes)
+{"schema_version":1,"log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","seq":1,"event_id":"825b3cd01d17e61501bd181504f5b80f","timestamp_ms":1791323360695,"event":{"kind":"session_started","id":"1791323360693-a5a95707813b3563","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","seq":2,"event_id":"0daa4d020d51dc370579a9aeb129aac1","timestamp_ms":1791323360724,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","seq":3,"event_id":"b8449c9ab5cc2862a388d9b87f6c2c87","timestamp_ms":1791323360792,"event":{"kind":"user_message","text":"explain the plan please"}}
+{"schema_version":1,"log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","seq":4,"event_id":"e9dbcccdc5b7238cfe8f1107187fe336","timestamp_ms":1791323362384,"event":{"kind":"assistant_message","text":"Here is a short answer.\n\nIt has **bold** text, `inline code`, and a list:\n\n- first item\n- second item\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\nDone.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","seq":5,"event_id":"80a24658a4f3fa3f352f7fab79d83722","timestamp_ms":1791323362424,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791323362384,"duration_ms":1542,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","seq":6,"event_id":"9b69af73dec991441b419bfeb409cd37","timestamp_ms":1791323362465,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1791323360693-a5a95707813b3563/session.json (633 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791323360693-a5a95707813b3563","log_generation":"50f6d8fc2dc38df1f6291a69fdbfaedb","created_at_ms":1791323360695,"updated_at_ms":1791323362465,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"explain the plan please","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":6,"event_log_bytes":1881,"event_log_sha256":"9f79dff7e5b619a24e450afb95ec1ed3b8aac39d30381e67527a9391fb7f7d99"}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791323362424}
+

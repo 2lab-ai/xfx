@@ -2270,6 +2270,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: crate::provider::Wire::VercelGateway,
+            billing: None,
         }
     }
 

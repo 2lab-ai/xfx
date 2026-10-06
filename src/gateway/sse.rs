@@ -27,7 +27,7 @@ use std::io;
 use serde_json::{Map, Value};
 
 use super::{CancelToken, DeltaSink};
-use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
+use crate::gateway::protocol::{Billing, Completion, FinishReason, ToolCall, Usage};
 use crate::provider::Wire;
 
 /// The largest single SSE event xfx will buffer, in bytes.
@@ -149,6 +149,18 @@ pub struct SseReader {
     finish_reason: Option<FinishReason>,
     usage: Usage,
     provider_detail: Option<String>,
+    /// What the response's `response-metadata` said it was billed at, or
+    /// [`Stamp::Unreadable`] once two of them disagreed or one could not be
+    /// read (`client.zig:3647-3670`).
+    stamp: Stamp,
+    /// The Gateway's generation id, from whichever event carried it first.
+    generation_id: Option<String>,
+    /// An event carried a generation id that was not one, or a second that
+    /// disagreed with the first (`captureGenerationMetadata`,
+    /// `client.zig:3428-3456`): the response is not counted.
+    generation_invalid: bool,
+    /// The finish event's billing, read once it has arrived.
+    billing: Option<Billing>,
     complete: bool,
     /// Bytes counted against [`MAX_COMPLETION_BYTES`]: text plus tool arguments.
     accumulated: usize,
@@ -176,6 +188,10 @@ impl SseReader {
             finish_reason: None,
             usage: Usage::default(),
             provider_detail: None,
+            stamp: Stamp::Unseen,
+            generation_id: None,
+            generation_invalid: false,
+            billing: None,
             complete: false,
             accumulated: 0,
             cancel,
@@ -252,6 +268,17 @@ impl SseReader {
                 // so there is nothing here to preserve.
                 raw_content: Vec::new(),
                 wire: Wire::VercelGateway,
+                // Counted only when every piece upstream counts it by arrived
+                // and agreed: the finish's billing and a generation id
+                // nothing contradicted (`InvocationObservation.complete`,
+                // `session_usage.zig:110-175`).
+                billing: match (self.billing, self.generation_id) {
+                    (Some(billing), Some(id)) if !self.generation_invalid => Some(Billing {
+                        generation_id: Some(id),
+                        ..billing
+                    }),
+                    _ => None,
+                },
             }),
             // The provider said why it failed, so report that rather than the
             // generic truncation.
@@ -305,8 +332,15 @@ impl SseReader {
         let Some(Value::String(event_type)) = event.get("type") else {
             return Ok(());
         };
+        // Any event may carry the generation id, and every one that does must
+        // agree with the first.
+        self.capture_generation(&event);
 
         match event_type.as_str() {
+            "response-metadata" => {
+                self.on_response_metadata(&event);
+                Ok(())
+            }
             "text-delta" => self.on_text_delta(&event, deltas),
             "tool-input-start" => {
                 self.on_tool_input_start(&event);
@@ -440,6 +474,10 @@ impl SseReader {
         };
 
         self.usage = parse_usage(event);
+        self.billing = match self.stamp {
+            Stamp::Read(at_ms) => parse_billing(event, at_ms),
+            Stamp::Unseen | Stamp::Unreadable => None,
+        };
         if finish_reason == FinishReason::ProviderError {
             if let Some(detail) = failure_detail(event) {
                 self.provider_detail = Some(detail);
@@ -449,6 +487,232 @@ impl SseReader {
         self.complete = true;
         Ok(())
     }
+}
+
+impl SseReader {
+    /// Reads the time a `response-metadata` event says the response was billed
+    /// at. A second one that disagrees, or one that cannot be read, leaves the
+    /// response with no time at all, and so with no billing.
+    fn on_response_metadata(&mut self, event: &Map<String, Value>) {
+        let Some(value) = event.get("timestamp") else {
+            return;
+        };
+        let read = match value {
+            Value::String(text) => parse_gateway_timestamp(text),
+            _ => None,
+        };
+        self.stamp = match (self.stamp, read) {
+            (Stamp::Unseen, Some(at_ms)) => Stamp::Read(at_ms),
+            (Stamp::Read(seen), Some(at_ms)) if seen == at_ms => Stamp::Read(at_ms),
+            _ => Stamp::Unreadable,
+        };
+    }
+
+    /// Notes the generation id an event carries under
+    /// `providerMetadata.gateway.generationId`, if it carries one.
+    fn capture_generation(&mut self, event: &Map<String, Value>) {
+        let Some(metadata) = event.get("providerMetadata") else {
+            return;
+        };
+        let Some(gateway) = metadata
+            .as_object()
+            .and_then(|object| object.get("gateway"))
+        else {
+            if !metadata.is_object() {
+                self.generation_invalid = true;
+            }
+            return;
+        };
+        let Some(gateway) = gateway.as_object() else {
+            self.generation_invalid = true;
+            return;
+        };
+        let Some(value) = gateway.get("generationId") else {
+            return;
+        };
+        match value.as_str().filter(|id| is_generation_id(id)) {
+            None => self.generation_invalid = true,
+            Some(id) => match &self.generation_id {
+                Some(first) if first != id => self.generation_invalid = true,
+                Some(_) => {}
+                None => self.generation_id = Some(id.to_string()),
+            },
+        }
+    }
+}
+
+/// What the response's `response-metadata` events said about when it was
+/// billed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stamp {
+    /// None has said anything yet.
+    Unseen,
+    /// All that have said anything agreed on this, in milliseconds.
+    Read(i64),
+    /// One could not be read, or two disagreed.
+    Unreadable,
+}
+
+/// The finish event's billing, or `None` when any piece upstream requires is
+/// missing or out of shape (`parseSseBilling`, `client.zig:3313-3395`): both
+/// token buckets and their totals, `providerMetadata.gateway.routing.canonicalSlug`
+/// as printable ASCII, and `cost` as a decimal string that is finite and not
+/// negative. A cache count larger than the input, or a reasoning count larger
+/// than the output, is a bill that does not add up, and is not one.
+fn parse_billing(event: &Map<String, Value>, at_ms: i64) -> Option<Billing> {
+    let usage = event.get("usage")?.as_object()?;
+    let input = usage.get("inputTokens")?.as_object()?;
+    let output = usage.get("outputTokens")?.as_object()?;
+    let gateway = event
+        .get("providerMetadata")?
+        .as_object()?
+        .get("gateway")?
+        .as_object()?;
+    let model = gateway
+        .get("routing")?
+        .as_object()?
+        .get("canonicalSlug")?
+        .as_str()?;
+    if model.is_empty()
+        || model.len() > 1024
+        || !model.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
+    {
+        return None;
+    }
+    let cost: f64 = gateway.get("cost")?.as_str()?.parse().ok()?;
+    if !cost.is_finite() || cost < 0.0 {
+        return None;
+    }
+    let input_tokens = count(input.get("total"))?;
+    let output_tokens = count(output.get("total"))?;
+    let cache_read_tokens = optional_count(input.get("cacheRead"))?.unwrap_or(0);
+    let cache_write_tokens = optional_count(input.get("cacheWrite"))?.unwrap_or(0);
+    // `null` is "not reported", which is a count of its own kind.
+    let reasoning_tokens = match output.get("reasoning") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(count(Some(value))?),
+    };
+    if cache_read_tokens > input_tokens
+        || cache_write_tokens > input_tokens
+        || reasoning_tokens.is_some_and(|reasoning| reasoning > output_tokens)
+    {
+        return None;
+    }
+    Some(Billing {
+        at_ms,
+        model: model.to_string(),
+        generation_id: None,
+        cost,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+        reasoning_tokens,
+    })
+}
+
+/// A token count that must be there and must be a whole number.
+fn count(value: Option<&Value>) -> Option<u64> {
+    value?.as_u64()
+}
+
+/// A token count that may be absent (`Some(None)`) but, when present, must be
+/// a whole number (`None`).
+fn optional_count(value: Option<&Value>) -> Option<Option<u64>> {
+    match value {
+        None => Some(None),
+        Some(value) => value.as_u64().map(Some),
+    }
+}
+
+/// Whether `id` is a Gateway generation id: `gen_` and 26 characters of
+/// Crockford's base 32 (`validGatewayGenerationId`, `types.zig:1837-1844`).
+fn is_generation_id(id: &str) -> bool {
+    id.len() == 30
+        && id.starts_with("gen_")
+        && id[4..]
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'A'..=b'H' | b'J'..=b'K' | b'M'..=b'N' | b'P'..=b'T' | b'V'..=b'Z'))
+}
+
+/// A Gateway timestamp -- `YYYY-MM-DDTHH:MM:SS[.fraction]Z`, UTC and nothing
+/// looser -- in milliseconds since the epoch (`parseGatewayTimestamp`,
+/// `types.zig:1736-1800`). A fraction is one to nine digits, of which the
+/// first three are kept.
+pub(crate) fn parse_gateway_timestamp(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let digits = |range: std::ops::Range<usize>| -> Option<i64> {
+        let part = &bytes[range];
+        part.iter().all(u8::is_ascii_digit).then(|| {
+            part.iter()
+                .fold(0i64, |sum, digit| sum * 10 + i64::from(digit - b'0'))
+        })
+    };
+    let (year, month, day) = (digits(0..4)?, digits(5..7)?, digits(8..10)?);
+    let (hour, minute, second) = (digits(11..13)?, digits(14..16)?, digits(17..19)?);
+    if year < 1970
+        || !(1..=12).contains(&month)
+        || day < 1
+        || day > days_in_month(year, month)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    let mut cursor = 19;
+    let mut fraction_ms = 0;
+    if bytes.get(cursor) == Some(&b'.') {
+        cursor += 1;
+        let start = cursor;
+        while bytes.get(cursor).is_some_and(u8::is_ascii_digit) {
+            cursor += 1;
+        }
+        let length = cursor - start;
+        if length == 0 || length > 9 {
+            return None;
+        }
+        let kept = length.min(3);
+        fraction_ms = digits(start..start + kept)? * [100, 10, 1][kept - 1];
+    }
+    if cursor + 1 != bytes.len() || bytes[cursor] != b'Z' {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    days.checked_mul(86_400)?
+        .checked_add(hour * 3600 + minute * 60 + second)?
+        .checked_mul(1000)?
+        .checked_add(fraction_ms)
+}
+
+fn days_in_month(year: i64, month: i64) -> i64 {
+    match month {
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+/// Days from 1970-01-01 to a civil date (Howard Hinnant's algorithm, which is
+/// the one upstream's `daysFromCivil` is).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// A sink for text that has nowhere left to go.
@@ -535,6 +799,174 @@ mod tests {
         match reader.push(body.as_bytes(), &mut deltas) {
             Ok(()) => (reader.finish(), deltas.0),
             Err(err) => (Err(err), deltas.0),
+        }
+    }
+
+    /// A stream the way the Gateway bills one (`billed-turns.json`'s second
+    /// turn): `response-metadata` first, then the finish with its usage and
+    /// `providerMetadata.gateway`. `finish` is spliced into the finish event.
+    fn billed(metadata: serde_json::Value, finish: serde_json::Value) -> String {
+        let mut event = json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 52000, "cacheRead": 30000 },
+                "outputTokens": { "total": 3100, "reasoning": 900 }
+            },
+            "providerMetadata": { "gateway": {
+                "routing": { "canonicalSlug": "anthropic/claude-opus-5" },
+                "cost": "0.4210",
+                "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ1"
+            } }
+        });
+        if let (Some(event), Some(changes)) = (event.as_object_mut(), finish.as_object()) {
+            for (key, value) in changes {
+                event.insert(key.clone(), value.clone());
+            }
+        }
+        format!(
+            "data: {metadata}\n\ndata: {{\"type\":\"text-delta\",\"id\":\"t\",\"delta\":\"x\"}}\n\ndata: {event}\n\n"
+        )
+    }
+
+    fn stamped() -> serde_json::Value {
+        json!({ "type": "response-metadata", "modelId": "anthropic/claude-opus-5", "timestamp": "2026-10-07T01:02:03.456Z" })
+    }
+
+    #[test]
+    fn a_billed_finish_is_read_whole() {
+        let completion = decode(&billed(stamped(), json!({}))).0.expect("finish");
+        let billing = completion.billing.expect("billed");
+        assert_eq!(billing.model, "anthropic/claude-opus-5");
+        assert_eq!(billing.cost, 0.421);
+        assert_eq!((billing.input_tokens, billing.output_tokens), (52000, 3100));
+        assert_eq!(
+            (billing.cache_read_tokens, billing.cache_write_tokens),
+            (30000, 0)
+        );
+        assert_eq!(billing.reasoning_tokens, Some(900));
+        assert_eq!(
+            billing.generation_id.as_deref(),
+            Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1")
+        );
+        assert_eq!(
+            billing.at_ms,
+            parse_gateway_timestamp("2026-10-07T01:02:03.456Z").unwrap()
+        );
+        // The meter's own totals are untouched by any of it.
+        assert_eq!(completion.usage.input_tokens, Some(52000));
+    }
+
+    #[test]
+    fn a_finish_missing_any_piece_upstream_counts_by_is_not_billed() {
+        let no_id = json!({ "providerMetadata": { "gateway": {
+            "routing": { "canonicalSlug": "a/b" }, "cost": "0.1" } } });
+        let bad_id = json!({ "providerMetadata": { "gateway": {
+            "routing": { "canonicalSlug": "a/b" }, "cost": "0.1", "generationId": "gen_lowercase" } } });
+        let no_cost = json!({ "providerMetadata": { "gateway": {
+            "routing": { "canonicalSlug": "a/b" }, "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ1" } } });
+        let numeric_cost = json!({ "providerMetadata": { "gateway": {
+            "routing": { "canonicalSlug": "a/b" }, "cost": 0.1, "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ1" } } });
+        let negative_cost = json!({ "providerMetadata": { "gateway": {
+            "routing": { "canonicalSlug": "a/b" }, "cost": "-1", "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ1" } } });
+        let spaced_slug = json!({ "providerMetadata": { "gateway": {
+            "routing": { "canonicalSlug": "a b" }, "cost": "0.1", "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ1" } } });
+        let cache_over_input = json!({ "usage": {
+            "inputTokens": { "total": 10, "cacheRead": 11 }, "outputTokens": { "total": 1 } } });
+        let reasoning_over_output = json!({ "usage": {
+            "inputTokens": { "total": 10 }, "outputTokens": { "total": 1, "reasoning": 2 } } });
+        let no_output_total = json!({ "usage": {
+            "inputTokens": { "total": 10 }, "outputTokens": {} } });
+        for finish in [
+            no_id,
+            bad_id,
+            no_cost,
+            numeric_cost,
+            negative_cost,
+            spaced_slug,
+            cache_over_input,
+            reasoning_over_output,
+            no_output_total,
+        ] {
+            let completion = decode(&billed(stamped(), finish.clone()))
+                .0
+                .expect("finish");
+            assert_eq!(completion.billing, None, "{finish}");
+        }
+    }
+
+    #[test]
+    fn a_bill_needs_one_readable_time() {
+        // No `response-metadata` at all.
+        let body = billed(json!({ "type": "text-start", "id": "t" }), json!({}));
+        assert_eq!(decode(&body).0.expect("finish").billing, None);
+        // Two that disagree.
+        let body = format!(
+            "data: {}\n\n{}",
+            json!({ "type": "response-metadata", "timestamp": "2026-10-07T00:00:00Z" }),
+            billed(stamped(), json!({}))
+        );
+        assert_eq!(decode(&body).0.expect("finish").billing, None);
+        // One that is not a UTC timestamp.
+        let body = billed(
+            json!({ "type": "response-metadata", "timestamp": "2026-10-07 01:02:03" }),
+            json!({}),
+        );
+        assert_eq!(decode(&body).0.expect("finish").billing, None);
+    }
+
+    #[test]
+    fn two_different_generation_ids_in_one_stream_are_not_billed() {
+        let body = format!(
+            "data: {}\n\n{}",
+            json!({ "type": "text-start", "id": "t",
+                "providerMetadata": { "gateway": { "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ9" } } }),
+            billed(stamped(), json!({}))
+        );
+        assert_eq!(decode(&body).0.expect("finish").billing, None);
+    }
+
+    #[test]
+    fn unreported_reasoning_is_not_nought() {
+        let finish = json!({ "usage": {
+            "inputTokens": { "total": 12000, "cacheRead": 4000 },
+            "outputTokens": { "total": 800, "reasoning": null } } });
+        let billing = decode(&billed(stamped(), finish))
+            .0
+            .expect("finish")
+            .billing
+            .expect("billed");
+        assert_eq!(billing.reasoning_tokens, None);
+    }
+
+    #[test]
+    fn gateway_timestamps_are_utc_and_strict() {
+        assert_eq!(
+            parse_gateway_timestamp("2026-04-01T12:11:07Z"),
+            Some(1_775_045_467_000)
+        );
+        assert_eq!(
+            parse_gateway_timestamp("2026-04-01T12:11:07.5Z"),
+            Some(1_775_045_467_500)
+        );
+        assert_eq!(
+            parse_gateway_timestamp("2026-04-01T12:11:07.123456789Z"),
+            Some(1_775_045_467_123)
+        );
+        assert_eq!(
+            parse_gateway_timestamp("2024-02-29T00:00:00Z"),
+            Some(1_709_164_800_000)
+        );
+        for bad in [
+            "2026-04-01T12:11:07",
+            "2026-04-01T12:11:07+00:00",
+            "2026-02-30T00:00:00Z",
+            "2026-04-01T24:00:00Z",
+            "2026-04-01T12:11:07.Z",
+            "2026-04-01T12:11:07.1234567890Z",
+            "1969-12-31T23:59:59Z",
+        ] {
+            assert_eq!(parse_gateway_timestamp(bad), None, "{bad}");
         }
     }
 

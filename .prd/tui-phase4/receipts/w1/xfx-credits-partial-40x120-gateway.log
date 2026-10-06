@@ -1,0 +1,2 @@
+[fakegw] listening 51313
+[fakegw] GET /coding-agent/v1/credits bearer=yes

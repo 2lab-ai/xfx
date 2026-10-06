@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1c516b0 [debug] · Run /help for commands
+
+┃ explain the plan please
+
+  Here is a short answer.
+
+  It has bold text, inline code, and a list:
+
+  • first item
+  • second item
+
+  ─ rust ────────────
+  fn main() {
+      println!("hi");
+  }
+  ───────────────────
+
+  Done.
+
+  1s (↑6 ↓40)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Usage  30 days  7 days  24 hours  [Session]
+Partial data · some usage may be missing
+
+  0 tokens        $0.00 spent      0 requests
+  0 input         0 output         0 reasoning
+  0 cache read    0 cache write
+
+Session activity
+API 1s · Wall 10s
+Code +0 · -0
+
+Models 0
+  Model    Tokens    Share    Spend
+  No model usage in this scope.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+tab scope     ↑↓ model     enter expand     r refresh     esc close
+
+

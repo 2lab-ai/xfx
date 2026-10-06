@@ -338,6 +338,8 @@ pub(crate) enum UiEvent {
     /// notices of the conversation it handed to scrollback, and a title typed
     /// for that conversation is written just before it goes.
     RenameUnsaved(String),
+    /// What `/credits` found: the account's fields, or why there are none.
+    Credits(crate::credits::Answer),
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
     /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1285-1289`).
     ///
@@ -541,6 +543,26 @@ impl UiEvent {
             Self::Usage { input, output } => Self::Usage { input, output },
             // A count. There is nothing here a terminal can be made to obey.
             Self::Fresh { through } => Self::Fresh { through },
+            // What a Gateway answered, and the one string a remote end chose
+            // that reaches the screen verbatim. `\n` survives, and it is
+            // the field separator only xfx writes: `crate::credits` quotes an
+            // error body on one line and reads each field as one value, but a
+            // field the Gateway wrote with a line break in it is still its
+            // text, and painted as the notice's own continuation row.
+            Self::Credits(answer) => Self::Credits(match answer {
+                crate::credits::Answer::Failed(reason) => {
+                    crate::credits::Answer::Failed(inert_owned(reason))
+                }
+                crate::credits::Answer::Credits {
+                    balance,
+                    used,
+                    plan,
+                } => crate::credits::Answer::Credits {
+                    balance: balance.map(inert_owned),
+                    used: used.map(inert_owned),
+                    plan: plan.map(inert_owned),
+                },
+            }),
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -924,6 +946,12 @@ pub(crate) enum TurnWork {
     /// for it is refused while one runs, and the conversation it replaces is
     /// one a turn would be writing into.
     Resume(String),
+    /// Ask the configured provider what its account has left
+    /// ([`crate::credits`]), answered with [`UiEvent::Credits`].
+    ///
+    /// Work rather than a control message because it opens a socket, which
+    /// the thread holding the terminal may not wait on.
+    Credits,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

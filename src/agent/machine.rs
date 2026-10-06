@@ -57,9 +57,10 @@ use crate::gateway::protocol::{
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
 use crate::session::{
-    LineCounts, RecordedChange, RecordedToolCall, SessionEvent, ToolEnding, TurnConclusion,
+    LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent, ToolEnding,
+    TurnConclusion,
 };
-use crate::tools::{Outcome, Registry};
+use crate::tools::{LineChanges, Outcome, Registry};
 use crate::workspace::ProjectContext;
 
 use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
@@ -155,6 +156,27 @@ pub fn allows_step(limit: u32, step: u32) -> bool {
 /// context; the security decision about the same path happens later, inside the
 /// executor, against the scope. Confusing the two would make a rules lookup a
 /// permission check.
+/// Whether a request that failed this way may still have been billed.
+///
+/// The ones that provably never reached a model -- refused before it was
+/// sent, never connected, answered with a status -- were not
+/// (`DeliveryOutcome.unbilled`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_usage.zig:43-53`). Everything else left and was
+/// lost on the way back, and a model that started answering bills for it.
+fn may_have_billed(err: &ProviderError) -> bool {
+    match err {
+        ProviderError::Endpoint(_)
+        | ProviderError::Request { .. }
+        | ProviderError::InvalidHeader { .. }
+        | ProviderError::Connect { .. }
+        | ProviderError::Status { .. } => false,
+        ProviderError::Transport { .. }
+        | ProviderError::Protocol(_)
+        | ProviderError::Sink(_)
+        | ProviderError::Cancelled => true,
+    }
+}
+
 fn target_path(value: Option<&serde_json::Value>) -> Option<PathBuf> {
     let raw = value?.as_str()?.trim();
     (!raw.is_empty()).then(|| PathBuf::from(raw))
@@ -301,6 +323,14 @@ pub struct TurnMachine {
     partial: String,
     steps: u32,
     finalized: bool,
+    /// Every model request this turn completed, as `/usage` keeps it
+    /// ([`RequestUsage`]), in the order they were made.
+    requests: Vec<RequestUsage>,
+    /// A request was sent and then lost -- a broken stream, a stop -- so it
+    /// may have been billed with nothing to say what it cost.
+    unaccounted: bool,
+    /// Lines this turn's file changes added and removed.
+    lines: LineChanges,
 }
 
 impl TurnMachine {
@@ -319,6 +349,9 @@ impl TurnMachine {
             partial: String::new(),
             steps: 0,
             finalized: false,
+            requests: Vec::new(),
+            unaccounted: false,
+            lines: LineChanges::default(),
         }
     }
 
@@ -383,40 +416,55 @@ impl TurnMachine {
 
         let result = self.drive(provider, events, journal).await;
 
-        // Exactly one conclusion, whichever way the turn went.
-        match &result {
-            Ok(outcome) => {
-                journal.record(SessionEvent::UsageRecorded {
-                    input_tokens: outcome.usage.input_tokens,
-                    output_tokens: outcome.usage.output_tokens,
+        // The answer a failed step had put in front of the user, as the turn's
+        // last step: the conclusion closes it.
+        if result.is_err() {
+            let partial = std::mem::take(&mut self.partial);
+            if !partial.is_empty() {
+                journal.record(SessionEvent::AssistantMessage {
+                    text: partial,
+                    tool_calls: Vec::new(),
+                    raw_content: Vec::new(),
+                    responses_state: Vec::new(),
+                    wire: None,
                 });
-                journal.record(SessionEvent::TurnConcluded {
-                    outcome: TurnConclusion::Final {
-                        finish_reason: outcome.finish_reason.label().to_string(),
-                        steps: outcome.steps,
-                    },
-                });
-            }
-            Err(err) => {
-                // The answer the failed step had put in front of the user, as
-                // the turn's last step: the conclusion closes it.
-                let partial = std::mem::take(&mut self.partial);
-                if !partial.is_empty() {
-                    journal.record(SessionEvent::AssistantMessage {
-                        text: partial,
-                        tool_calls: Vec::new(),
-                        raw_content: Vec::new(),
-                        responses_state: Vec::new(),
-                        wire: None,
-                    });
-                }
-                journal.record(SessionEvent::TurnConcluded {
-                    outcome: TurnConclusion::Interrupted {
-                        reason: err.to_string(),
-                    },
-                })
             }
         }
+
+        // What the turn cost, after its last step and just before it is
+        // concluded. A turn that failed records one only when it has something
+        // to say -- a request that completed before the failure, or one that
+        // was lost after it was sent -- because a turn refused before any
+        // request was made cost nothing, and a frame saying so would be a
+        // frame about nothing. Its two totals stay absent: they are the
+        // answering step's, and it had none.
+        let (input_tokens, output_tokens) = match &result {
+            Ok(outcome) => (outcome.usage.input_tokens, outcome.usage.output_tokens),
+            Err(_) => (None, None),
+        };
+        if result.is_ok() || !self.requests.is_empty() || self.unaccounted {
+            journal.record(SessionEvent::UsageRecorded {
+                input_tokens,
+                output_tokens,
+                requests: std::mem::take(&mut self.requests),
+                unaccounted: self.unaccounted,
+                lines_added: u64::try_from(self.lines.added).unwrap_or(u64::MAX),
+                lines_removed: u64::try_from(self.lines.removed).unwrap_or(u64::MAX),
+            });
+        }
+
+        // Exactly one conclusion, whichever way the turn went.
+        journal.record(SessionEvent::TurnConcluded {
+            outcome: match &result {
+                Ok(outcome) => TurnConclusion::Final {
+                    finish_reason: outcome.finish_reason.label().to_string(),
+                    steps: outcome.steps,
+                },
+                Err(err) => TurnConclusion::Interrupted {
+                    reason: err.to_string(),
+                },
+            },
+        });
 
         // The only place a terminal event is written. One match, two arms, no
         // early return in between: the "exactly once" property is the shape of
@@ -462,7 +510,9 @@ impl TurnMachine {
                 });
             }
 
+            let began = Instant::now();
             let completion = self.step(provider, events).await?;
+            self.account(&completion, began.elapsed());
             self.steps += 1;
             self.output.push_str(&completion.text);
 
@@ -629,6 +679,12 @@ impl TurnMachine {
                 .execute(call, &self.request.tools)
                 .map_err(|err| TurnError::ToolCallUnsupported { tool: err.name })?;
 
+            // Counted as soon as the file has changed, ahead of anything that
+            // can still fail this step: the lines are on disk either way.
+            if let Some(changes) = result.changes {
+                self.lines.added = self.lines.added.saturating_add(changes.added);
+                self.lines.removed = self.lines.removed.saturating_add(changes.removed);
+            }
             events
                 .emit(&Event::ToolResult {
                     call_id: call.id.clone(),
@@ -875,6 +931,14 @@ impl TurnMachine {
                     // is in front of the user, a replay would produce a second
                     // answer to one question and bill for both.
                     if delivered || !err.is_replayable() || attempt >= self.request.max_attempts {
+                        // A request that left and was lost may have been
+                        // billed, and nothing will ever say for how much
+                        // (`ambiguous_delivery`, `session_usage.zig:43-53`).
+                        // One the endpoint refused, or that never left, was
+                        // not.
+                        if may_have_billed(&err) {
+                            self.unaccounted = true;
+                        }
                         return Err(TurnError::from(err));
                     }
                     // The failure survived every "do not replay" test, so this
@@ -893,6 +957,42 @@ impl TurnMachine {
                 }
             }
         }
+    }
+
+    /// Keeps what one completed request cost, for `/usage`.
+    ///
+    /// The provider's own bill when it gave one ([`Completion::billing`]);
+    /// otherwise the request as asked, its token totals when they were said,
+    /// and **no cost** -- a request whose spend nobody reported, which
+    /// `/usage` counts as missing rather than as free.
+    fn account(&mut self, completion: &Completion, took: Duration) {
+        let duration_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+        self.requests.push(match &completion.billing {
+            Some(bill) => RequestUsage {
+                at_ms: bill.at_ms,
+                duration_ms,
+                model: bill.model.clone(),
+                input_tokens: bill.input_tokens,
+                output_tokens: bill.output_tokens,
+                cache_read_tokens: bill.cache_read_tokens,
+                cache_write_tokens: bill.cache_write_tokens,
+                reasoning_tokens: bill.reasoning_tokens,
+                cost: Some(bill.cost),
+                generation_id: bill.generation_id.clone(),
+            },
+            None => RequestUsage {
+                at_ms: crate::session::event::system_now_ms(),
+                duration_ms,
+                model: self.request.model.clone(),
+                input_tokens: completion.usage.input_tokens.unwrap_or(0),
+                output_tokens: completion.usage.output_tokens.unwrap_or(0),
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: None,
+                generation_id: None,
+            },
+        });
     }
 
     /// Waits out the backoff between two attempts.
