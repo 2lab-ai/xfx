@@ -3,8 +3,8 @@
 Private diagnostic report. It may include prompts, file paths, command output, and file snippets.
 
 ## Summary
-generated: 2026-10-06T21:39:40Z
-version: 0.1.0 (cafab50e7ffd)
+generated: 2026-10-06T22:09:37Z
+version: 0.1.0 (954ff942400c)
 platform: macos/aarch64
 build: debug
 provider: gateway
@@ -17,7 +17,7 @@ workspace: <scratch>/work
 session: none (xfx opens one at the first prompt)
 agent_step_limit: 25
 auth: source=AI_GATEWAY_API_KEY refreshable=false
-process: pid=24146
+process: pid=6964
 work: outstanding=0 queued=0
 terminal: 120 cols x 40 rows
 metrics: ansi_bytes=1348, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0

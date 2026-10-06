@@ -39,11 +39,15 @@ Nothing reached the real clipboard: `osascript` resolved to the shim on both
 binaries (the `.clipfile`s are the shim's record). The fx run's chime
 directories were intact (exit 0, no `SOUND GUARD BREACHED`).
 
-The xfx binary is `target/debug/xfx` built from the working tree of this
-commit. Its banner shows `cafab50` because that is the base commit. The first
-xfx run after that build lost the `/trace` typed 2 s after launch (no report,
-no notice; the TUI was not yet reading). That run was discarded. These files
-are from the next run.
+The fx files were taken with xfx at d9a2010 (base `cafab50`). The xfx files
+were retaken at `954ff94`, after plan `aed448c` was merged (W6 `/undo`, F4,
+E1 and W1 `/usage` `/credits` with it); their banner shows `954ff94`. Rows
+2-40 of every retaken screen are identical to the d9a2010 take once the run
+directory and the report's name are normalized, and the reports differ only
+in their times, ids, pid, byte counts and the revision in `version:`. The
+first xfx run after a fresh build loses a `/trace` typed 2 s after launch (no
+report and no notice: the binary is still being assessed and the TUI is not
+reading yet), so each take was preceded by one throwaway run.
 
 Sanitized: the run directory `/private/tmp/claude-501/fxcap.XXXXXX` is written
 as `<scratch>` in every file here. It appears in the `copy-fail` screens (the
@@ -60,7 +64,7 @@ saved path) and in the reports and `.clipfile`s.
 | `trace-nowhere-unwritable` | `✗ Could not create trace.` | same | Row 3 is byte for byte the same (`ESC[38;5;252m✗ ESC[38;5;250mCould not create trace.ESC[39m`). No report and no copy on either. |
 
 In every pair but `copy-fail`, the only row that differs is row 1, each
-product's own banner (`𝒇x v0.0.13` vs `x𝒇x v0.1.0-cafab50 [debug]`).
+product's own banner (`𝒇x v0.0.13` vs `x𝒇x v0.1.0-954ff94 [debug]`).
 
 ## The reports
 
