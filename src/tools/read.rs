@@ -31,8 +31,8 @@ use crate::workspace::{is_ignored_directory, PathError};
 
 use super::spec::{
     clip, nonblank, object, optional_bool, optional_enum, optional_integer, optional_string,
-    required_string, Activity, InputSchema, PermissionKind, Presentation, Property, PropertyKind,
-    ToolContext, ToolInput, ToolLimits, ToolResult, ToolSpec,
+    required_string, Activity, InputSchema, Outcome, PermissionKind, Presentation, Property,
+    PropertyKind, ToolContext, ToolInput, ToolLimits, ToolResult, ToolSpec,
 };
 
 /// Appended to a line that was clipped by `read_file`
@@ -264,6 +264,9 @@ fn execute_list_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(resolved) => resolved,
         Err(err) => return refusal("list_files", err),
     };
+    if let Err(refused) = admitted("list_files", context, resolved.absolute()) {
+        return refused;
+    }
     let display = context.scope().display_path(resolved.absolute());
 
     let entries = match fs::read_dir(resolved.absolute()) {
@@ -855,6 +858,9 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(resolved) => resolved,
         Err(err) => return refusal("read_file", err),
     };
+    if let Err(refused) = admitted("read_file", context, resolved.absolute()) {
+        return refused;
+    }
     let display = context.scope().display_path(resolved.absolute());
 
     let metadata = match fs::metadata(resolved.absolute()) {
@@ -1187,6 +1193,7 @@ fn search_root(
         .scope()
         .resolve_existing(requested)
         .map_err(|err| refusal(tool, err))?;
+    admitted(tool, context, resolved.absolute())?;
     let metadata = fs::metadata(resolved.absolute()).map_err(|err| {
         ToolResult::failure(format!(
             "{tool} cannot stat `{}`: {err}",
@@ -1200,6 +1207,27 @@ fn search_root(
         )));
     }
     Ok(resolved.absolute().to_path_buf())
+}
+
+/// Whether the configured table lets `tool` read `canonical`, the path
+/// [`crate::workspace::AccessScope::resolve_existing`] resolved -- symlinks
+/// followed and case as stored, so a rule cannot be walked around through a
+/// link or a capital letter, as upstream's `realpath`ed targets cannot
+/// (`resolveFileToolPath`, `vercel-labs/fx@c1db9191
+/// src/core/permissions/permissions.zig:1059-1074`).
+///
+/// Asked before anything is opened. A search tool is judged at the
+/// directory it searches below and not at each file it walks, which is
+/// upstream's single target for it (`path_optional_existing`, `:205-211`).
+fn admitted(tool: &str, context: &ToolContext, canonical: &Path) -> Result<(), ToolResult> {
+    let candidate = crate::permission::rules::rule_path(context.scope().primary(), canonical);
+    context
+        .permissions()
+        .judge_read(tool, &candidate)
+        .map_err(|reason| {
+            ToolResult::failure(format!("{tool} was not permitted: {reason}"))
+                .ending(Outcome::Denied)
+        })
 }
 
 fn compile_glob(tool: &str, field: &str, pattern: &str) -> Result<GlobMatcher, String> {

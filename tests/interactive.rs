@@ -267,17 +267,17 @@ fn slash_permissions_says_the_mode_changes_it_and_records_it() {
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/permissions");
-    let text = session.wait_for("[permissions] usage:");
+    let text = session.wait_for("[permissions] /permissions revoke <rule-id>");
     for row in [
         "[permissions] mode=auto",
         "[permissions] configured rules: (none)",
         "[permissions] session grants: (none)",
         "[permissions] saved-session permission rules: none",
         "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+        "[permissions] /permissions remember <allow|deny> <tool-name> <arguments-json>",
     ] {
         assert!(text.contains(row), "{row} missing: {text}");
     }
-    assert!(!text.contains("remember"), "{text}");
 
     session.type_line("/permissions Full-Access");
     let text = session.wait_for("mode set to full access");
@@ -357,10 +357,14 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     // `/stats`, `/status` and `/permissions` after it, `/provider` when it
     // became the canonical name of the same command with `/setup` as its
     // alias, `/resume` and `/rename` after those, `/undo` after them, and
-    // `/usage` with its dashboard; `/models` did not, because the catalog
-    // browser is reached by a bare `/model` rather than by a command of its
-    // own.
-    for absent in ["/login", "/models", "/mcp", "/image"] {
+    // `/image`, `/images` and `/paste` after that, and `/usage` with its
+    // dashboard; `/models` did not, because the catalog browser is reached by
+    // a bare `/model` rather than by a command of its own.
+    assert!(
+        text.contains("(also /img)"),
+        "the image command's alias is not advertised: {text}"
+    );
+    for absent in ["/login", "/models", "/mcp"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 

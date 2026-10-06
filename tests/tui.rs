@@ -7985,6 +7985,389 @@ fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
+// -- /image, /images, /paste --------------------------------------------------
+
+/// Upstream's capture fixture (`shot.png`, a 4x4 red PNG, 73 bytes).
+const SHOT_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x08, 0x02, 0x00, 0x00, 0x00, 0x26, 0x93, 0x09,
+    0x29, 0x00, 0x00, 0x00, 0x10, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
+    0x47, 0x0c, 0xc4, 0x71, 0x00, 0xae, 0x93, 0x0f, 0xf1, 0xd0, 0x5f, 0x23, 0x9e, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// What upstream sent for it (`cap/fx-image-40x120-bodies/001-completion.json`).
+const SHOT_PNG_BASE64: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg==";
+
+/// A Gateway catalog that lists `fake/model-a` with these tags.
+fn catalog_tagging(tags: &[&str]) -> Value {
+    serde_json::json!({"object": "list", "data": [
+        {"id": "fake/model-a", "type": "language", "owned_by": "fake",
+         "released": 1_700_000_000, "tags": tags}
+    ]})
+}
+
+/// Every `file` part of every user message in a Gateway request, as
+/// `(mediaType, base64)`.
+fn file_parts(body: &Value) -> Vec<(String, String)> {
+    body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .filter_map(|message| message["content"].as_array())
+        .flat_map(|parts| parts.iter())
+        .filter(|part| part["type"] == "file")
+        .map(|part| {
+            (
+                part["mediaType"].as_str().unwrap_or_default().to_string(),
+                part["data"]["data"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_even_after_a_resume()
+{
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SEEN"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-AGAIN"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-RESUMED"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    // An image line is a command: nothing goes to the model for it, where the
+    // line used to be sent as a prompt (`cap/xfx-xfx-today-40x120-all.ansi`).
+    session.type_bytes(b"/image shot.png\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["* images: attached image: shot.png", "\u{2503} [Image 1]"],
+        &[],
+    );
+    assert_eq!(gateway.request_count(), 0, "the attach reached the model");
+    session.type_bytes(b" what is in this image?\r");
+    session.wait_for("MARKER-SEEN");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] what is in this image?"],
+        &[],
+    );
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-AGAIN");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The first request: the text keeps the token, the file part follows with
+    // the bytes upstream sent for the same file.
+    let requests = gateway.requests();
+    let first = requests[0].json();
+    let content = &first["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .rfind(|message| message["role"] == "user")
+        .expect("a user message")["content"];
+    assert_eq!(
+        content,
+        &serde_json::json!([
+            {"type": "text", "text": "[Image #1] what is in this image?"},
+            {"type": "file", "mediaType": "image/png",
+             "data": {"type": "data", "data": SHOT_PNG_BASE64}},
+        ])
+    );
+    // The second carries it again, with the history that holds it.
+    assert_eq!(
+        file_parts(&requests[1].json()),
+        [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+    );
+    assert_eq!(
+        user_messages(&requests[1].json()),
+        ["[Image #1] what is in this image?", "and now?"]
+    );
+
+    // Saved beside the log, owner-only, and named by reference in it.
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1);
+    let dir = sandbox.sessions_dir().join(&ids[0]);
+    let images: Vec<_> = std::fs::read_dir(dir.join("images"))
+        .expect("an images directory")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(images.len(), 1, "{images:?}");
+    assert!(
+        images[0]
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("image-1-") && name.ends_with(".bin")),
+        "{images:?}"
+    );
+    assert_eq!(std::fs::read(&images[0]).expect("the copy"), SHOT_PNG);
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&images[0])
+            .expect("mode")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    let log = std::fs::read_to_string(dir.join("events.jsonl")).expect("the log");
+    assert!(log.contains("\"kind\":\"images_attached\""), "{log}");
+    assert!(!log.contains(SHOT_PNG_BASE64), "the log holds the bytes");
+
+    // A resume sends the saved copy again, and the replayed card shows the
+    // badge -- even with the file the image came from gone.
+    std::fs::remove_file(sandbox.workspace.join("shot.png")).expect("remove the source");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.env("XFX_MODEL", "fake/model-a");
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    on_screen(
+        &second,
+        (40, 120),
+        &["\u{2503} [Image 1] what is in this image?"],
+        &[],
+    );
+    second.type_bytes(b"third\r");
+    second.wait_for("MARKER-RESUMED");
+    wait_for_conclusions(&sandbox, 3);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+    assert_eq!(
+        file_parts(&gateway.requests()[2].json()),
+        [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+    );
+}
+
+#[test]
+fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
+    // `fx-image-unknown-40x120-sent.ansi`: a model the catalog does not list
+    // is refused with upstream's sentence and **no completion request**; one
+    // it lists without `vision` and `file-input` is refused with upstream's
+    // words for the route xfx does not have.
+    for (catalog, refusal) in [
+        (
+            serde_json::json!({"object": "list", "data": [
+                {"id": "openai/text-embedding-9", "type": "embedding", "owned_by": "openai"}
+            ]}),
+            "Unable to verify image support for this model",
+        ),
+        (
+            catalog_tagging(&["tool-use"]),
+            "request failed: SubscriptionNativeImageUnavailable",
+        ),
+    ] {
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["UNREACHABLE"]),
+        )])
+        .with_catalog(catalog);
+        let sandbox = Sandbox::new();
+        std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+        let pty = Pty::open();
+        pty.resize(40, 120);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_MODEL", "fake/model-a");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"/image shot.png\r");
+        session.wait_for("attached image: shot.png");
+        session.type_bytes(b" what is in this image?\r");
+        on_screen(&session, (40, 120), &["\u{2717} system:", refusal], &[]);
+        assert_eq!(gateway.request_count(), 0, "{refusal}: a request was sent");
+        // The catalog was what decided it, and the answer stays on the screen.
+        assert_eq!(gateway.catalog_requests().len(), 1);
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+        assert!(!session.text().contains("UNREACHABLE"));
+    }
+}
+
+#[test]
+fn a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt() {
+    // The history is re-sent with every request, its images with it, so the
+    // check covers them as upstream's does (`collect_image_catalog`,
+    // `app_session_runtime.zig:3129`): a session that sent an image on a model
+    // the catalog tags for it, resumed where the catalog does not list the
+    // model, is refused before any request -- a text-only prompt included.
+    let first = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-WITH-IMAGE"]),
+    )])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &first);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image shot.png\r");
+    session.wait_for("attached image: shot.png");
+    session.type_bytes(b" look\r");
+    session.wait_for("MARKER-WITH-IMAGE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1);
+
+    let second = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["UNREACHABLE"]),
+    )])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "openai/text-embedding-9", "type": "embedding", "owned_by": "openai"}
+    ]}));
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &second);
+    resumed.env("XFX_MODEL", "fake/model-a");
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    again.wait_for("session resumed:");
+    again.type_bytes(b"just words this time\r");
+    on_screen(
+        &again,
+        (40, 120),
+        &[
+            "\u{2717} system:",
+            "Unable to verify image support for this model",
+        ],
+        &[],
+    );
+    assert_eq!(second.request_count(), 0, "a request was sent");
+    again.type_bytes(&[0x04]);
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it() {
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-DAEMON-SAW",
+        ])),
+        support::fake_gateway::Reply::Status(
+            400,
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image: this model does not take images"}}"#
+                .to_string(),
+        ),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    session.wait_for(READY);
+    session.type_bytes(b"/image shot.png\r");
+    session.wait_for("attached image: shot.png");
+    session.type_bytes(b" look\r");
+    session.wait_for("MARKER-DAEMON-SAW");
+    wait_for_conclusions(&sandbox, 1);
+    let request = daemon.message_requests()[0].json();
+    assert_eq!(
+        request["messages"][0]["content"],
+        serde_json::json!([
+            {"type": "text", "text": "[Image #1] look"},
+            {"type": "image", "source": {
+                "type": "base64", "media_type": "image/png", "data": SHOT_PNG_BASE64}},
+        ])
+    );
+    // The daemon decides whether the model reads images; its refusal is the
+    // turn's failure, in its own words.
+    session.type_bytes(b"again\r");
+    session.wait_for("the llmux daemon returned HTTP 400");
+    session.wait_for("invalid_request_error");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it() {
+    // The clipboard is a fake on `PATH` -- an `osascript` that writes the
+    // image to the file its script names, an `xclip` that prints it -- so the
+    // user's own clipboard is never read.
+    let sandbox = Sandbox::new();
+    let tools = sandbox.home.join("fake-tools");
+    std::fs::create_dir(&tools).expect("a tool directory");
+    let held = tools.join("held.png");
+    std::fs::write(&held, SHOT_PNG).expect("the clipboard's image");
+    let scripts = [
+        (
+            "osascript",
+            format!(
+                "out=${{2#*POSIX file \\\"}}\nout=${{out%%\\\"*}}\ncat '{}' > \"$out\"\n",
+                held.display()
+            ),
+        ),
+        ("xclip", format!("cat '{}'\n", held.display())),
+    ];
+    for (name, body) in scripts {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tools.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}")).expect("a fake tool");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+    }
+    let gateway = FakeGateway::start(Vec::new());
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("PATH", format!("{}:/bin", tools.display()));
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/paste\r");
+    on_screen(&session, (40, 120), &["\u{2503} [Image 1]"], &[]);
+    // Ctrl-V is the same read, at the caret.
+    session.type_bytes(&[0x16]);
+    on_screen(&session, (40, 120), &["\u{2503} [Image 1][Image 2]"], &[]);
+    session.type_bytes(b" /images\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "* images: 2 pending",
+            "   - image-1-3fd6e6be528c182d.bin (image/png)",
+        ],
+        &[],
+    );
+    assert!(
+        !session.text().contains("attached image"),
+        "a pasted image wrote a notice"
+    );
+    // The badges are still in the draft; a line delete takes them, and the
+    // empty composer's Ctrl-D leaves.
+    session.type_bytes(&[0x15]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 0);
+}
+
 // ---------------------------------------------------------------------------
 // /trace
 // ---------------------------------------------------------------------------

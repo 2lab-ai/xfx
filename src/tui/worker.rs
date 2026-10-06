@@ -81,7 +81,7 @@ use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
     UiEventSink,
 };
-use super::permissions::{self, Change, Grants};
+use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::clipboard::last_reply;
@@ -92,7 +92,7 @@ use crate::interactive::{
     bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
 };
 use crate::output::StatusSnapshot;
-use crate::permission::{LiveAuthority, PermissionSession};
+use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
 };
@@ -231,8 +231,20 @@ pub(crate) struct WorkHandle {
     /// (`yolo-permission-mode.test.ts:373-450`) -- and never by the runtime,
     /// whose channel messages can be older than what the person chose since.
     live: LiveAuthority,
+    /// The configured permission table every conversation's authority reads
+    /// at each decision ([`LiveRules`]).
+    ///
+    /// Written here, on the UI thread, by `/allowlist` the moment it has
+    /// written the file -- so the change governs the next tool call, of a
+    /// running turn too, as upstream's live engine does
+    /// (`replaceEffectivePermissionRules`, `session_commands.zig:927-941`) --
+    /// and read by a bare `/permissions` for its `configured rules`.
+    rules: LiveRules,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, as the
+    /// runtime last published it ([`SavedRulesAt`]).
+    saved_rules: SavedRulesAt,
     /// What `/usage`'s session scope reads, as the runtime last published it.
     spend: SessionSpend,
 }
@@ -492,6 +504,19 @@ impl WorkHandle {
         }
     }
 
+    /// Where the live conversation keeps its saved-session permission rules,
+    /// or `None` while no saved session is open.
+    pub(crate) fn saved_rules_path(&self) -> Option<std::path::PathBuf> {
+        self.saved_rules.read()
+    }
+
+    /// Stands in for the runtime's publication of where the saved-session
+    /// rules are kept.
+    #[cfg(test)]
+    pub(crate) fn publish_saved_rules(&self, path: Option<std::path::PathBuf>) {
+        self.saved_rules.publish(path);
+    }
+
     /// Whether a reset has happened since the runtime last published, so
     /// every grant that publication counted is out of force.
     pub(crate) fn grants_reset_since_published(&self) -> bool {
@@ -557,13 +582,21 @@ impl WorkHandle {
                 status: StatusBoard::unpublished(),
                 permissions,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             work_rx,
             control_rx,
             changes,
         )
+    }
+
+    /// The configured permission table every conversation decides with, for
+    /// the UI thread to read and to replace ([`LiveRules`]).
+    pub(crate) fn rules(&self) -> &LiveRules {
+        &self.rules
     }
 
     /// Stands in for the runtime's publication of the grants list, as of the
@@ -852,10 +885,16 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    let saved_rules = SavedRulesAt::default();
+    let publishes_saved_rules = saved_rules.clone();
     // One live authority for the session: the handle writes it, every
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
+    // The same for the configured table: one handle, written by `/allowlist`
+    // on the UI thread, read by every conversation the runtime opens.
+    let rules = LiveRules::new(config.permission.effective().clone());
+    let loops_rules = rules.clone();
     let spend = SessionSpend::default();
     let publishes_spend = spend.clone();
     let session_cancel = cancel.clone();
@@ -879,7 +918,9 @@ pub(crate) fn spawn(
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
             state.grants = publishes_grants;
+            state.saved_rules = publishes_saved_rules;
             state.live = loops_live;
+            state.rules = loops_rules;
             state.spend = publishes_spend;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
@@ -914,7 +955,9 @@ pub(crate) fn spawn(
                 status,
                 permissions: permissions_tx,
                 live,
+                rules,
                 grants,
+                saved_rules,
                 spend,
             },
             resumable: None,
@@ -1060,10 +1103,16 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, published
+    /// with the grants.
+    saved_rules: SavedRulesAt,
     /// The mode and reset count the UI writes and every conversation's
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// The configured table the UI writes and every conversation's authority
+    /// reads ([`WorkHandle::rules`]). Read here, never written.
+    rules: LiveRules,
     /// Where `/usage`'s session scope reads the conversation's spend from,
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
@@ -1111,6 +1160,7 @@ impl Runtime {
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let effort = config.effort.clone();
         let config_mode = config.permission_mode;
+        let config_rules = config.permission.effective().clone();
         Self {
             config,
             env,
@@ -1124,7 +1174,9 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             live: LiveAuthority::new(config_mode),
+            rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
             began_ms: crate::session::event::system_now_ms(),
         }
@@ -1162,6 +1214,14 @@ impl Runtime {
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.grant_lines());
+        self.saved_rules
+            .publish(self.conversation.as_ref().and_then(|conversation| {
+                conversation
+                    .tools
+                    .permissions()
+                    .session_rules_path()
+                    .map(std::path::Path::to_path_buf)
+            }));
         self.spend.publish(Spent {
             usage: self
                 .conversation
@@ -1467,6 +1527,8 @@ impl Runtime {
             // Read at every decision, so a change the person makes while a
             // turn runs governs that turn's next call (`LiveAuthority`).
             .with_live(self.live.clone())
+            // And the configured table, for the same reason (`LiveRules`).
+            .with_live_rules(self.rules.clone())
     }
 
     /// Makes a saved session this runtime's conversation, before any work.
@@ -1934,7 +1996,22 @@ async fn turn_loop(
         };
         let ended = match item {
             TurnWork::Submit(prompt) => {
-                run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
+                run_turn(
+                    &mut state,
+                    prompt,
+                    Vec::new(),
+                    events,
+                    &cancel,
+                    &control,
+                    &mut queue,
+                )
+                .await
+            }
+            TurnWork::Attached { prompt, images } => {
+                run_turn(
+                    &mut state, prompt, images, events, &cancel, &control, &mut queue,
+                )
+                .await
             }
             // Both of these open a socket, so both are work rather than control
             // messages, and both owe **exactly one** terminal event -- which is
@@ -2176,6 +2253,7 @@ enum Ended {
 async fn run_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
     control: &ControlChannel,
@@ -2195,7 +2273,7 @@ async fn run_turn(
     // event either way.
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, events, &turn,
+        state, prompt, images, events, &turn,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -2733,9 +2811,53 @@ async fn raced_against_control<F: Future>(
 }
 
 /// One turn, exactly as `xfx ask` runs one. `Some` is why it did not finish.
+/// Why a turn carrying an image may not be sent to the model in force, or
+/// `None` when it may.
+///
+/// **On the Gateway, the catalog decides** (`image_input_support`,
+/// `vercel-labs/fx@c1db9191 src/core/config/model_capabilities.zig:96-104`): a
+/// row tagged `vision` and `file-input` both reads images inline; a row without
+/// them would be upstream's second route, a forced `vision` tool call answered
+/// by another model, which xfx does not have ([`crate::image::NOT_NATIVE`]); and
+/// a model the catalog does not list -- or a catalog that could not be read --
+/// is one whose support nobody can vouch for
+/// ([`crate::image::CAPABILITY_UNKNOWN`]). The catalog is read for it like the
+/// effort's: once, raced against this turn's cancellation, and told to the UI.
+///
+/// **On llmux, the daemon decides.** Its catalog has no capability field
+/// (`2lab-ai/llmux@4b3d4a4 src/catalog.rs:1227`), so the image is sent and a
+/// model that cannot read it is the daemon's 400, reported as any refusal it
+/// sends is.
+async fn image_refusal(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Option<String> {
+    if state.config.provider != ProviderId::Gateway {
+        return None;
+    }
+    let fresh = tokio::select! {
+        biased;
+        () = turn.token.cancelled() => false,
+        fresh = state.load_catalog() => fresh,
+    };
+    if turn.token.is_cancelled() {
+        return Some(crate::agent::TurnError::Cancelled.to_string());
+    }
+    if fresh {
+        let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    }
+    match state.selector.entry(state.selector.model()) {
+        Some(entry) if entry.facts.image_input => None,
+        Some(_) => Some(crate::image::NOT_NATIVE.to_string()),
+        None => Some(crate::image::CAPABILITY_UNKNOWN.to_string()),
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) -> Option<String> {
@@ -2764,6 +2886,25 @@ async fn one_turn(
         };
         if fresh {
             let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+        }
+    }
+    // **Whether the model reads images, before anything is sent or written.**
+    // A turn whose prompt -- or whose history, which every request re-sends --
+    // carries one goes inline only to a model the catalog tags `vision` and
+    // `file-input`; any other is refused here, with upstream's words, and no
+    // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
+    let carries_images = !images.is_empty()
+        || state.conversation.as_ref().is_some_and(|conversation| {
+            conversation
+                .recorder
+                .state()
+                .turns
+                .iter()
+                .any(|turn| !turn.images.is_empty())
+        });
+    if carries_images {
+        if let Some(refusal) = image_refusal(state, events, turn).await {
+            return Some(refusal);
         }
     }
     let options = state.request_options();
@@ -2822,6 +2963,7 @@ async fn one_turn(
     }
 
     let request = TurnRequest {
+        images,
         model,
         prompt,
         history: replay.messages,
@@ -3054,7 +3196,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -3114,7 +3258,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -3153,7 +3299,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -3510,7 +3658,9 @@ mod tests {
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
             live: LiveAuthority::new(PermissionMode::Auto),
+            rules: LiveRules::default(),
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
         };
         drop(work_rx);
@@ -4191,6 +4341,7 @@ mod tests {
         let ended = on_a_runtime(run_turn(
             &mut state,
             "hello".to_string(),
+            Vec::new(),
             &events_tx,
             &cancel,
             &control,
@@ -4380,6 +4531,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -4480,6 +4632,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -5064,7 +5217,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -6318,6 +6473,43 @@ mod tests {
         );
         assert_eq!(state.authority().mode(), state.config.permission_mode);
     }
+
+    #[test]
+    fn the_authority_decides_with_the_profiles_table_and_with_what_the_ui_puts_in_force() {
+        use crate::permission::{ConfiguredRule, RuleAction, RuleSet};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        crate::provider::profile::write_document(
+            &home.path().join(".xfx").join("settings.json"),
+            br#"{"permission":{"bash":{"git *":"allow"}}}"#,
+        )
+        .expect("an owner-only profile");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // At launch: the table the profile holds.
+        assert_eq!(
+            state.authority().rules().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        // The handle the UI writes is the one every authority reads, so a
+        // `/allowlist` change reaches a conversation already open.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        state.rules = handle.rules().clone();
+        let authority = state.authority();
+        handle
+            .rules()
+            .replace(RuleSet::new(vec![ConfiguredRule::new(
+                "edit",
+                "*",
+                RuleAction::Deny,
+            )]));
+        assert_eq!(
+            authority.rules().rules(),
+            &[ConfiguredRule::new("edit", "*", RuleAction::Deny)]
+        );
+    }
+
     #[test]
     fn the_catalog_a_ui_is_given_is_bounded_at_the_event() {
         // A daemon may advertise any number of models; the browser renders at
@@ -6747,6 +6939,7 @@ mod tests {
         };
         let turn = cancel.turn();
         let request = TurnRequest {
+            images: Vec::new(),
             model: "vendor/model".to_string(),
             prompt: "write two files".to_string(),
             history: Vec::new(),
@@ -6910,6 +7103,7 @@ mod tests {
         ) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "anything".to_string(),
                 history: Vec::new(),
@@ -6980,6 +7174,7 @@ mod tests {
         fn plain_turn(&mut self, provider: &ScriptedProvider) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "and now".to_string(),
                 history: Vec::new(),

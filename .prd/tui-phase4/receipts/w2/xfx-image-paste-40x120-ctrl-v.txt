@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-694eb48 [debug] · Run /help for commands
+
+✗ images: failed to paste clipboard image: FileNotFound
+
+✗ images: failed to paste clipboard image: FileNotFound
+
+┃ [Image 1][Image 2]
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

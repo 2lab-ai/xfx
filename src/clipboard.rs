@@ -340,6 +340,148 @@ impl Stop {
     }
 }
 
+/// Why the clipboard gave no image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageReadError {
+    /// It holds none: the tool said so by its exit status.
+    NoImage,
+    /// This system has no way to read one that xfx knows of. Upstream says
+    /// nothing at all here (`image_commands.zig:91`).
+    Unsupported,
+    /// Anything else, by upstream's name for it: the tool could not be
+    /// started (`FileNotFound`), it said it wrote a file that is not there,
+    /// what it gave is no image this build reads, or it is too large.
+    Failed(&'static str),
+}
+
+/// The AppleScript upstream reads the clipboard with
+/// (`loadClipboardImageAttachment`, `image_attachments.zig:1779-1823`): the
+/// clipboard as PNG, written to `path`. The clipboard converts whatever image
+/// it holds on the way out, so what comes back is always a PNG.
+fn clipboard_script(path: &std::path::Path) -> String {
+    format!(
+        "set outFile to POSIX file \"{}\"\n\
+         set pngData to the clipboard as \u{ab}class PNGf\u{bb}\n\
+         set fileRef to open for access outFile with write permission\n\
+         set eof fileRef to 0\n\
+         write pngData to fileRef\n\
+         close access fileRef\n",
+        path.display()
+    )
+}
+
+impl Clipboard {
+    /// The image on the clipboard, as its format and bytes.
+    ///
+    /// **Blocks until the tool exits**, as [`Self::copy`] does, so the TUI
+    /// never calls it on its UI thread (`crate::tui`'s `clipboard_image`).
+    ///
+    /// On macOS, upstream's way: `osascript` found on the path writes the
+    /// clipboard as PNG into a directory of this read's own, owner-only, and
+    /// removed again before this returns; an exit status other than 0 is a
+    /// clipboard with no image. On Linux, the copy tool's other half: `xclip
+    /// -selection clipboard -t image/png -o`, its standard output read up to the
+    /// ceiling -- where upstream has nothing (`error.Unsupported`), and a
+    /// command that answered nothing at all would be one that did not work.
+    /// Elsewhere, [`ImageReadError::Unsupported`].
+    pub fn read_image(&self) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
+        if cfg!(target_os = "macos") {
+            self.read_image_with_osascript()
+        } else if cfg!(target_os = "linux") {
+            self.read_image_with_xclip()
+        } else {
+            Err(ImageReadError::Unsupported)
+        }
+    }
+
+    fn command(&self, program: &str) -> Command {
+        let mut command = Command::new(program);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(search) = &self.search {
+            command.env("PATH", search);
+        }
+        command
+    }
+
+    fn read_image_with_osascript(
+        &self,
+    ) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
+        let dir = private_directory()
+            .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
+        let path = dir.join("clipboard.png");
+        let outcome = self
+            .command("osascript")
+            .arg("-e")
+            .arg(clipboard_script(&path))
+            .status();
+        let read = match outcome {
+            Err(err) => Err(ImageReadError::Failed(crate::image::io_name(err.kind()))),
+            Ok(status) if !status.success() => Err(ImageReadError::NoImage),
+            Ok(_) => crate::image::read(&path).map_err(|err| ImageReadError::Failed(err.name())),
+        };
+        // Gone whichever way it went: what the clipboard held is the session's
+        // to keep, in its own copy, and not this directory's.
+        let _ = std::fs::remove_dir_all(&dir);
+        read
+    }
+
+    fn read_image_with_xclip(&self) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
+        use std::io::Read;
+        let mut child = self
+            .command("xclip")
+            .args(["-selection", "clipboard", "-t", "image/png", "-o"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
+        let mut bytes = Vec::new();
+        let read = child.stdout.take().map(|stdout| {
+            stdout
+                .take(crate::image::MAX_IMAGE_BYTES + 1)
+                .read_to_end(&mut bytes)
+        });
+        // Over the ceiling, the tool may still be writing: it is not waited
+        // on to finish what will not be read.
+        if bytes.len() as u64 > crate::image::MAX_IMAGE_BYTES {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ImageReadError::Failed(
+                crate::image::AttachError::TooLarge.name(),
+            ));
+        }
+        let status = child.wait();
+        if !status.is_ok_and(|status| status.success()) || !matches!(read, Some(Ok(_))) {
+            return Err(ImageReadError::NoImage);
+        }
+        let media_type = crate::image::MediaType::sniff(&bytes).ok_or(ImageReadError::Failed(
+            crate::image::AttachError::Unsupported.name(),
+        ))?;
+        Ok((media_type, bytes))
+    }
+}
+
+/// A new directory only this user can enter, under the system's temporary
+/// directory, for one clipboard read.
+fn private_directory() -> std::io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let base = std::env::temp_dir();
+    let mut last = None;
+    for _ in 0..16 {
+        let dir = base.join(format!(
+            "xfx-clipboard-{}",
+            crate::session::new_identifier()
+        ));
+        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => last = Some(err),
+            Err(err) => return Err(err),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::from(std::io::ErrorKind::AlreadyExists)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,6 +632,65 @@ mod tests {
             tool.fail();
             assert!(!tool.clipboard().copy("reply"));
             assert_eq!(tool.copied(), None, "the failing tool kept the bytes");
+        }
+
+        #[test]
+        fn an_image_on_the_clipboard_is_read_whole_and_typed_by_its_bytes() {
+            let tool = FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+            assert_eq!(
+                tool.clipboard().read_image(),
+                Ok((
+                    crate::image::MediaType::Png,
+                    crate::image::fixture::SHOT_PNG.to_vec()
+                ))
+            );
+        }
+
+        #[test]
+        fn a_clipboard_with_no_image_says_so_by_the_tools_exit_status() {
+            let tool = FakeTool::holding(None);
+            assert_eq!(
+                tool.clipboard().read_image(),
+                Err(super::super::ImageReadError::NoImage)
+            );
+        }
+
+        #[test]
+        fn what_the_clipboard_gave_that_is_no_image_is_refused_by_upstreams_name() {
+            let tool = FakeTool::holding(Some(b"just some text"));
+            assert_eq!(
+                tool.clipboard().read_image(),
+                Err(super::super::ImageReadError::Failed("UnsupportedImageType"))
+            );
+        }
+
+        #[test]
+        fn a_reader_that_is_not_on_the_path_is_upstreams_file_not_found() {
+            let empty = tempfile::tempdir().expect("an empty directory");
+            assert_eq!(
+                super::super::Clipboard::searching(empty.path().as_os_str()).read_image(),
+                Err(super::super::ImageReadError::Failed("FileNotFound"))
+            );
+        }
+
+        /// The capture harness's shim: `osascript` that exits 0 and writes
+        /// nothing. Upstream then fails to load the file it was promised, and
+        /// says so by that name (`fx-paste-40x120-paste.ansi`).
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn an_osascript_that_writes_nothing_is_a_file_not_found() {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().expect("a directory");
+            let shim = dir.path().join("osascript");
+            std::fs::write(&shim, "#!/bin/sh\nexit 0\n").expect("a shim");
+            std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))
+                .expect("executable");
+            let clipboard =
+                super::super::Clipboard::searching(format!("{}:/bin", dir.path().display()));
+            assert_eq!(
+                clipboard.read_image(),
+                Err(super::super::ImageReadError::Failed("FileNotFound"))
+            );
         }
 
         #[test]
@@ -700,6 +901,38 @@ pub(crate) mod fake {
         pub(crate) fn clipboard(&self) -> Clipboard {
             Clipboard::searching(format!("{}:/bin", self.dir.path().display()))
                 .waiting(std::time::Duration::from_secs(60))
+        }
+
+        /// A clipboard holding `image`: an `osascript` that writes it to the
+        /// file its script names (`POSIX file "<path>"`) and an `xclip` that
+        /// prints it, so a case reads the same on either system. With no
+        /// image, both exit 1 -- a clipboard that holds none.
+        pub(crate) fn holding(image: Option<&[u8]>) -> Self {
+            let dir = tempfile::tempdir().expect("a directory for the fake tools");
+            let held = dir.path().join("held");
+            if let Some(image) = image {
+                std::fs::write(&held, image).expect("the clipboard's image");
+            }
+            // The path is cut out of the script with the shell's own
+            // expansions, so the fake needs nothing but `cat` from `/bin`.
+            let osascript = format!(
+                "[ -f '{held}' ] || exit 1\n\
+                 out=${{2#*POSIX file \\\"}}\n\
+                 out=${{out%%\\\"*}}\n\
+                 cat '{held}' > \"$out\"\n",
+                held = held.display()
+            );
+            let xclip = format!(
+                "[ -f '{held}' ] || exit 1\ncat '{held}'\n",
+                held = held.display()
+            );
+            for (tool, body) in [("osascript", osascript), ("xclip", xclip)] {
+                let path = dir.path().join(tool);
+                std::fs::write(&path, format!("#!/bin/sh\n{body}")).expect("write a fake tool");
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                    .expect("make it executable");
+            }
+            Self { dir }
         }
 
         /// What the tool was last fed, or `None` when it has kept nothing.
