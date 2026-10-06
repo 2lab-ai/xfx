@@ -1,0 +1,29 @@
+wait 2
+title launch
+type /version
+wait 0.5
+key Enter
+wait 1
+snap version
+type /version now
+wait 0.5
+key Enter
+wait 1
+snap version-now
+type /nosuch
+wait 0.5
+key Enter
+wait 1
+snap nosuch
+type /version 
+wait 0.5
+key Enter
+wait 1
+snap version-trailing-space
+title before-quit
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+title quit

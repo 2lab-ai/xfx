@@ -16,6 +16,10 @@
 #   type <text>            literal keys
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
+#   title <label>          writes the pane's window title (OSC 2) to
+#                          <bin>-<scenario>-<size>-<label>.title
+#   keep                   keeps the pane after the program exits, so a title
+#                          or a screen can still be read once it has
 set -euo pipefail
 
 main() {
@@ -100,6 +104,12 @@ XFX_MODEL=fake/model-a $bin"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$name.ansi"
         echo "$name.txt"
         ;;
+      title)
+        local name=$out/$which-$scenario-$size-$rest
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
+        echo "$name.title"
+        ;;
+      keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"

@@ -1155,9 +1155,14 @@ async fn run_setup(
             if let Some(source) = selected.overridden_by {
                 bridge::send_terminal(
                     events,
-                    UiEvent::Notice(format!(
-                        "xfx: {source} outranks the profile, so this configuration is not what \
-                         the next turn in this shell will use"
+                    // A warning under `provider`: the switch happened, and
+                    // this is the caveat on it.
+                    UiEvent::Notice(super::notice::Notice::warning(
+                        "provider",
+                        format!(
+                            "{source} outranks the profile, so this configuration is not what \
+                             the next turn in this shell will use"
+                        ),
                     )),
                 )
                 .await;
@@ -1276,12 +1281,8 @@ async fn run_catalog(
         // the same thing on both surfaces rather than reading as a broken
         // session on one of them.
         CatalogAnswer::NoneAdvertised => {
-            let _ = bridge::send_ui(
-                events,
-                &turn.token,
-                UiEvent::Notice(crate::provider::model::NO_CATALOG_NOTICE.to_string()),
-            )
-            .await;
+            let _ =
+                bridge::send_ui(events, &turn.token, UiEvent::Notice(no_catalog_notice())).await;
             bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
         }
         // This one really is a failure: there is a catalog and xfx could not
@@ -1297,6 +1298,16 @@ async fn run_catalog(
         }
     }
     ended
+}
+
+/// What a bare `/model` says when the provider advertises no catalog: the line
+/// shell's sentence (`crate::provider::model::NO_CATALOG_NOTICE`,
+/// `[shell] catalog=unavailable (…)`) in a notice's shape -- the topic is the
+/// key it reported and the body the value, so both surfaces say the same words.
+fn no_catalog_notice() -> super::notice::Notice {
+    let line = crate::provider::model::NO_CATALOG_NOTICE;
+    let said = line.strip_prefix("[shell] catalog=").unwrap_or(line);
+    super::notice::Notice::neutral("catalog", said)
 }
 
 /// Runs `body` while still listening to the UI, and says what ended.
@@ -1446,7 +1457,11 @@ async fn one_turn(
         // less than the turn it precedes, and the only ways this fails are a
         // turn that was cancelled before it began and a UI that is gone --
         // both of which the turn below reports for itself.
-        let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice.clone())).await;
+        // A warning under `session`: the turn goes ahead, without what the
+        // history could not carry. The store's sentence is the line shell's
+        // too, so its `xfx: ` comes off here where the glyph says it.
+        let notice = super::notice::Notice::warning("session", super::notice::unattributed(notice));
+        let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice)).await;
     }
 
     let request = TurnRequest {
@@ -3550,5 +3565,20 @@ mod tests {
             "the call behind the refused one ran after the user stopped the turn"
         );
         assert_eq!(provider.requests(), 1);
+    }
+
+    #[test]
+    fn a_provider_with_no_catalog_is_said_in_the_line_shells_words() {
+        // `[shell] catalog=unavailable (this provider advertises none)` on the
+        // line shell; `* catalog: unavailable (…)` here. If the line shell's
+        // sentence stopped having the key this strips, the notice would carry
+        // it whole -- and this would say so.
+        assert_eq!(
+            no_catalog_notice(),
+            super::super::notice::Notice::neutral(
+                "catalog",
+                "unavailable (this provider advertises none)"
+            )
+        );
     }
 }
