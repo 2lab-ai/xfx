@@ -24,9 +24,11 @@ work besides its message and reply is compacted from its exact texts alone, with
 notes request, as a well-formed reply with a `Turn 1` heading so neither product asks a follow-up.
 
 Scratch paths are replaced with `<scratch>`. Request bodies are not committed; the texts that
-matter are quoted below from them. The xfx captures were retaken on this branch with
-`plan/tui-phase4` at `42a4597` merged in; against the first take (`6fb6e42`) they differ only in the
-banner's revision, a turn summary's second and the marker's blink phase.
+matter are quoted below from them. The xfx captures are this branch at `5c0ea7d` (`plan/tui-phase4`
+at `c252bbb` merged in); against the first take (`6fb6e42`) they differ only in the banner's
+revision, a turn summary's second and the marker's blink phase. (A take in between, at `0c67b5b`,
+caught `empty-0.3s` before the band had painted -- the machine's load average was over 20 -- and was
+not kept.)
 
 ## What every snap shares
 
@@ -39,6 +41,10 @@ banner's revision, a turn summary's second and the marker's blink phase.
   `activity_status.zig:147-155`; `activity.rs` `spoken`), and the two processes start their clocks a
   few milliseconds apart.
 - The marker cell blinks on both (`•` lit, blank dark); which phase a snap catches is timing.
+- **Not this work's, and not closed by it:** the first turn's summary reads `(↑4 ↓80)` on fx and
+  `(↑4 ↓40)` on xfx. That turn made two requests (the read, then the answer) at 40 output tokens
+  each; fx's summary adds them and xfx's shows one. D4d's receipt has the same pair
+  (`receipts/d4d/*-settings-collapse-40x120-cmd-ask.txt`, `↓80` vs `↓40`), so it predates `/compact`.
 
 ## `compact`
 
