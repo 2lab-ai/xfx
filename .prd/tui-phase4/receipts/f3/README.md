@@ -3,7 +3,7 @@
 Three scenarios, each driven identically on both binaries by `scripts/fxcap/capture.sh`
 (isolated tmux socket, empty `HOME`, fake key, loopback fake gateway, desktop shims). The tool is
 `ask_user_question` in both products, so one turns file serves both. xfx is the release build of
-`feat/tui-phase4-question` at `859bfc9` (plan `f7d6118` merged in); the fx captures are unchanged
+`feat/tui-phase4-question` at `1ea93f5` (plan `652e3d3` merged in); the fx captures are unchanged
 from the run at `d28d8bd`:
 
 ```
