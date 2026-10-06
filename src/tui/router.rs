@@ -60,10 +60,11 @@ pub(crate) trait CommandHandlers {
     fn statusline(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
-    /// `/setup`, with the rest of the line -- already trimmed, and empty when
-    /// there was none.
+    /// `/provider` (or its alias `/setup`), with the rest of the line --
+    /// already trimmed, and empty when there was none.
     ///
-    /// The argument is the provider to switch to. It is *not* validated here:
+    /// Bare, it opens the provider picker; with an argument, the argument is
+    /// the provider to switch to. It is *not* validated here:
     /// what a provider name may be is `crate::provider::ProviderId::parse`'s to
     /// say, and a router that pre-screened it would be a second place that
     /// decides which backend a prompt can go to.
@@ -244,7 +245,7 @@ mod tests {
             ("/statusline", "statusline "),
             ("/version", "version"),
             ("/quit", "quit"),
-            ("/setup", "setup "),
+            ("/provider", "setup "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -256,6 +257,7 @@ mod tests {
     #[test]
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
+        assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
         assert_eq!(
             classify("/exit"),
             Submitted::Command {

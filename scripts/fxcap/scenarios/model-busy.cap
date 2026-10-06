@@ -1,0 +1,20 @@
+# /model while a turn streams: upstream's `Next turn will use`.
+models models.json
+gateway slow-line-turn.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type say something
+key Enter
+wait 1.2
+type /model grok
+wait 0.5
+fx: key Escape
+fx: wait 0.4
+key Enter
+wait 0.8
+snap during
+wait 7
+snap after
+home end

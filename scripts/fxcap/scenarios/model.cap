@@ -1,0 +1,48 @@
+# /model's menu over the research harness's catalog (models.json). Both binaries
+# take the model from their own profile, so no process override shadows the save.
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+wait 0.7
+snap typed
+key Enter
+wait 1.5
+snap open
+key Down
+wait 0.4
+snap down1
+key Down Down Down Down
+wait 0.4
+snap down5
+key Up Up
+wait 0.4
+snap up-wrap
+key Tab
+wait 0.5
+snap tab1
+key Tab
+wait 0.5
+snap tab2
+type gro
+wait 0.5
+snap query
+key BTab
+wait 0.5
+snap btab
+key Escape
+wait 0.6
+snap esc
+type /model
+key Enter
+wait 1.2
+type grok
+wait 0.5
+snap query-grok
+key Enter
+wait 1.5
+snap enter
+home after-enter
+gwlog

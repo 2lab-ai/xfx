@@ -1,0 +1,75 @@
+# D3: the /provider picker (alias /setup). Both binaries start on the Gateway
+# with the harness's fake key, the profile naming fake/model-a, and no process
+# model override, so a commit writes the profile rather than under a shadow.
+# fx's sign-in columns (method, key source, team) are gated for xfx (#88): its
+# commit walks them to the env key, xfx's is the provider row itself.
+seed provider-settings.json
+nomodel
+gateway slow-line-turn.json
+wait 2.5
+type /provider
+wait 0.5
+snap typed
+key Enter
+wait 1.2
+snap open
+key Down
+wait 0.4
+snap down1
+key Down
+wait 0.4
+snap down2-wrap
+key Escape
+wait 0.6
+snap esc
+key C-u
+type /setup
+wait 0.5
+snap setup-typed
+key Enter
+wait 1.2
+snap setup-open
+key Escape
+wait 0.5
+key C-u
+type /setup 
+wait 0.8
+snap setup-space
+key C-u
+fx: type /provider co
+xfx: type /provider ll
+wait 0.7
+snap arg-filter
+key Tab
+wait 0.5
+snap arg-tab
+key C-u
+type /provider zz
+wait 0.7
+snap arg-nomatch
+key Enter
+wait 1
+snap arg-nomatch-enter
+key C-u
+type /provider
+key Enter
+wait 1.2
+fx: key Enter
+fx: wait 0.8
+fx: key Down
+fx: wait 0.3
+fx: key Enter
+fx: wait 0.8
+key Enter
+wait 2
+snap commit
+home after-commit
+type stream something long please
+key Enter
+wait 1.5
+type /provider
+key Enter
+wait 1
+snap busy
+wait 8
+snap busy-after
