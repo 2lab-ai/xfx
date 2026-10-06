@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ write a big file
+
+[tool] write_file running
+[tool] write_file refused: write_file was not permitted: you declined `write_file` for
+`<scratch>/work/big.txt`
+  Not written.
+
+  3s (↑5 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

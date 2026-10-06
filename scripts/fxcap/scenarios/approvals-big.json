@@ -1,0 +1,17 @@
+[
+ {
+  "tool": {
+   "name": "write_file",
+   "input": {
+    "path": "big.txt",
+    "content": "generated line 1\ngenerated line 2\ngenerated line 3\ngenerated line 4\ngenerated line 5\ngenerated line 6\ngenerated line 7\ngenerated line 8\ngenerated line 9\ngenerated line 10\ngenerated line 11\ngenerated line 12\ngenerated line 13\ngenerated line 14\ngenerated line 15\ngenerated line 16\ngenerated line 17\ngenerated line 18\ngenerated line 19\ngenerated line 20\ngenerated line 21\ngenerated line 22\ngenerated line 23\ngenerated line 24\ngenerated line 25\ngenerated line 26\ngenerated line 27\ngenerated line 28\ngenerated line 29\ngenerated line 30\ngenerated line 31\ngenerated line 32\ngenerated line 33\ngenerated line 34\ngenerated line 35\ngenerated line 36\ngenerated line 37\ngenerated line 38\ngenerated line 39\ngenerated line 40\ngenerated line 41\ngenerated line 42\ngenerated line 43\ngenerated line 44\ngenerated line 45\ngenerated line 46\ngenerated line 47\ngenerated line 48\ngenerated line 49\ngenerated line 50\ngenerated line 51\ngenerated line 52\ngenerated line 53\ngenerated line 54\ngenerated line 55\ngenerated line 56\ngenerated line 57\ngenerated line 58\ngenerated line 59\ngenerated line 60\ngenerated line 61\ngenerated line 62\ngenerated line 63\ngenerated line 64\ngenerated line 65\ngenerated line 66\ngenerated line 67\ngenerated line 68\ngenerated line 69\ngenerated line 70\ngenerated line 71\ngenerated line 72\ngenerated line 73\ngenerated line 74\ngenerated line 75\ngenerated line 76\ngenerated line 77\ngenerated line 78\ngenerated line 79\ngenerated line 80\n"
+   }
+  }
+ },
+ {
+  "delayMs": 100,
+  "chunks": [
+   "Not written."
+  ]
+ }
+]

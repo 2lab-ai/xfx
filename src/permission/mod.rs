@@ -52,14 +52,14 @@ pub use authority::{
     bounded_diff_side, bounded_excerpt, non_text_summary, scalar_token, ApprovalDiff,
     AuthorityError, AuthorityLedger, CommandPlan, CommandRoute, ContentHash, ExecutionAuthority,
     FileIdentity, MutationExcerpt, MutationKind, MutationPlan, Nonce, Preimage, PreparedCommand,
-    PreparedMutation, ReadRecord, ReadTracker, TargetScope, MAX_APPROVAL_DIFF_SIDE_BYTES,
-    MAX_EXCERPT_BYTES,
+    PreparedMutation, ReadRecord, ReadTracker, TargetScope, APPROVAL_DIFF_CONTEXT_LINES,
+    MAX_APPROVAL_DIFF_SIDE_BYTES, MAX_EXCERPT_BYTES,
 };
 pub use command::{classify, CommandEffect, DeniedEffect};
 pub use policy::{
-    AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse, Decided,
-    DenyCause, Grant, PermissionRules, PermissionSession, PolicyDecision, ProposedAction, Rule,
-    TtyPrompter, YOLO_WARNING,
+    AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
+    ApprovalSubject, Decided, DenyCause, Grant, PermissionRules, PermissionSession, PolicyDecision,
+    ProposedAction, Rule, TtyPrompter, YOLO_WARNING,
 };
 
 #[cfg(test)]

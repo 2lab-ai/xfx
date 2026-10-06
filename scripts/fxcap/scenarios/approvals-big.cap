@@ -1,0 +1,20 @@
+# A change too big for the band: an 80-line new file, reviewed on a screen of
+# its own (fx reviews every file there; xfx brings a change here once its
+# review outgrows the band). Walked back toward its head, then refused.
+gateway approvals-big.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type write a big file
+key Enter
+wait 3
+snap write-big
+xfx: key C-p C-p C-p
+fx: key WheelUpPane
+wait 0.5
+snap write-big-walked
+key 3
+wait 2.5
+snap end

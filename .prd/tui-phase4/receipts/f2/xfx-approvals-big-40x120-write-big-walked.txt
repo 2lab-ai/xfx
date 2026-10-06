@@ -1,0 +1,40 @@
+     51 + generated line 51
+     52 + generated line 52
+     53 + generated line 53
+     54 + generated line 54
+     55 + generated line 55
+     56 + generated line 56
+     57 + generated line 57
+     58 + generated line 58
+     59 + generated line 59
+     60 + generated line 60
+     61 + generated line 61
+     62 + generated line 62
+     63 + generated line 63
+     64 + generated line 64
+     65 + generated line 65
+     66 + generated line 66
+     67 + generated line 67
+     68 + generated line 68
+     69 + generated line 69
+     70 + generated line 70
+     71 + generated line 71
+     72 + generated line 72
+     73 + generated line 73
+     74 + generated line 74
+     75 + generated line 75
+     76 + generated line 76
+     77 + generated line 77
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                    Write · +80  -0
+
+  big.txt  ·  Apply this change?
+
+  ❯ 1  Apply once
+    2  Apply + allow future writes to this file for this session
+    3  Don't apply
+  2 = allow every future write_file to `big.txt` for the rest of this session, whatever its contents, and in every later
+  `xfx ask --resume-id 1791302253759-b69ae9763332fe55` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  1–3 choose now    ↑↓ options    tab amend    ctrl+p/n scroll    enter confirm    esc cancel

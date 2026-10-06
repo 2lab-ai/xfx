@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ edit the files
+
+● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied · 1 cancelled
+├ Read a.txt
+├ Edited a.txt +1 / -1
+├ Denied file
+├ Ran echo hi > out.txt && cat out.txt
+└ Cancelled echo again
+
+■ Cancelled echo again · What can fx do differently?
+
+┃ use capitals
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

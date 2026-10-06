@@ -5513,6 +5513,7 @@ mod tests {
                 "allow every future edit_file to `notes.txt` for the rest of this session"
                     .to_string(),
             diff: None,
+            subject: crate::permission::ApprovalSubject::Path("notes.txt".to_string()),
         }
     }
 
@@ -5539,11 +5540,13 @@ mod tests {
                 summary: "edit `readme.md`: replace \"old\" with \"new\"".to_string(),
                 always_scope: "allow every future edit_file to `readme.md`".to_string(),
                 diff: None,
+                subject: crate::permission::ApprovalSubject::Path("readme.md".to_string()),
             },
         })
     }
 
-    /// A question about a change no band summary could show.
+    /// A question about a change no band review could show: forty lines
+    /// replaced, eighty rows of review (`super::approval::BAND_REVIEW_LINES`).
     fn a_change_too_big_for_the_band() -> UiEvent {
         UiEvent::Approval(crate::tui::approval::ApprovalAsked {
             id: crate::tui::approval_readiness::ApprovalId(1),
@@ -5553,9 +5556,12 @@ mod tests {
                 summary: "edit `notes.txt`: replace \"alpha\" with \"beta\"".to_string(),
                 always_scope: "allow every future edit_file to `notes.txt`".to_string(),
                 diff: Some(crate::permission::ApprovalDiff {
-                    before: "a".repeat(4_000),
-                    after: "b".repeat(4_000),
+                    before: "alpha\n".repeat(40),
+                    after: "beta\n".repeat(40),
+                    first_line: 1,
+                    lines_below: 0,
                 }),
+                subject: crate::permission::ApprovalSubject::Path("notes.txt".to_string()),
             },
         })
     }

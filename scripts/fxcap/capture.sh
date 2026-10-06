@@ -12,10 +12,17 @@
 # scenario's turns. A scenario is a file in scenarios/, one command per line:
 #
 #   gateway <turns.json>   turns for the fake gateway (default: none)
+#   env K=V                extra environment for the binary
+#   seed <settings.json>   copied to ~/.fx/settings.json before launch
+#   work <dir>             copied into the workspace before launch
 #   wait <seconds>
 #   type <text>            literal keys
+#   paste <text>           bracketed paste (printf %b escapes)
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
+#   snapfull <label>       the same with the whole tmux history (.full.*)
+#   gwlog                  the gateway's log and every request body it got
+#   workls <label>         the workspace's files after the run
 #   title <label>          writes the pane's window title (OSC 2) to
 #                          <bin>-<scenario>-<size>-<label>.title
 #   keep                   keeps the pane after the program exits, so a title
@@ -24,7 +31,24 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
+#
+# A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
+# products name their tools and settings differently (fx's `shell` is xfx's
+# `terminal`, `FX_PERMISSION_MODE` is `XFX_PERMISSION_MODE`), so one keystroke
+# script can drive both with a turns file and an environment of each's own.
 set -euo pipefail
+
+# The line, if it is for this binary, with its prefix taken off; nothing if it
+# is for the other one.
+for_this() {
+  local which=$1 line=$2
+  case $line in
+    'fx: '*) [[ $which == fx ]] && printf '%s' "${line#fx: }" ;;
+    'xfx: '*) [[ $which == xfx ]] && printf '%s' "${line#xfx: }" ;;
+    *) printf '%s' "$line" ;;
+  esac
+  return 0
+}
 
 main() {
   local which=${1:?fx or xfx} scenario=${2:?scenario} size=${3:?rowsxcols}
@@ -47,14 +71,19 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]'
-  local line
-  while IFS= read -r line; do
+  local turns='[]' extra_env=''
+  local raw line
+  while IFS= read -r raw; do
+    line=$(for_this "$which" "$raw")
     [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
+    [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
+    [[ $line == seed\ * ]] && { mkdir -p "$run/home/.fx"; cp "$here/scenarios/${line#seed }" "$run/home/.fx/settings.json"; }
+    [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
-  bun "$here/fakegw.ts" 0 "$run/turns.json" > "$run/gateway.log" 2>&1 &
+  mkdir -p "$run/bodies"
+  bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -92,20 +121,22 @@ main() {
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
-FX_MODEL=fake/model-a $bin"
+FX_MODEL=fake/model-a $extra_env $bin"
   else
     launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
-XFX_MODEL=fake/model-a $bin"
+XFX_MODEL=fake/model-a $extra_env $bin"
   fi
   tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
     "cd $run/work && exec $launch"
 
-  while IFS= read -r line; do
+  while IFS= read -r raw; do
+    line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway) ;;
+      ''|'#'*|gateway|env|seed|work) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
+      paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
       key) # shellcheck disable=SC2086
         tmux -f /dev/null -S "$sock" send-keys -t cap $rest ;;
       snap)
@@ -114,6 +145,14 @@ XFX_MODEL=fake/model-a $bin"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$name.ansi"
         echo "$name.txt"
         ;;
+      snapfull)
+        local name=$out/$which-$scenario-$size-$rest.full
+        tmux -f /dev/null -S "$sock" capture-pane -p -S - -t cap > "$name.txt"
+        tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.ansi"
+        echo "$name.txt"
+        ;;
+      gwlog) cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies" ;;
+      workls) (cd "$run/work" && for f in $(find . -type f | sort); do echo "== $f"; head -c 2000 "$f"; echo; done) > "$out/$which-$scenario-$size-work-$rest.txt" ;;
       title)
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"

@@ -3835,12 +3835,13 @@ fn quit_leaves_the_way_ctrl_d_does() {
 /// contains it, so waiting for it cannot be satisfied by the pty's echo.
 const PERMISSION_TITLE: &str = "Permission needed";
 
-/// The second choice's wording for anything that is not a shell command.
+/// The second choice's wording for an edit: upstream's `Apply + allow …`
+/// naming xfx's own grant (`src/tui/approval_view.rs`'s `label`).
 ///
 /// Spelled out rather than imported, for the reason [`MODE_SET`] is: a needle
 /// that read the constant it is checking would pass for whatever
-/// `src/tui/approval.rs` happened to declare.
-const ALWAYS_WORDING: &str = "don't ask again for this request";
+/// `src/tui/approval_view.rs` happened to declare.
+const ALWAYS_WORDING: &str = "allow future edits to this file for this session";
 
 #[test]
 fn ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through() {
@@ -4032,24 +4033,43 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
     session.type_bytes(b"edit the notes\r");
     session.wait_for(PERMISSION_TITLE);
 
-    let before = elapsed_on_activity_row(&session.text()).expect("an elapsed time");
-    let frames_before = session.text().matches(FRAME_END).count();
+    let text = session.text();
+    let before = elapsed_on_activity_row(&text);
+    let frames_before = text.matches(FRAME_END).count();
+    // Whether the activity row is on the screen with the question at all. The
+    // band grew to hold the question, so the frame that painted it repainted
+    // every row of the band: the row is in that frame or it is not up.
+    let row_shown = text
+        .split(FRAME_END)
+        .find(|frame| frame.contains(PERMISSION_TITLE))
+        .and_then(elapsed_on_activity_row)
+        .is_some();
     std::thread::sleep(std::time::Duration::from_secs(3));
     let text = session.text();
-    let after = elapsed_on_activity_row(&text).expect("an elapsed time");
-    // **The band kept painting**, and this is what keeps the assertion below
+    // Only the frames painted while the user was being waited on. The painter
+    // writes the cells that changed, so a clock that ran would put its new
+    // number in one of them, and a frozen one puts none there at all.
+    let shown: Vec<u64> = text
+        .split(FRAME_END)
+        .skip(frames_before)
+        .filter_map(elapsed_on_activity_row)
+        .collect();
+    assert!(
+        shown.iter().all(|seconds| Some(*seconds) == before),
+        "the clock ran while xfx was waiting for the user: {before:?}, then {shown:?}"
+    );
+    // **The band kept painting**, and this is what keeps the assertion above
     // from being vacuous: the marker blinks every 500 ms whether or not the
     // clock is running, so a session that had simply stopped drawing would
-    // trivially report the same number. Frames arrived; the number in them did
-    // not move.
-    assert!(
-        text.matches(FRAME_END).count() > frames_before,
-        "the band stopped painting, so the frozen clock proves nothing"
-    );
-    assert_eq!(
-        before, after,
-        "the clock ran while xfx was waiting for the user"
-    );
+    // trivially show no new number. Only while the row is up: upstream's band
+    // hides it under an approval (`render_input.zig:705`), and a row that is
+    // not on the screen has no marker to blink and no clock to be seen running.
+    if row_shown {
+        assert!(
+            text.matches(FRAME_END).count() > frames_before,
+            "the band stopped painting, so the frozen clock proves nothing"
+        );
+    }
 
     session.type_bytes(b"3");
     session.wait_for("the edit is done");
@@ -4058,11 +4078,55 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
 }
 
 #[test]
-fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
+fn ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on() {
+    // Upstream's Ctrl-C at a question (`src/ui/input/runtime.zig:61`,
+    // `3 => .deny`; its e2e `tests/e2e/tui-permissions.test.ts:1099`): this
+    // call is refused and the turn carries on, told no -- so the scripted
+    // closing reply still arrives, and the file is untouched. Divergence 7 of
+    // `.prd/tui-phase4/ssot.md`: xfx's Ctrl-C used to stop the turn here.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+
+    session.type_bytes(&[0x03]);
+
+    // The turn went on to its own conclusion: the tool result went back and
+    // the model's last reply was asked for and shown.
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the refused call ran anyway"
+    );
+    assert!(
+        session.text().contains("edit_file refused"),
+        "the refusal never reached the user: {:?}",
+        session.text()
+    );
+    assert!(
+        !session.text().contains("stopping the turn"),
+        "Ctrl-C at a question stopped the turn: {:?}",
+        session.text()
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // The composed row for the whole gesture, driven the only way it can be
-    // driven honestly: a real `0x03` typed at a real panel on a real pty, with
+    // driven honestly: a real Escape typed at a real panel on a real pty, with
     // all three effects asserted on the far side of the input -> shell ->
-    // worker path.
+    // worker path. (Renamed: this was Ctrl-C's before divergence 7; upstream
+    // gives the cancel to Escape, `app_input_runtime.zig:3139-3143`.)
     //
     // The three are one keystroke and have to stay one: the prompter answers
     // the cancellation with a refusal and hands the cancellation on
@@ -4105,10 +4169,11 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     session.wait_for("queued 1");
     session.wait_for(PERMISSION_TITLE);
 
-    session.type_bytes(&[0x03]);
+    // A lone ESC: the decoder settles it as Escape once nothing follows it.
+    session.type_bytes(&[0x1b]);
 
-    // (b) The turn was interrupted, in the words a Ctrl-C is answered with
-    // wherever it is typed (`app::INTERRUPT_NOTICE`). Response-only.
+    // (b) The turn was interrupted, in the words the interrupt is answered with
+    // wherever it is asked for (`app::INTERRUPT_NOTICE`). Response-only.
     session.wait_for("stopping the turn");
     // (c) ... and the queue went with it, said where the user can read it.
     session.wait_for("dropping what was queued");
@@ -4258,29 +4323,30 @@ fn large_edit_then_finish(before: &str, after: &str) -> Vec<support::fake_gatewa
     ]
 }
 
-/// A session parked on a question about a change too big for the band.
-///
-/// Returns the pty and the session, both alive, with the alternate screen
-/// already taken and the question painted on it.
 /// What the question's own frame owes the first screenful, and what every case
 /// below reads out of it.
 ///
-/// The title, the heading of the side being replaced, and the head of that side
-/// down to the row the assertions reach. Named as a set because the wait and
-/// the assertions have to be about the *same* set: a wait that stopped one row
-/// short of what is asserted is a wait that hands a half-painted screen to a
-/// `contains`.
-/// **A changed coordinate.** The deepest row was `alpha line 10` while the
-/// review plane cut the subject to two rows and the always-scope to one. It
-/// shows both whole now -- every scope `crate::permission` builds is three
-/// wrapped rows at eighty columns -- so the viewport gave rows to the
-/// disclosure and the first screenful ends earlier. How much earlier depends on
-/// how many rows the workspace path takes, and that is a property of whatever
-/// `TMPDIR` this runs under: the depth is deliberately shallow rather than
-/// exact, so this is a claim about the product and not about the sandbox. The
-/// tail of the change is still asserted; it is reached by the walk below, which
-/// is what the walk is for.
-const PAINTED_QUESTION: [&str; 4] = [PERMISSION_TITLE, "before", "alpha line 0", "alpha line 4"];
+/// The title, the question about the path, and the **tail** of the change
+/// down to its last row: the review opens at its tail against the controls,
+/// as upstream's does (`approval_screen.zig:150-155`). Named as a set because
+/// the wait and the assertions have to be about the *same* set: a wait that
+/// stopped one row short of what is asserted is a wait that hands a
+/// half-painted screen to a `contains`.
+///
+/// **A changed coordinate.** This was the head of a `before` section -- `alpha
+/// line 0` to `alpha line 4` -- until the plane became upstream's review. The
+/// depth is still deliberately shallow: five rows of a window that is ten at
+/// 24x80, so a scope that wrapped onto one more row would not move the needle.
+///
+/// Each needle is one run of the frame's bytes: the sign, the number and the
+/// path are painted in runs of their own, so a needle that spanned two would
+/// wait on the colour sequence between them rather than on the screen.
+const PAINTED_QUESTION: [&str; 4] = [
+    PERMISSION_TITLE,
+    "Apply this change?",
+    "beta line 15",
+    "beta line 19",
+];
 
 /// Whether `text` holds the question, whole, on the other plane.
 ///
@@ -4324,18 +4390,24 @@ fn a_review_frame(rows: usize, whole: bool) -> String {
     let mut text = String::from("\u{1b}[?2004l");
     text.push_str(ENTERS_ALTERNATE);
     text.push_str(FRAME_BEGIN);
-    text.push_str("\u{1b}[1;1H\u{1b}[2J\u{1b}[1;1H");
-    text.push_str(PERMISSION_TITLE);
-    text.push_str("\u{1b}[2;1H  edit_file notes.txt\u{1b}[4;1H  before");
-    for line in 0..rows {
-        text.push_str(&format!("\u{1b}[{};1H    alpha line {line}", line + 6));
+    text.push_str("\u{1b}[1;1H\u{1b}[2J");
+    // The review's last `rows` lines, tail against the chrome.
+    for (row, line) in (LARGE_EDIT_LINES - rows..LARGE_EDIT_LINES).enumerate() {
+        text.push_str(&format!(
+            "\u{1b}[{};1H     {} + beta line {line}",
+            row + 1,
+            line + 1
+        ));
     }
+    text.push_str("\u{1b}[12;1H  ");
+    text.push_str(PERMISSION_TITLE);
     if !whole {
-        // Row 10, half delivered -- the exact shape the runner captured.
-        text.push_str("\u{1b}[16;1H    alpha lin");
+        // A row half delivered -- the shape the runner captured.
+        text.push_str("\u{1b}[14;1H  notes.txt  ·  Apply th");
         return text;
     }
-    text.push_str("\u{1b}[21;1H> 1. Yes");
+    text.push_str("\u{1b}[14;1H  notes.txt  ·  Apply this change?");
+    text.push_str("\u{1b}[16;1H  ❯ 1  Apply once");
     text.push_str(FRAME_END);
     text
 }
@@ -4380,8 +4452,8 @@ fn a_question_still_being_painted_is_not_a_painted_question() {
     );
 
     // And completeness alone is not enough: the rows the assertions reach are
-    // part of the contract, so a frame that stopped short still waits.
-    let short = a_review_frame(4, true);
+    // part of the contract, so a frame that stopped short of them still waits.
+    let short = a_review_frame(3, true);
     assert!(
         short.contains(PERMISSION_TITLE) && last_frame(&short).is_some(),
         "the case does not present a complete frame"
@@ -4452,15 +4524,16 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
         !text.contains(LEAVES_ALTERNATE),
         "the plane was given back before it was answered: {text:?}"
     );
-    // The change itself is on that screen -- **both** halves of it -- which is
-    // the whole reason it exists: the band's own summary quotes 160 bytes.
+    // The change itself is on that screen, which is the whole reason it
+    // exists: forty rows of review are more than the band holds.
     //
-    // **Line for line**, and that is why the tail of the change is not on the
+    // **Line for line**, and that is why the head of the change is not on the
     // first screenful: the review keeps the file's own line breaks and gives
-    // each one a row (`permission::bounded_diff_side`), so twenty lines are
-    // twenty rows rather than one wrapped run. What the first screen owes is
-    // the head of the change under its heading; the rest is reached by walking,
-    // which is asserted below and is why the walk exists at all.
+    // each one a numbered row (`permission::bounded_diff_side`), so twenty
+    // lines replaced are forty rows rather than one wrapped run. What the first
+    // screen owes is the tail of the change against the controls, as
+    // upstream's does; the rest is reached by walking, which is asserted below
+    // and is why the walk exists at all.
     //
     // Read out of the **frame**, not out of everything the session has ever
     // written: the document above the band carries the tool's own rows, so a
@@ -4470,7 +4543,7 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     // The same three the wait was satisfied by, for the reason `PAINTED_QUESTION`
     // gives: a wait that stopped short of what is asserted hands a half-painted
     // screen to a `contains`.
-    for needle in ["before", "alpha line 0", "alpha line 4"] {
+    for needle in PAINTED_QUESTION {
         assert!(
             frame.contains(needle),
             "{needle:?} was not shown on the screen that exists to show it: {text:?}"
@@ -4480,17 +4553,15 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
         !text.contains("alpha line 0\\nalpha line 1"),
         "the file's line breaks were flattened into one run: {text:?}"
     );
-    // `C-n` walks the change, and the tail of the first side and the head of
-    // the second are down there.
+    // `C-p` walks the change back toward its head, and the last removed line
+    // and the first added one are up there.
     //
     // **A changed coordinate**, for the reason `PAINTED_QUESTION` gives: the
-    // viewport gave three rows to the whole target and the whole always-scope,
-    // so the same walk covers three fewer rows of the change and needs the
-    // steps back. Sixteen puts the boundary between the two sides inside the
-    // window with a row to spare on either side of it.
-    session.type_bytes(&[0x0e; 16]);
+    // window opens at the tail now, so the walk is upward. Sixteen of a ten-row
+    // window's thirty puts the boundary between the removed and the added
+    // lines inside it with rows to spare on either side.
+    session.type_bytes(&[0x10; 16]);
     session.wait_for("alpha line 19");
-    session.wait_for("after");
     session.wait_for("beta line 0");
     assert_eq!(
         std::fs::read_to_string(&path).expect("read back"),
@@ -5349,8 +5420,10 @@ mod faults {
         let asked = wire(&session).len();
 
         // One step of the walk: the first repaint of the plane the session
-        // already owns, and the vector the fault is armed on.
-        session.type_bytes(&[0x0e]);
+        // already owns, and the vector the fault is armed on. `C-p`, because
+        // the window opens at the change's tail and only walking back toward
+        // its head repaints anything.
+        session.type_bytes(&[0x10]);
         // The tear, the cleanup, the rebuild -- and then the repaint the tick
         // behind a recovery is forced to write, which is the frame readiness
         // comes back from. An answer typed before that one lands is refused
@@ -5474,7 +5547,9 @@ mod faults {
         });
         let asked = wire(&session).len();
 
-        session.type_bytes(&[0x0e]);
+        // `C-p`: the window opens at the change's tail, so only a walk back
+        // toward its head repaints the plane.
+        session.type_bytes(&[0x10]);
         let status = session.wait_exit();
         assert!(
             !status.success(),
