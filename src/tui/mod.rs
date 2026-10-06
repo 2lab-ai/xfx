@@ -683,6 +683,7 @@ mod approval_screen;
 mod blocks;
 mod bridge;
 mod check;
+mod copy;
 mod deliver;
 mod diagnostic;
 mod edit_history;

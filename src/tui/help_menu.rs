@@ -656,10 +656,10 @@ mod tests {
         // the order of the tabs, not the order of the registry.
         assert_eq!(
             names(&HelpMenu::open("")),
-            ["/help", "/clear", "/version", "/quit", "/new", "/setup", "/model"]
+            ["/help", "/clear", "/version", "/quit", "/new", "/copy", "/setup", "/model"]
         );
         assert_eq!(names(&on_tab(1)), ["/help", "/clear", "/version", "/quit"]);
-        assert_eq!(names(&on_tab(2)), ["/new"]);
+        assert_eq!(names(&on_tab(2)), ["/new", "/copy"]);
         assert_eq!(names(&on_tab(3)), ["/setup"]);
         assert_eq!(names(&on_tab(4)), ["/model"]);
         // Every command is on exactly one tab, and `All` is the sum of them.
@@ -735,8 +735,8 @@ mod tests {
         let found = |query: &str| names(&HelpMenu::open(query));
         // The category label, the summary and the name are all searched.
         assert_eq!(found("general"), ["/help", "/clear", "/version", "/quit"]);
-        assert_eq!(found("SESSION"), ["/clear", "/new"]);
-        assert_eq!(found("ses"), ["/clear", "/new"]);
+        assert_eq!(found("SESSION"), ["/clear", "/new", "/copy"]);
+        assert_eq!(found("ses"), ["/clear", "/new", "/copy"]);
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.
         assert_eq!(found("exit"), ["/quit"]);
@@ -753,9 +753,14 @@ mod tests {
     #[test]
     fn the_catalog_opens_with_its_header_a_blank_row_and_every_command() {
         let menu = HelpMenu::open("");
-        assert_eq!(menu.height(40, 0), 2 + 7, "only as tall as what it lists");
+        let count = SLASH_REGISTRY.len();
+        assert_eq!(
+            usize::from(menu.height(40, 0)),
+            2 + count,
+            "only as tall as what it lists"
+        );
         let rows = menu.rows(120, menu.height(40, 0), PALETTE);
-        assert_eq!(rows.len(), 9);
+        assert_eq!(rows.len(), 2 + count);
         assert_eq!(rows[1], "", "the blank row under the header");
         // The marked row: name and summary bright, each closed, the spaces
         // between them uncoloured; the summary at 2 + `/version` + 4.
@@ -776,7 +781,7 @@ mod tests {
         );
         assert_eq!(
             shown(&rows),
-            ["/help", "/clear", "/version", "/quit", "/new", "/setup", "/model"]
+            ["/help", "/clear", "/version", "/quit", "/new", "/copy", "/setup", "/model"]
         );
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");

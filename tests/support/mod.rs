@@ -10,6 +10,10 @@
 // surface; the alternative is per-crate `cfg` noise that hides real warnings.
 #![allow(dead_code)]
 
+// The fake clipboard is a shell script, so it is unix-only for the reason the
+// pty harness is.
+#[cfg(unix)]
+pub mod fake_clipboard;
 pub mod fake_gateway;
 pub mod fake_llmux;
 // The pty harness drives a real terminal, so it is unix-only; `tests/cli.rs`

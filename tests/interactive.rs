@@ -24,6 +24,7 @@ use rustix::process::{Pid, Signal};
 use rustix::termios::{ControlModes, InputModes, LocalModes, OutputModes};
 use serde_json::{json, Value};
 
+use support::fake_clipboard::FakeClipboard;
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
@@ -525,6 +526,43 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
         vec!["two".to_string()],
         "the new session inherited history"
     );
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1974-2001`: nothing to copy,
+    // the reply's exact bytes, and a tool that refused -- each said once.
+    let answer = "ALPHA answer line one.\n\nSecond paragraph with `code`.";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[
+        "ALPHA answer line one.\n\n",
+        "Second paragraph with `code`.",
+    ]))]);
+    let clipboard = FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    clipboard.first_on_path(&mut command);
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/copy");
+    session.wait_for("[shell] No assistant reply to copy.");
+    assert_eq!(clipboard.copied(), None, "a copy ran with nothing to copy");
+
+    session.type_line("one");
+    session.wait_for("`code`.");
+    session.type_line("/copy");
+    session.wait_for("[shell] Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        answer.as_bytes(),
+        "not the reply as the model wrote it"
+    );
+
+    clipboard.fail();
+    session.type_line("/copy");
+    session.wait_for("xfx: Failed to copy to clipboard.");
 
     assert_eq!(session.quit().code(), Some(0));
 }
