@@ -13858,6 +13858,7 @@ mod tests {
             output: "no such path: `gone.txt`".to_string(),
             ending,
             lines,
+            change: None,
         }
     }
 
@@ -13893,6 +13894,7 @@ mod tests {
                         .into(),
                 ending: None,
                 lines: None,
+                change: None,
             },
         ];
         let mut turn = saved(
@@ -14118,6 +14120,7 @@ mod tests {
                 output: format!("read {hostile}"),
                 ending: None,
                 lines: None,
+                change: None,
             },
         ];
         let state = logged(vec![logged_turn(

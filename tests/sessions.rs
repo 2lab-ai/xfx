@@ -182,6 +182,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "read_file".to_string(),
             ok: true,
@@ -190,6 +191,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c2".to_string(),
             tool: "edit_file".to_string(),
             ok: true,
@@ -198,6 +200,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c3".to_string(),
             tool: "terminal".to_string(),
             ok: true,
@@ -2244,6 +2247,7 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c9".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -2829,6 +2833,7 @@ fn interrupted_batch_events() -> Vec<SessionEvent> {
         SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "write_file".to_string(),
             ok: true,
@@ -2899,6 +2904,7 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
         SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "write_file".to_string(),
             ok: true,
@@ -2907,6 +2913,7 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
         SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c2".to_string(),
             tool: "read_file".to_string(),
             ok: true,

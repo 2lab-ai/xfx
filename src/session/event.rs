@@ -103,6 +103,26 @@ pub struct LineCounts {
     pub removed: u64,
 }
 
+/// The change a call made to a file, as the review of it showed it: the
+/// window of the file it touched, both sides escaped and bounded
+/// (`crate::permission::ApprovalDiff`, 64 KiB a side), and where that window
+/// sits.
+///
+/// Kept so a resumed session's full transcript shows the diff a live one
+/// did, where upstream persists its file presentation beside the result
+/// (`writeCommittedFilePresentation`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:4954`). Never read back for the
+/// model, which was told the result's output and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedChange {
+    pub before: String,
+    pub after: String,
+    /// The file's line number, one-based, of both sides' first line.
+    pub first_line: u64,
+    /// How many unchanged lines of the file follow both sides' last.
+    pub lines_below: u64,
+}
+
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -214,6 +234,10 @@ pub enum SessionEvent {
         /// The lines a file change added and removed, when it made one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lines: Option<LineCounts>,
+        /// The change itself, as its review showed it ([`RecordedChange`]),
+        /// for the full transcript of a resumed session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<RecordedChange>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -528,6 +552,7 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -549,6 +574,12 @@ mod tests {
             lines: Some(LineCounts {
                 added: 2,
                 removed: 1,
+            }),
+            change: Some(RecordedChange {
+                before: "a\n".to_string(),
+                after: "b\nc\n".to_string(),
+                first_line: 4,
+                lines_below: 2,
             }),
         };
         let encoded = serde_json::to_string(&result).expect("encodes");
@@ -623,6 +654,7 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,

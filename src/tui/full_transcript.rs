@@ -454,8 +454,24 @@ pub(crate) fn details_of(steps: &[TurnStep]) -> Vec<(String, Detail)> {
                 call_id,
                 tool,
                 output,
+                change,
                 ..
-            } => found.push((call_id.clone(), result(tool, output))),
+            } => {
+                found.push((call_id.clone(), result(tool, output)));
+                // After the result, where a live turn's journal hands it over
+                // ([`TurnJournal::change_made`] follows the result's record).
+                if let Some(change) = change {
+                    found.push((
+                        call_id.clone(),
+                        Detail::Change(ApprovalDiff {
+                            before: change.before.clone(),
+                            after: change.after.clone(),
+                            first_line: usize::try_from(change.first_line).unwrap_or(usize::MAX),
+                            lines_below: usize::try_from(change.lines_below).unwrap_or(usize::MAX),
+                        }),
+                    ));
+                }
+            }
             TurnStep::ToolFeedback { .. } => {}
         }
     }
@@ -2469,6 +2485,69 @@ mod tests {
             .any(|row| row.contains("session:")));
     }
 
+    /// A change made before a resume has its diff in the log beside its
+    /// result, and the replayed record shows it as the live one did.
+    #[test]
+    fn a_replayed_change_shows_the_diff_the_log_kept() {
+        let input = json!({"path": "a.txt", "old_string": "a", "new_string": "b"});
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "e".into(),
+                    name: "edit_file".into(),
+                    input: input.clone(),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                call_id: "e".into(),
+                tool: "edit_file".into(),
+                ok: true,
+                output: "Edited a.txt".into(),
+                ending: None,
+                lines: Some(crate::session::LineCounts {
+                    added: 1,
+                    removed: 1,
+                }),
+                change: Some(crate::session::RecordedChange {
+                    before: "a\n".into(),
+                    after: "b\n".into(),
+                    first_line: 1,
+                    lines_below: 0,
+                }),
+            },
+        ];
+        let details = details_of(&steps);
+        assert_eq!(
+            details.last(),
+            Some(&(
+                "e".to_string(),
+                Detail::Change(ApprovalDiff::of("a\n", "b\n"))
+            ))
+        );
+        let mut record = record();
+        for (call_id, detail) in details {
+            record.observe(&UiEvent::ToolDetail { call_id, detail });
+        }
+        record.tool_started("e", &crate::tools::mutate::EDIT_FILE.shown(&input));
+        record.tool_finished(
+            "e",
+            true,
+            "",
+            Outcome::Finished,
+            Some(LineChanges {
+                added: 1,
+                removed: 1,
+            }),
+        );
+        let rows = plain(&record.rows(120, 40, DARK, ""));
+        assert!(rows.iter().any(|row| row == "  \u{2502} 1 - a"), "{rows:?}");
+        assert!(rows.iter().any(|row| row == "  \u{2502} 1 + b"), "{rows:?}");
+    }
+
     #[test]
     fn a_replayed_turn_carries_the_times_the_log_has_and_its_calls_details() {
         // The entry point a resumed session fills the record through:
@@ -2492,6 +2571,7 @@ mod tests {
                 output: "<path>a.txt</path>\n<content>\n1\tsaved line\n</content>".into(),
                 ending: None,
                 lines: None,
+                change: None,
             },
             TurnStep::ToolFeedback {
                 call_id: "c".into(),
@@ -2826,6 +2906,7 @@ mod tests {
             teed.record(SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -2878,6 +2959,7 @@ mod tests {
         Teed::new(&mut kept, events, cancel).record(SessionEvent::ToolResult {
             ending: None,
             lines: None,
+            change: None,
             call_id: "c".into(),
             tool: "glob_files".into(),
             ok: true,

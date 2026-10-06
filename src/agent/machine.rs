@@ -56,7 +56,9 @@ use crate::gateway::protocol::{
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
-use crate::session::{LineCounts, RecordedToolCall, SessionEvent, ToolEnding, TurnConclusion};
+use crate::session::{
+    LineCounts, RecordedChange, RecordedToolCall, SessionEvent, ToolEnding, TurnConclusion,
+};
 use crate::tools::{Outcome, Registry};
 use crate::workspace::ProjectContext;
 
@@ -626,6 +628,12 @@ impl TurnMachine {
                 lines: result.changes.map(|changes| LineCounts {
                     added: changes.added as u64,
                     removed: changes.removed as u64,
+                }),
+                change: result.change.as_deref().map(|change| RecordedChange {
+                    before: change.before.clone(),
+                    after: change.after.clone(),
+                    first_line: change.first_line as u64,
+                    lines_below: change.lines_below as u64,
                 }),
             });
             if let Some(change) = &result.change {

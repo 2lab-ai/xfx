@@ -1490,6 +1490,7 @@ mod tests {
             vec![crate::session::TurnStep::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

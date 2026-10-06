@@ -27,8 +27,8 @@ pub mod event;
 pub mod store;
 
 pub use event::{
-    new_identifier, EventEnvelope, FrameError, LineCounts, RecordedToolCall, SessionEvent,
-    ToolEnding, TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
+    new_identifier, EventEnvelope, FrameError, LineCounts, RecordedChange, RecordedToolCall,
+    SessionEvent, ToolEnding, TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
 };
 pub use store::{
     validate_title, workspace_key, Clock, DurableState, HistoryTurn, ListFilter, ListScope,

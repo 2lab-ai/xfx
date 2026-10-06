@@ -2013,6 +2013,22 @@ async fn the_journal_keeps_how_each_call_ended_for_the_row_and_the_lines_it_chan
     .await
     .expect("the turn completes");
 
+    // The change itself, as its review showed it, for a resumed session's
+    // full transcript.
+    let change = journal
+        .events
+        .iter()
+        .find_map(|event| match event {
+            SessionEvent::ToolResult {
+                call_id, change, ..
+            } if call_id == "c1" => change.clone(),
+            _ => None,
+        })
+        .expect("the write's change is in the log");
+    assert_eq!(
+        (change.before.as_str(), change.after.as_str()),
+        ("", "one\ntwo\n")
+    );
     let results: Vec<(String, bool, Option<ToolEnding>, Option<LineCounts>)> = journal
         .events
         .iter()

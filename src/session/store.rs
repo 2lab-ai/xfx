@@ -402,6 +402,9 @@ pub enum TurnStep {
         /// The lines a change added and removed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lines: Option<super::event::LineCounts>,
+        /// The change, as its review showed it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<super::event::RecordedChange>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -1939,6 +1942,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             output,
             ending,
             lines,
+            change,
         } => {
             open_turn(state, "a tool result")?
                 .steps
@@ -1949,6 +1953,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     output: output.clone(),
                     ending: *ending,
                     lines: *lines,
+                    change: change.clone(),
                 });
         }
         SessionEvent::ToolFeedback { call_id, text } => {
@@ -2531,6 +2536,7 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,
@@ -2588,6 +2594,7 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
@@ -2596,6 +2603,7 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c2".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
@@ -2770,6 +2778,7 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

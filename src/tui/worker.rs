@@ -3970,6 +3970,7 @@ mod tests {
                 output: format!("read {HOSTILE}"),
                 ending: None,
                 lines: None,
+                change: None,
             },
             SessionEvent::AssistantMessage {
                 text: format!("done {HOSTILE}"),

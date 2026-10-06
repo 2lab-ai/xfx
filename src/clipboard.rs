@@ -215,6 +215,7 @@ mod tests {
             self.commit(SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                change: None,
                 call_id: "call-1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
