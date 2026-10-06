@@ -1,0 +1,13 @@
+[
+ {"chunks": ["I will look at the files first.\n"], "tools": [{"name": "read_file", "input": {"path": "a.txt"}}, {"name": "read_file", "input": {"path": "b.txt"}}]},
+ {"tools": [{"name": "glob_files", "input": {"pattern": "**/*.rs"}}, {"name": "grep_files", "input": {"pattern": "alpha"}}]},
+ {"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "sleep 3; echo hello from shell; ls", "yield_time_ms": 30000}}}},
+ {"tool": {"name": "edit_file", "input": {"path": "a.txt", "old_string": "alpha line 2", "new_string": "ALPHA LINE TWO"}}},
+ {"tool": {"name": "write_file", "input": {"path": "c.txt", "content": "new file\nsecond line\n"}}},
+ {"tool": {"name": "read_file", "input": {"path": "missing.txt"}}},
+ {"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "echo boom; echo err >&2; exit 3", "yield_time_ms": 30000}}}},
+ {"delayMs": 200, "chunks": ["All ", "done. ", "The files ", "were updated."]},
+ {"tool": {"name": "write_file", "input": {"path": "d.txt", "content": "one more\n"}}},
+ {"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "sleep 4", "yield_time_ms": 30000}}}},
+ {"delayMs": 100, "chunks": ["spare ", "answer."]}
+]

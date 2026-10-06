@@ -418,6 +418,9 @@ enum Op {
     /// ([`Transcript::queue_gutter`]), so no row already on the screen is
     /// re-prefixed.
     Gutter(Gutter),
+    /// The open block, whole, as it now stands: rows that are each **one**
+    /// screen row and replace the ones the block had ([`Transcript::queue_block`]).
+    Block(Vec<String>),
 }
 
 /// The unfinished line, what the screen already shows of it, and the text that
@@ -505,6 +508,21 @@ pub(crate) struct Transcript {
     /// [`Op::Gutter`] -- is written with, **as of the last operation the
     /// terminal took**.
     gutter: Gutter,
+    /// Whether what [`Self::painted`] counts is an open **block** rather than
+    /// a line of text, as of the last operation the terminal took.
+    ///
+    /// The two are rewritten by different rules: a line's rows are its text
+    /// wrapped, and a block's are given ([`Op::Block`]), one screen row each,
+    /// so a resize re-measures the first and leaves the second's count alone.
+    block: bool,
+    /// How many of the open block's first rows are no longer rewritten: the
+    /// block's own [`MAX_TAIL_ROWS`] bound, for the reason a line has one
+    /// ([`freeze_block`]).
+    block_frozen: usize,
+    /// Whether a block is open once **everything queued** has landed -- the
+    /// enqueue-side projection of [`Self::block`], for the reason
+    /// [`Self::open`] is one.
+    block_open: bool,
 }
 
 impl Transcript {
@@ -519,6 +537,9 @@ impl Transcript {
             blank: true,
             split_crlf: false,
             gutter: Gutter::None,
+            block: false,
+            block_frozen: 0,
+            block_open: false,
         }
     }
 
@@ -560,6 +581,11 @@ impl Transcript {
         }
         if body.is_empty() {
             return false;
+        }
+        // Text never continues a block: whatever follows one starts on a row
+        // of its own, and the block's last row is left as it stands.
+        if self.block_open {
+            self.queue_end_line();
         }
         self.queue.push_back(Op::Push(body.to_string(), role));
         // Every push leaves a line open, including one that ends on a break:
@@ -610,6 +636,10 @@ impl Transcript {
         if body.is_empty() {
             return false;
         }
+        // As for a single push: text never continues a block.
+        if self.block_open {
+            self.queue_end_line();
+        }
         self.open = true;
         self.blank = body.ends_with('\n');
         self.queue.push_back(Op::Runs(body, roles));
@@ -645,7 +675,43 @@ impl Transcript {
             self.blank = true;
         }
         self.open = false;
+        self.block_open = false;
         blank_row
+    }
+
+    /// Queues the open block as it now stands, and says whether it asks for
+    /// anything.
+    ///
+    /// **The one thing in the document that is rewritten after it has been
+    /// written**, and it is the tail's rule stretched to more than one line
+    /// rather than an exception to it: a block is the last thing in the
+    /// document for as long as it is open, exactly as the unfinished line is,
+    /// so the rows it occupies are the rows immediately above the band and an
+    /// append can rewrite them where they are ([`Append`]). It closes the way a
+    /// line does -- [`Self::queue_end_line`], or anything else queued after it
+    /// -- and from then on it is the terminal's like every finished row.
+    ///
+    /// Each row is one screen row: it is never wrapped, and one wider than the
+    /// screen it lands on is cut with an ellipsis there ([`ellipsized`]). A
+    /// block that is given fewer rows than it already occupies keeps the rest
+    /// as blank rows rather than leaving their old text on the screen.
+    ///
+    /// Starts on a row of its own: an open line of text is ended first.
+    pub(crate) fn queue_block(&mut self, rows: Vec<String>) -> bool {
+        if rows.is_empty() {
+            return false;
+        }
+        if self.open && !self.block_open {
+            self.queue_end_line();
+        }
+        // The document ends as the block's last row does: a tool group's is
+        // the blank row it ends on, so a notice written under it does not
+        // grow a second one ([`Self::ends_blank`]).
+        self.blank = rows.last().is_some_and(String::is_empty);
+        self.queue.push_back(Op::Block(rows));
+        self.open = true;
+        self.block_open = true;
+        true
     }
 
     /// Queues a change of gutter for the lines that follow.
@@ -767,7 +833,45 @@ impl Transcript {
                 roles: self.roles.clone(),
                 painted: self.painted,
                 gutter: *gutter,
+                block: self.block,
+                block_frozen: self.block_frozen,
             }),
+            Op::Block(rows) => Some(self.prepare_block(rows)),
+        }
+    }
+
+    /// What the open block would write as `rows`, and the state it would
+    /// leave.
+    ///
+    /// Only ever in front of a committed tail that is empty or is this block:
+    /// [`Self::queue_block`] ends an open line before it queues one.
+    fn prepare_block(&self, rows: &[String]) -> Prepared {
+        let (frozen, painted) = if self.block {
+            (self.block_frozen, self.painted)
+        } else {
+            (0, 0)
+        };
+        let mut written: Vec<String> = rows
+            .iter()
+            .skip(frozen)
+            .map(|row| ellipsized(row, self.cols))
+            .collect();
+        // A block that lost rows must not leave their text behind: the rows it
+        // occupied are still its, and only a write can clear one.
+        written.resize(written.len().max(painted), String::new());
+        let append = Append {
+            scroll: written.len() - painted,
+            rows: written,
+        };
+        let (frozen, painted) = freeze_block(frozen, append.rows.len());
+        Prepared {
+            append,
+            tail: String::new(),
+            roles: Roles::default(),
+            painted,
+            gutter: self.gutter,
+            block: true,
+            block_frozen: frozen,
         }
     }
 
@@ -847,11 +951,26 @@ impl Transcript {
             tail,
             painted: open_rows,
             gutter,
+            block: false,
+            block_frozen: 0,
         }
     }
 
     /// What ending the line would write, and the empty tail it would leave.
     fn prepare_end_line(&self, palette: Palette) -> Prepared {
+        // A block's rows are already on the screen as they stand, and an empty
+        // tail would otherwise be measured as the one row a wrap of nothing is.
+        if self.block {
+            return Prepared {
+                append: Append::nothing(),
+                tail: String::new(),
+                roles: Roles::default(),
+                painted: 0,
+                gutter: self.gutter,
+                block: false,
+                block_frozen: 0,
+            };
+        }
         let rows = texts(&self.tail, &self.roles, self.cols, self.gutter, palette);
         let scroll = rows.len().saturating_sub(self.painted);
         Prepared {
@@ -865,6 +984,8 @@ impl Transcript {
             painted: 0,
             // The line a notice's glyph headed is over.
             gutter: self.gutter.continued(),
+            block: false,
+            block_frozen: 0,
         }
     }
 
@@ -876,6 +997,8 @@ impl Transcript {
         self.roles = prepared.roles;
         self.painted = prepared.painted;
         self.gutter = prepared.gutter;
+        self.block = prepared.block;
+        self.block_frozen = prepared.block_frozen;
     }
 
     /// Re-wraps the unfinished line for a screen that changed width.
@@ -913,8 +1036,52 @@ impl Transcript {
         if self.painted == 0 {
             return;
         }
+        // A block's rows are one screen row each at any width, so the count
+        // the next append measures against is the one it already has.
+        if self.block {
+            return;
+        }
         self.painted = wrap::wrap(&self.tail, inner(cols, self.gutter)).len();
     }
+}
+
+/// The open block's frozen prefix and painted count once it holds `rows` rows
+/// past the prefix it had.
+///
+/// The bound [`freeze`] gives a line, for the same reason: every rewrite of a
+/// block re-places every row it still holds, so a block that grew for ever
+/// would cost more for every row it gained. Rows past [`MAX_TAIL_ROWS`] from
+/// the bottom are more than any screen shows, so they are on the terminal's
+/// scrollback already and no rewrite would reach them anyway -- dropping them
+/// changes what this module holds and not what the terminal shows.
+fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
+    if rows <= MAX_TAIL_ROWS {
+        return (frozen, rows);
+    }
+    (frozen + (rows - MAX_TAIL_ROWS), MAX_TAIL_ROWS)
+}
+
+/// One block row as it is written at `cols`: whole when it fits, and cut one
+/// cell short with an ellipsis in that cell when it does not
+/// (`vercel-labs/fx@c1db9191 src/ui/transcript/tool_group_projection.zig:376-392`,
+/// `clipSummary`).
+///
+/// Cut by the painter's own function (`super::frame::clip`), so the row this
+/// makes is the row the painter puts on the screen rather than one it cuts
+/// again. A cut inside a run of colour leaves it open, so the row is closed
+/// after the ellipsis, as upstream closes it.
+fn ellipsized(row: &str, cols: u16) -> String {
+    if wrap::width(row) <= cols {
+        return row.to_string();
+    }
+    if cols == 0 {
+        return String::new();
+    }
+    let mut cut = format!("{}\u{2026}", super::frame::clip(row, cols - 1));
+    if cut.contains('\u{1b}') && !cut.ends_with("\u{1b}[0m") {
+        cut.push_str("\u{1b}[0m");
+    }
+    cut
 }
 
 /// The width a line's text is wrapped to: the screen less its gutter, and
@@ -1265,6 +1432,8 @@ struct Prepared {
     roles: Roles,
     painted: usize,
     gutter: Gutter,
+    block: bool,
+    block_frozen: usize,
 }
 
 /// `text` with every line break spelled the one way the document accepts.
@@ -2596,6 +2765,124 @@ mod tests {
             "each finished line is one row plus the row its successor starts \
              on -- anything more is an operation that re-wrote what an earlier \
              one already said"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the open block (a tool group)
+    // -----------------------------------------------------------------------
+
+    fn rows(texts: &[&str]) -> Vec<String> {
+        texts.iter().map(|text| (*text).to_string()).collect()
+    }
+
+    #[test]
+    fn a_block_is_rewritten_where_it_stands_and_scrolls_only_the_rows_it_gained() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(rows(&["header 1", "\u{2514} one", ""]));
+        transcript.queue_block(rows(&["header 2", "\u{251c} one", "\u{2514} two", ""]));
+        transcript.queue_block(rows(&["header 2", "\u{251c} one", "\u{2514} two!", ""]));
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            appends
+                .iter()
+                .map(|append| append.scroll)
+                .collect::<Vec<_>>(),
+            [3, 1, 0],
+            "a rewrite scrolled rows the block already had"
+        );
+        assert_eq!(
+            replay(appends),
+            ["header 2", "\u{251c} one", "\u{2514} two!", ""],
+            "the block was not rewritten in place"
+        );
+        assert_eq!(transcript.tail_rows(), 4);
+    }
+
+    #[test]
+    fn whatever_follows_a_block_starts_on_a_row_of_its_own_and_leaves_it_alone() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_push("the answer so far", Role::Plain);
+        transcript.queue_block(rows(&["header", "\u{2514} call", ""]));
+        transcript.queue_push("after", Role::Plain);
+        transcript.queue_end_line();
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            replay(appends),
+            ["the answer so far", "header", "\u{2514} call", "", "after"],
+            "a block shared a row with the text around it"
+        );
+        // Closed by the text: a block queued now is a new one, under it.
+        transcript.queue_block(rows(&["second"]));
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends.len(), 1);
+        assert_eq!(appends[0].scroll, 1, "the second block rewrote the first");
+    }
+
+    #[test]
+    fn a_block_that_lost_rows_blanks_the_ones_it_gave_up() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(rows(&["a", "b", "c"]));
+        transcript.queue_block(rows(&["a"]));
+        assert_eq!(replay(drain(&mut transcript, DARK_256)), ["a", "", ""]);
+        assert_eq!(transcript.tail_rows(), 3);
+    }
+
+    #[test]
+    fn a_block_row_wider_than_the_screen_is_cut_with_an_ellipsis_and_closed() {
+        // `clipSummary`: one cell short, the ellipsis in it, and a colour the
+        // cut left open closed after it.
+        let mut transcript = Transcript::new(10);
+        transcript.queue_block(vec![
+            "\u{1b}[38;5;245m\u{251c} Ran something long\u{1b}[0m".to_string(),
+            "short".to_string(),
+        ]);
+        let written = replay(drain(&mut transcript, DARK_256));
+        assert_eq!(
+            written[0], "\u{1b}[38;5;245m\u{251c} Ran som\u{2026}\u{1b}[0m",
+            "the row was not cut where upstream cuts it"
+        );
+        assert_eq!(super::super::wrap::width(&written[0]), 10);
+        assert_eq!(written[1], "short");
+    }
+
+    #[test]
+    fn a_resize_leaves_an_open_blocks_row_count_alone() {
+        // One screen row each, at any width: re-measuring them as wrapped text
+        // would make the next rewrite scroll rows the block already has.
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(rows(&["header", "\u{2514} call", ""]));
+        drain(&mut transcript, DARK_256);
+        transcript.resize_unfinished(5);
+        assert_eq!(transcript.tail_rows(), 3);
+        transcript.queue_block(rows(&["header", "\u{2514} done", ""]));
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends[0].scroll, 0);
+        // Cut at the width it lands on: four cells and the ellipsis.
+        assert_eq!(appends[0].rows[1], "\u{2514} do\u{2026}");
+    }
+
+    #[test]
+    fn a_block_past_the_bound_stops_rewriting_its_oldest_rows() {
+        // The bound a line has, for a block: every rewrite re-places every row
+        // still held, so the rows past it -- more than any screen shows -- are
+        // the terminal's.
+        let mut transcript = Transcript::new(40);
+        let tall: Vec<String> = (0..MAX_TAIL_ROWS + 10)
+            .map(|n| format!("row {n}"))
+            .collect();
+        transcript.queue_block(tall.clone());
+        drain(&mut transcript, DARK_256);
+        assert_eq!(transcript.tail_rows(), MAX_TAIL_ROWS);
+        let mut taller = tall;
+        taller.push("one more".to_string());
+        transcript.queue_block(taller);
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends[0].scroll, 1);
+        assert_eq!(appends[0].rows.len(), MAX_TAIL_ROWS + 1);
+        assert_eq!(
+            appends[0].rows[0], "row 10",
+            "a frozen row was written again"
         );
     }
 

@@ -2,11 +2,13 @@
 // Usage: bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
-//    status?: number, hangMs?: number}
-// `tools` = several tool calls in one step; chunks + tool(s) = text before the calls; `status` = answer
-// with that HTTP status (error body); `hangMs` = hold the stream open that long after the chunks before
-// finishing (for interrupt captures). Classifier calls get a permission_decision tool call "clear" (the
-// shape fx's own e2e harness answers with, tests/e2e/tmux-helpers.ts:173-183).
+//    status?: number, body?: string, hangMs?: number}
+// `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
+// step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
+// the stream open that long before its last event (for interrupt captures).
+// Every POST to a language-model path consumes the next turn; title calls get a finish-only stream,
+// and fx's permission classifier gets a `permission_decision` tool call that clears the action
+// (the shape fx's own e2e harness answers with, tests/e2e/tmux-helpers.ts:173-183).
 // Every request body is written to <bodies-dir>/NNN-<kind>.json when a bodies dir is given.
 const port = Number(process.argv[2] ?? 0);
 const script: any[] = JSON.parse(await Bun.file(process.argv[3]).text());

@@ -1,0 +1,18 @@
+# A file change that changes nothing (`.prd/tui-phase4` F1): the group's row is
+# the tool's own sentence. `b.txt` already holds what the write asks for, and
+# is read first (xfx refuses to replace a file the session has not read). Both
+# binaries in `ask` mode; the approval, if one is shown, is taken with `1`.
+gateway toolgroup-noop.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type write b again
+key Enter
+wait 2.5
+snap ask
+key 1
+wait 2.5
+snap end
+workls end

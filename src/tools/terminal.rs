@@ -46,8 +46,9 @@ use crate::gateway::CancelToken;
 use crate::permission::{CommandPlan, CommandRoute, Decided, PolicyDecision, ProposedAction};
 
 use super::spec::{
-    nonblank, object, optional_string, required_string, InputSchema, PermissionKind, Property,
-    PropertyKind, ToolContext, ToolInput, ToolResult, ToolSpec,
+    nonblank, object, optional_string, required_string, Activity, InputSchema,
+    Outcome as CallOutcome, PermissionKind, Presentation, Property, PropertyKind, ToolContext,
+    ToolInput, ToolResult, ToolSpec,
 };
 
 /// How often a running command notices a timeout or a cancellation.
@@ -100,6 +101,7 @@ pub const TERMINAL: ToolSpec = ToolSpec::new(
     "terminal",
     TERMINAL_DESCRIPTION,
     PermissionKind::RunCommand,
+    Presentation::new(Activity::Command, "Running", "Ran", "command"),
     InputSchema {
         properties: &[
             Property {
@@ -196,12 +198,14 @@ fn execute_terminal(input: &ToolInput, context: &ToolContext) -> ToolResult {
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
             return ToolResult::failure(format!("terminal did not run the command: {reason}"))
+                .ending(CallOutcome::Denied)
                 .with_feedback(feedback)
         }
         PolicyDecision::Prompt => {
             return ToolResult::failure(
                 "terminal did not run the command: the approval was never resolved",
             )
+            .ending(CallOutcome::Denied)
             .with_feedback(feedback)
         }
     };
@@ -287,6 +291,7 @@ impl Outcome {
                     self.streams(),
                     stranded_notice(stranded)
                 ))
+                .ending(CallOutcome::TimedOut)
             }
             Ending::Cancelled { stranded } => {
                 return ToolResult::failure(format!(
@@ -295,19 +300,29 @@ impl Outcome {
                     self.streams(),
                     stranded_notice(stranded)
                 ))
+                .ending(CallOutcome::Cancelled)
             }
         }
         out.push_str(&self.streams());
 
-        let detail = match self.ending {
-            Ending::Exited(code) => format!("{} (exit {code})", plan.command()),
-            Ending::Signalled(signal) => format!("{} (signal {signal})", plan.command()),
+        let (detail, outcome) = match self.ending {
+            Ending::Exited(code) => (
+                format!("{} (exit {code})", plan.command()),
+                CallOutcome::Exited(code),
+            ),
+            Ending::Signalled(signal) => (
+                format!("{} (signal {signal})", plan.command()),
+                CallOutcome::Signalled(signal),
+            ),
             // Both are returned above.
             Ending::TimedOut { .. } | Ending::Cancelled { .. } => unreachable!(),
         };
         // A command that ran and reported a nonzero status answered the
-        // question. Only xfx's own failures are refusals.
-        ToolResult::success(out, detail)
+        // question. Only xfx's own failures are refusals -- which is the
+        // model's reading; the person watching is told the status
+        // ([`CallOutcome::Exited`]), because a row that said `Ran` over an exit 3
+        // would be the screen claiming a success the command did not have.
+        ToolResult::success(out, detail).ending(outcome)
     }
 
     fn streams(&self) -> String {

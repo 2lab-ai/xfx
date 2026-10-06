@@ -2942,6 +2942,70 @@ mod tests {
         String::from_utf8(screen.written).expect("utf-8")
     }
 
+    /// One tool call's two events, as the runtime sends them for a call that
+    /// ran to its end.
+    fn a_call(id: &str, path: &str) -> [UiEvent; 2] {
+        [
+            UiEvent::ToolStart {
+                call_id: id.to_string(),
+                tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({ "path": path })),
+            },
+            UiEvent::ToolResult {
+                call_id: id.to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                detail: String::new(),
+                outcome: crate::tools::Outcome::Finished,
+                changes: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn every_rewrite_of_an_open_tool_group_passes_the_output_check() {
+        // **The group is the one document block that is written more than
+        // once**, and every write of it goes through the same preflight a
+        // streamed answer does (`Band::append_floating` -> `check::preflight`,
+        // against the rows it was handed). A rewrite the check refused would
+        // stay owed and the screen would keep the stale block, so "the
+        // document owes nothing after every tick" is the claim -- on a band
+        // floating under a short document, and on one pinned under a full
+        // screen, where the group is taller than the rows above the band and
+        // its header has already gone into scrollback.
+        for (floating_band, calls) in [(true, 3), (false, 40)] {
+            let mut shell = if floating_band { floating() } else { shell() };
+            let mut band = Band::new();
+            shell.apply(UiEvent::Delta("Looking first.\n".to_string()));
+            shell.flush_paced();
+            let _ = committed(&mut shell, &mut band);
+            for call in 0..calls {
+                for event in a_call(&format!("call-{call}"), &format!("file-{call}.txt")) {
+                    shell.apply(event);
+                    // Every event of a call changes the block, so each one is
+                    // a write this tick has to make -- not a no-op that would
+                    // pass for the wrong reason.
+                    assert!(shell.owes_document(), "call {call} changed nothing");
+                    let written = committed(&mut shell, &mut band);
+                    assert!(
+                        !shell.owes_document(),
+                        "a rewrite of the group was refused at call {call} \
+                         (floating: {floating_band}): {written:?}"
+                    );
+                }
+            }
+            shell.apply(UiEvent::Delta("Done.".to_string()));
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            shell.flush_paced();
+            let written = committed(&mut shell, &mut band);
+            assert!(!shell.owes_document(), "{written:?}");
+            assert!(
+                written.contains("Done."),
+                "the text after the group never landed: {written:?}"
+            );
+        }
+    }
+
     #[test]
     fn a_band_under_a_short_document_follows_it_down_instead_of_scrolling_it() {
         let mut shell = floating();
@@ -6455,18 +6519,29 @@ mod tests {
         // f45d005 -- Linux and arm64 macOS waited out scenario 20's
         // `[tool] read_file ok` while the alternate screen was already up).
         //
-        // Driven through the real drain with both events already in the
-        // channel, so the batch is a fact rather than a race: no sleep, no
-        // scheduler, nothing this test has to hope for.
+        // Driven through the real drain with the call's two events and the
+        // question already in the channel, so the batch is a fact rather than
+        // a race: no sleep, no scheduler, nothing this test has to hope for.
+        // The row is the call's line in the tool group (`super::toolgroup`),
+        // which is what a tool call leaves in the document now.
         let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::ToolStart {
+                call_id: "call-0".to_string(),
+                tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({"path": "a.txt"})),
+            })
+            .expect("the channel is empty");
         events
             .try_send(UiEvent::ToolResult {
                 call_id: "call-0".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 detail: String::new(),
+                outcome: crate::tools::Outcome::Finished,
+                changes: None,
             })
-            .expect("the channel is empty");
+            .expect("the channel has room");
         events
             .try_send(a_change_too_big_for_the_band())
             .expect("the channel has room");
@@ -6515,7 +6590,7 @@ mod tests {
         // user is given back when the question is answered.
         let written = String::from_utf8_lossy(&out.written).into_owned();
         let row = written
-            .find("[tool] read_file ok")
+            .find("\u{2514} Read a.txt")
             .unwrap_or_else(|| panic!("the tool's row never reached the document: {written:?}"));
         let band_row = written
             .find(HINT_MODEL)

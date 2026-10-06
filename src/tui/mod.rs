@@ -714,6 +714,7 @@ mod shell;
 mod signals;
 mod term;
 mod theme;
+mod toolgroup;
 mod transcript;
 mod worker;
 mod wrap;
