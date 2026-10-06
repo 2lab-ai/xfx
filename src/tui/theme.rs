@@ -214,8 +214,32 @@ const RESET: &str = "\u{1b}[0m";
 /// shows. The same number as [`ACTIVITY`] and not the same decision, for the
 /// reason [`BODY`] is not [`HINT`]: the activity row is the band's, and this
 /// one is written into the document, where a theme report has to find it.
-const DARK: [u8; 8] = [240, 255, 250, 252, 255, 245, 245, 252];
-const LIGHT: [u8; 8] = [250, 235, 241, 238, 235, 241, 247, 238];
+///
+/// The ninth is upstream's `diff_added_style` / `diff_removed_style`, which a
+/// permission question's review paints the changed lines and the `+N  -N`
+/// counts in. Both are the same grey in either theme: the diff is monochrome
+/// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
+/// none. Band and review-plane rows only -- never the document -- so a theme
+/// report has nothing of it to retint ([`Palette::document_retint`]).
+///
+/// The tenth is upstream's `warning_style` (`core/shared/theme.zig:86,129`,
+/// `c1db919`) in the tool group: the `■` a cancelled tool call is marked with
+/// in the transcript. The same grey as the eighth in both modes, and a role
+/// of its own for the reason the fifth is one -- the two are the same colour
+/// and not the same decision.
+///
+/// The eleventh is upstream's `tool_stdout_style` (`theme.zig:103` dark, `:147`
+/// light): what a cancelled call's own line names it by, after `■ Cancelled`.
+/// The **same grey in both themes** -- 245 -- which is why it is a role and not
+/// the statusline's: on a light screen the two part ways (241 and 245).
+///
+/// The twelfth is the shell highlighter's word grey -- a command's words in a
+/// tool group's row, keywords, functions, variables and operators
+/// (`markdown::theme` `FX_DARK`/`FX_LIGHT` syntax, `252`/`238`). The
+/// highlighter paints them, not this table; the role is here so a theme report
+/// can find them ([`Self::document_retint_in`]).
+const DARK: [u8; 12] = [240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252];
+const LIGHT: [u8; 12] = [250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -226,6 +250,30 @@ const BODY: usize = 4;
 const STATUSLINE: usize = 5;
 const DIM: usize = 6;
 const LABEL: usize = 7;
+const DIFF: usize = 8;
+const WARNING: usize = 9;
+const TOOL: usize = 10;
+const COMMAND: usize = 11;
+
+/// What kind of document row a theme report is repainting, read off the row's
+/// first cell ([`Palette::document_row`]).
+///
+/// A report recognises a cell by the colour it holds, and two of xfx's
+/// document colours are **one grey on a dark screen and two on a light one**:
+/// the statusline grey a tool group's rows are written in and the dim grey of
+/// a turn's summary are both 245 on dark, and 241 and 247 on light. A cell
+/// cannot say which it is; the row it is on can, because a tool group's rows
+/// open with marks nothing else in the document opens with. So the row is
+/// asked first, and the cell's colour is answered within it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DocumentRow {
+    /// Every row that is not a tool group's.
+    Plain,
+    /// A tool group's header (`●`) or one of its call rows (`├`, `└`).
+    ToolGroup,
+    /// A cancelled call's own line under its group (`■`).
+    ToolStopped,
+}
 
 impl Palette {
     /// The rule between the document and the band.
@@ -264,6 +312,17 @@ impl Palette {
         self.paint(DIM)
     }
 
+    /// What marks something the user stopped: a cancelled tool call's `■`.
+    pub(crate) fn warning(&self) -> &'static str {
+        self.paint(WARNING)
+    }
+
+    /// What a cancelled call's own line names it by ([`TOOL`]): 245 on either
+    /// screen.
+    pub(crate) fn tool_output(&self) -> &'static str {
+        self.paint(TOOL)
+    }
+
     /// A notice's glyph and topic when it reports an outcome -- a success, a
     /// warning, an error ([`LABEL`]).
     pub(crate) fn notice_label(&self) -> &'static str {
@@ -285,6 +344,27 @@ impl Palette {
             (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;208;208;208m",
             (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;68;68;68m",
         }
+    }
+
+    /// A changed line of a permission question's review, and the counts that
+    /// sum it up (`diff_added_style`, `diff_removed_style`).
+    pub(crate) fn diff(&self) -> &'static str {
+        self.paint(DIFF)
+    }
+
+    /// What a permission question emphasises: the marked choice and the
+    /// command it would run (`tag_style`). Upstream's `tag_style` and
+    /// `subtitle_style` are one sequence in both themes, so this is
+    /// [`Self::subtitle`]'s by value and a role of its own by meaning.
+    pub(crate) fn strong(&self) -> &'static str {
+        self.subtitle()
+    }
+
+    /// Bold and nothing else: a question's title and the path it is about
+    /// (`bold_style`). The same in every mode and at every depth, because it
+    /// names no colour.
+    pub(crate) fn bold(&self) -> &'static str {
+        "\u{1b}[1m"
     }
 
     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
@@ -328,8 +408,64 @@ impl Palette {
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
         // label (`DIM`) -- and the label of a notice that reports an outcome
-        // (`LABEL`), bold or not.
-        let role = [NOTICE, BODY, DIM, LABEL].into_iter().find(|&role| {
+        // (`LABEL`), bold or not -- and a cancelled tool call's `■`
+        // (`WARNING`), the same grey under another name.
+        let role = [NOTICE, BODY, DIM, LABEL, WARNING]
+            .into_iter()
+            .find(|&role| {
+                [Mode::Dark, Mode::Light]
+                    .into_iter()
+                    .any(|mode| self.shade(role, mode) == Some(colour))
+            })?;
+        if self.shade(role, self.mode) == Some(colour) {
+            return None;
+        }
+        Some(self.paint(role))
+    }
+
+    /// Which kind of document row opens with `grapheme` painted in `colour`
+    /// ([`DocumentRow`]).
+    ///
+    /// The mark **and** the grey it is painted in, in either mode: a row the
+    /// user's shell left on the screen that happens to open with `├` holds
+    /// no colour of this crate's, and is a plain row -- whose cells this
+    /// palette then leaves alone.
+    pub(crate) fn document_row(&self, grapheme: &str, colour: Color) -> DocumentRow {
+        let painted = |role: usize| {
+            [Mode::Dark, Mode::Light]
+                .into_iter()
+                .any(|mode| self.shade(role, mode) == Some(colour))
+        };
+        match grapheme {
+            "\u{25cf}" if painted(HINT) => DocumentRow::ToolGroup,
+            "\u{251c}" | "\u{2514}" if painted(STATUSLINE) => DocumentRow::ToolGroup,
+            "\u{25a0}" if painted(WARNING) => DocumentRow::ToolStopped,
+            _ => DocumentRow::Plain,
+        }
+    }
+
+    /// [`Self::document_retint`], for a cell on a row of the kind given.
+    ///
+    /// A tool group's rows are upstream's statusline grey with a command's
+    /// words in the highlighter's ([`COMMAND`]) and the mark in the hint grey,
+    /// so on those rows 245 is the statusline's and goes to 241 on a light
+    /// screen -- not to the summary's 247. A cancelled call's line keeps its
+    /// argument in [`TOOL`], 245 on either screen. The highlighter's quieter
+    /// greys (a string or a number, 250 and 241) are repainted as the notice
+    /// grey they share on dark; on light, where 241 is also the statusline's,
+    /// the statusline wins, which costs a quoted string in a command its
+    /// shade -- the one cell this cannot tell apart -- and nothing else.
+    pub(crate) fn document_retint_in(
+        &self,
+        row: DocumentRow,
+        colour: Color,
+    ) -> Option<&'static str> {
+        let roles: &[usize] = match row {
+            DocumentRow::Plain => return self.document_retint(colour),
+            DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE],
+            DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
+        };
+        let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
                 .any(|mode| self.shade(role, mode) == Some(colour))
@@ -905,5 +1041,77 @@ mod tests {
         assert_eq!(dark.dim(), "\u{1b}[38;5;245m");
         assert_eq!(light.dim(), "\u{1b}[38;5;247m");
         assert_ne!(dark.dim(), light.dim());
+    }
+
+    #[test]
+    fn the_highlighters_word_grey_is_the_command_role_in_both_modes() {
+        // The role a theme report repaints a command's words by has to be the
+        // grey the highlighter painted them in, or the report would skip them.
+        for (mode, light) in [(Mode::Dark, false), (Mode::Light, true)] {
+            let palette = Palette {
+                mode,
+                depth: Depth::Ansi256,
+            };
+            let syntax = crate::markdown::theme::builtin(light).syntax;
+            for style in [
+                &syntax.keyword_style,
+                &syntax.function_style,
+                &syntax.variable_style,
+                &syntax.operator_style,
+            ] {
+                assert_eq!(palette.paint(COMMAND), style.as_ref(), "{mode:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_tool_groups_row_is_known_by_its_mark_in_the_grey_xfx_paints_it() {
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            dark.document_row("\u{25cf}", Color::Indexed(235)),
+            DocumentRow::ToolGroup
+        );
+        assert_eq!(
+            dark.document_row("\u{251c}", Color::Indexed(245)),
+            DocumentRow::ToolGroup
+        );
+        assert_eq!(
+            dark.document_row("\u{25a0}", Color::Indexed(238)),
+            DocumentRow::ToolStopped
+        );
+        // A `├` the user's own shell left, in its own colour, is a plain row --
+        // and a plain row's 245 is the summary's.
+        assert_eq!(
+            dark.document_row("\u{251c}", Color::Default),
+            DocumentRow::Plain
+        );
+        assert_eq!(
+            dark.document_row("a", Color::Indexed(245)),
+            DocumentRow::Plain
+        );
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(245)),
+            Some("\u{1b}[38;5;241m")
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
+            Some("\u{1b}[38;5;247m")
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolStopped, Color::Indexed(245)),
+            None,
+            "a cancelled call's argument is 245 on either screen"
+        );
+        assert_eq!(
+            light.document_retint_in(DocumentRow::ToolGroup, Color::Indexed(252)),
+            Some("\u{1b}[38;5;238m")
+        );
     }
 }

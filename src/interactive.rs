@@ -28,7 +28,10 @@ use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
 use crate::config::{Environment, PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
-use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SANDBOX_LABEL};
+use crate::output::{
+    safe_one_line, Event, EventSink, OutputFormat, SessionFacts, StatusSnapshot, TextSink,
+    SANDBOX_LABEL,
+};
 use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
@@ -61,6 +64,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/new",
     "/reset",
     "/setup",
+    "/stats",
+    "/status",
     "/model",
     "/copy",
     "/version",
@@ -128,6 +133,10 @@ pub struct SlashSpec {
 /// effort as well, `:478`; xfx sends none). `/clear`, `/new` and `/reset` are
 /// one operation, as upstream's are (`app_commands.zig:667-680`), and carry
 /// upstream's three sentences (`:464-466`).
+/// `/stats` keeps upstream's sentence although what it prints is the
+/// terminal writer's counters rather than tokens: so does upstream's
+/// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
+/// the one the menu shows beside the name.
 #[rustfmt::skip]
 pub const SLASH_REGISTRY: &[SlashSpec] = &[
     SlashSpec {
@@ -169,6 +178,22 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
         category: "Account",
         has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Stats,
+        name: "/stats",
+        aliases: &[],
+        summary: "show token and turn statistics",
+        category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Status,
+        name: "/status",
+        aliases: &[],
+        summary: "show runtime configuration",
+        category: "General",
+        has_args: false,
     },
     SlashSpec {
         command: Slash::Model,
@@ -301,6 +326,16 @@ const fn same(left: &str, right: &str) -> bool {
 /// What the shell prints before reading a line.
 pub const PROMPT: &str = "> ";
 
+/// What `/stats` says on this surface.
+///
+/// The counters are the terminal writer's -- bytes delivered, whole repaints,
+/// coalesced resizes (`crate::tui`'s `shell::Metrics`) -- and this shell has none of
+/// the three: it prints lines and lets the terminal scroll them. A row of
+/// zeros here would be a report about frames that were never drawn, so it
+/// says where the numbers are instead.
+pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
+     draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
+
 /// Why xfx will not open a shell here.
 pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
      run `xfx ask <prompt>` when there is not one";
@@ -349,6 +384,12 @@ pub enum Slash {
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// What the terminal writer has done this session: upstream's five render
+    /// counters.
+    Stats,
+    /// The configuration a turn would run under, and the live conversation's
+    /// own two counts.
+    Status,
     Version,
     Quit,
 }
@@ -575,6 +616,46 @@ pub(crate) struct Conversation {
     pub(crate) tools: ToolContext,
 }
 
+impl Conversation {
+    /// What `/status` says about this conversation: the turns it holds and the
+    /// "always" answers its authority has been given.
+    ///
+    /// **The live conversation's, not the store's.** `xfx status` reports the
+    /// last session on disk because it has no other; a shell has the one it is
+    /// talking in, and upstream's report is that one's (`session.historyLen()`
+    /// and the live session grants, `session_commands.zig:304-305`). The grants
+    /// are the authority's own list rather than the recorder's, because an
+    /// answer is held there from the moment it is given and only written down
+    /// once its turn is over.
+    pub(crate) fn facts(&self) -> SessionFacts {
+        SessionFacts {
+            history_turns: self.recorder.state().turns.len() as u64,
+            permission_grants: self.tools.permissions().grants().len() as u64,
+        }
+    }
+}
+
+/// What `/status` reports on either surface: the configuration a turn here
+/// would run under, the model it would be held in, and the conversation it
+/// would continue.
+///
+/// `model` is a parameter rather than `config.model` because `/model` changes
+/// the one and not the other: the selector holds the model in force
+/// (`crate::provider::model::ModelSelector`), and a report that read the
+/// configuration would name the model the session started in. No conversation
+/// is zero turns and zero grants, which is what the next prompt would start
+/// with.
+pub(crate) fn status_snapshot(
+    config: &RuntimeConfig,
+    model: &str,
+    conversation: Option<&Conversation>,
+) -> StatusSnapshot {
+    let facts = conversation.map(Conversation::facts).unwrap_or_default();
+    let mut snapshot = StatusSnapshot::new(config, crate::build_info(), facts);
+    snapshot.model = model.to_string();
+    snapshot
+}
+
 /// Creates the session this shell records into, and the authority its tools run
 /// under.
 ///
@@ -746,6 +827,15 @@ pub async fn run(
                     }
                     Slash::Version => {
                         writeln!(io::stdout(), "{}", version_line())?;
+                    }
+                    // The `xfx status` report, about this shell's own model and
+                    // conversation rather than the last session on disk.
+                    Slash::Status => {
+                        let snapshot = status_snapshot(&config, &model, conversation.as_ref());
+                        write!(io::stdout(), "{}", snapshot.render_text())?;
+                    }
+                    Slash::Stats => {
+                        writeln!(io::stderr(), "{STATS_ON_THE_LINE_SHELL}")?;
                     }
                     Slash::Model => {
                         model =
@@ -1228,13 +1318,14 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_nine_commands() {
+    fn the_shell_advertises_exactly_the_registrys_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
-        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        // Eight since `/copy`, nine since `/reset` -- upstream's third name
-        // for the one reset; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 9);
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
+        // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
+        // upstream's third name for the one reset; `/models` and `/provider`
+        // stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 11);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1379,7 +1470,6 @@ mod tests {
         let help = help_text();
         for deferred in [
             "/resume",
-            "/status",
             "/login",
             "/logout",
             "/permissions",
@@ -1387,7 +1477,6 @@ mod tests {
             "/provider",
             "/mcp",
             "/undo",
-            "/stats",
             "/usage",
             "/image",
             "/rename",
@@ -1545,6 +1634,74 @@ mod tests {
         assert_eq!(Slash::Setup.name(), "/setup");
         assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
         assert!(help_text().contains("/setup"), "{}", help_text());
+    }
+
+    #[test]
+    fn stats_and_status_are_upstreams_rows_and_take_nothing() {
+        // `commands.zig:473,475`: the category and the description the menu
+        // shows, and neither row `accepts_payload` -- so the TUI refuses
+        // `/stats extra` as an unknown command (`super::tui`'s router).
+        let stats = slash_spec(Slash::Stats);
+        assert_eq!(
+            (stats.name, stats.summary, stats.category, stats.has_args),
+            ("/stats", "show token and turn statistics", "Account", false)
+        );
+        let status = slash_spec(Slash::Status);
+        assert_eq!(
+            (
+                status.name,
+                status.summary,
+                status.category,
+                status.has_args
+            ),
+            ("/status", "show runtime configuration", "General", false)
+        );
+        // Upstream's order: `/provider` (xfx's `/setup`), `/stats`, `/usage`,
+        // `/status`, then `/model` (`commands.zig:472-478`).
+        let order: Vec<&str> = SLASH_COMMANDS.to_vec();
+        let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
+        assert!(at("/setup") < at("/stats") && at("/stats") < at("/status"));
+        assert!(at("/status") < at("/model"));
+        assert!(help_text().contains("/status"), "{}", help_text());
+    }
+
+    #[test]
+    fn status_reports_the_model_in_force_and_the_conversation_it_is_given() {
+        // The `xfx status` facts, about this shell rather than the store's last
+        // session: the model the selector holds, and no conversation as none.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let snapshot = status_snapshot(&config, "acme/model-9", None);
+        assert_eq!(snapshot.model, "acme/model-9");
+        assert_ne!(config.model, "acme/model-9", "the case proves nothing");
+        assert_eq!(snapshot.history_turns, 0);
+        assert_eq!(snapshot.session_permission_grants, 0);
+        assert_eq!(
+            snapshot.workspace,
+            config.workspace_root.display().to_string()
+        );
+        assert!(
+            snapshot
+                .render_text()
+                .starts_with("[status] model=acme/model-9\n"),
+            "{}",
+            snapshot.render_text()
+        );
+    }
+
+    #[test]
+    fn stats_on_the_line_shell_points_at_the_counters_rather_than_inventing_them() {
+        // This shell writes lines and draws no frames, so the honest answer is
+        // where the counters are -- not a row of zeros about frames that never
+        // existed.
+        assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
+        assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+        assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
     }
 
     #[test]

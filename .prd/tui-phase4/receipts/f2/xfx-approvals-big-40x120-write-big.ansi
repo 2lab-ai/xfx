@@ -1,0 +1,40 @@
+     [38;5;245m54[39m [38;5;252m+[39m [38;5;252mgenerated line 54[39m
+     [38;5;245m55[39m [38;5;252m+[39m [38;5;252mgenerated line 55[39m
+     [38;5;245m56[39m [38;5;252m+[39m [38;5;252mgenerated line 56[39m
+     [38;5;245m57[39m [38;5;252m+[39m [38;5;252mgenerated line 57[39m
+     [38;5;245m58[39m [38;5;252m+[39m [38;5;252mgenerated line 58[39m
+     [38;5;245m59[39m [38;5;252m+[39m [38;5;252mgenerated line 59[39m
+     [38;5;245m60[39m [38;5;252m+[39m [38;5;252mgenerated line 60[39m
+     [38;5;245m61[39m [38;5;252m+[39m [38;5;252mgenerated line 61[39m
+     [38;5;245m62[39m [38;5;252m+[39m [38;5;252mgenerated line 62[39m
+     [38;5;245m63[39m [38;5;252m+[39m [38;5;252mgenerated line 63[39m
+     [38;5;245m64[39m [38;5;252m+[39m [38;5;252mgenerated line 64[39m
+     [38;5;245m65[39m [38;5;252m+[39m [38;5;252mgenerated line 65[39m
+     [38;5;245m66[39m [38;5;252m+[39m [38;5;252mgenerated line 66[39m
+     [38;5;245m67[39m [38;5;252m+[39m [38;5;252mgenerated line 67[39m
+     [38;5;245m68[39m [38;5;252m+[39m [38;5;252mgenerated line 68[39m
+     [38;5;245m69[39m [38;5;252m+[39m [38;5;252mgenerated line 69[39m
+     [38;5;245m70[39m [38;5;252m+[39m [38;5;252mgenerated line 70[39m
+     [38;5;245m71[39m [38;5;252m+[39m [38;5;252mgenerated line 71[39m
+     [38;5;245m72[39m [38;5;252m+[39m [38;5;252mgenerated line 72[39m
+     [38;5;245m73[39m [38;5;252m+[39m [38;5;252mgenerated line 73[39m
+     [38;5;245m74[39m [38;5;252m+[39m [38;5;252mgenerated line 74[39m
+     [38;5;245m75[39m [38;5;252m+[39m [38;5;252mgenerated line 75[39m
+     [38;5;245m76[39m [38;5;252m+[39m [38;5;252mgenerated line 76[39m
+     [38;5;245m77[39m [38;5;252m+[39m [38;5;252mgenerated line 77[39m
+     [38;5;245m78[39m [38;5;252m+[39m [38;5;252mgenerated line 78[39m
+     [38;5;245m79[39m [38;5;252m+[39m [38;5;252mgenerated line 79[39m
+     [38;5;245m80[39m [38;5;252m+[39m [38;5;252mgenerated line 80[39m
+[38;5;240m┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+[39m  [1mPermission needed · Review change[0m                                                                    [38;5;245mWrite[39m · [38;5;252m+80[39m  [38;5;252m-0[39m
+
+  [1mbig.txt[0m  ·  Apply this change?
+
+  [1m[38;5;255m❯ 1  Apply once[0m
+    [38;5;245m2[39m  Apply + allow future writes to this file for this session
+    [38;5;245m3[39m  Don't apply
+  [38;5;245m2 = allow every future write_file to `big.txt` for the rest of this session, whatever its contents, and in every later
+[39m  [38;5;245m`xfx ask --resume-id 1791302253759-b69ae9763332fe55` of this saved session[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;245m1–3 choose now    ↑↓ options    tab amend    ctrl+p/n scroll    enter confirm    esc cancel[39m

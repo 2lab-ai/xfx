@@ -900,7 +900,7 @@ mod tests {
         let rows = picker.rows(120, 40, PALETTE);
         assert_eq!(rows.len(), 8);
         // The header: dim, the range in an en dash against the last column but
-        // one, because eight commands do not fit in six rows.
+        // one, because the registry's commands do not fit in six rows.
         let left = format!("Commands {} \u{b7} type to filter", SLASH_REGISTRY.len());
         let range = "1\u{2013}6";
         assert_eq!(
@@ -912,7 +912,7 @@ mod tests {
         );
         assert_eq!(rows[1], "", "the blank row under the header");
         // The names in view are padded to the widest of them -- six cells,
-        // `/clear`, `/reset`, `/setup` and `/model` alike -- plus the
+        // `/clear`, `/reset`, `/setup` and `/stats` alike -- plus the
         // three-column gap; the categories share one column that ends a cell
         // short of the edge, each written from its left.
         let body: Vec<String> = rows[2..].iter().map(|row| plain(row)).collect();
@@ -922,7 +922,7 @@ mod tests {
             ("/new", "start a fresh session", "Session"),
             ("/reset", "reset the current session context", "Session"),
             ("/setup", SLASH_REGISTRY[4].summary, "Account"),
-            ("/model", SLASH_REGISTRY[5].summary, "Model"),
+            ("/stats", "show token and turn statistics", "Account"),
         ];
         for (row, (name, summary, category)) in body.iter().zip(expected) {
             assert_eq!(
@@ -983,18 +983,20 @@ mod tests {
         assert_eq!(picker.apply(PickerAction::Up), PickerOutcome::Changed);
         assert_eq!(picker.layout(40).window, Window { start: 1, end: 7 });
         assert!(picker.rows(120, 40, PALETTE)[6].starts_with(MARKED));
-        // Down to the last row, `/quit`, the window following it, and past the
-        // bottom it wraps to the top, taking the window with it.
-        while picker.selected < SLASH_REGISTRY.len() - 1 {
+        // Down to the last command, the window following it a row at a time.
+        let last = SLASH_REGISTRY.len() - 1;
+        while picker.selected < last {
             assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         }
         assert_eq!(
             picker.layout(40).window,
             Window {
-                start: SLASH_REGISTRY.len() - 6,
-                end: SLASH_REGISTRY.len()
+                start: last - 5,
+                end: last + 1
             }
         );
+        assert!(plain(&picker.rows(120, 40, PALETTE)[7]).starts_with("  /quit"));
+        // And past the bottom it wraps to the top, taking the window with it.
         assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         assert_eq!(picker.selected, 0);
         assert_eq!(picker.layout(40).window, Window { start: 0, end: 6 });

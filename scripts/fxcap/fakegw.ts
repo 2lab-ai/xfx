@@ -1,13 +1,29 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: bun fakegw.ts <port> <script.json>
-// script.json: array of turns; each turn is {chunks: string[], delayMs?: number, tool?: {name, input}}.
-// Every POST to a language-model path consumes the next turn; title and classifier side calls get a finish-only stream.
+// Usage: bun fakegw.ts <port> <script.json> [bodies-dir]
+// script.json: array of turns. Each turn is
+//   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
+//    status?: number, body?: string, hangMs?: number}
+// `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
+// step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
+// the stream open that long before its last event (for interrupt captures).
+// Every POST to a language-model path consumes the next turn; title calls get a finish-only stream,
+// and fx's permission classifier gets a `permission_decision` tool call that clears the action
+// (the shape fx's own e2e harness answers with, tests/e2e/tmux-helpers.ts:173-183).
+// Every request body is written to <bodies-dir>/NNN-<kind>.json when a bodies dir is given.
 const port = Number(process.argv[2] ?? 0);
 const script: any[] = JSON.parse(await Bun.file(process.argv[3]).text());
+const bodies = process.argv[4];
+let seq = 0;
 const log = (m: string) => console.log(`[fakegw] ${m}`);
 
 function finish(reason = "stop") {
   return { type: "finish", finishReason: { unified: reason, raw: reason }, usage: { inputTokens: { total: 1200 }, outputTokens: { total: 40 } } };
+}
+
+async function keep(kind: string, body: string) {
+  if (!bodies) return;
+  seq += 1;
+  await Bun.write(`${bodies}/${String(seq).padStart(3, "0")}-${kind}.json`, body);
 }
 
 const server = Bun.serve({
@@ -23,39 +39,48 @@ const server = Bun.serve({
     const body = await req.text();
     if (body.includes("permission_decision")) {
       log(`classifier ${url.pathname}`);
-      return sse([{ type: "text-delta", id: "d", delta: JSON.stringify({ decision: "clear" }) }, finish()], 0);
+      await keep("classifier", body);
+      return sse([
+        { type: "tool-call", toolCallId: "permission_decision_1", toolName: "permission_decision", input: { risk: "low", decision: "clear", rationale: "fixture" } },
+        finish("tool-calls"),
+      ], 0, 0);
     }
     if (body.includes("Generate a short title")) {
       log(`title ${url.pathname}`);
-      return sse([finish()], 0);
+      await keep("title", body);
+      return sse([finish()], 0, 0);
     }
+    await keep("completion", body);
     const turn = script.shift();
-    log(`completion ${url.pathname} -> ${turn ? (turn.tool ? "tool " + turn.tool.name : "text") : "EMPTY"}`);
+    log(`completion ${url.pathname} -> ${turn ? (turn.status ? "status " + turn.status : turn.tool || turn.tools ? "tool " + (turn.tools ?? [turn.tool]).map((t: any) => t.name).join(",") : "text") : "EMPTY"}`);
     if (!turn) return new Response("unexpected request", { status: 500 });
+    if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
     const events: object[] = [];
-    if (turn.tool) {
-      events.push({ type: "tool-call", toolCallId: turn.tool.id ?? "call_1", toolName: turn.tool.name, input: turn.tool.input });
-      events.push(finish("tool-calls"));
-    } else {
-      for (const c of turn.chunks) events.push({ type: "text-delta", id: "answer_1", delta: c });
-      events.push(finish());
-    }
-    return sse(events, turn.delayMs ?? 0);
+    for (const c of turn.chunks ?? []) events.push({ type: "text-delta", id: "answer_1", delta: c });
+    const tools = turn.tools ?? (turn.tool ? [turn.tool] : []);
+    tools.forEach((t: any, i: number) => events.push({ type: "tool-call", toolCallId: t.id ?? `call_${seq}_${i}`, toolName: t.name, input: t.input }));
+    events.push(finish(tools.length ? "tool-calls" : "stop"));
+    return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
   },
 });
 log(`listening ${server.port}`);
 
-function sse(events: object[], delayMs: number) {
+function sse(events: object[], delayMs: number, hangMs: number) {
   const enc = new TextEncoder();
   return new Response(
     new ReadableStream({
       async start(ctl) {
-        for (const e of events) {
-          ctl.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`));
-          if (delayMs) await Bun.sleep(delayMs);
+        try {
+          for (let i = 0; i < events.length; i++) {
+            if (i === events.length - 1 && hangMs) await Bun.sleep(hangMs);
+            ctl.enqueue(enc.encode(`data: ${JSON.stringify(events[i])}\n\n`));
+            if (delayMs) await Bun.sleep(delayMs);
+          }
+          ctl.enqueue(enc.encode("data: [DONE]\n\n"));
+          ctl.close();
+        } catch (e) {
+          log(`stream closed by client: ${e}`);
         }
-        ctl.enqueue(enc.encode("data: [DONE]\n\n"));
-        ctl.close();
       },
     }),
     { headers: { "content-type": "text/event-stream" } },

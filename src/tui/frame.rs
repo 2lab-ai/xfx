@@ -1289,7 +1289,21 @@ impl Band {
         // Nothing when the band grew or held still (`saturating_sub` is zero),
         // and nothing when there is no settled block to have vacated anything,
         // since those rows are `release`'s and it has already written them.
-        let vacated = self.painted.map_or(0, |top| anchor.saturating_sub(top));
+        //
+        // Measured from `document_bottom` -- the row the block's last row is
+        // really on -- whenever the band knows it, and from `painted` only when
+        // it does not. The two agree while no frame has landed since the band
+        // moved. They part when one has: a band that grew carries the document
+        // up ([`Self::carry_document`]), and the frame that paints it shorter
+        // again records its new top as `painted` before the block is rewritten,
+        // so `painted` says nothing moved while the block sits as many rows
+        // above the band as the carry put it. A tool's approval opening and
+        // closing under a running tool group is the ordinary way to get there,
+        // and the group's old block stayed on the screen above its rewrite.
+        let vacated = match self.document_bottom {
+            Some(bottom) => anchor.saturating_sub(1).saturating_sub(bottom),
+            None => self.painted.map_or(0, |top| anchor.saturating_sub(top)),
+        };
         if shown > 0 {
             for line in first.saturating_sub(vacated)..first {
                 cup(&mut self.buffer, line, 1);
@@ -4271,6 +4285,77 @@ mod tests {
             vec![FIRST, WHOLE],
             "a row the block vacated was left behind: {document:?}"
         );
+    }
+
+    #[test]
+    fn a_block_re_placed_after_the_band_shrank_under_a_frame_leaves_no_copy() {
+        // The same defect reached through a frame rather than an append. A band
+        // that grows over rows this band wrote carries them up out of its way
+        // (a tool's approval opening under a running tool group is the
+        // ordinary case); when it shrinks again, the frame that paints the
+        // shorter band lands **before** the block is rewritten -- and that
+        // frame records its top as `painted`. Measuring what the block vacated
+        // from `painted` then says nothing moved, and the rewritten block lands
+        // next to the band while its old copy stays where the carry put it.
+        // Where the document's last row really is, is `document_bottom`.
+        let short = crate::tui::layout::solve(12, 40, 1).expect("a one-row composer");
+        let tall = crate::tui::layout::solve(12, 40, 3).expect("a three-row composer");
+        assert_eq!(
+            short.band_top() - tall.band_top(),
+            2,
+            "the band grows by two rows here"
+        );
+
+        let mut band = Band::new();
+        let mut sink = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        let mut screen = Screen::under_a_painted_band(&short);
+        screen.divider = short.band_top();
+        band.commit(&mut sink, &band_rows(), &short, (short.input_first, 3))
+            .expect("the short band");
+
+        sink.written.clear();
+        band.append_document(&mut sink, 1, &[PARTIAL.to_string()], &short)
+            .expect("the block's row");
+        screen.feed(&sink.written);
+
+        // The band grows: the document is carried up, then the taller band is
+        // framed. Only the carry is fed: a frame writes at or below the band's
+        // top, which is not the document this screen models.
+        sink.written.clear();
+        band.carry_document(&mut sink, &tall)
+            .expect("the document is carried up");
+        screen.feed(&sink.written);
+        screen.divider = tall.band_top();
+        band.commit(&mut sink, &band_rows(), &tall, (tall.input_first, 3))
+            .expect("the tall band");
+        assert_eq!(screen.row(tall.band_top() - 1), PARTIAL);
+
+        // The band shrinks and its frame lands first.
+        band.commit(&mut sink, &band_rows(), &short, (short.input_first, 3))
+            .expect("the short band again");
+        assert_eq!(band.painted_top(), Some(short.band_top()));
+
+        // Then the block is rewritten.
+        screen.divider = short.band_top();
+        sink.written.clear();
+        band.append_document(&mut sink, 0, &[WHOLE.to_string()], &short)
+            .expect("the rewritten block");
+        screen.feed(&sink.written);
+
+        let document = screen.visible_document();
+        let answers: Vec<&String> = document
+            .iter()
+            .filter(|row| row.starts_with("answer:"))
+            .collect();
+        assert_eq!(
+            answers,
+            vec![WHOLE],
+            "the block's old copy stayed where the carry put it: {document:?}"
+        );
+        assert_eq!(screen.row(short.band_top() - 1), WHOLE);
     }
 
     /// The row above the one a turn ends on, so the two-row case has a row

@@ -641,6 +641,23 @@ mod tests {
         name_end + (text[name_end..].len() - text[name_end..].trim_start().len())
     }
 
+    /// The registry's names in a category, in registry order.
+    fn in_category(category: &str) -> Vec<&'static str> {
+        SLASH_REGISTRY
+            .iter()
+            .filter(|spec| spec.category == category)
+            .map(|spec| spec.name)
+            .collect()
+    }
+
+    /// `All`: every category's names, in the categories' order.
+    fn by_category() -> Vec<&'static str> {
+        SLASH_CATEGORIES
+            .iter()
+            .flat_map(|category| in_category(category))
+            .collect()
+    }
+
     /// A catalog with `tabs` Tabs pressed.
     fn on_tab(tabs: usize) -> HelpMenu {
         let mut menu = HelpMenu::open("");
@@ -654,17 +671,11 @@ mod tests {
     fn all_lists_the_registry_by_category_in_upstreams_order() {
         // General's four in registry order, then Session, Account and Model:
         // the order of the tabs, not the order of the registry.
-        assert_eq!(
-            names(&HelpMenu::open("")),
-            [
-                "/help", "/clear", "/version", "/quit", "/new", "/reset", "/copy", "/setup",
-                "/model"
-            ]
-        );
-        assert_eq!(names(&on_tab(1)), ["/help", "/clear", "/version", "/quit"]);
-        assert_eq!(names(&on_tab(2)), ["/new", "/reset", "/copy"]);
-        assert_eq!(names(&on_tab(3)), ["/setup"]);
-        assert_eq!(names(&on_tab(4)), ["/model"]);
+        assert_eq!(names(&HelpMenu::open("")), by_category());
+        assert_eq!(names(&HelpMenu::open(""))[..2], ["/help", "/clear"]);
+        for (tab, category) in SLASH_CATEGORIES.iter().enumerate() {
+            assert_eq!(names(&on_tab(tab + 1)), in_category(category), "{category}");
+        }
         // Every command is on exactly one tab, and `All` is the sum of them.
         let total: usize = (1..=SLASH_CATEGORIES.len())
             .map(|tabs| on_tab(tabs).items().len())
@@ -737,7 +748,7 @@ mod tests {
     fn the_filter_wants_every_word_somewhere_and_ignores_case() {
         let found = |query: &str| names(&HelpMenu::open(query));
         // The category label, the summary and the name are all searched.
-        assert_eq!(found("general"), ["/help", "/clear", "/version", "/quit"]);
+        assert_eq!(found("general"), in_category("General"));
         assert_eq!(found("SESSION"), ["/new", "/reset", "/copy"]);
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
@@ -784,13 +795,7 @@ mod tests {
                 SLASH_REGISTRY[1].summary
             )
         );
-        assert_eq!(
-            shown(&rows),
-            [
-                "/help", "/clear", "/version", "/quit", "/new", "/reset", "/copy", "/setup",
-                "/model"
-            ]
-        );
+        assert_eq!(shown(&rows), by_category());
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
             assert_eq!(summary_column(row), 14, "{row:?}");

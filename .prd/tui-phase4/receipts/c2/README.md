@@ -16,9 +16,10 @@ tmux history above the screen after each reset and after the last turn, and
 the window title at launch, after the first turn, and after `/clear` and
 `/new`.
 
-One verb was added to `capture.sh` for this receipt: `snapfull <label>` writes
-`capture-pane -S -` -- the pane's history and the screen -- to
-`<bin>-reset-40x120-<label>.full.{txt,ansi}`. That history is the terminal's own
+The `snapfull <label>` verb of `capture.sh` writes `capture-pane -S -` -- the
+pane's history and the screen -- to `<bin>-reset-40x120-<label>.full.{txt,ansi}`.
+This receipt and another unit each added it; the merge kept one
+implementation, which writes the same files. That history is the terminal's own
 native scrollback, which is where a reset hands the screen. The shims (`open`,
 `pbcopy`, `pbpaste`, `afplay`, `osascript`), the fake `pbcopy`'s pipe and
 `FX_NO_OPEN_BROWSER=1` are unchanged.

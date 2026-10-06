@@ -257,6 +257,46 @@ impl Sink for RawTty {
     }
 }
 
+/// Another sink, and the number of bytes the terminal took through it.
+///
+/// What `/stats` reports as `ansi_bytes` (`super::shell::Metrics`). It adds
+/// **what was delivered**, which is the one number this module can stand
+/// behind: a whole vector that went out, the accepted prefix of one that tore
+/// ([`Emit::Partial`]), and nothing for one that was refused or took nothing.
+/// Counting what was *offered* would count a refused frame once per tick it
+/// was offered again, and the screen would have received none of it.
+pub(crate) struct Counted<'a, S: ?Sized> {
+    inner: &'a mut S,
+    delivered: u64,
+}
+
+impl<'a, S: Sink + ?Sized> Counted<'a, S> {
+    pub(crate) fn new(inner: &'a mut S) -> Self {
+        Self {
+            inner,
+            delivered: 0,
+        }
+    }
+
+    /// How many bytes reached the terminal through this sink.
+    pub(crate) fn delivered(&self) -> u64 {
+        self.delivered
+    }
+}
+
+impl<S: Sink + ?Sized> Sink for Counted<'_, S> {
+    fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+        let result = self.inner.emit(bytes);
+        let took = match &result {
+            Ok(()) => bytes.len(),
+            Err(Emit::Partial { delivered, .. }) => *delivered,
+            Err(Emit::Rejected(_) | Emit::ZeroProgress(_)) => 0,
+        };
+        self.delivered += took as u64;
+        result
+    }
+}
+
 /// A vector in memory takes everything, which is what most cases want from a
 /// screen: they are about the bytes, not about the delivery.
 ///
@@ -572,6 +612,48 @@ mod tests {
             Some(libc::EIO),
             "the cause stopped being the cause: {cause}"
         );
+    }
+
+    #[test]
+    fn what_stats_counts_is_what_the_terminal_took_and_nothing_it_did_not() {
+        // `ansi_bytes`: a whole vector, then the accepted prefix of a torn one,
+        // then nothing for a write that took nothing -- three emits, fifteen
+        // bytes on the wire, fifteen counted. Counting what was offered would
+        // say thirty, and a frame refused on every tick would grow it for ever
+        // with nothing reaching the screen.
+        let mut terminal = Scripted::new([
+            Answer::Takes(10),
+            Answer::Takes(5),
+            Answer::Fails(broke()),
+            Answer::Fails(io::Error::new(io::ErrorKind::WouldBlock, "full")),
+        ]);
+        let mut counted = Counted::new(&mut terminal);
+
+        counted
+            .emit(VECTOR)
+            .expect("a vector the terminal took whole");
+        assert!(matches!(
+            counted.emit(VECTOR),
+            Err(Emit::Partial { delivered: 5, .. })
+        ));
+        assert!(matches!(counted.emit(VECTOR), Err(Emit::ZeroProgress(_))));
+
+        assert_eq!(counted.delivered(), 15);
+        assert_eq!(terminal.taken.len(), 15, "the count is not the wire's");
+    }
+
+    #[test]
+    fn a_vector_the_check_refused_counts_nothing_because_nothing_was_offered() {
+        struct Refusing;
+        impl Sink for Refusing {
+            fn emit(&mut self, _bytes: &[u8]) -> Result<(), Emit> {
+                Err(Emit::rejected(io::Error::other("refused by the check")))
+            }
+        }
+        let mut refusing = Refusing;
+        let mut counted = Counted::new(&mut refusing);
+        assert!(matches!(counted.emit(VECTOR), Err(Emit::Rejected(_))));
+        assert_eq!(counted.delivered(), 0);
     }
 
     #[test]

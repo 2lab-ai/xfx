@@ -2,7 +2,7 @@
 //! thematic rules (`assistant_presentation.zig:2970-3935`).
 
 use std::cell::Cell;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::{code_only, contains, rule_only, text};
 use crate::markdown::ansi::{DIM_CLOSE, DIM_OPEN, HORIZONTAL_RULE_WIDTH, TABLE_HORIZ};
@@ -371,9 +371,9 @@ fn long_lines_of_unmatched_or_unbalanced_delimiters_render_in_linear_time() {
     line.push_str(&"*a ".repeat(32_000));
     line.push_str(&"b* ".repeat(32_000));
     line.push('\n');
-    let nested_started = Instant::now();
+    let nested_started = super::thread_cpu_time();
     processor.push(&line, &mut out);
-    let elapsed = nested_started.elapsed();
+    let elapsed = super::thread_cpu_time() - nested_started;
     assert!(elapsed < limit, "nested pairs took {elapsed:?}");
     assert!(text(&out).starts_with("\x1b[3ma \x1b[3ma "));
     // A closer that matches part of its run and then fails to place the rest
@@ -383,9 +383,9 @@ fn long_lines_of_unmatched_or_unbalanced_delimiters_render_in_linear_time() {
     line.push_str(&"*a ".repeat(32_000));
     line.push_str(&"_b c__ ".repeat(32_000));
     line.push('\n');
-    let residual_started = Instant::now();
+    let residual_started = super::thread_cpu_time();
     processor.push(&line, &mut out);
-    let elapsed = residual_started.elapsed();
+    let elapsed = super::thread_cpu_time() - residual_started;
     assert!(elapsed < limit, "residual closers took {elapsed:?}");
     assert!(contains(&out, "\x1b[3mb c\x1b[23m_ "));
     for (prefix, unit, repeat, suffix) in shapes {
@@ -394,9 +394,9 @@ fn long_lines_of_unmatched_or_unbalanced_delimiters_render_in_linear_time() {
         line.push_str(prefix);
         line.push_str(&unit.repeat(repeat));
         line.push_str(suffix);
-        let started = Instant::now();
+        let started = super::thread_cpu_time();
         processor.push(&line, &mut out);
-        let elapsed = started.elapsed();
+        let elapsed = super::thread_cpu_time() - started;
         assert!(
             elapsed < limit,
             "{prefix:?}{unit:?}x{repeat} took {elapsed:?}"

@@ -11,13 +11,12 @@
 //!
 //! * **Disclosure is decided at composition, from the source text and the rows
 //!   it was allotted** -- never by looking at a string that has already been
-//!   cut. Every truncation on both surfaces is silent: `super::approval`'s
-//!   `fitted` appends an ellipsis to whatever survived its allotment, and
-//!   `super::approval_screen`'s `compose` truncates the heading a second time
-//!   into whatever the choices left. A rule written against the cut string would
-//!   read `2. Yes, and don't ask again for th` as a disclosed control, and that
-//!   prefix is exactly where the difference between one call and the rest of the
-//!   session is written.
+//!   cut. Every cut on both surfaces is silent: the painter clips a row at the
+//!   screen's edge, and `super::approval_screen`'s `compose` drops whole rows
+//!   when the screen is too short for the question. A rule written against the
+//!   cut string would read `2. Yes, and don't ask again for th` as a disclosed
+//!   control, and that prefix is exactly where the difference between one call
+//!   and the rest of the session is written.
 //! * **A successful write is not a receipt.** A `SIGWINCH` that lands inside the
 //!   write is drained one tick later (`super::event_loop`'s `collect_facts`), so
 //!   the frame is only proven once the loop has come round and found no resize
@@ -50,7 +49,7 @@ pub(crate) struct ApprovalId(pub u64);
 pub(crate) enum Surface {
     /// The band's own panel, with the document still above it.
     Inline,
-    /// A screen of its own, for a change the band's summary cannot show.
+    /// A screen of its own, for a change the band's review cannot show.
     Alternate,
 }
 

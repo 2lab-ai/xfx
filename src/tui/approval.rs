@@ -42,14 +42,15 @@
 //!
 //! # What the panel may answer with, and what it may not
 //!
-//! Three choices, and nothing else: yes once, yes and stop asking, no. Esc and
-//! Ctrl-C refuse, because **a decision xfx was never given is a refusal** --
-//! never an allow -- and so does a session that is shutting down or a UI that
-//! has gone away. The alternate-screen diff review, the amendment draft and the
-//! readiness commit gate upstream puts around the same question are Phases 2
-//! and 3; what is here is the inline panel and the disclosure the line shell's
-//! own prompt makes, because a narrower safety surface would be a regression
-//! rather than a port.
+//! Three choices, and nothing else: yes once, yes and stop asking, no. The two
+//! bail-out keys are upstream's (`vercel-labs/fx@c1db919`): **Ctrl-C refuses
+//! this call and the turn goes on** (`src/ui/input/runtime.zig:61`), and
+//! **Escape cancels the turn** the question belongs to
+//! (`src/core/app/app_input_runtime.zig:3139-3143`). Both are refusals of the
+//! call, because a decision xfx was never given is a refusal -- never an allow
+//! -- and so is a session that is shutting down or a UI that has gone away.
+//! What the question looks like is [`super::approval_view`]'s: upstream's rows,
+//! on xfx's two surfaces.
 
 use std::collections::VecDeque;
 use std::io;
@@ -59,60 +60,50 @@ use std::task::{Poll, Waker};
 
 use tokio::sync::mpsc::{Sender, UnboundedReceiver};
 
-use super::approval_amendment::{Block, Drafts};
+use super::approval_amendment::Drafts;
 use super::approval_readiness::{ApprovalId, Disclosure};
+use super::approval_view::{
+    blank, choice_rows, draft_cols, draft_column, scope_rows, subject_rows, Kind, Review, Styles,
+};
 use super::bridge::{park_on, send_ui, Cancellation, Stopped, TurnControl, UiEvent};
+use super::theme::Palette;
 use crate::permission::{ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse};
 
 // ---------------------------------------------------------------------------
 // what the panel says
 // ---------------------------------------------------------------------------
 
-/// The screen height at which the panel can afford two blank rows.
+/// The screen height at which the panel can afford its blank rows.
 ///
-/// The one thing about this panel's height that is still a property of the
-/// *screen* rather than of the request. Everything else is measured from the
-/// content ([`Shape::for_request`]): the three fixed heights that used to live
-/// here allotted the always-scope two rows, every scope
-/// `crate::permission::PermissionSession` builds is three at eighty columns,
-/// and a question whose scope is cut is a question no frame can disclose.
+/// Upstream's own threshold for the spacious panel
+/// (`interaction_state.zig:15`, `approval_spacious_min_terminal_rows`): below
+/// it the question drops the blank rows between its parts and keeps every row
+/// that says something.
 pub(crate) const SPACIOUS_AT: u16 = 34;
 
-/// The band's own name for the tool a shell command runs under
-/// (`crate::permission::ProposedAction::tool`).
-const TERMINAL_TOOL: &str = "terminal";
-
-/// What the panel calls itself.
+/// What the panel calls itself: the first words of its header, on both
+/// surfaces (`super::approval_view`'s two titles both begin with it).
+#[cfg(test)]
 pub(crate) const TITLE: &str = "Permission needed";
 
-/// The first choice.
-const ONCE_CHOICE: &str = "1. Yes";
-
-/// The second, for a command (`approval_ui.zig:1986-1992`).
-const ALWAYS_COMMAND: &str = "2. Yes, and don't ask again for this exact command";
-
-/// The second, for everything else xfx advertises.
+/// How many rows of review a change may have and still be asked in the band.
 ///
-/// Upstream has a third wording, for an MCP server's tools. xfx advertises no
-/// MCP tool, so that wording is unreachable here and is not written down as if
-/// it were.
-const ALWAYS_REQUEST: &str = "2. Yes, and don't ask again for this request";
+/// A property of the **change**, never of the screen
+/// ([`ApprovalSurface::for_request`]): half of an ordinary 24-row screen, which
+/// is a change the band shows whole above its chrome. A longer one is reviewed
+/// on a screen of its own, the surface upstream reviews every file on
+/// (`approval_screen.zig:208-223`, `needsScreen`).
+pub(crate) const BAND_REVIEW_LINES: usize = 12;
 
-/// The third, naming the key that means the same thing.
-const DENY_CHOICE: &str = "3. No (esc)";
-
-/// What every row but the title is written into, so the panel reads as one
-/// block rather than as four left-aligned sentences.
-const INDENT: &str = "  ";
-
-/// How many cells [`INDENT`] costs.
-const INDENT_CELLS: u16 = 2;
-
-/// What marks the choice Enter would take.
-const MARKER: &str = "> ";
-
-/// What a summary too long for the rows it was given ends with.
-const ELLIPSIS: char = '\u{2026}';
+/// The band's rows that are not the panel, with the one document row the band
+/// always leaves: the activity row and the blank under it, the two rules and
+/// the hint row (`super::layout::solve_band`).
+///
+/// What a draft's later rows are paid for out of. The panel does not see the
+/// band, so it is told what the band costs rather than asking it; an
+/// overestimate costs a draft a row, and an underestimate would cost the
+/// question one -- which is why the draft is the half that is cut.
+const BAND_CHROME_ROWS: usize = 6;
 
 /// The three answers, in the order they are offered and numbered.
 ///
@@ -141,23 +132,6 @@ pub(crate) fn choice(index: usize) -> Option<ApprovalAnswer> {
     CHOICES.get(index).copied()
 }
 
-/// The columns a draft's text has, which is the panel's inner width.
-///
-/// One function, called by all three of the draft's consumers -- the
-/// [`super::editor::Editor`] that applies a key at a width, the rows the panel
-/// paints, and the caret the shell places -- because a caret computed at one
-/// width and a wrap computed at another is a caret standing on the wrong cell.
-/// The value is [`fitted`]'s own wrap budget, which is what makes the draft as
-/// wide as every other indented row of the panel.
-pub(crate) const fn draft_cols(cols: u16) -> u16 {
-    let inner = cols.saturating_sub(INDENT_CELLS);
-    if inner == 0 {
-        1
-    } else {
-        inner
-    }
-}
-
 /// What one keystroke means to a panel that has the focus.
 ///
 /// The panel's own vocabulary rather than [`super::input::Action`], and the
@@ -176,9 +150,17 @@ pub(crate) enum Action {
     Tab,
     /// Take the marked choice.
     Submit,
-    /// Refuse.
+    /// Cancel the turn the question belongs to.
+    ///
+    /// Upstream's Escape at a question (`app_input_runtime.zig:3139-3143`,
+    /// `cancelApprovalOperation`): this call is refused **and** the turn
+    /// stops, which the shell carries out as its interrupt.
     Escape,
-    /// Refuse. Ctrl-C is a byte here like everywhere else on this surface.
+    /// Refuse this call and nothing else: the turn goes on, told no.
+    ///
+    /// Upstream's Ctrl-C at a question (`src/ui/input/runtime.zig:61`,
+    /// `3 => .deny`), pinned by its e2e
+    /// `tests/e2e/tui-permissions.test.ts:1099`.
     Cancel,
     /// An editing key, meaningful only while a draft is open.
     ///
@@ -208,20 +190,21 @@ pub(crate) enum Reply {
     Ignored,
     /// Something moved and the surface owes a frame, at the same row count.
     Moved,
-    /// The composed row count changed with it, so the screen a readiness
-    /// receipt was about is no longer the screen the user is looking at
-    /// ([`super::approval_readiness::Readiness::invalidate`]).
+    /// A draft opened or closed, or the rows it takes changed, so the screen a
+    /// readiness receipt was about is no longer the screen the user is looking
+    /// at ([`super::approval_readiness::Readiness::invalidate`]).
     Reshaped,
     /// The user answered.
     Answer {
         answer: ApprovalAnswer,
         /// Whether this key carries the draft belonging to its answer.
         ///
-        /// `false` for Escape and for the interrupt, and the difference is
-        /// deliberate: those are the fail-safe exits -- a decision xfx was not
-        /// given -- so they refuse with nothing said even when the deny draft
-        /// holds text. Submitting `3. No` is a *chosen* refusal and does send
-        /// it.
+        /// `false` for Escape and for Ctrl-C, and the difference is
+        /// deliberate: those are the bail-outs -- a turn cancelled, a call
+        /// refused with a keystroke that says nothing -- so they refuse with
+        /// nothing said even when the deny draft holds text
+        /// (`approval_decision.zig:132-135` discards the amendment on `deny`).
+        /// Submitting `3` is a *chosen* refusal and does send it.
         amendable: bool,
     },
 }
@@ -229,16 +212,14 @@ pub(crate) enum Reply {
 /// Where a question is put in front of the user.
 ///
 /// A property of the **change**, not of the terminal: [`Self::for_request`] is
-/// given the question and nothing else -- no rows, no columns -- so that the
-/// answer cannot start depending on how big somebody's window happens to be.
-/// Whether a screen is too short to *ask* on is a separate and later question,
-/// and it is asked **once the surface is known**, of that surface: the band's
-/// panel by [`super::layout::fits_panel`], which is the only thing that knows
-/// what the rest of the band is costing, and the review plane by
-/// [`super::approval_screen::ApprovalScreen::presents_choices`], which owns
-/// every row of the screen it takes. Asking one surface's fit question about
-/// the other's question is how a short window came to refuse a change the
-/// plane can show whole.
+/// given the question and nothing else -- no rows, no columns -- so that which
+/// surface a change belongs on cannot start depending on how big somebody's
+/// window happens to be. Whether a screen is too short to *ask* on is a
+/// separate and later question, asked **once the surface is known**, of that
+/// surface: the band's panel by [`super::layout::fits_approval`], the review
+/// plane by [`super::approval_screen::ApprovalScreen::presents_choices`]
+/// (`super::shell::Shell::ask` moves a change the band cannot hold onto the
+/// plane rather than refusing it).
 ///
 /// Two variants and no payload: what is settled here is the choice and the
 /// state that records it ([`super::shell::ScreenOwner`]); the plane's renderer,
@@ -248,20 +229,22 @@ pub(crate) enum Reply {
 pub(crate) enum ApprovalSurface {
     /// The band's own panel, with the document still visible above it.
     Inline,
-    /// A screen of its own, for a change the band's summary cannot show.
+    /// A screen of its own, for a change the band's review cannot show.
     Alternate,
 }
 
 impl ApprovalSurface {
     /// Which surface this question belongs on.
     pub(crate) fn for_request(request: &ApprovalRequest) -> Self {
-        match request.diff.as_ref() {
-            // A change bigger than the sentence the band quotes. Everything
-            // else -- a command, a whole-file write, a directory, an edit the
-            // summary already showed whole -- is a question the band answers
-            // without hiding the document behind it.
-            Some(diff) if diff.wants_screen() => Self::Alternate,
-            _ => Self::Inline,
+        if request.diff.is_none() {
+            // A command, a directory: nothing to review but the subject, which
+            // the band shows whole.
+            return Self::Inline;
+        }
+        if Review::of(request).lines.len() > BAND_REVIEW_LINES {
+            Self::Alternate
+        } else {
+            Self::Inline
         }
     }
 }
@@ -291,26 +274,19 @@ pub(crate) struct Composition {
     pub disclosure: Disclosure,
 }
 
-/// `text` fitted into its rows, and whether all of it got there.
-///
-/// `complete` is a fact about the **source** and its allotment, not about the
-/// string this returns: the cut is silent -- an ellipsis on the last row that
-/// survived -- so a caller inspecting the output could only guess whether a
-/// summary ending in `\u{2026}` was cut or merely ends that way.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Fitted {
-    pub rows: Vec<String>,
-    pub complete: bool,
-}
-
 /// The question, which answer is marked, and what the user is saying about it.
 ///
 /// A manual `Debug`, because [`Drafts`] holds editors and the band's slot is a
-/// `Debug` enum (`super::shell::Slot`); `Clone` is gone with the same edit and
-/// nothing wanted it -- the panel is built once per question and dies with the
-/// answer.
+/// `Debug` enum (`super::shell::Slot`). The panel is built once per question
+/// and dies with the answer.
 pub(crate) struct Panel {
     request: ApprovalRequest,
+    /// Which of upstream's layouts the question takes.
+    kind: Kind,
+    /// The review of the change, built once: it is a pure function of the
+    /// request, and a 64 KiB side diffed again for every frame would be the
+    /// band's whole cost.
+    review: Option<Review>,
     /// An index into [`CHOICES`].
     selected: usize,
     /// The two amendments this question may carry
@@ -328,106 +304,33 @@ impl std::fmt::Debug for Panel {
     }
 }
 
-/// How many rows each elastic part of the panel gets on a screen of a given
-/// height.
+/// One construction of the panel: its rows, and every fact the shell reads off
+/// them.
 ///
-/// A value rather than three `if`s inside [`Panel::rows`], because every row
-/// the panel paints is counted from exactly these numbers -- the height, the
-/// caret's row, and the paint itself -- and three readings of the same
-/// condition are three chances to disagree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Shape {
-    /// A blank row under the title.
-    breathing: bool,
-    /// How many rows the summary may take.
-    summary: u16,
-    /// A blank row above the choices.
-    spaced: bool,
-    /// How many rows the "always" disclosure may take.
-    scope: u16,
-    /// How many rows the drafts may take **between them**.
-    ///
-    /// Last in the allotment and only ever what is left over, which is the
-    /// whole of "a long draft in an 80x24 window truncates the draft's own
-    /// display, never the target, the controls, or the scope".
-    draft: u16,
-}
-
-/// How many rows `text` really needs at `budget` cells, never fewer than one.
-///
-/// The **demand**, measured from the source. A row count chosen without asking
-/// this is a row count that cuts something, and every cut on this surface is
-/// silent ([`fitted`]).
-fn demanded(text: &str, budget: u16) -> u16 {
-    u16::try_from(super::wrap::wrap(text, budget).len().max(1)).unwrap_or(u16::MAX)
-}
-
-impl Shape {
-    /// The shape this question really needs at `cols`, on a screen
-    /// `terminal_rows` tall.
-    ///
-    /// **Measured from the content, not read out of a table.** The three fixed
-    /// shapes this replaced allotted the always-scope two rows on an ordinary
-    /// screen and one on a short one, and every scope
-    /// `crate::permission::PermissionSession` builds is three wrapped rows at
-    /// eighty columns: the suffix `always_scope_for` appends -- the resume-id of
-    /// a saved session, or the note that this turn is not being recorded -- is
-    /// unconditional. A table cannot know that, so the table cut the sentence
-    /// and no ordinary screen could disclose an ordinary request.
-    ///
-    /// **Padding is what is spent first.** A blank row discloses nothing, so
-    /// the two are taken only on a screen tall enough that they cost the
-    /// question nothing ([`SPACIOUS_AT`]); everything else is demand. Whether
-    /// the demand fits the band at all is [`super::layout::fits_panel`]'s
-    /// question, asked of [`Panel::height`], and a question that does not fit
-    /// is refused in the user's sight rather than squeezed.
-    /// **Bounded by the screen.** A demand larger than the terminal is still
-    /// only measured up to it, so the panel never claims more rows than exist
-    /// and [`fitted`]'s ellipsis marks what was lost -- which makes the
-    /// disclosure `false` and the question refusable rather than grantable. The
-    /// alternative, a panel of a hundred rows on a screen of twenty-four, would
-    /// be a height every reader of it has to re-clamp.
-    /// **The drafts are paid for last, out of what is left.** They are the one
-    /// block on this panel that is not the question, so a screen too short for
-    /// everything shows less of the amendment -- never less of the subject, the
-    /// controls or the scope, all three of which a readiness receipt is about.
-    fn for_request(
-        request: &ApprovalRequest,
-        wanted_draft: u16,
-        cols: u16,
-        terminal_rows: u16,
-    ) -> Self {
-        let budget = cols.saturating_sub(INDENT_CELLS).max(1);
-        let air = terminal_rows >= SPACIOUS_AT;
-        // A title, the three answers, and one row each for the two elastic
-        // parts: the least this panel can be.
-        let fixed = 1 + 2 * u16::from(air) + CHOICES.len() as u16;
-        let scope = demanded(&format!("2 = {}", request.always_scope), budget)
-            .min(terminal_rows.saturating_sub(fixed + 1).max(1));
-        // The summary is where the band names the target (`crate::permission`'s
-        // `ApprovalRequest`), so a summary cut here is a target the user was
-        // never shown.
-        let summary = demanded(&request.summary, budget)
-            .min(terminal_rows.saturating_sub(fixed + scope).max(1));
-        Self {
-            breathing: air,
-            summary,
-            spaced: air,
-            scope,
-            draft: wanted_draft.min(terminal_rows.saturating_sub(fixed + scope + summary)),
-        }
-    }
-
-    /// Which row of the panel the first choice is on.
-    const fn first_choice(&self) -> u16 {
-        1 + self.breathing as u16 + self.summary + self.spaced as u16
-    }
+/// The height, the caret, the disclosure and the paint are four readings of one
+/// layout, and four constructions would be four chances to disagree.
+struct Built {
+    rows: Vec<String>,
+    /// The index of the last choice row -- never a draft's later row.
+    last_control: usize,
+    /// All three choices' words reached their rows uncut.
+    controls_whole: bool,
+    /// The index of the marked choice's row, which is where the caret goes
+    /// while no draft has the keys; read on its own only by a test.
+    #[cfg_attr(not(test), allow(dead_code))]
+    marked: usize,
+    /// Where the caret goes: a row index, and the cells to its left.
+    caret: (usize, u16),
 }
 
 impl Panel {
     pub(crate) fn new(request: ApprovalRequest) -> Self {
+        let kind = Kind::of(&request);
+        let review = kind.reviews_a_file().then(|| Review::of(&request));
         Self {
             request,
+            kind,
+            review,
             // Yes-once, which is the safest of the three that is still an
             // answer: an Enter pressed without reading grants one call rather
             // than the rest of the session.
@@ -464,18 +367,35 @@ impl Panel {
         self.drafts.submit(answer)
     }
 
-    /// The panel's rows, top first, exactly as many as [`Self::height`] says.
+    /// The panel's rows as text, top first, exactly as many as
+    /// [`Self::height`] says.
     ///
-    /// **One iterator for both** (`approval_ui.zig:268-294`): the height is the
-    /// length of this, so the count the band solved its geometry from cannot
-    /// drift from the paint and leave a stale row standing in the band.
+    /// **One construction for both** (`approval_ui.zig:268-294`): the height
+    /// is the length of this, so the count the band solved its geometry from
+    /// cannot drift from the paint and leave a stale row standing in the band.
     pub(crate) fn rows(&self, cols: u16, terminal_rows: u16) -> Vec<String> {
-        // The absolute row the disclosure would carry is nothing to a caller
-        // that only wants the text, so this asks for the composition at the top
-        // of a notional screen and takes the half it is about. **One**
-        // construction, which is what keeps the height, the caret and the paint
-        // from drifting apart.
-        self.compose(cols, terminal_rows, 1, 0).rows
+        self.build(cols, terminal_rows, &Styles::PLAIN).rows
+    }
+
+    /// The same rows in the palette's colours, for the band to paint.
+    ///
+    /// The same construction as [`Self::rows`] with sequences in front of each
+    /// run, and a sequence costs no cells: the two cannot be different heights
+    /// or cut in different places.
+    pub(crate) fn painted(&self, cols: u16, terminal_rows: u16, palette: &Palette) -> Vec<String> {
+        self.build(cols, terminal_rows, &Styles::of(palette)).rows
+    }
+
+    /// The row under the band's bottom rule while this question is up: what
+    /// the keys do here (`approval_ui.zig:20-25`).
+    pub(crate) fn hint(&self, cols: u16, palette: &Palette) -> String {
+        super::approval_view::hint(
+            self.kind,
+            amendable(self.selected),
+            false,
+            cols,
+            &Styles::of(palette),
+        )
     }
 
     /// The panel's rows and what they really disclosed, for a panel whose first
@@ -486,6 +406,12 @@ impl Panel {
     /// ([`super::shell::Shell::band_rows`]), so a panel-local index is not a row
     /// of anybody's terminal -- and `Intent::capture`'s `last_control_row <=
     /// rows` guard is about the terminal.
+    ///
+    /// The subject, the scope and the change are whole **by construction**:
+    /// every one of them is wrapped onto as many rows as it needs, never cut,
+    /// and a panel taller than the band can hold is not installed at all
+    /// ([`super::layout::fits_approval`]). What a narrow screen can still cut is
+    /// a choice's words, and that is measured.
     pub(crate) fn compose(
         &self,
         cols: u16,
@@ -493,75 +419,7 @@ impl Panel {
         band_top: u16,
         offset: u16,
     ) -> Composition {
-        // The drafts are measured **once**, at the width they will be painted
-        // at ([`draft_cols`]), and the same blocks are what the rows below take
-        // and what the caret is placed from: a second measurement is a second
-        // chance for the caret to stand on a cell the paint never wrote.
-        let blocks = self.drafts.blocks(draft_cols(cols));
-        let shape = Shape::for_request(
-            &self.request,
-            wanted_draft_rows(&blocks),
-            cols,
-            terminal_rows,
-        );
-        let mut budget = usize::from(shape.draft);
-        let mut rows = Vec::new();
-        rows.push(TITLE.to_string());
-        if shape.breathing {
-            rows.push(String::new());
-        }
-        // What would happen, in the words the line shell's own prompt uses --
-        // including the bounded excerpt of the change, which is where the whole
-        // risk of an edit lives.
-        let summary = fitted(&self.request.summary, cols, shape.summary);
-        rows.extend(summary.rows);
-        if shape.spaced {
-            rows.push(String::new());
-        }
-        // **Whether the clip changed anything**, not whether something survived
-        // it. `super::approval_screen::ApprovalScreen::presents_choices` asks
-        // the weaker question -- is the row longer than its marker -- and that
-        // is the right question for "may xfx ask here at all"; it is the wrong
-        // one for "may this be granted", because `2. Yes, and don't ask again
-        // for th` passes it while the words that separate one call from the rest
-        // of the session are the ones that got cut.
-        let mut controls_whole = true;
-        let mut last_control = 0usize;
-        for (index, choice) in CHOICES.iter().enumerate() {
-            let marker = if index == self.selected {
-                MARKER
-            } else {
-                INDENT
-            };
-            let row = format!("{marker}{}", self.label(*choice));
-            controls_whole &= super::frame::clip(&row, cols) == row;
-            last_control = rows.len();
-            rows.push(row);
-            // The amendment sits under the answer it belongs to, so that which
-            // sentence goes with which decision is a fact of the layout rather
-            // than something the user has to remember. Pushed **after**
-            // `last_control` is taken, so the last control row stays the last
-            // *control* row: a draft is not one.
-            let Some(block) = blocks.iter().find(|block| block.choice == index) else {
-                continue;
-            };
-            let painted = block.rows.len().min(budget);
-            for row in &block.rows[..painted] {
-                rows.push(format!("{INDENT}{row}"));
-            }
-            budget -= painted;
-        }
-        // And exactly what "always" would buy, which is the half of the
-        // question a three-line menu is most likely to drop. Labelled with the
-        // digit rather than introduced with a sentence: the prose would cost a
-        // dozen cells of the one row a compact screen has for it, and what
-        // matters on that row is the scope, not the grammar.
-        let scope = fitted(
-            &format!("2 = {}", self.request.always_scope),
-            cols,
-            shape.scope,
-        );
-        rows.extend(scope.rows);
+        let built = self.build(cols, terminal_rows, &Styles::PLAIN);
         let disclosure = Disclosure {
             // The panel's first row is at `band_top + offset`, so a local index
             // needs no further one-based correction: `band_top` is already a
@@ -569,27 +427,14 @@ impl Panel {
             // ([`super::layout::Geometry::band_top`]).
             last_control_row: band_top
                 .saturating_add(offset)
-                .saturating_add(u16::try_from(last_control).unwrap_or(u16::MAX)),
-            controls_whole,
-            scope_whole: scope.complete,
-            // The summary carries the target (`crate::permission`'s
-            // `ApprovalRequest`), so a summary that reached its rows whole is a
-            // subject the user really saw.
-            subject_whole: summary.complete,
-            // An inline question is only ever chosen for a change the summary
-            // shows whole ([`ApprovalSurface::for_request`]), so on this surface
-            // the change **is** the subject.
-            change_visible: summary.complete,
+                .saturating_add(u16::try_from(built.last_control).unwrap_or(u16::MAX)),
+            controls_whole: built.controls_whole,
+            scope_whole: true,
+            subject_whole: true,
+            change_visible: true,
         };
         Composition {
-            // Cut to the screen **here**, by the painter's own rule
-            // (`super::frame::clip`), rather than left for the painter: a
-            // choice whose wording outran a narrow terminal would otherwise be
-            // measured by the band at one width and drawn at another.
-            rows: rows
-                .iter()
-                .map(|row| super::frame::clip(row, cols).to_string())
-                .collect(),
+            rows: built.rows,
             disclosure,
         }
     }
@@ -598,32 +443,19 @@ impl Panel {
     ///
     /// **Content-measured**, so it really is a question of the request as well
     /// as of the screen. What the band does when the answer is more rows than
-    /// it has is [`super::layout::fits_panel`]'s, and the shell refuses in the
-    /// user's sight rather than painting a question with half its disclosure.
+    /// it has is [`super::layout::fits_approval`]'s.
     pub(crate) fn height(&self, cols: u16, terminal_rows: u16) -> u16 {
         u16::try_from(self.rows(cols, terminal_rows).len()).unwrap_or(u16::MAX)
     }
 
     /// Which row of the panel the marked choice is on.
     ///
-    /// Where the caret goes while the panel has the focus. A caret left in the
-    /// composer would be a lie about which of the two the next keystroke goes
-    /// to.
-    ///
-    /// **Takes `cols`**, because the rows above the choices are now measured
-    /// from text that wraps at a width: a caret derived from a different
-    /// reading of the layout than the paint would sit on the wrong row the
-    /// moment a summary or a scope needed one row more. The same shape function
-    /// answers both ([`Shape::for_request`]), which is what
-    /// `super::question::QuestionPanel::caret_row` already does with the same
-    /// two arguments.
-    ///
     /// `#[cfg(test)]`: production places the caret with [`Self::caret`], which
     /// answers both of the places it can be, and a second reader of the same
     /// layout is the drift this module keeps saying it will not have.
     #[cfg(test)]
     pub(crate) fn caret_row(&self, cols: u16, terminal_rows: u16) -> u16 {
-        self.placed(cols, terminal_rows).0
+        u16::try_from(self.build(cols, terminal_rows, &Styles::PLAIN).marked).unwrap_or(u16::MAX)
     }
 
     /// Where the caret really goes: a row of the panel, and the cells to the
@@ -631,78 +463,104 @@ impl Panel {
     ///
     /// The marked choice while no amendment is open, and **inside the draft**
     /// while one is: the caret is what the terminal says the next keystroke
-    /// goes to, and a caret left on the choice row while a draft has the keys
-    /// would be a lie about which of the two a character lands in. The column
-    /// is nought on a choice row for the same reason it always was -- the
-    /// marker is the answer to "which one", and a column inside it would only
-    /// be a second one.
+    /// goes to, and a caret left on the choice's first cell while a draft has
+    /// the keys would be a lie about which of the two a character lands in.
     pub(crate) fn caret(&self, cols: u16, terminal_rows: u16) -> (u16, u16) {
-        self.placed(cols, terminal_rows).1
+        let (row, column) = self.build(cols, terminal_rows, &Styles::PLAIN).caret;
+        (u16::try_from(row).unwrap_or(u16::MAX), column)
     }
 
-    /// Where the marked choice is, and where the caret is, from **one** walk of
-    /// the allotment [`Self::compose`] paints from.
+    /// The one construction everything above reads.
     ///
-    /// One walk rather than two readings, for the reason `rows` and `height`
-    /// are one construction: the caret and the paint are two claims about the
-    /// same layout, and the draft rows between the choices make them disagree
-    /// the moment they are derived separately.
-    fn placed(&self, cols: u16, terminal_rows: u16) -> (u16, (u16, u16)) {
-        let blocks = self.drafts.blocks(draft_cols(cols));
-        let shape = Shape::for_request(
-            &self.request,
-            wanted_draft_rows(&blocks),
+    /// Upstream's two layouts, in xfx's band. A file is its review above the
+    /// chrome -- the change, a dotted rule, `Permission needed · Review change`
+    /// with the counts on the right, the path and the question, the choices
+    /// (`fx-approvals-40x120-edit-ask`, `approval_screen.zig:183-206`); a
+    /// command is the header, the question and the command under `$`, then the
+    /// choices (`fx-approvals-40x120-cmd-ask`, `approval_ui.zig:1513-1541`).
+    /// Under the choices, dim, what `2` would buy ([`scope_rows`]). The blank
+    /// rows between the parts are spent only on a screen tall enough for them
+    /// ([`SPACIOUS_AT`]).
+    fn build(&self, cols: u16, terminal_rows: u16, styles: &Styles) -> Built {
+        let air = terminal_rows >= SPACIOUS_AT;
+        let mut rows = Vec::new();
+        if let Some(review) = self.review.as_ref() {
+            rows.extend(review.rows(cols, styles).into_iter().map(|(row, _)| row));
+            rows.push(super::approval_view::dotted_rule(cols, styles));
+        }
+        rows.push(super::approval_view::header(
+            self.kind,
+            self.review.as_ref(),
             cols,
-            terminal_rows,
-        );
-        let mut budget = usize::from(shape.draft);
-        let mut row = shape.first_choice();
-        let mut marked = row;
-        let mut caret = (row, 0u16);
-        for index in 0..CHOICES.len() {
+            styles,
+        ));
+        if air {
+            rows.push(blank());
+        }
+        rows.extend(subject_rows(self.kind, &self.request, cols, styles));
+        if air {
+            rows.push(blank());
+        }
+        let scope = scope_rows(&self.request, cols, styles);
+        // **The drafts are paid for last, out of what is left.** They are the
+        // one block on this panel that is not the question, so a screen too
+        // short for everything shows less of the amendment -- never less of the
+        // subject, the controls or the scope, all three of which a readiness
+        // receipt is about. A draft's first row costs nothing: it is its
+        // choice's row.
+        let fixed = rows.len() + CHOICE_COUNT + scope.len() + usize::from(air);
+        let mut budget = usize::from(terminal_rows).saturating_sub(fixed + BAND_CHROME_ROWS);
+        let blocks = self
+            .drafts
+            .blocks(|index| draft_cols(self.kind, index, cols));
+        let mut last_control = 0;
+        let mut controls_whole = true;
+        let mut marked = 0;
+        let mut caret = (0, 0);
+        for index in 0..CHOICE_COUNT {
+            let block = blocks.iter().find(|block| block.choice == index);
+            let later = block
+                .map_or(0, |block| block.rows.len().saturating_sub(1))
+                .min(budget);
+            budget -= later;
+            let (choice_rows, whole) = choice_rows(
+                self.kind,
+                index,
+                index == self.selected,
+                block,
+                later,
+                cols,
+                styles,
+            );
+            controls_whole &= whole;
+            last_control = rows.len();
             if index == self.selected {
-                marked = row;
-                caret = (row, 0);
+                marked = rows.len();
+                caret = (rows.len(), 0);
             }
-            row = row.saturating_add(1);
-            let Some(block) = blocks.iter().find(|block| block.choice == index) else {
-                continue;
-            };
-            let painted = block.rows.len().min(budget);
-            if let Some((within, column)) = block.caret {
-                if painted > 0 {
-                    caret = (
-                        row.saturating_add(u16::try_from(within.min(painted - 1)).unwrap_or(0)),
-                        // On the screen, always: a column past the last one is
-                        // a cursor the terminal clamps silently onto a row it
-                        // was not placed on.
-                        INDENT_CELLS
-                            .saturating_add(column)
-                            .min(cols.saturating_sub(1)),
-                    );
-                }
+            if let Some((within, column)) = block.and_then(|block| block.caret) {
+                caret = (
+                    rows.len() + within.min(choice_rows.len() - 1),
+                    // On the screen, always: a column past the last one is a
+                    // cursor the terminal clamps silently onto a row it was
+                    // not placed on.
+                    draft_column(self.kind, index)
+                        .saturating_add(column)
+                        .min(cols.saturating_sub(1)),
+                );
             }
-            row = row.saturating_add(u16::try_from(painted).unwrap_or(0));
-            budget -= painted;
+            rows.extend(choice_rows);
         }
-        (marked, caret)
-    }
-
-    /// The second choice's wording, which says which of the two "always" it is.
-    pub(crate) fn always_choice(&self) -> &'static str {
-        if self.request.tool == TERMINAL_TOOL {
-            ALWAYS_COMMAND
-        } else {
-            ALWAYS_REQUEST
+        rows.extend(scope);
+        if air {
+            rows.push(blank());
         }
-    }
-
-    /// What one choice is called.
-    fn label(&self, choice: ApprovalAnswer) -> &'static str {
-        match choice {
-            ApprovalAnswer::Once => ONCE_CHOICE,
-            ApprovalAnswer::Always => self.always_choice(),
-            ApprovalAnswer::Deny => DENY_CHOICE,
+        Built {
+            rows,
+            last_control,
+            controls_whole,
+            marked,
+            caret,
         }
     }
 
@@ -710,16 +568,20 @@ impl Panel {
     ///
     /// **Takes `cols`** because a draft is text at a width: the keystroke that
     /// inserts a character is the one that decides whether the draft now needs
-    /// another row, and the answer is the panel's inner width
+    /// another row, and the answer is the draft's own width on its choice's row
     /// ([`draft_cols`]) rather than the screen's.
     pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Reply {
-        answered(action, &mut self.selected, &mut self.drafts, cols)
+        let kind = self.kind;
+        answered(action, &mut self.selected, &mut self.drafts, &|index| {
+            draft_cols(kind, index, cols)
+        })
     }
 }
 
-/// How many rows a set of draft blocks wants between them.
-fn wanted_draft_rows(blocks: &[Block]) -> u16 {
-    u16::try_from(blocks.iter().map(|block| block.rows.len()).sum::<usize>()).unwrap_or(u16::MAX)
+/// Whether the marked choice carries a draft -- what makes Tab amend rather
+/// than move, and what the hint row says about it.
+pub(crate) fn amendable(selected: usize) -> bool {
+    choice(selected).is_some_and(|answer| answer != ApprovalAnswer::Always)
 }
 
 /// What one keystroke means to whichever surface has the focus.
@@ -731,6 +593,9 @@ fn wanted_draft_rows(blocks: &[Block]) -> u16 {
 /// would be two chances for a `2` to mean different things depending on how big
 /// the change happened to be, which is a decision the *user* never made.
 ///
+/// `width` is how wide each choice's draft is ([`draft_cols`]): the draft sits
+/// on its choice's row, after words of a different length on each.
+///
 /// The digits answer **without** moving the marker, and that is deliberate
 /// rather than incidental: a `3` is a refusal, not a refusal plus a marker left
 /// on the refusal for whatever key comes next.
@@ -738,31 +603,36 @@ pub(crate) fn answered(
     action: Action,
     selected: &mut usize,
     drafts: &mut Drafts,
-    cols: u16,
+    width: &dyn Fn(usize) -> u16,
 ) -> Reply {
     // Measured **before** and after, at the width the rows are painted at, so
-    // "the panel got taller" is read off the composition rather than guessed
+    // "the panel changed shape" is read off the composition rather than guessed
     // at from which key it was: a character that pushed a draft onto a second
     // row costs the band a row exactly as opening the draft did.
-    let before = drawn_rows(drafts, cols);
-    let reply = keyed(action, selected, drafts, cols);
+    let before = shape(drafts, width);
+    let reply = keyed(action, selected, drafts, width);
     match reply {
-        Reply::Moved if drawn_rows(drafts, cols) != before => Reply::Reshaped,
+        Reply::Moved if shape(drafts, width) != before => Reply::Reshaped,
         other => other,
     }
 }
 
-/// How many rows the drafts are asking for right now.
-fn drawn_rows(drafts: &Drafts, cols: u16) -> usize {
-    drafts
-        .blocks(draft_cols(cols))
-        .iter()
-        .map(|block| block.rows.len())
-        .sum()
+/// Which drafts are showing and how many rows they are asking for.
+fn shape(drafts: &Drafts, width: &dyn Fn(usize) -> u16) -> (usize, usize) {
+    let blocks = drafts.blocks(width);
+    (
+        blocks.len(),
+        blocks.iter().map(|block| block.rows.len()).sum(),
+    )
 }
 
 /// What one keystroke means, before the reshape is measured.
-fn keyed(action: Action, selected: &mut usize, drafts: &mut Drafts, cols: u16) -> Reply {
+fn keyed(
+    action: Action,
+    selected: &mut usize,
+    drafts: &mut Drafts,
+    width: &dyn Fn(usize) -> u16,
+) -> Reply {
     let answer = |answer| Reply::Answer {
         answer,
         amendable: true,
@@ -814,10 +684,11 @@ fn keyed(action: Action, selected: &mut usize, drafts: &mut Drafts, cols: u16) -
             Reply::Moved
         }
         Action::Submit => answer(CHOICES[*selected]),
-        // A decision xfx was never given is a refusal, and it is a **different**
-        // refusal from `3`: Escape is the fail-safe exit, so it sends nothing
-        // the user typed. Ctrl-C is the same, and the shell turns it into the
-        // interrupt as well.
+        // Both are refusals of this call, and neither carries what the user
+        // typed: Escape is the turn being cancelled and Ctrl-C a refusal by a
+        // key that says nothing (`approval_decision.zig:132-135` discards the
+        // amendment on `deny`). What *else* each one does -- Escape stops the
+        // turn, Ctrl-C lets it go on -- is the shell's, which owns the turn.
         Action::Escape | Action::Cancel => Reply::Answer {
             answer: ApprovalAnswer::Deny,
             amendable: false,
@@ -825,10 +696,10 @@ fn keyed(action: Action, selected: &mut usize, drafts: &mut Drafts, cols: u16) -
         // The editing subset, which the shell translates only while a draft has
         // the keys ([`super::shell::Shell::decide`]).
         Action::Edit(editing) => {
-            if !drafts.editing() {
+            let Some(open) = drafts.active() else {
                 return Reply::Ignored;
-            }
-            drafts.edit(editing, draft_cols(cols));
+            };
+            drafts.edit(editing, width(open));
             Reply::Moved
         }
         Action::PasteByte(byte) => {
@@ -881,60 +752,6 @@ pub(crate) fn edits(action: super::input::Action) -> bool {
     )
 }
 
-/// What the three choices are called, for a question about `tool`.
-///
-/// In the order [`CHOICES`] numbers them, so an index is one thing on both
-/// surfaces.
-pub(crate) fn labels(tool: &str) -> [&'static str; CHOICES.len()] {
-    let always = if tool == TERMINAL_TOOL {
-        ALWAYS_COMMAND
-    } else {
-        ALWAYS_REQUEST
-    };
-    [ONCE_CHOICE, always, DENY_CHOICE]
-}
-
-/// `text` wrapped into exactly `rows` rows of a `cols`-wide screen, indented.
-///
-/// Padded when it is shorter, because the panel's height is settled before its
-/// text is and a row the band owns but nothing writes is a row the last frame's
-/// text stays on. Cut with an [`ELLIPSIS`] when it is longer, because a summary
-/// that stopped mid-word without saying so would read as the whole of what xfx
-/// was about to do.
-///
-/// `complete` says the source reached the screen whole: every wrapped row of it
-/// fitted in the allotment, so nothing was dropped and no ellipsis was added.
-fn fitted(text: &str, cols: u16, rows: u16) -> Fitted {
-    let budget = cols.saturating_sub(INDENT_CELLS).max(1);
-    let wrapped = super::wrap::wrap(text, budget);
-    let allotted = usize::from(rows);
-    let complete = wrapped.len() <= allotted;
-    let mut out: Vec<String> = wrapped
-        .iter()
-        .take(allotted)
-        .map(|row| {
-            format!(
-                "{INDENT}{}",
-                text[row.start..row.end].trim_end_matches(['\r', '\n'])
-            )
-        })
-        .collect();
-    if wrapped.len() > allotted {
-        if let Some(last) = out.last_mut() {
-            // One cell is kept back for the ellipsis, by the painter's own cut
-            // (`super::frame::clip`) so that the two cannot disagree about
-            // where a row ends.
-            let kept = super::frame::clip(last, cols.saturating_sub(1)).to_string();
-            *last = format!("{kept}{ELLIPSIS}");
-        }
-    }
-    out.resize(allotted, String::new());
-    Fitted {
-        rows: out,
-        complete,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // the channel the answer comes back on
 // ---------------------------------------------------------------------------
@@ -959,12 +776,12 @@ pub(crate) struct ControlChannel {
     /// Messages the prompter had to consume to see past, waiting for the loop
     /// they were addressed to.
     ///
-    /// A Ctrl-C that lands while the panel is up answers the panel -- with a
-    /// refusal, because that is what a decision xfx was not given is -- and
-    /// then goes on being a Ctrl-C: the turn it was pressed at still has to
-    /// stop, and only the loop can stop one. Consuming it without this queue
-    /// would make an interrupt typed at a panel a refusal *instead of* an
-    /// interrupt.
+    /// A cancel that lands while the panel is up -- Escape at the panel, or
+    /// an interrupt from anywhere -- answers the panel with a refusal, because
+    /// that is what a decision xfx was not given is, and then goes on being a
+    /// cancel: the turn it was pressed at still has to stop, and only the loop
+    /// can stop one. Consuming it without this queue would make a cancel typed
+    /// at a panel a refusal *instead of* a cancel.
     put_back: Mutex<VecDeque<TurnControl>>,
 }
 
@@ -1161,9 +978,8 @@ impl ApprovalPrompter for TuiPrompter {
         let id = self.mint().ok_or_else(nobody_to_ask)?;
         let token = self.cancel.token();
         // Through `send_ui`, which makes the event inert at the channel: the
-        // summary quotes a bounded excerpt of the file a call would change,
-        // which is the likeliest place in the whole product for an escape
-        // sequence to be sitting.
+        // request quotes the file a call would change, which is the likeliest
+        // place in the whole product for an escape sequence to be sitting.
         match park_on(send_ui(
             &self.events,
             &token,
@@ -1225,9 +1041,10 @@ impl ApprovalPrompter for TuiPrompter {
                     Some(
                         TurnControl::QuestionAnswer { .. } | TurnControl::QuestionCancelled { .. },
                     ) => continue,
-                    // A Ctrl-C or a shutdown. Both refuse this call, and both go
-                    // back on the channel for the loop that can act on them --
-                    // see [`ControlChannel::put_back`]. `give_back` rearms.
+                    // A cancel (Escape at the panel, or an interrupt) or a
+                    // shutdown. Both refuse this call, and both go back on the
+                    // channel for the loop that can act on them -- see
+                    // [`ControlChannel::put_back`]. `give_back` rearms.
                     Some(stop) => {
                         self.control.give_back(stop);
                         return Ok(ApprovalResponse::plain(ApprovalAnswer::Deny));
@@ -1258,6 +1075,14 @@ mod tests {
     use tokio::sync::mpsc;
 
     fn request(tool: &'static str) -> ApprovalRequest {
+        let subject = if tool == "terminal" {
+            crate::permission::ApprovalSubject::Command {
+                command: "cat notes.txt".into(),
+                cwd: ".".into(),
+            }
+        } else {
+            crate::permission::ApprovalSubject::Path("notes.txt".into())
+        };
         ApprovalRequest {
             tool,
             target: "notes.txt".into(),
@@ -1265,6 +1090,7 @@ mod tests {
             always_scope:
                 "allow every future edit_file to `notes.txt` for the rest of this session".into(),
             diff: None,
+            subject,
         }
     }
 
@@ -1297,8 +1123,7 @@ mod tests {
 
         let plan = MutationPlan::new(
             MutationKind::Edit,
-            // The long absolute path a real workspace has, which is what the
-            // review plane shows as its subject.
+            // The long absolute path a real workspace has.
             std::path::PathBuf::from(
                 "/private/var/folders/f4/mj8750512wdb85799rpkct880000gn/T/.tmpqwGs5r/workspace/notes.txt",
             ),
@@ -1334,7 +1159,7 @@ mod tests {
         for durable in [true, false] {
             let asked = as_the_session_builds_it(durable);
             let scope = format!("2 = {}", asked.always_scope);
-            let wanted = super::super::wrap::wrap(&scope, 80 - INDENT_CELLS).len();
+            let wanted = super::super::wrap::wrap(&scope, 78).len();
             assert!(
                 wanted >= 3,
                 "durable={durable}: the real scope wants only {wanted} rows, so this case no \
@@ -1346,8 +1171,9 @@ mod tests {
             // of a table.
             let panel = Panel::new(asked);
             let composed = panel.compose(80, 24, 1, 0);
+            let shown = unwrapped(&composed.rows);
             assert!(
-                composed.disclosure.scope_whole,
+                shown.contains(&scope),
                 "durable={durable}: the always-scope was cut: {:?}",
                 composed.rows
             );
@@ -1362,6 +1188,15 @@ mod tests {
                 "durable={durable}: an ordinary screen could not disclose an ordinary request"
             );
         }
+    }
+
+    /// Rows as one sentence, with the wrap taken back out, so a case can ask
+    /// whether a sentence reached the panel whole wherever the wrap fell.
+    fn unwrapped(rows: &[String]) -> String {
+        rows.join(" ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// A prompter, the events it sends, the channel it waits on, and the
@@ -1399,31 +1234,40 @@ mod tests {
         }
     }
 
-    /// The same question, carrying a change of `bytes` on each side.
-    fn with_diff(bytes: usize) -> ApprovalRequest {
+    /// The same question, replacing `lines` lines of a file with as many new
+    /// ones: a review of twice as many rows.
+    fn with_lines(lines: usize) -> ApprovalRequest {
         let mut asked = request("edit_file");
         asked.diff = Some(ApprovalDiff {
-            before: "a".repeat(bytes),
-            after: "b".repeat(bytes),
+            before: (0..lines).map(|line| format!("alpha {line}\n")).collect(),
+            after: (0..lines).map(|line| format!("beta {line}\n")).collect(),
+            first_line: 1,
+            lines_below: 0,
         });
         asked
     }
 
     #[test]
-    fn a_change_bigger_than_the_bands_own_summary_is_reviewed_on_a_screen_of_its_own() {
+    fn a_change_reviewed_in_more_rows_than_the_band_holds_is_reviewed_on_a_screen_of_its_own() {
         // The rule is about the *change*, and [`ApprovalSurface::for_request`]
         // is given nothing else to decide from -- no rows, no columns. A rule
         // keyed on the terminal's height would put a one-word edit on a full
-        // screen the moment somebody made their window short, and would leave a
-        // hundred-kilobyte replacement in a two-row summary on a tall one.
+        // screen the moment somebody made their window short. (Claim moved:
+        // this was the change's bytes against the 160 the band's sentence
+        // quoted; the band shows the review now, so it is the review's rows.)
         assert_eq!(
-            ApprovalSurface::for_request(&with_diff(161)),
-            ApprovalSurface::Alternate
+            ApprovalSurface::for_request(&with_lines(7)),
+            ApprovalSurface::Alternate,
+            "fourteen rows of review were asked in the band"
         );
-        let mut one_sided = request("edit_file");
+        let mut one_sided = request("write_file");
         one_sided.diff = Some(ApprovalDiff {
             before: String::new(),
-            after: "b".repeat(161),
+            after: (0..=BAND_REVIEW_LINES)
+                .map(|line| format!("{line}\n"))
+                .collect(),
+            first_line: 1,
+            lines_below: 0,
         });
         assert_eq!(
             ApprovalSurface::for_request(&one_sided),
@@ -1434,9 +1278,8 @@ mod tests {
 
     #[test]
     fn a_small_change_and_a_question_with_no_diff_at_all_stay_in_the_band() {
-        // Two separate cases with one answer. A command has no diff to review;
-        // an edit whose whole before and after the summary already quotes has
-        // nothing a second surface would add, and taking the screen for it
+        // A command has no diff to review; a change whose review fits the band
+        // has nothing a second surface would add, and taking the screen for it
         // would hide the document to say what the band just said.
         assert_eq!(
             ApprovalSurface::for_request(&request("terminal")),
@@ -1447,23 +1290,141 @@ mod tests {
             ApprovalSurface::Inline
         );
         assert_eq!(
-            ApprovalSurface::for_request(&with_diff(160)),
+            ApprovalSurface::for_request(&with_lines(BAND_REVIEW_LINES / 2)),
+            ApprovalSurface::Inline
+        );
+        // **Rows, not bytes**: a one-line change at the top of a long file is
+        // a short review -- the change and the five lines under it -- however
+        // many kilobytes the file is.
+        let long: String = (0..4_000).map(|line| format!("line {line}\n")).collect();
+        let mut near_the_top = request("edit_file");
+        near_the_top.diff = Some(ApprovalDiff {
+            before: long.clone(),
+            after: long.replacen("line 0\n", "LINE ZERO\n", 1),
+            first_line: 1,
+            lines_below: 0,
+        });
+        assert_eq!(
+            ApprovalSurface::for_request(&near_the_top),
             ApprovalSurface::Inline
         );
     }
 
     #[test]
-    fn the_always_wording_says_which_of_the_two_it_is() {
-        // approval_ui.zig:1986-1992. xfx advertises no MCP tool, so upstream's
-        // third wording is unreachable here and is not written down as if it
-        // were.
+    fn the_band_question_is_upstreams_file_review_row_for_row() {
+        // `fx-approvals-40x120-edit-ask`, rows 6-18 (the rows between the two
+        // solid rules), and the scope row xfx adds under the choices.
+        let mut asked = request("edit_file");
+        asked.subject = crate::permission::ApprovalSubject::Path("a.txt".into());
+        asked.always_scope = "allow every future edit_file to `a.txt`".into();
+        asked.diff = Some(ApprovalDiff {
+            before: "alpha line 1\nalpha line 2\nalpha line 3\n".into(),
+            after: "alpha line 1\nALPHA LINE TWO\nalpha line 3\n".into(),
+            first_line: 1,
+            lines_below: 0,
+        });
+        let rows = Panel::new(asked).rows(120, 40);
+        let header = format!(
+            "  Permission needed · Review change{}Edit · +1  -1",
+            " ".repeat(120 - 4 - 33 - 13)
+        );
         assert_eq!(
-            Panel::new(request("terminal")).always_choice(),
+            rows,
+            [
+                "      1   alpha line 1".to_string(),
+                "      2 - alpha line 2".to_string(),
+                "      2 + ALPHA LINE TWO".to_string(),
+                "      3   alpha line 3".to_string(),
+                "┄".repeat(120),
+                header,
+                String::new(),
+                "  a.txt  ·  Apply this change?".to_string(),
+                String::new(),
+                "  ❯ 1  Apply once".to_string(),
+                "    2  Apply + allow future edits to this file for this session".to_string(),
+                "    3  Don't apply".to_string(),
+                "  2 = allow every future edit_file to `a.txt`".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_band_question_is_upstreams_command_question_row_for_row() {
+        // `fx-approvals-40x120-cmd-ask`, rows 13-23, in xfx's terms: the
+        // command's comment names xfx's tool and where it runs.
+        let mut asked = request("terminal");
+        asked.subject = crate::permission::ApprovalSubject::Command {
+            command: "echo hi > out.txt && cat out.txt".into(),
+            cwd: ".".into(),
+        };
+        asked.always_scope = "allow every future run of exactly `echo hi` in .".into();
+        let rows = Panel::new(asked).rows(120, 40);
+        let header = format!(
+            "  Permission needed · Choose one{}Command",
+            " ".repeat(120 - 4 - 30 - 7)
+        );
+        assert_eq!(
+            rows,
+            [
+                header,
+                String::new(),
+                "  Would you like to run the following command?".to_string(),
+                String::new(),
+                "  $ # terminal.exec cwd=.".to_string(),
+                "    echo hi > out.txt && cat out.txt".to_string(),
+                String::new(),
+                "  ❯ 1. Yes".to_string(),
+                "    2. Yes, and don't ask again for this exact command".to_string(),
+                "    3. No".to_string(),
+                "  2 = allow every future run of exactly `echo hi` in .".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_hint_row_says_tab_amends_on_the_two_choices_that_carry_a_draft() {
+        // `edit-ask` and `edit-down1`: Tab amends on `1` and `3`, and moves on
+        // `2` -- so the row says `↑↓ or tab options` there.
+        let palette = crate::tui::theme::Palette {
+            mode: crate::tui::theme::Mode::Dark,
+            depth: crate::tui::theme::Depth::Ansi256,
+        };
+        let mut panel = Panel::new(request("edit_file"));
+        assert!(panel.hint(120, &palette).contains("tab amend"));
+        panel.apply(Action::Down, 120);
+        let hint = panel.hint(120, &palette);
+        assert!(
+            hint.contains("↑↓ or tab options") && !hint.contains("tab amend"),
+            "{hint:?}"
+        );
+        panel.apply(Action::Down, 120);
+        assert!(panel.hint(120, &palette).contains("tab amend"));
+    }
+
+    #[test]
+    fn the_always_wording_says_which_of_the_two_it_is() {
+        // approval_ui.zig:1966-1972 for a command; a file's names xfx's grant,
+        // which is this tool on this file rather than upstream's workspace
+        // file access. xfx advertises no MCP tool, so upstream's third wording
+        // is unreachable here and is not written down as if it were.
+        use super::super::approval_view::label;
+        assert_eq!(
+            label(Kind::Command, 1),
             "2. Yes, and don't ask again for this exact command"
         );
         assert_eq!(
-            Panel::new(request("edit_file")).always_choice(),
+            label(Kind::Other, 1),
             "2. Yes, and don't ask again for this request"
+        );
+        assert_eq!(
+            label(Kind::Edit, 1),
+            "Apply + allow future edits to this file for this session"
+        );
+        assert_eq!(
+            label(Kind::Write, 1),
+            "Apply + allow future writes to this file for this session"
         );
     }
 
@@ -1473,45 +1434,46 @@ mod tests {
         // too -- a narrower safety surface is a regression, not a port.
         let panel = Panel::new(request("edit_file"));
         let rows = panel.rows(80, 24).join("\n");
-        assert!(rows.contains("replace `alpha` with `beta`"), "{rows}");
+        assert!(rows.contains("notes.txt  ·  Apply this change?"), "{rows}");
         assert!(rows.contains("for the rest of this session"), "{rows}");
     }
 
     #[test]
     fn the_measured_height_is_the_number_of_rows_actually_painted() {
-        // approval_ui.zig:268-294: one iterator for both, so the count cannot
-        // drift from the paint and leave a stale row in the band.
+        // approval_ui.zig:268-294: one construction for both, so the count
+        // cannot drift from the paint and leave a stale row in the band.
         for (cols, terminal_rows) in [(80u16, 24u16), (40, 24), (80, 40), (30, 40)] {
-            let panel = Panel::new(request("terminal"));
-            assert_eq!(
-                panel.height(cols, terminal_rows) as usize,
-                panel.rows(cols, terminal_rows).len(),
-                "{cols}x{terminal_rows}"
-            );
+            for tool in ["terminal", "edit_file", "create_folder"] {
+                let panel = Panel::new(request(tool));
+                assert_eq!(
+                    panel.height(cols, terminal_rows) as usize,
+                    panel.rows(cols, terminal_rows).len(),
+                    "{tool} {cols}x{terminal_rows}"
+                );
+            }
         }
-        // **Coordinates changed with the dynamic sizing.** These used to be
-        // bounds against three fixed heights; the height is now the request's
-        // own demand, so what is asserted is the demand's two properties. The
-        // taller screen differs from the ordinary one by exactly the two blank
-        // rows it can afford, and nothing else.
+        // The taller screen differs from the ordinary one by exactly the three
+        // blank rows it can afford -- under the header, under the subject and
+        // under the scope -- and nothing else.
         let panel = Panel::new(request("terminal"));
         assert_eq!(
             panel.height(80, 40),
-            panel.height(80, 24) + 2,
+            panel.height(80, 24) + 3,
             "the tall screen bought something other than air"
         );
-        // And no panel ever claims more rows than the screen has, however long
-        // the request is: past that the cut is marked and the question is
-        // refused rather than shown with half its disclosure.
+        // **A changed claim.** A panel used to be clamped to the screen, with
+        // an ellipsis where it was cut; it is never cut now -- every part is
+        // wrapped onto the rows it needs -- so a request too long for the band
+        // is one the band does not install (`super::super::shell::Shell::ask`
+        // moves a change to the plane and refuses a command).
         let mut vast = request("terminal");
-        vast.summary = "x".repeat(9_000);
-        vast.always_scope = "y".repeat(9_000);
-        for rows in [6u16, 12, 24, 40] {
-            assert!(
-                Panel::new(vast.clone()).height(80, rows) <= rows,
-                "a {rows}-row screen was given a taller panel than it has rows"
-            );
-        }
+        vast.subject = crate::permission::ApprovalSubject::Command {
+            command: "x".repeat(9_000),
+            cwd: ".".into(),
+        };
+        let height = Panel::new(vast).height(80, 24);
+        assert!(height > 24, "{height}");
+        assert!(!super::super::layout::fits_approval(24, 80, height));
     }
 
     /// The answer a key produced, for a test that is about the decision rather
@@ -1529,7 +1491,9 @@ mod tests {
 
     #[test]
     fn every_key_the_panel_answers_to_produces_the_documented_outcome() {
-        // ui/input/runtime.zig:65-77
+        // ui/input/runtime.zig:59-71. Escape and Ctrl-C both refuse *this call*
+        // here; what each does to the turn is the shell's
+        // (`super::super::shell::Shell::decide`).
         let mut panel = Panel::new(request("edit_file"));
         assert_eq!(
             answer(panel.apply(Action::Text('1'), 80)),
@@ -1575,16 +1539,7 @@ mod tests {
     fn the_arrows_walk_the_same_three_choices_and_wrap() {
         // Without the wrap, an Up at the top and a Down at the bottom would each
         // be a keystroke that does nothing, on a panel whose whole job is to be
-        // answerable without reading a manual.
-        //
-        // **The Tab half of this case moved and did not loosen.** Tab used to be
-        // a second spelling of Down, and it is not one any more: on a
-        // draft-eligible choice it enters that choice's amendment
-        // (`approval_decision.zig::apply`), and only on `Always` -- the answer
-        // that can carry none -- does it still cycle. Both halves of that are
-        // asserted, at the same strength, by
-        // `tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one`;
-        // what is left here is the arrows, which are unchanged.
+        // answerable without reading a manual (`edit-down3-wrap`).
         let mut panel = Panel::new(request("edit_file"));
         assert_eq!(answer(panel.apply(Action::Up, 80)), None);
         assert_eq!(
@@ -1612,58 +1567,58 @@ mod tests {
         // The two halves of "which one is selected" -- what the eye reads and
         // where the terminal puts the caret -- from one index, so they cannot
         // point at different rows.
-        let mut panel = Panel::new(request("edit_file"));
-        for expected in [0usize, 1, 2] {
-            let rows = panel.rows(80, 24);
-            let marked: Vec<usize> = rows
-                .iter()
-                .enumerate()
-                .filter(|(_, row)| row.starts_with(MARKER))
-                .map(|(index, _)| index)
-                .collect();
-            assert_eq!(marked.len(), 1, "{rows:?}");
-            assert_eq!(
-                marked[0],
-                usize::from(panel.caret_row(80, 24)),
-                "the caret is not on the marked row"
-            );
-            assert!(
-                rows[marked[0]].contains(&format!("{}.", expected + 1)),
-                "{rows:?}"
-            );
-            panel.apply(Action::Down, 80);
+        for tool in ["edit_file", "terminal"] {
+            let mut panel = Panel::new(request(tool));
+            for expected in [0usize, 1, 2] {
+                let rows = panel.rows(80, 24);
+                let marked: Vec<usize> = rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, row)| row.starts_with("  ❯ "))
+                    .map(|(index, _)| index)
+                    .collect();
+                assert_eq!(marked.len(), 1, "{rows:?}");
+                assert_eq!(
+                    marked[0],
+                    usize::from(panel.caret_row(80, 24)),
+                    "the caret is not on the marked row"
+                );
+                assert!(
+                    rows[marked[0]].contains(&format!("{}", expected + 1)),
+                    "{rows:?}"
+                );
+                panel.apply(Action::Down, 80);
+            }
         }
     }
 
     #[test]
-    fn a_summary_longer_than_its_rows_is_cut_where_the_painter_would_cut_it() {
-        // A summary that stopped mid-word without saying so would read as the
-        // whole of what xfx was about to do.
+    fn a_long_path_is_wrapped_whole_rather_than_cut() {
+        // **A changed claim.** The band used to quote the target inside a
+        // sentence with an allotment, cut it with an ellipsis and refuse the
+        // grant; the target has rows of its own now and takes as many as it
+        // needs, so it is never cut -- the way a long path chosen to share a
+        // visible prefix with a benign one gets approved.
         let mut asked = request("edit_file");
-        asked.summary = "x".repeat(4000);
+        let path = "deep/".repeat(60) + "notes.md";
+        asked.subject = crate::permission::ApprovalSubject::Path(path.clone());
         let panel = Panel::new(asked);
-        // **Coordinates changed with the dynamic sizing.** A summary is now
-        // given the rows it asks for, so the cut happens where the *screen*
-        // runs out rather than at a fixed two -- the panel takes the whole of a
-        // twenty-four-row terminal and the ellipsis lands on its last summary
-        // row. What is asserted is unchanged: the cut is marked.
-        let rows = panel.rows(40, 24);
-        assert_eq!(rows.len(), 24, "the panel did not take the rows it needed");
-        let last_summary = rows
+        let composed = panel.compose(80, 24, 1, 0);
+        let joined: String = composed
+            .rows
             .iter()
-            .rposition(|row| row.starts_with(&format!("{INDENT}x")))
-            .expect("the summary is on the panel");
+            .map(|row| row.trim())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(
-            rows[last_summary].ends_with(ELLIPSIS),
-            "the cut is silent: {:?}",
-            &rows[..=last_summary]
+            joined.contains(&path),
+            "the path was cut: {:?}",
+            composed.rows
         );
-        // And a cut summary is a subject the user was never shown, so no frame
-        // of this panel may be granted.
-        assert!(!panel.compose(40, 24, 1, 0).disclosure.subject_whole);
-        for row in &rows {
+        assert!(composed.disclosure.subject_whole);
+        for row in &composed.rows {
             assert!(
-                super::super::wrap::width(row) <= 40,
+                super::super::wrap::width(row) <= 80,
                 "a panel row outgrew the screen: {row:?}"
             );
         }
@@ -1675,16 +1630,15 @@ mod tests {
         // answers and what is being asked cannot be among them.
         let panel = Panel::new(request("edit_file"));
         let rows = panel.rows(80, 12);
-        // Six: a title, the one row this summary needs, the three answers and
-        // the one row this scope needs. Derived rather than looked up -- the
-        // three fixed heights are gone, and six is what this request demands at
-        // this width.
-        assert_eq!(rows.len(), 6, "{rows:?}");
+        // Eight: the review's one row (this fixture has no diff), the dotted
+        // rule, the header, the path and its question, the three answers and
+        // the one row this scope needs.
+        assert_eq!(rows.len(), 8, "{rows:?}");
         let joined = rows.join("\n");
         assert!(joined.contains(TITLE), "{joined}");
-        assert!(joined.contains(ONCE_CHOICE), "{joined}");
-        assert!(joined.contains(ALWAYS_REQUEST), "{joined}");
-        assert!(joined.contains(DENY_CHOICE), "{joined}");
+        assert!(joined.contains("1  Apply once"), "{joined}");
+        assert!(joined.contains("2  Apply + allow future edits"), "{joined}");
+        assert!(joined.contains("3  Don't apply"), "{joined}");
         assert!(joined.contains("for the rest of this session"), "{joined}");
         assert!(
             !rows.iter().any(String::is_empty),
@@ -1693,44 +1647,30 @@ mod tests {
     }
 
     #[test]
-    fn a_taller_screen_spends_the_rows_it_has_on_the_summary_rather_than_on_air() {
-        let mut asked = request("edit_file");
-        asked.summary = "alpha bravo charlie delta echo foxtrot golf hotel ".repeat(4);
-        let panel = Panel::new(asked);
-        // **The claim changed with the dynamic sizing, and it got stronger.**
-        // It used to be that a taller screen showed *more* of the summary,
-        // because an ordinary one was capped at two rows and cut the rest.
-        // There is no cap any more: both screens say the whole summary, and the
-        // only thing the taller one buys is the air. A test still asserting the
-        // old inequality would be asserting that the short screen cuts.
+    fn a_taller_screen_buys_only_the_blank_rows() {
+        // (Claim narrowed: there is no summary left to give more rows to, and
+        // every part is whole on both screens; what remains is that the taller
+        // one buys its blank rows and nothing else.)
+        let panel = Panel::new(request("edit_file"));
         let compact = panel.rows(60, 24);
         let spacious = panel.rows(60, 40);
-        let told = |rows: &[String]| {
-            rows.iter()
-                .filter(|row| {
-                    row.contains("alpha") || row.contains("bravo") || row.contains("golf")
-                })
-                .count()
-        };
-        assert_eq!(
-            told(&spacious),
-            told(&compact),
-            "one of the two screens cut the summary: {spacious:?} {compact:?}"
-        );
-        assert!(
-            panel.compose(60, 24, 1, 0).disclosure.subject_whole,
-            "an ordinary screen cut a summary it had room for: {compact:?}"
-        );
         assert_eq!(
             spacious.len(),
-            compact.len() + 2,
-            "the taller screen bought something other than its two blank rows"
+            compact.len() + 3,
+            "the taller screen bought something other than its three blank rows"
         );
         assert_eq!(
             spacious.iter().filter(|row| row.is_empty()).count(),
-            2,
+            3,
             "{spacious:?}"
         );
+        let said = |rows: &[String]| {
+            rows.iter()
+                .filter(|row| !row.is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(said(&spacious), said(&compact));
     }
 
     // -----------------------------------------------------------------------
@@ -1740,7 +1680,7 @@ mod tests {
     #[test]
     fn a_clipped_always_label_is_not_a_disclosed_control() {
         // The clip has to be a **no-op**, not merely "something survived beside
-        // the marker": `2. Yes, and don't ask again for th` is exactly the
+        // the marker": `Apply + allow future edits to th` is exactly the
         // sentence with the difference between one call and the whole session
         // cut out of it.
         let panel = Panel::new(request("edit_file"));
@@ -1755,33 +1695,6 @@ mod tests {
     }
 
     #[test]
-    fn an_ellipsised_summary_is_not_a_disclosed_subject() {
-        // The band's summary carries the target (`crate::permission`'s
-        // `ApprovalRequest`), so a summary cut at its allotment is a target the
-        // user was never shown -- which is how a long path chosen to share a
-        // visible prefix with a benign one would be approved.
-        let mut asked = request("edit_file");
-        asked.summary =
-            "write_file wants to replace ".to_string() + &"deep/".repeat(60) + "notes.md";
-        let panel = Panel::new(asked);
-        // **A changed coordinate.** At 80x24 this summary is no longer cut --
-        // the panel asks for the five rows it needs and gets them, which is the
-        // whole point of the dynamic sizing. The cut is real where the screen
-        // genuinely cannot carry it, and *there* is where the disclosure must
-        // still be refused rather than assumed.
-        assert!(
-            panel.compose(80, 24, 1, 0).disclosure.subject_whole,
-            "a screen with room for the target still hid it"
-        );
-        let short = panel.compose(80, 8, 1, 0);
-        assert!(
-            !short.disclosure.subject_whole,
-            "a screen with no room for the target claimed to have shown it: {:?}",
-            short.rows
-        );
-    }
-
-    #[test]
     fn the_last_control_row_is_the_terminal_row_that_row_is_really_on() {
         // The band puts its activity row before the panel when the geometry has
         // one (`super::super::shell::Shell::band_rows`), so a panel-local index
@@ -1791,7 +1704,7 @@ mod tests {
         let rows = panel.rows(80, 24);
         let last_choice = rows
             .iter()
-            .rposition(|row| row.contains("3. No"))
+            .rposition(|row| row.contains("3  Don't apply"))
             .expect("the refusal is a row of the panel");
         for (band_top, offset) in [(10u16, 0u16), (10, 1), (1, 0)] {
             assert_eq!(
@@ -2350,9 +2263,12 @@ mod tests {
         panel.apply(Action::Tab, 80);
         type_into(&mut panel, "n");
 
+        // Each on its own choice's row, as upstream puts the one being typed
+        // (`approval_ui.zig:1559-1592`) -- and the one navigated away from
+        // stays shown, because it still travels if that choice is submitted.
         let painted = panel.rows(80, 24).join("\n");
         assert!(
-            painted.contains("\n  y") && painted.contains("\n  n"),
+            painted.contains("Apply once, y") && painted.contains("Don't apply, n"),
             "the two drafts do not both survive on the panel: {painted:?}"
         );
 
@@ -2400,12 +2316,13 @@ mod tests {
     }
 
     #[test]
-    fn escape_and_the_interrupt_refuse_without_the_sentence_and_enter_sends_it() {
+    fn escape_and_ctrl_c_refuse_without_the_sentence_and_enter_sends_it() {
         // **The M6 pair, in one case so it cannot drift.** Same draft text, two
-        // exits. Escape is the fail-safe -- a decision xfx was not given -- so a
-        // user bailing out of a panel did not choose to say the sentence that
-        // happens to be in the deny draft. Submitting `3. No` with Enter is a
-        // *chosen* refusal and does send it.
+        // exits. Escape cancels the turn and Ctrl-C refuses with a key that
+        // says nothing (`approval_decision.zig:132-135`), so a user bailing out
+        // of a panel did not choose to say the sentence that happens to be in
+        // the deny draft. Submitting `3` with Enter is a *chosen* refusal and
+        // does send it. (Renamed: Ctrl-C is no longer the interrupt here.)
         let filled = |panel: &mut Panel| {
             panel.apply(Action::Down, 80);
             panel.apply(Action::Down, 80);
@@ -2481,16 +2398,19 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_wraps_and_places_its_caret_at_the_panel_inner_width() {
-        // One width, three consumers ([`draft_cols`]): the editor that applies a
-        // key, the rows the panel paints, and the caret the shell places. A
-        // caret computed at one width and a wrap computed at another is a caret
-        // standing on the wrong cell.
+    fn a_draft_wraps_and_places_its_caret_at_its_own_width_on_its_choices_row() {
+        // One width per draft, three consumers ([`draft_cols`]): the editor
+        // that applies a key, the rows the panel paints, and the caret the
+        // shell places. A caret computed at one width and a wrap computed at
+        // another is a caret standing on the wrong cell. (Claim changed: the
+        // draft sits on its choice's row after the choice's words, as
+        // upstream's does, so its width is what those words leave rather than
+        // the panel's inner width.)
         for cols in [80u16, 40] {
             assert_eq!(
-                draft_cols(cols),
-                cols.saturating_sub(INDENT_CELLS).max(1),
-                "the draft is not as wide as every other indented row"
+                draft_cols(Kind::Edit, 0, cols),
+                cols - draft_column(Kind::Edit, 0),
+                "the draft is not as wide as its row leaves it"
             );
         }
 
@@ -2506,20 +2426,17 @@ mod tests {
             let painted = rows
                 .get(usize::from(row))
                 .unwrap_or_else(|| panic!("{cols}: the caret is not on a row of the panel"));
-            assert!(
-                painted.starts_with(INDENT),
-                "{cols}: the caret is not on a draft row: {painted:?}"
-            );
-            // The caret sits past the indent and past the text on its row, and
-            // never off the screen.
+            // The caret sits past the text on its row -- the choice's words and
+            // the draft on the first row, the draft's column and text on the
+            // rest -- and never off the screen.
             assert_eq!(
                 column,
-                INDENT_CELLS
-                    .saturating_add(super::super::wrap::width(
-                        painted.strip_prefix(INDENT).expect("an indented row")
-                    ))
-                    .min(cols.saturating_sub(1)),
+                super::super::wrap::width(painted).min(cols.saturating_sub(1)),
                 "{cols}: the caret is not at the end of the row it is on: {painted:?}"
+            );
+            assert!(
+                usize::from(column) >= usize::from(draft_column(Kind::Edit, 0)),
+                "{cols}: the caret is not inside the draft: {painted:?}"
             );
             for row in &rows {
                 assert!(
