@@ -12,7 +12,16 @@ interrupt, and the full transcript's recovery records, were captured on both
 products at `ddca9d9` (after merging plan `87c9ed9`): `interrupt-next-question`,
 `interrupt-next-cmd`, `interrupt-recovery`, and xfx's `interrupt` bodies and
 gateway log (its snaps, retaken in the same run and diffed against the ones
-here, differ only by the banner and blink/count in `mid2` and `esc1`). Scenarios under
+here, differ only by the banner and blink/count in `mid2` and `esc1`).
+
+**Round 2** (the command stopped at the keystroke, refusals, the recovered
+row, the wrapped retry row, steering, no `queued N`, the Escape cue's bytes):
+xfx retaken at `1578121` (plan `51ba257` merged) for `interrupt` 40x120,
+`interrupt2` 40x120, `interrupt-cmd`, `interrupt-next-cmd`, `interrupt-steer`
+(with bodies), `interrupt-retry` 24x80, and the new `interrupt-recovered` and
+`interrupt-steer-retract`; fx captured for the two new scenarios and for
+`interrupt-steer` again, to keep its request bodies. The snaps below that say
+"round 2" are those. Scenarios under
 `scripts/fxcap/scenarios/`, each run on both binaries:
 
 ```
@@ -32,12 +41,15 @@ XFX_BIN=<this branch's target/debug/xfx> scripts/fxcap/capture.sh xfx <scenario>
 | `interrupt-next-question.cap` | `interrupt-question.json` | 40x120 | Ctrl-C at a model's question, then a new prompt: the request it sends |
 | `interrupt-next-cmd.cap` | `interrupt-cmd-fx.json` / `interrupt-cmd-xfx.json` | 40x120 | Ctrl-C while a six-second command runs, then (after it would have ended) a new prompt: the request it sends |
 | `interrupt-recovery.cap` | `interrupt-retry.json` | 80x120 (tall enough for every record) | two HTTP 500s then an answer, then Ctrl-O: the full transcript's `recovery:` records |
+| `interrupt-recovered.cap` | `interrupt-recovered-fx.json` / `-xfx.json` | 40x120 | a 500, then a four-second command the recovered step asked for (the row while it runs), then a 500 and a slow answer (the row while a retried answer arrives) |
+| `interrupt-steer-retract.cap` | `interrupt-steer-retract-fx.json` / `-xfx.json` | 40x120 | a prompt sent while a command runs, taken back with Up, edited, sent again; the request after the command |
 
 The shims (`open`, `pbcopy`, `pbpaste`, `afplay`, `osascript`) and
 `FX_NO_OPEN_BROWSER=1` are the harness's own, unchanged. Sanitized: the scratch
 run directory appeared only in the system prompts of the request bodies; bodies
-are kept for `interrupt` at 40x120 only, cut to their non-system messages (the
-history question below), and no scratch path is left in any capture file. Every other scenario keeps its gateway log.
+are kept for the scenarios whose requests are the receipt (the history and the
+steer questions below), cut to their non-system messages, and no scratch path
+is left in any capture file. Every other scenario keeps its gateway log.
 
 Row 1 differs in every snap and is not listed again: each product's own banner
 (`𝒇x v0.0.13` / `x𝒇x v0.1.0-b9c5591 [debug]`). The activity row's marker blinks
@@ -54,11 +66,14 @@ timing: both are "blink/count" below and are not a difference in the row.
 | cancelled turn | `ESC[38;5;252m■ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx do differently?` | the same bytes, `xfx` for `fx` |
 | exit hint (hint row, whole) | `ESC[38;5;245mpress ctrl+c again to exitESC[39m` | the same |
 | exit hint on the `/help` catalog | `ESC[38;5;245mpress ctrl+c again to exitESC[39m` in place of `ESC[38;5;245m↑↓ navigate     tab category     enter open     esc closeESC[39m` | the same, both rows |
-| Escape interrupt cue | `ESC[38;5;252mautoESC[38;5;245m · model-aESC[39m` + 84 blanks + `ESC[38;5;245mesc again to interrupt` | `ESC[38;5;252mautoESC[38;5;245m · model-a` + 84 blanks + `esc again to interrupt` -- same cells and colours; see "differs" for the bytes |
+| Escape interrupt cue | `ESC[38;5;252mautoESC[38;5;245m · model-aESC[39m` + 84 blanks + `ESC[38;5;245mesc again to interrupt` | the same bytes (round 2: the row's run is closed before the padding) |
 | retry row | `ESC[38;5;252m⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request in 1sESC[39m` | the same |
 | retry row, plain-text body | `ESC[38;5;252m⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1sESC[39m` | the same |
 | question cancelled by Ctrl-C | `ESC[38;5;252m■ESC[39m Cancelled`, nothing after it | the same |
-| a prompt waiting for its turn | `ESC[38;5;245m┋ change toneESC[39m`, between the activity row's blank and a blank of its own, above the composer | the same row, same SGR, same place |
+| a steer waiting in the band | `ESC[38;5;245m┋ change toneESC[39m`, between the activity row's blank and a blank of its own, above the composer | the same row, same SGR, same place |
+| a command stopped at the keystroke | `ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 command · 1 cancelledESC[39m`, `ESC[38;5;245m└ Cancelled ESC[38;5;252msleepESC[38;5;245m 6ESC[39m`, `ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;252msleepESC[38;5;245m 6ESC[39m · What can fx do differently?` | the same bytes, name (round 2) |
+| recovered | `ESC[38;5;252m✓ recovered · attempt 2ESC[39m` | the same (round 2) |
+| retry row wrapped at 80 columns | `ESC[38;5;252m⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retryingESC[39m` then `ESC[38;5;252m  request in 1sESC[39m` | the same, both rows (round 2) |
 | full transcript, a retry | `ESC[38;5;252m! recovery:ESC[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying requestESC[39m` then `  ESC[38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 1/10 · diagnostic: HTTP 500 · server_error: upstreamESC[39m` | the same bytes, `1/3` for `1/10` (so the row fits 120 columns unwrapped) |
 | full transcript, the recovery | `ESC[38;5;252m✓ recovery:ESC[38;5;250m ✓ recovered · succeeded on attempt 3ESC[39m` then `  ESC[38;5;250mkind: auto_recovered · attempt: 3/10ESC[39m` | the same bytes, `3/3` for `3/10` |
 
@@ -78,7 +93,7 @@ timing: both are "blink/count" below and are not a difference in the row.
 | `cc-3.5` | the same, the hint row back to `auto · model-a` | name |
 | `next` | the next turn under the cancelled line: card, `After interrupt answer.`, `0s (↑1 ↓40)` | name |
 | `mid2` | rows 7-19 | name; row 15 blink/count |
-| `esc1` | row 19's cells and colours: `esc again to interrupt` flush with column 120 in the dim grey | name; row 15 blink/count; row 19's bytes (below) |
+| `esc1` | row 19 byte for byte (round 2): `esc again to interrupt` flush with column 120 in the dim grey, the row's run closed before the padding | name; row 15 blink/count |
 | `esc2`, `esc2-later` | every row; the second cancelled line at row 15, and the hint row the session's own (an Escape pair arms no exit) | name, twice |
 
 ### `interrupt2` 40x120 and 24x80
@@ -101,13 +116,21 @@ The 24x80 snaps have scrolled the same skew through the whole screen.
 | `draft-cc` | the draft is gone, the turn still `Generating`, the hint row `auto · model-a` (nothing armed) | stream position; blink/count |
 | `draft-cc2` | the second press stopped the turn: a cancelled line under `┃ stream words`, the hint row `press ctrl+c again to exit` | stream position; name |
 
-### `interrupt-cmd` 40x120
+### `interrupt-cmd` 40x120 (round 2)
 
 | snap | matches | differs, and why |
 |---|---|---|
-| `cmd-running` | the card, `● 1 tool call · 1 command`, `└ Running sleep 6` | the activity row's `↓40` / `↓0` (fx counts the tool step's reported usage, xfx's row counts streamed text); the mode label `full access` / `yolo`, each product's own word |
-| `cmd-cc`, `cmd-cc-2` | the card, the group header's first words, the composer, `press ctrl+c again to exit` | **fx kills the command at the keystroke** -- `· 1 cancelled`, `└ Cancelled sleep 6`, `■ Cancelled sleep 6 · What can fx do differently?`. **xfx's command keeps running**: a running executor holds the runtime's thread, so the cancellation is read only when it returns (F1's finding, `src/tui/shell.rs` `cancel_turn_with`), and the group says `└ Running sleep 6` under a still-running activity row rather than claim a stop that has not happened |
-| `cmd-done` | the card, the cancelled line's place under the group, the composer; neither product asked the model again (each gateway log ends at the tool call) | fx: `└ Cancelled sleep 6` and `■ Cancelled sleep 6 · …`; xfx: `└ Ran sleep 6` (the command finished) and the turn's own `■ Cancelled · What can xfx do differently?` written when the turn ended. Making the stop reach a running command at once is a runtime change (the executor would have to be polled beside the control channel), not presentation |
+| `cmd-running` | the card, `● 1 tool call · 1 command`, `└ Running sleep 6` | the activity row's `↓40` / `↓0` (fx counts the tool step's reported usage, xfx's row counts streamed text) |
+| `cmd-cc`, `cmd-cc-2` | every row after the banner, SGR included: `· 1 cancelled`, `└ Cancelled sleep 6`, `■ Cancelled sleep 6 · What can … do differently?`, `press ctrl+c again to exit` -- **the command is killed at the keystroke on both** | name |
+| `cmd-done` | every row after the banner | name |
+
+xfx's command holds the runtime's thread, so the control message is read only
+after it returns; the UI now also raises the running turn's own flag
+(`WorkHandle::control`), which the command's supervisor polls every 10 ms
+(`src/tools/terminal.rs` `supervise`), and the shell settles the command's row
+at the keystroke. The PTY case
+`escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does`
+checks the command's group is gone within a second.
 
 ### `interrupt-question` 40x120
 
@@ -116,14 +139,40 @@ question both show the question's `■ Cancelled` and then the composer and the
 session's hint row -- no second cancelled line and no exit hint
 (`cancelQuestionPrompt`, `input_question_runtime.zig:59-80`).
 
-### `interrupt-steer` 40x120
+### `interrupt-steer` 40x120 (round 2)
+
+Every snap is the same rows after the banner on both products -- the cut
+answer `MARKER-HEAD … word15`, `┃ what are you doing`, `steered answer.`, one
+summary; then `┋ change tone` above the composer while the command runs, and
+`┃ change tone` under `└ Ran sleep 4; echo done` with `after steer.` -- but for
+blink/count and the summaries' token counts (`↑4 ↓75` / `↑4 ↓40`: fx counts
+reported usage). The requests (`*-bodies/`), non-system messages:
+
+| request | fx | xfx |
+|---|---|---|
+| the steer over the answer (fx `004`, xfx `002`) | `user stream please` · `assistant MARKER-HEAD … word15 ` · `user <user_steering>…what are you doing…</user_steering>` | the same three messages |
+| the next turn (fx `005`, xfx `003`) | … · `user what are you doing` (as typed) · `assistant steered answer.` · `user run it` | the same |
+| the steer after the command (fx `006`, xfx `004`) | … · the call · its result · `user <user_steering>…change tone…</user_steering>` | the same, each product's own tool result |
+
+### `interrupt-steer-retract` 40x120 (round 2)
+
+`steer-wait` (`┋ change tone` while the command runs), `steer-up` (Up: the
+prompt back in the composer, the `┋` row gone), `steer-again` (`┋ change tone
+and keep it short`), `steer-done` (`┃ change tone and keep it short` under
+`└ Ran sleep 4; echo done`, `after steer.`): the same rows on both but for the
+banner, the warning's product name and blink/count. The request after the
+command ends with `user <user_steering>…change tone and keep it short…
+</user_steering>` on both (fx `005`, xfx `002`): fx's e2e
+`tui-interrupt-recovery.test.ts:393`.
+
+### `interrupt-recovered` 40x120 (round 2)
 
 | snap | matches | differs, and why |
 |---|---|---|
-| `steer-tool` | the waiting prompt's row: `┋ change tone` in `ESC[38;5;245m`, the activity row, a blank, the row, a blank, the composer -- byte for byte | the hint row's `queued 1 ·` (xfx's queue is said there as well); everything above it by the stream difference below |
-| `steer-stream` | -- | **fx steers a tool-free answer**: Enter interrupts it, keeps what was flushed, and answers the new prompt at once (`steered answer.`, e2e `tui-interrupt-recovery.test.ts:291`). **xfx keeps its queue**: the first answer streams on and the prompt waits as `┋ what are you doing` above the composer |
-| `steer-stream-done` | -- | xfx's first answer whole, then the prompt's card and its answer as the next turn; fx's was cut where the steer landed |
-| `steer-done` | the card is written when the waiting prompt is delivered, not at the keystroke, on both | fx delivers it after the tool **inside the same turn** (`┃ change tone` under `└ Ran …`, then `after steer.`); xfx runs the turn to its end (`after steer.`) and then the prompt as the next turn (`┃ change tone`, `spare.`) |
+| `rec-1.4` (fx), `rec-0.5` (xfx) | `● 1 tool call · 1 command`, `└ Running sleep 4`, and over it `✓ recovered · attempt 2` in `ESC[38;5;252m` (`green_style`, the warning grey) | the moment: fx's first backoff is about a second, xfx's 250 ms, so the same state is a snap earlier on xfx |
+| `rec-2.4`, `rec-3.2` | the turn's own `Running` row again once the 1.5 s are up | blink/count |
+| `slow-1.8`, `slow-2.8` | `⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request` held while the retried answer arrives | -- |
+| `rec-done`, `slow-done` | every row | the summary's seconds and tokens (timing, reported usage) |
 
 ### `interrupt-retry` 40x120 and 24x80
 
@@ -141,7 +190,7 @@ retrying.
 | `f0.15` (both sizes), `f0.55` (24x80) | every row: `⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1s` | -- |
 | `f0.55` (40x120) | the row's words | xfx caught with its attempt under way (`· retrying request`, no count), fx in its countdown (`in 1s`): timing |
 | `f2.5` (both sizes) | rows above the last | xfx spent its three attempts and wrote `✗ system: the Gateway returned HTTP 500: unexpected request` (its terminal failure, unchanged); fx is still retrying |
-| `r0.15`, `r0.45` (24x80) | the row's words and colour up to column 80 | **fx wraps the label onto a second row** (`  request in 1s`, two-column indent, up to three rows: `max_static_status_activity_rows`, `render_input.zig:406`, `:690-697`); **xfx cuts it at column 80** (`…· retrying r`). xfx's activity row is one geometry row (`layout.rs` `Geometry::activity`); a multi-row activity block is a layout change not made here |
+| fx `r0.15` / xfx `r1.05` (24x80, round 2) | rows 1-10 after the banner, SGR included: the label wrapped onto a second row, `  request in 1s`, the band a row taller (`max_static_status_activity_rows`, `render_input.zig:406`, `:689-697`) | the moment (xfx's backoffs are 250 ms then 500 ms; its other 24x80 snaps catch other states of the same retries) |
 
 ### What the model is told: `interrupt` bodies, `interrupt-next-question`, `interrupt-next-cmd` 40x120
 
@@ -152,15 +201,10 @@ directories):
 |---|---|---|
 | an answer stopped mid-stream (`interrupt`, fx `003`, xfx `002`) | `user stream please` · `assistant <partial> \n\nThe previous response ended before completion.` · `user <turn_aborted>…` · `user next` | the same four messages; the partial ends one word earlier (stream position) |
 | a question cancelled with Ctrl-C (fx `003`, xfx `002`) | `user ask me` · `assistant` tool-call `ask_user_question` · `tool` `{"type":"error-text","value":"aborted by user"}` · `user <turn_aborted>…` · `user next` | the same five messages and output type; the call id and the input's key order are each product's own |
-| a command stopped while it ran (fx `003`, xfx `002`) | the call, `error-text` `aborted by user`, `<turn_aborted>`, `next` | the call, **its real result** (`exit_code 0`, `text`), `assistant Interrupted by user after completing 1 tool call: terminal.`, `<turn_aborted>`, `next` |
+| a command stopped while it ran (fx `003`, xfx `002`, round 2) | the call, `error-text` `aborted by user`, `<turn_aborted>`, `next` | the same four messages |
 
-The last row is the running-command residual below, not the history: xfx's
-command ran to its end, so the history says it completed, in fx's own sentence
-for completed calls (`formatCompletedToolSummary`, `session.zig:3020-3032`).
-The `next` snaps: `interrupt-next-question`'s are the same rows on both
-products but for the banner; `interrupt-next-cmd`'s differ only in the stopped
-group, as in `interrupt-cmd` `cmd-done` (fx `└ Cancelled sleep 6`, xfx `└ Ran
-sleep 6` and the turn's own cancelled line).
+The `next` snaps of both scenarios are the same rows on both products but for
+the banner (round 2 for `interrupt-next-cmd`).
 
 ### `interrupt-recovery` 80x120
 
@@ -185,35 +229,20 @@ row byte for byte in all three. Every other row differs by the two registries
 
 ## What differs and is not fixed here
 
-- **The bytes before the Escape cue.** fx closes the row's run before the
-  padding (`input_presentation.zig:559-567`); xfx closes it after the padding
-  and before the cue, so tmux reads the padding as grey-245 blanks and prints
-  no SGR change before the cue. Cells and colours are the same; the cue's own
-  colour is fx's `dim_style` in both palettes (pinned by
-  `the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed`).
-  Moving the reset in front of the padding is a change to `hint::row`'s
-  right-slot rule, which `esc again to clear` shares.
-- **A running command is not stopped at the keystroke** (`interrupt-cmd`
-  above): runtime, not presentation.
-- **A failed result that is a refusal** goes as `error-text`; fx sends a
-  permission denial as `execution-denied` (`vercel_protocol.zig:742-744`).
-  Every other failed result is `error-text` on both.
-- **`✓ recovered · attempt N` on the band** for 1.5 s after a recovery
-  (`worker_status.zig:5`, `:221-235`) is not shown; the row goes back to the
-  turn's own on the first sign the attempt got through. Neither capture caught
-  fx's at these intervals. Its full-transcript record is written
-  (`interrupt-recovery`).
-- **Escape pausing a retry** (`app_input_runtime.zig:3163-3167`) and the
-  `waiting for connection` / `recovery paused` labels: xfx has no pausable
-  recovery.
-- **Submitting while busy (§4.2)**: the presentation is fx's -- the waiting
-  prompt is the band's `┋` row (at most two rows, `…`), and its card is written
-  when its turn starts -- over xfx's own queue (one prompt waiting, a second
-  refused, `queued 1` still on the hint row; the prompt runs as the next turn).
-  fx's semantics need what xfx lacks: interrupt-and-continue of a tool-free
-  answer with a `<user_steering>` message (`tui-interrupt-recovery.test.ts:291`),
-  delivery at a tool boundary inside the same turn, several steers at once, and
-  Up withdrawing a waiting prompt into the composer (the runtime takes the
-  queued prompt at the top of `turn_loop` the moment a turn ends, so a withdraw
-  needs a control round-trip the runtime acknowledges). Up is still the
-  history recall.
+- **The retry budget and its timing** (`.prd/tui-phase4/ssot.md` §Tensions):
+  three attempts at 250 ms and 500 ms, against fx's ten at about a second and
+  growing (`model_response_recovery.zig:3`). Retry policy, not presentation;
+  every row and record is fx's, at xfx's moments and with xfx's numbers.
+- **Escape over a retry arms the interrupt rather than pausing it.** fx pauses
+  only its unbudgeted wait for connectivity (`pauseActiveRecovery`;
+  `worker_runtime.zig:884-888`; `model_response_recovery.zig:166-180`) and
+  resumes from a persisted checkpoint; xfx has neither (ssot §Tensions). Over a
+  budgeted retry -- every retry xfx makes -- fx's Escape arms the interrupt too
+  (`app_input_runtime.zig:3163-3176`).
+- **A refusal's words** are xfx's (`write_file was not permitted: …`) inside
+  fx's `execution-denied`, where fx's are a JSON error object
+  (`tool_result_errors.zig:289-320`).
+- **A file call is not stopped at the keystroke**: only the command polls the
+  turn's flag; a file tool runs to its end, and its row shows its real result.
+- **The activity row's output count while a tool runs** (`↓40` / `↓0`): fx
+  counts the step's reported usage, xfx the text it streamed.

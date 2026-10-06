@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
 
 ┃ stream please
 
@@ -12,7 +12,7 @@ x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
 
 ┃ stream again
 
-  Generating (3s) (↑4 ↓53)
+  Generating (2s) (↑4 ↓43)
 
 ┃
 
