@@ -2864,7 +2864,16 @@ mod tests {
 
     #[test]
     fn a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote() {
-        for title in ["", "  padded ", "line\nbreak", &"x".repeat(241)] {
+        // An escape too: a title is file input on its way to a terminal, and
+        // one holding a sequence never reaches the screen -- the log it is in
+        // is refused before any of it is replayed.
+        for title in [
+            "",
+            "  padded ",
+            "line\nbreak",
+            "set \u{1b}]0;pwned\u{7}",
+            &"x".repeat(241),
+        ] {
             let refused = reduce(vec![
                 started(),
                 SessionEvent::SessionRenamed {

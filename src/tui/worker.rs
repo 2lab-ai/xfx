@@ -798,8 +798,12 @@ impl Resumption {
     /// What the session replays as on the screen it continues on
     /// ([`super::hydration`]): read off the state this value already holds, so
     /// the launch builds it with no read of its own.
+    ///
+    /// Made inert here, by the step the picker's replay takes at the channel
+    /// ([`bridge::inert_hydration`]): the launch hands this to the shell
+    /// directly, so no channel does it on the way.
     pub(crate) fn hydration(&self) -> super::hydration::Hydration {
-        super::hydration::Hydration::of(self.session.state(), None)
+        bridge::inert_hydration(super::hydration::Hydration::of(self.session.state(), None))
     }
 }
 
@@ -3924,6 +3928,132 @@ mod tests {
             .record_new_grants(std::slice::from_ref(grant));
         conversation.recorder.id().clone()
         // Dropped here, which closes the log and releases its lock.
+    }
+
+    /// Bytes a terminal would obey rather than draw: an OSC title, a clear,
+    /// a bell, a C1 CSI.
+    const HOSTILE: &str = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+
+    /// A saved session whose prompt, answers, call and result all carry
+    /// [`HOSTILE`] -- a log is file input, and anyone who can write the file
+    /// can put them there.
+    fn a_hostile_session(config: &RuntimeConfig) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        for event in [
+            SessionEvent::UserMessage {
+                text: format!("prompt {HOSTILE}"),
+            },
+            SessionEvent::AssistantMessage {
+                text: format!("looking {HOSTILE}"),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({ "path": format!("p{HOSTILE}") }),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {HOSTILE}"),
+                ending: None,
+                lines: None,
+            },
+            SessionEvent::AssistantMessage {
+                text: format!("done {HOSTILE}"),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::TurnConcluded {
+                outcome: crate::session::TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        conversation.recorder.id().clone()
+    }
+
+    /// Every piece of text a replay carries to the screen or to the full
+    /// transcript, whichever way it was built.
+    fn replayed_text(replay: &super::super::hydration::Hydration) -> String {
+        use super::super::hydration::HydratedStep;
+        let mut all = format!("{:?}", replay.title);
+        for turn in &replay.turns {
+            all.push_str(&turn.user);
+            for step in &turn.steps {
+                match step {
+                    HydratedStep::Text(text) | HydratedStep::Feedback(text) => all.push_str(text),
+                    HydratedStep::ToolStart { id, shown } => {
+                        all.push_str(id);
+                        all.push_str(shown.target.as_deref().unwrap_or(""));
+                    }
+                    HydratedStep::ToolResult { id, .. } => all.push_str(id),
+                }
+            }
+            for (id, detail) in &turn.details {
+                all.push_str(id);
+                all.push_str(&format!("{detail:?}"));
+            }
+        }
+        all
+    }
+
+    /// A resumed session is file input on both of its ways in: the picker's,
+    /// whose replay crosses the channel, and the launch's, which is built
+    /// before the terminal is taken and never crosses it. Both reach the UI
+    /// through the same inert step ([`bridge::inert_hydration`]).
+    #[test]
+    fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let id = a_hostile_session(&config);
+        let obeyed = |text: &str| {
+            text.chars()
+                .filter(|c| c.is_control() && *c != '\n' && *c != '\r')
+                .collect::<Vec<_>>()
+        };
+
+        // The launch's (`super::super::hold`).
+        let launch = Resumption::open(&config, &crate::session::Selector::Id(id.clone()))
+            .expect("the saved session opens")
+            .hydration();
+        let text = replayed_text(&launch);
+        assert!(text.contains("prompt x ]0;pwned y [2Jz 31m"), "{text:?}");
+        assert_eq!(obeyed(&text), Vec::<char>::new(), "{text:?}");
+
+        // The picker's, across the channel as the runtime sends it.
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let replay = state
+            .resume_by_id(id.as_str(), &CancelToken::new())
+            .expect("resumed");
+        let picked = on_a_runtime(async {
+            let (events, mut received) = mpsc::channel(1);
+            bridge::send_terminal(&events, UiEvent::Resumed(replay)).await;
+            match received.recv().await {
+                Some(UiEvent::Resumed(replay)) => replay,
+                other => panic!("{other:?}"),
+            }
+        });
+        assert_eq!(replayed_text(&picked), text, "the two ways in differ");
     }
 
     #[test]

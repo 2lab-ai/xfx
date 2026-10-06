@@ -14090,6 +14090,76 @@ mod tests {
     /// cancellation line -- the call the stop cut off is not replayed -- and
     /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
     /// capture `fx-resume-tools-40x120-resumed`, rows 21-28).
+    /// What a hostile log paints, through the one inert step a resume's
+    /// replay takes on either way in (`bridge::inert_hydration`, which the
+    /// worker's `a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker`
+    /// holds both ways to): the document and the full transcript carry none of
+    /// the sequences it held -- only the screen's own colours.
+    #[test]
+    fn a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript() {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let hostile = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: format!("answer {hostile}"),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": format!("p{hostile}")}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {hostile}"),
+                ending: None,
+                lines: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            &format!("prompt {hostile}"),
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every escape left is an SGR the palette wrote.
+            let foreign: Vec<&str> = bytes
+                .split('\u{1b}')
+                .skip(1)
+                .filter(|sequence| {
+                    !(sequence.starts_with('[')
+                        && sequence[1..]
+                            .split_once('m')
+                            .is_some_and(|(parameters, _)| {
+                                parameters.chars().all(|c| c.is_ascii_digit() || c == ';')
+                            }))
+                })
+                .collect();
+            assert_eq!(foreign, Vec::<&str>::new(), "{surface}: {bytes:?}");
+            assert!(
+                !bytes.contains('\u{9b}') && !bytes.contains('\u{7}'),
+                "{surface}: {bytes:?}"
+            );
+        }
+        assert!(
+            painted.contains("prompt x ]0;pwned y [2Jz 31m"),
+            "{painted:?}"
+        );
+        assert!(full.contains("read x ]0;pwned y [2Jz 31m"), "{full:?}");
+    }
+
     #[test]
     fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
         use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};

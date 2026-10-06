@@ -577,30 +577,8 @@ impl UiEvent {
                     now_ms: listing.now_ms,
                 }))
             }
-            // **A whole conversation read back off a disk**: every prompt,
-            // every answer, every argument a model gave a tool. The line breaks
-            // survive, as a delta's do -- a prompt's and an answer's rows are
-            // made of them.
-            Self::Resumed(hydration) => Self::Resumed(super::hydration::Hydration {
-                title: hydration.title.map(inert_owned),
-                turns: hydration
-                    .turns
-                    .into_iter()
-                    .map(|turn| super::hydration::HydratedTurn {
-                        user: inert_owned(turn.user),
-                        steps: turn.steps.into_iter().map(inert_step).collect(),
-                        ending: turn.ending,
-                        started_at_ms: turn.started_at_ms,
-                        concluded_at_ms: turn.concluded_at_ms,
-                        details: turn
-                            .details
-                            .into_iter()
-                            .map(|(id, detail)| (inert_owned(id), detail.made_inert()))
-                            .collect(),
-                    })
-                    .collect(),
-                model: hydration.model.map(inert_owned),
-            }),
+            // A whole conversation read back off a disk ([`inert_hydration`]).
+            Self::Resumed(hydration) => Self::Resumed(inert_hydration(hydration)),
             // The id is the store's own name for a directory, read back off a
             // listing; the failure is this crate's word.
             Self::ResumeFailed { id, failure } => Self::ResumeFailed {
@@ -616,6 +594,43 @@ impl UiEvent {
             },
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
+    }
+}
+
+/// A saved session's replay with its text made inert -- **the one step both
+/// ways a session is resumed go through**: the picker's, which crosses the
+/// channel as [`UiEvent::Resumed`], and the launch's, which never crosses it
+/// (`super::worker::Resumption::hydration`, built before the terminal is
+/// taken).
+///
+/// A whole conversation read back off a disk: every prompt, every answer,
+/// every argument a model gave a tool, every result its full-transcript
+/// record shows. A log is file input -- anyone who can write the file can put
+/// an escape in it -- so none of it reaches the terminal as written. The line
+/// breaks survive, as a delta's do: a prompt's and an answer's rows are made
+/// of them.
+pub(crate) fn inert_hydration(
+    hydration: super::hydration::Hydration,
+) -> super::hydration::Hydration {
+    super::hydration::Hydration {
+        title: hydration.title.map(inert_owned),
+        turns: hydration
+            .turns
+            .into_iter()
+            .map(|turn| super::hydration::HydratedTurn {
+                user: inert_owned(turn.user),
+                steps: turn.steps.into_iter().map(inert_step).collect(),
+                ending: turn.ending,
+                started_at_ms: turn.started_at_ms,
+                concluded_at_ms: turn.concluded_at_ms,
+                details: turn
+                    .details
+                    .into_iter()
+                    .map(|(id, detail)| (inert_owned(id), detail.made_inert()))
+                    .collect(),
+            })
+            .collect(),
+        model: hydration.model.map(inert_owned),
     }
 }
 
