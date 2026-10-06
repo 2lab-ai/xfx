@@ -450,8 +450,9 @@ pub(crate) fn rename_conversation(
 
 /// What `/settings` says to anything after its name (`writeSettingsUsage`,
 /// `session_commands.zig:1129-1135`), without upstream's `startup-scrollback`
-/// form: that setting restores a terminal's earlier output at launch, which
-/// xfx does not do.
+/// form: that setting chooses at launch whether the shell's earlier output is
+/// pushed into scrollback (`prepareStartupViewport`, `app_lifecycle.zig:966-988`),
+/// and xfx always pushes it -- there is no other value to set.
 pub const SETTINGS_USAGE: &str = "usage: /settings";
 
 /// What `/settings` says on this surface.

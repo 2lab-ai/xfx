@@ -29,15 +29,19 @@
 //! # What it lists
 //!
 //! Upstream's fourteen rows, in its order, **less the ones xfx has nothing
-//! behind**: `Reasoning effort`, `Fast mode` and `Ultra mode` (no model
-//! capability metadata or speed tier is sent), `Session titles` (xfx has no
-//! title generator: a session's title is its first prompt), and `Startup
-//! scrollback` (upstream restores the terminal's earlier output at launch, and
-//! xfx has no such restore). A row with nothing behind it would be a switch
-//! that switches nothing, which `scripts/check-no-stubs.sh` exists to keep out
-//! of the binary; `.prd/tui-phase4/ssot.md` records each one. `Sound level` is
-//! `off  on`: upstream's `max` drives chimes xfx does not play
-//! (`crate::sound`).
+//! behind**: `Fast mode` and `Ultra mode` (xfx sends no speed tier),
+//! `Session titles` (xfx has no title generator: a session's title is its
+//! first prompt), and `Startup scrollback` (upstream can leave the shell's
+//! output on the screen at launch, and xfx always pushes it into scrollback).
+//! A row with nothing behind it would be a switch that switches nothing, which
+//! `scripts/check-no-stubs.sh` exists to keep out of the binary;
+//! `.prd/tui-phase4/ssot.md` records each one. `Sound level` is `off  on`:
+//! upstream's `max` drives chimes xfx does not play (`crate::sound`).
+//! `Reasoning effort` is the session's effort (`crate::provider::effort`), its
+//! choices `default` and the levels the catalog lists for the model in force --
+//! none, and the value alone, for a model it lists none for or a catalog not
+//! yet read, unless the effort in force is not the default
+//! (`optionCount`, `settings_catalog.zig:308-318`).
 //!
 //! # What it looks like
 //!
@@ -108,6 +112,11 @@ pub(crate) const SLASH_MENU_CATEGORIES_TOPIC: &str = "slash menu categories";
 /// The topic a `Collapse tool calls` change is announced under (`:4120-4134`).
 pub(crate) const COLLAPSE_TOOL_CALLS_TOPIC: &str = "collapse tool calls";
 
+/// The topic a `Reasoning effort` change is announced under (`applyEffort`'s
+/// `persistPreferenceTargets(app, ..., "effort", ...)`,
+/// `session_commands.zig:867-874`).
+pub(crate) const EFFORT_TOPIC: &str = "effort";
+
 /// The topic a `Prompt history` change, and a history file that could not be
 /// written, are announced under (`handleHistory`, `session_commands.zig:443-509`;
 /// `recordAcceptedInput`, `input_submit_runtime.zig:1270-1274`).
@@ -170,6 +179,8 @@ pub(crate) enum Setting {
     CollapseToolCalls,
     /// The model a turn talks to: `/model`'s menu.
     Model,
+    /// The session's reasoning effort, written as `effort`.
+    Effort,
     /// `/permissions <mode>`.
     PermissionMode,
     /// `/sound <level>`.
@@ -190,6 +201,7 @@ impl Setting {
             Self::SlashMenuCategories => "slash_menu_categories",
             Self::CollapseToolCalls => "collapse_tool_calls",
             Self::Model => "model",
+            Self::Effort => "effort",
             Self::PermissionMode => "permission_mode",
             Self::SoundLevel => "sound_level",
             Self::PromptHistory => "prompt_history",
@@ -210,7 +222,7 @@ struct Spec {
 /// The settings, in upstream's order (`specs`, `settings_catalog.zig:261-276`)
 /// and upstream's words, with this product's name where upstream says its own
 /// and without `max` in the sound row's, which xfx's switch does not have.
-const SPECS: [Spec; 9] = [
+const SPECS: [Spec; 10] = [
     Spec {
         id: Setting::Statusline(StatusLineItem::Context),
         category: Category::Interface,
@@ -248,6 +260,12 @@ const SPECS: [Spec; 9] = [
         description: "Choose the model used for new turns",
     },
     Spec {
+        id: Setting::Effort,
+        category: Category::Agent,
+        label: "Reasoning effort",
+        description: "Control how much reasoning the model applies",
+    },
+    Spec {
         id: Setting::PermissionMode,
         category: Category::Agent,
         label: "Permission mode",
@@ -280,24 +298,31 @@ pub(crate) struct Snapshot<'a> {
     pub(crate) collapse_tool_calls: bool,
     /// The model id in force, provider prefix and all.
     pub(crate) model: &'a str,
+    /// The reasoning effort in force, as a person reads it: `default` or a
+    /// level's name (`crate::provider::effort::Effort::display`).
+    pub(crate) effort: &'a str,
+    /// The levels the catalog lists for the model in force, empty when it
+    /// lists none or has not been read.
+    pub(crate) efforts: &'a [String],
     pub(crate) permission_mode: PermissionMode,
     pub(crate) sound: Notifications,
     pub(crate) prompt_history: bool,
 }
 
-impl Snapshot<'_> {
+impl<'a> Snapshot<'a> {
     /// The setting's value as its row spells it (`Snapshot.value`).
     ///
     /// Sound is `custom` when a profile set its two switches apart -- the one
     /// value no choice on the row is (`notificationLevel`,
     /// `settings_catalog.zig:402-406`), so no choice is bold and a change
     /// starts from the first.
-    fn value(&self, id: Setting) -> &str {
+    fn value(&self, id: Setting) -> &'a str {
         match id {
             Setting::Statusline(item) => on_off(self.statusline.get(item)),
             Setting::SlashMenuCategories => on_off(self.slash_menu_categories),
             Setting::CollapseToolCalls => on_off(self.collapse_tool_calls),
             Setting::Model => self.model,
+            Setting::Effort => self.effort,
             Setting::PermissionMode => self.permission_mode.display_label(),
             Setting::SoundLevel => match (self.sound.turn_end, self.sound.attention_required) {
                 (false, false) => "off",
@@ -315,26 +340,42 @@ fn on_off(on: bool) -> &'static str {
 }
 
 /// The choices a setting's row cycles through, in the order drawn
-/// (`staticOptionsFor`, `settings_catalog.zig:360-377`). None for the model,
-/// whose row is its value and whose Enter is `/model`'s menu.
-fn options(id: Setting) -> &'static [&'static str] {
+/// (`optionCount`/`optionAt`/`staticOptionsFor`, `settings_catalog.zig:308-377`).
+/// None for the model, whose row is its value and whose Enter is `/model`'s
+/// menu. The effort's are `default` and the model's levels -- none at all for
+/// a model with no levels while the effort is the default, and `default`
+/// alone when it is not (a level carried over from another model), so the one
+/// way off it is back to the default.
+fn options<'a>(id: Setting, snapshot: &Snapshot<'a>) -> Vec<&'a str> {
     match id {
-        Setting::Model => &[],
-        Setting::PermissionMode => &PERMISSION_MODES,
+        Setting::Model => Vec::new(),
+        Setting::Effort => {
+            if snapshot.efforts.is_empty() && snapshot.effort.eq_ignore_ascii_case(DEFAULT_EFFORT) {
+                return Vec::new();
+            }
+            std::iter::once(DEFAULT_EFFORT)
+                .chain(snapshot.efforts.iter().map(String::as_str))
+                .collect()
+        }
+        Setting::PermissionMode => PERMISSION_MODES.to_vec(),
         Setting::Statusline(_)
         | Setting::SlashMenuCategories
         | Setting::CollapseToolCalls
         | Setting::SoundLevel
-        | Setting::PromptHistory => &ON_OFF,
+        | Setting::PromptHistory => ON_OFF.to_vec(),
     }
 }
 
+/// The effort row's first choice, the provider's own default
+/// (`optionAt`'s index 0, `settings_catalog.zig:323`).
+const DEFAULT_EFFORT: &str = "default";
+
 /// One change a keystroke asked for: the setting, and the choice it is to have
 /// -- a word of [`options`], which is what the setting's own command reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Change {
     pub(crate) setting: Setting,
-    pub(crate) value: &'static str,
+    pub(crate) value: String,
 }
 
 /// What one keystroke means to the menu.
@@ -495,7 +536,7 @@ impl SettingsMenu {
     /// counts as the first.
     pub(crate) fn change(&self, forward: bool, snapshot: &Snapshot<'_>) -> Option<Change> {
         let setting = self.selected(snapshot)?;
-        let choices = options(setting);
+        let choices = options(setting, snapshot);
         if choices.is_empty() {
             return None;
         }
@@ -511,7 +552,7 @@ impl SettingsMenu {
         };
         Some(Change {
             setting,
-            value: choices[next],
+            value: choices[next].to_string(),
         })
     }
 
@@ -561,7 +602,7 @@ impl SettingsMenu {
             first = selected;
             visible = measure(first);
         }
-        // At most the catalog's nine settings.
+        // At most the catalog's ten settings.
         let shown = u16::try_from(visible).unwrap_or(u16::MAX);
         Layout {
             rows: body_start + shown,
@@ -708,7 +749,7 @@ fn item_row(
     row.push_str(palette.reset());
     pad_to(&mut row, column);
     let value = snapshot.value(spec.id);
-    let choices = options(spec.id);
+    let choices = options(spec.id, snapshot);
     if choices.is_empty() {
         row.push_str(palette.subtitle());
         row.push_str(&ellipsized(value, width.saturating_sub(column)));
@@ -814,6 +855,8 @@ mod tests {
             slash_menu_categories: true,
             collapse_tool_calls: false,
             model: "fake/model-a",
+            effort: "default",
+            efforts: &[],
             permission_mode: PermissionMode::Auto,
             sound: Notifications::both(false),
             prompt_history: true,
@@ -866,14 +909,14 @@ mod tests {
 
     #[test]
     fn the_bare_menu_is_upstreams_rows_less_the_settings_xfx_has_nothing_behind() {
-        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Reasoning
-        // effort`, `Fast mode`, `Ultra mode`, `Session titles` and `Startup
-        // scrollback`, and with `Sound level` cycling `off  on`.
+        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Fast mode`,
+        // `Ultra mode`, `Session titles` and `Startup scrollback`, and with
+        // `Sound level` cycling `off  on`.
         let rows = SettingsMenu::open("").rows(&launched(), 120, 40, PALETTE);
         let tab = |label: &str| format!("  {DIM}{label}{RESET}");
         let mut expected = vec![
             format!(
-                "{BRIGHT}Settings 9{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
+                "{BRIGHT}Settings 10{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
                 tab("Interface"),
                 tab("Agent"),
                 tab("Notifications"),
@@ -890,6 +933,11 @@ mod tests {
             "  {DIM}Model{RESET}{}{BRIGHT}fake/model-a{RESET}",
             " ".repeat(20)
         ));
+        // A model with no levels and the default in force: the value alone.
+        expected.push(format!(
+            "  {DIM}Reasoning effort{RESET}{}{BRIGHT}default{RESET}",
+            " ".repeat(9)
+        ));
         expected.push(choice_row(
             "Permission mode",
             false,
@@ -899,7 +947,7 @@ mod tests {
         expected.push(choice_row("Sound level", false, &ON_OFF, "off"));
         expected.push(choice_row("Prompt history", false, &ON_OFF, "on"));
         assert_eq!(rows, expected);
-        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 11);
+        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 12);
     }
 
     #[test]
@@ -907,7 +955,7 @@ mod tests {
         // `fx-settings2-40x120-tab1..5`: Interface, Agent, Notifications,
         // Advanced, All -- with xfx's settings on each.
         let snapshot = launched();
-        assert_eq!(labels(&on_tab(0), &snapshot).len(), 9);
+        assert_eq!(labels(&on_tab(0), &snapshot).len(), 10);
         assert_eq!(
             labels(&on_tab(1), &snapshot),
             [
@@ -918,7 +966,10 @@ mod tests {
                 "Collapse tool calls"
             ]
         );
-        assert_eq!(labels(&on_tab(2), &snapshot), ["Model", "Permission mode"]);
+        assert_eq!(
+            labels(&on_tab(2), &snapshot),
+            ["Model", "Reasoning effort", "Permission mode"]
+        );
         assert_eq!(labels(&on_tab(3), &snapshot), ["Sound level"]);
         assert_eq!(labels(&on_tab(4), &snapshot), ["Prompt history"]);
         assert_eq!(on_tab(5), SettingsMenu::open(""));
@@ -938,26 +989,26 @@ mod tests {
         let rows = on_tab(3).rows(&launched(), 120, 40, PALETTE);
         assert_eq!(plain(&rows[2]), "  Sound level    off  on");
         let rows = on_tab(2).rows(&launched(), 120, 40, PALETTE);
-        assert_eq!(plain(&rows[2]), "  Model              fake/model-a");
+        assert_eq!(plain(&rows[2]), "  Model               fake/model-a");
     }
 
     #[test]
     fn a_tab_change_and_a_new_search_put_the_mark_back_on_top() {
         let snapshot = launched();
         let mut menu = SettingsMenu::open("");
-        assert!(menu.step(true, 9, &snapshot));
-        assert!(menu.step(true, 9, &snapshot));
+        assert!(menu.step(true, 10, &snapshot));
+        assert!(menu.step(true, 10, &snapshot));
         assert_eq!(
             menu.selected(&snapshot),
             Some(Setting::Statusline(StatusLineItem::Workspace))
         );
         menu.cycle(true);
         assert_eq!(menu.selected, 0);
-        menu.step(true, 9, &snapshot);
+        menu.step(true, 10, &snapshot);
         menu.set_query("s");
         assert_eq!(menu.selected, 0);
         // The same text again is not a new search.
-        menu.step(true, 9, &snapshot);
+        menu.step(true, 10, &snapshot);
         menu.set_query("s");
         assert_eq!(menu.selected, 1);
     }
@@ -966,9 +1017,9 @@ mod tests {
     fn up_and_down_wrap_at_both_ends() {
         let snapshot = launched();
         let mut menu = SettingsMenu::open("");
-        assert!(menu.step(false, 9, &snapshot));
+        assert!(menu.step(false, 10, &snapshot));
         assert_eq!(menu.selected(&snapshot), Some(Setting::PromptHistory));
-        assert!(menu.step(true, 9, &snapshot));
+        assert!(menu.step(true, 10, &snapshot));
         assert_eq!(
             menu.selected(&snapshot),
             Some(Setting::Statusline(StatusLineItem::Context))
@@ -986,6 +1037,11 @@ mod tests {
         );
         // A value: the model's id.
         assert_eq!(labels(&SettingsMenu::open("MODEL-A"), &snapshot), ["Model"]);
+        // `effort` is the tag and is in the description.
+        assert_eq!(
+            labels(&SettingsMenu::open("effort"), &snapshot),
+            ["Reasoning effort"]
+        );
         // Upstream's tag, and every word has to be found.
         assert_eq!(
             labels(&SettingsMenu::open("prompt_history"), &snapshot),
@@ -1019,25 +1075,37 @@ mod tests {
             menu.change(true, &snapshot),
             Some(Change {
                 setting: Setting::Statusline(StatusLineItem::Context),
-                value: "on"
+                value: "on".to_string()
             })
         );
         // Two choices: either way is a flip.
-        assert_eq!(menu.change(false, &snapshot).map(|c| c.value), Some("on"));
+        assert_eq!(
+            menu.change(false, &snapshot).map(|c| c.value).as_deref(),
+            Some("on")
+        );
         let permission = SettingsMenu::open("permission");
         assert_eq!(
-            permission.change(true, &snapshot).map(|c| c.value),
+            permission
+                .change(true, &snapshot)
+                .map(|c| c.value)
+                .as_deref(),
             Some("full access")
         );
         assert_eq!(
-            permission.change(false, &snapshot).map(|c| c.value),
+            permission
+                .change(false, &snapshot)
+                .map(|c| c.value)
+                .as_deref(),
             Some("ask")
         );
         let full = Snapshot {
             permission_mode: PermissionMode::Yolo,
             ..launched()
         };
-        assert_eq!(permission.change(true, &full).map(|c| c.value), Some("ask"));
+        assert_eq!(
+            permission.change(true, &full).map(|c| c.value).as_deref(),
+            Some("ask")
+        );
         // The model has no choices: its Right is the shell's.
         assert_eq!(SettingsMenu::open("model").change(true, &snapshot), None);
         // Nothing listed, nothing changed.
@@ -1061,8 +1129,14 @@ mod tests {
             "{:?}",
             rows[2]
         );
-        assert_eq!(menu.change(true, &custom).map(|c| c.value), Some("on"));
-        assert_eq!(menu.change(false, &custom).map(|c| c.value), Some("on"));
+        assert_eq!(
+            menu.change(true, &custom).map(|c| c.value).as_deref(),
+            Some("on")
+        );
+        assert_eq!(
+            menu.change(false, &custom).map(|c| c.value).as_deref(),
+            Some("on")
+        );
     }
 
     #[test]
@@ -1071,7 +1145,7 @@ mod tests {
         let menu = on_tab(2);
         assert_eq!(
             plain(&menu.rows(&snapshot, 40, 40, PALETTE)[0]),
-            "Settings 2  [Agent]"
+            "Settings 3  [Agent]"
         );
         assert_eq!(plain(&menu.rows(&snapshot, 12, 40, PALETTE)[0]), "[Agent]");
         assert_eq!(plain(&menu.rows(&snapshot, 5, 40, PALETTE)[0]), "[Agen");
@@ -1089,7 +1163,10 @@ mod tests {
         let rows = menu.rows(&snapshot, 120, 2, PALETTE);
         assert_eq!(rows.len(), 2);
         assert!(plain(&rows[0]).starts_with("  Model"), "{rows:?}");
-        assert!(plain(&rows[1]).starts_with("  Permission mode"), "{rows:?}");
+        assert!(
+            plain(&rows[1]).starts_with("  Reasoning effort"),
+            "{rows:?}"
+        );
         let rows = menu.rows(&snapshot, 120, 1, PALETTE);
         assert_eq!(rows.len(), 1);
         assert!(plain(&rows[0]).starts_with("  Model"), "{rows:?}");
@@ -1100,6 +1177,60 @@ mod tests {
         assert_eq!(menu.height(&snapshot, 13, 0), 3);
         // A taller composer takes its rows from the menu.
         assert_eq!(menu.height(&snapshot, 13, 1), 2);
+    }
+
+    #[test]
+    fn the_effort_row_is_default_and_the_models_levels_or_its_value_alone() {
+        // `fx-settings-effort-40x120-bare`: `zai/glm-5.2` lists low and high,
+        // so the row is `default  low  high` with the default bold.
+        let levels = ["low".to_string(), "high".to_string()];
+        let glm = Snapshot {
+            model: "zai/glm-5.2",
+            efforts: &levels,
+            ..launched()
+        };
+        let menu = SettingsMenu::open("reasoning");
+        assert_eq!(
+            menu.rows(&glm, 120, 40, PALETTE)[2],
+            format!(
+                "  {BRIGHT}Reasoning effort{RESET}    {BRIGHT}default{RESET}  {DIM}low{RESET}  {DIM}high{RESET}"
+            )
+        );
+        // Right walks them and wraps (`-right1..3`), Left goes back (`-left`).
+        assert_eq!(
+            menu.change(true, &glm).map(|c| c.value).as_deref(),
+            Some("low")
+        );
+        let high = Snapshot {
+            effort: "high",
+            ..glm
+        };
+        assert_eq!(
+            menu.change(true, &high).map(|c| c.value).as_deref(),
+            Some("default")
+        );
+        assert_eq!(
+            menu.change(false, &glm).map(|c| c.value).as_deref(),
+            Some("high")
+        );
+        // A model with no levels, the default in force: the value alone, bold,
+        // and Right changes nothing.
+        assert_eq!(menu.change(true, &launched()), None);
+        // The same model with a level carried over from another
+        // (`fx-settings-effort-40x120-no-levels`): `default` alone and dim, and
+        // Right puts the default back (`-no-levels-right`).
+        let carried = Snapshot {
+            effort: "high",
+            ..launched()
+        };
+        assert_eq!(
+            menu.rows(&carried, 120, 40, PALETTE)[2],
+            format!("  {BRIGHT}Reasoning effort{RESET}    {DIM}default{RESET}")
+        );
+        assert_eq!(
+            menu.change(true, &carried).map(|c| c.value).as_deref(),
+            Some("default")
+        );
     }
 
     #[test]

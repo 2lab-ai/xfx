@@ -3297,10 +3297,26 @@ impl Shell {
             slash_menu_categories: self.slash_menu_categories,
             collapse_tool_calls: self.collapse_tool_calls,
             model: &self.model,
+            effort: self.effort.display(),
+            efforts: self.model_levels(),
             permission_mode: self.mode,
             sound: self.sound.notifications(),
             prompt_history: self.recall.enabled,
         }
+    }
+
+    /// The levels the catalog lists for the model in force, as `/model`'s
+    /// footer segment reads them: none while the catalog has not been read
+    /// (`resolvedModelCapabilities`' generic answer for a model it does not
+    /// know, `settings_catalog.zig:308-313`).
+    fn model_levels(&self) -> &[String] {
+        if self.catalog_known != CatalogKnown::Loaded {
+            return &[];
+        }
+        self.catalog
+            .iter()
+            .find(|entry| entry.matches(&self.model))
+            .map_or(&[], |entry| entry.efforts.as_slice())
     }
 
     /// Offers one keystroke to the `/settings` menu, and says whether it was
@@ -3417,6 +3433,7 @@ impl Shell {
     /// `app_commands.zig:4110-4210`).
     fn apply_setting(&mut self, change: settings::Change) {
         let on = change.value == "on";
+        let value = change.value.as_str();
         match change.setting {
             // `applyStatuslineItem(.announce)`: both of `/statusline <item>`'s
             // notices.
@@ -3426,16 +3443,24 @@ impl Shell {
                 }
             }
             // `handlePermissions(app, value)`: `/permissions <mode>` itself.
-            Setting::PermissionMode => CommandHandlers::permissions(self, change.value),
+            Setting::PermissionMode => CommandHandlers::permissions(self, value),
             // `handleNotificationsCommand(app, value)`: `/sound <level>`.
-            Setting::SoundLevel => CommandHandlers::sound(self, change.value),
+            Setting::SoundLevel => CommandHandlers::sound(self, value),
+            // `selectEffortFromSettings` (`session_commands.zig:863-884`): the
+            // effort is the session's at once, written as `effort`, and the
+            // saved line is all that is said -- no `Switched to`.
+            Setting::Effort => {
+                if let Some(effort) = Effort::parse(value) {
+                    self.set_effort(effort);
+                }
+            }
             Setting::SlashMenuCategories => {
                 let changed = on != self.slash_menu_categories;
                 self.slash_menu_categories = on;
                 self.save_preference(
                     settings::SLASH_MENU_CATEGORIES_TOPIC,
                     &[crate::config::SLASH_MENU_CATEGORIES_KEY],
-                    on,
+                    serde_json::Value::Bool(on),
                     changed,
                 );
             }
@@ -3451,7 +3476,7 @@ impl Shell {
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
                     &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
-                    on,
+                    serde_json::Value::Bool(on),
                     changed,
                 );
             }
@@ -3463,6 +3488,30 @@ impl Shell {
         self.render.request(Reason::Footer);
     }
 
+    /// `/settings`' effort row: the band's effort and the runtime's move to
+    /// `effort`, and the profile's `effort` is written here and announced
+    /// (`applyEffort(app, effort, announce=false, persist=true)`,
+    /// `session_commands.zig:863-880`). The runtime is told as a model change
+    /// that keeps the model ([`ModelChange::effort_only`]), so one made while
+    /// a turn runs waits for it as `/model`'s does.
+    fn set_effort(&mut self, effort: Effort) {
+        self.effort = effort.clone();
+        self.work.control(TurnControl::Model(ModelChange {
+            name: self.model.clone(),
+            effort: Some(effort.clone()),
+            picker: false,
+            announced: true,
+            next_turn: self.turn_pending(),
+            effort_only: true,
+        }));
+        self.save_preference(
+            settings::EFFORT_TOPIC,
+            &[crate::config::EFFORT_KEY],
+            serde_json::Value::String(effort.label().to_string()),
+            true,
+        );
+    }
+
     /// Upstream's `handleHistory(app, "on"|"off")` (`session_commands.zig:443-509`):
     /// off is in force at once and then saved; on is saved first and in force
     /// only once it was, so a history that could not be kept on stays off and
@@ -3472,10 +3521,20 @@ impl Shell {
         if !on {
             let changed = self.recall.enabled;
             self.recall.enabled = false;
-            self.save_preference(settings::HISTORY_TOPIC, key, false, changed);
+            self.save_preference(
+                settings::HISTORY_TOPIC,
+                key,
+                serde_json::Value::Bool(false),
+                changed,
+            );
             return;
         }
-        if self.save_preference(settings::HISTORY_TOPIC, key, true, false) {
+        if self.save_preference(
+            settings::HISTORY_TOPIC,
+            key,
+            serde_json::Value::Bool(true),
+            false,
+        ) {
             self.recall.enabled = true;
         }
     }
@@ -3488,12 +3547,16 @@ impl Shell {
     /// Answers whether it was written.
     ///
     /// On this thread, for the reason [`Self::set_statusline`]'s write is.
-    fn save_preference(&mut self, topic: &str, key: &[&str], on: bool, changed: bool) -> bool {
+    fn save_preference(
+        &mut self,
+        topic: &str,
+        key: &[&str],
+        value: serde_json::Value,
+        changed: bool,
+    ) -> bool {
         let written = match self.settings_path.as_deref() {
-            Some(path) => {
-                crate::provider::profile::write_preference(path, key, serde_json::Value::Bool(on))
-                    .map_err(|err| err.to_string())
-            }
+            Some(path) => crate::provider::profile::write_preference(path, key, value)
+                .map_err(|err| err.to_string()),
             None => Err("no home directory is set".to_string()),
         };
         match written {
@@ -3922,6 +3985,7 @@ impl Shell {
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            effort_only: false,
         });
     }
 
@@ -7203,6 +7267,7 @@ impl Shell {
             picker: false,
             announced,
             next_turn: self.turn_pending(),
+            effort_only: false,
         });
     }
 
@@ -7298,6 +7363,7 @@ impl Shell {
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            effort_only: false,
         }))
     }
 
@@ -15419,6 +15485,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn: false,
+                effort_only: false,
             },
             "the model change never reached the thread that owns the session log"
         );
@@ -15589,6 +15656,7 @@ mod tests {
                 picker: false,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -15780,6 +15848,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -16183,6 +16252,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -21925,12 +21995,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 11);
+        assert_eq!(shell.geometry.panel, 12);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 9  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -21938,6 +22008,7 @@ mod tests {
                 "  Slash menu categories    off  on",
                 "  Collapse tool calls      off  on",
                 model.as_str(),
+                "  Reasoning effort         default",
                 "  Permission mode          ask  auto  full access",
                 "  Sound level              off  on",
                 "  Prompt history           off  on",
@@ -22017,8 +22088,9 @@ mod tests {
         assert_eq!(
             settings_text(&shell)[2..],
             [
-                format!("  Model              {}", shell.model),
-                "  Permission mode    ask  auto  full access".to_string(),
+                format!("  Model               {}", shell.model),
+                "  Reasoning effort    default".to_string(),
+                "  Permission mode     ask  auto  full access".to_string(),
             ]
         );
         // Shift-Tab is the category back, and not the permission mode.
@@ -22045,8 +22117,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[10]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[10].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -22100,16 +22172,16 @@ mod tests {
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 6);
-        assert!(visible_text(&menu(&shell)[8]).starts_with("  Permission mode"));
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
         shell.route_bytes(RIGHT);
         typed.route_bytes(b"/permissions full-access\r");
         assert_eq!(shell.mode, PermissionMode::Yolo);
         assert_eq!(shell.document(), typed.document());
         assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
-        assert!(settings_text(&shell)[8].ends_with("ask  auto  full access"));
+        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
         assert_eq!(
-            menu(&shell)[8].matches(PALETTE.subtitle()).count(),
+            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
             2,
             "the marked label and `full access`"
         );
@@ -22126,7 +22198,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 7);
+        down(&mut shell, 8);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -22140,7 +22212,70 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[9].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn right_on_reasoning_effort_walks_the_models_levels_saves_effort_and_tells_the_runtime() {
+        // `fx-settings-effort-40x120-right1..3`, `-left`: each change says
+        // only `* effort: saved to user settings (scope=user)`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.model = "openai/gpt-6-astra".to_string();
+        let _ = shell.document();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert_eq!(
+            settings_text(&shell)[8],
+            "  Reasoning effort         default  low  medium  high  xhigh"
+        );
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), settings_saved("effort"));
+        assert_eq!(shell.effort, Effort::Named("low".to_string()));
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"low\"\n}\n");
+        // The runtime is told the effort and nothing else: the model kept.
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("low".to_string())),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            }
+        );
+        assert!(menu(&shell)[8].contains(&format!("{}low{}", PALETTE.subtitle(), PALETTE.reset())));
+        // Left from low is the default again, written as upstream writes it.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.document(), settings_saved("effort"));
+        assert_eq!(shell.effort, Effort::Auto);
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"auto\"\n}\n");
+        // And the footer says the level in force once it is not the default.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.effort, Effort::Named("xhigh".to_string()));
+        escape(&mut shell);
+        assert!(shell.hint().ends_with("xhigh"), "{}", shell.hint());
+
+        // A model with no levels and the default in force: the value alone,
+        // and Right changes nothing.
+        shell.model = "fake/model-a".to_string();
+        shell.effort = Effort::Auto;
+        let _ = shell.document();
+        while shell.controlled().is_some() {}
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert_eq!(
+            settings_text(&shell)[8],
+            "  Reasoning effort         default"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
     }
 
     #[test]
@@ -22257,8 +22392,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[10]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[10].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -22274,7 +22409,9 @@ mod tests {
     fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
-        shell.route_bytes(b"model");
+        // `model used` is the Model row's description alone: the effort row's
+        // mentions the model too.
+        shell.route_bytes(b"model used");
         assert_eq!(
             settings_text(&shell)[2..],
             [format!("  Model    {}", shell.model)]

@@ -1,6 +1,6 @@
 # /settings' tabs, a change on the first row and on the sound row, Enter on a
 # setting, the search, and Escape (the research `settings2.cap`). Down is
-# counted per binary so both land on the sound row: fx lists five settings xfx
+# counted per binary so both land on the sound row: fx lists four settings xfx
 # has nothing behind (`.prd/tui-phase4/ssot.md` §Tensions). Both start with
 # sound off (fx by the harness's FX_SOUND=0).
 xfx: env XFX_SOUND=off
@@ -33,7 +33,7 @@ wait 0.5
 snap right-context
 home right-context
 fx: key Down Down Down Down Down Down Down Down Down Down Down
-xfx: key Down Down Down Down Down Down Down
+xfx: key Down Down Down Down Down Down Down Down
 wait 0.4
 snap down-sound
 key Right

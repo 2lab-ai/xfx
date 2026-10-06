@@ -6,7 +6,7 @@ type /settings
 key Enter
 wait 1
 fx: key Down Down Down Down Down Down Down Down Down
-xfx: key Down Down Down Down Down Down
+xfx: key Down Down Down Down Down Down Down
 wait 0.4
 snap marked
 key Right
