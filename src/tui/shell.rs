@@ -94,6 +94,7 @@ use super::model_menu::{self, ModelAction, ModelMenu};
 use super::notice::{self, unattributed};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
+use super::permissions::{self, Change};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
@@ -264,6 +265,77 @@ const INTERRUPT_ARMED: [&str; 3] = ["esc again to interrupt", "esc esc interrupt
 /// What the hint row says, whole, when not even the narrowest of those fits
 /// beside the session's facts (`input_presentation.zig:525`).
 const INTERRUPT_ARMED_ALONE: &str = "esc esc to interrupt";
+
+/// What leads a waiting prompt's row in the band (`input_presentation.zig:76`).
+const BANNER_MARK: &str = "\u{250b} ";
+
+/// The most rows one waiting prompt is shown in (`max_steering_message_rows`,
+/// `render_input.zig:491`).
+const BANNER_ROWS: usize = 2;
+
+/// `text` laid out in at most [`BANNER_ROWS`] rows `width` cells wide: broken
+/// at its own line breaks and, inside a line, after the last space that fits;
+/// a word wider than a row cut at the row; and the last row cut one cell short
+/// for `…` when anything is left (`steering_message_layout`,
+/// `render_input.zig:518-577`).
+fn banner_layout(text: &str, width: usize) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut lines = text.split('\n').map(|line| line.trim_end_matches('\r'));
+    let mut rest = lines.next().unwrap_or_default().to_string();
+    loop {
+        // The row: as much of the line as fits, back to its last space when
+        // the line goes on past it.
+        let mut cells = 0usize;
+        let mut end = 0usize;
+        let mut last_space = None;
+        for (at, character) in rest.char_indices() {
+            let wide = usize::from(super::wrap::width(&rest[at..at + character.len_utf8()]));
+            if cells + wide > width {
+                break;
+            }
+            if character == ' ' {
+                last_space = Some(at);
+            }
+            cells += wide;
+            end = at + character.len_utf8();
+        }
+        let whole = end == rest.len();
+        let cut = match (whole, last_space) {
+            (false, Some(space)) if space > 0 => space,
+            _ => end,
+        };
+        rows.push(rest[..cut].to_string());
+        let remainder = rest[cut..].trim_start_matches(' ').to_string();
+        let more = !remainder.is_empty() || lines.clone().next().is_some();
+        if rows.len() == BANNER_ROWS && more {
+            if let Some(last) = rows.last_mut() {
+                let room = width.saturating_sub(1);
+                let mut kept = String::new();
+                for character in last.chars() {
+                    let next = format!("{kept}{character}");
+                    if usize::from(super::wrap::width(&next)) > room {
+                        break;
+                    }
+                    kept = next;
+                }
+                *last = format!("{kept}\u{2026}");
+            }
+            break;
+        }
+        if !remainder.is_empty() {
+            rest = remainder;
+            continue;
+        }
+        match lines.next() {
+            Some(line) => rest = line.to_string(),
+            None => break,
+        }
+        if rows.len() == BANNER_ROWS {
+            break;
+        }
+    }
+    rows
+}
 
 /// The question a cancelled turn leaves in the document, after its marker and
 /// its word (`lifecycleTerminalLine`, `transcript/runtime.zig:644`), in this
@@ -507,10 +579,21 @@ pub(crate) struct Shell {
     model: String,
     /// How much authority a turn will have before it has to ask.
     ///
-    /// Read once and never changed: the mode is settled by the configuration
-    /// and no command in the palette moves it -- the slash names are the line
-    /// shell's and none of them is `/permission`.
+    /// Read from the configuration at startup, and moved by `/permissions` and
+    /// Shift-Tab ([`Self::choose_mode`]) **the moment the runtime has been
+    /// handed the change** -- which is what the hint row says from then on. The
+    /// runtime applies it before the next turn starts and not under one that
+    /// is running (`super::worker`'s `turn_loop`), so while a turn is in
+    /// flight this is the mode the *next* one will have.
     mode: PermissionMode,
+    /// The one-time full-access warning on the hint row, and how much of its
+    /// time on the screen is left (`super::permissions::Warning`).
+    warning: permissions::Warning,
+    /// Whether this person has been shown that warning: the profile's
+    /// `yolo_acknowledged` at startup, and set the first time it is on the
+    /// screen here. Once true it stays true, which is what makes the warning
+    /// once per person rather than once per session.
+    acknowledged: bool,
     /// Whether the configured provider has nothing to authenticate with.
     ///
     /// Asked of the **provider** rather than of one field
@@ -887,7 +970,13 @@ pub(crate) struct Shell {
     /// ([`title_of`], the store's own rule, so the window says what a listing
     /// of the session says): which prompt opens the session is only known
     /// when its turn starts.
-    prompts: VecDeque<(u64, Option<String>)>,
+    ///
+    /// The third is the prompt's card while it is **waiting**: a prompt
+    /// submitted while the runtime had work in hand is shown in the band
+    /// ([`Self::banner_rows`]) and its card is written when its turn starts,
+    /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
+    /// the keystroke, in the middle of the answer it was typed under.
+    prompts: VecDeque<(u64, Option<String>, Option<String>)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -1309,6 +1398,16 @@ impl Shell {
             },
             model: config.model.clone(),
             mode: config.permission_mode,
+            // A session that **starts** in full access owes the warning too
+            // (`initializeYoloWarning`, `app_permission_runtime.zig:86-88`).
+            warning: {
+                let mut warning = permissions::Warning::default();
+                if config.permission_mode == PermissionMode::Yolo && !config.yolo_acknowledged {
+                    warning.arm();
+                }
+                warning
+            },
+            acknowledged: config.yolo_acknowledged,
             missing_credential: !crate::provider::credential_ready(config.provider, config),
             provider: config.provider,
             catalog: Vec::new(),
@@ -1410,7 +1509,20 @@ impl Shell {
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
-            rows.extend(std::iter::repeat_n(String::new(), padding));
+            // A waiting prompt's rows, between the turn's blank row and a
+            // blank row of their own -- when the band was solved with them
+            // ([`layout::solve_band_with_banner`]), which is the only way the
+            // padding is that tall.
+            let banner = self.banner_rows(self.geometry.cols);
+            if !banner.is_empty() && padding == banner.len() + 2 {
+                rows.push(String::new());
+                for row in banner {
+                    rows.push(self.painted(self.palette.dim(), row));
+                }
+                rows.push(String::new());
+            } else {
+                rows.extend(std::iter::repeat_n(String::new(), padding));
+            }
         }
         // The composer's own rows, as many of them as the window shows, each
         // behind upstream's rail: `┃` in the hint colour and a space, or `┃↑`
@@ -1642,14 +1754,15 @@ impl Shell {
             style: self.palette.notice(),
             resume: self.palette.statusline(),
         });
-        // The right-hand slot is upstream's `right_text`, which is painted in
+        // The right-hand slot is upstream's `right_text`: the Escape cues in
         // the dim grey after the row's own run is closed
-        // (`input_presentation.zig:559-567`) -- the same number as the row's in
-        // the dark palette and not in the light one (`theme.zig:123,128`). The
-        // sequences cost no cells, so the budget below measures the words.
-        let cue = |text: &str| format!("{}{}{text}", self.palette.reset(), self.palette.dim());
-        let clear_cue = cue(ESCAPE_ARMED);
-        let interrupt_cues = INTERRUPT_ARMED.map(cue);
+        // (`input_presentation.zig:559-567`) -- the same number as the row's
+        // in the dark palette and not in the light one (`theme.zig:123,128`)
+        // -- and, when neither is armed, the full-access warning in
+        // `red_style` while it has time on the screen left
+        // ([`Self::warning_shown`]). An armed cue outranks the warning
+        // (`dangerStatusText` is empty while one is, `:580`).
+        let cue_style = format!("{}{}", self.palette.reset(), self.palette.dim());
         let mut hint = Hint {
             missing_credential: self.missing_credential,
             queued: self.queued,
@@ -1679,7 +1792,15 @@ impl Shell {
             // keystroke would do rather than another fact about the
             // session, and a warning that moved left and right with the
             // queue's depth would be one the eye has to look for.
-            right: self.escape_armed.then_some(clear_cue.as_str()),
+            right: self
+                .escape_armed
+                .then_some(ESCAPE_ARMED)
+                .or_else(|| self.warning_shown()),
+            right_style: if self.escape_armed {
+                cue_style.as_str()
+            } else {
+                self.palette.danger()
+            },
             accent: (self.palette.activity(), self.palette.statusline()),
         };
         let cols = self.geometry.cols;
@@ -1689,12 +1810,16 @@ impl Shell {
             // cue owns the row (`input_presentation.zig:510-525`). The row
             // still shrinks first for a cue that does fit, by `hint::row`'s
             // own rule, but a narrow screen never loses the warning.
+            hint.right = None;
             let left = usize::from(super::wrap::width(&hint::row(&hint, cols)));
-            let fits = interrupt_cues
-                .iter()
+            let fits = INTERRUPT_ARMED
+                .into_iter()
                 .find(|cue| usize::from(cols) > left + usize::from(super::wrap::width(cue)));
             match fits {
-                Some(cue) => hint.right = Some(cue.as_str()),
+                Some(cue) => {
+                    hint.right = Some(cue);
+                    hint.right_style = cue_style.as_str();
+                }
                 None => return INTERRUPT_ARMED_ALONE.to_string(),
             }
         }
@@ -2045,9 +2170,19 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Thinking);
                 }
-                let (input, title) = self.prompts.pop_front().unwrap_or_default();
+                let (input, title, card) = self.prompts.pop_front().unwrap_or_default();
                 self.tally.begin(Instant::now(), input);
                 self.turn_title = title;
+                // The waiting prompt is delivered: its card goes into the
+                // document behind whatever the last turn still has to say,
+                // and its rows leave the band.
+                if let Some(card) = card {
+                    if !self.cancelling {
+                        self.echo(&card);
+                    }
+                    self.refit();
+                    self.render.request(Reason::Footer);
+                }
             }
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
@@ -3807,7 +3942,7 @@ impl Shell {
             // the draft it clears is.
             // The clear's window, not the interrupt's: the draft is what
             // this Escape is about, as at an idle composer.
-            if self.gestures.escape(now, false) == Escape::Clear && ask.clear_draft() {
+            if self.gestures.escape(now, false, true) == Escape::Clear && ask.clear_draft() {
                 self.settled_question();
             }
             self.settle_band(now);
@@ -4028,8 +4163,12 @@ impl Shell {
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
         self.record(&mark);
-        // Anything that is not the answer ends the answer's block.
-        self.close_answer();
+        // Anything that is not the answer ends the answer's block. A notice
+        // ends only the rows already written: the line the presenter is still
+        // holding goes on under it ([`Self::write_notice`]).
+        if !matches!(mark, Mark::Notice(_)) {
+            self.close_answer();
+        }
         match mark {
             Mark::Card(text) => self.write_card(&text),
             Mark::Summary(line) => {
@@ -4183,8 +4322,21 @@ impl Shell {
     ///   on a blank one ([`Transcript::ends_blank`]), so neither a fresh screen
     ///   nor a card -- which ends on its own blank row -- grows a second.
     ///
-    /// Like [`Self::write_document_line`], whatever the answer had open is
-    /// closed first: a notice does not land in the middle of a sentence.
+    /// The block the answer has **written** is closed first, on its blank row,
+    /// so a notice does not land in the middle of a paragraph's rows. What the
+    /// presenter is still **holding** -- a line whose end has not arrived, or a
+    /// finished one a setext underline could still make a heading -- stays
+    /// held, and is written under the notice once the presenter lets it go,
+    /// whole and wrapped as if no notice had come. That is upstream's order
+    /// and the reason for it: its presenter keeps the unfinished line in its
+    /// own buffer (`assistant_presentation.zig:207-217`) and gives it up only
+    /// at a tool's start, a restart or the stream's end
+    /// (`assistant_stream.zig:135-140`, `:300-312`), while a notice is an entry
+    /// appended to the transcript beside it (`appendSemanticNoticeAtomic`,
+    /// `store.zig:1343-1390`) that asks the presenter for nothing
+    /// (`fx-notice-midstream-40x120-end.full`). Finishing the presenter here
+    /// wrote half a line, the notice, and the rest as a second paragraph --
+    /// `word` closing one row and `111` opening the next.
     ///
     /// **Under an open tool group it is one of the group's last rows**
     /// ([`Self::trail_group`]), and the group goes on growing above it.
@@ -4194,7 +4346,7 @@ impl Shell {
             self.trail_group(Trailed::Notice(notice.clone()));
             return;
         }
-        self.close_answer();
+        self.close_prose();
         self.finish_document_line();
         if queue_notice(&mut self.transcript, notice) {
             self.owed();
@@ -4420,6 +4572,9 @@ impl Shell {
             self.interrupt_armed = interrupt;
             self.render.request(Reason::Footer);
         }
+        // After the Escape: an armed one takes the slot the warning is in, and
+        // the warning's clock must not run on a row that is not showing it.
+        self.tick_warning(now);
         // What the turn is doing, on the row above the divider. Before the
         // pacer, because the row's arrival and departure move the divider and
         // an append measured against the other band would be placed a row out.
@@ -5004,20 +5159,27 @@ impl Shell {
             // own `TurnStarted` to its conclusion or the keystroke that
             // stopped it. A prompt still waiting for the runtime to pick it up
             // is not yet an operation there is anything to interrupt in.
-            Action::Escape => match self.gestures.escape(now, self.activity.working()) {
-                Escape::Armed | Escape::InterruptArmed => self.settle_band(now),
-                Escape::Clear => {
-                    self.clear_composer();
-                    self.settle_band(now);
+            Action::Escape => {
+                match self
+                    .gestures
+                    .escape(now, self.activity.working(), !self.editor.is_empty())
+                {
+                    Escape::Nothing | Escape::Armed | Escape::InterruptArmed => {
+                        self.settle_band(now)
+                    }
+                    Escape::Clear => {
+                        self.clear_composer();
+                        self.settle_band(now);
+                    }
+                    // Upstream's `cancelActiveOperation`, with no exit armed: the
+                    // Escape pair is its own confirmation, and the row after it is
+                    // the session's (`fx-interrupt2-40x120-esc2`).
+                    Escape::Interrupt => {
+                        self.cancel_turn();
+                        self.settle_band(now);
+                    }
                 }
-                // Upstream's `cancelActiveOperation`, with no exit armed: the
-                // Escape pair is its own confirmation, and the row after it is
-                // the session's (`fx-interrupt2-40x120-esc2`).
-                Escape::Interrupt => {
-                    self.cancel_turn();
-                    self.settle_band(now);
-                }
-            },
+            }
             // The end of the session, but only from an empty composer: with
             // text under the caret Ctrl-D is the forward delete it is in every
             // shell that has both, and leaving would throw away a draft.
@@ -5098,11 +5260,17 @@ impl Shell {
                     self.amended(delta);
                 }
             }
+            // Shift-Tab reaches here only with no question, catalog or menu
+            // up -- each is offered every keystroke first, and the catalog
+            // binds it -- which is upstream's own order: the menus that cycle
+            // a category take it, and otherwise it is the permission mode
+            // (`app_input_runtime.zig:1175-1185`).
+            Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
             // The page keys are the full transcript's, and the composer has no
             // page of its own.
-            Action::Tab | Action::BackTab | Action::PageUp | Action::PageDown | Action::Ignore => {}
+            Action::Tab | Action::PageUp | Action::PageDown | Action::Ignore => {}
         }
     }
 
@@ -5240,6 +5408,8 @@ impl Shell {
         self.retry = None;
         if waiting {
             self.prompts.clear();
+            // The waiting prompt's rows go with it.
+            self.refit();
         }
         // A prompt the runtime took before it read this is still to say it
         // started; with nothing waiting behind it, it is the only entry left.
@@ -5476,6 +5646,12 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // Whether it will wait behind a turn that is running -- the turn the
+        // activity row is about, as upstream's steer waits on an active
+        // operation. Work the session has stopped or reset is not one: a
+        // prompt typed after it goes out as soon as that work unwinds, and its
+        // card is written at once, as it always was.
+        let waits = self.activity.working();
         match self.work.submit(TurnWork::Submit(prompt)) {
             Ok(()) => {
                 // Nothing is said about the turn here, and that is the point:
@@ -5488,8 +5664,15 @@ impl Shell {
                 self.edited(None);
                 let mut estimate = Estimator::default();
                 estimate.consume(text);
-                self.prompts.push_back((estimate.estimate(), title));
-                self.echo(text);
+                if waits {
+                    self.prompts
+                        .push_back((estimate.estimate(), title, Some(text.to_string())));
+                    self.refit();
+                    self.render.request(Reason::Footer);
+                } else {
+                    self.prompts.push_back((estimate.estimate(), title, None));
+                    self.echo(text);
+                }
                 self.gestures.submitted();
             }
             Err(rejected) => self.refused(rejected),
@@ -5762,6 +5945,37 @@ impl CommandHandlers for Shell {
         self.use_provider(argument);
     }
 
+    /// Upstream's `/permissions` (`handlePermissions`,
+    /// `session_commands.zig:367-394`, then `writeSessionPermissionRules`,
+    /// `app_commands.zig:776-811`, when bare).
+    ///
+    /// Bare, it says what is in force -- the mode this shell holds, and the
+    /// grants as the runtime last published them -- and that xfx keeps no
+    /// saved-session rules. A mode or `reset` is handed to the runtime
+    /// ([`Self::choose_mode`]) and answered here at once, as upstream answers
+    /// it; anything else is the usage line.
+    fn permissions(&mut self, argument: &str) {
+        use crate::permission::slash::Request;
+        match Request::parse(argument) {
+            Request::Show => {
+                let grants = self.work.grants();
+                self.announce(permissions::status(self.mode, &grants));
+                self.announce(permissions::saved_rules());
+            }
+            Request::Select(mode) => {
+                if self.choose_mode(Change::Mode(mode), mode) {
+                    self.announce(permissions::selected(mode));
+                }
+            }
+            Request::Reset => {
+                if self.choose_mode(Change::Reset, PermissionMode::Ask) {
+                    self.announce(permissions::reset());
+                }
+            }
+            Request::Usage => self.announce(permissions::usage()),
+        }
+    }
+
     /// Upstream's `commandHandleStatusline` (`app_commands.zig:2094-2107`):
     /// bare, the picker opens on its first row in place of the composer, and
     /// the menus that share its slot close; with an item, that item flips and
@@ -5811,6 +6025,99 @@ impl CommandHandlers for Shell {
 }
 
 impl Shell {
+    /// Hands the runtime a change to the session's authority and, once it has
+    /// it, moves this shell's own idea of the mode -- the hint row -- to
+    /// `mode`. Answers whether it did.
+    ///
+    /// **Not a [`TurnWork`]**: see [`WorkHandle::change_permissions`] for the
+    /// three ways that channel would get this wrong. A runtime that is gone has
+    /// nothing to apply a mode to, so the row keeps the mode it had and the
+    /// refusal says why.
+    ///
+    /// The warning follows the mode, as upstream's `updateYoloWarningForMode`
+    /// does (`app_permission_runtime.zig:168-176`): armed on the way into full
+    /// access for someone who has not seen it yet, and taken down on the way
+    /// out.
+    fn choose_mode(&mut self, change: Change, mode: PermissionMode) -> bool {
+        if let Err(rejected) = self.work.change_permissions(change) {
+            self.refused(rejected);
+            return false;
+        }
+        self.mode = mode;
+        if mode == PermissionMode::Yolo && !self.acknowledged {
+            self.warning.arm();
+        } else {
+            self.warning.clear();
+        }
+        self.render.request(Reason::Footer);
+        true
+    }
+
+    /// Shift-Tab with nothing in front of the composer that binds it: the next
+    /// mode round ask, auto, full access (`toggleMode`,
+    /// `app_permission_runtime.zig:135-142`), with no notice -- upstream's key
+    /// says it on the hint row and nowhere else.
+    fn cycle_mode(&mut self) {
+        let next = crate::permission::slash::next(self.mode);
+        self.choose_mode(Change::Mode(next), next);
+    }
+
+    /// The full-access warning, if the hint row carries it now: the sentence,
+    /// or its compact form on a row too narrow for the sentence, or nothing.
+    ///
+    /// Upstream's `dangerStatusText` (`input_presentation.zig:574-592`): a
+    /// question, a pending approval, an armed Escape and a refusal on the row
+    /// all own the row and keep the warning off it, and a menu or the catalog
+    /// replaces the row with its key help (`paint_plan.zig:946-972`). The
+    /// clock ([`permissions::Warning::observe`]) is asked with this same
+    /// answer, so the time spent is time the person could see it.
+    fn warning_shown(&self) -> Option<&'static str> {
+        if !self.warning.active() || self.mode != PermissionMode::Yolo {
+            return None;
+        }
+        // Nor while an armed cue or the exit hint has the row: upstream's
+        // `dangerStatusText` is empty while any of them is (`:580`).
+        if self.slot().is_some()
+            || self.modal()
+            || self.notice.is_some()
+            || self.escape_armed
+            || self.interrupt_armed
+            || self.exit_armed
+        {
+            return None;
+        }
+        // Nor while the other buffer owns the screen -- a question's review or
+        // the full transcript -- where the band is not painted at all
+        // (`yolo_warning_visible`, `app_render_runtime.zig:1833-1834`).
+        if self.owner != ScreenOwner::Primary {
+            return None;
+        }
+        let cols = usize::from(self.geometry.cols);
+        [permissions::WARNING, permissions::WARNING_COMPACT]
+            .into_iter()
+            .find(|text| usize::from(super::wrap::width(text)) <= cols)
+    }
+
+    /// One look at the warning's clock, from [`Self::settle_band`].
+    ///
+    /// The first time it is on the screen is the moment the person has been
+    /// shown it, and that is recorded at once (`noteFrameCommitted`,
+    /// `app_permission_runtime.zig:99-111`) -- once, whether the write works or
+    /// not: a failed write is said by the runtime, and a second attempt per
+    /// frame would be a write per frame.
+    fn tick_warning(&mut self, now: Instant) {
+        let shown = self.warning_shown().is_some();
+        if shown && !self.acknowledged {
+            self.acknowledged = true;
+            // A runtime that is gone has nothing to write with, and this is
+            // not a keystroke anybody is owed a refusal for.
+            let _ = self.work.change_permissions(Change::Acknowledge);
+        }
+        if self.warning.observe(now, shown) {
+            self.render.request(Reason::Footer);
+        }
+    }
+
     /// `/model`, as upstream answers it.
     ///
     /// **Bare, it opens the menu** (`openModelBrowseCatalog`,
@@ -6417,12 +6724,57 @@ impl Shell {
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
                 .map(|geometry| geometry.floated(self.document_rows));
         }
+        // **A waiting prompt's rows, under the turn's own** -- only with the
+        // turn's row above them, which is the band they are a view of, and
+        // only when the screen holds them with the composer: a band that
+        // cannot is solved without them, and the hint row's `queued 1` is
+        // still the waiting prompt's sign.
+        let banner = if activity {
+            u16::try_from(self.banner_rows(cols).len()).unwrap_or(0)
+        } else {
+            0
+        };
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
-                layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+                (banner > 0)
+                    .then(|| {
+                        layout::solve_band_with_banner(
+                            rows,
+                            cols,
+                            input_rows,
+                            panel(input_rows),
+                            banner,
+                        )
+                    })
+                    .flatten()
+                    .or_else(|| {
+                        layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+                    })
             })
             .map(|geometry| geometry.floated(self.document_rows))
+    }
+
+    /// The rows a waiting prompt is shown in, above the composer, without
+    /// their colour: `┋ ` and the prompt, at most two rows of it, broken at a
+    /// space and at its own line breaks, the last cut one cell short for `…`
+    /// when there is more (`steering_message_layout`,
+    /// `render_input.zig:518-577`; `composeSteeringMessageRows`,
+    /// `input_presentation.zig:58-80`).
+    fn banner_rows(&self, cols: u16) -> Vec<String> {
+        let width = usize::from(cols.saturating_sub(2)).max(1);
+        let mut rows = Vec::new();
+        for (_, _, card) in &self.prompts {
+            let Some(card) = card else {
+                continue;
+            };
+            rows.extend(
+                banner_layout(card, width)
+                    .into_iter()
+                    .map(|row| format!("{BANNER_MARK}{row}")),
+            );
+        }
+        rows
     }
 
     /// Whether this session's row numbers are claims about a screen that may
@@ -6710,7 +7062,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("the hint row was not painted in the palette: {row:?}"));
             // The permission mode's accent, taken off with the colour it
             // lifts the mode out of and nothing else.
-            ["auto", "yolo"]
+            ["auto", "full access"]
                 .iter()
                 .fold(inside.to_string(), |row, mode| {
                     row.replacen(
@@ -12043,6 +12395,137 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_typed_while_an_answer_streams_waits_in_the_band_and_never_splits_its_line() {
+        // `fx-steer-40x120-steer-tool`: the prompt typed while a turn runs is
+        // the band's dim `┋ change tone` row, between the activity row and
+        // the composer with a blank row either side, and its card is written
+        // when it is delivered (`steer-done`), never in the middle of the
+        // answer it was typed under. A card written at the keystroke would
+        // finish the presenter (`Self::run_mark`) and cut the line it is
+        // still holding in two.
+        let mut shell = running("first");
+        let now = Instant::now();
+        shell.apply(UiEvent::Delta("half of a line ".to_string()));
+        shell.settle_band(now + Duration::from_secs(5));
+
+        shell.route_bytes(b"second\r");
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "second"),
+            "the prompt was not queued"
+        );
+        shell.settle_band(now + Duration::from_secs(5));
+        let band = uncoloured_rows(&shell.band_rows());
+        let steer = band
+            .iter()
+            .position(|row| row == "\u{250b} second")
+            .unwrap_or_else(|| panic!("no waiting row in the band: {band:#?}"));
+        assert_eq!(band[steer - 1], "", "{band:#?}");
+        assert_eq!(band[steer + 1], "", "{band:#?}");
+        assert!(band[steer + 2].starts_with(RAIL), "{band:#?}");
+        assert!(
+            band[..steer - 1]
+                .iter()
+                .any(|row| row.contains("Generating")),
+            "{band:#?}"
+        );
+        let painted = shell.band_rows()[steer].clone();
+        assert_eq!(
+            painted,
+            format!("{}\u{250b} second{}", PALETTE.dim(), PALETTE.reset())
+        );
+
+        shell.apply(UiEvent::Delta("and the rest\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let written = shell.released();
+        assert!(
+            written
+                .iter()
+                .any(|row| row == "  half of a line and the rest"),
+            "the held line was split: {written:#?}"
+        );
+        let card = written
+            .iter()
+            .position(|row| row.contains("second") && row.starts_with(RAIL))
+            .unwrap_or_else(|| panic!("no card: {written:#?}"));
+        let answer = written
+            .iter()
+            .position(|row| row.contains("and the rest"))
+            .expect("the answer");
+        let marker = written
+            .iter()
+            .position(|row| row.contains("MARKER-SECOND"))
+            .expect("the second answer");
+        assert!(answer < card && card < marker, "{written:#?}");
+        shell.settle_band(now + Duration::from_secs(6));
+        assert!(
+            !uncoloured_rows(&shell.band_rows())
+                .iter()
+                .any(|row| row.starts_with('\u{250b}')),
+            "the waiting row outlived its delivery"
+        );
+    }
+
+    #[test]
+    fn a_long_waiting_prompt_takes_two_rows_and_ends_in_an_ellipsis() {
+        // `steering_message_layout` (`render_input.zig:518-577`): at most two
+        // rows, broken at a space, the last cut one cell short for `…`.
+        let mut shell = running("first");
+        shell.resize(24, 40);
+        let now = Instant::now();
+        shell.route_bytes(
+            b"one two three four five six seven eight nine ten eleven twelve thirteen fourteen\r",
+        );
+        shell.settle_band(now);
+        let band = uncoloured_rows(&shell.band_rows());
+        let rows: Vec<&String> = band
+            .iter()
+            .filter(|row| row.starts_with('\u{250b}'))
+            .collect();
+        assert_eq!(rows.len(), 2, "{band:#?}");
+        assert_eq!(rows[0], "\u{250b} one two three four five six seven");
+        assert!(rows[1].ends_with('\u{2026}'), "{band:#?}");
+        assert!(
+            rows.iter().all(|row| super::super::wrap::width(row) <= 40),
+            "{band:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_drops_the_waiting_prompt_and_its_row() {
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.settle_band(Instant::now());
+        assert!(uncoloured_rows(&shell.band_rows())
+            .iter()
+            .any(|row| row == "\u{250b} second"));
+        shell.route_bytes(&[0x03]);
+        shell.settle_band(Instant::now());
+        assert!(
+            !uncoloured_rows(&shell.band_rows())
+                .iter()
+                .any(|row| row.starts_with('\u{250b}')),
+            "the dropped prompt is still shown waiting"
+        );
+        assert!(
+            !shell.released().iter().any(|row| row.contains("second")),
+            "the dropped prompt's card was written"
+        );
+    }
+
+    #[test]
+    fn an_escape_at_an_empty_composer_does_not_warn_about_a_clear() {
+        // `app_input_runtime.zig:3210-3213`: fx disarms; nothing is cleared,
+        // so nothing is announced.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.hint(), IDLE_HINT, "an empty composer armed the clear");
+    }
+
+    #[test]
     fn the_ctrl_c_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
         // The chain must not outlive the turn it was about. Driven the way a
         // session really reaches it: stop a turn, let the turn end, ask another
@@ -12524,6 +13007,459 @@ mod tests {
         snapshot.session_permission_grants = grants;
         snapshot.agent_step_limit = 0;
         snapshot
+    }
+
+    // -----------------------------------------------------------------------
+    // `/permissions` and Shift-Tab
+    // -----------------------------------------------------------------------
+
+    /// A 40x120 shell in `mode`, whose person has or has not been shown the
+    /// full-access warning, and the runtime end of the channel a change to the
+    /// session's authority goes down.
+    fn permissions_shell(
+        mode: PermissionMode,
+        acknowledged: bool,
+    ) -> (Fixture, UnboundedReceiver<Change>) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = mode;
+        config.yolo_acknowledged = acknowledged;
+        let (work, sent, control, changes) = WorkHandle::detached_with_changes();
+        let fixture = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        (fixture, changes)
+    }
+
+    /// Every change the shell has handed the runtime so far, in order.
+    fn changes_sent(changes: &mut UnboundedReceiver<Change>) -> Vec<Change> {
+        std::iter::from_fn(|| changes.try_recv().ok()).collect()
+    }
+
+    #[test]
+    fn a_bare_permissions_is_upstreams_two_notices_and_changes_nothing() {
+        // `cap/fx-permissions-40x120-bare.txt`, less the two usage rows that
+        // name `remember` and `revoke`, which xfx does not have.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: mode=auto".to_string(),
+                "  configured rules: (none)".to_string(),
+                "  session grants: (none)".to_string(),
+                "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                String::new(),
+                "* permissions: saved-session permission rules: none".to_string(),
+                String::new(),
+            ]
+        );
+        assert!(changes_sent(&mut changes).is_empty());
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "it was handed to the runtime"
+        );
+        assert_eq!(shell.work.outstanding(), 0, "it took a place in the queue");
+    }
+
+    #[test]
+    fn a_bare_permissions_lists_the_grants_the_runtime_published() {
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.work.publish_grants(vec![
+            " - write_file -> notes.md".to_string(),
+            " - terminal -> ls in /w".to_string(),
+        ]);
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert_eq!(
+            document[..6],
+            [
+                "* permissions: mode=ask".to_string(),
+                "  configured rules: (none)".to_string(),
+                "  session grants:".to_string(),
+                "   - write_file -> notes.md".to_string(),
+                "   - terminal -> ls in /w".to_string(),
+                "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+            ],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn each_mode_word_reaches_the_runtime_and_is_said_as_upstream_says_it() {
+        // `cap/fx-permissions-40x120-{auto,full,ask}.txt`, and every spelling
+        // of the third mode upstream reads (`types.zig:2396-2403`).
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        for (typed, mode, said, row) in [
+            (
+                "auto",
+                PermissionMode::Auto,
+                "* permissions: mode set to auto",
+                "auto · ",
+            ),
+            (
+                "full-access",
+                PermissionMode::Yolo,
+                "! permissions: mode set to full access",
+                "full access · ",
+            ),
+            (
+                "ask",
+                PermissionMode::Ask,
+                "* permissions: mode set to ask",
+                "ask · ",
+            ),
+            (
+                "yolo",
+                PermissionMode::Yolo,
+                "! permissions: mode set to full access",
+                "full access · ",
+            ),
+            (
+                "Full Access",
+                PermissionMode::Yolo,
+                "! permissions: mode set to full access",
+                "full access · ",
+            ),
+            (
+                "AUTO",
+                PermissionMode::Auto,
+                "* permissions: mode set to auto",
+                "auto · ",
+            ),
+        ] {
+            shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                vec![said.to_string(), String::new()],
+                "{typed}"
+            );
+            assert_eq!(
+                changes_sent(&mut changes),
+                vec![Change::Mode(mode)],
+                "{typed}"
+            );
+            assert!(shell.hint().contains(row), "{typed}: {:?}", shell.hint());
+            // Nothing went down the work channel: a mode change is not queued
+            // work and holds no place a prompt could need.
+            assert!(shell.sent.try_recv().is_err(), "{typed}");
+            assert_eq!(shell.work.outstanding(), 0, "{typed}");
+        }
+    }
+
+    #[test]
+    fn the_full_access_notice_is_upstreams_warning_tone() {
+        // `cap/fx-permissions-40x120-full.ansi`, row 14:
+        // `ESC[38;5;252m! permissions:ESC[38;5;250m mode set to full access`.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/permissions full-access\r");
+        // The transcript closes each run it writes; what reaches the screen
+        // is the label grey over the glyph and the topic, then the body's.
+        let painted: Vec<String> = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .map(|row| row.replace(PALETTE.reset(), ""))
+            .collect();
+        assert!(
+            painted.iter().any(|row| row
+                == &format!(
+                    "{label}! {label}permissions:{body} mode set to full access",
+                    label = PALETTE.notice_label(),
+                    body = PALETTE.notice()
+                )),
+            "{painted:?}"
+        );
+    }
+
+    #[test]
+    fn reset_is_ask_and_says_the_grants_went() {
+        // `cap/fx-permissions-40x120-reset.txt`.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Yolo, true);
+        shell.route_bytes(b"/permissions reset\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: permissions reset to ask, session grants cleared".to_string(),
+                String::new(),
+            ]
+        );
+        assert_eq!(changes_sent(&mut changes), vec![Change::Reset]);
+        assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
+        shell.route_bytes(b"/permissions RESET\r");
+        assert_eq!(changes_sent(&mut changes), vec![Change::Reset]);
+    }
+
+    #[test]
+    fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing() {
+        // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic.
+        // `remember` and `revoke` are upstream's and answered the same way.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        for typed in [
+            "bogus",
+            "remember allow write_file {}",
+            "revoke 1",
+            "reset now",
+        ] {
+            shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                vec![
+                    "\u{2717} usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                    String::new(),
+                ],
+                "{typed}"
+            );
+        }
+        assert!(changes_sent(&mut changes).is_empty());
+        assert!(shell.hint().contains("auto · "), "{:?}", shell.hint());
+    }
+
+    #[test]
+    fn shift_tab_cycles_ask_auto_full_access_and_says_it_only_on_the_row() {
+        // `toggleMode` (`app_permission_runtime.zig:135-142`): no notice, the
+        // hint row at once, and the same change a typed mode makes.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            shell.route_bytes(b"\x1b[Z");
+            seen.push(shell.hint());
+        }
+        assert!(seen[0].contains("auto · "), "{seen:?}");
+        assert!(seen[1].contains("full access · "), "{seen:?}");
+        assert!(seen[2].contains("ask · "), "{seen:?}");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![
+                Change::Mode(PermissionMode::Auto),
+                Change::Mode(PermissionMode::Yolo),
+                Change::Mode(PermissionMode::Ask),
+            ]
+        );
+        assert!(
+            shell.document().is_empty(),
+            "a key said something in the document"
+        );
+        // The kitty spelling is the same key.
+        shell.route_bytes(b"\x1b[9;2u");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Auto)]
+        );
+    }
+
+    #[test]
+    fn shift_tab_belongs_to_the_catalog_while_it_is_up_and_to_the_draft_never() {
+        // The catalog binds it (a category back), as upstream's does first
+        // (`app_input_runtime.zig:1176`); a draft is left as it was.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.route_bytes(b"/help\r");
+        shell.route_bytes(b"\x1b[Z");
+        assert!(
+            changes_sent(&mut changes).is_empty(),
+            "the catalog let it through"
+        );
+        assert_eq!(shell.mode, PermissionMode::Ask);
+
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.route_bytes(b"half a thought");
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Auto)]
+        );
+        assert_eq!(shell.editor.text(), "half a thought", "the draft moved");
+    }
+
+    #[test]
+    fn a_mode_the_runtime_cannot_take_leaves_the_row_alone_and_says_why() {
+        let (mut shell, changes) = permissions_shell(PermissionMode::Ask, true);
+        drop(changes);
+        shell.route_bytes(b"/permissions auto\r");
+        shell.route_bytes(b"\x1b[Z");
+        assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.contains("mode set to")),
+            "a change nobody applied was announced: {document:?}"
+        );
+        assert!(
+            document.iter().any(|row| row.contains(GONE_NOTICE)),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_mode_is_lifted_out_of_the_row_as_upstream_lifts_it() {
+        // `cap/fx-permissions-40x120-{full,ask}.ansi`: `full access` and `auto`
+        // in 252 then back to the row's 245; `ask` in the row's own.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        let raw = |shell: &mut Fixture| {
+            shell.settle_band(Instant::now());
+            shell.band_rows().last().cloned().expect("a hint row")
+        };
+        let row = raw(&mut shell);
+        assert!(row.starts_with(PALETTE.statusline()), "{row:?}");
+        assert!(row.contains(" · ask · "), "{row:?}");
+        assert!(!row.contains(PALETTE.activity()), "{row:?}");
+        shell.route_bytes(b"/permissions full-access\r");
+        let row = raw(&mut shell);
+        assert!(
+            row.contains(&format!(
+                " · {}full access{} · ",
+                PALETTE.activity(),
+                PALETTE.statusline()
+            )),
+            "{row:?}"
+        );
+    }
+
+    #[test]
+    fn full_access_shows_its_warning_once_and_for_four_seconds_on_the_screen() {
+        // `cap/fx-permissions-40x120-full.ansi`, row 18: flush with the last
+        // column, in upstream's `red_style` grey. Shown the first time this
+        // person is in full access, recorded the moment it is shown
+        // (`noteFrameCommitted`), and gone after 4 s of being seen.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, false);
+        assert!(!shell.hint().contains(permissions::WARNING));
+        shell.route_bytes(b"/permissions full-access\r");
+        let started = Instant::now();
+        shell.settle_band(started);
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(
+            row.ends_with(&format!(
+                "{}{}{}",
+                PALETTE.danger(),
+                permissions::WARNING,
+                PALETTE.reset()
+            )),
+            "{row:?}"
+        );
+        assert_eq!(
+            super::super::wrap::width(&unpainted(
+                &row.replace(PALETTE.statusline(), "")
+                    .replace(PALETTE.activity(), "")
+            )),
+            120
+        );
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Yolo), Change::Acknowledge],
+            "the warning was shown and not recorded as shown"
+        );
+        shell.settle_band(started + Duration::from_millis(3_999));
+        assert!(shell.warning_shown().is_some(), "gone before its time");
+        shell.settle_band(started + Duration::from_millis(4_000));
+        assert!(shell.warning_shown().is_none(), "still up after 4 s");
+        assert!(!shell.hint().contains("Full access"));
+        // Once per person: back out and in again, and it is not shown again,
+        // and nothing more is recorded.
+        shell.route_bytes(b"\x1b[Z");
+        shell.route_bytes(b"\x1b[Z\x1b[Z");
+        assert!(shell.hint().contains("full access · "));
+        assert!(!shell.hint().contains("Full access"));
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![
+                Change::Mode(PermissionMode::Ask),
+                Change::Mode(PermissionMode::Auto),
+                Change::Mode(PermissionMode::Yolo),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_person_already_warned_is_not_warned_again_and_one_never_warned_is_at_launch() {
+        let (mut warned, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        warned.route_bytes(b"/permissions full-access\r");
+        assert!(!warned.hint().contains("Full access"));
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Yolo)]
+        );
+
+        // A session that starts in full access owes it too
+        // (`initializeYoloWarning`).
+        let (mut launched, mut changes) = permissions_shell(PermissionMode::Yolo, false);
+        assert!(
+            launched.hint().ends_with(permissions::WARNING),
+            "{:?}",
+            launched.hint()
+        );
+        assert_eq!(changes_sent(&mut changes), vec![Change::Acknowledge]);
+        // And leaving full access takes it down at once.
+        launched.route_bytes(b"\x1b[Z");
+        assert!(!launched.hint().contains("Full access"));
+    }
+
+    #[test]
+    fn the_warning_waits_behind_whatever_owns_the_row_without_spending_its_time() {
+        // Upstream pauses it behind a menu (`yolo-permission-mode.test.ts:322-
+        // 336`): the time spent is time it was seen.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Yolo, false);
+        let at = |millis: u64| Instant::now() + Duration::from_millis(millis);
+        let started = at(0);
+        let after = |millis: u64| started + Duration::from_millis(millis);
+        shell.settle_band(started);
+        assert!(shell.warning_shown().is_some());
+        // The loop settles after every read, so the catalog taking the row is
+        // seen a tick after the key, not ten seconds later.
+        shell.route_bytes(b"/help\r");
+        assert!(
+            shell.warning_shown().is_none(),
+            "the catalog's row carried it"
+        );
+        shell.settle_band(after(100));
+        shell.settle_band(after(10_000));
+        // Taken down the way the catalog is left, then seen again.
+        shell.help_menu = None;
+        shell.settle_band(after(10_000));
+        assert!(
+            shell.warning_shown().is_some(),
+            "time behind the catalog was spent"
+        );
+        // 100 ms were spent before the catalog: 3.9 s are left, not 4.
+        shell.settle_band(after(13_800));
+        assert!(shell.warning_shown().is_some());
+        shell.settle_band(after(13_900));
+        assert!(shell.warning_shown().is_none(), "it outlived its 4 s");
+        // The full transcript owns the other buffer and the band is not
+        // painted under it, so it pauses the clock too.
+        let (mut under, _changes) = permissions_shell(PermissionMode::Yolo, false);
+        under.settle_band(started);
+        assert!(under.warning_shown().is_some());
+        under.route_bytes(b"\x0f");
+        assert!(
+            under.full.is_open(),
+            "Ctrl-O did not open the full transcript"
+        );
+        assert!(
+            under.warning_shown().is_none(),
+            "seen under the full transcript"
+        );
+        // Seen hidden on the loop's next tick, as the catalog was above.
+        under.settle_band(after(100));
+        under.settle_band(after(20_000));
+        under.close_full_transcript();
+        under.settle_band(after(20_000));
+        assert!(
+            under.warning_shown().is_some(),
+            "time under the full transcript was spent"
+        );
+        // And the narrow form on a row too narrow for the sentence.
+        let (mut narrow, _changes) = permissions_shell(PermissionMode::Yolo, false);
+        narrow.geometry = crate::tui::layout::solve(24, 40, 1).expect("a band");
+        assert_eq!(narrow.warning_shown(), Some(permissions::WARNING_COMPACT));
     }
 
     #[test]
@@ -14621,17 +15557,30 @@ mod tests {
     #[test]
     fn a_notice_that_lands_mid_answer_gets_a_row_of_its_own() {
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("half a sentence".to_string()));
+        shell.apply(UiEvent::Delta(
+            "a whole paragraph\n\nhalf a sentence".to_string(),
+        ));
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "tool",
             "read_file ok",
         )));
 
-        // The answer's block ends on its blank row, which is the notice's
-        // blank row above as well.
+        // The rows the answer has written end their block on its blank row,
+        // which is the notice's blank row above as well. The half sentence
+        // is not one of them: the presenter is holding it for its end, and it
+        // goes on under the notice -- upstream's order
+        // (`fx-notice-midstream-40x120-end.full`) -- rather than being cut off
+        // at the notice and finished as a paragraph of its own.
         assert_eq!(
             shell.released(),
-            vec!["  half a sentence", "", "! tool: read_file ok", ""],
+            vec![
+                "  a whole paragraph",
+                "",
+                "! tool: read_file ok",
+                "",
+                "  half a sentence",
+                ""
+            ],
             "a notice was written into the middle of the answer's row"
         );
     }
@@ -14645,7 +15594,12 @@ mod tests {
         // held at the position the stream had reached instead.
         let mut shell = shell(24, 80);
         let start = Instant::now();
-        shell.apply(UiEvent::Delta("the first half ".to_string()));
+        // A whole paragraph, so the presenter writes it as soon as the pacer
+        // has released its end: text the presenter is still holding for what
+        // comes next -- an unfinished line, or a finished one that a setext
+        // underline could still turn into a heading -- goes on under whatever
+        // notice arrives meanwhile, and could not land early.
+        shell.apply(UiEvent::Delta("the first half\n\n".to_string()));
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "tool",
             "read_file ok",
@@ -14670,7 +15624,7 @@ mod tests {
         // ends on, and nothing else.
         assert_eq!(
             rows[..notice],
-            ["  the first half ", ""],
+            ["  the first half", ""],
             "the notice landed before the text it came after: {rows:?}"
         );
         assert_eq!(
@@ -15551,12 +16505,20 @@ mod tests {
             "{rows:?}"
         );
         assert_eq!(rows[1], "", "the blank row under the header");
+        // The summary at 2 + the widest name + 4, the widest read off the
+        // registry: `/permissions` moved it, and the next long name will.
+        let widest = crate::interactive::SLASH_REGISTRY
+            .iter()
+            .map(|spec| spec.name.len())
+            .max()
+            .expect("a registry");
         assert_eq!(
             rows[2],
             format!(
-                "  {bright}/help{reset}          {bright}show available slash commands{reset}",
+                "  {bright}/help{reset}{gap}{bright}show available slash commands{reset}",
                 bright = PALETTE.subtitle(),
-                reset = PALETTE.reset()
+                reset = PALETTE.reset(),
+                gap = " ".repeat(widest + 4 - "/help".len()),
             )
         );
         assert_eq!(
@@ -15685,8 +16647,19 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         let rows = menu(&shell);
         let last = rows.len() - 1;
+        // The last in the catalog's order: the last category's last command.
+        let final_name = crate::interactive::SLASH_CATEGORIES
+            .iter()
+            .flat_map(|category| {
+                crate::interactive::SLASH_REGISTRY
+                    .iter()
+                    .filter(move |spec| spec.category == *category)
+            })
+            .last()
+            .expect("a registry")
+            .name;
         assert!(
-            rows[last].starts_with(&format!("  {}/statusline", PALETTE.subtitle())),
+            rows[last].starts_with(&format!("  {}{final_name}", PALETTE.subtitle())),
             "Up from the first row is the last: {rows:?}"
         );
         shell.route_bytes(b"\x1b[B");
@@ -18290,12 +19263,92 @@ mod tests {
     }
 
     #[test]
+    fn a_notice_written_while_a_line_streams_lands_above_it_and_leaves_it_whole() {
+        // `fx-notice-midstream-40x120-end.full`: a refusal and a `/version`
+        // typed while the answer's second paragraph streams land after the
+        // paragraph the answer had finished and **before** the one it had
+        // not, and that one arrives whole, wrapped as it would have been with
+        // no notice at all. The presenter holds a line until its end arrives
+        // (`crate::markdown::processor`); a notice that made it give the line
+        // up wrote half a paragraph, the notice, and the rest as a second
+        // paragraph -- `word` closing one row and `111` opening the next.
+        let mut shell = shell(40, 120);
+        let start = Instant::now();
+        let words: Vec<String> = (10..=19)
+            .chain(100..=139)
+            .map(|n| format!("word{n}"))
+            .collect();
+        let paragraph = format!("MARKER-A {}", words.join(" "));
+        let (said, unsaid) = paragraph.split_at(paragraph.find("word111").expect("a word") + 4);
+        shell.apply(UiEvent::Delta(format!(
+            "Opening line of the answer.\n\n{said}"
+        )));
+        // Every append, in order, as the terminal is handed them: an append
+        // rewrites the unfinished rows of the one before it, so the document
+        // is what replaying them leaves rather than their rows end to end.
+        let mut appends = Vec::new();
+        for at in 1..=3000 / TICK_MILLIS {
+            shell.settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+            appends.extend(shell.take_pending());
+        }
+        shell.route_bytes(b"/notacommand\r");
+        shell.route_bytes(b"/version\r");
+        appends.extend(shell.take_pending());
+        shell.apply(UiEvent::Delta(format!(
+            "{unsaid}\n\nClosing line of the answer."
+        )));
+        shell.shell.flush_paced();
+        appends.extend(shell.take_pending());
+        let mut rows: Vec<String> = Vec::new();
+        for append in appends {
+            let kept = (rows.len() + append.scroll).saturating_sub(append.rows.len());
+            rows.truncate(kept);
+            rows.extend(append.rows);
+        }
+
+        // A full row: 120 cells, and the space after `word104` hung past the
+        // margin, as the wrap hangs every space it breaks on -- the painter's
+        // clip leaves it off the wire (`super::super::frame::clip`).
+        let full = format!("  MARKER-A {}", words[..15].join(" "));
+        assert_eq!(full.len(), 120, "the fixture's first row is not a full one");
+        assert_eq!(
+            rows,
+            vec![
+                "  Opening line of the answer.".to_string(),
+                String::new(),
+                format!(
+                    "{LABEL_DARK}\u{2717} {ENDED}{LABEL_DARK}command:{ENDED}\
+                     {NOTICE_DARK} Unknown command. Try /help.{ENDED}"
+                ),
+                String::new(),
+                format!(
+                    "{NOTICE_DARK}* {ENDED}{NOTICE_DARK}version:{ENDED}\
+                     {NOTICE_DARK} {}{ENDED}",
+                    crate::VERSION
+                ),
+                String::new(),
+                format!("{full} "),
+                format!("  {} ", words[15..29].join(" ")),
+                format!("  {} ", words[29..43].join(" ")),
+                format!("  {}", words[43..].join(" ")),
+                String::new(),
+                "  Closing line of the answer.".to_string(),
+                String::new(),
+            ],
+            "the notices split the line the answer was in the middle of"
+        );
+    }
+
+    #[test]
     fn a_notice_inside_an_answer_keeps_its_own_colour_and_its_own_place() {
         // Ordering and colour together: the notice belongs at the point the
         // answer had reached when it happened (`Shell::mark`), and the answer
         // that follows it is the answer again rather than more of the notice.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("before".to_string()));
+        // A whole paragraph before it: text the presenter is still holding
+        // would go on under the notice rather than above it
+        // ([`Shell::write_notice`]).
+        shell.apply(UiEvent::Delta("before\n\n".to_string()));
         shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "ran")));
         shell.apply(UiEvent::Delta("after".to_string()));
         shell.shell.flush_paced();
@@ -18326,7 +19379,9 @@ mod tests {
         // is xfx's own line held behind it: a notice waits at the place the
         // stream had reached (`Shell::mark`) with its role beside it.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("held while it was dark".to_string()));
+        // A whole paragraph, so it is written above the notice rather than
+        // held under it ([`Shell::write_notice`]).
+        shell.apply(UiEvent::Delta("held while it was dark\n\n".to_string()));
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "tool",
             "read_file ok",

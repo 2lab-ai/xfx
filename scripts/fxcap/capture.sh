@@ -37,6 +37,11 @@
 #                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
+#   home <label>           every file under the run's HOME, as it stands now,
+#                          to <bin>-<scenario>-<size>-<label>.files: the path
+#                          relative to HOME, its size, and its bytes (locks
+#                          and logs by size only), the run's own directory
+#                          written as <scratch> -- what a settings write left
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
@@ -178,6 +183,20 @@ $xfx_model $extra_env $bin"
         (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
           echo "== $f"; head -c 2000 "$f"; echo
         done) > "$out/$which-$scenario-$size-work-$rest.txt"
+        ;;
+      home)
+        local name=$out/$which-$scenario-$size-$rest.files
+        (
+          cd "$run/home"
+          find . -type f ! -path '*/file-index/*' | LC_ALL=C sort | while IFS= read -r f; do
+            echo "=== ~/${f#./} ($(wc -c < "$f" | tr -d ' ') bytes)"
+            case $f in
+              *.lock|*.log|*.sqlite*) ;;
+              *) head -c 4000 "$f" | sed "s#$run#<scratch>#g"; echo ;;
+            esac
+          done
+        ) > "$name"
+        echo "$name"
         ;;
       title)
         local name=$out/$which-$scenario-$size-$rest

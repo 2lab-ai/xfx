@@ -94,6 +94,9 @@ pub(crate) enum Interrupt {
 /// What one Escape means.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum Escape {
+    /// Nothing, and nothing armed: an idle prompt with no draft has nothing a
+    /// second Escape could clear (`app_input_runtime.zig:3210-3213`).
+    Nothing,
     /// Nothing yet: a second Escape inside [`CLEAR_WINDOW`] will clear the
     /// composer, and until then the hint row says so.
     Armed,
@@ -139,8 +142,9 @@ impl Gestures {
         }
     }
 
-    /// What this Escape means, given whether the runtime has work in hand.
-    pub(crate) fn escape(&mut self, now: Instant, running: bool) -> Escape {
+    /// What this Escape means, given whether the runtime has work in hand and
+    /// whether there is a draft for it to clear.
+    pub(crate) fn escape(&mut self, now: Instant, running: bool, draft: bool) -> Escape {
         // A resolved Escape is a semantic key, and every one of those but a
         // Ctrl-C disarms the exit (`routeResolvedEscapeAction`,
         // `app_input_runtime.zig:1007-1010`).
@@ -155,6 +159,13 @@ impl Gestures {
             return Escape::InterruptArmed;
         }
         self.interrupt_armed_at = None;
+        // Upstream's idle Escape with no draft disarms and does nothing: a
+        // row saying `esc again to clear` over an empty composer would be
+        // advertising a keystroke with nothing to do.
+        if !draft {
+            self.escaped_at = None;
+            return Escape::Nothing;
+        }
         if armed(self.escaped_at, now, CLEAR_WINDOW) {
             self.escaped_at = None;
             return Escape::Clear;
@@ -382,13 +393,13 @@ mod tests {
     fn double_escape_within_five_hundred_milliseconds_clears_the_composer() {
         let mut gestures = Gestures::default();
         let now = Instant::now();
-        assert_eq!(gestures.escape(now, false), Escape::Armed);
+        assert_eq!(gestures.escape(now, false, true), Escape::Armed);
         assert_eq!(
-            gestures.escape(now + Duration::from_millis(499), false),
+            gestures.escape(now + Duration::from_millis(499), false, true),
             Escape::Clear
         );
         assert_eq!(
-            gestures.escape(now + Duration::from_millis(999), false),
+            gestures.escape(now + Duration::from_millis(999), false, true),
             Escape::Armed
         );
     }
@@ -398,18 +409,22 @@ mod tests {
         // `pressEscapeInterrupt` (`gesture_state.zig:90-103`): inclusive.
         let mut gestures = Gestures::default();
         let now = Instant::now();
-        assert_eq!(gestures.escape(now, true), Escape::InterruptArmed);
+        assert_eq!(gestures.escape(now, true, true), Escape::InterruptArmed);
         assert!(gestures.interrupt_armed(now + INTERRUPT_WINDOW));
         assert!(!gestures.escape_armed(now), "the clear was armed too");
         assert_eq!(
-            gestures.escape(now + INTERRUPT_WINDOW, true),
+            gestures.escape(now + INTERRUPT_WINDOW, true, true),
             Escape::Interrupt
         );
         // And past it, the second Escape only arms again.
         let mut late = Gestures::default();
-        assert_eq!(late.escape(now, true), Escape::InterruptArmed);
+        assert_eq!(late.escape(now, true, true), Escape::InterruptArmed);
         assert_eq!(
-            late.escape(now + INTERRUPT_WINDOW + Duration::from_millis(1), true),
+            late.escape(
+                now + INTERRUPT_WINDOW + Duration::from_millis(1),
+                true,
+                true
+            ),
             Escape::InterruptArmed
         );
     }
@@ -419,11 +434,11 @@ mod tests {
         // `operation_settled`: the turn the Escape was about ended by itself.
         let mut gestures = Gestures::default();
         let now = Instant::now();
-        assert_eq!(gestures.escape(now, true), Escape::InterruptArmed);
+        assert_eq!(gestures.escape(now, true, true), Escape::InterruptArmed);
         gestures.turn_ended();
         assert!(!gestures.interrupt_armed(now));
         assert_eq!(
-            gestures.escape(now + Duration::from_millis(10), true),
+            gestures.escape(now + Duration::from_millis(10), true, true),
             Escape::InterruptArmed
         );
     }
@@ -433,11 +448,11 @@ mod tests {
         let now = Instant::now();
         let mut gestures = Gestures::default();
         gestures.interrupt(now, false, false);
-        assert_eq!(gestures.escape(now, false), Escape::Armed);
+        assert_eq!(gestures.escape(now, false, true), Escape::Armed);
         assert!(!gestures.exit_armed(now), "an Escape left the exit armed");
 
         let mut gestures = Gestures::default();
-        assert_eq!(gestures.escape(now, true), Escape::InterruptArmed);
+        assert_eq!(gestures.escape(now, true, true), Escape::InterruptArmed);
         assert_eq!(gestures.interrupt(now, true, false), Interrupt::Cancel);
         assert!(
             !gestures.interrupt_armed(now),
@@ -446,12 +461,30 @@ mod tests {
     }
 
     #[test]
+    fn an_escape_at_an_empty_idle_composer_arms_nothing() {
+        // `app_input_runtime.zig:3210-3213`: no draft, nothing to clear, and
+        // a clear that was armed is taken back.
+        let mut gestures = Gestures::default();
+        let now = Instant::now();
+        assert_eq!(gestures.escape(now, false, false), Escape::Nothing);
+        assert!(!gestures.escape_armed(now));
+        assert_eq!(gestures.escape(now, false, true), Escape::Armed);
+        assert_eq!(
+            gestures.escape(now + Duration::from_millis(10), false, false),
+            Escape::Nothing
+        );
+        assert!(!gestures.escape_armed(now + Duration::from_millis(10)));
+        // Over running work the draft does not matter: the pair interrupts.
+        assert_eq!(gestures.escape(now, true, false), Escape::InterruptArmed);
+    }
+
+    #[test]
     fn a_turn_that_ended_does_not_disarm_an_escape_about_the_draft() {
         // A turn ending says nothing about what is in the composer, so the
         // warning the band is showing stays true.
         let mut gestures = Gestures::default();
         let now = Instant::now();
-        assert_eq!(gestures.escape(now, false), Escape::Armed);
+        assert_eq!(gestures.escape(now, false, true), Escape::Armed);
         gestures.turn_ended();
         assert!(gestures.escape_armed(now + Duration::from_millis(10)));
     }
@@ -463,7 +496,7 @@ mod tests {
         // longer does anything.
         let mut gestures = Gestures::default();
         let now = Instant::now();
-        assert_eq!(gestures.escape(now, false), Escape::Armed);
+        assert_eq!(gestures.escape(now, false, true), Escape::Armed);
         assert!(gestures.escape_armed(now + CLEAR_WINDOW - Duration::from_millis(1)));
         assert!(!gestures.escape_armed(now + CLEAR_WINDOW));
     }
@@ -473,12 +506,12 @@ mod tests {
         let mut gestures = Gestures::default();
         let now = Instant::now();
         gestures.interrupt(now, false, false);
-        assert_eq!(gestures.escape(now, false), Escape::Armed);
+        assert_eq!(gestures.escape(now, false, true), Escape::Armed);
         gestures.submitted();
         assert!(!gestures.escape_armed(now));
         assert!(!gestures.exit_armed(now));
         assert_eq!(
-            gestures.escape(now + Duration::from_millis(10), false),
+            gestures.escape(now + Duration::from_millis(10), false, true),
             Escape::Armed
         );
     }

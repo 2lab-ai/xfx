@@ -2022,6 +2022,7 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
                 let Caret::Known((row, column)) = model.caret else {
                     return Err(Reject::new("an erase from a caret nothing can place", at));
                 };
+                let column = erased_from(model, column);
                 model.screen().erase_from(row, column);
                 model.record(Did::Erase, row);
             }
@@ -2110,12 +2111,31 @@ fn position(params: &str, at: usize) -> Result<(u16, u16), Reject> {
     Ok((row, column))
 }
 
+/// The column an erase really starts at, for a caret the model holds at
+/// `column`.
+///
+/// The model moves the caret one column past every cluster it writes, so a row
+/// written up to the last column leaves it at `cols + 1` -- a column no
+/// terminal has. With autowrap off (`super::term::MODE_SET`'s `?7l`) a
+/// terminal leaves it **on** the last column, because it cannot advance past
+/// it, so an `EL` or an `ED` sent from there erases the cell that was just
+/// written. That is how a document row exactly as wide as the screen lost its
+/// last character (`word32` painted as `word3` at 120 columns) while this
+/// model, erasing from a column past the end, said nothing was erased. (With
+/// autowrap on, terminals differ -- xterm erases the cell as well, tmux does
+/// not -- and an erase there is a defect on either, so the stricter reading is
+/// the one modelled.)
+fn erased_from(model: &TerminalModel, column: u16) -> u16 {
+    column.min(model.screen_ref().cols)
+}
+
 /// `ED 0`: the rest of this row, and every row below it.
 fn erase_below(model: &mut TerminalModel, at: usize) -> Result<(), Reject> {
     let Caret::Known((row, column)) = model.caret else {
         return Err(Reject::new("an erase from a caret nothing can place", at));
     };
     let rows = model.screen_ref().rows;
+    let column = erased_from(model, column);
     model.screen().erase_from(row, column);
     model.record(Did::Erase, row);
     for line in row + 1..=rows {
@@ -3390,6 +3410,45 @@ mod tests {
         let refused = preflight(&seed, b"\x1b[1;1Hgone\x1b[6;1H\n\x1b[6;1Hkept", &declared)
             .expect_err("a row written on its way off the screen");
         assert_eq!(refused.shape(), "a row carried off the top of the screen");
+    }
+
+    #[test]
+    fn an_erase_after_a_row_that_reached_the_last_column_takes_that_column() {
+        // Autowrap is off, so the caret that wrote column twenty is still on
+        // it: an `EL` from there clears the cell the row has just written.
+        // Read from a caret one column past the screen, the erase cleared
+        // nothing, and a placement that lost its last character -- `word32`
+        // painted as `word3` at 120 columns -- passed as the row declared.
+        let blank = Grid::blank(6, 20);
+        let seed =
+            TerminalModel::seed_primary(&blank, 6, 20, Some((1, 1)), None, PlaneKind::Primary)
+                .expect("a shadow this crate painted");
+        let geometry = geometry();
+        let full = "x".repeat(20);
+        let mut script = Script::new(&geometry);
+        script.place(3, &full);
+        let declared = Declared::new(
+            Intent::Document {
+                script: &script,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            Footprint::new(PlaneKind::Primary, vec![Seg::Place(3..=3)]),
+        );
+        preflight(&seed, format!("\u{1b}[3;1H{full}").as_bytes(), &declared)
+            .expect("a full row, and nothing after it");
+        let refused = preflight(
+            &seed,
+            format!("\u{1b}[3;1H{full}\u{1b}[K").as_bytes(),
+            &declared,
+        )
+        .expect_err("the erase took the row's last cell");
+        assert_eq!(
+            refused.shape(),
+            "a cell the vector did not leave as intended"
+        );
+        assert_eq!(refused.cell, Some((3, 20)));
     }
 
     #[test]
