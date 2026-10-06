@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde_json::{Map, Value};
 
 use crate::gateway::CancelToken;
-use crate::permission::{PermissionSession, ReadTracker};
+use crate::permission::{ApprovalDiff, PermissionSession, ReadTracker};
 use crate::workspace::AccessScope;
 
 use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
@@ -419,6 +419,14 @@ pub struct ToolResult {
     pub outcome: Outcome,
     /// The lines a file change added and removed, when it made one.
     pub changes: Option<LineChanges>,
+    /// The change itself, when it made one: the part of the file it touched,
+    /// before and after, as the plan that was judged carries it
+    /// (`crate::permission::ApprovalDiff::around_change`). For the person
+    /// watching -- upstream keeps one per change for its full transcript --
+    /// and never part of [`Self::output`] or of the session's log. Boxed: a
+    /// result is returned by value through every refusal path, and most
+    /// carry no change.
+    pub change: Option<Box<ApprovalDiff>>,
 }
 
 impl ToolResult {
@@ -433,6 +441,7 @@ impl ToolResult {
             feedback: None,
             outcome: Outcome::Finished,
             changes: None,
+            change: None,
         }
     }
 
@@ -445,6 +454,12 @@ impl ToolResult {
     /// The same result, carrying the lines its change added and removed.
     pub fn with_changes(mut self, changes: Option<LineChanges>) -> Self {
         self.changes = changes;
+        self
+    }
+
+    /// The same result, carrying the change it made.
+    pub fn with_change(mut self, change: Option<ApprovalDiff>) -> Self {
+        self.change = change.map(Box::new);
         self
     }
 
@@ -461,6 +476,7 @@ impl ToolResult {
             feedback: None,
             outcome: Outcome::Finished,
             changes: None,
+            change: None,
         }
     }
 

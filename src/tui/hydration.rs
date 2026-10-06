@@ -48,6 +48,15 @@ pub(crate) struct HydratedTurn {
     pub(crate) user: String,
     pub(crate) steps: Vec<HydratedStep>,
     pub(crate) ending: Ending,
+    /// When it started and when it concluded, as the log has them
+    /// ([`crate::session::TurnTiming`]): the times its entries in the full
+    /// transcript carry.
+    pub(crate) started_at_ms: i64,
+    pub(crate) concluded_at_ms: Option<i64>,
+    /// What the full transcript shows of each call that the screen does not:
+    /// its arguments and its whole result
+    /// ([`super::full_transcript::details_of`]).
+    pub(crate) details: Vec<(String, super::full_transcript::Detail)>,
 }
 
 /// One thing a turn did, in the order it did it.
@@ -194,6 +203,9 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         user: turn.user.clone(),
         steps,
         ending,
+        started_at_ms: turn.timing.started_at_ms,
+        concluded_at_ms: turn.timing.concluded_at_ms,
+        details: super::full_transcript::details_of(&turn.steps),
     }
 }
 
@@ -319,6 +331,22 @@ mod tests {
                 seconds: 2,
                 output: Some(40)
             }
+        );
+        // And what the full transcript shows of the calls, with the times its
+        // entries carry: every call the log has, the one no row is drawn for
+        // included -- its details wait for a row that never comes and go
+        // with the turn (`super::super::full_transcript`'s `turn_over`).
+        assert_eq!(
+            (replayed.started_at_ms, replayed.concluded_at_ms),
+            (10_000, Some(12_999))
+        );
+        let ids: Vec<&str> = replayed.details.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["c1", "c2", "c1"]);
+        assert_eq!(
+            replayed.details[2].1,
+            super::super::full_transcript::Detail::Result(
+                "no such path: `a.txt`\nmore".to_string()
+            )
         );
     }
 

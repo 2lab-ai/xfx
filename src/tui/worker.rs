@@ -2328,7 +2328,15 @@ async fn one_turn(
         events.clone(),
         turn.token.clone(),
     );
-    let outcome = run_turn_saved(request, context, provider, &mut sink, &mut journal).await;
+    // And each request the turn settles, as the full transcript's `* network:`
+    // record (`super::full_transcript::Networked`).
+    let provider = super::full_transcript::Networked::new(
+        provider,
+        state.config.provider.label(),
+        events.clone(),
+        turn.token.clone(),
+    );
+    let outcome = run_turn_saved(request, context, &provider, &mut sink, &mut journal).await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step

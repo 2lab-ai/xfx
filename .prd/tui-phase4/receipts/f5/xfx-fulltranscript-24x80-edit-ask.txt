@@ -19,6 +19,6 @@
     3  Don't apply
   2 = allow every future edit_file to `a.txt` for the rest of this session,
   whatever its contents, and in every later `xfx ask --resume-id
-  1791310208227-9cc280b29ae3b525` of this saved session
+  1791317934157-505c79d7e683a362` of this saved session
 ────────────────────────────────────────────────────────────────────────────────
   1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
