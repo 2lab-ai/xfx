@@ -55,9 +55,24 @@ pub(crate) enum Fault {
     /// A row of its own rather than a flag on [`Self::PartialFrame`] because
     /// the two must measure opposite things: that one keeps containing a
     /// tear no recovery in this build gets past (its own cleanup vector is
-    /// refused too), this one is the one tear recovery is actually asked to
+    /// refused too), this one is the band tear recovery is actually asked to
     /// survive.
     PartialFrameOnce,
+    /// [`Self::PartialFrame`]'s tear, armed on the first **repaint of the
+    /// alternate plane** the session already owns rather than on a band frame:
+    /// the prefix, the original failure, and the recovery attempt's own cleanup
+    /// vector refused too, so the session has to end on it.
+    ///
+    /// Armed past the frame that takes the plane, and never on the one that
+    /// gives it back: a `1049h` or `1049l` the terminal took part of is a plane
+    /// transition, which stays contained and fatal and is not what this row
+    /// measures.
+    PartialAlternate,
+    /// [`Self::PartialFrameOnce`]'s tear on that same repaint: the prefix and
+    /// the original failure, and then the descriptor is the terminal's own
+    /// again, so the cleanup and the rebuild behind it both land and the
+    /// question is still on the screen -- and still answerable -- afterwards.
+    PartialAlternateOnce,
     /// A screen that refuses every band frame it is shown, from the first one
     /// on, and takes not one byte of any of them.
     ///
@@ -101,6 +116,8 @@ impl Fault {
             Self::AlternatePanic => "alternate-panic",
             Self::PartialFrame => "partial-frame",
             Self::PartialFrameOnce => "partial-frame-once",
+            Self::PartialAlternate => "partial-alternate",
+            Self::PartialAlternateOnce => "partial-alternate-once",
             Self::RefusesFrames => "frame-refusal",
             Self::FullPaintReference => "full-paint-reference",
         }
@@ -114,21 +131,27 @@ pub(crate) fn injected(point: Fault) -> bool {
 
 /// How far the armed fault has got: `0` before anything armed it, `1` with
 /// the prefix owed, `2` with the original failure owed, `3` with a recovery
-/// cleanup vector owed a refusal too ([`Fault::PartialFrame`] only -- see
+/// cleanup vector owed a refusal too (the containing faults only -- see
 /// [`PARTIAL_FRAME_ONCE`]), `4` once it is spent for good.
 ///
 /// A count rather than a flag because the fault is a fixed *sequence* of
 /// answers, in order, and exactly once in the life of a process: after the
 /// last one the descriptor is the terminal's own again, which is what lets
 /// the exit below it restore for real and be measured.
+///
+/// One sequence for both of the vectors a tear can be armed on -- a band
+/// frame ([`arm_partial_frame`]) and a repaint of the owned alternate plane
+/// ([`arm_partial_alternate`]) -- because the answers are the same answers
+/// and only the moment they start differs; a run asks for exactly one fault,
+/// so the two never compete for it.
 static PARTIAL_FRAME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-/// Which of [`Fault::PartialFrame`] / [`Fault::PartialFrameOnce`] armed
-/// [`PARTIAL_FRAME`]: `0` unset, `1` the containing fault, `2` the recovering
-/// one.
+/// Which kind of fault armed [`PARTIAL_FRAME`]: `0` unset, `1` a containing
+/// one ([`Fault::PartialFrame`], [`Fault::PartialAlternate`]), `2` a
+/// recovering one ([`Fault::PartialFrameOnce`], [`Fault::PartialAlternateOnce`]).
 ///
 /// A separate cell rather than folding the choice into [`PARTIAL_FRAME`]'s
-/// own numbering because the two faults share every state up to and
+/// own numbering because the two kinds share every state up to and
 /// including the original failure -- only what happens to the *next* write,
 /// the recovery attempt's own cleanup vector, differs.
 static PARTIAL_FRAME_ONCE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
@@ -149,15 +172,34 @@ pub(crate) enum Prefix {
 /// lands on is a frame rather than the mode set: a session that lost the mode
 /// set would be a startup failure, which is a row the matrix already has.
 pub(crate) fn arm_partial_frame() {
+    if injected(Fault::PartialFrame) {
+        arm(1);
+    } else if injected(Fault::PartialFrameOnce) {
+        arm(2);
+    }
+}
+
+/// Arms the same prefix fault on the first **repaint of the alternate plane**
+/// the session already owns, if this run asked for either alternate variant
+/// and has not had it yet.
+///
+/// Called right before that repaint's one emit, and only for a repaint that
+/// has bytes: the vector it lands on is then the repaint, never the `1049h`
+/// frame that took the plane before it -- nor the `1049l` that gives it back,
+/// which an idle tick that armed it would have handed the tear to instead.
+pub(crate) fn arm_partial_alternate() {
+    if injected(Fault::PartialAlternate) {
+        arm(1);
+    } else if injected(Fault::PartialAlternateOnce) {
+        arm(2);
+    }
+}
+
+/// Starts [`PARTIAL_FRAME`]'s sequence, once in the life of the process, for a
+/// fault of kind `once` ([`PARTIAL_FRAME_ONCE`]'s numbering).
+fn arm(once: u8) {
     use std::sync::atomic::Ordering;
 
-    let once = if injected(Fault::PartialFrame) {
-        1
-    } else if injected(Fault::PartialFrameOnce) {
-        2
-    } else {
-        return;
-    };
     if PARTIAL_FRAME
         .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
         .is_ok()
@@ -180,12 +222,13 @@ pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
             Some(Prefix::Takes((len / 2).max(1).min(len)))
         }
         2 => {
-            // The original tear. `PartialFrame` still owes a refusal to the
-            // very next vector -- the recovery attempt's own fixed cleanup
-            // write -- so that a session running under it never observes a
-            // successful recovery. `PartialFrameOnce` is spent here instead:
-            // the cleanup and the rebuild behind it both reach the real
-            // descriptor.
+            // The original tear. A containing fault (`PartialFrame`,
+            // `PartialAlternate`) still owes a refusal to the very next vector
+            // -- the recovery attempt's own fixed cleanup write -- so that a
+            // session running under it never observes a successful recovery.
+            // A recovering one (`PartialFrameOnce`, `PartialAlternateOnce`) is
+            // spent here instead: the cleanup and the rebuild behind it both
+            // reach the real descriptor.
             let next = if PARTIAL_FRAME_ONCE.load(Ordering::Acquire) == 1 {
                 3
             } else {

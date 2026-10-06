@@ -3220,4 +3220,45 @@ mod tests {
         preflight(&seed(&grid, None), RECOVERY_CLEANUP.as_bytes(), &declared)
             .expect_err("the ordinary alphabet accepted the recovery vector");
     }
+
+    #[test]
+    fn the_recovery_cleanup_takes_and_gives_back_no_plane() {
+        // What lets the one fixed vector recover a torn repaint of the
+        // **alternate** plane as well as of the primary band
+        // (`super::super::frame::Band::recover_alternate`): it lands on the
+        // buffer the tear did and leaves the terminal there. A `?1049` in it
+        // would hand the user's own screen back in the middle of a question,
+        // or save a screen over the one the terminal is holding for them.
+        //
+        // The entry point that licenses it is a byte comparison and knows
+        // nothing about planes, so it accepts the vector whichever one is up;
+        // what this asserts is the vector itself. Its head is the `CAN` and the
+        // `OSC 8` close this decoder's alphabet refuses on purpose -- a byte
+        // and a string sequence, neither of which can carry a mode -- and
+        // everything after them is decoded here, from a terminal that is on
+        // the borrowed buffer, and must end on it having made no transition.
+        preflight_recovery_cleanup(RECOVERY_CLEANUP.as_bytes())
+            .expect("the fixed vector, whichever plane is up");
+        let tail = RECOVERY_CLEANUP
+            .strip_prefix("\x18\x1b]8;;\x07")
+            .expect("the cleanup opens with the CAN and the hyperlink close");
+        let mut model =
+            TerminalModel::seed_modes(24, 80, ModeSet::fresh(), 0, PlaneKind::Alternate);
+        apply_for_tests(&mut model, tail.as_bytes())
+            .expect("everything after the head is a sequence this decoder knows");
+        assert_eq!(
+            model.moves,
+            Vec::<PlaneKind>::new(),
+            "the cleanup moved the terminal between its buffers"
+        );
+        assert_eq!(
+            model.plane,
+            PlaneKind::Alternate,
+            "the cleanup left the buffer it landed on"
+        );
+        assert!(
+            model.alternate.is_some(),
+            "the cleanup gave the borrowed buffer back"
+        );
+    }
 }

@@ -4,9 +4,11 @@ Status: **Phases 1 and 2 of the MVS ladder below are in the binary. Phase 3 is i
 only, in no stable release: items 18, 19, 20, 20b and 22 are implemented, item 17's CSI-u key matrix is
 promoted, and items 21 and 23 are implemented in part. Item 21's self-check is a per-vector output preflight
 and the writes under it are **counted**, so a write the screen takes only part of is measured and contained
-rather than unreadable; its partial-write **recovery** covers the primary band's `Partial` only, and every
-other `Partial` (document, carry, clear, query, alternate screen) is contained and ends the session with the
-diagnostic (see item 21). The rest of Phase 3 and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
+rather than unreadable; its partial-write **recovery** covers the two repaints whose whole intended content
+is in hand -- the primary band's frame and a repaint of the alternate plane the session already owns -- and
+every other `Partial` (a plane transition, a document append or carry, `/clear`, the theme query, the
+retint) is contained and ends the session with the diagnostic (item 21 has the per-path table). The rest of
+Phase 3 and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
 enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
 `interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
 which is the one to read against the code; what this document keeps is the upstream evidence and the
@@ -705,9 +707,18 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     not modifiers (`:186-187`); and a colon event type acts on a press or a repeat and never on a
     release (`:676-684`, `:756-780`). `ESC CR`/`ESC LF` is Alt-Enter too, and inserts a newline
     (`:515-519`) instead of replaying as Escape and then Submit. An upstream result with no xfx action
-    -- select-all, copy, cut, every selection-extending move, delete-word-right, the full-transcript,
-    all-sessions and permission-mode toggles, the page keys -- is a keystroke that binds nothing, and
-    no action is invented for one. The grammar stays stricter than upstream's: canonical decimal only
+    -- select-all, copy, cut, a selection-extending move spelled on a letter (Ctrl+Shift+A/B/E/F,
+    `:235-242`; Alt+Shift+B/F, `:244`, `:248`), delete-word-right, the full-transcript, all-sessions
+    and permission-mode toggles, the page keys -- is a keystroke that binds nothing, and no action is
+    invented for one. **The arrows are the exception, and they are not a keystroke that binds
+    nothing**: kitty's Up and Down (`57352`/`57353`, `:208-217`) and the keypad's Up, Down, Left,
+    Right, Home and End (`:134-144`, `:163-167`) resolve through xfx's own cursor-key table
+    (`src/tui/input.rs`'s `cursor`), so with Shift held -- alone, or beside Ctrl or Alt -- where
+    upstream's `modifiedArrowAction` returns a `composerMove` that extends a selection (`:66-109`),
+    xfx makes the same key's plain move: Up, Down, Home and End stay what they are, and Left and
+    Right are a character move, or a word move with Ctrl or Alt. xfx has no selection, so Shift is
+    dropped together with the selection it would have extended; the legacy `CSI 1 ; <mod> A`
+    spelling of the same keys goes through the same table. The grammar stays stricter than upstream's: canonical decimal only
     (no leading zero, a bounded length, no extra field), a modifier from `1` to `256`, and `27` as
     the tilde spelling's first field, which upstream discards. The falsification is the one this item
     asked for: every row of the receipt replayed into the decoder (`src/tui/input.rs`'s
@@ -718,7 +729,8 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
 
 **Phase 3 — depth. In the preview channel only, in no stable release. Items 18, 19, 20, 20b and 22
 are implemented, and items 21 and 23 only in part — item 21's self-check, its counted-delivery
-containment and a primary-band recovery exist; retention exists only as the bounded prefix
+containment and the recovery of two repaints (the primary band's frame and a repaint of the owned
+alternate plane) exist; retention exists only as the bounded prefix
 adaptation item 21 names below and not as the upstream reuse, and the rest is not**, and every
 unmarked item below is a target that is advertised nowhere. See item 21 below for the recovery's
 exact boundary.
@@ -779,10 +791,13 @@ exact boundary.
     `src/tui/approval_amendment.rs`, `src/tui/approval.rs` and `src/agent/machine.rs`.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
     recovery + frame retention. **The self-check half is implemented.** **Partial-write recovery is
-    implemented in part** — for the primary band's `Partial` case only, externally reviewed with no
+    implemented in part** — for the two repaints whose whole intended content is in hand, and for no
+    other write (the per-path table below). The primary band's was externally reviewed with no
     MUST-FIX and independently confirmed on a real terminal's direct-launch tmux arm (2026-10-06;
     [`06-qa-harness.md`](06-qa-harness.md)) and on herdr's interactive-shell arm, where every
-    `termios` word stayed equal. **Frame retention
+    `termios` word stayed equal; the repaint of the owned alternate plane is proven by in-crate cases,
+    `fault-injection` PTY tests and the release-binary row 3e, and has no independent real-terminal
+    run yet. **Frame retention
     exists as one bounded adaptation and not as the upstream reuse.** None of this item is in a stable
     release. An ordinary primary
     commit reuses the adopted shadow's own cells above the top the band released *before* this
@@ -855,20 +870,38 @@ exact boundary.
     given up deliberately, because retrying the whole vector would write that prefix twice — and a
     syscall count larger than the slice it was offered is **refused rather than capped**, since
     capping it would end the write and report a whole-vector success built from the one answer known
-    to be false. **Still open, and narrowed only for the primary band**: an accepted count is a kernel receipt
-    and not a terminal's acknowledgement, so what a terminal made of an incomplete vector is still
-    not knowable here. A `Partial` on the primary band now drives a recovery in the
-    same call: an exact `CAN`+`BEL`, an OSC 8 close, an SGR reset, sync mode off, autowrap off and
-    cursor shown, then a full rebuild of the owned band from the document it preserves — one attempt,
-    and a failure in that cleanup/redraw is itself fatal. The original failure still spends the existing
-    500 ms frame budget, a pending-recovery flag forces the next paint to be a real one rather than a
-    skip (a `NoChange` frame cannot clear that flag), and there is no readiness signal on the tick the
-    recovery lands on. Every other `Partial` — document, carry, clear, query, and the alternate screen —
-    is contained and ends the session with the diagnostic below: its bytes are never replayed and
-    nothing re-establishes a frame from a prefix. Whether
-    a terminal's own parser actually resynced is not established by any of this, on the primary band or
-    elsewhere, and the upstream retained-body reuse — which the bounded prefix adaptation above does
-    not amount to — remains open independently of that. In the preview channel only,
+    to be false. **Still open, and narrowed only for two repaints**: an accepted count is a kernel
+    receipt and not a terminal's acknowledgement, so what a terminal made of an incomplete vector is
+    still not knowable here. A `Partial` on a repaint whose whole intended content is in hand now
+    drives a recovery in the same call: the one fixed cleanup vector — an exact `CAN`+`BEL`, an OSC 8
+    close, an SGR reset, sync mode off, autowrap off and cursor shown, carrying no `?1049`, so it
+    lands on the buffer the tear did (`src/tui/check.rs`'s
+    `the_recovery_cleanup_takes_and_gives_back_no_plane`) — then the same repaint rebuilt whole from
+    the rows, geometry and caret the torn attempt was built from: one attempt, and a failure in that
+    cleanup or rebuild is itself fatal, marked `partial` and naming the original tear. Both share one
+    policy (`src/tui/event_loop.rs`'s `recover_tear`): the original failure still spends the existing
+    500 ms frame budget, a tear found with the budget already spent ends the session on its own error
+    with no recovery attempt, a pending-recovery flag forces the next write on that plane to be a real
+    one (neither a `NoChange` frame nor an empty alternate repaint can clear it), and there is no
+    readiness signal on the tick the recovery lands on — readiness comes back only from that forced,
+    verified write. Every other `Partial` is contained and ends the session with the diagnostic
+    below: its bytes are never replayed and nothing re-establishes a frame from a prefix. Path by
+    path:
+
+    | Write | On a `Partial` | Why |
+    |---|---|---|
+    | The primary band's frame (`commit_band`) | recovered: the cleanup, then the band rebuilt from a shadow whose own rows are erased (`Band::recover_primary`) | the band's rows are its own and the whole frame is in hand; nothing it writes enters native scrollback |
+    | A repaint of the alternate plane the session already owns (`paint_alternate`'s already-there arm) | recovered: the cleanup, then the surface repainted whole with the plane's cache dropped (`Band::recover_alternate`); the next tick's repaint is forced to be a real one | no scroll, no plane transition and no native scrollback, and the surface shares its screen with nothing, so the whole of what it meant is in hand; the normal buffer the terminal saved at `1049h`, and its caret, are not touched |
+    | A plane transition: the `1049h` frame that takes the plane, the `1049l` restore that gives it back | contained, fatal | a `1049` the terminal took part of leaves which buffer it is showing — and so who owns the screen — unknown, and no rebuild is right on both |
+    | A document append or carry | contained, fatal | each scrolls, and a row already carried into native scrollback cannot be taken back; upstream gives up the same way (`vercel-labs/fx@580a0c5d src/ui/render_engine/terminal_diff.zig:632-669`, `DocumentAppendInterrupted`) |
+    | `/clear` | contained, fatal | it erases the scrollback, and nothing can give an erased scrollback back |
+    | The theme query (`CSI ? 996 n`) | contained, fatal | not a repaint: one sequence whose final byte is its last, so a prefix never completed a query, and it moves no cell — there is nothing to rebuild, and recovering it would mean asking again behind the cleanup, a replay rather than a rebuild |
+    | The retint of the visible document rows (`Band::retint_document`) | contained, fatal | the recoloured cells are in hand, but the rows they sit on can also hold what the terminal had before xfx ran, which the shadow records as nothing written — so the erase-and-rebuild the two repaints use would erase the user's own document; only a replay of the cell-addressed vector could recover it, and none is attempted |
+
+    Whether a terminal's own parser actually resynced is not established by any of this, on either
+    recovered repaint or elsewhere; offscreen native scrollback is never retinted (item 23); and the
+    upstream retained-body reuse — which the bounded prefix adaptation above does not amount to —
+    remains open independently of all three. In the preview channel only,
     and in no stable release's contract (`src/tui/event_loop.rs`'s
     `commit_document`/`commit_frame`, `src/tui/transcript.rs`'s queue, `Shell::restore_clearing`): a
     `Rejected` or `ZeroProgress` append or `/clear` — the kernel accepted no bytes for either —
@@ -895,9 +928,9 @@ exact boundary.
     pushes at every offset, and a line ended while its text is still queued. **None of that is
     published either**, and none of it widens the boundaries above: no fixed-point layout
     convergence, no parser recovery, no upstream retained-body reuse, and partial-write recovery
-    stays out of this row's scope — item 21 below now covers the one case it reaches (the primary
-    band), and every other `Partial`, including any this row's own resize handling could hit, is
-    still dropped with no state adopted from it. What has no
+    stays out of this row's scope — the table above names the two repaints it reaches (the primary
+    band and the owned alternate plane), and every other `Partial`, including any this row's own
+    resize handling could hit, is still dropped with no state adopted from it. What has no
     release-binary scenario is this exact schedule: a zero-progress refusal, then a resize, then the
     retry. The containment row 3c below is a release-binary scenario and stays one. The
     zero-progress refusal → resize → retry schedule is covered by in-crate tests in
@@ -921,13 +954,23 @@ exact boundary.
     autowrap/cursor cleanup and its ordering, and the post-cleanup Grid, input, request, response,
     exit and `termios`. Row 3d's Grid is only sampled **after** cleanup runs, so it proves what this
     product does about a prefix's cleanup and rebuild, not that the terminal's own parser actually
-    resynced from the partial write — that remains unestablished by either row. Recovery itself is
-    no longer bare specification: the primary-band implementation (item 21 above) is independently
-    confirmed on the direct-launch tmux arm, and it still does not close this item — every other
-    `Partial` is contained and fatal, and retention is the bounded prefix adaptation.
-    **Diagnostic record, beside both halves above and neither of them:** the one road
-    `event_loop::disposed` (`src/tui/event_loop.rs:1349-1363`) marks -- `Partial` or an exhausted
-    `Rejected`/`ZeroProgress` -- is written, after the restoration attempt in `session`
+    resynced from the partial write — that remains unestablished by either row. A third row, 3e
+    (`3e-alternate-repaint-recovery`), drives the same pair on the other recoverable repaint: a
+    question about a change too big for the band is up on the plane it took, one step of its walk
+    is torn (`partial-alternate-once` / `partial-alternate`, armed on that repaint and never on a
+    `1049h` or `1049l`), and the row asserts the prefix, the cleanup, a rebuild that opens with
+    exactly the bytes the terminal took, the repaint the next tick owed, the answer still taken and
+    `termios` exact — or, with the cleanup refused too, an exit of 1, no cleanup on the wire, the
+    reported count equal to the prefix on the wire, and a `partial` report; its grids are rebuilt
+    with the prefix and the cleanup cut out of the stream, so they make no parser-resync claim
+    either. Recovery itself is no longer bare specification: the primary-band implementation is
+    independently confirmed on the direct-launch tmux arm, the alternate-plane one is not yet, and
+    neither closes this item — every other `Partial` is contained and fatal, and retention is the
+    bounded prefix adaptation.
+    **Diagnostic record, beside both halves above and neither of them:** the road a session left
+    by -- `Partial` or an exhausted `Rejected`/`ZeroProgress`, as `event_loop::disposed` marks it,
+    or `Partial` as `event_loop::recover_tear` marks a recoverable repaint whose recovery failed or
+    was never tried (`src/tui/event_loop.rs`) -- is written, after the restoration attempt in `session`
     (`src/tui/mod.rs:189-226`; `term::shutdown` can itself return `Err`), to
     `<profile_dir>/last-tui-error.json`: a fixed four-key, ≤1 KiB record (`schema`, `reason`,
     `error_kind`, `errno`) that never carries the original error's own text, so a `Partial`
@@ -945,6 +988,7 @@ exact boundary.
     In the preview channel only: proven by `diagnostic.rs`'s own cases and by native,
     `fault-injection`-gated PTY tests in `tests/tui.rs`
     (`a_terminal_that_takes_half_a_frame_ends_the_session_and_is_given_back_exactly`,
+    `a_torn_repaint_of_the_question_whose_cleanup_is_refused_ends_the_session_reported_as_partial`,
     `a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted`,
     `a_failure_after_raw_mode_still_gives_the_terminal_back`) plus one unconditional positive control
     (`an_ordinary_exit_leaves_no_independent_diagnostic_behind`) -- in-crate/native evidence, not a
@@ -952,7 +996,7 @@ exact boundary.
     evidence for this path (the 2026-10-06 independent run in that document observed it on release
     binaries). **It records which road a session left by; it is not recovery** --
     parser resync remains exactly as open as stated above, and partial-write recovery is open
-    everywhere except the primary-band case described in item 21 above.
+    everywhere except the two repaints in the table above.
 22. Layout convergence: on a known-undamaged band, a carry restores `document_bottom < band_top` and
     an append re-anchors it to `band_top - 1` (`src/tui/frame.rs:1278-1403,1594`); a damaged band's
     carry is a no-op, so this is not a universal postcondition, only the successful-carry path

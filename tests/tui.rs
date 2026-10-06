@@ -4058,11 +4058,23 @@ fn a_question_still_being_painted_is_not_a_painted_question() {
 }
 
 fn asked_on_the_alternate_screen(sandbox: &Sandbox, pty: &Pty) -> (FakeGateway, Session) {
+    asked_on_the_alternate_screen_with(sandbox, pty, |_| {})
+}
+
+/// [`asked_on_the_alternate_screen`], with the command handed to `adjust`
+/// before it is spawned -- which is how a fault-injection case asks the same
+/// session to fail at a point of its choosing.
+fn asked_on_the_alternate_screen_with(
+    sandbox: &Sandbox,
+    pty: &Pty,
+    adjust: impl FnOnce(&mut Command),
+) -> (FakeGateway, Session) {
     let (_path, before, after) = with_a_large_file(sandbox);
     let gateway = FakeGateway::start(large_edit_then_finish(&before, &after));
     pty.resize(24, 80);
     let mut command = tui_with(sandbox, &gateway);
     command.env("XFX_PERMISSION_MODE", "ask");
+    adjust(&mut command);
     let session = Session::spawn_without_taking_the_terminal(pty, command);
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
@@ -4923,6 +4935,262 @@ mod faults {
             modes(&pty),
             "the terminal was not given back byte for byte"
         );
+    }
+
+    /// `check::RECOVERY_CLEANUP`, spelled out for the reason every needle in
+    /// this suite is: a test that read the constant it is checking would pass
+    /// for whatever that module happened to declare.
+    const RECOVERY_CLEANUP: &[u8] = b"\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h";
+
+    /// Every byte the terminal has received so far, undecoded.
+    ///
+    /// Bytes rather than [`Session::text`], because these cases compare a torn
+    /// prefix with the vector it was cut from, and a prefix may end inside a
+    /// multibyte character the lenient decoding would turn into a replacement
+    /// -- which no rebuild begins with.
+    fn wire(session: &Session) -> Vec<u8> {
+        session.output.lock().expect("output lock").clone()
+    }
+
+    /// Where `needle` first occurs in `haystack` at or after `from`.
+    fn position(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+        haystack
+            .get(from..)?
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .map(|at| at + from)
+    }
+
+    /// Where `needle` last occurs in `haystack` before `before`.
+    fn last_position(haystack: &[u8], needle: &[u8], before: usize) -> Option<usize> {
+        haystack[..before]
+            .windows(needle.len())
+            .rposition(|window| window == needle)
+    }
+
+    #[test]
+    fn a_torn_repaint_of_the_question_is_recovered_and_the_question_is_still_answerable() {
+        // The alternate plane's recovery row, on a real terminal. The question
+        // is up on the plane it took; one step of the walk asks for a repaint
+        // of that plane; the sink takes half of that repaint and fails, and
+        // then the descriptor is the terminal's own again -- so the cleanup
+        // vector and the rebuild behind it really land, and the question is
+        // on the screen whole again, on the plane it was on.
+        //
+        // What is asserted is this session's own behaviour after the tear:
+        // the bytes on the wire, the plane never changing hands until the
+        // answer, a repaint after the rebuild that the next tick owed, the
+        // answer still taken, a clean exit, and the terminal given back
+        // exactly. What is **not** claimed is that any terminal's parser
+        // resynchronized on the torn prefix.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let path = sandbox.workspace.join("notes.txt");
+        // The size the helper gives the terminal, before it is measured: the
+        // comparison below is of the whole state, and the size is part of it.
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let (gateway, mut session) = asked_on_the_alternate_screen_with(&sandbox, &pty, |c| {
+            c.env("XFX_TUI_FAULT", "partial-alternate-once");
+        });
+        let asked = wire(&session).len();
+
+        // One step of the walk: the first repaint of the plane the session
+        // already owns, and the vector the fault is armed on.
+        session.type_bytes(&[0x0e]);
+        // The tear, the cleanup, the rebuild -- and then the repaint the tick
+        // behind a recovery is forced to write, which is the frame readiness
+        // comes back from. An answer typed before that one lands is refused
+        // as not ready, which is correct and a different case.
+        session.wait_until(
+            "the cleanup, the rebuild behind it and the repaint the next tick owed",
+            |text| {
+                text.find(std::str::from_utf8(RECOVERY_CLEANUP).expect("ascii"))
+                    .is_some_and(|at| text[at..].matches(FRAME_END).count() >= 2)
+            },
+        );
+        let bytes = wire(&session);
+
+        let cleanup_at = position(&bytes, RECOVERY_CLEANUP, asked)
+            .expect("the fixed cleanup vector is on the wire after the question was painted");
+        let torn_at = last_position(&bytes, FRAME_BEGIN.as_bytes(), cleanup_at)
+            .expect("the torn repaint opened a frame");
+        assert!(
+            torn_at >= asked,
+            "the vector torn was not a repaint written after the question was painted"
+        );
+        let prefix = &bytes[torn_at..cleanup_at];
+        assert!(
+            position(prefix, FRAME_END.as_bytes(), 0).is_none(),
+            "the torn repaint completed its own frame, so nothing was torn"
+        );
+        // **The same vector, whole.** The rebuild is built from the rows the
+        // torn repaint was, so it opens with exactly the bytes the terminal
+        // already took and then finishes them.
+        let rebuilt = &bytes[cleanup_at + RECOVERY_CLEANUP.len()..];
+        let rebuilt_end = position(rebuilt, FRAME_END.as_bytes(), 0)
+            .expect("the rebuild closed its frame")
+            + FRAME_END.len();
+        assert!(
+            rebuilt.starts_with(prefix) && rebuilt_end > prefix.len(),
+            "the rebuild is not the vector the tear was of"
+        );
+        let rebuild = String::from_utf8_lossy(&rebuilt[..rebuilt_end]).into_owned();
+        assert!(
+            rebuild.contains("\u{1b}[2J") && rebuild.contains(PERMISSION_TITLE),
+            "the rebuild is not a whole repaint of the question: {rebuild:?}"
+        );
+        let forced = String::from_utf8_lossy(&rebuilt[rebuilt_end..]).into_owned();
+        assert!(
+            forced.contains(FRAME_BEGIN) && forced.contains(PERMISSION_TITLE),
+            "the tick behind the recovery did not repaint the question: {forced:?}"
+        );
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "recovery took the plane again: {text:?}"
+        );
+        assert!(
+            !text.contains(LEAVES_ALTERNATE),
+            "recovery gave the plane back before the question was answered: {text:?}"
+        );
+
+        // The question is still the one being asked, and still answerable.
+        session.type_bytes(b"1");
+        session.wait_for(LEAVES_ALTERNATE);
+        session.wait_for("the edit is done");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            format!("{}\n", large_edit_sides().1),
+            "`1` did not let the edit through after the recovery"
+        );
+        session.wait_until(
+            "the band to be painted on the primary plane again",
+            |text| Screen::painted(text, 24, 80).is_some_and(|screen| screen.divider() == Some(22)),
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(
+            session.wait_exit().code(),
+            Some(0),
+            "a session that recovered a torn repaint of its question did not exit clean"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+        let settled = session.settled_text();
+        assert_eq!(
+            settled.matches(ENTERS_ALTERNATE).count(),
+            settled.matches(LEAVES_ALTERNATE).count(),
+            "the alternate screen was entered and left a different number of times"
+        );
+        assert!(
+            !sandbox
+                .home
+                .join(".xfx")
+                .join("last-tui-error.json")
+                .exists(),
+            "a session that recovered left a give-up report behind"
+        );
+        drop(gateway);
+    }
+
+    #[test]
+    fn a_torn_repaint_of_the_question_whose_cleanup_is_refused_ends_the_session_reported_as_partial(
+    ) {
+        // The containing pair of the row above: the same torn repaint, and the
+        // recovery attempt's own cleanup vector refused too. Nothing this
+        // session could write is known to fix the plane now, so the session
+        // ends on it -- non-zero, with the terminal given back exactly and the
+        // independent record naming the road it left by.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let path = sandbox.workspace.join("notes.txt");
+        // The size the helper gives the terminal, before it is measured: the
+        // comparison below is of the whole state, and the size is part of it.
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let (gateway, mut session) = asked_on_the_alternate_screen_with(&sandbox, &pty, |c| {
+            c.env("XFX_TUI_FAULT", "partial-alternate");
+        });
+        let asked = wire(&session).len();
+
+        session.type_bytes(&[0x0e]);
+        let status = session.wait_exit();
+        assert!(
+            !status.success(),
+            "a torn repaint nothing could recover was reported as a clean session"
+        );
+        let text = session.settled_text();
+        let bytes = wire(&session);
+
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "the plane was taken more than once: {text:?}"
+        );
+        assert!(
+            position(&bytes, RECOVERY_CLEANUP, 0).is_none(),
+            "a cleanup the terminal refused reached the wire"
+        );
+        let torn_at = position(&bytes, FRAME_BEGIN.as_bytes(), asked)
+            .expect("the repaint that was torn opened a frame after the question was painted");
+        let left_at = position(&bytes, LEAVES_ALTERNATE.as_bytes(), torn_at)
+            .expect("the exit gave the plane back after the tear");
+        let prefix = &bytes[torn_at..left_at];
+        assert!(
+            position(prefix, FRAME_END.as_bytes(), 0).is_none(),
+            "a frame was completed after the tear: {:?}",
+            String::from_utf8_lossy(prefix)
+        );
+        assert!(
+            position(prefix, FRAME_BEGIN.as_bytes(), 1).is_none(),
+            "the torn repaint was offered again: {:?}",
+            String::from_utf8_lossy(prefix)
+        );
+        assert!(
+            text.contains(&format!("accepted {} bytes", prefix.len())),
+            "the session did not say how much of the repaint the terminal took ({} bytes on \
+             the wire): {text:?}",
+            prefix.len()
+        );
+        assert!(
+            text.contains("could not be recovered"),
+            "the session did not say a recovery was tried and failed: {text:?}"
+        );
+        assert!(
+            text[text.rfind(LEAVES_ALTERNATE).expect("the leave")..].contains(RESTORE),
+            "the exit did not write the restore after giving the plane back: {text:?}"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            format!("{}\n", large_edit_sides().0),
+            "the edit ran although the question it waited on was never answered"
+        );
+
+        let report = sandbox.home.join(".xfx").join("last-tui-error.json");
+        let body = std::fs::read_to_string(&report).unwrap_or_else(|err| {
+            panic!("a torn repaint left no independent report at {report:?}: {err}")
+        });
+        let parsed: Value =
+            serde_json::from_str(&body).unwrap_or_else(|err| panic!("not JSON: {err}: {body:?}"));
+        assert_eq!(parsed["schema"], 1, "{body:?}");
+        assert_eq!(
+            parsed["reason"], "partial",
+            "a torn repaint was not reported as partial: {body:?}"
+        );
+        assert!(
+            !body.contains("accepted"),
+            "the independent report leaked the session's own sentence: {body:?}"
+        );
+        drop(gateway);
     }
 
     #[test]

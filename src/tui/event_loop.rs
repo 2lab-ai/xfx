@@ -1113,58 +1113,84 @@ fn commit_band(
                     None => Ok(false),
                 };
             }
-            // A torn primary-band frame: the one failure this build knows how
-            // to fix -- a fixed cleanup vector, then the same frame rebuilt
-            // from an erased shadow, in this same call
-            // (`Band::recover_primary`). Spent on the ORIGINAL failure exactly
-            // as a refused write is (`failures.record`/`failed`, never
-            // `succeeded`), so a screen that keeps tearing frames still runs
-            // the budget out even though each individual tear is recovered.
-            // The original's own text is kept before it moves, so a recovery
-            // failure below can still say what the *first* tear was, not
-            // only the second.
-            let original = emit.into_error();
-            let original_text = original.to_string();
-            // A tear found already past the budget ends the session on ITS
-            // OWN error, not the run's possibly different, already-repaired
-            // `first` -- and gets no recovery attempt either, checked before
-            // `original` moves into `record` below.
-            if failures.expired(now) {
-                return Err(super::diagnostic::mark(
-                    super::diagnostic::Reason::Partial,
-                    original,
-                ));
-            }
-            // Ordinary first-failure bookkeeping for a tear still inside the
-            // budget; `expired` above already rules out exhaustion here.
-            failures.record(original, now);
-            match band.recover_primary(out, &rows, &shell.geometry, cursor) {
-                // Recovered: the screen holds a whole, correct band again,
-                // but this tick still reports `false` -- no
-                // `approval_landed`, no `succeeded` -- so readiness and the
-                // budget are restored only by a later frame this loop
-                // verifies on its own account. `pending_recovery` is what
-                // that later frame reads (this function's own top, on the
-                // next call) to make sure it really is one.
-                Ok(_) => {
-                    failures.pending_recovery = true;
-                    Ok(false)
-                }
-                // No second attempt. Whatever failed the cleanup or the
-                // rebuild is fatal on the spot, marked the same way the
-                // original tear would have been -- and still names the
-                // original tear, since that is the failure this session
-                // actually could not get past.
-                Err(recovery) => Err(super::diagnostic::mark(
-                    super::diagnostic::Reason::Partial,
-                    io::Error::other(format!(
-                        "a torn primary-band frame ({original_text}) could not be \
-                         recovered: {recovery}",
-                        recovery = recovery.into_error(),
-                    )),
-                )),
-            }
+            // A torn primary-band frame: a fixed cleanup vector, then the same
+            // frame rebuilt from an erased shadow, in this same call
+            // (`Band::recover_primary`), under the policy every recoverable
+            // tear shares ([`recover_tear`]). Recovered, the screen holds a
+            // whole, correct band again, but this tick still reports `false`
+            // -- no `approval_landed`, no `succeeded` -- so readiness and the
+            // budget are restored only by a later frame this loop verifies on
+            // its own account. `pending_recovery` is what that later frame
+            // reads (this function's own top, on the next call) to make sure
+            // it really is one.
+            recover_tear(emit, failures, now, "primary-band frame", || {
+                band.recover_primary(out, &rows, &shell.geometry, cursor)
+                    .map(|_| ())
+            })
+            .map(|()| false)
         }
+    }
+}
+
+/// What a torn repaint whose whole content is still in hand costs: the one
+/// policy both recoverable tears -- the primary band's frame ([`commit_band`])
+/// and a repaint of the alternate plane the session already owns
+/// ([`paint_alternate`]) -- are under, written once so the two cannot drift.
+///
+/// `torn` is the `Emit::Partial` the repaint ended in, and `recover` is the
+/// caller's one attempt: a fixed cleanup vector and the same repaint rebuilt,
+/// in this same call. `what` names the repaint in the message a failed
+/// recovery leaves with.
+///
+/// * **Spent on the original failure exactly as a refused write is**
+///   (`failures.record`, never `succeeded`), so a screen that keeps tearing
+///   still runs the budget out even though each individual tear is recovered.
+/// * **A tear found already past the budget ends the session on its own
+///   error**, not the run's possibly different, already-repaired `first`, and
+///   gets no recovery attempt either -- checked before the error moves into
+///   `record`.
+/// * **One attempt.** Recovered, `pending_recovery` is raised so the caller's
+///   next tick forces a real write rather than trusting a cache or a shadow
+///   recovery itself just rebuilt; readiness and the budget come back only from
+///   that frame. Whatever failed the cleanup or the rebuild is fatal on the
+///   spot, marked [`Partial`](super::diagnostic::Reason::Partial) the way the
+///   tear itself would have been -- and still names the original tear, since
+///   that is the failure this session could not get past. Its text is kept
+///   before the error moves, so the message can say what the *first* tear was
+///   and not only the second.
+///
+/// `Ok(())` when the tear was recovered; `Err` is the error the session leaves
+/// with.
+fn recover_tear(
+    torn: Emit,
+    failures: &mut FrameFailures,
+    now: Instant,
+    what: &str,
+    recover: impl FnOnce() -> Result<(), Emit>,
+) -> io::Result<()> {
+    let original = torn.into_error();
+    let original_text = original.to_string();
+    if failures.expired(now) {
+        return Err(super::diagnostic::mark(
+            super::diagnostic::Reason::Partial,
+            original,
+        ));
+    }
+    // Ordinary first-failure bookkeeping for a tear still inside the budget;
+    // `expired` above already rules out exhaustion here.
+    failures.record(original, now);
+    match recover() {
+        Ok(()) => {
+            failures.pending_recovery = true;
+            Ok(())
+        }
+        Err(recovery) => Err(super::diagnostic::mark(
+            super::diagnostic::Reason::Partial,
+            io::Error::other(format!(
+                "a torn {what} ({original_text}) could not be recovered: {recovery}",
+                recovery = recovery.into_error(),
+            )),
+        )),
     }
 }
 
@@ -1403,6 +1429,21 @@ fn paint_alternate(
             let Some(attempt) = shell.render.begin() else {
                 return Ok(());
             };
+            if failures.pending_recovery {
+                // A tick right behind a recovered tear of this plane
+                // (`Band::recover_alternate`), whose cache is exactly what the
+                // rebuild painted -- so left alone, this repaint would be the
+                // empty "already holds this" one below, which proves nothing
+                // about a screen that just tore and can never mint the receipt
+                // the tear took. The alternate counterpart of `commit_band`'s
+                // `force_redraw`, read off the same flag.
+                //
+                // Only an alternate recovery can still be pending here: a
+                // primary one is settled before this arm is ever reached,
+                // because the frame that takes the plane is a whole write
+                // that calls `succeeded` when it lands.
+                band.force_alternate_repaint();
+            }
             let rows = shell.screen_rows();
             let cursor = shell.screen_cursor();
             shell.intend_approval();
@@ -1424,16 +1465,25 @@ fn paint_alternate(
             // stops an unwritten repaint granting a question nobody has seen.
             if frame.bytes().is_empty() {
                 shell.approval_landed(Outcome::Unchanged);
-                // Unlike the primary plane's `force_redraw`, nothing on this
-                // arm ever forces a real write while a primary recovery is
-                // pending, so this empty repaint is not known to prove
-                // anything about it -- and must not clear it out from under
-                // a still-unverified recovery on the other plane.
+                // Not reached while a recovery is pending: the force above
+                // drops the one cache that can make a repaint empty, so the
+                // tick that owes a verified write always has bytes to write.
+                // The guard is kept for the day that stops holding -- an empty
+                // repaint is not known to prove anything about a recovery, and
+                // must not clear one out from under the tick that still owes
+                // it.
                 if !failures.pending_recovery {
                     failures.succeeded();
                 }
                 return Ok(());
             }
+            // The matrix row for a terminal that tears a repaint of the plane
+            // this session already owns. Armed here -- past the empty return,
+            // right before the one emit of a repaint that has bytes -- so the
+            // vector it lands on is this repaint and never the `1049h` that
+            // took the plane or the `1049l` that gives it back.
+            #[cfg(feature = "fault-injection")]
+            super::fault::arm_partial_alternate();
             match out.emit(frame.bytes()) {
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
@@ -1444,10 +1494,25 @@ fn paint_alternate(
                 Err(emit) => {
                     shell.approval_write_failed();
                     shell.render.restore(attempt);
-                    match disposed(emit, failures, now) {
-                        Some(fatal) => Err(fatal),
-                        None => Ok(()),
+                    if !matches!(emit, Emit::Partial { .. }) {
+                        return match disposed(emit, failures, now) {
+                            Some(fatal) => Err(fatal),
+                            None => Ok(()),
+                        };
                     }
+                    // A torn repaint of a plane this session already owns: no
+                    // scroll, no plane transition and no native scrollback, and
+                    // the whole of what it meant is the surface in hand. So it
+                    // takes the road a torn primary band does
+                    // ([`recover_tear`]): the fixed cleanup vector, then the
+                    // same surface repainted whole, in this same call
+                    // (`Band::recover_alternate`). Recovered, the question is on
+                    // the screen whole again, and still no receipt is minted --
+                    // `approval_write_failed` above took it, and only the forced
+                    // repaint on a later tick may give it back.
+                    recover_tear(emit, failures, now, "alternate-plane repaint", || {
+                        band.recover_alternate(out, &rows, &shell.geometry, cursor)
+                    })
                 }
             }
         }
@@ -1456,7 +1521,9 @@ fn paint_alternate(
     }
 }
 
-/// Failure disposition outside `commit_band`'s primary-plane Partial recovery arm.
+/// Failure disposition for every write except the two recoverable repaints'
+/// `Partial` -- `commit_band`'s primary band and `paint_alternate`'s repaint of
+/// a plane it already owns -- which [`recover_tear`] answers instead.
 ///
 /// Two roads, and which one a failure takes is settled by one question: is any
 /// byte of that vector already on the terminal?
@@ -1480,10 +1547,10 @@ fn paint_alternate(
 /// budget is where the room for that is given ([`super::deliver`]).
 fn disposed(emit: Emit, failures: &mut FrameFailures, now: Instant) -> Option<io::Error> {
     match emit {
-        // P3-DIAGNOSTIC: marked here for every `Partial` except the one
-        // `commit_band`'s own primary-plane recovery arm already marks
-        // itself, before this function is ever reached for it -- the two
-        // together are the whole match, neither guessed from an error's text.
+        // P3-DIAGNOSTIC: marked here for every `Partial` except the two
+        // recoverable repaints', which `recover_tear` marks itself before
+        // this function is ever reached for them -- together they are the
+        // whole match, neither guessed from an error's text.
         prefix @ Emit::Partial { .. } => Some(super::diagnostic::mark(
             super::diagnostic::Reason::Partial,
             prefix.into_error(),
@@ -1504,16 +1571,19 @@ struct FrameFailures {
     /// later `EBADF` on a descriptor the first `EIO` already lost says less
     /// about what went wrong.
     first: Option<io::Error>,
-    /// A tear [`Band::recover_primary`] fixed in the same call, still owed a
-    /// tick that proves it on its own account.
+    /// A tear [`Band::recover_primary`] or [`Band::recover_alternate`] fixed in
+    /// the same call, still owed a tick that proves it on its own account.
     ///
-    /// Set the moment recovery lands, in [`commit_band`]'s own `Err(emit)`
-    /// arm. Read at that same function's top, on every later call, to force
-    /// the next commit to be a real write ([`Band::force_redraw`]) rather
-    /// than trust a diff against a shadow recovery already rebuilt. Cleared
-    /// only by [`FrameFailures::succeeded`], the one function that ever
-    /// clears it: while this is set, a zero-byte repaint on either plane
-    /// (primary [`Commit::NoChange`] or alternate already-there) cannot
+    /// Set the moment recovery lands, by [`recover_tear`] -- the one policy
+    /// both recovering arms call. Read at the top of the arm that tore, on
+    /// every later call, to force the next write there to be a real one
+    /// rather than trust what recovery itself just rebuilt: [`commit_band`]
+    /// asks [`Band::force_redraw`] for a frame a diff cannot skip, and
+    /// `paint_alternate`'s already-there arm asks
+    /// [`Band::force_alternate_repaint`] for a repaint the cache cannot
+    /// empty. Cleared only by [`FrameFailures::succeeded`], the one function
+    /// that ever clears it: while this is set, a zero-byte repaint on either
+    /// plane (primary [`Commit::NoChange`] or alternate already-there) cannot
     /// clear it -- neither one is the independently painted frame that
     /// actually re-verifies the screen. A successful, independently painted
     /// primary frame or a successful nonempty alternate write both call
@@ -6745,16 +6815,20 @@ mod tests {
     }
 
     #[test]
-    fn a_pending_primary_recovery_survives_an_empty_alternate_repaint() {
-        // A **constructed test seam**, not a reproduced production path.
-        // Nothing in `paint_alternate`'s already-there arm ever sets
-        // `pending_recovery` -- that flag is set only by `commit_band`'s own
-        // `Err(emit)` arm, on the primary plane. `pending_recovery` set here
-        // is a hand assist standing in for a primary-band recovery the loop
-        // has not yet independently reverified, so this proves only the
-        // narrower claim `xfx-recovery-budget-narrowing.md` asks for: IF that
-        // flag were ever true while an empty alternate repaint lands, this
-        // branch must not silently clear it.
+    fn a_pending_recovery_forces_the_owned_plane_to_a_real_repaint_and_only_that_clears_it() {
+        // A **constructed test seam**: `pending_recovery` raised by hand on a
+        // screen nothing tore. It pins how the already-there arm *reads* the
+        // flag, whoever raised it. The real road, a recovered tear of this
+        // plane, is the `a_recovered_alternate_tick_grants_no_readiness_…`
+        // case below.
+        //
+        // This case used to assert the opposite half of the same rule: that an
+        // **empty** repaint could not clear a pending recovery, because
+        // nothing on this arm forced a real write. Something does now
+        // (`Band::force_alternate_repaint`), so a tick that owes a verified
+        // write never gets to be empty -- and what is pinned instead is that
+        // the unchanged screen is written whole once, and that this write,
+        // not the tick, is what gives the budget back.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -6768,7 +6842,7 @@ mod tests {
                 .is_none(),
             "a single counted failure ended the session on its own"
         );
-        failures.pending_recovery = true; // the seam -- see doc comment above
+        failures.pending_recovery = true; // the seam -- see the comment above
 
         shell.render.request(Reason::Animation);
         out.written.clear();
@@ -6782,23 +6856,602 @@ mod tests {
             Reconciled,
         )
         .expect("a tick on the other plane");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
         assert_eq!(
-            out.calls, 0,
-            "an unchanged alternate screen was written again"
+            out.calls, 1,
+            "a tick that owes a verified repaint wrote nothing: {written:?}"
+        );
+        assert!(
+            written.contains("\u{1b}[2J") && written.contains("Permission needed"),
+            "the forced repaint is not the whole question: {written:?}"
+        );
+        assert!(
+            !failures.pending_recovery && failures.began.is_none() && failures.first.is_none(),
+            "the repaint that landed did not give the budget back"
+        );
+    }
+
+    /// Where the alternate-plane recovery cases below tear the repaint.
+    ///
+    /// Long enough to carry the repaint's whole head -- the frame's open, the
+    /// `CUP` home and the screen erase -- and the start of its first row, so
+    /// "the rebuild is the vector the tear was of" compares more than an escape
+    /// introducer.
+    const ALTERNATE_TEAR: usize = 48;
+
+    /// A marker that moved on a question that already owns the other plane:
+    /// the one thing that asks the `(true, Approval)` arm for a repaint with
+    /// bytes in it, and the tick every case below tears.
+    fn a_repaint_of_the_owned_plane(
+        shell: &mut Fixture,
+        band: &mut Band,
+        out: &mut impl Sink,
+        failures: &mut FrameFailures,
+        now: Instant,
+    ) -> io::Result<()> {
+        shell.route_bytes(&[0x1b, b'[', b'B']);
+        commit_frame(shell, band, out, failures, now, Reconciled)
+    }
+
+    /// The independent record a session that ended on `err` leaves behind,
+    /// parsed: the closed four-key object `diagnostic::report` writes.
+    fn reported(err: &io::Error) -> serde_json::Value {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load a configuration against a fresh home");
+        super::super::diagnostic::report(&config, err).expect("the report was written");
+        let body = std::fs::read_to_string(home.path().join(".xfx").join("last-tui-error.json"))
+            .expect("read the report");
+        serde_json::from_str(&body).unwrap_or_else(|err| panic!("not valid JSON: {err}: {body:?}"))
+    }
+
+    // P3-COMMIT (alternate plane) RED, written and run before the
+    // `(true, Approval)` arm had a recovery road: a screen that tears a
+    // repaint of the plane this session already owns must not end the session
+    // -- the arm is expected to recover in this same call, the way
+    // `commit_band` recovers a torn primary band. Against the unmodified code
+    // this fails, because that arm hands every `Emit::Partial` to `disposed`,
+    // which is unconditionally fatal.
+    #[test]
+    fn a_torn_repaint_of_the_plane_the_session_owns_is_recovered_in_the_same_call() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let mut torn = TornScreen::taking(ALTERNATE_TEAR);
+        a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut torn,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn repaint of a plane this session already owns is recovered, not fatal");
+
+        let text = String::from_utf8_lossy(&torn.written).into_owned();
+        let (prefix, rest) = torn.written.split_at(ALTERNATE_TEAR);
+        let cleanup = super::super::check::RECOVERY_CLEANUP.as_bytes();
+        assert!(
+            rest.starts_with(cleanup),
+            "the fixed cleanup vector was not the next thing on the wire after the tear: {text:?}"
+        );
+        // **The same vector, whole.** The repaint is built from the rows,
+        // geometry and cursor the torn attempt was, and nothing in the paint
+        // reads the cache recovery dropped -- so the rebuild opens with
+        // exactly the bytes the terminal already took and then finishes them.
+        let rebuilt = &rest[cleanup.len()..];
+        assert!(
+            rebuilt.starts_with(prefix) && rebuilt.len() > prefix.len(),
+            "the rebuild is not the vector the tear was of: {text:?}"
+        );
+        let rebuilt = String::from_utf8_lossy(rebuilt).into_owned();
+        assert_eq!(
+            rebuilt.matches("\u{1b}[?2026h\u{1b}[?25l").count(),
+            1,
+            "more than one rebuild was written, so more than one attempt was made: {text:?}"
+        );
+        assert!(
+            rebuilt.ends_with("\u{1b}[?2026l\u{1b}[?25h"),
+            "the rebuild did not close its frame: {rebuilt:?}"
+        );
+        assert!(
+            rebuilt.contains("\u{1b}[2J") && rebuilt.contains("Permission needed"),
+            "the rebuild is not a whole repaint of the question: {rebuilt:?}"
+        );
+        assert!(
+            !text.contains("\u{1b}[?1049"),
+            "recovering a repaint moved the terminal between its planes: {text:?}"
+        );
+        assert!(band.on_alternate(), "recovery lost the plane it was on");
+        assert!(
+            failures.pending_recovery,
+            "a recovered tear does not owe the next tick a verified repaint"
+        );
+        assert!(
+            failures.began.is_some() && failures.first.is_some(),
+            "the tear was not spent on the budget the way a refused write is"
+        );
+    }
+
+    #[test]
+    fn a_refused_repaint_of_the_owned_plane_is_still_counted_and_offered_again() {
+        // The two roads that moved no byte are not this unit's: a refusal and
+        // a zero-progress write leave the screen as it was, so the repaint is
+        // owed again under the budget -- and no cleanup vector is ever written
+        // for a screen nothing reached.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::WouldBlock,
+            written: Vec::new(),
+        };
+        a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a refused repaint is counted, not fatal");
+        assert!(
+            screen.written.is_empty(),
+            "a refused repaint put bytes on the wire"
+        );
+        assert!(
+            !failures.pending_recovery,
+            "a write that moved no byte was treated as a recovered tear"
         );
 
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the repaint offered again lands");
+        let written = String::from_utf8_lossy(&screen.written).into_owned();
+        assert!(
+            written.contains("Permission needed"),
+            "the refused repaint was not offered again: {written:?}"
+        );
+        assert!(
+            !written.contains(super::super::check::RECOVERY_CLEANUP),
+            "a cleanup vector was written for a screen nothing reached: {written:?}"
+        );
+        assert!(
+            failures.began.is_none(),
+            "the repaint that landed did not mend the budget"
+        );
+    }
+
+    #[test]
+    fn a_torn_alternate_repaint_whose_cleanup_vector_is_refused_ends_the_session_naming_the_tear() {
+        // Cleanup, specifically: `IrrecoverablyTorn` takes the prefix and then
+        // refuses everything, the fixed cleanup vector included -- and
+        // `offered` says the cleanup was the last vector it was asked for, so
+        // no rebuild was attempted behind a cleanup that never landed.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let mut screen = IrrecoverablyTorn::taking(ALTERNATE_TEAR);
+        let err = a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect_err("a cleanup vector the screen refuses ends the session, not just the tick");
+
+        let text = err.to_string();
+        assert!(
+            text.contains(&format!("accepted {ALTERNATE_TEAR} bytes")),
+            "the original tear's own accepted count was lost: {text}"
+        );
+        assert!(
+            text.contains("could not be recovered"),
+            "the error does not say a recovery was attempted and failed: {text}"
+        );
+        assert_eq!(
+            screen.offered.len(),
+            2,
+            "a vector was offered after the refused cleanup, so a rebuild was attempted too: \
+             {:?}",
+            screen.offered
+        );
+        assert_eq!(
+            screen.offered[1],
+            super::super::check::RECOVERY_CLEANUP.as_bytes(),
+            "the second vector offered was not the fixed cleanup vector"
+        );
+        assert_eq!(
+            screen.written.len(),
+            ALTERNATE_TEAR,
+            "the cleanup put bytes on the screen before it was refused: {:?}",
+            String::from_utf8_lossy(&screen.written)
+        );
+        assert_eq!(
+            reported(&err)["reason"],
+            "partial",
+            "an alternate repaint that could not be recovered was not recorded as a tear"
+        );
+    }
+
+    #[test]
+    fn a_torn_alternate_repaint_recovered_by_cleanup_but_lost_on_the_rebuild_ends_the_session() {
+        // Rebuild, specifically: the cleanup vector lands, and the repaint
+        // written right behind it does not.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let mut screen = HealsOnlyForTheCleanupVector::taking(ALTERNATE_TEAR);
+        let err = a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect_err("a rebuild the screen refuses after a landed cleanup ends the session");
+
+        let text = err.to_string();
+        assert!(
+            text.contains(&format!("accepted {ALTERNATE_TEAR} bytes")),
+            "the original tear's own accepted count was lost: {text}"
+        );
+        assert!(
+            text.contains("could not be recovered"),
+            "the error does not say a recovery was attempted and failed: {text}"
+        );
+        assert_eq!(
+            screen.stage, 2,
+            "the cleanup vector was not the one vector that actually landed"
+        );
+        assert_eq!(reported(&err)["reason"], "partial");
+    }
+
+    #[test]
+    fn a_recovered_alternate_tick_grants_no_readiness_and_the_next_tick_forces_a_repaint_that_does()
+    {
+        // The readiness half. The recovered tick writes a whole, correct
+        // question -- and still mints no receipt, because the only frame that
+        // may grant one is a frame this loop verifies on its own account. The
+        // tick after it is the one that does, and it has to be a **real**
+        // repaint: recovery left the cache describing exactly what the rebuild
+        // painted, so without something forcing the write the next repaint
+        // would be the empty "screen already holds this" one, which keeps a
+        // receipt and never mints one -- a question nobody could say yes to.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        assert!(
+            shell.approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "the question was never answerable, so losing readiness below proves nothing"
+        );
+
+        let mut torn = TornScreen::taking(ALTERNATE_TEAR);
+        a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut torn,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn repaint is recovered in one call");
+        shell.reconcile_approval();
+        assert!(
+            !shell.approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "a recovered tear granted a receipt on the tick it tore on"
+        );
+
+        // No input and no new content: the next tick is driven by the reasons
+        // the torn attempt re-armed, and by nothing this case does by hand.
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick after a recovered tear");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(
+            out.calls, 1,
+            "the tick after a recovered tear was not one real repaint: {written:?}"
+        );
+        assert!(
+            written.contains("\u{1b}[2J") && written.contains("Permission needed"),
+            "the forced repaint is not a whole repaint of the question: {written:?}"
+        );
+        shell.reconcile_approval();
+        assert!(
+            shell.approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "the verified repaint after a recovered tear still did not grant readiness"
+        );
+        assert!(
+            !failures.pending_recovery && failures.began.is_none() && failures.first.is_none(),
+            "the verified repaint did not give the budget back"
+        );
+    }
+
+    #[test]
+    fn a_tear_on_the_owned_plane_after_the_budget_ran_out_is_fatal_with_no_recovery_attempt() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        let t0 = Instant::now();
+
+        // The run's first failure, of a kind and errno no tear shares.
+        a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut RefusesFromTheFirstByte,
+            &mut failures,
+            t0,
+        )
+        .expect("the first failure of a run never ends the session");
+        assert_eq!(
+            failures.first.as_ref().map(io::Error::kind),
+            Some(io::ErrorKind::PermissionDenied),
+            "the fixture this case depends on did not start the budget the way it expects"
+        );
+
+        // The same repaint, still owed, torn at the first failure's clock plus
+        // the whole budget: spent before this tear arrives, so no cleanup and
+        // no rebuild may be offered, and the session ends on the tear's own
+        // error rather than on the run's first.
+        let mut tear = TornScreen::taking(ALTERNATE_TEAR);
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut tear,
+            &mut failures,
+            t0 + FRAME_BUDGET,
+            Reconciled,
+        )
+        .expect_err("a tear past the budget is fatal");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the session left with the run's first failure instead of the tear: {err}"
+        );
+        assert!(
+            err.to_string()
+                .contains(&format!("accepted {ALTERNATE_TEAR} bytes")),
+            "the tear's own accepted count was lost: {err}"
+        );
+        assert_eq!(
+            tear.written.len(),
+            ALTERNATE_TEAR,
+            "a cleanup or rebuild was offered to an already-spent budget: {:?}",
+            String::from_utf8_lossy(&tear.written)
+        );
+        assert_eq!(reported(&err)["reason"], "partial");
+    }
+
+    #[test]
+    fn a_second_tear_on_the_owned_plane_before_a_verified_repaint_still_exhausts_the_budget() {
+        // A screen that keeps tearing is not a screen that keeps working:
+        // every recovered tear is spent on the clock the first one started,
+        // so a third one at that clock plus the budget ends the session.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        let t0 = Instant::now();
+
+        a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut TornScreen::taking(ALTERNATE_TEAR),
+            &mut failures,
+            t0,
+        )
+        .expect("the first tear is recovered");
+        let began = failures
+            .began
+            .expect("the tear did not start the budget's clock");
+
+        // The tick the recovery forces, torn too: a second failure, not a
+        // verified repaint, so it may not touch the clock.
+        let mut second = TornScreen::taking(ALTERNATE_TEAR);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut second,
+            &mut failures,
+            t0,
+            Reconciled,
+        )
+        .expect("the second tear is recovered in the same call, as the first was");
+        assert!(
+            String::from_utf8_lossy(&second.written)
+                .contains(super::super::check::RECOVERY_CLEANUP),
+            "the tick behind a recovery wrote nothing to tear, so this case proves nothing"
+        );
         assert_eq!(
             failures.began,
             Some(began),
-            "an empty alternate repaint reset a still-pending recovery's clock"
-        );
-        assert!(
-            failures.first.is_some(),
-            "an empty alternate repaint discarded a still-pending recovery's failure"
+            "a second tear before any verified repaint reset the budget's clock"
         );
         assert!(
             failures.pending_recovery,
-            "an empty alternate repaint cleared a still-pending primary recovery"
+            "a recovered second tear must still owe the next tick a verified repaint"
+        );
+
+        let err = a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut TornScreen::taking(ALTERNATE_TEAR),
+            &mut failures,
+            began + FRAME_BUDGET,
+        )
+        .expect_err("a third tear at the first tear's clock plus the whole budget is fatal");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the third tear was not charged against the first tear's own clock: {err}"
+        );
+    }
+
+    #[test]
+    fn a_torn_frame_that_takes_the_plane_is_still_fatal_with_no_recovery_attempt() {
+        // The boundary of the recovery above, pinned from the other side: the
+        // `1049h` frame is a plane transition, and a terminal that took part
+        // of one may be showing either buffer -- no rebuild is right on both.
+        // `TornScreen` heals right after the tear, so a cleanup or a rebuild
+        // offered here would land and show up in `written`.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.apply(a_change_too_big_for_the_band());
+
+        let mut torn = TornScreen::taking(ALTERNATE_TEAR);
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut torn,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect_err("a torn plane transition ends the session");
+        let written = String::from_utf8_lossy(&torn.written).into_owned();
+        assert!(
+            written.starts_with(ENTERS_ALTERNATE) && torn.written.len() == ALTERNATE_TEAR,
+            "the torn vector was not the frame that takes the plane, or something followed it: \
+             {written:?}"
+        );
+        assert!(
+            !err.to_string().contains("could not be recovered"),
+            "a recovery was attempted on a plane transition: {err}"
+        );
+        assert_eq!(reported(&err)["reason"], "partial");
+    }
+
+    #[test]
+    fn a_torn_frame_that_gives_the_plane_back_is_still_fatal_with_no_recovery_attempt() {
+        // The other transition: the `1049l` restore, which leaves the terminal
+        // on whichever buffer the fragment did -- the same reason, and the
+        // same road out.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        shell.route_bytes(b"3");
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Primary,
+            "the answer did not give the plane back, so this case proves nothing"
+        );
+
+        let mut torn = TornScreen::taking(ALTERNATE_TEAR);
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut torn,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect_err("a torn plane transition ends the session");
+        let written = String::from_utf8_lossy(&torn.written).into_owned();
+        assert!(
+            written.starts_with(LEAVES_ALTERNATE) && torn.written.len() == ALTERNATE_TEAR,
+            "the torn vector was not the restore, or something followed it: {written:?}"
+        );
+        assert!(
+            !err.to_string().contains("could not be recovered"),
+            "a recovery was attempted on a plane transition: {err}"
+        );
+        assert_eq!(reported(&err)["reason"], "partial");
+    }
+
+    #[test]
+    fn a_resume_after_a_recovered_alternate_tear_takes_the_plane_again_in_one_write() {
+        // What recovery may not disturb: the primary plane's own records. The
+        // torn repaint and its cleanup never left the borrowed plane, so the
+        // buffer the terminal saved -- and the caret it saved with it -- are
+        // exactly what they were, and a resume at this question still takes
+        // the plane back in **one** write rather than first painting a band
+        // onto a buffer nothing tore.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        a_repaint_of_the_owned_plane(
+            &mut shell,
+            &mut band,
+            &mut TornScreen::taking(ALTERNATE_TEAR),
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn repaint is recovered in one call");
+
+        band.plane_given_back();
+        shell.render.request(Reason::ExternalDamage);
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame the resume asked for");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(
+            out.calls, 1,
+            "the plane was not taken back in one write: {written:?}"
+        );
+        assert!(
+            written.starts_with(ENTERS_ALTERNATE) && written.contains("Permission needed"),
+            "the resume did not take the plane and paint the question on it: {written:?}"
+        );
+        assert!(
+            band.on_alternate(),
+            "the loop did not record the retaken plane"
         );
     }
 

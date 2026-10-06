@@ -8,8 +8,8 @@
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
 # one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
-# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 3d, 10b
-# and 23b -- against a
+# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 3d, 3e,
+# 10b and 23b -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
 # the check total is summed from what the scenarios wrote down, so neither
@@ -3398,6 +3398,363 @@ def scenario_3d(run):
         trial.modes() == trial.before, "recovery: termios byte-identical after a recovered tear"
     )
     fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 3e. a torn repaint of the alternate plane the session already owns
+# ---------------------------------------------------------------------------
+
+# The bytes that open any `?1049` sequence, take or give: what a vector that
+# moved the terminal between its two buffers would have to carry.
+PLANE_MOVE_BYTES = b"\x1b[?1049"
+
+
+def excised(trial, torn_at, cleanup_end, until=None):
+    """The capture with the torn repaint and the cleanup vector cut out of it.
+
+    `recovered_peek`'s slice from the cleanup's end would lose the `1049h` that
+    took the plane, and with it the one fact this row is about -- which buffer
+    the rebuild landed on. So the stream is kept on both sides of the tear and
+    only the two regions the oracle cannot read are removed: the torn prefix,
+    which may end inside a sequence, and the cleanup, whose `CAN` and `OSC 8`
+    its allowlist refuses. Neither carries a `?1049` -- the scenario asserts
+    that on the bytes before it reads a grid built this way -- so cutting them
+    out cannot change the plane; what it does assume is that the terminal
+    discarded the fragment, which is the parser-resync claim nothing here
+    makes. Every grid from it says so in its file.
+    """
+    captured = bytes(trial.session.captured)
+    if until is not None:
+        captured = captured[:until]
+    spliced = captured[:torn_at] + captured[cleanup_end:]
+    begins = spliced.rfind(FRAME_BEGIN_BYTES)
+    if begins >= 0 and spliced.find(FRAME_END_BYTES, begins) < 0:
+        spliced = spliced[:begins]
+    return spliced
+
+
+def excised_peek(trial, torn_at, cleanup_end, until=None):
+    return Grid(trial.rows, trial.cols).feed(excised(trial, torn_at, cleanup_end, until))
+
+
+def excised_grid(trial, torn_at, cleanup_end, label, until=None):
+    grid = excised_peek(trial, torn_at, cleanup_end, until)
+    trial.snapshots += 1
+    path = os.path.join(trial.dir, "grid-%02d-excised-%s.txt" % (trial.snapshots, label))
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "# torn prefix and cleanup vector excised; post-cleanup reconstruction, "
+            "not proof of parser resync\n"
+        )
+        handle.write(grid.snapshot())
+    return grid
+
+
+def asked_on_the_alternate_plane(run, trial, what):
+    """Asks for the large edit with this run's nonce and waits for the question.
+
+    Returns how many bytes the terminal held once the question's frame was
+    complete, which is where every later search for the repaint starts.
+    """
+    trial.send("edit the notes " + run.nonce + "\r")
+    trial.wait_for("[tool] read_file ok")
+    trial.wait_for(ALTERNATE_ENTER)
+    trial.wait_until(
+        "%s: the question to be painted on the plane it took" % what,
+        lambda _t: trial.peek().find(PERMISSION_TITLE) is not None,
+    )
+    grid = trial.grid("question-on-the-alternate-plane")
+    run.require(grid.plane == "alternate", "%s: the question is on a plane of its own" % what)
+    run.require(grid.entered_alternate == 1, "%s: the plane was taken once" % what)
+    run.require(not grid.unknown, "%s: the question emits only declared sequences" % what)
+    return len(trial.session.captured)
+
+
+def scenario_3e(run):
+    """A torn repaint of the alternate plane the session already owns: recovered
+    in the same call when the cleanup lands, fatal when it does not.
+
+    The one other vector `3d`'s recovery reaches. A question about a change too
+    big for the band is up on the plane it took; one step of the walk (`C-n`)
+    asks for a repaint of that plane, which takes no plane, gives none back and
+    scrolls nothing into a scrollback the terminal keeps -- so its whole
+    intended content is in hand when it tears. `partial-alternate-once` takes
+    half of that repaint and fails, and then answers the fixed cleanup and the
+    rebuild for real; `partial-alternate` refuses the cleanup too, so the
+    session must end on it. Neither fault can land on the `1049h` that took the
+    plane or the `1049l` that gives it back: those transitions stay contained
+    and fatal, and are not what this row drives.
+
+    **The discriminator.** The control -- release binary, nothing injected --
+    answers the same question end to end and carries this run's nonce in its
+    request and the fixture's marker on its screen. The torn sessions cannot be
+    compared with the control's bytes, because the review screen shows the
+    workspace path and every trial has its own; so each is discriminated
+    against **itself**: the rebuild is asserted to open with exactly the bytes
+    the terminal took and then finish them -- the same rows, geometry and caret
+    the torn attempt was built from -- and the recovered session's nonce, marker
+    and answer are asserted as the control's are.
+
+    **What is not claimed**: that a terminal's parser resynchronized on the torn
+    prefix. Every grid after the tear is built with the prefix and the cleanup
+    cut out (`excised`), which reconstructs what the rebuild painted and says
+    nothing about what the fragment did.
+    """
+    marker = run.marker("altrecovered")
+    before, after = fixtures.large_edit_sides()
+
+    # -- the control: the same question, answered, nothing injected -------
+    control_fixture = start_fixture(
+        run, fixtures.large_edit_then_finish(marker), name="control-gateway"
+    )
+    control = run.trial(
+        "normal-control",
+        gateway=control_fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+    run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
+    asked = asked_on_the_alternate_plane(run, control, "control")
+    control.send(b"\x0e")
+    control.wait_until(
+        "control: the walk to repaint the plane",
+        lambda _t: bytes(control.session.captured).find(FRAME_END_BYTES, asked) >= 0,
+    )
+    control.send(b"1")
+    control.wait_for(marker)
+    run.require(
+        any(run.nonce in body for body in control_fixture.bodies()),
+        "control: the nonce this run minted is in the request xfx sent",
+    )
+    control.wait_until(
+        "control: the band to be painted on the primary plane again",
+        lambda _t: control.peek().plane == "primary"
+        and control.peek().find(HINT_MODEL) is not None,
+    )
+    grid = control.grid("control-back-on-the-primary-plane")
+    run.require(grid.text().strip() != "", "control: the screen is not blank")
+    run.require(grid.find(marker) is not None, "control: the fixture's own marker is rendered")
+    run.require(not grid.unknown, "control: only declared sequences: %r" % grid.unknown)
+    run.require(read(control.notes) == after + "\n", "control: `1` let the edit through")
+    control.send(b"\x04")
+    run.require(control.session.wait_exit() == ("exited", 0), "control: Ctrl-D leaves with 0")
+    run.require(control.modes() == control.before, "control: termios byte-identical")
+    control_fixture.stop()
+
+    # -- the repaint torn once, and recovered --------------------------------
+    once_fixture = start_fixture(
+        run, fixtures.large_edit_then_finish(marker), name="recovered-gateway"
+    )
+    trial = run.trial(
+        "torn-then-recovered",
+        faulty=True,
+        fault="partial-alternate-once",
+        gateway=once_fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+    run.require(trial.modes().is_raw(), "recovery: raw mode really was entered")
+    asked = asked_on_the_alternate_plane(run, trial, "recovery")
+
+    trial.send(b"\x0e")
+
+    def recovered_and_repainted(_text):
+        captured = bytes(trial.session.captured)
+        at = captured.find(RECOVERY_CLEANUP_BYTES, asked)
+        return at >= 0 and captured.count(FRAME_END_BYTES, at) >= 2
+
+    # The tear, the cleanup, the rebuild -- and the repaint the tick behind a
+    # recovery is forced to write, which is the frame readiness comes back
+    # from. An answer typed before it lands is refused as not ready.
+    trial.wait_until(
+        "the cleanup, the rebuild and the repaint the next tick owed", recovered_and_repainted
+    )
+    captured = bytes(trial.session.captured)
+
+    cleanup_at = captured.find(RECOVERY_CLEANUP_BYTES, asked)
+    run.require(cleanup_at >= asked, "recovery: the fixed cleanup vector followed the question")
+    torn_at = captured.rfind(FRAME_BEGIN_BYTES, asked, cleanup_at)
+    run.require(
+        torn_at >= asked, "recovery: the torn vector was a repaint written after the question"
+    )
+    prefix = captured[torn_at:cleanup_at] if torn_at >= asked else b""
+    run.require(
+        len(prefix) > len(FRAME_BEGIN_BYTES),
+        "recovery: the terminal took a real part of the repaint (%d bytes)" % len(prefix),
+    )
+    run.require(
+        FRAME_END_BYTES not in prefix, "recovery: the torn repaint never completed its frame"
+    )
+    run.require(
+        PLANE_MOVE_BYTES not in prefix,
+        "recovery: the torn vector was a repaint, not a plane transition",
+    )
+    cleanup_end = cleanup_at + len(RECOVERY_CLEANUP_BYTES)
+    rebuilt = captured[cleanup_end:]
+    rebuilt_end = rebuilt.find(FRAME_END_BYTES)
+    rebuilt_end = rebuilt_end + len(FRAME_END_BYTES) if rebuilt_end >= 0 else -1
+    run.require(rebuilt_end > 0, "recovery: the rebuild is a whole frame after the cleanup")
+    run.require(
+        rebuilt.startswith(prefix) and rebuilt_end > len(prefix),
+        "recovery: the rebuild opens with exactly the bytes the terminal took and finishes them",
+    )
+    run.require(
+        b"\x1b[1;1H\x1b[2J" in rebuilt[:rebuilt_end],
+        "recovery: the rebuild erases the plane before it paints it",
+    )
+    run.require(
+        PLANE_MOVE_BYTES not in captured[torn_at:cleanup_end + max(rebuilt_end, 0)],
+        "recovery: neither the cleanup nor the rebuild moved the terminal between its planes",
+    )
+    forced = rebuilt[max(rebuilt_end, 0) :]
+    run.require(
+        forced.find(FRAME_BEGIN_BYTES) >= 0 and forced.find(FRAME_END_BYTES) >= 0,
+        "recovery: the tick behind the recovery wrote a whole repaint of its own",
+    )
+    run.require(
+        captured.count(ALTERNATE_ENTER.encode()) == 1
+        and ALTERNATE_LEAVE.encode() not in captured,
+        "recovery: the plane was taken once and not given back before the answer",
+    )
+
+    # -- the rebuilt screen, and the one the next tick painted ------------------
+    until_rebuilt = cleanup_end + max(rebuilt_end, 0)
+    grid = excised_grid(trial, torn_at, cleanup_end, "rebuilt", until=until_rebuilt)
+    run.require(grid.plane == "alternate", "recovery: the rebuild landed on the plane it tore")
+    run.require(
+        grid.entered_alternate == 1 and grid.left_alternate == 0,
+        "recovery: the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(grid.find(PERMISSION_TITLE) is not None, "recovery: the rebuild names the question")
+    for choice in ("1. Yes", "3. No (esc)"):
+        run.require(grid.find(choice) is not None, "recovery: the rebuild kept %r" % choice)
+    run.require(
+        not grid.unknown,
+        "recovery: the rebuild emits only declared sequences: %r" % grid.unknown,
+    )
+    primary = grid.primary_text()
+    run.require(
+        "read_file ok" in primary and HINT_MODEL in primary,
+        "recovery: the user's own screen is still saved behind the plane: %r" % primary,
+    )
+    repainted = excised_grid(trial, torn_at, cleanup_end, "repainted-by-the-next-tick")
+    run.require(
+        repainted.text() == grid.text() and repainted.plane == "alternate",
+        "recovery: the forced repaint shows the same question the rebuild did",
+    )
+
+    # -- still answerable, and the session goes on --------------------------
+    trial.send(b"1")
+    trial.wait_for(marker)
+    run.require(ALTERNATE_LEAVE in trial.text(), "recovery: the answer gave the plane back")
+    run.require(read(trial.notes) == after + "\n", "recovery: `1` let the edit through")
+    trial.wait_until(
+        "the band to be painted on the primary plane after the recovered question",
+        lambda _t: excised_peek(trial, torn_at, cleanup_end).plane == "primary"
+        and excised_peek(trial, torn_at, cleanup_end).find(HINT_MODEL) is not None,
+    )
+    grid = excised_grid(trial, torn_at, cleanup_end, "back-on-the-primary-plane")
+    run.require(
+        grid.entered_alternate == grid.left_alternate == 1,
+        "recovery: the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(grid.find(marker) is not None, "recovery: the fixture's own marker is rendered")
+    run.require(grid.find("beta line") is None, "recovery: the change left the user's screen")
+    run.require(not grid.unknown, "recovery: only declared sequences: %r" % grid.unknown)
+    run.require(
+        any(run.nonce in body for body in once_fixture.bodies()),
+        "recovery: the nonce this run minted is in the request xfx sent",
+    )
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "recovery: Ctrl-D leaves with 0")
+    run.require(trial.modes() == trial.before, "recovery: termios byte-identical")
+    run.require(
+        not os.path.exists(os.path.join(trial.home, ".xfx", "last-tui-error.json")),
+        "recovery: a session that recovered left no give-up report",
+    )
+    once_fixture.stop()
+
+    # -- the same tear, with the cleanup refused too ------------------------
+    fatal_fixture = start_fixture(
+        run, fixtures.large_edit_then_finish(marker), name="unrecovered-gateway"
+    )
+    torn = run.trial(
+        "torn-unrecovered",
+        faulty=True,
+        fault="partial-alternate",
+        gateway=fatal_fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+    run.require(torn.modes().is_raw(), "containment: raw mode really was entered")
+    asked = asked_on_the_alternate_plane(run, torn, "containment")
+    run.require(
+        any(run.nonce in body for body in fatal_fixture.bodies()),
+        "containment: the nonce this run minted is in the request xfx sent",
+    )
+    torn.send(b"\x0e")
+    state = torn.session.wait_exit()
+    run.require(
+        state == ("exited", 1),
+        "containment: the session left with its own error (%r)" % (state,),
+    )
+    captured = bytes(torn.session.captured)
+    text = torn.session.settled_text()
+    run.require(
+        RECOVERY_CLEANUP_BYTES not in captured,
+        "containment: the refused cleanup is not on the wire",
+    )
+    torn_at = captured.find(FRAME_BEGIN_BYTES, asked)
+    left_at = captured.find(ALTERNATE_LEAVE.encode(), torn_at if torn_at >= 0 else asked)
+    run.require(
+        left_at > torn_at >= asked, "containment: the exit gave the plane back after the tear"
+    )
+    prefix = captured[torn_at:left_at] if left_at > torn_at >= asked else b""
+    run.require(
+        len(prefix) > len(FRAME_BEGIN_BYTES) and FRAME_END_BYTES not in prefix,
+        "containment: the terminal took a real, incomplete part of the repaint (%d bytes)"
+        % len(prefix),
+    )
+    run.require(
+        prefix.count(FRAME_BEGIN_BYTES) == 1 and PLANE_MOVE_BYTES not in prefix,
+        "containment: the torn repaint was never offered again and moved no plane",
+    )
+    reported = re.search(r"accepted (\d+) bytes", text)
+    run.require(
+        reported is not None and int(reported.group(1)) == len(prefix),
+        "containment: the reported count is the number of bytes on the wire (%s vs %d)"
+        % (reported.group(1) if reported else "none", len(prefix)),
+    )
+    run.require(
+        "could not be recovered" in text,
+        "containment: the session says a recovery was tried and failed: %r" % text[-300:],
+    )
+    restore_at = captured.find(pty.RESTORE.encode(), left_at if left_at >= 0 else 0)
+    run.require(restore_at > left_at >= 0, "containment: the exit's restore followed the leave")
+    run.require(torn.modes() == torn.before, "containment: termios byte-identical")
+    run.require(
+        read(torn.notes) == before + "\n",
+        "containment: the edit did not run on a question that was never answered",
+    )
+    report_path = os.path.join(torn.home, ".xfx", "last-tui-error.json")
+    try:
+        with open(report_path, encoding="utf-8") as handle:
+            body = handle.read()
+        report = json.loads(body)
+    except (OSError, ValueError) as failure:
+        body, report = "", {}
+        run.require(False, "containment: the independent report is readable: %s" % failure)
+    run.require(
+        report.get("schema") == 1 and report.get("reason") == "partial",
+        "containment: the independent report names the tear: %r" % body,
+    )
+    run.require("accepted" not in body, "containment: the report carries no session text")
+    fatal_fixture.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -8365,6 +8722,7 @@ SCENARIOS = {
     "3b-shutdown-drain": scenario_3b,
     "3c-partial-frame-containment": scenario_3c,
     "3d-primary-band-recovery": scenario_3d,
+    "3e-alternate-repaint-recovery": scenario_3e,
     "4-raw-mode-positively-entered": scenario_4,
     "5-editor-basics": scenario_5,
     "6-soft-wrap-and-growth-cap": scenario_6,
@@ -8456,12 +8814,13 @@ export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
 # the lettered rows the drain, the counted-delivery containment, the recovery
-# that containment's own cleanup vector answers, and the mid-turn approval
-# added, then Phase 2's 13-21 and Phase 3's 22, 23, the
-# lettered row 23b, 24 and 25 -- plus 26, 26b and 27, QA-only additions not in
-# that PRD's own numbered list, for the band's growth-and-shrink layout
-# contract, the composer's own yield to a panel within it, and the recolour a
-# terminal's own background report owes the rows already on the screen. This
+# that containment's own cleanup vector answers, the same recovery for a torn
+# repaint of the alternate plane, and the mid-turn approval added, then
+# Phase 2's 13-21 and Phase 3's 22, 23, the lettered row 23b, 24 and 25 --
+# plus 26, 26b and 27, QA-only additions not in that PRD's own numbered list,
+# for the band's growth-and-shrink layout contract, the composer's own yield to
+# a panel within it, and the recolour a terminal's own background report owes
+# the rows already on the screen. This
 # list and `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
@@ -8472,6 +8831,7 @@ scenarios=(
 	3b-shutdown-drain
 	3c-partial-frame-containment
 	3d-primary-band-recovery
+	3e-alternate-repaint-recovery
 	4-raw-mode-positively-entered
 	5-editor-basics
 	6-soft-wrap-and-growth-cap

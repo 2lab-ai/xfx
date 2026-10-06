@@ -155,7 +155,8 @@ Each scenario names its oracle level. Phases match [`03-tui-port.md`](03-tui-por
 | 3 | Restore matrix | 3 | Every row of [`03-tui-port.md`](03-tui-port.md) §"Acceptance — terminal state, positively proven": normal, panic, SIGTERM/SIGHUP (assert `WIFSIGNALED`), TSTP/CONT (assert `WIFSTOPPED` while stopped), partial init, and no-SIGINT-handler. `termios` equality is asserted in every one, because only `tcsetattr` from the saved struct can produce it |
 | 3b | Shutdown drain, no deadlock | 1+2 | Quit **while a fixture is mid-stream with the UI artificially slowed**, so the `UiEvent` channel is full and the async producer is pending in `send().await` on it: the process must still exit within the deadline, the terminal must be restored, and the session log's manifest must be published and self-consistent. This is the regression test for the drain protocol. Its second half drives a **genuinely full** non-blocking screen rather than an injected failure, and what it verifies is exactly two things: the starvation ends the session **bounded** -- exit 1, inside the deadline -- and the `termios` comes back. **It does not verify which road the session left by, and must not be read as doing so.** Whether a full screen refuses a whole vector or takes a prefix of one is the kernel buffer's business and varies by platform and by run, and the failure the session reports carries no route tag: `FrameFailures::failed` hands back the first error of the run and nothing about how many there were (`src/tui/event_loop.rs`), so neither the presence nor the absence of any particular wording in this row's capture is proof of a budget expiry. The two roads are proven where they can be proven deterministically instead: the budget's own semantics by `FrameFailures`' unit cases, and the partial road on a release binary by row 3c below. One Darwin trace of this row happened to show a prefix of 1,024 bytes; that is an observation of that run's kernel buffer, not a cross-platform capacity and not a claim this row asserts |
 | 3c | A terminal that takes part of a frame | 1+2 | **Implemented** as `3c-partial-frame-containment`. The one failure a refusing screen cannot stand in for: every other restoration row fails a write that delivered **nothing**, so the terminal is where it was and the vector may be offered again, while here the terminal has really taken part of a synchronized frame. A `fault-injection` build's sink takes half of the first band frame onto the real pseudoterminal and then fails; the release build has neither the fault nor a way to ask for it. **The discriminator is split, and deliberately.** This session dies on the first band frame -- before a prompt can be typed and before a turn exists -- so the three-part nonce discriminator is driven in full against a **positive control**: the same fixture, geometry and profile with nothing injected, which renders this scenario's own marker and proves the setup really works. The torn session is then discriminated **against that control**: what the terminal took is asserted to be a real, incomplete **prefix of the very frame the control's launch paints**, the count the product reports is compared against the harness's own count of the bytes on the wire, exactly one frame is on the wire (the torn one was never offered again) and no frame was ever completed. **A cleanup-refusal fixture now makes this row's own cleanup segment fail too**, so the session ends fatally instead of restoring: the process leaves with its own error, but the restore this row used to assert going out cleanly, and the byte-identical `termios` that followed it, belong to the recovery path now tracked separately in row 3d below, not to 3c's exit. **The boundary this row does not cross**: what a terminal made of the incomplete prefix is still not something a fatal exit can show either way. This row proves **containment of the injected prefix itself** -- the torn frame is real, exact and never re-offered -- and, with its own cleanup now refused, claims nothing about restoration, parser recovery, or a restored screen. Nothing here passes by absence |
-| 3d | Partial-frame-once: the primary band's recovery, raw bytes and post-cleanup state | 1+2 | **Implemented** as `3d-primary-band-recovery` (the `partial-frame-once` in this row's name is the injected fault it drives, not the runner's id for it), tracking the primary-band recovery path 3c's cleanup-refusal fixture no longer exercises. Against the same torn-prefix setup, this row asserts the recovery's exact bytes and their order in the same call as the partial: `CAN`+`BEL`, the OSC 8 close, the SGR reset, sync mode off, autowrap off, cursor shown, then a full rebuild of the owned band -- one attempt, and a failure of that cleanup or redraw is itself fatal. It then asserts the session state **after** that cleanup completes: raw prefix bytes, control sequences, exact cleanup order, and post-cleanup Grid, input, request, response, exit and `termios`. **What this row does not prove**: its Grid is sampled only after cleanup finishes, so it shows what the rebuild painted, not that the terminal's own parser actually resynced from the partial write -- that stays open here exactly as it stays open for every other `Partial` (document, carry, clear, query, alternate screen), all of which remain fatal with no replay, unchanged by this row. 30 checks |
+| 3d | Partial-frame-once: the primary band's recovery, raw bytes and post-cleanup state | 1+2 | **Implemented** as `3d-primary-band-recovery` (the `partial-frame-once` in this row's name is the injected fault it drives, not the runner's id for it), tracking the primary-band recovery path 3c's cleanup-refusal fixture no longer exercises. Against the same torn-prefix setup, this row asserts the recovery's exact bytes and their order in the same call as the partial: `CAN`+`BEL`, the OSC 8 close, the SGR reset, sync mode off, autowrap off, cursor shown, then a full rebuild of the owned band -- one attempt, and a failure of that cleanup or redraw is itself fatal. It then asserts the session state **after** that cleanup completes: raw prefix bytes, control sequences, exact cleanup order, and post-cleanup Grid, input, request, response, exit and `termios`. **What this row does not prove**: its Grid is sampled only after cleanup finishes, so it shows what the rebuild painted, not that the terminal's own parser actually resynced from the partial write -- that stays open here exactly as it stays open for row 3e's recovery, and every `Partial` outside the two recoverable repaints (a plane transition, a document append or carry, `/clear`, the theme query, the retint) remains fatal with no replay, unchanged by this row. 30 checks |
+| 3e | A torn repaint of the alternate plane the session already owns: recovered once, fatal when its cleanup is refused | 1+2 | **Implemented** as `3e-alternate-repaint-recovery`. The other repaint whose whole intended content is in hand ([`03-tui-port.md`](03-tui-port.md) item 21's per-path table): a question about a change too big for the band is up on the plane it took, and one step of its walk (`C-n`) asks for a repaint of that plane -- no scroll, no plane transition, no native scrollback. Three sessions. A **positive control** on the release binary answers the same question end to end: the nonce is in the request it sent, the fixture's marker is on its screen, `1` lets the edit through, and `termios` is byte-identical. `partial-alternate-once` on the `fault-injection` build takes half of that first repaint and fails, then answers the fixed cleanup and the rebuild for real: the row asserts the prefix opens a frame after the question and completes none, carries no `?1049`, and is followed by the exact cleanup; that the rebuild **opens with exactly the bytes the terminal took and then finishes them** (the same rows, geometry and caret -- the discriminator a control cannot give here, since every trial's review screen shows its own workspace path); that a further whole repaint follows, the one the next tick owed; that the plane was taken once and not given back; that the rebuilt grid is on the alternate plane with the question and its choices and the user's own screen still saved behind it; that the answer is still taken -- `1` gives the plane back and lets the edit through -- with the nonce in the request, the marker rendered, exit 0, `termios` byte-identical and no give-up report. `partial-alternate` refuses the cleanup too: exit 1, no cleanup on the wire, one torn frame that never completes and is never re-offered, a reported accepted count equal to the bytes on the wire, `could not be recovered` on the terminal, the restore after the leave, `termios` byte-identical, the edit never run, and `last-tui-error.json` naming `partial`. Neither fault can land on the `1049h` that took the plane or the `1049l` that gives it back. **What this row does not prove**: every grid after the tear is rebuilt with the torn prefix and the cleanup cut out of the stream (the excised region is asserted to carry no `?1049` first), so it shows what the rebuild painted and nothing about what a terminal's parser did with the fragment. 61 checks |
 | 4 | Raw mode positively entered | 3 | `ECHO`/`ICANON`/`IEXTEN`/`ISIG` clear, `VMIN=1`, `VTIME=0`, mouse tracking absent |
 | 5 | Editor basics | 2 | Type, arrows, Home/End, word moves, Backspace/Delete; the composer grid matches the typed text; grapheme motion moves a ZWJ family as one unit |
 | 6 | Soft wrap and growth cap | 2 | A long paragraph wraps word-aware with hanging spaces; the composer stops growing at `content_bottom/2 + 1` |
@@ -204,10 +205,11 @@ transition -- is a separate in-crate test,
 not something either PTY row drives, and neither substitutes for the other
 ([`03-tui-port.md`](03-tui-port.md) item 22). Commit self-check **recovery** under an injected
 partial write (1+2) is no longer wholly planned: the containment half of that row is driven by 3c
-above, and 3d now drives recovery too, but only for the primary band's `Partial` -- in the preview
-channel only, and independently confirmed on the direct-launch tmux arm (see the
-paragraphs below). Every other `Partial` -- document, carry, clear, query, alternate screen -- is contained and
-ends the session with the diagnostic.
+above, 3d drives the primary band's recovery and 3e the recovery of a repaint of the alternate plane
+the session already owns -- the two repaints whose whole intended content is in hand -- in the
+preview channel only; the primary band's is independently confirmed on the direct-launch tmux arm
+(see the paragraphs below) and the alternate plane's is not yet. Every other `Partial` is contained
+and ends the session with the diagnostic (the per-path table below).
 Live theme switch re-tints the transcript (2) is registered as row 27 above, for the report-only half
 only: the report arrives because the harness types it, and the monitor that would let a terminal
 volunteer one is in the preview channel only; scenario 27 drives it on release binaries, and no
@@ -226,8 +228,8 @@ stay qualified rather than closed: offscreen native scrollback is not repainted,
 pending-buffer's internal location is proven only by unit test, not against a real screen. What has
 **no** row here is the monitor half itself -- the paired enable/restore across a suspend, the SIGCONT
 `?996n` query and the `997;n` reply -- and no row here drives a report a terminal sent of its own
-accord: every report in row 27 is one the harness typed. So that table's count (33 scenarios, oracle
-797/0, row 27 among them) is this suite's own local regression green and is not a qualification of
+accord: every report in row 27 is one the harness typed. So that table's count (34 scenarios, oracle
+858/0, row 27 among them) is this suite's own local regression green and is not a qualification of
 the theme monitor, nor a claim that any published build carries it.
 
 **The self-check's first half is in the preview channel, and it is deliberately not a scenario
@@ -240,20 +242,33 @@ why the claim cannot be restated as a scenario here. The scenarios above must no
 **positive** regression: the screens a correct emitter leaves, on a real terminal. A mutation test
 beside them mutates the **emitter**, which is a different question from what the terminal did with
 the bytes — so neither of the two is an injected partial write, and neither closes this row.
-**An injected partial write is now driven, and between 3c and 3d it closes the containment half of
-the row and drives recovery for the primary band, but still not the row.** Scenario 3c above puts a
-real prefix of a real frame on a real terminal and asserts what this product does about the prefix
-itself: the vector is never offered again and no frame was ever completed. With its cleanup segment
-now refused by fixture, 3c's own exit is fatal and asserts nothing further. Scenario 3d then drives
-the primary band's recovery -- the exact `CAN`+`BEL`, OSC 8 close, SGR reset, sync/autowrap off,
-cursor shown and owned-band rebuild, in the same call as the partial -- and asserts the session state
-after that cleanup: Grid, input, request, response, exit and `termios`. What neither row asserts —
-because no measurement here can — is that the terminal's own parser recovered: 3d's Grid is sampled
-only after cleanup, so it shows what the rebuild painted, not a resync proven from the terminal's
-side. So what stays planned, in full, is recovery for every `Partial` outside the primary band:
-document, carry, clear, query and alternate-screen writes are exactly as unreadable and un-replayed
-as before, and each is contained and ends the session with the diagnostic below (item 21 in
-[`03-tui-port.md`](03-tui-port.md)).
+**An injected partial write is now driven, and between 3c, 3d and 3e it closes the containment half
+of the row and drives recovery for the two repaints whose content is in hand, but still not the
+row.** Scenario 3c above puts a real prefix of a real frame on a real terminal and asserts what this
+product does about the prefix itself: the vector is never offered again and no frame was ever
+completed. With its cleanup segment now refused by fixture, 3c's own exit is fatal and asserts
+nothing further. Scenario 3d then drives the primary band's recovery -- the exact `CAN`+`BEL`, OSC 8
+close, SGR reset, sync/autowrap off, cursor shown and owned-band rebuild, in the same call as the
+partial -- and asserts the session state after that cleanup: Grid, input, request, response, exit
+and `termios`. Scenario 3e drives the same cleanup and a whole repaint of the alternate plane a
+question already owns, and its containing pair. What none of the three asserts — because no
+measurement here can — is that the terminal's own parser recovered: their grids are built only from
+what follows the cleanup (3e's with the prefix and the cleanup cut out), so they show what the
+rebuild painted, not a resync proven from the terminal's side. Path by path, with the reasons item 21
+in [`03-tui-port.md`](03-tui-port.md) gives in full:
+
+| Write | On a `Partial` | Driven by |
+|---|---|---|
+| The primary band's frame | recovered in the same call; the whole frame is in hand and nothing enters native scrollback | 3d (release binary); 3c with the cleanup refused; `src/tui/event_loop.rs` and `src/tui/frame.rs` cases |
+| A repaint of the alternate plane the session already owns | recovered in the same call; no scroll, no plane transition, no native scrollback, and the surface shares its screen with nothing | 3e (release binary, both faults); `tests/tui.rs`'s `fault-injection` PTY cases; `src/tui/event_loop.rs`, `src/tui/frame.rs` and `src/tui/check.rs` cases |
+| A plane transition (the `1049h` that takes the plane, the `1049l` that gives it back) | contained, fatal: after a torn `1049` which buffer the terminal shows is unknown | `src/tui/event_loop.rs`'s `a_torn_frame_that_takes_the_plane_…` and `a_torn_frame_that_gives_the_plane_back_…`; no fault in the release-binary harness arms on either |
+| A document append or carry | contained, fatal: a row already in native scrollback cannot be taken back, and upstream gives up the same way | `src/tui/event_loop.rs`'s `a_partial_append_…`; a carry takes the same road (`disposed`) and has no case of its own |
+| `/clear` | contained, fatal: an erased scrollback is irreversible | `src/tui/event_loop.rs`'s `a_partial_clear_…` |
+| The theme query | contained, fatal: not a repaint -- a prefix never completed the query and it moves no cell, so there is nothing to rebuild, only a re-ask | `src/tui/event_loop.rs`'s `a_partial_theme_query_…` |
+| The retint of the visible document rows | contained, fatal: its cells are in hand but its rows can hold what the terminal had before xfx ran, which the shadow does not, so only a cell replay could recover it and none is attempted | `src/tui/event_loop.rs`'s `a_recolour_the_terminal_took_part_of_…` |
+
+Each contained `Partial` is exactly as unreadable and un-replayed as before, and ends the session
+with the diagnostic below.
 
 **Independent real-terminal confirmation, 2026-10-06.** An external subagent drove frozen release
 binaries on the direct-launch tmux arm and compared every `termios` word exactly, with nothing
@@ -274,15 +289,18 @@ frame-refusal (exit 1) and a double Escape (draft cleared, exit 0) -- every `ter
 None of this establishes the terminal's own parser resync.
 
 **A diagnostic record exists beside this and does not move that boundary.** After the same
-restoration attempt, a session `event_loop::disposed` ended on either road is written,
-independently of the torn screen, as a fixed four-field `last-tui-error.json`
+restoration attempt, a session `event_loop::disposed` ended on either road -- or that
+`event_loop::recover_tear` ended because a recoverable repaint's recovery failed or was never tried
+-- is written, independently of the torn screen, as a fixed four-field `last-tui-error.json`
 (`src/tui/diagnostic.rs`; item 21 in [`03-tui-port.md`](03-tui-port.md)). It is proven by that
 module's own cases and by native, `fault-injection`-gated PTY tests plus one unconditional positive
-control in `tests/tui.rs` -- in-crate/native evidence, not a row in the table above, so this suite's
-33-scenario/797-check green is not evidence for it (the independent run above observed it on release
-binaries), and adding a tracked scenario for it is still open
-if this row is ever revisited. It names which road a session left by; it is **containment's record,
-not containment itself, and not the recovery 3d now tracks**.
+control in `tests/tui.rs` -- in-crate/native evidence. One row of the table above reads it: 3e's
+containing trial requires the `partial` record a torn alternate repaint with a refused cleanup
+leaves, and the session that recovered to leave none. That is one road of the record and not the
+record, so this suite's 34-scenario/858-check green is not evidence for the rest of it (the
+independent run above observed it on release binaries), and a tracked scenario for the rest is still
+open if this row is ever revisited. It names which road a session left by; it is **containment's
+record, not containment itself, and not the recovery 3d and 3e track**.
 
 ## Acceptance criteria per phase
 

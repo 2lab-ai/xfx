@@ -822,6 +822,25 @@ impl Band {
         self.damaged = true;
     }
 
+    /// Forces the next [`repaint_alternate`](Self::repaint_alternate) to be a
+    /// real, whole write: [`force_redraw`](Self::force_redraw)'s counterpart on
+    /// the borrowed plane, for the tick right behind a recovered tear there
+    /// ([`recover_alternate`](Self::recover_alternate)).
+    ///
+    /// The cache is the one thing that can make a repaint write nothing, and
+    /// right behind a recovery it is exactly right -- the rebuild landed and
+    /// was adopted -- so an unforced tick would find "the screen already holds
+    /// this" and write no byte. That is the one frame the tick cannot settle
+    /// for: an empty repaint proves nothing about a screen that just tore, and
+    /// it may keep an approval receipt but never mint one, so a question whose
+    /// receipt the tear took would stay unanswerable for as long as nothing on
+    /// it moved. Dropping the cache asks for no more than that: the plane, the
+    /// title and every record of the normal buffer are left as they are, which
+    /// is what keeps this narrower than [`invalidate`](Self::invalidate).
+    pub(crate) fn force_alternate_repaint(&mut self) {
+        self.alternate = None;
+    }
+
     /// The band's top row, if this band has painted one.
     pub(crate) fn painted_top(&self) -> Option<u16> {
         self.painted
@@ -1741,6 +1760,80 @@ impl Band {
         // Same captured rows, geometry and cursor; one more emit. Any error
         // here propagates as-is -- this function makes exactly one attempt.
         self.commit(out, rows, geometry, cursor)
+    }
+
+    /// Recovers from a repaint of the **alternate** plane the screen tore: the
+    /// same fixed cleanup vector [`Self::recover_primary`] writes, then the same
+    /// surface repainted whole, in this same call -- never deferred to a later
+    /// tick, and never a second attempt.
+    ///
+    /// The one other vector whose whole intended content is in hand when it
+    /// tears. A repaint of a plane this band already holds
+    /// ([`Self::repaint_alternate`]) takes no plane, gives none back, scrolls
+    /// nothing into a scrollback the terminal keeps, and paints every row of a
+    /// surface that shares its screen with nothing -- so a rebuild from the rows it was
+    /// built from is the whole of what the torn attempt meant, and not an
+    /// approximation of it. The two transitions are deliberately **not**
+    /// recoverable this way: a `1049h` or `1049l` the terminal took part of
+    /// leaves which buffer it is showing unknown, and no rebuild is right on
+    /// both.
+    ///
+    /// **`rows`, `geometry` and `cursor` are the caller's torn attempt,
+    /// unchanged**, for the reason they are in `recover_primary`.
+    ///
+    /// **The whole alternate surface is unknown afterwards, and only it.** The
+    /// cache of what that plane holds is dropped -- it is the borrowed plane's
+    /// shadow, its damage and its caret in one, since a repaint is whole and
+    /// ends on an explicit `CUP` -- so the rebuild below is a full repaint by
+    /// construction rather than an equality against a screen nobody can vouch
+    /// for. The title the terminal was told is forgotten too: it is one window
+    /// title for both buffers, and forgetting it costs only the `OSC 2` the
+    /// restore re-asserts anyway. What is **not** touched is every record of the
+    /// normal buffer -- its shadow, `damaged`, `painted` and the caret the last
+    /// primary frame left. The terminal saved that buffer and its cursor at
+    /// `1049h` and gives both back at `1049l`, and neither the torn bytes nor
+    /// the cleanup are a plane transition; forgetting the caret in particular
+    /// would read, at the transition barrier, as a primary plane owed a frame
+    /// it is not owed ([`Self::owes_primary_frame`]).
+    ///
+    /// What licenses the cleanup vector, and what it does not establish about
+    /// the terminal's own parser, is exactly as `recover_primary` says; the
+    /// vector is plane-neutral -- it carries no `?1049`
+    /// (`check::tests::the_recovery_cleanup_takes_and_gives_back_no_plane`) --
+    /// so it lands on the buffer the tear did.
+    ///
+    /// Any failure is returned as-is and is fatal to the caller; the cache is
+    /// adopted from the rebuild only once it has landed, as everywhere else.
+    pub(crate) fn recover_alternate(
+        &mut self,
+        out: &mut impl Sink,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) -> Result<(), Emit> {
+        if !self.on_alternate() {
+            return Err(Emit::rejected(io::Error::other(
+                "recover_alternate was called while the terminal is not on the alternate plane",
+            )));
+        }
+        check::preflight_recovery_cleanup(check::RECOVERY_CLEANUP.as_bytes())
+            .map_err(Emit::rejected)?;
+        out.emit(check::RECOVERY_CLEANUP.as_bytes())?;
+
+        // The cleanup vector is on the terminal: what the borrowed plane holds
+        // is unknown now, and nothing about the buffer the terminal saved is.
+        self.alternate = None;
+        self.shown_title = None;
+
+        // Same captured rows, geometry and cursor; one more emit, checked like
+        // every repaint before it is written. Any error here propagates as-is
+        // -- this function makes exactly one attempt.
+        let frame = self
+            .repaint_alternate(rows, geometry, cursor)
+            .map_err(Emit::rejected)?;
+        out.emit(frame.bytes())?;
+        self.frame_landed(&frame, geometry, cursor);
+        Ok(())
     }
 
     /// The last document row this band can still say anything about, or `None`
@@ -3293,6 +3386,211 @@ mod tests {
         assert!(
             String::from_utf8_lossy(&screen.written).starts_with(check::RECOVERY_CLEANUP),
             "the one vector that did land was not the fixed cleanup vector"
+        );
+    }
+
+    /// A band that has painted its primary frame and then taken the alternate
+    /// plane with `rows` on it, every byte of both landed, and the screen it
+    /// did it on.
+    fn on_the_alternate_plane(rows: &[String]) -> (Band, Geometry) {
+        let (mut band, geometry) = painted_primary();
+        let entered = band
+            .enter_alternate(rows, &geometry, (7, 0))
+            .expect("a vector the check accepted");
+        band.frame_landed(&entered, &geometry, (7, 0));
+        (band, geometry)
+    }
+
+    /// The other plane's surface with its marker moved: what a repaint of a
+    /// plane the band already holds is asked for.
+    fn moved_marker(rows: u16) -> Vec<String> {
+        let mut rows = screen_rows(rows);
+        rows[2] = "> moved marker".to_string();
+        rows
+    }
+
+    #[test]
+    fn recovering_a_torn_alternate_repaint_writes_the_fixed_cleanup_then_the_whole_surface_again() {
+        let (mut band, geometry) = on_the_alternate_plane(&screen_rows(24));
+        let caret_before = band.caret;
+        let painted_before = band.painted_top();
+        let shadow_before = band.shadow.clone();
+        let wanted = moved_marker(geometry.rows);
+
+        let mut screen = Counted::default();
+        band.recover_alternate(&mut screen, &wanted, &geometry, (3, 2))
+            .expect("a cleanup and a rebuild that both land is a successful recovery");
+
+        assert_eq!(
+            screen.writes, 2,
+            "recovery is the cleanup and one rebuild, each one vector"
+        );
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        let rebuilt = text
+            .strip_prefix(check::RECOVERY_CLEANUP)
+            .unwrap_or_else(|| panic!("the recovery did not lead with the cleanup: {text:?}"));
+        assert!(
+            rebuilt.starts_with(BEGIN_FRAME) && rebuilt.ends_with(END_FRAME),
+            "the rebuild is not one whole frame: {rebuilt:?}"
+        );
+        assert!(
+            rebuilt.contains(&format!("\u{1b}[1;1H{ERASE_SCREEN}")),
+            "the rebuild did not erase the plane before painting it: {rebuilt:?}"
+        );
+        for (offset, row) in wanted.iter().enumerate() {
+            assert!(
+                rebuilt.contains(&format!("\u{1b}[{};1H{row}", offset + 1)),
+                "the rebuild did not repaint row {} of the surface: {rebuilt:?}",
+                offset + 1
+            );
+        }
+        assert!(
+            !text.contains("\u{1b}[?1049"),
+            "recovering a repaint moved the terminal between planes: {text:?}"
+        );
+        assert!(band.on_alternate(), "recovery lost the plane it was on");
+        assert_eq!(
+            band.alternate,
+            Some((wanted.clone(), (3, 2))),
+            "the rebuild that landed was not adopted as what the plane holds"
+        );
+        // Nothing about the buffer the terminal saved was touched by a vector
+        // that never left the borrowed one.
+        assert_eq!(
+            band.caret, caret_before,
+            "recovery forgot the primary caret"
+        );
+        assert_eq!(
+            band.painted_top(),
+            painted_before,
+            "recovery moved the primary band's top"
+        );
+        assert!(!band.damaged, "recovery damaged the primary plane");
+        let mut owed = Vec::new();
+        assert_eq!(
+            band.shadow.diff(&shadow_before, &geometry, &mut owed),
+            0,
+            "recovery changed the primary plane's shadow"
+        );
+    }
+
+    #[test]
+    fn a_surface_the_cache_already_claimed_is_still_rebuilt_whole_by_recovery() {
+        // The tear can be of a repaint of exactly the surface the cache holds
+        // -- the forced one behind an earlier recovery is that repaint -- and a
+        // rebuild that consulted the cache would find "the screen already holds
+        // this" and write nothing after the cleanup.
+        let rows = screen_rows(24);
+        let (mut band, geometry) = on_the_alternate_plane(&rows);
+
+        let mut screen = Counted::default();
+        band.recover_alternate(&mut screen, &rows, &geometry, (7, 0))
+            .expect("a successful recovery");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        let rebuilt = text
+            .strip_prefix(check::RECOVERY_CLEANUP)
+            .expect("the cleanup first");
+        assert!(
+            rebuilt.contains(ERASE_SCREEN) && rebuilt.contains("screen row 23"),
+            "recovery trusted a cache the tear made worthless: {rebuilt:?}"
+        );
+    }
+
+    #[test]
+    fn recover_alternate_rejects_a_call_while_the_terminal_is_not_on_the_alternate_plane() {
+        let (mut band, geometry) = painted_primary();
+        let mut screen = Counted::default();
+        let failure = band
+            .recover_alternate(&mut screen, &screen_rows(geometry.rows), &geometry, (7, 0))
+            .expect_err("recovery must refuse a screen that is not on the alternate plane");
+        assert!(
+            matches!(failure, Emit::Rejected(_)),
+            "the wrong-plane guard was not reported as a rejection: {failure:?}"
+        );
+        assert_eq!(screen.writes, 0, "the wrong-plane guard wrote something");
+    }
+
+    #[test]
+    fn recover_alternate_is_fatal_when_the_cleanup_vector_is_refused() {
+        let rows = screen_rows(24);
+        let (mut band, geometry) = on_the_alternate_plane(&rows);
+
+        let failure = band
+            .recover_alternate(
+                &mut Refuses,
+                &moved_marker(geometry.rows),
+                &geometry,
+                (3, 2),
+            )
+            .expect_err("a refused cleanup vector must not be treated as recovered");
+        assert!(
+            matches!(failure, Emit::ZeroProgress(_)),
+            "a wholly refused cleanup vector was not reported as zero progress: {failure:?}"
+        );
+        // Nothing landed, so nothing this band believes changed either.
+        assert_eq!(
+            band.alternate,
+            Some((rows, (7, 0))),
+            "a cleanup vector that never landed still changed what the plane is believed to hold"
+        );
+    }
+
+    #[test]
+    fn recover_alternate_is_fatal_when_the_rebuild_is_refused_after_the_cleanup_lands() {
+        let (mut band, geometry) = on_the_alternate_plane(&screen_rows(24));
+
+        let mut screen = WorksThenRefuses {
+            successes: 1,
+            written: Vec::new(),
+        };
+        let failure = band
+            .recover_alternate(&mut screen, &moved_marker(geometry.rows), &geometry, (3, 2))
+            .expect_err("a rebuild the screen refused must not be treated as recovered");
+        assert!(
+            matches!(failure, Emit::ZeroProgress(_)),
+            "a wholly refused rebuild was not reported as zero progress: {failure:?}"
+        );
+        assert_eq!(
+            screen.written,
+            check::RECOVERY_CLEANUP.as_bytes(),
+            "the one vector that did land was not the fixed cleanup vector"
+        );
+        assert_eq!(
+            band.alternate, None,
+            "a rebuild that never landed was adopted as what the plane holds"
+        );
+    }
+
+    #[test]
+    fn a_forced_alternate_repaint_writes_the_surface_the_cache_says_is_already_there() {
+        // The tick behind a recovered tear: the cache is right, and a repaint
+        // that consulted it would be empty -- which proves nothing about a
+        // screen that just tore. Forced, the same surface is written whole,
+        // and nothing about the primary plane moves.
+        let rows = screen_rows(24);
+        let (mut band, geometry) = on_the_alternate_plane(&rows);
+        assert!(
+            band.repaint_alternate(&rows, &geometry, (7, 0))
+                .expect("a vector the check accepted")
+                .bytes()
+                .is_empty(),
+            "the cache did not make an unchanged repaint empty, so this case proves nothing"
+        );
+        let caret_before = band.caret;
+
+        band.force_alternate_repaint();
+        let frame = band
+            .repaint_alternate(&rows, &geometry, (7, 0))
+            .expect("a vector the check accepted");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains(ERASE_SCREEN) && text.contains("screen row 23"),
+            "a forced repaint was not a whole one: {text:?}"
+        );
+        assert!(band.on_alternate(), "forcing a repaint gave the plane back");
+        assert_eq!(
+            band.caret, caret_before,
+            "forcing a repaint forgot the primary caret"
         );
     }
 

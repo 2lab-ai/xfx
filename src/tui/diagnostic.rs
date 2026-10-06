@@ -29,15 +29,17 @@ use crate::config::RuntimeConfig;
 use crate::provider::profile;
 
 /// Why the session ended on this error -- marked by `event_loop::disposed`
-/// for most emits, and by `event_loop::commit_band`'s own primary-plane
-/// recovery arm for the one kind it handles itself -- the one fact
-/// [`report`] is allowed to add to what the original error already says.
+/// for most emits, and by `event_loop::recover_tear` for the two torn
+/// repaints it handles itself (the primary band's frame and a repaint of the
+/// owned alternate plane) -- the one fact [`report`] is allowed to add to
+/// what the original error already says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reason {
     /// The deadline ended the run with no *currently* unrepaired torn frame
     /// -- the screen may have refused every vector outright, or an earlier
     /// tear in this same run may already have been repaired
-    /// (`Band::recover_primary`); either way, nothing torn is still open.
+    /// (`Band::recover_primary`, `Band::recover_alternate`); either way,
+    /// nothing torn is still open.
     Exhausted,
     /// A vector went out to the terminal in part and the session ended
     /// before any repair of it completed -- none attempted, one attempted
