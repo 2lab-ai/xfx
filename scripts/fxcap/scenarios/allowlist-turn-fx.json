@@ -1,0 +1,5 @@
+[
+ {"delayMs":50,"chunks":["Ready."]},
+ {"tool":{"name":"shell","input":{"request":{"action":"run","command":"printf allowed-by-rule","yield_time_ms":30000}}}},
+ {"delayMs":50,"chunks":["Ran it."]}
+]
