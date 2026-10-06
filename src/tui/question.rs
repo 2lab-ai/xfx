@@ -1715,7 +1715,10 @@ mod tests {
         // `blocking_recv` on an empty channel here would deadlock instead.
         harness
             .events_tx
-            .blocking_send(UiEvent::Notice("holding the one permit".into()))
+            .blocking_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "",
+                "holding the one permit",
+            )))
             .unwrap();
         let answers = harness.request_while(|events_rx, control_tx, _cancel| {
             std::thread::sleep(Duration::from_millis(20));
@@ -1747,7 +1750,10 @@ mod tests {
         let mut harness = Harness::new(1);
         harness
             .events_tx
-            .blocking_send(UiEvent::Notice("holding the one permit".into()))
+            .blocking_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "",
+                "holding the one permit",
+            )))
             .unwrap();
         let answers = harness.request_while(|events_rx, control_tx, cancel| {
             // Neither end goes away: the receiver is held and never read, and

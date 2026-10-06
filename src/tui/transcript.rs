@@ -45,6 +45,7 @@ use std::collections::VecDeque;
 
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::notice::Tone;
 use super::theme::Palette;
 use super::wrap;
 
@@ -68,8 +69,14 @@ pub(crate) enum Role {
     /// since a provider's escapes are already spaced at the channel
     /// (`super::bridge`'s `inert`).
     Plain,
-    /// One of xfx's own lines about the session.
+    /// One of xfx's own lines about the session: a notice's body, and the
+    /// lines that are not notices yet (the tool rows).
     Notice,
+    /// A notice's topic and its colon, in the colour its tone gives the
+    /// label (`noticeLabelStyle`, `transcript_blocks.zig:1707-1716`). The
+    /// glyph in front of it is the line's gutter ([`Gutter::Head`]), painted
+    /// in the same colour.
+    Label(Tone),
     /// Upstream's quiet rows: the turn summary under an answer, in the
     /// palette's dim foreground (`theme.zig`, `dim`).
     Dim,
@@ -86,6 +93,7 @@ impl Role {
         match self {
             Role::Plain => None,
             Role::Notice => Some(palette.notice()),
+            Role::Label(tone) => Some(tone.label(palette)),
             Role::Dim => Some(palette.dim()),
         }
     }
@@ -133,6 +141,23 @@ impl Roles {
         }
     }
 
+    /// Records that the next bytes of the tail are what `range` of `source`
+    /// is, run by run.
+    fn extend_from(&mut self, source: &Roles, range: std::ops::Range<usize>) {
+        let mut begin = 0usize;
+        for span in &source.spans {
+            let low = begin.max(range.start);
+            let high = span.end.min(range.end);
+            if low < high {
+                self.extend(high - low, span.role);
+            }
+            begin = span.end;
+            if begin >= range.end {
+                break;
+            }
+        }
+    }
+
     /// How many bytes are described.
     fn len(&self) -> usize {
         self.spans.last().map_or(0, |span| span.end)
@@ -176,6 +201,26 @@ impl Roles {
             Some(_) => None,
             // Past every span: plain to the end.
             None => Some(Role::Plain),
+        }
+    }
+}
+
+/// What the bytes of one queued push mean: one role for all of them -- the
+/// stream's case, which costs nothing to carry -- or a run per role, for a line
+/// xfx composed out of parts (a notice's label and its body).
+#[derive(Clone, Copy)]
+enum Source<'a> {
+    One(Role),
+    Runs(&'a Roles),
+}
+
+impl Source<'_> {
+    /// Records `range` of the push's bytes into `roles`, in the role(s) the
+    /// push gave them.
+    fn extend(self, roles: &mut Roles, range: std::ops::Range<usize>) {
+        match self {
+            Source::One(role) => roles.extend(range.len(), role),
+            Source::Runs(runs) => roles.extend_from(runs, range),
         }
     }
 }
@@ -287,6 +332,24 @@ pub(crate) enum Gutter {
     Rail,
     /// Two blank columns.
     Indent,
+    /// A notice's: its glyph and a space in front of the **first** row, in
+    /// the label's colour, and two blank columns in front of every row after
+    /// it -- the rows the first line wraps onto and every line after it.
+    ///
+    /// Upstream composes `<glyph> <topic>: <body>` as one logical line, wraps
+    /// it at the screen's width and indents every continuation row by two
+    /// (`renderSemanticNotice`, `transcript_blocks.zig:1758-1800`;
+    /// `noticeContinuationIndent`, `:1718-1725`). Every glyph is one cell
+    /// (`super::notice::Tone::glyph`), so the glyph and its space are exactly
+    /// a two-column gutter: the text wrapped at `cols - 2` behind it is the
+    /// same rows as upstream's line wrapped at `cols`, with the glyph standing
+    /// where the indent stands on the rows below it.
+    ///
+    /// **One-shot.** Only the first row of the next line carries the glyph;
+    /// once that line has ended -- or a freeze has dropped its first row --
+    /// the gutter is [`Gutter::Indent`] until the next one is queued
+    /// ([`Self::continued`]).
+    Head(Tone),
 }
 
 impl Gutter {
@@ -294,17 +357,39 @@ impl Gutter {
     pub(crate) fn width(self) -> u16 {
         match self {
             Gutter::None => 0,
-            Gutter::Rail | Gutter::Indent => 2,
+            Gutter::Rail | Gutter::Indent | Gutter::Head(_) => 2,
         }
     }
 
-    /// What every row of the line opens with. Self-contained: whatever it
+    /// What the first row of the line opens with. Self-contained: whatever it
     /// opens it closes, so the text's own sequences start from a clean pen.
     fn prefix(self, palette: Palette) -> String {
         match self {
             Gutter::None => String::new(),
             Gutter::Rail => format!("{}\u{2503}{} ", palette.hint(), palette.reset()),
             Gutter::Indent => "  ".to_string(),
+            // The space inside the run, as upstream's label is: one run of one
+            // colour from the glyph to the colon, so a capture reads the label
+            // as the single span upstream's does.
+            Gutter::Head(tone) => {
+                format!(
+                    "{}{} {}",
+                    tone.label(palette),
+                    tone.glyph(),
+                    palette.reset()
+                )
+            }
+        }
+    }
+
+    /// The gutter the rows **after** this line's first one carry.
+    ///
+    /// Itself for every gutter but a notice's head, whose glyph belongs to one
+    /// row only.
+    fn continued(self) -> Gutter {
+        match self {
+            Gutter::Head(_) => Gutter::Indent,
+            other => other,
         }
     }
 }
@@ -321,6 +406,10 @@ enum Op {
     /// This text arrived, and what it is. Never empty: an operation that adds
     /// no bytes would ask the terminal for nothing and is not queued at all.
     Push(String, Role),
+    /// The same for a text made of runs that mean different things, with the
+    /// runs beside it ([`Transcript::queue_push_runs`]). One operation, so the
+    /// line it writes lands once rather than once per part.
+    Runs(String, Roles),
     /// The line ended. Carries no bytes of its own and is queued anyway,
     /// because it is a **state transition**: the line it closes stops being
     /// rewritable, and the text after it starts a row of its own.
@@ -391,6 +480,17 @@ pub(crate) struct Transcript {
     /// written; what it can no longer do is decide a row the terminal is
     /// given.
     open: bool,
+    /// Whether the document ends on a **blank row**, or holds nothing at all,
+    /// once everything queued has landed.
+    ///
+    /// The other projection a caller asks about the document it is about to
+    /// write after, and for the same reason [`Self::open`] is one: a notice
+    /// wants one blank row above it (`fx-basic-40x120-version-trailing-space`:
+    /// two notices in a row share one), and whether the row above already is
+    /// one is a question about the text queued so far, not about what the
+    /// terminal has. `true` for a fresh transcript, so the first thing written
+    /// after a launch or a `/clear` is not pushed down a row by nothing.
+    blank: bool,
     /// Whether the last non-empty push ended on a carriage return.
     ///
     /// A CRLF that arrives in two pieces would otherwise be two line breaks:
@@ -434,6 +534,7 @@ impl Transcript {
             painted: 0,
             queue: VecDeque::new(),
             open: false,
+            blank: true,
             split_crlf: false,
             gutter: Gutter::None,
             block: false,
@@ -491,6 +592,57 @@ impl Transcript {
         // the row the next text starts on is the line this push opened, and it
         // is a row of the screen as soon as the push lands.
         self.open = true;
+        // The line this push leaves open is empty exactly when the push ended
+        // on a break: that row is on the screen, and it is blank.
+        self.blank = body.ends_with('\n');
+        true
+    }
+
+    /// Queues text made of runs that mean different things -- a notice's label
+    /// and its body -- as **one** operation, and says whether it asks for
+    /// anything.
+    ///
+    /// One push of the whole rather than one per run because each push is an
+    /// append, and an append rewrites the line it lengthens: three pushes for
+    /// `✗ command:`, ` ` and the body would write the same row three times.
+    ///
+    /// Each run is normalized on its own, so a CR that ends one run and an LF
+    /// that opens the next are two breaks rather than one; the caller is xfx
+    /// composing its own words at a label's edge, not a stream cut at an
+    /// arbitrary byte, which is what [`Self::queue_push`] is for. The carry a
+    /// stream left is honoured exactly as there.
+    pub(crate) fn queue_push_runs(&mut self, runs: &[(&str, Role)]) -> bool {
+        let mut body = String::new();
+        let mut roles = Roles::default();
+        for (text, role) in runs {
+            let normalized = normalize(text);
+            roles.extend(normalized.len(), *role);
+            body.push_str(&normalized);
+        }
+        let mut raw = runs
+            .iter()
+            .map(|(text, _)| *text)
+            .filter(|text| !text.is_empty());
+        let Some(first) = raw.next() else {
+            return false;
+        };
+        let last = raw.next_back().unwrap_or(first);
+        let carried = self.split_crlf && first.starts_with('\n');
+        self.split_crlf = last.ends_with('\r');
+        if carried && body.starts_with('\n') {
+            body.remove(0);
+            roles.trim_front(1);
+        }
+        if body.is_empty() {
+            return false;
+        }
+        // As for a single push: text never continues a block.
+        if self.block_open {
+            self.queue_end_line();
+        }
+        self.open = true;
+        self.blank = body.ends_with('\n');
+        self.queue.push_back(Op::Runs(body, roles));
         true
     }
 
@@ -516,6 +668,12 @@ impl Transcript {
         self.split_crlf = false;
         let blank_row = !self.open;
         self.queue.push_back(Op::EndLine);
+        // A line with nothing open is the blank row this end writes. An open
+        // one ends as whatever it holds, which [`Self::queue_push`] already
+        // said: blank when the push that opened it ended on a break.
+        if blank_row {
+            self.blank = true;
+        }
         self.open = false;
         self.block_open = false;
         blank_row
@@ -546,6 +704,10 @@ impl Transcript {
         if self.open && !self.block_open {
             self.queue_end_line();
         }
+        // The document ends as the block's last row does: a tool group's is
+        // the blank row it ends on, so a notice written under it does not
+        // grow a second one ([`Self::ends_blank`]).
+        self.blank = rows.last().is_some_and(String::is_empty);
         self.queue.push_back(Op::Block(rows));
         self.open = true;
         self.block_open = true;
@@ -570,6 +732,14 @@ impl Transcript {
     // rows the terminal has so far.
     pub(crate) fn open_line(&self) -> bool {
         self.open
+    }
+
+    /// Whether the document ends on a blank row -- or is empty -- once
+    /// everything queued has landed ([`Self::blank`]).
+    // `super::shell::Shell::write_notice` is the caller: a notice has one blank
+    // row above it, and two notices in a row share the one between them.
+    pub(crate) fn ends_blank(&self) -> bool {
+        self.blank
     }
 
     /// Whether the document is owed anything at all.
@@ -654,7 +824,8 @@ impl Transcript {
     /// queue is empty.
     fn prepare_front(&self, palette: Palette) -> Option<Prepared> {
         match self.queue.front()? {
-            Op::Push(body, role) => Some(self.prepare_push(body, *role, palette)),
+            Op::Push(body, role) => Some(self.prepare_push(body, Source::One(*role), palette)),
+            Op::Runs(body, runs) => Some(self.prepare_push(body, Source::Runs(runs), palette)),
             Op::EndLine => Some(self.prepare_end_line(palette)),
             Op::Gutter(gutter) => Some(Prepared {
                 append: Append::nothing(),
@@ -719,7 +890,7 @@ impl Transcript {
     /// cost, and nothing here is a timing or complexity guarantee: the wall
     /// clock belongs to `scripts/check-tui-preflight-cost.sh`, and what the
     /// cases in this module pin is the number of rows an operation produces.
-    fn prepare_push(&self, body: &str, role: Role, palette: Palette) -> Prepared {
+    fn prepare_push(&self, body: &str, source: Source<'_>, palette: Palette) -> Prepared {
         let painted = self.painted;
         let mut tail = self.tail.clone();
         // Beside the committed spans for the reason the tail is cloned: a write
@@ -732,29 +903,41 @@ impl Transcript {
         // first segment always exists and always joins the tail.
         let first = segments.next().unwrap_or_default();
         tail.push_str(first);
-        roles.extend(first.len(), role);
+        source.extend(&mut roles, 0..first.len());
+        // Where the next segment begins in `body`: past this one and its break.
+        let mut offset = first.len() + 1;
+        let mut gutter = self.gutter;
         for next in segments {
             // Everything before the break is a finished line. Its rows are
             // written once, here, and never again.
-            rows.append(&mut texts(&tail, &roles, self.cols, self.gutter, palette));
+            rows.append(&mut texts(&tail, &roles, self.cols, gutter, palette));
+            // A notice's glyph went with the line it headed.
+            gutter = gutter.continued();
             // The line is over, so its offsets are too: the text after the
             // break starts a row of its own and a span table of its own.
             tail.clear();
             roles.clear();
             tail.push_str(next);
-            roles.extend(next.len(), role);
+            source.extend(&mut roles, offset..offset + next.len());
+            offset += next.len() + 1;
         }
-        let mut last = texts(&tail, &roles, self.cols, self.gutter, palette);
+        let mut last = texts(&tail, &roles, self.cols, gutter, palette);
         let mut open_rows = last.len();
         rows.append(&mut last);
         // After the append is built, because what is frozen is what the *next*
         // push may no longer rewrite; this one has already said what it owes.
-        freeze(
+        let froze = freeze(
             &mut tail,
             &mut roles,
             &mut open_rows,
-            inner(self.cols, self.gutter),
+            inner(self.cols, gutter),
         );
+        if froze {
+            // The row a notice's glyph stood on is the terminal's now, and the
+            // tail this keeps begins on a continuation row: re-wrapped as a
+            // head, it would grow a second glyph.
+            gutter = gutter.continued();
+        }
 
         Prepared {
             roles,
@@ -767,7 +950,7 @@ impl Transcript {
             },
             tail,
             painted: open_rows,
-            gutter: self.gutter,
+            gutter,
             block: false,
             block_frozen: 0,
         }
@@ -799,7 +982,8 @@ impl Transcript {
             tail: String::new(),
             roles: Roles::default(),
             painted: 0,
-            gutter: self.gutter,
+            // The line a notice's glyph headed is over.
+            gutter: self.gutter.continued(),
             block: false,
             block_frozen: 0,
         }
@@ -921,17 +1105,21 @@ fn inner(cols: u16, gutter: Gutter) -> u16 {
 /// The alternative -- ending the line early -- was rejected: a break the
 /// provider did not write lands in the middle of a row, and the answer grows a
 /// short line every few thousand characters.
-fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16) {
+///
+/// Says whether it dropped anything: a line whose first row is no longer held
+/// here is a line whose next re-wrap starts on a continuation row
+/// ([`Gutter::continued`]).
+fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16) -> bool {
     if *open_rows <= MAX_TAIL_ROWS {
-        return;
+        return false;
     }
     let rows = wrap::wrap(tail, cols);
     let Some(last) = rows.last() else {
-        return;
+        return false;
     };
     let kept = last.start;
     if kept == 0 {
-        return;
+        return false;
     }
     tail.drain(..kept);
     // With the tail and by the same offset, because the spans describe *these*
@@ -944,6 +1132,7 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
     // renderer treating unpainted rows as settled, the silent loss this whole
     // path is counted in `usize` to avoid.
     *open_rows = wrap::wrap(tail, cols).len();
+    true
 }
 
 /// `text`, wrapped, as the strings an append writes -- each row painted in the
@@ -967,12 +1156,21 @@ fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette)
     if gutter == Gutter::None {
         return rows;
     }
-    let prefix = gutter.prefix(palette);
+    let head = gutter.prefix(palette);
+    let rest = gutter.continued();
+    let continuation = rest.prefix(palette);
     rows.into_iter()
+        .enumerate()
         // The indent goes only where there is something to indent, as
         // upstream's does (`assistant_wrap.zig:390-407`); the rail is on every
-        // row of the card, blank ones included.
-        .map(|row| {
+        // row of the card, blank ones included, and a notice's glyph is on its
+        // first row whatever that row holds.
+        .map(|(index, row)| {
+            let (prefix, gutter) = if index == 0 {
+                (&head, gutter)
+            } else {
+                (&continuation, rest)
+            };
             if gutter == Gutter::Indent && row.is_empty() {
                 row
             } else {
@@ -2686,5 +2884,156 @@ mod tests {
             appends[0].rows[0], "row 10",
             "a frozen row was written again"
         );
+    }
+
+    /// What a notice's label is painted in on the dark palette, literal: the
+    /// outcome grey (`theme.zig:86-88`).
+    const LABEL_DARK: &str = "\u{1b}[38;5;252m";
+
+    #[test]
+    fn a_notice_head_puts_the_glyph_on_its_first_row_and_two_columns_on_the_rest() {
+        // `renderSemanticNotice` (`transcript_blocks.zig:1758-1800`): the line is
+        // `✗ command: Unknown command. Try /help.`, wrapped at the screen's
+        // width, every continuation row indented by two. At 20 columns the
+        // text behind the glyph has 18, so it breaks after `Unknown` and after
+        // `Try` -- exactly where upstream's 20-column line breaks.
+        let mut transcript = Transcript::new(20);
+        transcript.queue_gutter(Gutter::Head(Tone::Error));
+        // One operation for the label and the body, as the shell queues it.
+        assert!(transcript.queue_push_runs(&[
+            ("command:", Role::Label(Tone::Error)),
+            (" ", Role::Notice),
+            ("Unknown command. Try /help.", Role::Notice),
+        ]));
+        transcript.queue_end_line();
+        transcript.queue_gutter(Gutter::None);
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            appends
+                .iter()
+                .filter(|append| !append.rows.is_empty())
+                .count(),
+            1,
+            "the notice's line was written more than once: {appends:?}"
+        );
+        assert_eq!(
+            screen(&appends),
+            vec![
+                format!(
+                    "{LABEL_DARK}\u{2717} {RESET}{LABEL_DARK}command:{RESET}\
+                     {NOTICE_DARK} Unknown {RESET}"
+                ),
+                format!("  {NOTICE_DARK}command. Try {RESET}"),
+                format!("  {NOTICE_DARK}/help.{RESET}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_notice_heads_one_line_and_the_lines_after_it_are_continuations() {
+        // A multi-line body (`* status: model=…` and its `k=v` rows) is one
+        // head and then rows two columns in: the glyph is the first row's
+        // only, however the lines arrive -- in one push or one per line.
+        for chunks in [
+            &["version:", " 1\nsecond\n\nthird"][..],
+            &["version:", " 1", "\nsecond", "\n", "\nthird"][..],
+        ] {
+            let mut transcript = Transcript::new(40);
+            transcript.queue_gutter(Gutter::Head(Tone::Neutral));
+            for chunk in chunks {
+                let role = if chunk.ends_with(':') {
+                    Role::Label(Tone::Neutral)
+                } else {
+                    Role::Notice
+                };
+                transcript.queue_push(chunk, role);
+            }
+            transcript.queue_end_line();
+            transcript.queue_gutter(Gutter::None);
+            transcript.queue_push("after", Role::Plain);
+            transcript.queue_end_line();
+            let shown: Vec<String> = screen(&drain(&mut transcript, DARK_256))
+                .iter()
+                .map(|row| strip(row))
+                .collect();
+            assert_eq!(
+                shown,
+                vec!["* version: 1", "  second", "", "  third", "after"],
+                "{chunks:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_frozen_notice_line_does_not_grow_a_second_glyph() {
+        // The freeze drops the rows a line can no longer change, and the first
+        // one -- the glyph's -- goes with them. What the line keeps begins on a
+        // continuation row, so a re-wrap of it is indented, not headed.
+        let mut transcript = Transcript::new(6);
+        transcript.queue_gutter(Gutter::Head(Tone::Neutral));
+        drain(&mut transcript, DARK_256);
+        transcript.push_as(&"x".repeat(4 * (MAX_TAIL_ROWS + 1)), Role::Notice, DARK_256);
+        assert_eq!(transcript.tail_rows(), 1, "the tail was not frozen");
+        let rows = transcript.push_as("y", Role::Notice, DARK_256).rows;
+        assert_eq!(
+            rows,
+            vec![
+                format!("  {NOTICE_DARK}xxxx{RESET}"),
+                format!("  {NOTICE_DARK}y{RESET}")
+            ]
+        );
+    }
+
+    #[test]
+    fn whether_the_document_ends_on_a_blank_row_is_asked_of_the_queue() {
+        // The projection a notice reads to decide whether it needs a blank row
+        // above it: two notices in a row share the one between them.
+        let mut transcript = Transcript::new(80);
+        assert!(
+            transcript.ends_blank(),
+            "nothing written is not a row to put a gap under"
+        );
+        transcript.queue_push("a line", Role::Notice);
+        transcript.queue_end_line();
+        assert!(!transcript.ends_blank(), "a line of text read as blank");
+        transcript.queue_end_line();
+        assert!(transcript.ends_blank(), "the blank row was not counted");
+        // A push that ends on a break leaves the row it opened empty, and
+        // ending that row is ending a blank one.
+        transcript.queue_push("an answer\n", Role::Plain);
+        transcript.queue_end_line();
+        assert!(transcript.ends_blank());
+        transcript.queue_push("more", Role::Plain);
+        assert!(!transcript.ends_blank());
+    }
+
+    /// The document a run of appends leaves, as the renderer would: each one
+    /// rewrites the rows its tail already had and scrolls in the rest.
+    fn screen(appends: &[Append]) -> Vec<String> {
+        let mut document: Vec<String> = Vec::new();
+        for append in appends {
+            let held = append.rows.len() - append.scroll;
+            document.truncate(document.len() - held);
+            document.extend(append.rows.iter().cloned());
+        }
+        document
+    }
+
+    /// A row with every sequence taken out of it.
+    fn strip(row: &str) -> String {
+        let mut out = String::new();
+        let mut chars = row.chars();
+        while let Some(character) = chars.next() {
+            if character == '\u{1b}' {
+                for terminator in chars.by_ref() {
+                    if terminator == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            out.push(character);
+        }
+        out
     }
 }

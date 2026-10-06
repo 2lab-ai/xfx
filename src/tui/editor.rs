@@ -386,6 +386,7 @@ impl Editor {
             | Action::Eof
             | Action::Redraw
             | Action::Tab
+            | Action::BackTab
             | Action::Undo
             | Action::Redo
             | Action::Yank

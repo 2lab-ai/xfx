@@ -30,7 +30,8 @@ pub(crate) const INITIAL_INPUT_ROWS: u16 = 1;
 /// The shortest screen a band fits on: one composer row, the rule, a hint row,
 /// and four rows of document left to be worth drawing over -- which is also the
 /// shortest screen on which a running turn's row and a one-row menu between its
-/// two rules still fit together ([`super::picker`]'s reserve).
+/// two rules still fit together ([`super::picker`]'s budget, upstream's
+/// `inlinePickerRowBudget`, gives a menu one row on any screen this short).
 pub(crate) const MIN_ROWS: u16 = 7;
 
 /// The narrowest screen a band fits on.

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ sessionzz
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 0  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+No commands found.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

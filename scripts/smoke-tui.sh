@@ -130,7 +130,13 @@ rather than being shrugged at by a permissive emulator and noticed by a user.
 What is modelled, and nothing else:
 
 * `CUP` (`CSI row ; col H`), `ED` (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
-* `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on
+* `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on --
+  the foreground colour in `attrs` and the text attributes (bold, dim, italic,
+  underline, strike) beside it in `styles`, because the vocabulary is
+  `src/tui/pacer.rs::is_palette_sgr`'s: groups of a reset or the default
+  foreground (`0`, `39`), a text attribute or its close
+  (`1 2 3 4 9 22 23 24 29`), or one foreground colour (`38;5;n`,
+  `38;2;r;g;b`). One group outside it and the whole sequence is a finding
 * `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
   output), `?25` (cursor visibility), `?7` (autowrap -- xfx turns it **off**,
   which is why the wrap below is not the usual one), `?2004` (bracketed paste),
@@ -292,8 +298,15 @@ class Grid:
         self.rows, self.cols = rows, cols
         self.cells = [[" "] * cols for _ in range(rows)]
         self.attrs = [[""] * cols for _ in range(rows)]
+        # The text attributes each cell was written with, as the sorted SGR
+        # numbers that are on (`"1"` bold, `"2"` dim, `"1;3"` bold italic) and
+        # `""` for none. Beside `attrs` rather than folded into it, so every
+        # assertion about a colour stays an assertion about a colour: a bold
+        # card and a plain row in the same grey are the same foreground.
+        self.styles = [[""] * cols for _ in range(rows)]
         self.row = self.col = 0
         self.sgr = ""
+        self.style = ""
         self.autowrap = True
         self.unknown = []
         # Which of the terminal's two buffers is on the screen: "primary" is the
@@ -398,9 +411,11 @@ class Grid:
                 self.col = self.cols - width
         self.cells[self.row][self.col] = character
         self.attrs[self.row][self.col] = self.sgr
+        self.styles[self.row][self.col] = self.style
         for offset in range(1, width):
             self.cells[self.row][self.col + offset] = ""
             self.attrs[self.row][self.col + offset] = self.sgr
+            self.styles[self.row][self.col + offset] = self.style
         self.col += width
 
     def _newline(self):
@@ -415,8 +430,10 @@ class Grid:
                 self.scrollback.append("".join(leaving).rstrip())
             del self.scrollback[:-SCROLLBACK_ROWS]
             self.attrs.pop(0)
+            self.styles.pop(0)
             self.cells.append([" "] * self.cols)
             self.attrs.append([""] * self.cols)
+            self.styles.append([""] * self.cols)
         else:
             self.row += 1
 
@@ -475,24 +492,62 @@ class Grid:
             self.title = argument
 
     def _sgr(self, params, match):
-        """One `SGR`, against the palette `src/tui/theme.rs` actually emits.
+        """One `SGR`, against the vocabulary `src/tui/pacer.rs` actually emits.
 
         The narrow question, not the SGR grammar: what a *row* may carry is a
-        256-colour foreground, a direct-colour foreground, and the reset that
-        ends them (`src/tui/pacer.rs::is_palette_sgr`). An emulator that took
-        the whole vocabulary would accept a band that had started to blink, to
-        conceal a row, or to paint a background across the screen.
+        256-colour or direct-colour foreground, the five text attributes the
+        markdown presenter and the card use (bold, dim, italic, underline,
+        strike) with their closes, and the resets that end them
+        (`src/tui/pacer.rs::is_palette_sgr`, mirrored by `src/tui/check.rs`'s
+        `wire_color`). An emulator that took the whole vocabulary would accept
+        a band that had started to blink, to reverse, to conceal a row, or to
+        paint a background across the screen.
+
+        **Atomic**: the groups are checked first and applied only if every one
+        of them is in the vocabulary, so a sequence that is half a known
+        colour and half a blink is a finding that changed nothing rather than a
+        finding that left the pen half moved.
         """
         if params in ("", "0"):
-            self.sgr = ""
+            self.sgr, self.style = "", ""
             return
         parts = params.split(";")
-        if parts[0] == "38" and len(parts) >= 2:
-            wanted = {"5": 3, "2": 5}.get(parts[1])
-            if wanted == len(parts) and all(part.isdigit() for part in parts):
-                self.sgr = match.group(0).decode()
-                return
-        self.unknown.append(match.group(0))
+        steps = []
+        index = 0
+        while index < len(parts):
+            part = parts[index]
+            if part in ("0", "39", "1", "2", "3", "4", "9", "22", "23", "24", "29"):
+                steps.append(part)
+                index += 1
+                continue
+            if part == "38" and index + 1 < len(parts):
+                wanted = {"5": 1, "2": 3}.get(parts[index + 1])
+                values = parts[index + 2 : index + 2 + (wanted or 0)]
+                if (
+                    wanted is not None
+                    and len(values) == wanted
+                    and all(value.isdigit() and int(value) <= 255 for value in values)
+                ):
+                    steps.append("38;%s;%s" % (parts[index + 1], ";".join(values)))
+                    index += 2 + wanted
+                    continue
+            self.unknown.append(match.group(0))
+            return
+        colour, style = self.sgr, set(self.style.split(";")) - {""}
+        closes = {"22": ("1", "2"), "23": ("3",), "24": ("4",), "29": ("9",)}
+        for step in steps:
+            if step == "0":
+                colour, style = "", set()
+            elif step == "39":
+                colour = ""
+            elif step in closes:
+                style -= set(closes[step])
+            elif step.startswith("38;"):
+                colour = "\x1b[%sm" % step
+            else:
+                style.add(step)
+        self.sgr = colour
+        self.style = ";".join(sorted(style, key=int))
 
     def _private(self, private, params, final, match):
         if private == "?" and final in ("h", "l"):
@@ -539,9 +594,12 @@ class Grid:
                 self.row,
                 self.col,
                 self.sgr,
+                [row[:] for row in self.styles],
+                self.style,
             )
             self.cells = [[" "] * self.cols for _ in range(self.rows)]
             self.attrs = [[""] * self.cols for _ in range(self.rows)]
+            self.styles = [[""] * self.cols for _ in range(self.rows)]
             self.row = self.col = 0
             self.plane = "alternate"
             return
@@ -552,9 +610,9 @@ class Grid:
             # by doing nothing. Counted, so a scenario can still say how many
             # there were, and otherwise ignored.
             return
-        cells, attrs, row, col, sgr = self.saved
-        self.cells, self.attrs = cells, attrs
-        self.row, self.col, self.sgr = row, col, sgr
+        cells, attrs, row, col, sgr, styles, style = self.saved
+        self.cells, self.attrs, self.styles = cells, attrs, styles
+        self.row, self.col, self.sgr, self.style = row, col, sgr, style
         self.saved = None
         self.plane = "primary"
 
@@ -567,6 +625,7 @@ class Grid:
         for col in range(self.col, self.cols):
             self.cells[self.row][col] = " "
             self.attrs[self.row][col] = ""
+            self.styles[self.row][col] = ""
 
     def _erase_screen(self, params, match):
         if params == "0":  # from the cursor to the end of the screen
@@ -574,6 +633,7 @@ class Grid:
             for row in range(self.row + 1, self.rows):
                 self.cells[row] = [" "] * self.cols
                 self.attrs[row] = [""] * self.cols
+                self.styles[row] = [""] * self.cols
         elif params in ("2", "3"):
             # `2` is the visible screen and `3` is the terminal's own scrollback,
             # which this emulator does not model -- it has no scrollback to
@@ -581,6 +641,7 @@ class Grid:
             if params == "2":
                 self.cells = [[" "] * self.cols for _ in range(self.rows)]
                 self.attrs = [[""] * self.cols for _ in range(self.rows)]
+                self.styles = [[""] * self.cols for _ in range(self.rows)]
         else:
             self.unknown.append(match.group(0))
 
@@ -645,6 +706,23 @@ class Grid:
                 runs.append(attr)
         return runs
 
+    def styles_of_row(self, row):
+        """Every distinct text-attribute run on `row`, in order, as `attrs_of_row`."""
+        runs = []
+        for style in self.styles[row]:
+            if style and (not runs or runs[-1] != style):
+                runs.append(style)
+        return runs
+
+    def is_plain(self, row, col):
+        """Whether the cell carries no colour and no text attribute at all.
+
+        The question "did a pen leak past here" has two halves now that a row may
+        be bold or dim as well as coloured: a cell back on the default
+        foreground but still bold is a leak exactly as much as a coloured one.
+        """
+        return self.attrs[row][col] == "" and self.styles[row][col] == ""
+
     def snapshot(self):
         ruler = "     " + "".join(str(column % 10) for column in range(self.cols))
         lines = [ruler]
@@ -666,6 +744,9 @@ class Grid:
             runs = self.attrs_of_row(row)
             if runs:
                 lines.append("attrs row %d: %r" % (row + 1, runs))
+            styles = self.styles_of_row(row)
+            if styles:
+                lines.append("styles row %d: %r" % (row + 1, styles))
         if self.unknown:
             lines.append("UNKNOWN SEQUENCES: %r" % (self.unknown,))
         return "\n".join(lines) + "\n"
@@ -811,6 +892,47 @@ def the_sgr_the_product_emits_is_accepted():
     require(fed("\x1b[38;5;250m\x1b[0mx").attrs[0][0] == "", "the reset closed the colour")
 
 
+def the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colour():
+    """Bold, dim, italic, underline, strike and their closes (`src/tui/pacer.rs`).
+
+    The card's bold, the welcome line's bold grey and the markdown presenter's
+    emphasis are on every screen now, so an emulator that refused them would
+    fail every scenario for a sequence the product is right to write -- and
+    one that folded them into the colour would make `attrs` stop meaning the
+    foreground every palette assertion reads it as.
+    """
+    for sequence in ("\x1b[1m", "\x1b[2m", "\x1b[3m", "\x1b[4m", "\x1b[9m",
+                     "\x1b[22m", "\x1b[23m", "\x1b[24m", "\x1b[29m", "\x1b[39m",
+                     "\x1b[1;38;5;255m", "\x1b[0;2;38;2;1;2;3m"):
+        grid = fed(sequence + "x")
+        require(not grid.unknown, "the product's %r was rejected: %r" % (sequence, grid.unknown))
+    grid = fed("\x1b[1;38;5;255mx\x1b[22my\x1b[39mz")
+    require(grid.attrs[0][0] == "\x1b[38;5;255m", "a grouped colour is the colour alone: %r" % grid.attrs[0][0])
+    require(grid.styles[0][0] == "1", "and the bold beside it is a style: %r" % grid.styles[0][0])
+    require(
+        (grid.attrs[0][1], grid.styles[0][1]) == ("\x1b[38;5;255m", ""),
+        "22 closed the bold and kept the colour: %r" % ((grid.attrs[0][1], grid.styles[0][1]),),
+    )
+    require(grid.is_plain(0, 2), "39 put the foreground back to the default")
+    grid = fed("\x1b[1;3mx\x1b[0my")
+    require(grid.styles[0][0] == "1;3", "two attributes are both on: %r" % grid.styles[0][0])
+    require(grid.is_plain(0, 1), "the reset closed every attribute")
+    require(not fed("\x1b[1mx").is_plain(0, 0), "a bold cell is not a plain one")
+
+
+def an_sgr_with_one_foreign_group_is_a_finding_that_moves_no_pen():
+    """One group outside the vocabulary and the whole sequence is refused.
+
+    Atomic, as the product's own check is: a `1;7` must not leave the cell bold
+    and merely report the reverse, or a scenario reading the pen after a finding
+    would be reading a state no terminal is in.
+    """
+    for sequence in ("\x1b[1;7m", "\x1b[38;5;250;5m", "\x1b[38;5;256m", "\x1b[2;48;5;1m"):
+        grid = fed(sequence + "x")
+        require(grid.unknown, "%r passed the oracle unremarked" % sequence)
+        require(grid.is_plain(0, 0), "%r moved the pen though it was refused" % sequence)
+
+
 def the_title_stack_is_accepted_and_other_window_operations_are_not():
     grid = fed("".join(TITLE_STACK))
     require(not grid.unknown, "the title stack was rejected: %r" % (grid.unknown,))
@@ -946,6 +1068,8 @@ TESTS = (
     the_osc_the_product_emits_is_accepted,
     an_undeclared_sgr_parameter_is_a_finding,
     the_sgr_the_product_emits_is_accepted,
+    the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colour,
+    an_sgr_with_one_foreign_group_is_a_finding_that_moves_no_pen,
     the_title_stack_is_accepted_and_other_window_operations_are_not,
     a_control_byte_on_the_screen_is_still_a_finding,
     the_alternate_plane_is_a_second_buffer_and_not_the_first_one_scrolled,
@@ -2521,30 +2645,318 @@ def from_a_known_composer(run, trial, label):
     )
 
 
-def composer_first_row(grid):
-    """The row the composer's prompt marker is on, or `None`.
+# ---------------------------------------------------------------------------
+# reading the band
+# ---------------------------------------------------------------------------
+#
+# **Every reading of the band goes through `find_band`, and nothing else in this
+# file may address a band row by a fixed number.** The band floats: on a short
+# document the composer sits right under it (a fresh session puts the composer
+# on row 3, its blank rule row on row 4 and the hint on row 5, under the welcome
+# line and its blank row), it follows the document down until the screen fills
+# and then stays on the bottom rows, a resize pins it to the bottom and `/clear`
+# floats it back to the top. A reader that said "the hint is the last row" was
+# right for one of those and wrong for the rest -- and wrong in the direction
+# that hides a defect, since a blank last row reads as an empty composer.
+#
+# So the band is found from the one row it always has: the **hint**, which is
+# the bottom-most painted row of the primary plane (the frame erases everything
+# below a floated band). Counting up from it, in upstream's footer order
+# (`src/tui/shell.rs::band_rows`):
+#
+#   activity row      only while a turn runs, `• Thinking (0s)` and friends
+#   blank             the gap under it (dropped on a screen too short for it)
+#   composer rows     every one behind the rail `┃ ` (or `┃↑` on the first row
+#                     shown when rows above it are scrolled out of the window)
+#   rule              only while a menu or question is up -- the rule between
+#                     the composer and the panel
+#   panel rows        the menu or the question, while it is up
+#   divider           a `─` rule while a panel is up, a **blank** row otherwise
+#   hint              statusline grey, the permission mode in its own accent
+#
+# The composer is found by its rail and only as the run of rail rows directly
+# above that structure -- never by scanning the screen for a rail, because a
+# submitted prompt is echoed into the document as a card behind the same rail.
 
-    Read off the **cells** rather than off the row's text, because an empty
-    composer's row is the marker and two spaces: a text comparison would have
-    to see `"> "` where `rstrip` leaves `">"`, and the difference between
-    "the composer is empty" and "there is no composer" is exactly what a
-    scenario asserting an empty draft is asking about.
+# The rail every composer row and every echoed card starts with.
+RAIL = "\u2503"
 
-    `None` is a real answer and not a failure: a draft taller than the cap
-    scrolls *inside* its window, and the marker sits on the composer's first
-    row, which such a draft does not show.
+# The rail's variant on the first composer row shown when rows above it are
+# scrolled out of the window: the arrow takes the space's cell.
+RAIL_HIDDEN_ABOVE = "\u2191"
+
+# One cell of the rules the band draws across the screen.
+RULE = "\u2500"
+
+# The activity row (`src/tui/activity.rs::Activity::row`): the marker -- lit or,
+# twice a second, a blank cell -- the phase, the clock in whole units, and the
+# token suffix once the turn has spent any. Anchored at both ends so a document
+# row that merely mentions thinking cannot pass for it.
+ACTIVITY_ROW = re.compile(
+    r"^[\u2022 ] (?:Thinking|Generating|Running) \((?:\d+h)?(?:\d+m)?\d+s\)"
+    r"(?: \(\u2191\d+(?:\.\d)?k? \u2193\d+(?:\.\d)?k?\))?$"
+)
+
+
+# The dim row a cleanly ended turn writes under its answer (`3efe232`,
+# `shell.rs`'s `Tally::line`): two columns in, the elapsed time as
+# `formatDurationCompact` says it, and the token counts once either is non-zero.
+SUMMARY_ROW = re.compile(
+    r"^  (?:\d+s|\d+m \d+s|\d+h \d{2}m)(?: \(\u2191\d+(?:\.\d)?k? \u2193\d+(?:\.\d)?k?\))?$"
+)
+
+
+def grid_row_blank(grid, row):
+    """Whether `row` holds nothing at all -- no text, no colour, no attribute."""
+    return 0 <= row < grid.rows and all(
+        grid.cells[row][col] in (" ", "") and grid.is_plain(row, col) for col in range(grid.cols)
+    )
+
+
+def is_rule(grid, row):
+    """Whether `row` is a rule across the whole width and nothing else."""
+    return 0 <= row < grid.rows and grid.row_text(row) == RULE * grid.cols
+
+
+class Band:
+    """Where the band's rows are on one grid. Zero-based, like every row here.
+
+    `panel` is empty and `picker_rule` is `None` while no menu or question is
+    up, and `activity` is `None` while no turn is running. `document_bottom` is
+    the last row above the band's top, `-1` when the band starts on the first
+    row.
     """
-    for row in range(grid.rows - 2, -1, -1):
-        if grid.cells[row][0] == ">" and grid.cells[row][1] == " ":
-            return row
-    return None
+
+    def __init__(self, hint, divider, panel, picker_rule, composer, activity):
+        self.hint = hint
+        self.divider = divider
+        self.panel = panel
+        self.picker_rule = picker_rule
+        self.composer = composer
+        self.activity = activity
+
+    @property
+    def top(self):
+        return self.activity if self.activity is not None else self.composer[0]
+
+    @property
+    def document_bottom(self):
+        return self.top - 1
+
+    def __repr__(self):
+        return (
+            "Band(hint=%d divider=%d panel=%r picker_rule=%r composer=%r activity=%r)"
+            % (self.hint, self.divider, self.panel, self.picker_rule, self.composer, self.activity)
+        )
+
+
+def find_band(grid):
+    """The band on `grid`, found from its hint row up, or `None`.
+
+    `None` is a real answer and never an empty band: a screen with no painted
+    row, a session on the alternate plane, a torn frame, or a bottom structure
+    that is not the band's (no rail directly above the divider). A caller that
+    folded `None` into "idle" or "empty" would be satisfied by exactly those.
+    """
+    if grid.plane != "primary":
+        return None
+    hint = None
+    for row in range(grid.rows - 1, -1, -1):
+        if grid.row_text(row).strip():
+            hint = row
+            break
+    if hint is None or hint < 2:
+        return None
+    divider = hint - 1
+    panel = []
+    picker_rule = None
+    if is_rule(grid, divider):
+        row = divider - 1
+        while row >= 0 and not is_rule(grid, row):
+            panel.append(row)
+            row -= 1
+        if row < 0 or not panel:
+            return None
+        picker_rule = row
+        above = row - 1
+    elif grid.row_text(divider) == "":
+        above = divider - 1
+    else:
+        return None
+    # A composer shorter than the rows its geometry gave it pads the rest blank
+    # (`band_rows`' own loop) -- those rows are the band's and are skipped over
+    # rather than read as the end of it.
+    while above >= 0 and grid.row_text(above) == "":
+        above -= 1
+    composer = []
+    while above >= 0 and grid.cells[above][0] == RAIL:
+        composer.append(above)
+        above -= 1
+    if not composer:
+        return None
+    composer.reverse()
+    panel.reverse()
+    activity = None
+    first = composer[0]
+    if first >= 2 and grid.row_text(first - 1) == "" and ACTIVITY_ROW.match(grid.row_text(first - 2)):
+        activity = first - 2
+    elif first >= 1 and ACTIVITY_ROW.match(grid.row_text(first - 1)):
+        activity = first - 1
+    return Band(hint, divider, panel, picker_rule, composer, activity)
+
+
+def panel_rows_text(grid):
+    """The text of the band's panel rows -- a menu or a question -- top first.
+
+    `[]` while no panel is up, and `None` when there is no band at all.
+    """
+    band = find_band(grid)
+    if band is None:
+        return None
+    return [grid.row_text(row) for row in band.panel]
+
+
+def wait_for_panel(trial, needle, what=None):
+    """Waits until `needle` is on one of the band's panel rows of the committed
+    grid, and returns that grid.
+
+    On the grid and in the panel rather than on the wire: the title reaching the
+    terminal says nothing about whether the frame carrying it was completed, and
+    a snapshot taken behind a wire match can be the frame from before it.
+    """
+    trial.wait_until(
+        what or "%r on the band's panel" % needle,
+        lambda _t: any(needle in text for text in (panel_rows_text(trial.peek()) or [])),
+    )
+    return trial.peek()
+
+
+def activity_text(grid):
+    """The activity row's text, or `None` while the band has none (or no band)."""
+    band = find_band(grid)
+    if band is None or band.activity is None:
+        return None
+    return grid.row_text(band.activity)
+
+
+def activity_seconds(grid):
+    """The activity row's clock in whole seconds, or `None` without one."""
+    text = activity_text(grid)
+    if text is None:
+        return None
+    clock = re.search(r"\((?:(\d+)h)?(?:(\d+)m)?(\d+)s\)", text)
+    if clock is None:
+        return None
+    hours, minutes, seconds = (int(part or 0) for part in clock.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def composer_first_row(grid):
+    """The composer's first row shown, or `None` when there is no band.
+
+    Every composer row carries the rail, so this is `None` only when the band
+    itself could not be found -- never because the draft is tall. A draft taller
+    than the window shows `┃↑` on this row instead (`composer_scrolled`).
+    """
+    band = find_band(grid)
+    return None if band is None else band.composer[0]
+
+
+def composer_scrolled(grid):
+    """Whether rows above the composer's first row shown are scrolled away."""
+    band = find_band(grid)
+    return band is not None and grid.cells[band.composer[0]][1] == RAIL_HIDDEN_ABOVE
+
+
+def composer_rows_text(grid):
+    """Each composer row's text after its rail, top row first, or `None`."""
+    band = find_band(grid)
+    if band is None:
+        return None
+    return [grid.row_text(row)[2:] for row in band.composer]
 
 
 def composer_text(grid):
-    start = composer_first_row(grid)
-    if start is None:
+    """The draft as the composer shows it: its rows after the rail, joined.
+
+    Joined with nothing between them, because a soft wrap is the screen's and
+    not the draft's; a scenario asserting a hard newline asserts it on the rows.
+    """
+    rows = composer_rows_text(grid)
+    return None if rows is None else "".join(rows)
+
+
+def hint_text(grid):
+    """The band's hint row -- where the mode, the model and the context meter are."""
+    band = find_band(grid)
+    return None if band is None else grid.row_text(band.hint).strip()
+
+
+def rows_above_band(grid, band=None):
+    """The visible rows above the band, as text, top first."""
+    band = band or find_band(grid)
+    if band is None:
         return None
-    return "".join(grid.row_text(row)[2:] for row in range(start, grid.rows - 1))
+    return [grid.row_text(row) for row in range(0, band.top)]
+
+
+def answer_rows(grid, needle):
+    """Visible rows above the band that carry `needle`, as `(row, text)`.
+
+    How an answer is read: by its content, in the document, and never at a
+    fixed row. The answer is markdown-rendered in a two-column indent, so the
+    text is returned whole and a caller asserting the indent asserts it here.
+    """
+    band = find_band(grid)
+    limit = band.top if band is not None else grid.rows
+    return [(row, grid.row_text(row)) for row in range(limit) if needle in grid.row_text(row)]
+
+
+# The welcome line every fresh document starts with (`src/tui/shell.rs`'s
+# `welcome`), as its two fixed halves -- the version between them is the
+# build's.
+WELCOME_HEAD = "x\U0001D487x v"
+WELCOME_TAIL = " \u00b7 Run /help for commands"
+
+
+def is_welcome(text):
+    return text.startswith(WELCOME_HEAD) and text.endswith(WELCOME_TAIL)
+
+
+def is_fresh_document(rows):
+    """Whether `rows` are a fresh session's whole document: the welcome line and
+    the blank row under it -- the welcome on as many rows as the width wraps it
+    to, joined back with the space a word wrap takes away."""
+    return (
+        rows is not None
+        and len(rows) >= 2
+        and rows[-1] == ""
+        and is_welcome(" ".join(rows[:-1]))
+    )
+
+
+def cards(grid):
+    """Every submitted prompt the document echoes, as its text, oldest first.
+
+    A submitted line is upstream's card (`3efe232`): each of its rows behind the
+    rail, in bold, and a blank row under the card. Read out of the scrollback
+    and the visible rows **above the band** -- never the band's own rows, whose
+    composer wears the same rail -- and each card's rows joined with nothing
+    between them, because a wrap is the screen's and not the prompt's.
+    """
+    band = find_band(grid)
+    limit = band.top if band is not None else grid.rows
+    lines = list(grid.scrollback) + [grid.row_text(row) for row in range(limit)]
+    found, current = [], None
+    for line in lines:
+        if line.startswith(RAIL):
+            current = (current or []) + [line[2:]]
+        elif current is not None:
+            found.append("".join(current))
+            current = None
+    if current is not None:
+        found.append("".join(current))
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -2553,17 +2965,59 @@ def composer_text(grid):
 
 
 def scenario_1(run):
-    """The band is at the bottom, prior output is above it, nothing took 1049."""
+    """The band floats under the document, prior output is above it, nothing took 1049.
+
+    **Restated for the floating band** (`fcc8e44`): this row used to assert the
+    band's three rows were the screen's last three and every row above them
+    blank. The band now sits directly under a short document, so the claim is
+    the exact fresh-session shape instead -- the welcome line and its blank row
+    as the whole document, the composer on row 3, the blank rule row on row 4,
+    the hint on row 5 -- and every row below the hint blank, which a band still
+    anchored to the bottom (or one painted twice) fails.
+    """
     marker = run.marker("launch")
     fixture = start_fixture(run, [fixtures.content_only(marker)])
     prior = "PRIOR-OUTPUT-" + run.nonce
     trial = run.trial("launch", gateway=fixture, prior=prior).settled()
 
+    # The band reader, falsified before any scenario trusts it. Every reading of
+    # the band in this file goes through `find_band`, so a reader that took a
+    # card in the document for the composer, or answered a band where there is
+    # none, would pass rows for the wrong reason everywhere at once.
+    def synthetic(*rows):
+        return Grid(len(rows) + 2, 30).feed(
+            "".join("\x1b[%d;1H%s" % (index + 1, row) for index, row in enumerate(rows)).encode()
+        )
+
+    rule = RULE * 30
+    reads = {
+        "a card over its blank row is the document's, not the composer's": (
+            find_band(synthetic(RAIL + " echoed", "", RAIL + " draft", "", "auto")),
+            ([2], 3, 4, [], None),
+        ),
+        "no rail above the divider is no band": (
+            find_band(synthetic("  an answer", "", "auto")),
+            None,
+        ),
+        "a panel between two rules under the composer": (
+            find_band(synthetic(RAIL + " /", rule, "> /help", rule, "auto")),
+            ([0], 3, 4, [2], None),
+        ),
+        "an activity row with its blank row dropped": (
+            find_band(synthetic("\u2022 Running (3s)", RAIL + " x", "", "auto")),
+            ([1], 2, 3, [], 0),
+        ),
+    }
+    for what, (band, expected) in reads.items():
+        got = None if band is None else (band.composer, band.divider, band.hint, band.panel, band.activity)
+        run.require(got == expected, "the band reader: %s (%r, wanted %r)" % (what, got, expected))
+
     grid = trial.grid("after-first-frame")
-    run.require(grid.row_text(grid.rows - 1).strip() != "", "the band's hint row is painted")
+    band = find_band(grid)
+    run.require(band is not None, "the band is on the screen, found from its hint row up")
     run.require(
-        grid.row_text(grid.rows - 1).strip() == HINT_AUTO,
-        "the hint row says what a turn would run with: %r" % grid.row_text(grid.rows - 1).strip(),
+        hint_text(grid) == HINT_AUTO,
+        "the hint row says what a turn would run with: %r" % hint_text(grid),
     )
     # The push is the claim, and it is exact: the terminal reported the cursor
     # on row 2, so the launch moves to the bottom row and writes **one**
@@ -2577,17 +3031,30 @@ def scenario_1(run):
         % (grid.scrollback,),
     )
     run.require(prior not in grid.text(), "and nothing repainted a fragment of it on the screen")
-    painted_above = [
-        row + 1 for row in range(grid.rows - 3) if grid.row_text(row).strip() != ""
+    document = rows_above_band(grid, band) if band is not None else None
+    run.require(
+        document is not None
+        and len(document) == 2
+        and is_welcome(document[0])
+        and document[1] == "",
+        "the document above the band is the welcome line and its blank row, and nothing else: %r"
+        % (document,),
+    )
+    run.require(
+        band is not None
+        and (band.composer, band.divider, band.hint, band.activity, band.panel)
+        == ([2], 3, 4, None, []),
+        "the band floats right under it: composer on row 3, the blank rule row 4, the hint row 5 (%r)"
+        % (band,),
+    )
+    painted_below = [
+        row + 1 for row in range(5, grid.rows) if grid.row_text(row).strip() != ""
     ]
     run.require(
-        not painted_above,
-        "the band painted on no document row: %r" % painted_above,
+        not painted_below,
+        "nothing is painted below the floating band: %r" % painted_below,
     )
-    run.require(
-        all(grid.row_text(row).strip() != "" for row in range(grid.rows - 3, grid.rows)),
-        "the band's three rows are the last three rows of the screen",
-    )
+    run.require(composer_text(grid) == "", "the composer starts empty")
     raw = trial.text()
     run.require("\x1b[?1049h" not in raw, "the main surface stayed off the alternate screen")
     for mouse in ("\x1b[?1000h", "\x1b[?1002h", "\x1b[?1006h"):
@@ -2849,8 +3316,18 @@ def scenario_3b(run):
     # rule" exists to rule out. (Per-*run* uniqueness is the nonce's job inside
     # `run.marker`; what this needle has to prove is that the screen showed
     # *this scenario's own* text rather than something any fixture would emit.)
-    deltas = [fixtures.text_delta("d", marker + " ")]
-    deltas.extend(fixtures.text_delta("d", "chunk-%d " % n) for n in range(2000))
+    #
+    # In paragraphs, each ended by a blank line, because the answer is shown a
+    # line at a time once the presenter has seen what follows it (`3efe232`: a
+    # prose line waits for the next one, which may make it a setext heading).
+    # One unbroken run of chunks into a stream that never closes would never
+    # show a single row -- the marker included -- so the backlog is ten chunks
+    # to a paragraph and the marker is a paragraph of its own.
+    deltas = [fixtures.text_delta("d", marker + "\n\n")]
+    deltas.extend(
+        fixtures.text_delta("d", "chunk-%d" % n + ("\n\n" if n % 10 == 9 else " "))
+        for n in range(2000)
+    )
     fixture = start_fixture(run, [fixtures.hang(*deltas)])
     trial = run.trial("drain", faulty=True, fault="slow-ui", gateway=fixture).settled()
 
@@ -3357,11 +3834,22 @@ def scenario_3d(run):
     )
     grid = recovered_grid(trial, cleanup_end, "rebuilt")
     run.require(composer_text(grid) == "", "recovery: the rebuilt composer is empty")
-    run.require(divider_row(grid) is not None, "recovery: the rebuilt screen has a divider")
+    # Restated for the fx band (`a50f8a0`): there is no always-drawn divider
+    # any more, so "the rebuilt screen has a divider" is now the whole band
+    # structure read up from its hint -- a blank rule row under the composer
+    # and no panel -- which a rebuild that dropped or misplaced a row fails.
+    rebuilt_band = find_band(grid)
     run.require(
-        grid.row_text(grid.rows - 1).strip() == HINT_AUTO,
-        "recovery: the rebuilt hint row says what a turn would run with: %r"
-        % grid.row_text(grid.rows - 1).strip(),
+        rebuilt_band is not None
+        and grid.row_text(rebuilt_band.divider) == ""
+        and rebuilt_band.panel == []
+        and rebuilt_band.divider == rebuilt_band.composer[-1] + 1,
+        "recovery: the rebuilt band is whole -- composer, its blank rule row, the hint (%r)"
+        % (rebuilt_band,),
+    )
+    run.require(
+        hint_text(grid) == HINT_AUTO,
+        "recovery: the rebuilt hint row says what a turn would run with: %r" % hint_text(grid),
     )
     composer_row = composer_first_row(grid)
     run.require(
@@ -3530,7 +4018,7 @@ def scenario_3e(run):
     control.wait_until(
         "control: the band to be painted on the primary plane again",
         lambda _t: control.peek().plane == "primary"
-        and control.peek().find(HINT_MODEL) is not None,
+        and HINT_MODEL in (hint_text(control.peek()) or ""),
     )
     grid = control.grid("control-back-on-the-primary-plane")
     run.require(grid.text().strip() != "", "control: the screen is not blank")
@@ -3654,7 +4142,7 @@ def scenario_3e(run):
     trial.wait_until(
         "the band to be painted on the primary plane after the recovered question",
         lambda _t: excised_peek(trial, torn_at, cleanup_end).plane == "primary"
-        and excised_peek(trial, torn_at, cleanup_end).find(HINT_MODEL) is not None,
+        and HINT_MODEL in (hint_text(excised_peek(trial, torn_at, cleanup_end)) or ""),
     )
     grid = excised_grid(trial, torn_at, cleanup_end, "back-on-the-primary-plane")
     run.require(
@@ -3920,9 +4408,15 @@ def scenario_5(run):
     )
 
     trial.send(b"\x01")  # C-a: home
+    # The composer's own row, found up from the hint: the band floats under
+    # the document, so "home" is the composer's first text cell wherever the
+    # composer is, not a row counted from the bottom of the screen.
     trial.wait_until(
         "the caret to go home in the frame that painted the row",
-        lambda text: (trial.session.last_frame() or "").endswith("\x1b[%d;3H" % (trial.rows - 1)),
+        lambda text: composer_first_row(trial.peek()) is not None
+        and (trial.session.last_frame() or "").endswith(
+            "\x1b[%d;3H" % (composer_first_row(trial.peek()) + 1)
+        ),
     )
     trial.send(b"\x04")  # C-d on text is a forward delete, not an exit
     trial.wait_until(
@@ -3983,10 +4477,10 @@ def scenario_6(run):
         lambda _t: (composer_text(trial.peek()) or "").startswith(WRAP_WORDS[0]),
     )
     grid = trial.grid("wrapped")
-    start = composer_first_row(grid)
-    run.require(start is not None, "the composer is on the screen")
-    if start is not None:
-        rows = [grid.row_text(row)[2:] for row in range(start, grid.rows - 1)]
+    band = find_band(grid)
+    run.require(band is not None, "the composer is on the screen")
+    if band is not None:
+        rows = composer_rows_text(grid)
         run.require(len(rows) > 1, "the paragraph really wrapped (%d row(s))" % len(rows))
         broken = [
             token
@@ -3995,10 +4489,16 @@ def scenario_6(run):
             if token not in WRAP_WORDS
         ]
         run.require(not broken, "no word was split across a row boundary: %r" % broken)
-        for row in range(start, grid.rows - 1):
+        # Restated for the fx composer (`a50f8a0`): the gutter a wrapped row
+        # hangs in is the rail's -- `┃` and a space on **every** row -- where it
+        # used to be `> ` on the first row and two spaces under it. Asserted on
+        # the cells, so a continuation row that lost its rail (or started its
+        # text in the rail's cell) fails.
+        for row in band.composer:
             run.require(
-                grid.row_text(row).startswith("> ") or grid.row_text(row).startswith("  "),
-                "composer row %d is written into the two-cell gutter" % (row + 1),
+                grid.cells[row][0] == RAIL and grid.cells[row][1] == " " and grid.cells[row][2] != " ",
+                "composer row %d hangs its text behind the rail's two-cell gutter: %r"
+                % (row + 1, grid.row_text(row)),
             )
     trial.send(b"\x15")
     discriminate(run, trial, fixture, marker)
@@ -4006,57 +4506,84 @@ def scenario_6(run):
     run.require(trial.session.wait_exit() == ("exited", 0), "the wrap session left cleanly")
     fixture.stop()
 
-    # The cap: on a 12-row screen the content area's bottom is row 9, so a
-    # composer may take at most `9 / 2 + 1` = 5 rows and its divider stops at
-    # row 6. Sixteen rows of draft, five of them shown.
+    # The cap: on a 12-row screen the content area a one-row composer leaves
+    # is 9 rows, so a composer may take at most `9 / 2 + 1` = 5 rows
+    # (`layout::input_row_limit`). Seventeen rows of draft, five of them shown.
+    #
+    # **Restated for the floating band** (`fcc8e44`): this used to read the cap
+    # off a divider pinned to row 6 above a composer on the bottom rows. The
+    # band now floats under the two-row document (the welcome line and its
+    # blank row) and there is no always-drawn divider, so the cap is read off
+    # the band itself -- exactly five rail rows, the first of them `┃↑`
+    # because rows above it are scrolled out of the window -- and "did not
+    # grow onto the document" is the welcome line and its blank row still
+    # being the whole document above it.
+    cap = 5
     capped = run.trial("growth-cap", rows=12, cols=20).settled()
     for _ in range(8):
         capped.send(b"0123456789012345678")
         capped.send(b"\x0a")  # C-j: a newline in the composer
-    # The divider at the cap, read off the row rather than off the erase that
-    # used to precede it: the diff erases rows rather than screens.
+
+    def at_the_cap(grid):
+        band = find_band(grid)
+        return band is not None and len(band.composer) == cap and composer_scrolled(grid)
+
+    capped.wait_until("the band to reach its cap", lambda _t: at_the_cap(capped.peek()))
+    # The ninth line is empty and the caret is on it: the frame that put it
+    # there is the one this snapshot has to be taken behind.
     capped.wait_until(
-        "the band to reach its cap with the divider on row 6",
-        lambda _t: capped.peek().row_text(5) == "─" * capped.cols,
+        "the caret on the draft's last, empty line",
+        lambda _t: (lambda g: at_the_cap(g) and g.row == find_band(g).composer[-1] and g.col == 2)(
+            capped.peek()
+        ),
     )
-    capped.wait_for("\x1b[12;1H")
     grid = capped.grid("at-the-cap")
-    # `content_bottom / 2 + 1` = five rows, so the divider stops at row 6 and
-    # the five rows under it are the composer's window onto a sixteen-row draft.
-    # The marker is **not** asserted: it sits on the draft's first row, which a
-    # draft scrolled inside its window does not show, and requiring it here
-    # would be requiring the cap not to work.
+    band = find_band(grid)
     run.require(
-        set(grid.row_text(5)) == {"─"} and len(grid.row_text(5)) == capped.cols,
-        "the divider spans row 6, where the cap puts it: %r" % grid.row_text(5),
+        band is not None and len(band.composer) == cap,
+        "the composer stopped growing at its cap of %d rows: %r" % (cap, band),
     )
-    grew_past = [row + 1 for row in range(5) if grid.row_text(row).strip() != ""]
     run.require(
-        not grew_past, "the composer did not grow past its cap onto document rows %r" % grew_past
+        composer_scrolled(grid),
+        "and its first row shown is `┃↑`, the rows above it scrolled away: %r"
+        % (grid.row_text(band.composer[0]) if band else None,),
+    )
+    document = rows_above_band(grid, band) if band is not None else None
+    run.require(
+        is_fresh_document(document),
+        "the composer did not grow past its cap onto document rows: %r" % (document,),
     )
     # Four rows of draft and the caret's own empty last line: eight `C-j`s
     # leave a ninth, empty logical line, and the window shows the *tail* of the
     # draft. Requiring five painted rows would be requiring that last line not
     # to exist.
-    showing = [row for row in range(6, grid.rows - 1) if grid.row_text(row).strip() != ""]
+    showing = [text for text in (composer_rows_text(grid) or []) if text.strip() != ""]
     run.require(
         len(showing) >= 4,
         "the composer window is showing the tail of the draft (%d row(s) of it)" % len(showing),
     )
     run.require(
-        6 <= grid.row <= grid.rows - 2,
+        band is not None and band.composer[0] <= grid.row <= band.composer[-1],
         "and the caret is inside the composer's five rows (row %d)" % (grid.row + 1),
     )
     run.require(
-        grid.row_text(grid.rows - 1).strip() != "", "and the hint row is still the last row"
+        band is not None
+        and band.divider == band.composer[-1] + 1
+        and band.hint == band.divider + 1
+        and hint_text(grid) != "",
+        "and the blank rule row and the hint row are still right under it: %r" % (band,),
     )
     capped.send(b"\x0d")
     capped.send(b"\x04")
     run.require(capped.session.wait_exit() == ("exited", 0), "the capped session left cleanly")
     grid = capped.grid("submitted")
+    # Read as the card the document echoes it in, by content: on a 20-column
+    # screen each line wraps behind the rail, so the text is in the document
+    # only once its card's rows are joined back together.
     run.require(
-        "0123456789012345678" in grid.document_text(),
-        "and what was submitted reached the terminal's own document",
+        any("0123456789012345678" * 8 in card for card in cards(grid)),
+        "and what was submitted reached the terminal's own document, as one card: %r"
+        % (cards(grid),),
     )
 
 
@@ -4077,13 +4604,23 @@ def scenario_7(run):
     trial.send(b"\x1b[200~")
     trial.send(("first " + run.nonce + "\nsecond \x03line\n\x1b[Athird line").encode("utf-8"))
     trial.send(b"\x1b[201~")
+    # Both ends of the paste in one complete frame, and the composer's rows --
+    # each behind the rail -- holding exactly its three lines: the first with
+    # the nonce, the `0x03` filtered out of the second, the `ESC [A` of the
+    # third kept as text rather than decoded as a key.
+    pasted_rows = ["first " + run.nonce, "second line", "[Athird line"]
     trial.wait_until(
         "the whole paste in one complete frame",
-        lambda _t: (trial.session.last_frame() or "").find("> first ") >= 0
-        and "  [Athird line" in (trial.session.last_frame() or ""),
+        lambda _t: ("first " + run.nonce) in (trial.session.last_frame() or "")
+        and "[Athird line" in (trial.session.last_frame() or "")
+        and composer_rows_text(trial.peek()) == pasted_rows,
     )
     run.require(fixture.request_count() == 0, "a paste did not submit itself")
     grid = trial.grid("pasted")
+    run.require(
+        composer_rows_text(grid) == pasted_rows,
+        "the composer holds the paste as three rows: %r" % (composer_rows_text(grid),),
+    )
     run.require(
         grid.find("[Athird line") is not None,
         "the escape inside the paste is ordinary text on the screen, not a key",
@@ -4140,7 +4677,14 @@ def scenario_7(run):
 def scenario_8(run):
     """A stream is released over frames, arrives whole, and leaks no attribute."""
     head, tail = run.marker("head"), run.marker("tail")
-    body = "%s %s %s" % (head, "xx " * 100, tail)
+    # One delta, held open, with the same three hundred characters between the
+    # head and the tail -- **in paragraphs**, each ended by a blank line. The
+    # answer is shown a line at a time once the presenter has seen what
+    # follows it (`3efe232`: a prose line waits for the next one, which may
+    # make it a setext heading), so one unbroken paragraph into a stream that
+    # never closes would show nothing at all; paragraphs are what let the
+    # pacer release the head while the tail is still inside the product.
+    body = head + "\n\n" + "".join(("xx " * 10).rstrip() + "\n\n" for _ in range(10)) + tail + "\n\n"
     fixture = start_fixture(run, [fixtures.hang(fixtures.text_delta("a", body))])
     trial = run.trial("streaming", gateway=fixture).settled()
 
@@ -4175,10 +4719,12 @@ def scenario_8(run):
     if found is not None:
         row, column = found
         after = column + len(tail)
+        # Plain in both halves of the pen: no colour **and** no text attribute,
+        # now that a row may be bold or dim as well as coloured.
         run.require(
-            after >= grid.cols or grid.attrs[row][after] == "",
+            after >= grid.cols or grid.is_plain(row, after),
             "the cell after the answer carries plain attributes (%r)"
-            % (grid.attrs[row][after] if after < grid.cols else None),
+            % (((grid.attrs[row][after], grid.styles[row][after]) if after < grid.cols else None),),
         )
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
     fixture.stop()
@@ -4212,36 +4758,31 @@ def scenario_8(run):
         % grid.text().count(ordinary_marker),
     )
     # And the whole screen, not only the marker. The exit clears from the
-    # band's top row downward, so what is left is the document -- which for one
-    # prompt and one one-line answer is the answer. Counting the marker alone
-    # is not enough: a stale, **truncated** copy of the answer's row does not
-    # contain the marker and would be scored as a clean screen.
+    # band's top row downward, so what is left is the document -- and counting
+    # the marker alone is not enough: a stale, **truncated** copy of the
+    # answer's row does not contain the marker and would be scored as a clean
+    # screen.
     #
-    # The **echo of the prompt** is the one row this does not count, in either
-    # direction, because the product does not promise it in either direction.
-    # `docs/parity.md`'s `full-screen TUI` row says the echo is "not durable":
-    # the activity row a starting turn adds takes its row from the bottom of
-    # the document and paints over it, and Phase 1 repaints no transcript row.
-    # Whether that repaint happened before the answer landed is a question
-    # about how long the turn was visibly *under way* -- a fixture that answers
-    # inside a tick never gets an activity row painted at all -- and the four
-    # targets this suite gates disagree about it for exactly that reason: the
-    # echo survived on `aarch64-apple-darwin` and both Linuxes and was
-    # overpainted on `x86_64-apple-darwin`, from one commit. Asserting on a row
-    # whose survival is a scheduling outcome is pinning the scheduler, which is
-    # what the drain row above refuses to do; every *other* row is still
-    # counted, so a second answer, a truncated one or a band row left behind
-    # fails here exactly as before.
-    echoed = ordinary_prompt
+    # **Restated for the fx transcript** (`3efe232`, `ca044a1`): this row used
+    # to count every non-blank row except the prompt's echo, which a starting
+    # turn's activity row painted over on some targets and not others. The echo
+    # is now the card, and the activity row no longer takes a row from the
+    # document -- it sits under the card's own blank row, on a band that floats
+    # down rather than up -- so the card is counted too, exactly once. What a
+    # clean turn leaves is the welcome line, the card, the answer in its
+    # two-column indent and the dim summary row, and nothing else: a second
+    # answer, a truncated one, a lost card or a band row left behind fails.
     remaining = [
-        text
-        for text in (grid.row_text(row) for row in range(grid.rows))
-        if text.strip() and text != echoed
+        text for text in (grid.row_text(row) for row in range(grid.rows)) if text.strip()
     ]
     run.require(
-        remaining == ["answer: " + ordinary_marker],
-        "a completed turn left exactly its answer on the screen, once (the prompt echo is "
-        "not counted either way): %r" % (remaining,),
+        len(remaining) == 4
+        and is_welcome(remaining[0])
+        and remaining[1] == RAIL + " " + ordinary_prompt
+        and remaining[2] == "  answer: " + ordinary_marker
+        and SUMMARY_ROW.match(remaining[3]) is not None,
+        "a completed turn left the welcome line, its card, its answer once and its summary: %r"
+        % (remaining,),
     )
     ordinary_fixture.stop()
 
@@ -4263,66 +4804,89 @@ def scenario_9(run):
     quiet = start_fixture(run, [fixtures.hang()], name="quiet")
     trial = run.trial("thinking", gateway=quiet).settled()
     trial.send("think about " + run.nonce + "\r")
-    # Response-only **and** positional: on a 24-row screen the divider is row
-    # 22, so this is the row directly above it. A needle matched anywhere would
-    # be satisfied by the word appearing in the document. Literal, not derived
-    # from `Palette::activity` itself (`src/tui/theme.rs`): `252` is upstream's
-    # own dark index for this row (`shimmer_runtime.zig:262-291`'s
-    # `permission_auto_style`, `render.zig:55,86,105`) -- a check that asked
-    # the module what it expects would pass for whatever it happened to
-    # declare.
-    trial.wait_for("\x1b[21;1H\x1b[38;5;252m• Thinking")
+    # Response-only **and** positional, read off the grid: the row the band
+    # found **as its activity row** -- above the composer, over the blank row
+    # that keeps it from the draft -- saying `Thinking`. A needle matched
+    # anywhere on the wire would be satisfied by the word appearing in the
+    # document; this one is satisfied only by the band's own row.
+    #
+    # **Restated for the fx activity row** (`ca044a1`): the row used to be
+    # asserted on screen row 21 above an always-drawn divider on row 22. The
+    # band now floats and has no such divider, so the place is the band's
+    # structure instead: the document's own blank row above it (the card's),
+    # one blank row under it, then the composer.
+    trial.wait_until(
+        "the activity row to say Thinking",
+        lambda _t: (activity_text(trial.peek()) or "")[2:].startswith("Thinking"),
+    )
     # Off the activity row rather than off the wire: a second that ticked over
     # writes the one digit that changed, so the wire never carries `2s` whole.
     trial.wait_until(
         "the activity row's clock to reach two seconds",
-        lambda _t: "2s" in trial.peek().row_text(trial.rows - 4),
+        lambda _t: (activity_seconds(trial.peek()) or 0) >= 2,
     )
     grid = trial.grid("thinking")
+    band = find_band(grid)
     # By its place, its words and its clock -- and by whichever of its two faces
     # the marker is wearing, because a snapshot cannot choose. The marker keeps
-    # a cell of its own whether it is lit or dark (`src/tui/activity.rs:54-59`:
-    # `•` for half a second and then a space for half a second, so the text
-    # beside it does not step left and right twice a second), so the row a grid
-    # catches is `• Thinking  2s` half the time and `  Thinking  2s` the other
-    # half.
-    #
-    # The first version of this assertion stripped the row and asked it to
-    # start with `Thinking`, which is true **only in the dark half** -- a coin
-    # toss that its own comment claimed to have avoided, and one CI called on
-    # `aarch64-apple-darwin` with `'• Thinking  2s'` in its hand. What is
-    # asserted here is what does not blink: the marker's cell holds one of its
-    # two faces, and the word and the elapsed clock follow it, on the row
-    # directly above the divider.
-    row = grid.row_text(20)
-    marked, said = row[:1], row[1:].strip()
-    clock = said.rsplit(" ", 1)[-1]
+    # a cell of its own whether it is lit or dark (`src/tui/activity.rs`: `•`
+    # for half a second and then a space for half a second, so the text beside
+    # it does not step left and right twice a second), so a grid catches
+    # `• Thinking (2s) (↑12 ↓0)` half the time and `  Thinking (2s) …` the
+    # other half. `ACTIVITY_ROW` matches both faces and nothing else.
+    row = activity_text(grid) or ""
     run.require(
-        marked in (activity_marker, " ")
-        and said.startswith("Thinking")
-        and clock.endswith("s")
-        and clock[:-1].isdigit(),
-        "the activity row is directly above the divider, marked, and counting: %r" % row,
+        band is not None
+        and band.activity is not None
+        and row[:1] in (activity_marker, " ")
+        and row[2:].startswith("Thinking (")
+        and (activity_seconds(grid) or 0) >= 2,
+        "the activity row is the band's own, marked, and counting: %r" % row,
     )
     run.require(
-        set(grid.row_text(21)) == {"─"},
-        "and the divider is the row under it: %r" % grid.row_text(21),
+        band is not None
+        and band.activity is not None
+        and band.activity >= 1
+        and grid.row_text(band.activity - 1) == ""
+        and grid.row_text(band.activity + 1) == ""
+        and band.composer[0] == band.activity + 2,
+        "and it sits under the document's blank row with one blank row between it and the "
+        "composer: %r" % (band,),
     )
-    # The row's own literal foreground (`attrs_of_row`, not a string search:
-    # what the palette *is* belongs to `src/tui/theme.rs`, and a check
+    activity_row = band.activity if band is not None and band.activity is not None else 0
+    label_end = row.find(" (\u2191")
+    label_end = len(row) if label_end < 0 else label_end
+    # The row's own literal foreground (read off the cells, not a string
+    # search: what the palette *is* belongs to `src/tui/theme.rs`, and a check
     # against that module's own accessor would pass for whatever it happened
-    # to declare), and none of it past row 22 -- the composer carries no
-    # colour of its own (`render.zig:69,88`'s empty `input_bar_style`), so a
-    # leaked foreground would show up as this row's grey rather than as none.
+    # to declare) -- the marker, the phase and the clock in `252`, and the
+    # token suffix receding into the dim grey `245` beside them (`ca044a1`,
+    # `shimmer_runtime.zig:262-291`).
     run.require(
-        grid.attrs_of_row(20) == ["\x1b[38;5;252m"],
+        {grid.attrs[activity_row][col] for col in range(2, label_end)} == {"\x1b[38;5;252m"},
         "the activity row is not painted in the dark palette's literal foreground: %r"
-        % grid.attrs_of_row(20),
+        % grid.attrs_of_row(activity_row),
     )
     run.require(
-        grid.attrs_of_row(22) == [],
-        "the activity row's colour leaked past the rule onto the composer: %r"
-        % grid.attrs_of_row(22),
+        label_end < len(row)
+        and {grid.attrs[activity_row][col] for col in range(label_end + 1, len(row))}
+        == {"\x1b[38;5;245m"},
+        "and its token suffix is in the dark palette's dim grey: %r" % grid.attrs_of_row(activity_row),
+    )
+    # And none of it past the row: the blank row under it and the composer's
+    # own cells after the rail carry no colour and no attribute (upstream's
+    # `input_bar_style` is empty, `render.zig:69,88`), so a leaked foreground
+    # would show up there as this row's grey rather than as nothing.
+    composer_row = band.composer[0] if band is not None else 0
+    leaked = [
+        (r + 1, c + 1)
+        for r in (activity_row + 1, composer_row)
+        for c in range(1 if r == composer_row else 0, grid.cols)
+        if not grid.is_plain(r, c)
+    ]
+    run.require(
+        not leaked,
+        "the activity row's colour leaked past it onto the gap or the composer: %r" % leaked[:8],
     )
     run.require(
         any(run.nonce in body for body in quiet.bodies()),
@@ -4357,21 +4921,37 @@ def scenario_9(run):
     # its clock-tick `wait_until` forces a complete frame to exist before
     # its own `grid()` call, and this is that same discipline for the case
     # that has no clock tick to wait on.
+    def light_label(grid):
+        band = find_band(grid)
+        if band is None or band.activity is None:
+            return None
+        text = grid.row_text(band.activity)
+        end = text.find(" (\u2191")
+        end = len(text) if end < 0 else end
+        return {grid.attrs[band.activity][col] for col in range(2, end)}
+
     lit.wait_until(
         "a completed frame carrying the activity row in the light palette",
-        lambda _t: lit.peek().attrs_of_row(20) == ["\x1b[38;5;238m"]
-        and "Thinking" in lit.peek().row_text(20),
+        lambda _t: light_label(lit.peek()) == {"\x1b[38;5;238m"}
+        and (activity_text(lit.peek()) or "")[2:].startswith("Thinking"),
     )
     grid_light = lit.grid("thinking-light")
     run.require(
-        grid_light.attrs_of_row(20) == ["\x1b[38;5;238m"],
+        light_label(grid_light) == {"\x1b[38;5;238m"},
         "the activity row is not painted in the light palette's literal foreground: %r"
-        % grid_light.attrs_of_row(20),
+        % (light_label(grid_light),),
     )
+    band_light = find_band(grid_light)
+    leaked_light = [
+        (r + 1, c + 1)
+        for r in ((band_light.activity + 1, band_light.composer[0]) if band_light else ())
+        for c in range(1 if r == band_light.composer[0] else 0, grid_light.cols)
+        if not grid_light.is_plain(r, c)
+    ]
     run.require(
-        grid_light.attrs_of_row(22) == [],
-        "the activity row's colour leaked past the rule onto the composer: %r"
-        % grid_light.attrs_of_row(22),
+        band_light is not None and not leaked_light,
+        "the activity row's colour leaked past it onto the gap or the composer: %r"
+        % leaked_light[:8],
     )
     lit.send(b"\x03\x03")
     run.require(
@@ -4386,14 +4966,22 @@ def scenario_9(run):
     frozen = run.trial("frozen-clock", gateway=fixture, mode="ask", notes=True).settled()
     frozen.send("edit the notes " + run.nonce + "\r")
     frozen.wait_for(PERMISSION_TITLE)
-    before = elapsed_on_activity_row(frozen.text())
+    # Off the band's own activity row on the committed grid, now that the
+    # clock is `(Ns)` behind the phase and a tick writes only the digit that
+    # changed: a parse of the wire would be reading half a row.
+    frozen.wait_until(
+        "the activity row's clock beside the question",
+        lambda _t: activity_seconds(frozen.peek()) is not None
+        and PERMISSION_TITLE in frozen.peek().text(),
+    )
+    before = activity_seconds(frozen.grid("question-up"))
     frames_before = frozen.text().count(pty.FRAME_END)
     run.require(before is not None, "the activity row carries an elapsed time")
     deadline = time.time() + 3.0
     while time.time() < deadline:
         frozen.session.pump(0.1)
     text = frozen.text()
-    after = elapsed_on_activity_row(text)
+    after = activity_seconds(frozen.grid("three-seconds-later"))
     # The band kept painting, which is what keeps the assertion below from
     # being vacuous: a session that had simply stopped drawing would trivially
     # report the same number.
@@ -4418,30 +5006,6 @@ def scenario_9(run):
     fixture.stop()
 
 
-def elapsed_on_activity_row(text):
-    """The last elapsed time the activity row has shown, in seconds."""
-    latest = None
-    index = 0
-    while True:
-        found = text.find("• Thinking", index)
-        if found < 0:
-            found = text.find("edit_file ", index)
-            if found < 0:
-                return latest
-        end = text.find("\x1b", found)
-        segment = text[found : end if end > found else len(text)]
-        digits = ""
-        for character in segment:
-            if character.isdigit():
-                digits += character
-            elif character == "s" and digits:
-                latest = int(digits)
-                digits = ""
-            else:
-                digits = ""
-        index = found + 1
-
-
 # ---------------------------------------------------------------------------
 # 10. the approval panel
 # ---------------------------------------------------------------------------
@@ -4456,6 +5020,7 @@ def scenario_10(run):
         trial = run.trial(label, gateway=fixture, mode="ask", notes=True).settled()
         trial.send("edit the notes " + run.nonce + "\r")
         trial.wait_for(PERMISSION_TITLE)
+        wait_for_panel(trial, PERMISSION_TITLE)
         return fixture, trial
 
     # `1`: yes, once. This is also the scenario's discriminator.
@@ -4607,8 +5172,11 @@ def scenario_10b(run):
     fixture.stop()
 
     # A third submission is refused on the hint row, with its text kept.
+    # A paragraph ended by a blank line, so the presenter writes it while the
+    # stream is still held open (`3efe232`: a prose line is shown once the
+    # presenter has seen what follows it).
     running = start_fixture(
-        run, [fixtures.hang(fixtures.text_delta("d", "FIRST-TURN-RUNNING"))], name="queue"
+        run, [fixtures.hang(fixtures.text_delta("d", "FIRST-TURN-RUNNING\n\n"))], name="queue"
     )
     queued = run.trial("third-refused", gateway=running).settled()
     queued.send("first " + run.nonce + "\r")
@@ -4617,10 +5185,14 @@ def scenario_10b(run):
     queued.wait_for("queued 1")
     queued.send("third\r")
     queued.wait_for("one prompt is already queued")
+    queued.wait_until(
+        "the refusal on the committed hint row",
+        lambda _t: "one prompt is already queued" in (hint_text(queued.peek()) or ""),
+    )
     grid = queued.grid("refused")
     run.require(
-        grid.find("one prompt is already queued") is not None,
-        "the refusal is visible on the hint row",
+        "one prompt is already queued" in (hint_text(grid) or ""),
+        "the refusal is visible on the hint row: %r" % hint_text(grid),
     )
     run.require(
         composer_text(grid) == "third",
@@ -4644,7 +5216,10 @@ def scenario_10b(run):
 def scenario_11(run):
     """`0x03` is a keystroke here, and no signal is delivered by it."""
     marker = run.marker("interrupt")
-    fixture = start_fixture(run, [fixtures.hang(fixtures.text_delta("a", marker))])
+    # Ended by a blank line, so the presenter writes it while the stream is
+    # still held open (`3efe232`: a prose line is shown once the presenter has
+    # seen what follows it) and the turn is still running when Ctrl-C lands.
+    fixture = start_fixture(run, [fixtures.hang(fixtures.text_delta("a", marker + "\n\n"))])
     trial = run.trial("ctrl-c", gateway=fixture).settled()
 
     trial.send("start something long " + run.nonce + "\r")
@@ -4686,11 +5261,20 @@ def scenario_12(run):
     """The background is asked for, and two answers paint two different bands."""
     marker = run.marker("theme")
 
+    # The two band rows the palette paints, found up from the hint: the hint
+    # row itself (the statusline grey with the mode in its accent) and the
+    # composer's rail (the hint grey). **Restated for the fx band**
+    # (`a50f8a0`): the second used to be the divider, which is blank now until
+    # a panel is up, so it would compare two empty runs and prove nothing; the
+    # rail is the row that carries the palette in its place.
     def band_attributes(trial):
         grid = trial.grid("band")
+        band = find_band(grid)
+        if band is None:
+            return ([], [])
         return (
-            grid.attrs_of_row(grid.rows - 1),  # the hint row
-            grid.attrs_of_row(grid.rows - 3),  # the divider
+            grid.attrs_of_row(band.hint),
+            grid.attrs_of_row(band.composer[0]),
         )
 
     # A light terminal.
@@ -4713,7 +5297,7 @@ def scenario_12(run):
     dark.settled()
     dark_attrs = band_attributes(dark)
     run.require(
-        light_attrs[0] and dark_attrs[0],
+        light_attrs[0] and dark_attrs[0] and light_attrs[1] and dark_attrs[1],
         "the band painted colour at all, so the comparison below can fail for the "
         "reason it claims (%r / %r)" % (light_attrs, dark_attrs),
     )
@@ -4776,7 +5360,7 @@ def scenario_12(run):
     grid = foreign.grid("after-a-foreign-osc")
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
     run.require(
-        grid.row_text(grid.rows - 1).strip() != "",
+        find_band(grid) is not None and hint_text(grid) != "",
         "the session did not lose its place: the band is still painted",
     )
     foreign.send(b"\x15\x04")
@@ -4887,17 +5471,23 @@ def scenario_13(run):
     # first three on row 20 and the rest on row 21 with two. Comparing document
     # rows by index would be asserting on which side of that race a run landed,
     # which is a property of the scheduler and not of the painter.
-    divider = the_divider(run, reference, diffed)
-    for row in range(divider, reference.rows):
+    band_top = the_band_top(run, reference, diffed)
+    for row in range(band_top, reference.rows):
         run.require(
             diffed.cells[row] == reference.cells[row],
             "band row %d differs from the full-repaint reference:\n  diff %r\n  full %r"
             % (row + 1, diffed.row_text(row), reference.row_text(row)),
         )
         run.require(
-            diffed.attrs[row] == reference.attrs[row],
-            "band row %d's attributes differ from the reference:\n  diff %r\n  full %r"
-            % (row + 1, diffed.attrs_of_row(row), reference.attrs_of_row(row)),
+            diffed.attrs[row] == reference.attrs[row] and diffed.styles[row] == reference.styles[row],
+            "band row %d's attributes differ from the reference:\n  diff %r %r\n  full %r %r"
+            % (
+                row + 1,
+                diffed.attrs_of_row(row),
+                diffed.styles_of_row(row),
+                reference.attrs_of_row(row),
+                reference.styles_of_row(row),
+            ),
         )
     run.require(
         (diffed.row, diffed.col) == (reference.row, reference.col),
@@ -4909,9 +5499,9 @@ def scenario_13(run):
     # answer fails here even though the line it sits on, and whether it is still
     # on the screen at all, are the scheduler's to choose.
     run.require(
-        written_document(diffed, divider) == written_document(reference, divider),
+        written_document(diffed, band_top) == written_document(reference, band_top),
         "the document differs from the full-repaint reference:\n  diff %r\n  full %r"
-        % (written_document(diffed, divider), written_document(reference, divider)),
+        % (written_document(diffed, band_top), written_document(reference, band_top)),
     )
     # A comparison of two blank screens would pass for anything, so the screen
     # both painters produced has to be a screen with the answer on it.
@@ -4920,48 +5510,38 @@ def scenario_13(run):
         "the reference screen never showed the answer, so the comparison is vacuous",
     )
     run.require(
-        reference.row_text(reference.rows - 1).strip() != "",
+        hint_text(reference),
         "the reference screen has no band on it, so the comparison is vacuous",
     )
-
-
-# What an activity row looks like, in **either** blinking face.
-#
-# `src/tui/activity.rs`: a lit `•` or a blank cell in the same column, a
-# space, the label (`Thinking`, or a tool's name), two spaces, the elapsed time
-# (`12s`, or `1m03s` past a minute), and optionally two more spaces and a token
-# count. Both faces are matched on purpose -- the marker is dark for half of
-# every second (`activity.rs`'s `BLINK`), so a barrier that knew only the lit
-# `•` would call a running turn idle twice a second, which is the one way a
-# wait like this can pass for the wrong reason.
-#
-# The elapsed-time tail is what tells this row from a document row that happens
-# to begin with two spaces: an answer's line does not end in `  0s`.
-ACTIVITY_ROW = re.compile(r"^[• ] \S.*?  \d+(?:m\d{2})?s(?:  \d+ tokens)?$")
 
 
 def band_is_idle(grid):
     """Whether the band on `grid` has given its activity row back.
 
     Three answers rather than two. `True` is an idle band, `False` is a turn
-    still running, and **`None` is a screen with no divider on it** -- which is
+    still running, and **`None` is a screen with no band on it** -- which is
     not an idle screen, it is a screen this oracle cannot read: a torn frame, a
     session that has not painted yet, or one whose band has gone. A barrier that
     folded `None` into `True` would be satisfied by exactly those.
 
-    The row consulted is the one directly above the divider, because that is
-    where an active band's extra row is: the band is anchored to the bottom of
-    the screen and grows **upward** (`src/tui/shell.rs`'s `band_rows`), so a
-    running turn costs the document its last line rather than moving the
-    divider.
+    Read through `find_band`, which looks for the activity row where the band
+    puts it -- above the composer, over the blank row that keeps it from the
+    draft -- and in **either** blinking face of its marker (`ACTIVITY_ROW`), so a
+    marker dark for half of every second cannot make a running turn read idle.
+
+    **And the caret must be in the composer.** On a floating band an append
+    lands on the rows the band has just moved down from (`fcc8e44`), so for
+    the moment between an answer's line reaching the terminal and the next
+    frame, that line sits where the activity row was: the screen shows no
+    activity row while the turn is still running. Every band frame ends by
+    putting the caret back in the composer and an append leaves it in the
+    document, so a caret outside the composer is that in-between screen and is
+    not read as idle.
     """
-    rule = "─" * grid.cols
-    for row in range(grid.rows - 1, -1, -1):
-        if grid.row_text(row) == rule:
-            if row == 0:
-                return None
-            return ACTIVITY_ROW.match(grid.row_text(row - 1).rstrip()) is None
-    return None
+    band = find_band(grid)
+    if band is None:
+        return None
+    return band.activity is None and band.composer[0] <= grid.row <= band.composer[-1]
 
 
 def settled_band(run, trial, what):
@@ -4997,32 +5577,28 @@ def settled_band(run, trial, what):
     )
 
 
-def the_divider(run, reference, diffed):
+def the_band_top(run, reference, diffed):
     """The row index the band starts at, agreed by both screens.
 
-    Found rather than computed: it is the one row that is the rule and nothing
-    else, so a scenario that lost the band entirely fails here instead of
-    comparing two empty ranges and passing.
+    Found rather than computed -- up from each screen's hint row, through
+    `find_band` -- so a scenario that lost the band entirely fails here instead
+    of comparing two empty ranges and passing. **Restated for the fx band**
+    (`a50f8a0`): this used to find the always-drawn divider, which is blank
+    now until a panel is up; the band's own top (the composer's first row on
+    an idle band) is the boundary in its place.
     """
-    def rule(grid):
-        wanted = "\u2500" * grid.cols
-        for row in range(grid.rows - 1, -1, -1):
-            if grid.row_text(row) == wanted:
-                return row
-        return None
-
-    found, expected = rule(diffed), rule(reference)
-    run.require(expected is not None, "the full-repaint reference painted a divider at all")
+    found, expected = find_band(diffed), find_band(reference)
+    run.require(expected is not None, "the full-repaint reference painted a band at all")
     run.require(
-        found == expected,
-        "the two screens put the divider on different rows (%r vs %r)" % (found, expected),
+        found is not None and expected is not None and found.top == expected.top,
+        "the two screens put the band's top on different rows (%r vs %r)" % (found, expected),
     )
-    if found is None or expected is None or found != expected:
+    if found is None or expected is None or found.top != expected.top:
         raise Failure("the band could not be located on both screens")
-    return found
+    return found.top
 
 
-def written_document(grid, divider):
+def written_document(grid, band_top):
     """Every row the terminal has ever held above the band, oldest first.
 
     **Scrollback included, and row numbers excluded**, because both of those are
@@ -5042,12 +5618,18 @@ def written_document(grid, divider):
     to stop asserting. Every attribute this phase emits is painted on the band
     (`src/tui/theme.rs`: the divider, the hint row, the activity row), and those
     rows are compared cell for cell and run for run.
+
+    **One row is compared by predicate rather than by text**: the dim summary a
+    clean turn writes under its answer (`3efe232`) carries the turn's elapsed
+    seconds, which are the clock's and not the painter's, so a summary row is
+    replaced by a placeholder here once `SUMMARY_ROW` has matched it -- a row
+    that is not a well-formed summary is kept verbatim and still compared.
     """
     written = [line for line in grid.scrollback if line.strip()]
     written.extend(
-        grid.row_text(row) for row in range(divider) if grid.row_text(row).strip()
+        grid.row_text(row) for row in range(band_top) if grid.row_text(row).strip()
     )
-    return written
+    return ["  <turn summary>" if SUMMARY_ROW.match(line) else line for line in written]
 
 
 # ---------------------------------------------------------------------------
@@ -5201,65 +5783,84 @@ def scenario_15(run):
         lambda _t: composer_text(trial.peek()) == draft,
     )
     narrow = trial.grid("before-resize-band")
-    # 24 rows, two composer rows: the rule on row 21, the composer on 22 and
-    # 23, the hint row on 24.
+    # **Restated for the floating band** (`fcc8e44`): this used to pin the
+    # narrow band to rows 21-24 (a rule, two composer rows, the hint) and the
+    # wide one to rows 28-30 under a rule on row 28. The band now floats under
+    # the document until the screen fills, and a resize pins it to the bottom
+    # (where a terminal reflowed its rows is unknowable), so the narrow band is
+    # read where it floats -- two composer rows, the blank rule row and the
+    # hint right under them -- and the wide one must be **at the bottom** of
+    # the taller screen: one composer row on row 28, the blank rule row 29, the
+    # hint on row 30.
+    narrow_band = find_band(narrow)
     run.require(
-        narrow.row_text(20) == "\u2500" * 80,
-        "the rule spans the narrow screen before the resize: %r" % narrow.row_text(20),
+        narrow_band is not None
+        and len(narrow_band.composer) == 2
+        and narrow_band.divider == narrow_band.composer[-1] + 1
+        and grid_row_blank(narrow, narrow_band.divider)
+        and narrow_band.hint == narrow_band.divider + 1,
+        "the draft is on two composer rows to begin with, over the blank rule row and the "
+        "hint: %r" % (narrow_band,),
     )
-    run.require(
-        composer_first_row(narrow) == 21,
-        "the draft is on two composer rows to begin with (first row %r)"
-        % composer_first_row(narrow),
-    )
+    old_top = narrow_band.top if narrow_band is not None else 0
 
     # Where the wire stands before the resize, so what is scanned below is this
     # gesture's bytes and nothing else.
     wire = len(trial.session.captured)
     trial.resize(30, 120)
 
-    # 30 rows, one composer row: the rule on row 28, the composer on 29, the
-    # hint row on 30. Waited for on the **rule**, which is the one row whose
-    # text says both coordinates at once -- where it is, and how wide.
+    def pinned(grid):
+        band = find_band(grid)
+        return (
+            band is not None
+            and band.hint == grid.rows - 1
+            and band.divider == grid.rows - 2
+            and band.composer == [grid.rows - 3]
+        )
+
     trial.wait_until(
-        "the rule across the foot of the taller screen",
-        lambda _t: trial.peek().row_text(27) == "\u2500" * 120,
+        "the band pinned to the foot of the taller screen",
+        lambda _t: pinned(trial.peek()) and composer_text(trial.peek()) == draft,
     )
     wide = trial.grid("after-resize-band")
+    wide_band = find_band(wide)
     run.require(
-        wide.row_text(27) == "\u2500" * 120,
-        "the rule spans the whole of the new screen: %r" % wide.row_text(27),
+        pinned(wide),
+        "the band is pinned to the bottom of the new screen -- composer row 28, the blank "
+        "rule row 29, the hint row 30: %r" % (wide_band,),
     )
     run.require(
-        composer_first_row(wide) == 28,
-        "the draft is back on one composer row, directly under the rule "
-        "(first row %r)" % composer_first_row(wide),
+        composer_text(wide) == draft and composer_first_row(wide) == 27,
+        "the draft is back on one composer row and it is still the whole draft: %r"
+        % composer_text(wide),
     )
     run.require(
-        composer_text(wide) == draft,
-        "and it is still the whole draft: %r" % composer_text(wide),
+        hint_text(wide) == HINT_AUTO,
+        "the hint row on the last row of the new screen says what a turn runs with: %r"
+        % hint_text(wide),
     )
-    run.require(
-        wide.row_text(29).strip() != "",
-        "the hint row is on the last row of the new screen",
-    )
-    # **No stale rows.** The rows the band owned on the old screen are the
-    # document's now, and nothing in this phase repaints a document row -- so a
-    # band that merely drew itself lower would leave a second rule and a second
-    # hint row on the screen for the rest of the session.
-    stale = [row + 1 for row in range(20, 24) if wide.row_text(row).strip() != ""]
+    # **No stale rows.** The rows the band owned on the old screen are not the
+    # band's now, and nothing in this phase repaints a document row -- so a band
+    # that merely drew itself somewhere else would leave a second composer and
+    # a second hint row on the screen for the rest of the session.
+    stale = [
+        row + 1
+        for row in range(old_top, (narrow_band.hint + 1) if narrow_band is not None else 0)
+        if wide_band is not None and row < wide_band.top and wide.row_text(row).strip() != ""
+    ]
     run.require(not stale, "the band the resize left behind is gone from rows %r" % stale)
     # **And nothing above them was touched.** The committed transcript is the
     # terminal's own document and its own scrollback; the terminal re-wrapped it
     # when it changed size, by rules xfx does not model, so a session that
     # repainted one of those rows would be overwriting text it cannot describe.
     # The rows this gesture is allowed to write are the band's own -- from the
-    # top row the band had on the old screen (21, its rule) downwards.
+    # top row the band had on the old screen downwards.
     written = bytes(trial.session.captured)[wire:].decode("utf-8", "replace")
-    above = sorted({row for row in rows_a_gesture_wrote_on(written) if row < 21})
+    above = sorted({row for row in rows_a_gesture_wrote_on(written) if row < old_top + 1})
     run.require(
-        not above,
-        "the resize wrote on the terminal's own document, at row(s) %r" % above,
+        old_top > 0 and not above,
+        "the resize wrote on the terminal's own document (above row %d), at row(s) %r"
+        % (old_top + 1, above),
     )
     run.require(
         not wide.unknown, "xfx emitted only the sequences it declares: %r" % wide.unknown
@@ -5312,11 +5913,6 @@ def scenario_15(run):
 # ---------------------------------------------------------------------------
 
 
-def hint_text(grid):
-    """The band's last row, which is where the context meter lives."""
-    return grid.row_text(grid.rows - 1).strip()
-
-
 # The canonical palette, in `/help`'s order.
 #
 # Spelled here rather than read out of the binary because this harness must be
@@ -5336,41 +5932,30 @@ CANONICAL_COMMANDS = [
 ]
 
 
-def divider_row(grid):
-    """The row the band's rule is on, or `None` before a band.
-
-    Zero-based, like every other row index the oracle deals in. The boundary
-    every claim below is stated against: the menu is *above* it and the composer
-    is *below* it, and a menu painted on the wrong side of the rule would be a
-    menu drawn over the draft it is about.
-    """
-    for row in range(grid.rows):
-        text = grid.row_text(row)
-        if text and text.strip("─") == "":
-            return row
-    return None
-
-
 def menu_rows(grid):
     """The rows the menu is on, top first, and `[]` when there is no menu.
 
-    The **contiguous run directly above the rule** whose rows have the menu's
-    own shape -- a marker or an indent, then a slash name. Bounded that way
-    rather than "every row above the rule that starts with a slash", because
-    what is above the menu is the terminal's own document and a submitted
-    `/model` is echoed into it: a reader that counted those would report a menu
-    that had closed as a menu that was still up.
+    **The band's panel**, read through `find_band`: the rows between the rule
+    under the composer and the bottom rule over the hint, and only those of
+    them in the menu's own shape -- a marker or an indent, then a slash name.
+    Bounded that way rather than "every row on the screen that starts with a
+    slash name", because the document above the band holds rows in exactly
+    that shape -- an answer line is written two columns in, so an answer that
+    begins with `/help` is `  /help` on the screen -- and a reader that counted
+    those would report a menu that had closed as a menu that was still up.
+
+    **Restated for the fx band** (`a50f8a0`): the menu used to be the run of
+    rows directly *above* a single rule, over the composer; it is now *under*
+    the composer, between two rules.
     """
-    rule = divider_row(grid)
-    if rule is None:
+    band = find_band(grid)
+    if band is None:
         return []
-    rows = []
-    for row in range(rule - 1, -1, -1):
-        text = grid.row_text(row)
-        if not (text.startswith("> /") or text.startswith("  /")):
-            break
-        rows.append(row)
-    return list(reversed(rows))
+    return [
+        row
+        for row in band.panel
+        if grid.row_text(row).startswith("> /") or grid.row_text(row).startswith("  /")
+    ]
 
 
 def offered(grid):
@@ -5400,7 +5985,11 @@ def scenario_16(run):
     the product has.
     """
     marker = run.marker("menu")
-    fixture = start_fixture(run, [fixtures.content_only(marker)])
+    # The answer's second paragraph begins with a slash name, so the document
+    # holds a row in the menu's own shape -- `  /help …`, two columns in -- for
+    # the last reading below to tell the band's menu apart from.
+    lookalike = "/help is a word in this answer, not a menu row"
+    fixture = start_fixture(run, [fixtures.content_only(marker + "\n\n" + lookalike)])
     trial = run.trial("menu", gateway=fixture).settled()
     from_a_known_composer(run, trial, "menu")
     # The discriminator every scenario owes, before the menu is touched: the
@@ -5424,33 +6013,44 @@ def scenario_16(run):
         "a bare slash lists every command in the order /help lists them: %r"
         % offered(opened),
     )
-    rule = divider_row(opened)
-    run.require(rule is not None, "the band has a rule to place the menu against")
-    count = len(CANONICAL_COMMANDS)
+    # **Restated for the fx band** (`a50f8a0`): the menu used to be the rows
+    # directly above the one rule, with the composer under it. It is now the
+    # band's panel -- under the composer, between the rule that heads it and
+    # the bottom rule over the hint -- and the composer is directly above it.
+    band = find_band(opened)
     run.require(
-        menu_rows(opened) == list(range(rule - count, rule)),
-        "the menu's %d rows are the %d directly above the rule: %r against a rule at %r"
-        % (count, count, menu_rows(opened), rule),
+        band is not None and band.picker_rule is not None,
+        "the band has a rule under the composer to place the menu against: %r" % (band,),
+    )
+    count = len(CANONICAL_COMMANDS)
+    rule = band.picker_rule if band is not None and band.picker_rule is not None else 0
+    run.require(
+        band is not None
+        and menu_rows(opened) == list(range(rule + 1, rule + 1 + count))
+        and band.divider == rule + 1 + count
+        and is_rule(opened, band.divider),
+        "the menu's %d rows are the %d between the rule under the composer and the bottom "
+        "rule: %r against %r" % (count, count, menu_rows(opened), band),
     )
     run.require(
-        opened.row_text(rule - count).startswith("> ")
+        opened.row_text(rule + 1).startswith("> ")
         and [opened.row_text(row).startswith("  ") for row in menu_rows(opened)[1:]]
         == [True] * (count - 1),
         "exactly the top row is marked: %r"
         % [opened.row_text(row)[:2] for row in menu_rows(opened)],
     )
     run.require(
-        opened.row_text(rule + 1) == "> /",
-        "the composer is directly under the rule, holding the draft: %r"
-        % opened.row_text(rule + 1),
+        band is not None and band.composer == [rule - 1] and opened.row_text(rule - 1) == RAIL + " /",
+        "the composer is directly above the rule that heads the menu, holding the draft: %r"
+        % opened.row_text(rule - 1),
     )
     # The caret, which is the one thing that says which of the two the next
     # keystroke goes to: in the composer, past the draft, never on the marked
     # row of the menu.
     run.require(
-        (opened.row, opened.col) == (rule + 1, 3),
-        "the menu took the caret off the text being typed: row %d col %d, rule at row %d"
-        % (opened.row, opened.col, rule),
+        (opened.row, opened.col) == (rule - 1, 3),
+        "the menu took the caret off the text being typed: row %d col %d, composer at row %d"
+        % (opened.row, opened.col, rule - 1),
     )
     run.require(not opened.unknown, "xfx emitted only the sequences it declares: %r" % opened.unknown)
 
@@ -5527,9 +6127,8 @@ def scenario_16(run):
     # And it did **not** arm the composer's own double-Escape clear, which is
     # the gesture the same key means when there is no menu to close.
     run.require(
-        "esc again to clear" not in dismissed.row_text(dismissed.rows - 1),
-        "Escape armed the clear gesture instead of closing the menu: %r"
-        % dismissed.row_text(dismissed.rows - 1),
+        hint_text(dismissed) is not None and "esc again to clear" not in hint_text(dismissed),
+        "Escape armed the clear gesture instead of closing the menu: %r" % hint_text(dismissed),
     )
     trial.send("l")
     trial.wait_until(
@@ -5596,30 +6195,38 @@ def scenario_16(run):
     )
     run.require(not ran.unknown, "xfx emitted only the sequences it declares: %r" % ran.unknown)
 
-    # --- and it is still a menu with the document pressed against it --------
+    # --- and it is still the band's menu with a lookalike in the document ---
     #
-    # Every reading above was taken with blank rows above the menu, because the
-    # session had barely written anything. This one is taken with the answer to
-    # the command that just ran sitting **directly** on top of it: a one-match
-    # menu is one row, so the row above it is the last row of the terminal's own
-    # document. What a menu is is the block the band owns, not "everything above
-    # the rule", and this is the reading that can tell the two apart.
+    # **Restated for the fx band** (`a50f8a0`, `3efe232`): this reading used to
+    # be taken with the echo of `/model` -- `> /model`, a row in the menu's own
+    # shape -- directly on top of a one-row menu. The echo is a card behind the
+    # rail now and the menu is under the composer, so the lookalike is the
+    # answer's own `  /help …` row instead: the document holds a row in the
+    # menu's shape and the band's menu must still offer `/help` exactly once,
+    # read off its panel and not off every slash-shaped row on the screen. And
+    # the document is pressed against the band: its last written row is right
+    # above the blank row the band's top keeps from it.
     trial.send("/he")
     trial.wait_until(
-        "a one-row menu with the document directly above it",
-        lambda _t: composer_text(trial.peek()) == "/he",
+        "a one-row menu with the document directly above the band",
+        lambda _t: composer_text(trial.peek()) == "/he" and offered(trial.peek()) == ["/help"],
     )
     pressed = trial.grid("menu-against-the-document")
-    rule = divider_row(pressed)
+    pressed_band = find_band(pressed)
+    run.require(
+        any(text.startswith("  " + lookalike) for text in (rows_above_band(pressed) or [])),
+        "the document holds a row in the menu's own shape: %r" % (rows_above_band(pressed),),
+    )
     run.require(
         offered(pressed) == ["/help"],
-        "the menu is the band's block rather than everything above the rule: %r"
+        "the menu is the band's block rather than every slash-shaped row on the screen: %r"
         % offered(pressed),
     )
     run.require(
-        pressed.row_text(rule - 2).strip() != "",
-        "the document really is pressed against the menu (row %r is blank)"
-        % (rule - 2),
+        pressed_band is not None
+        and pressed.row_text(pressed_band.top - 1) == ""
+        and pressed.row_text(pressed_band.top - 2).strip() != "",
+        "the document really is pressed against the band: %r" % (pressed_band,),
     )
 
     # The draft goes before the Ctrl-D does: with text under the caret that key
@@ -6007,10 +6614,18 @@ def scenario_19(run):
     trial = run.trial("browse", home=home).settled()
     from_a_known_composer(run, trial, "browse")
 
+    # **Restated for the fx statusline** (`a50f8a0`): the meter used to read
+    # `Context: 12k/1000k 1%`; upstream's hint row says `{used}k/{total}k
+    # {pct}%` as its own segment (`render.zig:419-427`), so the meter is
+    # recognised by that shape rather than by a label it no longer has --
+    # which is what keeps "no meter before a turn" a claim that can fail.
+    def meters(hint):
+        return re.findall(r"(?:^| )\d+k/\d+k \d+%(?: |$)", hint or "")
+
     # --- nothing is claimed about context before anything has been measured -
     quiet = trial.grid("before-any-turn")
     run.require(
-        "Context" not in hint_text(quiet),
+        hint_text(quiet) and not meters(hint_text(quiet)),
         "the hint row reported a context before a turn had measured one: %r"
         % hint_text(quiet),
     )
@@ -6046,7 +6661,7 @@ def scenario_19(run):
     # The catalog alone is a denominator with no numerator, and that is not a
     # meter.
     run.require(
-        "Context" not in hint_text(browsed),
+        hint_text(browsed) and not meters(hint_text(browsed)),
         "a catalog with no completed turn put a meter on the hint row: %r"
         % hint_text(browsed),
     )
@@ -6059,18 +6674,18 @@ def scenario_19(run):
     )
     trial.wait_until(
         "the context meter on the hint row",
-        lambda _t: "Context" in hint_text(trial.peek()),
+        lambda _t: meters(hint_text(trial.peek())),
     )
     measured = trial.grid("measured")
-    hint = hint_text(measured)
+    hint = hint_text(measured) or ""
     # The fixture reports 12345 input tokens against a published window of
     # 1000000: thousands, and the percentage between them.
     run.require(
-        "Context: 12k/1000k 1%" in hint,
+        hint.endswith(" \u00b7 12k/1000k 1%"),
         "the meter is not the fixture's own numbers over the catalog's window: %r" % hint,
     )
     run.require(
-        hint.count("Context:") == 1,
+        len(meters(hint)) == 1,
         "the row carries more than one meter: %r" % hint,
     )
     trial.send(b"\x04")
@@ -6420,7 +7035,7 @@ def scenario_20(run):
     trial.wait_until(
         "the band to be painted on the primary plane again",
         lambda _t: trial.peek().plane == "primary"
-        and trial.peek().find(HINT_MODEL) is not None,
+        and HINT_MODEL in (hint_text(trial.peek()) or ""),
     )
     grid = trial.grid("back-on-the-primary-plane", record_frames=True)
     run.require(grid.plane == "primary", "the session is still on the borrowed plane")
@@ -6429,9 +7044,13 @@ def scenario_20(run):
         "the plane was taken %d times and given back %d"
         % (grid.entered_alternate, grid.left_alternate),
     )
+    # Found up from the bottom-most painted row, because the band floats
+    # under the document rather than owning the screen's last row: the hint
+    # must be back **and** be the band's -- with the composer above it -- and
+    # say what a turn runs with.
     run.require(
-        grid.row_text(grid.rows - 1).strip() != "",
-        "the band's hint row was not repainted by the restore",
+        find_band(grid) is not None and HINT_MODEL in (hint_text(grid) or ""),
+        "the band's hint row was not repainted by the restore: %r" % hint_text(grid),
     )
     run.require(
         grid.find("beta line") is None,
@@ -6527,7 +7146,7 @@ def scenario_20(run):
     trial.wait_until(
         "the band to be painted on the primary plane after the write",
         lambda _t: trial.peek().plane == "primary"
-        and trial.peek().find(HINT_MODEL) is not None,
+        and HINT_MODEL in (hint_text(trial.peek()) or ""),
     )
     grid = trial.grid("back-on-the-primary-plane-after-the-write", record_frames=True)
     run.require(grid.plane == "primary", "the session is still on the borrowed plane")
@@ -6536,9 +7155,13 @@ def scenario_20(run):
         "the plane was taken %d times and given back %d"
         % (grid.entered_alternate, grid.left_alternate),
     )
+    # Found up from the bottom-most painted row, because the band floats
+    # under the document rather than owning the screen's last row: the hint
+    # must be back **and** be the band's -- with the composer above it -- and
+    # say what a turn runs with.
     run.require(
-        grid.row_text(grid.rows - 1).strip() != "",
-        "the band's hint row was not repainted by the write's restore",
+        find_band(grid) is not None and HINT_MODEL in (hint_text(grid) or ""),
+        "the band's hint row was not repainted by the write's restore: %r" % hint_text(grid),
     )
     run.require(
         grid.find("gamma line") is None,
@@ -6624,7 +7247,7 @@ def scenario_20(run):
     trial.wait_until(
         "the band to be painted on the primary plane after the collision",
         lambda _t: trial.peek().plane == "primary"
-        and trial.peek().find(HINT_MODEL) is not None,
+        and HINT_MODEL in (hint_text(trial.peek()) or ""),
     )
     grid = trial.grid("back-on-the-primary-plane-after-the-collision", record_frames=True)
     run.require(
@@ -6714,7 +7337,7 @@ def scenario_20(run):
     trial.wait_until(
         "the band to be painted on the primary plane after the controls",
         lambda _t: trial.peek().plane == "primary"
-        and trial.peek().find(HINT_MODEL) is not None,
+        and HINT_MODEL in (hint_text(trial.peek()) or ""),
     )
     grid = trial.grid("back-on-the-primary-plane-after-the-controls", record_frames=True)
     run.require(
@@ -6806,11 +7429,13 @@ def scenario_22(run):
         "C-y yanked what C-w killed: %r" % composer_text(grid),
     )
 
-    # The composer row is the second-to-last, and the caret's column is three
-    # for the two-cell marker plus the bytes in front of it: 7 for `one ` and 10
-    # for `one two`. Read off the emulator's own cursor, which is the same
-    # oracle the rows come from.
-    caret_row = trial.rows - 1
+    # The composer row is the band's own, found up from the hint (one-based
+    # here, as the caret is reported) -- it floats under the document rather
+    # than sitting on a fixed row -- and the caret's column is three for the
+    # two-cell rail plus the bytes in front of it: 7 for `one ` and 10 for
+    # `one two`. Read off the emulator's own cursor, which is the same oracle
+    # the rows come from.
+    caret_row = composer_first_row(grid) + 1
 
     def caret(grid):
         return (grid.row + 1, grid.col + 1)
@@ -6990,12 +7615,26 @@ def on_the_grid(trial, needle, what=None):
     moves between them, and a title that is on the screen may never appear in
     the stream as one run of bytes. `peek` feeds the emulator as far as the last
     **complete** frame, which is the only place a screen is a screen.
+
+    **And the wire must end on that frame.** A document append is written
+    outside any frame and owes the frame after it (`shell.rs`'s `owed`), and on
+    a floating band it lands on the rows the band has just moved down from
+    (`fcc8e44`) -- so between an appended line and the repaint it owes, the
+    screen holds the new line *and* the band as it was before it (an
+    interrupt's notice above a question panel that is about to come down). A
+    needle read in that interval is real, but the screen around it is not one
+    the session settled on.
     """
     trial.wait_until(
         what or "%r to be on the screen" % needle,
-        lambda _text: trial.peek().find(needle) is not None,
+        lambda _text: trial.peek().find(needle) is not None and wire_ends_on_a_frame(trial),
     )
     return trial.peek()
+
+
+def wire_ends_on_a_frame(trial):
+    """Whether the last bytes on the wire close a frame -- nothing appended after it."""
+    return bytes(trial.session.captured).endswith(FRAME_END_BYTES)
 
 
 def cells_wide(text):
@@ -7737,10 +8376,7 @@ def draft_rows(grid):
     bare would compare `"FIRSTSECONDTHIRD"` against a draft that was never
     submitted as one word.
     """
-    start = composer_first_row(grid)
-    if start is None:
-        return None
-    return [grid.row_text(row)[2:] for row in range(start, grid.rows - 1)]
+    return composer_rows_text(grid)
 
 
 def scenario_26(run):
@@ -7759,33 +8395,35 @@ def scenario_26(run):
       what this scenario is testing and a check that read only the screen would
       be blind to a line the growth had already carried into scrollback.
     * a real approval panel -- not a mockup, `edit_then_finish` answered by
-      denying it -- opens and closes within the band's own owned region above
-      the divider (`Geometry::band_top`/`panel_first`, `src/tui/layout.rs:75-82`:
-      the panel's rows are counted down from the divider, between it and the
-      activity row, and `band_top` moves to include them), and the three lines
-      from the stage before are still in the combined document, once each, in
-      order, behind it. **An unchanged divider and composer are not the same
-      claim as an unchanged band** -- the band's own top row is exactly what
-      the panel occupies -- so what is asserted here is the narrower thing:
-      `divider_row`/`composer_first_row`, the two rows this scenario's literal
-      coordinates are about, hold their one-row-baseline position through a
-      panel this size, same as `scenario_24`'s own reading of the identical
-      fixture.
+      denying it -- opens and closes within the band's own owned region
+      (`Geometry::panel_first`, `src/tui/layout.rs`: between the rule under the
+      composer and the bottom rule over the hint), and the three lines from the
+      stage before are still in the combined document, once each, in order,
+      behind it. What is asserted about the band is its structure around the
+      panel -- composer above the panel's rule, activity row above the
+      composer, the band's top directly under the document's last row -- and
+      that closing it gives the rows back with nothing left below.
     * the finish is ordinary: the draft is cleared before `C-D`, the idle
       screen is watched rather than assumed quiet, and the terminal comes back
       byte for byte.
 
-    **Coordinates are literal where the contract makes them so, and nowhere
-    else.** The composer's growth is `rows - 2 - <its own row count>`
-    (`1-launch-and-band-ownership`'s three band rows and `15-resize-reflow`'s
-    two-row wrap agree on it), so the one-row baseline -- divider 21, composer
-    22 -- and the three-row paste -- divider 19, composer 20 -- are asserted as
-    those numbers on this scenario's 24-row screen. A panel that fits inline
-    never moves *those two rows* (`panel_first` counts the panel's rows down
-    from the divider, rather than the divider counting up from the panel), so
-    21/22 is asserted through the panel too, not just around it -- but that is
-    narrower than a claim about the band itself, whose own top row the panel
-    does move, the same way the composer's own growth moved it in stage 1.
+    **Restated for the floating band** (`fcc8e44`, `a50f8a0`). This scenario
+    used to assert literal coordinates on a band anchored to the bottom: a
+    one-row baseline of divider 21 / composer 22, a three-row paste moving them
+    up to 19 / 20, and a panel above the divider that left 21 / 22 alone. The
+    band now floats under the document and the panel sits **under** the
+    composer, so the coordinates are relative to where the band is found:
+    the one-row baseline is the composer directly under the document's blank
+    row with the blank rule row and the hint right below it; a three-row paste
+    grows the band **downward** from that same first row (rule and hint pushed
+    down by two); the undo puts the rule and the hint back and leaves nothing
+    painted below them; and the panel opens between the rule under the
+    composer and the bottom rule, with the activity row above the composer, the
+    band's top directly under the document's last row, and -- since this panel
+    does not fit under a floating band -- the hint on the screen's last row
+    with the document carried into scrollback rather than painted over. Closing
+    it gives the panel's rows back: one composer row, its blank rule row and
+    the hint, with nothing left below.
     `20-alternate-screen-approval` is the case a panel this size never reaches:
     a change too large for the band to hold at all leaves the primary plane
     instead of growing further into it, a different mechanism, out of scope
@@ -7861,11 +8499,25 @@ def scenario_26(run):
         "the three lines reached the document once each, in order: %r" % (grid.document_text(),),
     )
     trial.grid("three-lines")
-    run.require(
-        divider_row(grid) == 21 and composer_first_row(grid) == 22,
-        "the one-row composer's own rows, before anything grew it: divider %r composer %r"
-        % (divider_row(grid), composer_first_row(grid)),
-    )
+    baseline = find_band(grid)
+    base = baseline.composer[0] if baseline is not None else -1
+
+    def one_row_band(grid, what):
+        band = find_band(grid)
+        run.require(
+            band is not None
+            and band.composer == [base]
+            and band.divider == base + 1
+            and grid_row_blank(grid, base + 1)
+            and band.hint == base + 2
+            and grid.row_text(base - 1) == ""
+            and SUMMARY_ROW.match(grid.row_text(base - 2)) is not None
+            and all(grid_row_blank(grid, row) for row in range(base + 3, grid.rows)),
+            "%s: one composer row directly under the document's blank row, the blank rule "
+            "row and the hint right below it, nothing painted under them: %r" % (what, band),
+        )
+
+    one_row_band(grid, "the one-row composer's own rows, before anything grew it")
 
     draft_lines = [
         "FIRST-ROW-" + run.nonce,
@@ -7881,13 +8533,16 @@ def scenario_26(run):
     )
     run.require(fixture.request_count() == 1, "the paste did not submit itself")
     grown = trial.grid("grown-three-rows")
+    grown_band = find_band(grown)
     run.require(
-        divider_row(grown) == 19 and composer_first_row(grown) == 20,
-        "the divider and the composer moved up for a three-row draft: divider %r composer %r"
-        % (divider_row(grown), composer_first_row(grown)),
+        grown_band is not None
+        and grown_band.composer == [base, base + 1, base + 2]
+        and grown_band.divider == base + 3
+        and grown_band.hint == base + 4,
+        "the band grew downward for a three-row draft, its first row unmoved: %r" % (grown_band,),
     )
     run.require(
-        grown.row == 22 and grown.col == 2 + cells_wide(draft_lines[-1]),
+        grown.row == base + 2 and grown.col == 2 + cells_wide(draft_lines[-1]),
         "the caret sits past the pasted text on the draft's own last row: (%d, %d)"
         % (grown.row, grown.col),
     )
@@ -7911,11 +8566,7 @@ def scenario_26(run):
     )
     run.require(fixture.request_count() == 1, "clearing the draft did not submit it")
     shrunk = trial.grid("shrunk-back")
-    run.require(
-        divider_row(shrunk) == 21 and composer_first_row(shrunk) == 22,
-        "the divider and the composer returned to the one-row baseline: divider %r composer %r"
-        % (divider_row(shrunk), composer_first_row(shrunk)),
-    )
+    one_row_band(shrunk, "the band returned to the one-row baseline")
     run.require(
         not any(line in shrunk.text() for line in draft_lines),
         "the cleared draft left a row of itself painted",
@@ -7926,20 +8577,17 @@ def scenario_26(run):
     )
 
     # -- stage 2: a real approval panel opens within the band's own owned
-    # region above the divider, then closes ----
+    # region, then closes ----
     #
-    # The panel's rows belong to the band, not the document (`layout.rs`: "a
-    # block of rows above [the activity row] while a turn is waiting for a
-    # decision", and `Geometry::band_top` is exactly that row while a panel is
-    # up) -- so the band's own top row moves for this stage, the same way the
-    # composer's own growth moved it in stage 1. What does not move is the
-    # divider and the composer: `panel_first` counts the panel's rows down
-    # from the divider rather than the divider counting up from the panel, so
-    # those two rows -- not the band as a whole -- are what a panel this size
-    # leaves exactly where an idle one-row composer left them. The growth this
-    # stage proves is the panel's own -- title, both choices and the tail-cut
-    # disclosure all committed at once -- read against those two fixed rows,
-    # not a claim that nothing above them changed.
+    # The panel's rows belong to the band, not the document: they sit between
+    # the rule under the composer and the bottom rule over the hint
+    # (`src/tui/layout.rs`'s footer order), and a panel too tall for a band
+    # floating under this document pins the band to the bottom and carries the
+    # document's top rows into the terminal's scrollback -- by a real scroll,
+    # never by painting over them. The growth this stage proves is the panel's
+    # own -- title, both choices and the tail-cut disclosure all committed at
+    # once -- read against the band's structure around it, and the three lines
+    # of stage 1 surviving in the combined document behind it.
     run.require(read(trial.notes) == "alpha\n", "the notes are unedited before any panel asked")
     trial.send("edit the notes " + run.nonce + "\r")
     trial.wait_for("[tool] read_file ok")
@@ -7950,11 +8598,22 @@ def scenario_26(run):
         panel.find(ALWAYS_WORDING) is not None,
         "the always-scope is disclosed whole",
     )
+    panel_band = find_band(panel)
     run.require(
-        divider_row(panel) == 21 and composer_first_row(panel) == 22,
-        "the divider and composer -- not the band, whose own top row this panel "
-        "occupies -- hold the one-row baseline through a panel this size: "
-        "divider %r composer %r" % (divider_row(panel), composer_first_row(panel)),
+        panel_band is not None
+        and PERMISSION_TITLE in (panel_rows_text(panel) or [""])[0]
+        and panel_band.composer == [panel_band.picker_rule - 1]
+        and panel_band.activity is not None
+        and panel_band.composer[0] == panel_band.activity + 2
+        and panel_band.hint == panel.rows - 1,
+        "the panel opens inside the band -- under the composer, between its two rules -- "
+        "with the activity row above the composer and the hint on the last row: %r"
+        % (panel_band,),
+    )
+    run.require(
+        panel_band is not None and panel.row_text(panel_band.top - 1) == "[tool] edit_file running",
+        "the band's top is directly under the document's last row, which it did not paint "
+        "over: %r" % (panel.row_text(panel_band.top - 1) if panel_band else None,),
     )
     run.require(
         survives(panel.document_text(), (doc1, doc2, doc3)),
@@ -7963,16 +8622,28 @@ def scenario_26(run):
 
     trial.send(b"3")  # deny
     grid = on_the_grid(trial, edit_marker, "the turn's own marker past the refused call")
+    # The marker lands while the turn still owns the band, and on a floating
+    # band its line can sit where the activity row was until the next frame
+    # (`band_is_idle`): what is read off `closed` is final geometry, so it is
+    # taken only once the turn has given the band back.
+    settled_band(run, trial, "panel closed")
     closed = trial.grid("panel-closed")
     run.require(
         closed.find(PERMISSION_TITLE) is None,
         "the panel is still standing behind the answer",
     )
+    closed_band = find_band(closed)
     run.require(
-        divider_row(closed) == 21 and composer_first_row(closed) == 22,
-        "the divider and composer are still where the panel found them, now that "
-        "the band has given the rows above them back: divider %r composer %r"
-        % (divider_row(closed), composer_first_row(closed)),
+        closed_band is not None
+        and closed_band.panel == []
+        and len(closed_band.composer) == 1
+        and closed_band.divider == closed_band.composer[0] + 1
+        and closed_band.hint == closed_band.divider + 1
+        and closed.row_text(closed_band.top - 1) == ""
+        and SUMMARY_ROW.match(closed.row_text(closed_band.top - 2)) is not None
+        and all(grid_row_blank(closed, row) for row in range(closed_band.hint + 1, closed.rows)),
+        "the band gave the panel's rows back: one composer row under the document, its "
+        "blank rule row and the hint, nothing left below: %r" % (closed_band,),
     )
     run.require(read(trial.notes) == "alpha\n", "the denied edit ran anyway")
     body = amended_request(fixture, "call-1")
@@ -8072,19 +8743,24 @@ def scenario_26b(run):
     change to the alternate screen instead (`20-alternate-screen-approval`'s
     surface, out of scope here), and at 80 columns its quoted before/after
     wrap to a fixed fourteen-row panel -- measured directly off this fixture's
-    own grid rather than hand-derived from `approval.rs`'s wrapping, the same
-    reason `26` reads its own baseline off `solve_band`'s tested formula rather
-    than re-deriving it. Ten pasted rows against that panel leaves exactly six
-    the composer's own cap (`layout::input_row_limit(24)` = 11) and this
-    panel's rows together can still afford -- both fixed by this trial's own
-    scripted content, not by the environment it runs in.
+    own grid rather than hand-derived from `approval.rs`'s wrapping.
 
-    **Divider is not `band_top`.** `26` already draws that line for an
-    unmoved composer; the point of *this* trial is the band's own top row
-    moving while the divider -- a pure function of the composer's own row
-    count (`layout.rs`'s `solve_band`) -- does not move for the reason `26`
-    moved it: it is given fewer rows, not zero, so it is a different divider
-    reached by the same formula, not the same divider left standing.
+    **Restated for the fx band** (`a50f8a0`, `fcc8e44`, `ca044a1`). This
+    scenario used to read the yield off a divider above the composer, at
+    literal rows: a ten-row draft under a divider on row 12, a panel above
+    the divider leaving the composer six rows under a divider on row 16. The
+    panel now sits **under** the composer, between two rules, the activity
+    row sits directly above the composer (its blank row dropped on a screen
+    too short for it), and there is no divider above the draft at all. The row
+    budget is the same kind of fact -- fixed by this trial's scripted content,
+    not by the environment: one row of document, the activity row, the
+    composer, the rule heading the panel, fourteen panel rows, the bottom rule
+    and the hint, so `24 - 1 - 1 - 1 - 14 - 1 - 1` = **five** composer rows
+    survive the yield, the first of them `┃↑` because the draft's head is
+    scrolled out of the window. The claims are the same three: the tall draft
+    is really standing before the panel, it really gives way to the panel (ten
+    rows down to five, the tail shown unedited), and it really gets all ten
+    rows back once the panel is gone.
     """
     finish_marker = run.marker("finish")
     before, after = "a" * 150, "b" * 150
@@ -8124,13 +8800,22 @@ def scenario_26b(run):
     held = trial.grid("draft-captured-while-held")
     run.require(fixture.request_count() == 2, "the paste neither submitted nor started a new request")
     run.require(held.find(PERMISSION_TITLE) is None, "no barrier: the panel painted before its reply was released")
+    held_band = find_band(held)
     run.require(
-        divider_row(held) == 12 and composer_first_row(held) == 13,
-        "the ten-row draft's own rows, before any panel: divider %r composer %r"
-        % (divider_row(held), composer_first_row(held)),
+        held_band is not None
+        and len(held_band.composer) == 10
+        and not composer_scrolled(held)
+        and held_band.activity is not None
+        and held_band.composer[0] == held_band.activity + 2
+        and held_band.divider == held_band.composer[-1] + 1
+        and grid_row_blank(held, held_band.divider),
+        "the ten-row draft's own rows, before any panel -- all ten shown under the running "
+        "turn's activity row, over the blank rule row and the hint: %r" % (held_band,),
     )
     run.require(
-        held.row == 22 and held.col == 2 + cells_wide(draft_lines[-1]),
+        held_band is not None
+        and held.row == held_band.composer[-1]
+        and held.col == 2 + cells_wide(draft_lines[-1]),
         "the caret sits past the pasted text's own last row: (%d, %d)" % (held.row, held.col),
     )
 
@@ -8152,48 +8837,40 @@ def scenario_26b(run):
     )
 
     title_row = panel.find(PERMISSION_TITLE)[0]
-    # The activity row is *found*, not inferred as `title_row - 1`: it is
-    # wherever the row that names the running `edit_file` call actually is,
-    # matched against `ACTIVITY_ROW`'s own shape (blink marker optional, both
-    # faces admitted, exactly as `settled_band` reads it).
-    activity_candidates = [
-        row
-        for row in range(panel.rows)
-        if "edit_file" in panel.row_text(row) and ACTIVITY_ROW.match(panel.row_text(row).rstrip())
-    ]
+    panel_band = find_band(panel)
+    # The activity row is *found* -- by `find_band`, up from the hint, as the
+    # row directly above the composer in `ACTIVITY_ROW`'s shape (either face of
+    # its blinking marker) -- and it says the tool is running.
+    activity_row = panel_band.activity if panel_band is not None else None
     run.require(
-        len(activity_candidates) == 1,
-        "exactly one row looks like the running edit_file call's activity row: %r" % activity_candidates,
+        activity_row is not None and panel.row_text(activity_row)[2:].startswith("Running ("),
+        "the band's activity row says the edit_file call is running: %r"
+        % (panel.row_text(activity_row) if activity_row is not None else None,),
     )
-    activity_row = activity_candidates[0]
     # This fixture's own row budget, zero-based, top to bottom: one row of
-    # document, one activity row, fourteen panel rows, one divider, six visible
-    # composer rows and one hint row -- 1+1+14+1+6+1 == 24, so the activity row
-    # and the panel's own title land on these two fixed rows, found on the
-    # grid rather than derived from each other.
+    # document, one activity row, five visible composer rows, the rule heading
+    # the panel, fourteen panel rows, the bottom rule and the hint --
+    # 1+1+5+1+14+1+1 == 24 -- so every one of them lands on a fixed row.
     run.require(
-        activity_row == 1 and title_row == 2,
-        "the activity row and the panel's title sit where this fixture's own row "
-        "budget puts them: activity %r title %r" % (activity_row, title_row),
+        panel_band is not None
+        and activity_row == 1
+        and panel_band.composer == [2, 3, 4, 5, 6]
+        and panel_band.picker_rule == 7
+        and title_row == 8
+        and panel_band.panel == list(range(8, 22))
+        and panel_band.divider == 22
+        and panel_band.hint == 23,
+        "the activity row, the yielded composer, the panel between its rules and the hint "
+        "sit where this fixture's own row budget puts them: %r (title %r)" % (panel_band, title_row),
     )
-
-    divider_open = divider_row(panel)
-    composer_visible_open = panel.rows - 2 - divider_open if divider_open is not None else None
+    composer_visible_open = len(panel_band.composer) if panel_band is not None else None
     run.require(
-        divider_open == 16,
-        "the composer's own formula applied to its new, smaller row count: divider %r" % divider_open,
+        composer_visible_open == 5 and composer_scrolled(panel),
+        "the composer's visible rows reduced from ten to the five this panel leaves it, the "
+        "draft's head scrolled out of the window: %r" % composer_visible_open,
     )
-    run.require(
-        divider_open not in (title_row, activity_row),
-        "the divider is not the band's own top row: divider %r title %r activity %r"
-        % (divider_open, title_row, activity_row),
-    )
-    run.require(
-        composer_visible_open == 6,
-        "the composer's visible rows reduced from ten to what this panel leaves it: %r" % composer_visible_open,
-    )
-    tail = draft_lines[-6:]
-    shown = [panel.row_text(row)[2:] for row in range(divider_open + 1, panel.rows - 1)]
+    tail = draft_lines[-5:]
+    shown = composer_rows_text(panel)
     run.require(
         shown == tail,
         "the draft's own tail is what the shrunk window shows, in order and unedited: %r vs %r" % (shown, tail),
@@ -8209,10 +8886,18 @@ def scenario_26b(run):
     settled_band(run, trial, "yield")
     closed = trial.grid("panel-closed-draft-restored")
     run.require(closed.find(PERMISSION_TITLE) is None, "the panel is gone")
+    closed_band = find_band(closed)
     run.require(
-        divider_row(closed) == 12 and composer_first_row(closed) == 13,
-        "the draft's own ten rows are back now that the panel gave them back: divider %r composer %r"
-        % (divider_row(closed), composer_first_row(closed)),
+        closed_band is not None
+        and closed_band.panel == []
+        and len(closed_band.composer) == 10
+        and not composer_scrolled(closed)
+        and closed_band.divider == closed_band.composer[-1] + 1
+        and grid_row_blank(closed, closed_band.divider)
+        and closed_band.hint == closed_band.divider + 1
+        and all(grid_row_blank(closed, row) for row in range(closed_band.hint + 1, closed.rows)),
+        "the draft's own ten rows are back now that the panel gave them back, the blank rule "
+        "row and the hint under them and nothing left below: %r" % (closed_band,),
     )
     run.require(
         draft_rows(closed) == draft_lines,
@@ -8252,12 +8937,15 @@ def scenario_26b(run):
 # 27. live theme retint
 # ---------------------------------------------------------------------------
 
-# The four greys the document's own two roles are painted in, spelled out here
+# The six greys the document's own three roles are painted in, spelled out here
 # rather than read off anything the product shares with this file. They are
-# `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4) and
-# `NOTICE` (index 2), in the `Ansi256` spelling every trial below runs at --
-# there is no `COLORTERM` in a trial's environment, so `theme::depth_from_env`
-# answers `Ansi256` and the sequences are the indexed ones.
+# `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4, the
+# grey a card's rail and the welcome line's brand are in), `NOTICE` (index 2)
+# and `DIM` (index 6, a turn's summary and the welcome line's version) -- the
+# three `Palette::document_retint` moves -- in the `Ansi256` spelling every
+# trial below runs at: there is no `COLORTERM` in a trial's environment, so
+# `theme::depth_from_env` answers `Ansi256` and the sequences are the indexed
+# ones.
 #
 # A literal, because the question this scenario asks is *which* grey a cell
 # ended up in. A harness that built the expectation from a palette helper would
@@ -8268,6 +8956,10 @@ RETINT_DARK_BODY = "\x1b[38;5;255m"
 RETINT_DARK_NOTICE = "\x1b[38;5;250m"
 RETINT_LIGHT_BODY = "\x1b[38;5;235m"
 RETINT_LIGHT_NOTICE = "\x1b[38;5;241m"
+RETINT_DARK_DIM = "\x1b[38;5;245m"
+RETINT_LIGHT_DIM = "\x1b[38;5;247m"
+RETINT_DARK = (RETINT_DARK_BODY, RETINT_DARK_NOTICE, RETINT_DARK_DIM)
+RETINT_LIGHT = (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE, RETINT_LIGHT_DIM)
 
 # What a terminal that took the `?2031` subscription volunteers when its
 # background changes (`src/tui/theme.rs:108-126`). Nobody typed it, so every
@@ -8311,9 +9003,9 @@ def own_line_row(grid, text):
     """The row whose **whole** text is `text`, or `None`.
 
     An equality rather than a search, because the row this is used for is the
-    echo of a submitted `/model` and the screen also carries a notice with the
-    word `model` in it. A reader that matched a substring could read the colour
-    of xfx's line and report it as the user's.
+    card a submitted command is echoed in, and the screen also carries a notice
+    with the same word in it. A reader that matched a substring could read the
+    colour of xfx's line and report it as the user's.
     """
     for row in range(grid.rows):
         if grid.row_text(row) == text:
@@ -8324,35 +9016,84 @@ def own_line_row(grid, text):
 def notice_row(grid):
     """The row xfx answered [`NOTICE_COMMAND`] on, or `None`.
 
-    Read as "the row under the echo" rather than by searching for its text: the
-    band's own hint row also carries the word this line starts with, and a
-    top-down search for a prefix would compare the colour of the band with the
-    colour a document row is owed.
+    Read as "the first written row under the command's card" rather than by
+    searching for its text: the band's own hint row also carries the word this
+    line starts with, and a top-down search for a prefix would compare the
+    colour of the band with the colour a document row is owed. **Restated for
+    the fx card** (`3efe232`): the echo is `┃ /version` with a blank row under
+    it now, where it used to be the bare command directly above the answer.
     """
-    echo = own_line_row(grid, NOTICE_COMMAND)
-    if echo is None or echo + 1 >= grid.rows:
+    echo = own_line_row(grid, RAIL + " " + NOTICE_COMMAND)
+    if echo is None:
         return None
-    return echo + 1
+    band = find_band(grid)
+    limit = band.top if band is not None else grid.rows
+    for row in range(echo + 1, limit):
+        if grid.row_text(row).strip():
+            return row
+    return None
 
 
 def rows_above_the_rule(grid):
-    """The rows above the band's rule: the terminal's own document, as text.
+    """The rows above the band: the terminal's own document, as text.
 
     Named for where it reads rather than for what is there, because
     `document_rows` above is a different question (`17-history`'s "which rows
     carry this needle") and two helpers with one name is a scenario quietly
-    calling the other one.
+    calling the other one. **Restated for the floating band** (`a50f8a0`): the
+    boundary is the band's top as `find_band` reads it, where it used to be the
+    always-drawn rule.
     """
-    rule = divider_row(grid)
-    last = grid.rows if rule is None else rule
+    band = find_band(grid)
+    last = grid.rows if band is None else band.top
     return [grid.row_text(row) for row in range(last)]
 
 
 def attrs_above_the_rule(grid):
     """The same rows' attribute runs, in order."""
-    rule = divider_row(grid)
-    last = grid.rows if rule is None else rule
+    band = find_band(grid)
+    last = grid.rows if band is None else band.top
     return [grid.attrs_of_row(row) for row in range(last)]
+
+
+def card_rows(grid):
+    """The visible document rows that are a card's -- behind the rail, above the band."""
+    band = find_band(grid)
+    last = grid.rows if band is None else band.top
+    return [row for row in range(last) if grid.cells[row][0] == RAIL]
+
+
+def rail_attributes(grid):
+    """The colour of every visible card's rail cell, top first."""
+    return [grid.attrs[row][0] for row in card_rows(grid)]
+
+
+def card_text_attributes(grid):
+    """Every colour a visible card's own text cells carry -- the user's words."""
+    return {
+        grid.attrs[row][col]
+        for row in card_rows(grid)
+        for col in range(2, len(grid.row_text(row)))
+    }
+
+
+def summary_attribute(grid):
+    """The colour of the first visible turn summary's first written cell, or `None`."""
+    band = find_band(grid)
+    last = grid.rows if band is None else band.top
+    for row in range(last):
+        if SUMMARY_ROW.match(grid.row_text(row)):
+            return grid.attrs[row][2]
+    return None
+
+
+def plain_marker(grid, needle):
+    """Whether every cell of `needle` on the screen carries no colour and no attribute."""
+    found = grid.find(needle)
+    if found is None:
+        return False
+    row, column = found
+    return all(grid.is_plain(row, col) for col in range(column, column + len(needle)))
 
 
 def left_behind(grid, palette):
@@ -8361,6 +9102,10 @@ def left_behind(grid, palette):
     The "and nothing was missed" half of a retint: the marker readings below say
     the named cells moved, and this says no row of the document was left in the
     palette the session has left.
+
+    No row is exempt. The welcome line was once (it was written before the
+    band had a record of the screen, so no report reached it); that was fixed
+    by sizing the band before the first document write.
     """
     return [
         (row, attrs)
@@ -8372,9 +9117,9 @@ def left_behind(grid, palette):
 def a_document_with_both_owned_roles(run, trial, fixture, body_text, label):
     """Drives `trial` to a screen holding an answer, a notice and the user's echo.
 
-    The three things a report has different duties towards, put on the screen in
-    an order chosen so they survive: the turn first, because a turn's activity
-    row takes its place from the bottom of the document and paints over it, and
+    The things a report has different duties towards, put on the screen in an
+    order chosen so the document has stopped moving when the caller reads it:
+    the turn first -- its card, its plain answer and its dim summary -- and
     [`NOTICE_COMMAND`] after it, because that one starts no turn at all.
 
     The wait is on the answer's **own row** rather than on the echo of the
@@ -8416,7 +9161,19 @@ def notice_attribute(grid):
 
 
 def scenario_27(run):
-    """A background report recolours what is on the screen, and changes nothing else."""
+    """A background report recolours what is on the screen, and changes nothing else.
+
+    **Restated for the fx transcript** (`3efe232`, `e153ff3`). The rows this row
+    re-tints used to be the answer, in the body grey, and xfx's notice. The
+    answer is plain now -- markdown in the two-column gutter, with no palette
+    colour of its own in either palette -- and what xfx paints into the document
+    is its notices (`NOTICE`), a card's rail and the welcome line's brand
+    (`BODY`, the hint grey) and the quiet rows, a turn's summary and the
+    welcome line's version (`DIM`): exactly the three roles
+    `Palette::document_retint` moves. So the report must move all three, leave
+    the answer plain (a re-tint that painted text it never coloured fails), and
+    leave the user's own words in the card uncoloured.
+    """
     first, second = run.marker("first"), run.marker("second")
 
     # --- a session that was told the terminal is dark -----------------------
@@ -8427,7 +9184,7 @@ def scenario_27(run):
     # also what the detection falls back to, so this start is **not** read here
     # as proof that the reply was adopted: `12-theme-detection` owns that claim
     # by painting a light answer and a dark one differently.
-    fixture = start_fixture(run, [fixtures.content_only(first + "\n" + second)])
+    fixture = start_fixture(run, [fixtures.content_only(first + "\n\n" + second)])
     trial = run.trial("visible", gateway=fixture, answer_probes=False)
     trial.wait_for(pty.THEME_PROBE)
     run.require(pty.THEME_PROBE in trial.text(), "the launch asked the terminal its background")
@@ -8449,16 +9206,15 @@ def scenario_27(run):
     trial.send(draft)
     trial.wait_until(
         "the draft in the composer",
-        lambda _t: composer_text(trial.peek()) == draft,
+        lambda _t: composer_text(trial.peek()) == draft and band_is_idle(trial.peek()),
     )
 
     before = trial.grid("dark-before-the-report")
-    echo = own_line_row(before, NOTICE_COMMAND)
-    run.require(echo is not None, "the user's own submitted line is on the screen")
+    echo = own_line_row(before, RAIL + " " + NOTICE_COMMAND)
+    run.require(echo is not None, "the user's own submitted line is on the screen, as its card")
     run.require(
-        cell_attribute(before, first) == RETINT_DARK_BODY
-        and cell_attribute(before, second) == RETINT_DARK_BODY,
-        "the answer's rows are in the dark body grey (%r / %r)"
+        plain_marker(before, first) and plain_marker(before, second),
+        "the answer's rows carry no palette colour of their own (%r / %r)"
         % (cell_attribute(before, first), cell_attribute(before, second)),
     )
     run.require(
@@ -8466,9 +9222,17 @@ def scenario_27(run):
         "xfx's own line is in the dark notice grey (%r)" % notice_attribute(before),
     )
     run.require(
-        echo is None or before.attrs_of_row(echo) == [],
-        "the user's own line carries none of xfx's attributes (%r)"
-        % (None if echo is None else before.attrs_of_row(echo)),
+        len(rail_attributes(before)) == 2 and set(rail_attributes(before)) == {RETINT_DARK_BODY},
+        "both cards' rails are in the dark body grey (%r)" % rail_attributes(before),
+    )
+    run.require(
+        summary_attribute(before) == RETINT_DARK_DIM,
+        "the turn's summary is in the dark dim grey (%r)" % summary_attribute(before),
+    )
+    run.require(
+        card_text_attributes(before) == {""},
+        "the user's own words in the cards carry none of xfx's colours (%r)"
+        % card_text_attributes(before),
     )
     asked = fixture.request_count()
 
@@ -8476,29 +9240,36 @@ def scenario_27(run):
     trial.send(WENT_LIGHT)
     trial.wait_until(
         "the rows already on the screen to be recoloured",
-        lambda _t: cell_attribute(trial.peek(), first) == RETINT_LIGHT_BODY
-        and notice_attribute(trial.peek()) == RETINT_LIGHT_NOTICE,
+        lambda _t: notice_attribute(trial.peek()) == RETINT_LIGHT_NOTICE
+        and set(rail_attributes(trial.peek())) == {RETINT_LIGHT_BODY}
+        and summary_attribute(trial.peek()) == RETINT_LIGHT_DIM,
     )
     after = trial.grid("light-after-the-report")
-    run.require(
-        cell_attribute(after, first) == RETINT_LIGHT_BODY
-        and cell_attribute(after, second) == RETINT_LIGHT_BODY,
-        "both answer rows moved to the light body grey (%r / %r)"
-        % (cell_attribute(after, first), cell_attribute(after, second)),
-    )
     run.require(
         notice_attribute(after) == RETINT_LIGHT_NOTICE,
         "xfx's own line moved to the light notice grey (%r)" % notice_attribute(after),
     )
     run.require(
-        echo is None or after.attrs_of_row(echo) == [],
-        "the user's own line was not repainted (%r)"
-        % (None if echo is None else after.attrs_of_row(echo)),
+        len(rail_attributes(after)) == 2 and set(rail_attributes(after)) == {RETINT_LIGHT_BODY},
+        "both rails moved to the light body grey (%r)" % rail_attributes(after),
     )
     run.require(
-        left_behind(after, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)) == [],
+        summary_attribute(after) == RETINT_LIGHT_DIM,
+        "the summary moved to the light dim grey (%r)" % summary_attribute(after),
+    )
+    run.require(
+        plain_marker(after, first) and plain_marker(after, second),
+        "the answer was not painted by a re-tint it has no colour in (%r / %r)"
+        % (cell_attribute(after, first), cell_attribute(after, second)),
+    )
+    run.require(
+        card_text_attributes(after) == {""},
+        "the user's own words were not repainted (%r)" % card_text_attributes(after),
+    )
+    run.require(
+        left_behind(after, RETINT_DARK) == [],
         "no document row was left in the palette the session has left: %r"
-        % left_behind(after, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)),
+        % left_behind(after, RETINT_DARK),
     )
     # A recolour and **only** a recolour. Text, row positions, the caret, what
     # has left the top of the screen, the plane, the draft and the provider are
@@ -8539,18 +9310,19 @@ def scenario_27(run):
     trial.send(WENT_DARK)
     trial.wait_until(
         "the rows to be recoloured back",
-        lambda _t: cell_attribute(trial.peek(), first) == RETINT_DARK_BODY
-        and notice_attribute(trial.peek()) == RETINT_DARK_NOTICE,
+        lambda _t: notice_attribute(trial.peek()) == RETINT_DARK_NOTICE
+        and set(rail_attributes(trial.peek())) == {RETINT_DARK_BODY}
+        and summary_attribute(trial.peek()) == RETINT_DARK_DIM,
     )
     back = trial.grid("dark-again")
     run.require(
-        cell_attribute(back, second) == RETINT_DARK_BODY,
-        "the second answer row came back too (%r)" % cell_attribute(back, second),
+        plain_marker(back, first) and plain_marker(back, second),
+        "the answer is still plain on the way back (%r / %r)"
+        % (cell_attribute(back, first), cell_attribute(back, second)),
     )
     run.require(
-        left_behind(back, (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE)) == [],
-        "and nothing was left in the light palette: %r"
-        % left_behind(back, (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE)),
+        left_behind(back, RETINT_LIGHT) == [],
+        "and nothing was left in the light palette: %r" % left_behind(back, RETINT_LIGHT),
     )
     run.require(back.text() == before.text(), "the screen is the one it started as, in text")
     run.require(
@@ -8594,17 +9366,28 @@ def scenario_27(run):
     )
     from_a_known_composer(run, locked, "locked")
     a_document_with_both_owned_roles(run, locked, locked_fixture, locked_marker, "locked")
+    locked.wait_until(
+        "the locked session's band to be idle",
+        lambda _t: band_is_idle(locked.peek()) is True and notice_attribute(locked.peek()),
+    )
     held = locked.grid("locked-before-the-report")
     run.require(
-        cell_attribute(held, locked_marker) == RETINT_DARK_BODY,
-        "the locked session's answer is in the dark body grey (%r)"
+        plain_marker(held, locked_marker),
+        "the locked session's answer carries no palette colour (%r)"
         % cell_attribute(held, locked_marker),
     )
     run.require(
-        notice_attribute(held) == RETINT_DARK_NOTICE,
-        "and its notice in the dark notice grey (%r)" % notice_attribute(held),
+        notice_attribute(held) == RETINT_DARK_NOTICE
+        and set(rail_attributes(held)) == {RETINT_DARK_BODY},
+        "and its notice and rails are in the dark greys (%r / %r)"
+        % (notice_attribute(held), rail_attributes(held)),
     )
-    band_before = (held.attrs_of_row(held.rows - 1), held.attrs_of_row(held.rows - 3))
+    held_band = find_band(held)
+
+    def band_colours(grid, band):
+        return (grid.attrs_of_row(band.hint), grid.attrs_of_row(band.composer[0])) if band else None
+
+    band_before = band_colours(held, held_band)
 
     # The report and a keystroke in **one** write, which is what makes "nothing
     # changed" a bounded claim rather than a sleep: the decoder consumes one
@@ -8617,22 +9400,24 @@ def scenario_27(run):
     )
     unmoved = locked.grid("locked-after-the-report")
     run.require(
-        cell_attribute(unmoved, locked_marker) == RETINT_DARK_BODY
-        and notice_attribute(unmoved) == RETINT_DARK_NOTICE,
-        "a locked palette took no report (%r / %r)"
-        % (cell_attribute(unmoved, locked_marker), notice_attribute(unmoved)),
+        plain_marker(unmoved, locked_marker)
+        and notice_attribute(unmoved) == RETINT_DARK_NOTICE
+        and set(rail_attributes(unmoved)) == {RETINT_DARK_BODY},
+        "a locked palette took no report (%r / %r / %r)"
+        % (cell_attribute(unmoved, locked_marker), notice_attribute(unmoved), rail_attributes(unmoved)),
     )
     run.require(
         rows_above_the_rule(unmoved) == rows_above_the_rule(held)
         and attrs_above_the_rule(unmoved) == attrs_above_the_rule(held),
         "and the document is the same rows in the same colours",
     )
+    # The band's own two palette-painted rows, found up from the hint: the hint
+    # row and the composer's rail. **Restated** (`a50f8a0`): the second used to
+    # be the always-drawn divider, which is blank now.
     run.require(
-        (unmoved.attrs_of_row(unmoved.rows - 1), unmoved.attrs_of_row(unmoved.rows - 3))
-        == band_before,
+        band_before is not None and band_colours(unmoved, find_band(unmoved)) == band_before,
         "the band kept its own colours too (%r vs %r)"
-        % ((unmoved.attrs_of_row(unmoved.rows - 1), unmoved.attrs_of_row(unmoved.rows - 3)),
-           band_before),
+        % (band_colours(unmoved, find_band(unmoved)), band_before),
     )
     run.require(
         not unmoved.unknown, "xfx emitted only the sequences it declares: %r" % unmoved.unknown
@@ -8650,9 +9435,27 @@ def scenario_27(run):
     # not showing is held by the product, not by the producer. Which of the
     # product's own buffers holds it is not readable from a screen; the pacer's
     # timing has its own proof in `src/tui/pacer.rs`'s unit tests, and
-    # `8-streaming-render` makes the same release claim about the same shape.
+    # `8-streaming-render` makes the same release claim about the same shape --
+    # in paragraphs, each ended by a blank line, because a prose line is shown
+    # only once the presenter has seen what follows it (`3efe232`).
+    #
+    # **Restated for the plain answer** (`3efe232`): the claim used to be that
+    # the head was re-tinted in place and the tail painted in the light body
+    # grey. Prose has no palette colour now, so the head and the tail are each
+    # asserted **plain** -- which no palette can tell apart -- and the two
+    # palette halves of the claim move to the rows that carry one: what is
+    # already on the screen (the card's rail and the welcome line) is re-tinted
+    # while the tail is still inside the product, and xfx's own line written
+    # **after** the report -- the interrupt notice -- is in the light notice
+    # grey, the palette now in force.
     head, tail = run.marker("head"), run.marker("tail")
-    paced = "%s %s %s" % (head, "xx " * 100, tail)
+    paced = (
+        head
+        + "\n\n"
+        + "".join(("xx " * 33).rstrip() + "\n\n" for _ in range(3))
+        + tail
+        + "\n\n"
+    )
     pending_fixture = start_fixture(
         run, [fixtures.hang(fixtures.text_delta("a", paced))], name="pending"
     )
@@ -8669,31 +9472,33 @@ def scenario_27(run):
     )
     holding = pending.grid("stream-dark-head")
     run.require(
-        cell_attribute(holding, head) == RETINT_DARK_BODY,
-        "what is already released is in the dark body grey (%r)" % cell_attribute(holding, head),
+        plain_marker(holding, head),
+        "what is already released carries no palette colour (%r)" % cell_attribute(holding, head),
+    )
+    run.require(
+        set(rail_attributes(holding)) == {RETINT_DARK_BODY},
+        "and the card above it is in the dark body grey (%r)" % rail_attributes(holding),
     )
 
     pending.send(WENT_LIGHT)
     pending.wait_until(
-        "the released head to be recoloured mid-stream",
-        lambda _t: cell_attribute(pending.peek(), head) == RETINT_LIGHT_BODY,
+        "what is on the screen to be recoloured mid-stream",
+        lambda _t: set(rail_attributes(pending.peek())) == {RETINT_LIGHT_BODY},
+    )
+    run.require(
+        tail not in pending.text(),
+        "the tail was still inside the product when the screen was re-tinted",
     )
     pending.wait_for(tail)
     final = pending.grid("stream-final")
     run.require(
-        cell_attribute(final, head) == RETINT_LIGHT_BODY,
-        "text painted before the report is in the palette now in force (%r)"
-        % cell_attribute(final, head),
+        plain_marker(final, head) and plain_marker(final, tail),
+        "the head and the tail released after the report are both plain (%r / %r)"
+        % (cell_attribute(final, head), cell_attribute(final, tail)),
     )
     run.require(
-        cell_attribute(final, tail) == RETINT_LIGHT_BODY,
-        "and the text released after it is painted in the same one (%r)"
-        % cell_attribute(final, tail),
-    )
-    run.require(
-        left_behind(final, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)) == [],
-        "no visible document row is left in the old palette: %r"
-        % left_behind(final, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)),
+        left_behind(final, RETINT_DARK) == [],
+        "no visible document row is left in the old palette: %r" % left_behind(final, RETINT_DARK),
     )
     run.require(
         final.text().count(tail) == 1,
@@ -8707,7 +9512,17 @@ def scenario_27(run):
     )
     run.require(not final.unknown, "xfx emitted only the sequences it declares: %r" % final.unknown)
     pending.send(b"\x03")
-    pending.wait_for("stopping the turn")
+    pending.wait_until(
+        "xfx's own interrupt line on the committed grid",
+        lambda _t: pending.peek().find("stopping the turn") is not None,
+    )
+    stopped = pending.grid("stream-interrupted")
+    found = stopped.find("stopping the turn")
+    run.require(
+        found is not None and stopped.attrs[found[0]][0] == RETINT_LIGHT_NOTICE,
+        "xfx's own line written after the report is in the light notice grey, the palette "
+        "now in force (%r)" % (stopped.attrs[found[0]][0] if found else None,),
+    )
     pending.send(b"\x03")
     run.require(
         pending.session.wait_exit() == ("exited", 130), "the streaming session left with 130"

@@ -1,0 +1,12 @@
+x𝒇x v0.1.0-014f57f [debug] · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────
+  /help    show available slash commands            General
+  /clear   clear the screen; the conversation an…   General
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+

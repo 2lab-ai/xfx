@@ -23,6 +23,10 @@
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
+#   title <label>          writes the pane's window title (OSC 2) to
+#                          <bin>-<scenario>-<size>-<label>.title
+#   keep                   keeps the pane after the program exits, so a title
+#                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
 #
@@ -150,6 +154,12 @@ XFX_MODEL=fake/model-a $extra_env $bin"
           echo "== $f"; head -c 2000 "$f"; echo
         done) > "$out/$which-$scenario-$size-work-$rest.txt"
         ;;
+      title)
+        local name=$out/$which-$scenario-$size-$rest
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
+        echo "$name.title"
+        ;;
+      keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"

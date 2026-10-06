@@ -359,13 +359,15 @@ const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?203
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
 const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
-/// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`).
-const RESTORE: &str =
-    "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+/// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`): the
+/// window title cleared, as upstream's exit clears it (`render.zig:780-792`),
+/// and then the pushed one popped back.
+const RESTORE: &str = "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
+                       \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
 const RESTORE_TMUX: &str =
-    "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+    "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
 /// `1049l` defensively (`app_lifecycle.zig:36-38`).
@@ -1023,12 +1025,12 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     );
 }
 
-/// The window title the launch asks for, up to the model label.
+/// The window title the launch asks for, up to the version (`xfx v<version> | <workspace>`).
 ///
 /// Response-only, like [`READY`]: no test types these bytes, so counting them
 /// counts what xfx wrote. Spelled out rather than imported for the reason
 /// [`MODE_SET`] is.
-const TITLE: &str = "\u{1b}]2;xfx \u{b7} ";
+const TITLE: &str = "\u{1b}]2;xfx v";
 
 /// `XTWINOPS 22 ; 2` and `23 ; 2`: the push of the terminal's own window title
 /// onto its stack, and the pop that gives it back.
@@ -1813,8 +1815,10 @@ fn the_band_is_painted_under_the_welcome_inside_one_synchronized_frame() {
     assert!(frame.contains('\u{2503}'), "no rail: {frame:?}");
     // And the window title, inside the same synchronized frame as everything
     // else: it is frame metadata rather than a second writer's business.
+    // Upstream's `fx v<version> | <workspace>` before the session has a title
+    // of its own (`app_session_runtime.zig:3608-3629`).
     assert!(
-        frame.contains("\u{1b}]2;xfx \u{b7} "),
+        frame.contains(&format!("\u{1b}]2;xfx v{} | ", env!("CARGO_PKG_VERSION"))),
         "the frame did not set the window title: {frame:?}"
     );
     for (row, what) in [
@@ -3385,19 +3389,25 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
-    // types: `/help`'s closing line, `/version`'s channel, the model report,
+    // types: `/help`'s catalog, `/version`'s topic, the model report,
     // `/setup`'s usage refusal, `/new`'s sentence, `/clear`'s promise, and a
-    // name the registry does not carry.
+    // name the registry does not carry. Each needle sits inside one run of
+    // colour: a notice's label and body are separate runs on the wire.
     session.type_bytes(b"/help\r");
-    // The **closing** line of the help page rather than a summary out of the
-    // middle of it: the completion menu shows the same summaries while the name
-    // is being typed, so a needle taken from one of those would be satisfied by
-    // the menu and would stop saying that `/help` was answered at all.
-    session.wait_for("Anything else is a prompt.");
+    // The catalog's key help rather than a summary out of its rows: the
+    // completion menu shows the same summaries while the name is being typed,
+    // so a needle taken from one of those would be satisfied by the menu and
+    // would stop saying that `/help` was answered at all. Only the catalog says
+    // `tab category`.
+    session.wait_for("tab category");
+    // Typed into the open catalog, where it is the search -- and Enter on a
+    // command typed out in full runs it as typed and closes the catalog
+    // (upstream's `submitHelpMenuSelection`), which is what leaves the
+    // composer free for the rest of the names below.
     session.type_bytes(b"/version\r");
-    session.wait_for("xfx 0.");
+    session.wait_for("version:");
     session.type_bytes(b"/model\r");
-    session.wait_for("[shell] model=");
+    session.wait_for("provider=gateway");
     // Bare, so it refuses without switching anything -- which still proves the
     // name is answered by the session, and still costs the provider nothing.
     session.type_bytes(b"/setup\r");
@@ -3405,7 +3415,7 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.type_bytes(b"/new\r");
     session.wait_for("starts a fresh conversation");
     session.type_bytes(b"/notacommand\r");
-    session.wait_for("is not an xfx command");
+    session.wait_for("Unknown command. Try /help.");
     session.type_bytes(b"/clear\r");
     session.wait_for("the conversation is kept");
 
@@ -3430,9 +3440,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     // plan:224 -- the menu is a view of the composer, not a second focus. Three
     // claims, and the last two are what make it a menu rather than a panel: it
-    // is **above** the divider in the rows a question would take, the caret
-    // stays in the text being typed, and Return runs the line rather than
-    // taking the marked row.
+    // is **below** the rule under the composer, in the rows a question would
+    // take and in upstream's shape (a header, a blank row, the commands, the
+    // key help where the hint was); the caret stays in the text being typed;
+    // and Tab and Return each take one keystroke.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-THE-MENU-ASKED-A-MODEL"]),
     )]);
@@ -3466,6 +3477,22 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
         "the menu offers a summary without the name it belongs to: {:?}",
         screen.row_text(offered)
     );
+    // Upstream's popup: the count under the rule, a blank row, then the row,
+    // its category against the right of the screen; the hint row says the
+    // menu's keys.
+    assert_eq!(screen.row_text(rule + 1), "Commands 1");
+    assert_eq!(screen.row_text(rule + 2), "");
+    assert_eq!(offered, rule + 3, "the command is not under the header");
+    assert!(
+        screen.row_text(offered).starts_with("  /model   ")
+            && screen.row_text(offered).ends_with(" Model"),
+        "{:?}",
+        screen.row_text(offered)
+    );
+    assert_eq!(
+        screen.row_text(screen.hint_row()),
+        "\u{2191}\u{2193} navigate     enter use     esc close"
+    );
     assert_eq!(
         screen.row_text(rule - 1),
         "\u{2503} /mod",
@@ -3496,7 +3523,17 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     // And the completed command runs on the next Return -- one command, one
     // Return, because the menu gets out of Enter's way rather than taking it.
     session.type_bytes(b"\r");
-    session.wait_for("[shell] model=");
+    session.wait_for("provider=gateway");
+
+    // A partial word and a Return runs the command the menu marked for it,
+    // in that one Return (`input_submit_runtime.zig:1087-1089`).
+    session.type_bytes(b"/vers\r");
+    // fx's version notice (`* version: <semver>`). Read off the screen: the
+    // label and the body are two colour runs on the wire.
+    let version = format!("* version: {}", env!("CARGO_PKG_VERSION"));
+    session.wait_until("the version notice", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.find(&version).is_some())
+    });
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -6108,12 +6145,12 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
     );
 
     session.type_bytes(b"/setup llmux\r");
-    // The line the switch is *finished* on: it is sent after the file was
-    // written and the configuration re-read from it, so waiting for it is
-    // waiting for the reload rather than for the write.
-    session.wait_for("provider=llmux");
+    // The line the switch is *finished* on (`* provider: llmux model=…`): it is
+    // sent after the file was written and the configuration re-read from it,
+    // so waiting for it is waiting for the reload rather than for the write.
+    session.wait_for("llmux model=");
 
-    // The file, read rather than believed. A band that said `provider=llmux`
+    // The file, read rather than believed. A band that said `llmux`
     // over a profile that still said gateway would be the exact failure the
     // reload exists to prevent.
     let settings = sandbox.settings().expect("a profile after the switch");
@@ -6200,7 +6237,7 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
     // A bare `/model` browses. The report is painted first and without waiting
     // for the daemon; the rows arrive from the runtime thread afterwards.
     session.type_bytes(b"/model\r");
-    session.wait_for("[shell] catalog=");
+    session.wait_for("catalog:");
     session.wait_for("fable context=1000000 efforts=low,high");
     // Both shapes, so the columns are proven to render a fact and its absence
     // rather than only the happy one.
@@ -6208,7 +6245,7 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
 
     // Select one of them, and leave.
     session.type_bytes(b"/model plain-model\r");
-    session.wait_for("[shell] model=plain-model");
+    session.wait_for("Switched to plain-model");
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
@@ -6239,7 +6276,7 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
     // qualification of this switch rather than as news about the next thing.
     restarted.wait_for("XFX_MODEL");
     restarted.wait_for("outranks the profile");
-    restarted.wait_for("provider=llmux");
+    restarted.wait_for("llmux model=");
     restarted.type_bytes(&[0x04]);
     assert_eq!(restarted.wait_exit().code(), Some(0));
 
@@ -6281,7 +6318,7 @@ fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_kee
     // to decide against, and a bare `/model` is what loads it -- the same order
     // the line shell's `/model` uses.
     session.type_bytes(b"/model\r");
-    session.wait_for("[shell] catalog=");
+    session.wait_for("catalog:");
     session.wait_for("fable context=unknown efforts=none");
 
     session.type_bytes(b"/model not-in-the-catalog\r");
@@ -6307,8 +6344,9 @@ fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_kee
     // Counted rather than searched for: the first browse said it too, so a
     // report that came back with the refused id would still leave one of these
     // in the stream.
+    // The report is `* model: m-1 provider=llmux`; its body is one run.
     assert_eq!(
-        text.matches("model=m-1 provider=").count(),
+        text.matches(" m-1 provider=").count(),
         2,
         "a browse after the refusal did not report the model in force: {text:?}"
     );
@@ -6317,7 +6355,7 @@ fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_kee
         "the band reported a model the daemon does not publish: {text:?}"
     );
     assert!(
-        !text.contains("[shell] model=not-in-the-catalog"),
+        !text.contains("Switched to not-in-the-catalog"),
         "the band reported a model the daemon does not publish: {text:?}"
     );
     // **A refusal is not a caveat.** An id the catalog does not publish is
@@ -6349,20 +6387,22 @@ fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
     session.wait_for(READY);
 
     session.type_bytes(b"/model\r");
-    session.wait_for("[shell] model=");
-    // Byte for byte what `xfx`'s line shell prints for the same fact, from the
-    // one declaration both surfaces read.
-    session.wait_for("[shell] catalog=unavailable (this provider advertises none)");
+    session.wait_for("provider=gateway");
+    // The words `xfx`'s line shell prints for the same fact, from the one
+    // declaration both surfaces read, in a neutral notice's shape: the key it
+    // reports is the topic and the value is the body.
+    session.wait_for("catalog:");
+    session.wait_for(" unavailable (this provider advertises none)");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let text = session.settled_text();
-    // **The line stands on its own.** `xfx: ` is how this surface prefixes a
-    // turn that went wrong, so the test is not "the words appear somewhere" --
+    // **The line stands on its own.** A turn that went wrong is an error
+    // notice -- `✗ system:` -- so the test is not "the words appear somewhere":
     // a failure carrying the same words would satisfy that and is exactly the
     // regression being guarded. Every line that mentions the catalog must be
-    // free of that prefix.
+    // free of the error's glyph, its topic, and the line shell's old prefix.
     let mentions: Vec<&str> = text
         .lines()
         .filter(|line| line.contains("catalog=") || line.contains("catalog"))
@@ -6373,7 +6413,7 @@ fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
     );
     for line in &mentions {
         assert!(
-            !line.contains("xfx:"),
+            !line.contains("xfx:") && !line.contains('\u{2717}') && !line.contains("system:"),
             "a provider with no catalog was reported as a turn failure: {line:?}"
         );
     }
