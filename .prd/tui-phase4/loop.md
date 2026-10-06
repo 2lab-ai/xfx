@@ -31,7 +31,8 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 | F1 | closed (R2) | `scripts/fxcap/capture.sh {fx,xfx} startup 40x120`: rows 1-5 the same (header text is xfx's own brand); band floats (fcc8e44) |
 | F5 transcript look | closed (R2) | `answered` scenario 40x120: rows 2-24 byte-identical ANSI to fx (3efe232) |
 | F5 streaming | matches fx | fx mid-stream shows only the activity row; xfx now shows lines once complete (presenter hold) |
-| F6 activity row | open | fx `  Generating (2s) (↑4 ↓61)` with a blinking bullet; xfx `• Thinking  0s` |
+| F2 slash popup | closed (WU-B, ede8707) | `receipts/wu-b/`: 5 snaps byte-identical band rows; the rest differ only by xfx's 7 commands vs fx's 36 and three summaries kept as xfx's own (`/clear`, `/model` — no reasoning effort sent, `/setup` — no sign-in), each a description xfx could not honour |
+| F6 activity row | closed (ca044a1) | fx `  Generating (2s) (↑4 ↓61)` with a blinking bullet; xfx `• Thinking  0s` |
 | F5 links | open | fx renders markdown links as OSC 8 hyperlinks; xfx's painter (`src/tui/frame.rs` `tamed`, via `pacer::escape_at`) drops every non-colour escape, so a link reaches the screen as its text only. Fixing it widens `check.rs`'s vocabulary (OSC 8 open/close) — a decision, recorded here |
 | F5 notices | open | fx notices are `<glyph> <topic>: <body>` (glyphs `* ✗ ! ✓ i ⊘`, 252/250, blank row either side, `transcript_blocks.zig:1758-1800`); fx does not echo slash lines; unknown command = `✗ command: Unknown command. Try /help.` with exact-match dispatch. xfx: `[shell] …` lines, echoes every submitted line |
 | A2/A3/A4 | open | fx `/clear` = `/new` = `/reset`: one reset (`app_session_runtime.zig:2001` discards the policy) — push the transcript to scrollback, new session, repaint the welcome. xfx `/clear` erases screen+scrollback and keeps the conversation |
