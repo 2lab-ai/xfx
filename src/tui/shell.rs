@@ -13393,6 +13393,53 @@ mod tests {
     }
 
     #[test]
+    fn a_retry_leaves_upstreams_recovery_record_on_the_full_transcript_only() {
+        // `recordRouteRecoveryNotice` (`app_worker_runtime.zig:92-133`,
+        // `visibility = .full_only`): a recovery record in the warning tone --
+        // upstream's `!` (`types.zig:53`) -- with the label and the facts
+        // behind it, on the Ctrl-O screen and not in the document.
+        let mut shell = running("try it");
+        shell.resize(40, 120);
+        let before = shell.written();
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 500,
+            body: r#"{"error":{"message":"upstream exploded","type":"server_error"}}"#.to_string(),
+            retryable: true,
+            retry_after: None,
+        };
+        shell.apply(UiEvent::FullDetail(crate::tui::retry::record(
+            &error,
+            1,
+            3,
+            Duration::from_secs(1),
+        )));
+        assert_eq!(shell.written(), before, "the document was given the record");
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let at = screen
+            .iter()
+            .position(|row| row.starts_with("! recovery: "))
+            .unwrap_or_else(|| panic!("no recovery record: {screen:#?}"));
+        assert!(
+            screen[at - 1].ends_with(" UTC \u{b7} Notice"),
+            "{screen:#?}"
+        );
+        // Wrapped at the screen's width, two columns in.
+        assert_eq!(
+            screen[at..at + 3],
+            [
+                "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
+                 upstream exploded \u{b7} retrying request in 1s",
+                "  kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: ",
+                "  upstream exploded",
+            ],
+            "{screen:#?}"
+        );
+    }
+
+    #[test]
     fn a_retry_row_is_cut_to_the_screen_with_its_colour_closed() {
         let mut shell = running("try it");
         shell.resize(24, 40);

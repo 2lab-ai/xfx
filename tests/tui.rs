@@ -4903,6 +4903,85 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
 const FULL_FOOTER: &str = "full detail \u{b7} ctrl+o close";
 
 #[test]
+fn a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript() {
+    // The whole path, from the turn's retry to the Ctrl-O screen: upstream
+    // records each retry it shows (`recordRouteRecoveryNotice`,
+    // `vercel-labs/fx@c1db9191 src/core/app/app_worker_runtime.zig:92-133`)
+    // as a warning, `! recovery:`, the label as it read when the retry was
+    // decided, then the facts. xfx's first backoff is 250 ms, under a second,
+    // so there is no `in Ns` and no `retry delay:` (`orchestrator.zig:5017`
+    // rounds down).
+    use support::fake_gateway::{content_only, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Status(
+            500,
+            r#"{"error":{"message":"upstream exploded","type":"server_error"}}"#.to_string(),
+        ),
+        Reply::Sse(content_only(&["MARKER-RECOVERED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 160);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"try it\r");
+    session.wait_for("MARKER-RECOVERED");
+    assert_eq!(gateway.request_count(), 2, "the turn did not retry");
+
+    session.type_bytes(&[0x0f]);
+    let text = session.wait_until("the recovery record on the full transcript", |text| {
+        last_hidden_frame(text)
+            .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains("kind: auto_retry"))
+    });
+    let frame =
+        without_colour(last_hidden_frame(&text).expect("the wait returns on a complete frame"));
+    assert!(
+        frame.contains(
+            "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
+             upstream exploded \u{b7} retrying request"
+        ),
+        "{frame:?}"
+    );
+    assert!(
+        frame.contains(
+            "kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+             diagnostic: HTTP 500 \u{b7} server_error: upstream exploded"
+        ),
+        "{frame:?}"
+    );
+    // Closed before the next keys, so they reach the composer as keys rather
+    // than an Escape that prefixes them.
+    session.type_bytes(&[0x0f]);
+    session.wait_until("the band back on the primary plane", |text| {
+        text.rfind(LEAVES_ALTERNATE)
+            .is_some_and(|leave| text[leave..].contains(FRAME_END))
+    });
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// `text` with its colour sequences (`ESC [ … m`) taken out and every other
+/// byte kept, so a row's words read as one run however many colours paint it.
+fn without_colour(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("\u{1b}[") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 2..];
+        match after.find(|c: char| !(c.is_ascii_digit() || c == ';')) {
+            Some(end) if after[end..].starts_with('m') => rest = &after[end + 1..],
+            _ => {
+                out.push_str("\u{1b}[");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
 fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft() {
     // Upstream's contract, on a real terminal: the full transcript is a screen
     // of its own (`1049h`), it shows what the inline transcript never does --

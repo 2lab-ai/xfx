@@ -1094,7 +1094,8 @@ pub trait EventSink {
     fn emit(&mut self, event: &Event) -> io::Result<()>;
 
     /// A model step's transport attempt failed in a way the turn will replay,
-    /// and the turn is about to wait `delay` before attempt `attempt + 1`.
+    /// and the turn is about to wait `delay` before attempt `attempt + 1` of at
+    /// most `limit`.
     ///
     /// **A hook, not an [`Event`]**, and that is the whole of why it is a
     /// method with a body: the event set is a published wire (`xfx ask --json`
@@ -1108,9 +1109,10 @@ pub trait EventSink {
         &mut self,
         error: &crate::gateway::ProviderError,
         attempt: u32,
+        limit: u32,
         delay: std::time::Duration,
     ) {
-        let _ = (error, attempt, delay);
+        let _ = (error, attempt, limit, delay);
     }
 }
 

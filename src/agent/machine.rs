@@ -848,7 +848,12 @@ impl TurnMachine {
                     // decision is already made, and the delay is the one
                     // `wait_for_retry` is about to spend (`retry_delay` is a
                     // function of exactly these two values).
-                    events.retrying(&err, attempt, retry_delay(attempt, err.retry_after()));
+                    events.retrying(
+                        &err,
+                        attempt,
+                        self.request.max_attempts,
+                        retry_delay(attempt, err.retry_after()),
+                    );
                     self.wait_for_retry(&err, attempt).await?;
                 }
             }

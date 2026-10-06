@@ -1302,10 +1302,16 @@ impl EventSink for UiEventSink {
     /// dropped: a turn that was cancelled or a UI that is gone is told so by
     /// the wait and the next emit, and this hook changes nothing about either
     /// ([`EventSink::retrying`]).
+    ///
+    /// And the full transcript's `* recovery:` record of it, through the same
+    /// path as every other full-detail record ([`UiEvent::FullDetail`]), as
+    /// upstream records each recovery it shows (`recordRouteRecoveryNotice`,
+    /// `app_worker_runtime.zig:92-133`).
     fn retrying(
         &mut self,
         error: &crate::gateway::ProviderError,
-        _attempt: u32,
+        attempt: u32,
+        limit: u32,
         delay: std::time::Duration,
     ) {
         let _ = self.send(UiEvent::Retrying {
@@ -1313,6 +1319,9 @@ impl EventSink for UiEventSink {
             diagnostic: super::retry::diagnostic(error),
             delay,
         });
+        let _ = self.send(UiEvent::FullDetail(super::retry::record(
+            error, attempt, limit, delay,
+        )));
     }
 }
 
@@ -1393,6 +1402,43 @@ mod tests {
             Ok(5),
             "the wakeup that arrived before the park was slept through"
         );
+    }
+
+    #[test]
+    fn a_retry_is_the_rows_event_and_then_the_full_transcripts_recovery_record() {
+        // The row counts down on the band; the record is what the full
+        // transcript keeps of it (`recordRouteRecoveryNotice`,
+        // `app_worker_runtime.zig:92-133`), sent through the same path as F5's
+        // other records.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(UI_EVENTS);
+        let mut sink = UiEventSink::new(tx, CancellationToken::new());
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 503,
+            body: String::new(),
+            retryable: true,
+            retry_after: None,
+        };
+        sink.retrying(&error, 1, 3, Duration::from_secs(1));
+        drop(sink);
+        assert!(matches!(
+            rx.blocking_recv(),
+            Some(UiEvent::Retrying {
+                cause: "Provider unavailable",
+                ..
+            })
+        ));
+        let Some(UiEvent::FullDetail(record)) = rx.blocking_recv() else {
+            panic!("no recovery record followed the row");
+        };
+        assert_eq!(record.topic, "recovery");
+        assert_eq!(
+            record.body,
+            "\u{26a0} Provider unavailable \u{b7} HTTP 503 \u{b7} retrying request in 1s\n\
+             kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+             retry delay: 1s \u{b7} diagnostic: HTTP 503"
+        );
+        assert_eq!(rx.blocking_recv(), None);
     }
 
     #[test]

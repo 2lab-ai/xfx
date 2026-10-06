@@ -20,6 +20,11 @@
 //! `gateway_error_format.zig:73-111`) -- and the **action**, which for every
 //! failure this turn replays is `retrying request`.
 //!
+//! Each retry is also **recorded** on the full transcript, as upstream records
+//! every recovery it admits (`recordRouteRecoveryNotice`,
+//! `app_worker_runtime.zig:92-133`): the row is gone the moment the attempt
+//! gets through, and the record is what is left of it ([`record`]).
+//!
 //! What is *not* here is upstream's budget. Upstream keeps a turn alive through
 //! transient failure for as long as fifteen minutes
 //! (`model_response_recovery.zig:7-9`); xfx's turn spends at most three
@@ -31,6 +36,8 @@ use std::time::{Duration, Instant};
 
 use crate::gateway::sse::SseError;
 use crate::gateway::ProviderError;
+
+use super::notice::Notice;
 
 /// What the row says the turn is doing about it (`types.zig:547`).
 const ACTION: &str = "retrying request";
@@ -74,6 +81,51 @@ pub(crate) fn cause(error: &ProviderError) -> &'static str {
         ProviderError::Connect { .. } => "Connection lost",
         _ => "Provider unavailable",
     }
+}
+
+/// Upstream's name for the same cause, as its recovery record writes it
+/// (`@tagName(cause)`, `ModelRecoveryCause`): the three [`cause`] tells apart.
+fn cause_name(error: &ProviderError) -> &'static str {
+    match error {
+        ProviderError::Status { status: 429, .. } => "rate_limited",
+        ProviderError::Connect { .. } => "connectivity_lost",
+        _ => "provider_unavailable",
+    }
+}
+
+/// The full transcript's record of one retry: a `* recovery:` warning whose
+/// body is the row as it read when the retry was decided, then the facts the
+/// row cannot carry (`writeRouteRecoveryBody`, `app_worker_runtime.zig:
+/// 115-133`) --
+///
+/// `kind: auto_retry · cause: provider_unavailable · attempt: 1/3 · retry
+/// delay: 2s · diagnostic: HTTP 500 · …`
+///
+/// `attempt` is the attempt that failed and `limit` the turn's own budget
+/// (`attempt: {failed}/{limit}`), xfx's three rather than upstream's ten. The
+/// delay is in whole seconds **rounded down**, as upstream's status is built
+/// (`decision.delay_ns / std.time.ns_per_s`, `orchestrator.zig:5017`), so a
+/// wait under a second has no `in Ns` and no `retry delay:` -- unlike the row,
+/// whose count is of the time left and rounds up.
+pub(crate) fn record(error: &ProviderError, attempt: u32, limit: u32, delay: Duration) -> Notice {
+    let diagnostic = diagnostic(error);
+    let seconds = delay.as_secs();
+    let mut body = label(cause(error), &diagnostic, seconds);
+    body.push_str(&format!(
+        "\nkind: auto_retry \u{b7} cause: {}",
+        cause_name(error)
+    ));
+    if limit > 0 {
+        body.push_str(&format!(" \u{b7} attempt: {attempt}/{limit}"));
+    }
+    if seconds > 0 {
+        body.push_str(&format!(" \u{b7} retry delay: {seconds}s"));
+    }
+    if !diagnostic.is_empty() {
+        body.push_str(&format!(" \u{b7} diagnostic: {diagnostic}"));
+    }
+    // `routeRecoveryNoticeTone`: a retry is a warning (`:107-113`).
+    Notice::warning("recovery", body)
 }
 
 /// What the server said, as upstream puts it on this row.
@@ -289,6 +341,49 @@ mod tests {
         assert!(longer
             .label(now + Duration::from_millis(1))
             .ends_with("in 1s"));
+    }
+
+    #[test]
+    fn each_retry_is_recorded_as_upstreams_recovery_record() {
+        // `writeRouteRecoveryBody` (`app_worker_runtime.zig:115-133`): the
+        // label as it read when the retry was decided, then `kind`, `cause`,
+        // `attempt`, `retry delay` and `diagnostic`.
+        let error = status(
+            500,
+            r#"{"error":{"message":"upstream exploded","type":"server_error"}}"#,
+        );
+        let record = record(&error, 1, 3, Duration::from_secs(2));
+        assert_eq!(record.tone, super::super::notice::Tone::Warning);
+        assert_eq!(record.topic, "recovery");
+        assert_eq!(
+            record.body,
+            "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream exploded \
+             \u{b7} retrying request in 2s\n\
+             kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+             retry delay: 2s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: upstream exploded"
+        );
+    }
+
+    #[test]
+    fn a_wait_under_a_second_is_recorded_without_a_delay_as_upstream_rounds_it_down() {
+        // xfx's first backoff is 250 ms; upstream's status takes the delay in
+        // whole seconds, rounded down (`orchestrator.zig:5017`).
+        let record = record(&status(429, ""), 2, 3, Duration::from_millis(250));
+        assert_eq!(
+            record.body,
+            "\u{26a0} Rate limited \u{b7} HTTP 429 \u{b7} retrying request\n\
+             kind: auto_retry \u{b7} cause: rate_limited \u{b7} attempt: 2/3 \u{b7} \
+             diagnostic: HTTP 429"
+        );
+        let refused = ProviderError::Connect {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            detail: "Connection refused (os error 61)".to_string(),
+        };
+        assert!(record_cause(&refused).contains("cause: connectivity_lost"));
+    }
+
+    fn record_cause(error: &ProviderError) -> String {
+        record(error, 1, 3, Duration::ZERO).body
     }
 
     #[test]
