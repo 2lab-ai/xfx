@@ -24,6 +24,11 @@ the two differ only in how a binary file is dumped and in the sound guard's
 glob (`cafab50`) and in `relaunch` with no arguments, none of which these
 scenarios reach on fx.
 
+Rechecked on `bedb36a` (the history append moved to a writer thread): all
+eight scenarios again, every `.txt`/`.ansi` the same after the banner except a
+turn's `0s`/`1s` and a session id in an approval's command line, and every
+`history.jsonl` dump the same lines. The files here stay the `7ecf3a9` ones.
+
 Sanitized: the run directory is written `<scratch>` in every `.files` dump (the
 harness does it); the `.txt`/`.ansi` screens hold no path. `.ansi` files are
 tmux's re-serialization of cell attributes, not the programs' wire bytes (see
