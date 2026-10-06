@@ -95,6 +95,14 @@ const MAX_SCANNED_SESSIONS: usize = 5_000;
 /// The most bytes of a user message kept as a session's title.
 const MAX_TITLE_BYTES: usize = 80;
 
+/// The most bytes a title the user chose may have (`max_title_bytes`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:12`).
+///
+/// Wider than [`MAX_TITLE_BYTES`] on purpose: that one clips a prompt nobody
+/// meant as a title, and this one bounds a title somebody typed as one, which
+/// upstream lets run to 240 bytes and refuses past them rather than clipping.
+pub const MAX_RENAMED_TITLE_BYTES: usize = 240;
+
 /// The tail every staged manifest name ends in, so a leftover one is
 /// recognizable as xfx's and never mistaken for session state.
 pub const STAGE_SUFFIX: &str = ".staged";
@@ -417,6 +425,31 @@ pub struct HistoryTurn {
     /// `None` for a turn whose conclusion never reached the log, which is what a
     /// crash mid-turn looks like.
     pub outcome: Option<TurnConclusion>,
+    /// When it was asked and when it ended, and what the provider said it
+    /// wrote: the facts a resumed screen's turn summary is made of
+    /// ([`TurnTiming`]).
+    #[serde(skip)]
+    pub timing: TurnTiming,
+}
+
+/// When one turn was asked, when it ended, and the tokens its provider
+/// reported writing, as its frames recorded them.
+///
+/// Read off the envelopes' own timestamps and the turn's `usage_recorded`
+/// frame, so nothing new is written for it: a log from before this existed
+/// replays with the same numbers. What a resumed TUI writes under each turn
+/// (`  0s (↑6 ↓40)`), and nothing else reads it -- which is why it is not part
+/// of a turn's serialized shape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TurnTiming {
+    /// The `user_message` frame's timestamp.
+    pub started_at_ms: i64,
+    /// The `turn_concluded` frame's, for a turn that has one.
+    pub concluded_at_ms: Option<i64>,
+    /// Output tokens the provider reported for the turn, or `None` when its
+    /// `usage_recorded` frame said nothing or there was none -- a failed turn
+    /// has none.
+    pub output_tokens: Option<u64>,
 }
 
 /// Everything a session's log adds up to.
@@ -440,6 +473,9 @@ pub struct DurableState {
     /// context is rediscovered.
     pub context_sources: Vec<String>,
     pub last_event_seq: u64,
+    /// The title the user gave the session, the last `session_renamed` in the
+    /// log. Outranks the one derived from the first prompt ([`Self::title`]).
+    pub renamed: Option<String>,
 }
 
 impl DurableState {
@@ -458,12 +494,22 @@ impl DurableState {
             total_output_tokens: 0,
             context_sources: Vec::new(),
             last_event_seq: 0,
+            renamed: None,
         }
     }
 
-    /// The session's first user message, clipped, for a listing.
+    /// What the session is called: the title the user gave it, or else its
+    /// first user message, clipped.
+    ///
+    /// The order is upstream's (`readNativeResumeDisplay`,
+    /// `app_session_runtime.zig:4644-4655`: the conversation title when there
+    /// is one, a title derived from the history when there is not), and the
+    /// manifest publishes this, so a listing, a resume and the window title all
+    /// say the same thing.
     pub fn title(&self) -> Option<String> {
-        self.turns.first().and_then(|turn| title_of(&turn.user))
+        self.renamed
+            .clone()
+            .or_else(|| self.turns.first().and_then(|turn| title_of(&turn.user)))
     }
 
     /// The durable history, as the messages a next request would carry on
@@ -597,6 +643,43 @@ pub(crate) fn title_of(text: &str) -> Option<String> {
         end -= 1;
     }
     Some(format!("{}...", &line[..end]))
+}
+
+/// Why a title the user typed cannot be a session's title.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleError {
+    /// Nothing but blanks.
+    Empty,
+    /// Over [`MAX_RENAMED_TITLE_BYTES`].
+    TooLong,
+    /// A control character: a line break, a tab, an escape, a DEL.
+    NotPrintable,
+}
+
+/// The title `raw` names, trimmed, or why it cannot be one
+/// (`validateSessionTitle`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:3790-3799`).
+///
+/// Trimmed of spaces, tabs and line breaks at both ends, then refused when
+/// nothing is left, when it is over [`MAX_RENAMED_TITLE_BYTES`], or when any
+/// byte of it is below `0x20` or is `0x7f` -- in that order, so a title that is
+/// both too long and unprintable is called too long, as upstream calls it. A
+/// `&str` is UTF-8 already, which is upstream's fourth refusal.
+///
+/// The store's own rule, because the store is what the title is written into:
+/// both shells and the runtime ask it rather than keeping a copy each.
+pub fn validate_title(raw: &str) -> Result<&str, TitleError> {
+    let title = raw.trim_matches([' ', '\t', '\r', '\n']);
+    if title.is_empty() {
+        return Err(TitleError::Empty);
+    }
+    if title.len() > MAX_RENAMED_TITLE_BYTES {
+        return Err(TitleError::TooLong);
+    }
+    if title.bytes().any(|byte| byte < 0x20 || byte == 0x7f) {
+        return Err(TitleError::NotPrintable);
+    }
+    Ok(title)
 }
 
 // ---------------------------------------------------------------------------
@@ -1296,6 +1379,31 @@ impl SessionStore {
     /// move is a fact in the log rather than a silent reinterpretation of every
     /// relative path in the history.
     pub fn resume(&self, selector: &Selector, workspace: &Path) -> Result<Resumed, SessionError> {
+        self.resume_within(selector, workspace, Wait::Grace)
+    }
+
+    /// [`Self::resume`], refusing at once when another process holds the
+    /// session rather than waiting out [`LOCK_RETRY_BUDGET`] for it.
+    ///
+    /// The `/resume` picker's (`resumeSelectedSession` takes the lock with a
+    /// zero deadline, `app_session_runtime.zig:2263-2265`): what a person
+    /// picking from a list is owed for a session open elsewhere is the reason,
+    /// at once, on the row they picked -- and the runtime thread that asks is
+    /// one a prompt typed next would otherwise wait behind.
+    pub fn resume_without_waiting(
+        &self,
+        selector: &Selector,
+        workspace: &Path,
+    ) -> Result<Resumed, SessionError> {
+        self.resume_within(selector, workspace, Wait::None)
+    }
+
+    fn resume_within(
+        &self,
+        selector: &Selector,
+        workspace: &Path,
+        wait: Wait,
+    ) -> Result<Resumed, SessionError> {
         self.require_writable()?;
         self.verify_store_dirs()?;
         let id = self.resolve(selector, workspace)?;
@@ -1314,7 +1422,7 @@ impl SessionStore {
             .write(true)
             .open(&log_path)
             .map_err(|err| io_error(&log_path, err))?;
-        lock_exclusive(&file, &log_path, &id)?;
+        lock_exclusive_within(&file, &log_path, &id, wait)?;
 
         let manifest = self.read_manifest(&id)?;
         let replay = self.replay(&id, &manifest)?;
@@ -1796,6 +1904,10 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             user: text.clone(),
             steps: Vec::new(),
             outcome: None,
+            timing: TurnTiming {
+                started_at_ms: envelope.timestamp_ms,
+                ..TurnTiming::default()
+            },
         }),
         SessionEvent::AssistantMessage {
             text,
@@ -1856,10 +1968,33 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             state.total_output_tokens = state
                 .total_output_tokens
                 .saturating_add(output_tokens.unwrap_or(0));
+            // The turn it is about, when one is open: it is written just
+            // before that turn's conclusion (`agent::machine`'s
+            // `run_journaled`). One outside a turn still counts toward the
+            // totals, as it always has.
+            if let Some(turn) = state.turns.last_mut().filter(|turn| turn.outcome.is_none()) {
+                if let Some(output) = output_tokens {
+                    turn.timing.output_tokens = Some(
+                        turn.timing
+                            .output_tokens
+                            .unwrap_or(0)
+                            .saturating_add(*output),
+                    );
+                }
+            }
         }
         SessionEvent::TurnConcluded { outcome } => {
             let turn = open_turn(state, "a turn conclusion")?;
             turn.outcome = Some(outcome.clone());
+            turn.timing.concluded_at_ms = Some(envelope.timestamp_ms);
+        }
+        SessionEvent::SessionRenamed { title } => {
+            // A title the reader would have to second-guess is not one this
+            // build wrote: [`validate_title`] runs before every write.
+            if validate_title(title) != Ok(title.as_str()) {
+                return Err("a rename names a title xfx would not have written".to_string());
+            }
+            state.renamed = Some(title.clone());
         }
     }
 
@@ -2132,19 +2267,38 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// it, which is the answer a person needs.
 #[cfg(unix)]
 fn lock_exclusive(file: &File, path: &Path, id: &SessionId) -> Result<(), SessionError> {
+    lock_exclusive_within(file, path, id, Wait::Grace)
+}
+
+/// How long a resume waits for a lock someone else holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wait {
+    /// [`LOCK_RETRY_BUDGET`]: long enough for a child that is about to let go.
+    Grace,
+    /// Not at all: one attempt, and `Busy` if it is held.
+    None,
+}
+
+#[cfg(unix)]
+fn lock_exclusive_within(
+    file: &File,
+    path: &Path,
+    id: &SessionId,
+    wait: Wait,
+) -> Result<(), SessionError> {
     use rustix::fs::{flock, FlockOperation};
 
-    let outcome = acquire_with_grace(
-        || match flock(file, FlockOperation::NonBlockingLockExclusive) {
-            Ok(()) => AttemptOutcome::Acquired,
-            // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
-            // xfx builds for, so matching one covers both.
-            Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
-            Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
-        },
-        std::thread::sleep,
-        Instant::now,
-    );
+    let attempt = || match flock(file, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => AttemptOutcome::Acquired,
+        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
+        // xfx builds for, so matching one covers both.
+        Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
+        Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
+    };
+    let outcome = match wait {
+        Wait::Grace => acquire_with_grace(attempt, std::thread::sleep, Instant::now),
+        Wait::None => acquire_within(Duration::ZERO, attempt, std::thread::sleep, Instant::now),
+    };
     match outcome {
         Ok(()) => Ok(()),
         Err(AcquireFailure::HeldThroughGrace) => Err(SessionError::Busy {
@@ -2196,11 +2350,23 @@ enum AcquireFailure {
 /// last pause overran by.
 #[cfg(unix)]
 fn acquire_with_grace(
+    attempt: impl FnMut() -> AttemptOutcome,
+    sleep: impl FnMut(Duration),
+    now: impl FnMut() -> Instant,
+) -> Result<(), AcquireFailure> {
+    acquire_within(LOCK_RETRY_BUDGET, attempt, sleep, now)
+}
+
+/// [`acquire_with_grace`] over a budget of the caller's: zero is one attempt
+/// and no pause, since the deadline has passed the first time it is read.
+#[cfg(unix)]
+fn acquire_within(
+    budget: Duration,
     mut attempt: impl FnMut() -> AttemptOutcome,
     mut sleep: impl FnMut(Duration),
     mut now: impl FnMut() -> Instant,
 ) -> Result<(), AcquireFailure> {
-    let deadline = now() + LOCK_RETRY_BUDGET;
+    let deadline = now() + budget;
     let mut backoff = LOCK_FIRST_BACKOFF;
     loop {
         match attempt() {
@@ -2248,6 +2414,16 @@ const LOCK_MAX_BACKOFF: Duration = Duration::from_millis(50);
 /// length check in [`SessionStore::append`] instead of being prevented.
 #[cfg(not(unix))]
 fn lock_exclusive(_file: &File, _path: &Path, _id: &SessionId) -> Result<(), SessionError> {
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn lock_exclusive_within(
+    _file: &File,
+    _path: &Path,
+    _id: &SessionId,
+    _wait: Wait,
+) -> Result<(), SessionError> {
     Ok(())
 }
 
@@ -2609,6 +2785,221 @@ mod tests {
     }
 
     #[test]
+    fn a_title_the_user_chose_outranks_the_first_prompt_and_the_last_one_wins() {
+        let asked = vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "first question alpha".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
+                },
+            },
+        ];
+        let derived = reduce(asked.clone()).expect("a valid log");
+        assert_eq!(derived.title().as_deref(), Some("first question alpha"));
+
+        let mut renamed = asked.clone();
+        renamed.push(SessionEvent::SessionRenamed {
+            title: "My Title".to_string(),
+        });
+        assert_eq!(
+            reduce(renamed.clone())
+                .expect("a valid log")
+                .title()
+                .as_deref(),
+            Some("My Title")
+        );
+        renamed.push(SessionEvent::SessionRenamed {
+            title: "Second name".to_string(),
+        });
+        assert_eq!(
+            reduce(renamed).expect("a valid log").title().as_deref(),
+            Some("Second name")
+        );
+
+        // A session renamed before anything was asked in it has a title and
+        // no turn -- upstream keeps exactly that one on exit.
+        let empty = reduce(vec![
+            started(),
+            SessionEvent::SessionRenamed {
+                title: "Before asking".to_string(),
+            },
+        ])
+        .expect("a valid log");
+        assert_eq!(empty.title().as_deref(), Some("Before asking"));
+        assert!(empty.turns.is_empty());
+
+        // An explicit title is not clipped at the derived title's 80 bytes.
+        let wide = "w".repeat(MAX_RENAMED_TITLE_BYTES);
+        let state = reduce(vec![
+            started(),
+            SessionEvent::SessionRenamed {
+                title: wide.clone(),
+            },
+        ])
+        .expect("a valid log");
+        assert_eq!(state.title(), Some(wide));
+    }
+
+    #[test]
+    fn a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote() {
+        for title in ["", "  padded ", "line\nbreak", &"x".repeat(241)] {
+            let refused = reduce(vec![
+                started(),
+                SessionEvent::SessionRenamed {
+                    title: title.to_string(),
+                },
+            ]);
+            assert!(refused.is_err(), "{title:?} was replayed");
+        }
+    }
+
+    #[test]
+    fn a_title_is_trimmed_and_refused_as_upstreams_is() {
+        // `validateSessionTitle`, `app_session_runtime.zig:3790-3799`.
+        assert_eq!(validate_title("   My Title  "), Ok("My Title"));
+        assert_eq!(validate_title("\t\r\nMy Title\n"), Ok("My Title"));
+        assert_eq!(validate_title(""), Err(TitleError::Empty));
+        assert_eq!(validate_title(" \t\r\n "), Err(TitleError::Empty));
+        assert_eq!(
+            validate_title(&"x".repeat(240)),
+            Ok("x".repeat(240).as_str())
+        );
+        assert_eq!(validate_title(&"x".repeat(241)), Err(TitleError::TooLong));
+        // Bytes, not characters: 81 three-byte characters are 243 bytes.
+        assert_eq!(
+            validate_title(&"\u{ac00}".repeat(81)),
+            Err(TitleError::TooLong)
+        );
+        assert_eq!(validate_title("a\tb"), Err(TitleError::NotPrintable));
+        assert_eq!(
+            validate_title("a\u{1b}]2;x\u{7}"),
+            Err(TitleError::NotPrintable)
+        );
+        assert_eq!(validate_title("a\u{7f}"), Err(TitleError::NotPrintable));
+        // Upstream checks the length first.
+        assert_eq!(
+            validate_title(&format!("{}\u{1b}", "x".repeat(241))),
+            Err(TitleError::TooLong)
+        );
+        assert_eq!(
+            validate_title("caf\u{e9} \u{1f600}"),
+            Ok("caf\u{e9} \u{1f600}")
+        );
+    }
+
+    #[test]
+    fn a_turn_remembers_when_it_was_asked_when_it_ended_and_what_it_wrote() {
+        // `frame` stamps each event at 1000 + its sequence number.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "q".to_string(),
+            },
+            SessionEvent::UsageRecorded {
+                input_tokens: Some(6),
+                output_tokens: Some(40),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "r".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Interrupted {
+                    reason: "the turn was cancelled".to_string(),
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "s".to_string(),
+            },
+        ])
+        .expect("a valid log");
+        assert_eq!(
+            state.turns[0].timing,
+            TurnTiming {
+                started_at_ms: 1_002,
+                concluded_at_ms: Some(1_004),
+                output_tokens: Some(40),
+            }
+        );
+        assert_eq!(
+            state.turns[1].timing,
+            TurnTiming {
+                started_at_ms: 1_005,
+                concluded_at_ms: Some(1_006),
+                output_tokens: None,
+            }
+        );
+        assert_eq!(state.turns[2].timing.concluded_at_ms, None);
+        assert_eq!(state.total_output_tokens, 40);
+    }
+
+    #[test]
+    fn a_renamed_session_publishes_its_title_and_a_resume_reads_it_back() {
+        let root = tempfile::TempDir::new().expect("a profile root");
+        // A directory the store creates, so it is private; the temporary
+        // root around it is not.
+        let store = SessionStore::open(&root.path().join("profile")).expect("a store");
+        let workspace = root.path().join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        let id = SessionId::generate();
+        let mut session = store
+            .create(
+                id.clone(),
+                NewSession {
+                    origin_workspace_root: workspace.clone(),
+                    workspace_root: workspace.clone(),
+                    model: "m".to_string(),
+                    permission_mode: PermissionMode::Auto,
+                },
+            )
+            .expect("a session");
+        store
+            .append(
+                &mut session,
+                SessionEvent::SessionRenamed {
+                    title: "My Title".to_string(),
+                },
+            )
+            .expect("appended");
+        store.publish(&mut session).expect("published");
+        assert_eq!(
+            session
+                .manifest()
+                .and_then(|manifest| manifest.title.as_deref()),
+            Some("My Title")
+        );
+        drop(session);
+
+        // Listed under it with no turn in it, and resumed with it.
+        let listed = store
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .expect("a listing");
+        assert_eq!(listed.sessions.len(), 1);
+        assert_eq!(listed.sessions[0].title.as_deref(), Some("My Title"));
+        assert_eq!(listed.sessions[0].history_turns, 0);
+        let resumed = store
+            .resume_without_waiting(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        assert_eq!(resumed.session.state().title().as_deref(), Some("My Title"));
+
+        // Held now, so a second resume that does not wait is refused at once
+        // as the session another process has open.
+        match store.resume_without_waiting(&Selector::Id(id.clone()), &workspace) {
+            Err(SessionError::Busy { id: busy }) => assert_eq!(busy, id.as_str()),
+            other => panic!("a held session was not refused as busy: {other:?}"),
+        }
+    }
+
+    #[test]
     fn a_workspace_key_ignores_trailing_separators() {
         assert_eq!(workspace_key(Path::new("/w/x/")), "/w/x");
         assert_eq!(workspace_key(Path::new("/w/x")), "/w/x");
@@ -2827,6 +3218,26 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    #[test]
+    fn a_budget_of_nothing_is_one_attempt_and_no_pause() {
+        let start = Instant::now();
+        let mut attempts = 0;
+        let mut slept = Vec::new();
+        let result = acquire_within(
+            Duration::ZERO,
+            || {
+                attempts += 1;
+                AttemptOutcome::WouldBlock
+            },
+            |pause| slept.push(pause),
+            || start,
+        );
+        assert!(matches!(result, Err(AcquireFailure::HeldThroughGrace)));
+        assert_eq!(attempts, 1);
+        assert!(slept.is_empty(), "{slept:?}");
+    }
+
     #[test]
     fn an_error_that_is_not_contention_is_not_retried() {
         let (result, slept, attempts) = grace(vec![AttemptOutcome::Failed(io::Error::from(

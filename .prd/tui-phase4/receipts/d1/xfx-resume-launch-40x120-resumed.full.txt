@@ -1,0 +1,41 @@
+x𝒇x v0.1.0-214b7f8 [debug] · Run /help for commands
+* session resumed: first question alpha
+
+┃ first question alpha
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑6 ↓40)
+
+┃ second question beta
+
+  BETA answer.
+
+  0s (↑5 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

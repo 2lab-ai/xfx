@@ -499,7 +499,7 @@ fn found(spec: &SlashSpec, words: &[String]) -> bool {
 /// is `input_extra` rows taller than one (`inlinePickerRowBudgetCapped`,
 /// `picker_presentation.zig:760-770`): what is left after the band's fixed
 /// rows and five rows of document, at most [`MOST_ROWS`] and never none.
-fn row_budget(terminal_rows: u16, input_extra: u16) -> u16 {
+pub(super) fn row_budget(terminal_rows: u16, input_extra: u16) -> u16 {
     terminal_rows
         .saturating_sub(FIXED_ROWS.saturating_add(input_extra))
         .saturating_sub(MINIMUM_TRANSCRIPT_ROWS)
@@ -757,10 +757,16 @@ mod tests {
         let found = |query: &str| names(&HelpMenu::open(query));
         // The category label, the summary and the name are all searched.
         assert_eq!(found("general"), in_category("General"));
-        assert_eq!(found("SESSION"), ["/new", "/reset", "/copy"]);
+        assert_eq!(
+            found("SESSION"),
+            ["/new", "/reset", "/resume", "/rename", "/copy"]
+        );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
-        assert_eq!(found("ses"), ["/clear", "/new", "/reset", "/copy"]);
+        assert_eq!(
+            found("ses"),
+            ["/clear", "/new", "/reset", "/resume", "/rename", "/copy"]
+        );
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.
         assert_eq!(found("exit"), ["/quit"]);

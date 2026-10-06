@@ -31,9 +31,10 @@ pub use event::{
     EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
 };
 pub use store::{
-    workspace_key, Clock, DurableState, HistoryTurn, ListFilter, ListScope, NewSession, Resumed,
-    Selector, SessionDetail, SessionError, SessionId, SessionList, SessionManifest,
-    SessionRecorder, SessionStore, SessionSummary, TurnStep, WritableSession, DEFAULT_LIST_LIMIT,
-    EVENTS_FILE, MANIFEST_FILE, MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT, SESSIONS_DIR_NAME,
+    validate_title, workspace_key, Clock, DurableState, HistoryTurn, ListFilter, ListScope,
+    NewSession, Resumed, Selector, SessionDetail, SessionError, SessionId, SessionList,
+    SessionManifest, SessionRecorder, SessionStore, SessionSummary, TitleError, TurnStep,
+    TurnTiming, WritableSession, DEFAULT_LIST_LIMIT, EVENTS_FILE, MANIFEST_FILE,
+    MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT, MAX_RENAMED_TITLE_BYTES, SESSIONS_DIR_NAME,
     STAGE_SUFFIX, STORAGE_FORMAT,
 };
