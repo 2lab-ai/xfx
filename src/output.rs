@@ -1460,6 +1460,7 @@ mod tests {
                 steps: 1,
             }),
             timing: crate::session::TurnTiming::default(),
+            seqs: crate::session::TurnSeqs::default(),
         }
     }
 
@@ -1480,6 +1481,7 @@ mod tests {
             turns,
             renamed: None,
             usage: crate::session::RecordedUsage::default(),
+            checkpoint: None,
         }
     }
 

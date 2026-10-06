@@ -213,37 +213,60 @@ impl Activity {
             Work::Generating => GENERATING,
             Work::Tool { .. } => RUNNING,
         };
-        let mut text = format!(" {label} ({})", spoken(self.elapsed(now)));
-        let mut suffix = String::new();
-        if tokens != (0, 0) {
-            let _ = write!(
-                suffix,
-                " (\u{2191}{} \u{2193}{})",
-                compact_tokens(tokens.0),
-                compact_tokens(tokens.1)
-            );
-        }
-        // Measured as the painter measures, then cut: the marker cell, the
-        // label, and as much of the suffix as is left.
-        let width = usize::from(cols);
-        let label_room = width.saturating_sub(1);
-        text = super::frame::clip(&text, u16::try_from(label_room).unwrap_or(u16::MAX)).to_string();
-        let suffix_room = label_room.saturating_sub(usize::from(super::wrap::width(&text)));
-        let suffix =
-            super::frame::clip(&suffix, u16::try_from(suffix_room).unwrap_or(u16::MAX)).to_string();
-        let marker = if lit(phase) {
-            format!("{}{MARKER}{}", colours.label, colours.reset)
-        } else {
-            DARK.to_string()
-        };
-        let mut row = format!("{marker}{}{text}", colours.label);
-        if !suffix.is_empty() {
-            row.push_str(colours.dim);
-            row.push_str(&suffix);
-        }
-        row.push_str(colours.reset);
-        Some(row)
+        Some(marked_row(
+            label,
+            self.elapsed(now),
+            phase,
+            cols,
+            tokens,
+            colours,
+        ))
     }
+}
+
+/// A row with the blinking marker: `• <label> (<elapsed>)`, and the token
+/// suffix when `tokens` is not nought (`writeThinkingBlinkText`,
+/// `shimmer_runtime.zig:262-291`). The turn's row, and a compaction's in
+/// progress (`compactionProjection`, `activity_status.zig:16-41`), which has
+/// no tokens to say.
+pub(crate) fn marked_row(
+    label: &str,
+    elapsed: Duration,
+    phase: u8,
+    cols: u16,
+    tokens: (u64, u64),
+    colours: Colours,
+) -> String {
+    let mut text = format!(" {label} ({})", spoken(elapsed));
+    let mut suffix = String::new();
+    if tokens != (0, 0) {
+        let _ = write!(
+            suffix,
+            " (\u{2191}{} \u{2193}{})",
+            compact_tokens(tokens.0),
+            compact_tokens(tokens.1)
+        );
+    }
+    // Measured as the painter measures, then cut: the marker cell, the
+    // label, and as much of the suffix as is left.
+    let width = usize::from(cols);
+    let label_room = width.saturating_sub(1);
+    text = super::frame::clip(&text, u16::try_from(label_room).unwrap_or(u16::MAX)).to_string();
+    let suffix_room = label_room.saturating_sub(usize::from(super::wrap::width(&text)));
+    let suffix =
+        super::frame::clip(&suffix, u16::try_from(suffix_room).unwrap_or(u16::MAX)).to_string();
+    let marker = if lit(phase) {
+        format!("{}{MARKER}{}", colours.label, colours.reset)
+    } else {
+        DARK.to_string()
+    };
+    let mut row = format!("{marker}{}{text}", colours.label);
+    if !suffix.is_empty() {
+        row.push_str(colours.dim);
+        row.push_str(&suffix);
+    }
+    row.push_str(colours.reset);
+    row
 }
 
 /// The three sequences the row is painted with.

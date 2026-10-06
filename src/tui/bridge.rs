@@ -354,6 +354,11 @@ pub(crate) enum UiEvent {
     /// that happened, and one nobody was told of is a file that changed
     /// invisibly.
     Undone(super::notice::Notice),
+    /// Where a compaction is: begun, sending its notes request, or over
+    /// ([`super::compaction`]). The band's row only -- upstream writes
+    /// nothing of a compaction into the transcript. Not terminal: an
+    /// automatic one ends inside a turn, and a manual one ends no turn.
+    Compaction(super::compaction::Update),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -708,6 +713,8 @@ impl UiEvent {
                 title: inert_owned(title),
                 unsaved: unsaved.map(inert_owned),
             },
+            // No text: phases and outcomes this crate names.
+            Self::Compaction(update) => Self::Compaction(update),
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
     }
@@ -964,6 +971,10 @@ pub(crate) enum TurnWork {
     /// Work rather than a control message because it opens a socket, which
     /// the thread holding the terminal may not wait on.
     Credits,
+    /// `/compact`: compact the conversation, between turns. Work because it
+    /// asks the model for notes and writes the session's log; answered with
+    /// [`UiEvent::Compaction`] updates and nothing in the transcript.
+    Compact,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport
