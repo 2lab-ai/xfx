@@ -103,6 +103,7 @@ use super::permissions::{self, Change};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
+use super::recall::Recall;
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::session_picker::{self, SessionAction, SessionPicker};
@@ -1005,7 +1006,8 @@ pub(crate) struct Shell {
     /// Whether a tool group is drawn as its header alone: the profile's
     /// `collapse_tool_calls` at launch, and `/settings` since.
     collapse_tool_calls: bool,
-    /// Whether submitted lines are kept, and where ([`Recall`]).
+    /// Whether submitted lines are kept, where, and the thread that writes
+    /// them down ([`super::recall`]).
     recall: Recall,
     /// The `/provider` picker, while the draft is its argument
     /// ([`super::provider_picker`]).
@@ -1499,43 +1501,6 @@ enum Slot<'a> {
     Menu(&'a Picker),
 }
 
-/// The prompt history's facts this shell holds: whether submitted lines are
-/// kept at all, and the file they are kept in
-/// (`PromptHistoryRuntime`, `prompt_history_runtime.zig:24-31`).
-#[derive(Debug)]
-struct Recall {
-    /// `/settings`' `Prompt history`: the profile's `prompt_history.enabled`
-    /// at launch, and every change since. Off, a submitted line is kept
-    /// nowhere -- not in the file and not in this session's recall either
-    /// (`recordComposerHistory`'s guard, `input_submit_runtime.zig:1327-1329`).
-    enabled: bool,
-    /// `~/.xfx/history.jsonl`, or `None` for a session with no profile -- and
-    /// for a shell a test built, unless the test hands it one.
-    store: Option<crate::session::prompt_history::PromptHistory>,
-    /// The workspace a line is filed under, as a record spells it, or `None`
-    /// when its path is not UTF-8 and so cannot be one (`validateWorkspaceRoot`,
-    /// `prompt_history_store.zig:570-579`).
-    workspace: Option<String>,
-    /// Whether a failed save has been said since the last one that worked:
-    /// one warning per run of failures (`append_warning_active`,
-    /// `prompt_history_runtime.zig:133-140`).
-    warned: bool,
-}
-
-impl Recall {
-    fn new(
-        config: &RuntimeConfig,
-        store: Option<crate::session::prompt_history::PromptHistory>,
-    ) -> Self {
-        Self {
-            enabled: config.prompt_history,
-            store,
-            workspace: config.workspace_root.to_str().map(str::to_string),
-            warned: false,
-        }
-    }
-}
-
 /// What the band knows of the provider's catalog ([`Shell::catalog_known`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CatalogKnown {
@@ -1601,7 +1566,7 @@ impl Shell {
         #[cfg(test)]
         let settings = None;
         // The prompt history, on the same terms: a shell a test built keeps
-        // none unless the test hands it one ([`Recall::store`]).
+        // none unless the test hands it one ([`Recall::keep_in`]).
         #[cfg(not(test))]
         let history_store = config
             .profile_dir
@@ -1718,7 +1683,11 @@ impl Shell {
             settings_menu: None,
             slash_menu_categories: config.slash_menu_categories,
             collapse_tool_calls: config.collapse_tool_calls,
-            recall: Recall::new(config, history_store),
+            recall: Recall::new(
+                config.prompt_history,
+                history_store,
+                config.workspace_root.to_str().map(str::to_string),
+            ),
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
@@ -4032,24 +4001,9 @@ impl Shell {
     }
 
     /// Puts the workspace's saved lines into this session's recall, oldest
-    /// first, at launch (`loadAndInstallPromptHistory`,
-    /// `input_history_runtime.zig:20-28`): none while the history is off, and
-    /// none -- said nowhere -- when the file cannot be read, because a recall
-    /// that starts empty is still a session that works.
+    /// first, at launch ([`Recall::saved_lines`]).
     fn recall_saved_lines(&mut self) {
-        if !self.recall.enabled {
-            return;
-        }
-        let (Some(store), Some(workspace)) =
-            (self.recall.store.as_ref(), self.recall.workspace.as_deref())
-        else {
-            return;
-        };
-        let Ok(lines) = store.load_recent(workspace, crate::session::prompt_history::LOAD_LIMIT)
-        else {
-            return;
-        };
-        for line in lines {
+        for line in self.recall.saved_lines() {
             self.history.record(HistoryEntry::new(line, Vec::new()));
         }
     }
@@ -4066,32 +4020,32 @@ impl Shell {
         self.editor.expanded().trim().to_string()
     }
 
-    /// Writes one submitted line to the history file (`recordAcceptedInput`,
+    /// Hands one submitted line to the history's writer (`recordAcceptedInput`,
     /// `input_submit_runtime.zig:1246-1281`), when the history is on and has a
-    /// file. A write that fails is said once, as a warning, until one works
-    /// again; the submission goes on either way.
-    fn save_line(&mut self, saved: &str) {
-        if !self.recall.enabled {
-            return;
+    /// file. A failure is said once, as a warning, until an append works
+    /// again; the submission goes on either way. One the writer reports later
+    /// is said by [`Self::settle_history`].
+    fn save_line(&mut self, saved: String) {
+        if let Some(reason) = self.recall.keep(saved) {
+            self.history_failed(&reason);
         }
-        let (Some(store), Some(workspace)) =
-            (self.recall.store.as_ref(), self.recall.workspace.as_deref())
-        else {
-            return;
-        };
-        let now = u64::try_from(crate::session::event::system_now_ms()).unwrap_or(0);
-        match store.append(now, workspace, saved) {
-            Ok(_) => self.recall.warned = false,
-            Err(err) => {
-                if !self.recall.warned {
-                    self.recall.warned = true;
-                    self.announce(notice::Notice::warning(
-                        settings::HISTORY_TOPIC,
-                        format!("failed to save input history ({err}); submission continued"),
-                    ));
-                }
-            }
+    }
+
+    /// Says how the history's appends went -- only a failure, and only the
+    /// first of a run of them.
+    fn settle_history(&mut self) {
+        while let Some(reason) = self.recall.failure() {
+            self.history_failed(&reason);
         }
+    }
+
+    /// `! history: failed to save input history (<reason>); submission
+    /// continued` (`input_submit_runtime.zig:1256-1274`).
+    fn history_failed(&mut self, reason: &str) {
+        self.announce(notice::Notice::warning(
+            settings::HISTORY_TOPIC,
+            format!("failed to save input history ({reason}); submission continued"),
+        ));
     }
 
     /// Offers one keystroke to the `/resume` picker, and says whether it was
@@ -6214,8 +6168,9 @@ impl Shell {
         self.settle_copies();
         // So is a file index or a directory listing.
         self.settle_files();
-        // And so is a `/sound` save.
+        // And so is a `/sound` save, and a line the history kept.
         self.settle_saves();
+        self.settle_history();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -7493,7 +7448,7 @@ impl Shell {
         // `:1048-1053`): a warning that the save failed reads under what was
         // sent, not above it.
         if let Some(saved) = saved {
-            self.save_line(&saved);
+            self.save_line(saved);
         }
     }
 
@@ -25261,14 +25216,20 @@ mod tests {
     /// A [`shell_at_home`] that keeps its prompt history in its own profile.
     fn remembering(root: &std::path::Path) -> Fixture {
         let mut shell = shell_at_home(root, 40, 120);
-        shell.recall.store = Some(crate::session::prompt_history::PromptHistory::in_profile(
-            &root.join("home").join(".xfx"),
-        ));
+        shell
+            .recall
+            .keep_in(crate::session::prompt_history::PromptHistory::in_profile(
+                &root.join("home").join(".xfx"),
+            ));
         shell
     }
 
-    /// The texts the history file under `root` holds, oldest first.
-    fn saved_texts(root: &std::path::Path) -> Vec<String> {
+    /// The texts the history file under `root` holds, oldest first, once the
+    /// shell's writer has written what it was handed -- and whatever it said
+    /// about that settled into the document.
+    fn saved_texts(shell: &mut Fixture, root: &std::path::Path) -> Vec<String> {
+        shell.recall.wait_for_writes();
+        shell.settle_band(Instant::now());
         std::fs::read_to_string(root.join("home").join(".xfx").join("history.jsonl"))
             .unwrap_or_default()
             .lines()
@@ -25296,7 +25257,10 @@ mod tests {
         shell.route_bytes(b"/version\r");
         shell.route_bytes(b"/version\r");
         shell.route_bytes(b"  a prompt  \r");
-        assert_eq!(saved_texts(root.path()), ["/version", "a prompt"]);
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["/version", "a prompt"]
+        );
         let line =
             std::fs::read_to_string(root.path().join("home/.xfx/history.jsonl")).expect("the file");
         let workspace = shell.workspace.display().to_string();
@@ -25327,7 +25291,7 @@ mod tests {
         escape(&mut shell);
         shell.route_bytes(b"secret\r");
         // Not in the file, and not in this session's recall either.
-        assert_eq!(saved_texts(root.path()), ["first", "/settings"]);
+        assert_eq!(saved_texts(&mut shell, root.path()), ["first", "/settings"]);
         let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
         assert_eq!(walked[0], "/settings");
         assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
@@ -25340,7 +25304,10 @@ mod tests {
         assert!(profile_at(root.path()).contains("\"enabled\": true"));
         escape(&mut shell);
         shell.route_bytes(b"public\r");
-        assert_eq!(saved_texts(root.path()), ["first", "/settings", "public"]);
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["first", "/settings", "public"]
+        );
     }
 
     #[test]
@@ -25349,7 +25316,12 @@ mod tests {
         let mut first = remembering(root.path());
         first.route_bytes(b"alpha\r");
         first.route_bytes(b"beta\r");
-        let workspace = first.recall.workspace.clone().expect("a UTF-8 workspace");
+        assert_eq!(saved_texts(&mut first, root.path()), ["alpha", "beta"]);
+        let workspace = first
+            .recall
+            .workspace()
+            .expect("a UTF-8 workspace")
+            .to_string();
         crate::session::prompt_history::PromptHistory::in_profile(&root.path().join("home/.xfx"))
             .append(1, "/another/workspace", "theirs")
             .expect("append");
@@ -25365,7 +25337,7 @@ mod tests {
             !walked.contains(&"theirs".to_string()),
             "another workspace's line was recalled: {walked:?}"
         );
-        assert_eq!(next.recall.workspace.as_deref(), Some(workspace.as_str()));
+        assert_eq!(next.recall.workspace(), Some(workspace.as_str()));
 
         let mut off = remembering(root.path());
         off.recall.enabled = false;
@@ -25385,7 +25357,7 @@ mod tests {
             shell.editor.text()
         );
         shell.route_bytes(b"\r");
-        assert_eq!(saved_texts(root.path()), [pasted]);
+        assert_eq!(saved_texts(&mut shell, root.path()), [pasted]);
     }
 
     #[test]
@@ -25395,6 +25367,7 @@ mod tests {
         // A directory where the file goes: every append fails.
         std::fs::create_dir_all(root.path().join("home/.xfx/history.jsonl")).expect("a dir");
         shell.route_bytes(b"/version\r");
+        let _ = saved_texts(&mut shell, root.path());
         let document = shell.document();
         assert!(
             document.iter().any(
@@ -25404,6 +25377,7 @@ mod tests {
             "{document:?}"
         );
         shell.route_bytes(b"/version\r");
+        let _ = saved_texts(&mut shell, root.path());
         let document = shell.document();
         assert!(
             !document.iter().any(|row| row.contains("history:")),

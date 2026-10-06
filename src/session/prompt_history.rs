@@ -77,6 +77,9 @@ const LOCK_RETRY: Duration = Duration::from_millis(10);
 /// four megabytes is better than one that reads everything.
 const MOST_BYTES_LOADED: u64 = 4 * 1024 * 1024;
 
+/// The first window a load reads from the end of the file.
+const SCAN_BLOCK_BYTES: u64 = 64 * 1024;
+
 /// What an append did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Appended {
@@ -127,34 +130,47 @@ impl PromptHistory {
             Err(err) => return Err(err),
         };
         let length = file.metadata()?.len();
-        let start = length.saturating_sub(MOST_BYTES_LOADED);
-        file.seek(SeekFrom::Start(start))?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        // A read that began inside a line drops that line's tail.
-        let first = if start > 0 {
-            bytes
+        // **From the end, in a window that doubles** until it holds `limit`
+        // of this workspace's lines, covers the file, or reaches
+        // [`MOST_BYTES_LOADED`] -- upstream's backward scan
+        // (`loadRecentFromFile`, `:374-474`) in a shape that cannot misjoin a
+        // line across two blocks: each window is read whole. The append's
+        // duplicate check asks for one line, so it reads the last block and
+        // not the file.
+        let mut window = SCAN_BLOCK_BYTES.min(length);
+        loop {
+            let start = length - window;
+            file.seek(SeekFrom::Start(start))?;
+            let mut bytes = Vec::with_capacity(usize::try_from(window).unwrap_or(0));
+            (&mut file).take(window).read_to_end(&mut bytes)?;
+            // A window that began inside a line drops that line's head.
+            let first = if start > 0 {
+                bytes
+                    .iter()
+                    .position(|&b| b == b'\n')
+                    .map_or(bytes.len(), |at| at + 1)
+            } else {
+                0
+            };
+            let end = bytes
                 .iter()
-                .position(|&b| b == b'\n')
-                .map_or(bytes.len(), |at| at + 1)
-        } else {
-            0
-        };
-        let end = bytes
-            .iter()
-            .rposition(|&b| b == b'\n')
-            .map_or(0, |at| at + 1);
-        let complete = bytes.get(first..end).unwrap_or_default();
-        let mut texts: Vec<String> = complete
-            .split(|&b| b == b'\n')
-            .rev()
-            .filter_map(parse)
-            .filter(|record| record.workspace_root == workspace_root)
-            .map(|record| record.text)
-            .take(limit)
-            .collect();
-        texts.reverse();
-        Ok(texts)
+                .rposition(|&b| b == b'\n')
+                .map_or(0, |at| at + 1);
+            let complete = bytes.get(first..end).unwrap_or_default();
+            let mut texts: Vec<String> = complete
+                .split(|&b| b == b'\n')
+                .rev()
+                .filter_map(parse)
+                .filter(|record| record.workspace_root == workspace_root)
+                .map(|record| record.text)
+                .take(limit)
+                .collect();
+            if texts.len() >= limit || window >= length || window >= MOST_BYTES_LOADED {
+                texts.reverse();
+                return Ok(texts);
+            }
+            window = (window * 2).min(length).min(MOST_BYTES_LOADED);
+        }
     }
 
     /// Appends one record of `text`, typed in `workspace_root` at
@@ -279,17 +295,29 @@ fn repair_incomplete_tail(file: &mut File) -> io::Result<()> {
     if length == 0 {
         return Ok(());
     }
-    let mut bytes = Vec::new();
-    file.seek(SeekFrom::Start(0))?;
-    file.read_to_end(&mut bytes)?;
-    if bytes.last() == Some(&b'\n') {
+    let mut last = [0u8; 1];
+    file.seek(SeekFrom::Start(length - 1))?;
+    file.read_exact(&mut last)?;
+    if last[0] == b'\n' {
         return Ok(());
     }
-    let keep = bytes
-        .iter()
-        .rposition(|&b| b == b'\n')
-        .map_or(0, |at| at + 1);
-    file.set_len(keep as u64)?;
+    // Backwards in blocks to the newline before the torn line, as upstream
+    // reads it (8 KiB at a time), rather than the whole file.
+    let mut cursor = length;
+    let mut block = vec![0u8; 8192];
+    let mut keep = 0;
+    while cursor > 0 {
+        let start = cursor.saturating_sub(block.len() as u64);
+        let size = usize::try_from(cursor - start).unwrap_or(block.len());
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut block[..size])?;
+        if let Some(at) = block[..size].iter().rposition(|&b| b == b'\n') {
+            keep = start + at as u64 + 1;
+            break;
+        }
+        cursor = start;
+    }
+    file.set_len(keep)?;
     file.sync_data()
 }
 
@@ -414,6 +442,16 @@ mod tests {
         (home, history)
     }
 
+    /// Writes `records` as the whole file, as appends would have left it --
+    /// the cases about what a long file does, without an `fsync` per line.
+    fn seeded(history: &PromptHistory, records: impl Iterator<Item = (u64, String, String)>) {
+        create_private_dir(&history.dir).expect("dir");
+        let bytes: String = records
+            .map(|(at, workspace, text)| record(at, &workspace, &text))
+            .collect();
+        fs::write(history.path(), bytes).expect("seed");
+    }
+
     fn lines(history: &PromptHistory) -> Vec<String> {
         fs::read_to_string(history.path())
             .expect("read the history")
@@ -498,14 +536,15 @@ mod tests {
     #[test]
     fn a_load_is_the_newest_lines_of_its_own_workspace_oldest_first() {
         let (_home, history) = store();
-        for at in 0..150u64 {
-            history
-                .append(at, WORK, &format!("line {at}"))
-                .expect("append");
-            history
-                .append(at, "/elsewhere", &format!("other {at}"))
-                .expect("append");
-        }
+        seeded(
+            &history,
+            (0..150u64).flat_map(|at| {
+                [
+                    (at, WORK.to_string(), format!("line {at}")),
+                    (at, "/elsewhere".to_string(), format!("other {at}")),
+                ]
+            }),
+        );
         let loaded = history.load_recent(WORK, LOAD_LIMIT).expect("load");
         assert_eq!(loaded.len(), 100);
         assert_eq!(loaded.first().map(String::as_str), Some("line 50"));
@@ -514,6 +553,29 @@ mod tests {
             .load_recent("/nowhere", LOAD_LIMIT)
             .expect("load")
             .is_empty());
+    }
+
+    #[test]
+    fn a_load_reads_back_past_its_first_window_for_a_quiet_workspace() {
+        // The workspace's one line is behind 200 KiB of another's: the first
+        // 64 KiB window finds nothing and the window grows until it does.
+        let (_home, history) = store();
+        let body = "z".repeat(1000);
+        seeded(
+            &history,
+            std::iter::once((1, WORK.to_string(), "far back".to_string())).chain(
+                (0..200u64).map(|at| (at, "/elsewhere".to_string(), format!("{at} {body}"))),
+            ),
+        );
+        assert_eq!(
+            history.load_recent(WORK, LOAD_LIMIT).expect("load"),
+            ["far back"]
+        );
+        // And the duplicate check sees it there too.
+        assert_eq!(
+            history.append(2, WORK, "far back").expect("append"),
+            Appended::Duplicate
+        );
     }
 
     #[test]
@@ -587,10 +649,15 @@ mod tests {
     #[test]
     fn an_append_past_a_mebibyte_compacts_the_file() {
         let (_home, history) = store();
-        // ~1 KiB records: the threshold is crossed a little past record 1000,
-        // and that append compacts.
+        // ~1 KiB records, a little under the threshold; the next appends cross
+        // it, and the append that does compacts.
         let body = "y".repeat(900);
-        for at in 0..1100u64 {
+        seeded(
+            &history,
+            (0..1020u64).map(|at| (at, WORK.to_string(), format!("{at} {body}"))),
+        );
+        assert!(fs::metadata(history.path()).expect("stat").len() <= COMPACTION_THRESHOLD_BYTES);
+        for at in 1020..1100u64 {
             history
                 .append(at, WORK, &format!("{at} {body}"))
                 .expect("append");
