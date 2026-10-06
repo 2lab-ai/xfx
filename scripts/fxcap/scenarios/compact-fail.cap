@@ -1,0 +1,22 @@
+# W4 `/compact` whose notes request is refused twice (the conversation's
+# model, then the other family's): the failure sentence, which stays.
+gateway compact-fail-turns.json
+work compact-ws
+wait 3
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+type /compact
+key Enter
+wait 1.5
+snap failed
+wait 2
+snap failed-3.5s
+type third question
+key Enter
+wait 2.5
+snap next-turn
+gwlog
