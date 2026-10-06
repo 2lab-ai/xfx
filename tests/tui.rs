@@ -8537,3 +8537,77 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
 }
+
+#[test]
+fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped() {
+    // Upstream's `auto: cancellation provenance` (`tui-compaction-activity.test.ts:
+    // 446-503`): the turn that reached the compaction point is stopped with the
+    // compaction, nothing is checkpointed, the row says `Compaction cancelled.`,
+    // and the turn is recorded as asked and stopped
+    // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:7413-7423`).
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let line = "evidence ".repeat(25);
+    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "read-1",
+                "read_file",
+                serde_json::json!({ "path": "big.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        Reply::SseThenHang(Vec::new()),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
+         "released": 1_700_000_000, "tags": ["tool-use"],
+         "context_window": 16_000, "max_tokens": 4_000},
+    ]}));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    on_screen(&session, (40, 120), &["Compacting ("], &[]);
+    session.type_bytes(&[0x03]);
+    on_screen(
+        &session,
+        (40, 120),
+        &["Compaction cancelled. Try /compact again when ready."],
+        &["Compacting ("],
+    );
+    wait_for_conclusions(&sandbox, 2);
+    assert!(checkpoints(&sandbox).is_empty(), "a checkpoint was saved");
+    // The turn's own request was never sent: the read, the answer, the notes.
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    assert!(is_summary(&requests[2].json()));
+    // The log holds the second turn, asked and stopped.
+    let id = sandbox.session_ids().remove(0);
+    let raw = std::fs::read_to_string(sandbox.sessions_dir().join(&id).join("events.jsonl"))
+        .expect("the log");
+    let frames: Vec<Value> = raw
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let asked = frames
+        .iter()
+        .position(|frame| frame["event"]["text"] == "second question")
+        .expect("the stopped turn's prompt was recorded");
+    let concluded = &frames[asked + 1]["event"];
+    assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
+    assert_eq!(concluded["outcome"]["kind"], "interrupted");
+    assert_eq!(concluded["outcome"]["reason"], "the turn was cancelled");
+    // Nothing about it in the document.
+    on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
