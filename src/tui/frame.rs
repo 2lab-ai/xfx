@@ -168,7 +168,7 @@ pub(crate) struct Band {
     /// actually showing, and the two differ for exactly one write -- the one
     /// that changes it. Everything that has to be balanced is balanced against
     /// this: an enter is written only from `Primary`, a leave only from
-    /// `Approval`, and the exit asks it rather than the shell
+    /// `Alternate`, and the exit asks it rather than the shell
     /// ([`super::term::shutdown`]) because by then the shell may have released a
     /// plane whose bytes are still on the terminal.
     showing: super::shell::ScreenOwner,
@@ -325,7 +325,7 @@ impl Band {
     /// the transitions, and answered from bytes that were delivered rather than
     /// from what the session wants.
     pub(crate) fn on_alternate(&self) -> bool {
-        matches!(self.showing, super::shell::ScreenOwner::Approval)
+        matches!(self.showing, super::shell::ScreenOwner::Alternate)
     }
 
     /// Builds the frame that **takes** the alternate buffer: the mode set, an
@@ -368,7 +368,7 @@ impl Band {
             check::PlaneMove::Take,
         )?;
         Ok(ScreenFrame {
-            owner: super::shell::ScreenOwner::Approval,
+            owner: super::shell::ScreenOwner::Alternate,
             bytes,
             // The buffer the terminal is about to hand out is blank, so what
             // these bytes put on it is the whole of what is on it -- once they
@@ -427,7 +427,7 @@ impl Band {
             check::PlaneMove::Stay,
         )?;
         Ok(ScreenFrame {
-            owner: super::shell::ScreenOwner::Approval,
+            owner: super::shell::ScreenOwner::Alternate,
             bytes,
             // Nothing for the frame that wrote nothing: an empty frame that
             // landed would otherwise re-assert a cache the band may have
@@ -5105,7 +5105,7 @@ mod tests {
 
         assert_eq!(
             frame.owner(),
-            super::super::shell::ScreenOwner::Approval,
+            super::super::shell::ScreenOwner::Alternate,
             "the frame that takes the plane does not say whose it is"
         );
         assert!(

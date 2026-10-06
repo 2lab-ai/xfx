@@ -891,7 +891,7 @@ fn commit_frame(
     // primary buffer held the prompt and three tool rows with nothing below
     // them. So the rows are paid, and then the band frame they moved.
     let taking_the_plane =
-        !band.on_alternate() && shell.screen_owner() == super::shell::ScreenOwner::Approval;
+        !band.on_alternate() && shell.screen_owner() == super::shell::ScreenOwner::Alternate;
     if band.on_alternate() || taking_the_plane {
         // Not on a screen no band fits on: there, `blind` says the row numbers
         // are claims about a screen that may not exist, and an append is a
@@ -1416,7 +1416,7 @@ fn paint_alternate(
         }
         // A change the band cannot show: take the plane and paint the whole
         // surface onto it in the same frame.
-        (false, ScreenOwner::Approval) => {
+        (false, ScreenOwner::Alternate) => {
             let rows = shell.screen_rows();
             let cursor = shell.screen_cursor();
             shell.intend_approval();
@@ -1463,7 +1463,7 @@ fn paint_alternate(
             }
         }
         // Already there: a marker that moved, or a screen that changed size.
-        (true, ScreenOwner::Approval) => {
+        (true, ScreenOwner::Alternate) => {
             let Some(attempt) = shell.render.begin() else {
                 return Ok(());
             };
@@ -3658,7 +3658,7 @@ mod tests {
         );
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the query gave the question's plane away"
         );
     }
@@ -4043,7 +4043,7 @@ mod tests {
         shell.apply(a_change_too_big_for_the_band());
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the question did not take the plane, so this case proves nothing"
         );
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
@@ -4090,7 +4090,7 @@ mod tests {
         shell.apply(a_change_too_big_for_the_band());
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the question did not take the plane, so this case proves nothing"
         );
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
@@ -5915,7 +5915,7 @@ mod tests {
         shell.apply(a_change_too_big_for_the_band());
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the question did not take the plane, so this case proves nothing"
         );
         out.written.clear();
@@ -6653,7 +6653,7 @@ mod tests {
         shell.settle_band(Instant::now());
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the batch did not reach the question, so this case proves nothing"
         );
         commit_frame(
@@ -6841,7 +6841,7 @@ mod tests {
         );
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the question was forgotten with the frame"
         );
         // And the next tick, onto a screen that works, pays the document and
@@ -7033,7 +7033,7 @@ mod tests {
         );
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "the question was forgotten with the frame"
         );
         // Taken and put back, which is what `restore` is for: there is no way
@@ -9324,7 +9324,7 @@ mod tests {
 
         // --- a real inline approval panel --------------------------------------
         rig.apply(asked_inline());
-        // **Not `ScreenOwner::Approval`.** That owner is only for a question
+        // **Not `ScreenOwner::Alternate`.** That owner is only for a question
         // too big for the band (`Asked::Alternate`, `shell.rs`'s `ask`); an
         // inline one keeps the primary plane and grows the band around its
         // own panel instead (`Asked::Inline` sets `owner = Primary`).

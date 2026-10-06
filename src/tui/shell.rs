@@ -947,13 +947,11 @@ pub(crate) enum ScreenOwner {
     /// The alternate buffer: a question with a change too large for the band
     /// to show, or the full transcript (`C-o`, [`super::full_transcript`]).
     ///
-    /// Named for its first occupant. Both are the same plane to everything
-    /// that reads this -- the loop that takes and gives it back, the exit, the
+    /// One variant for both: they are the same plane to everything that
+    /// reads this -- the loop that takes and gives it back, the exit, the
     /// panic hook -- and which of the two is on it is the shell's own
-    /// business ([`Shell::screen_rows`]), so the second occupant shares the
-    /// variant rather than adding a state every one of those readers would
-    /// have to be taught means the same plane.
-    Approval,
+    /// business ([`Shell::screen_rows`]).
+    Alternate,
 }
 
 /// A question composed for the surface it belongs on, before anything is
@@ -2294,7 +2292,7 @@ impl Shell {
         // hazard where the next edit reads it rather than adding a branch no
         // test can drive honestly.
         debug_assert!(
-            !(self.owner == ScreenOwner::Approval && self.alternate.is_some()),
+            !(self.owner == ScreenOwner::Alternate && self.alternate.is_some()),
             "a second question took a plane the first one is still on"
         );
         match composed {
@@ -2311,7 +2309,7 @@ impl Shell {
             // the band the restore repaints when the answer gives it back.
             Asked::Alternate(screen) => {
                 self.alternate = Some(screen);
-                self.owner = ScreenOwner::Approval;
+                self.owner = ScreenOwner::Alternate;
             }
         }
         self.asked_id = Some(id);
@@ -2433,7 +2431,7 @@ impl Shell {
         // uses: the loop pays what the primary plane owes, takes the plane in
         // the same write, and gives it back whole (`super::event_loop`'s
         // `paint_alternate`).
-        self.owner = ScreenOwner::Approval;
+        self.owner = ScreenOwner::Alternate;
         self.render.request(Reason::Modal);
     }
 
@@ -4330,7 +4328,7 @@ impl Shell {
             self.retint_debt = true;
         }
         self.render.request(Reason::Footer);
-        if self.slot().is_some() || self.owner == ScreenOwner::Approval {
+        if self.slot().is_some() || self.owner == ScreenOwner::Alternate {
             self.render.request(Reason::Modal);
         }
     }
@@ -6387,7 +6385,7 @@ mod tests {
         /// grid; reading it off the band would be reading a coordinate against
         /// the wrong screen.
         fn marked(&self) -> String {
-            if self.shell.screen_owner() == ScreenOwner::Approval {
+            if self.shell.screen_owner() == ScreenOwner::Alternate {
                 let row = usize::from(self.shell.screen_cursor().0);
                 return self
                     .shell
@@ -9297,7 +9295,7 @@ mod tests {
             lines_below: 0,
         });
         shell.apply(UiEvent::Approval(question(request)));
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         delivered(&mut shell);
 
         shell.decide(Input::Text('1'), Instant::now());
@@ -9354,7 +9352,7 @@ mod tests {
             lines_below: 0,
         });
         wide.apply(UiEvent::Approval(question(request)));
-        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(wide.screen_owner(), ScreenOwner::Alternate);
         delivered(&mut wide);
         wide.decide(Input::Text('1'), Instant::now());
         assert_eq!(
@@ -9409,7 +9407,7 @@ mod tests {
         // about something the user is not looking at.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         assert!(
             !shell.screen_rows().is_empty(),
             "the plane has nothing on it, so this case proves nothing"
@@ -9909,7 +9907,7 @@ mod tests {
         shell.settle_band(started);
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "a change the band cannot show was left for the band to show"
         );
         delivered(&mut shell);
@@ -9965,7 +9963,7 @@ mod tests {
             shell.route_bytes(b"a draft");
             shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
             shell.settle_band(started);
-            assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
             assert_eq!(
                 shell.marked(),
                 "  ❯ 1  Apply once",
@@ -10005,7 +10003,7 @@ mod tests {
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Duration::from_millis(100));
@@ -10034,7 +10032,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
 
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         assert_eq!(
             shell.controlled(),
             None,
@@ -10074,7 +10072,7 @@ mod tests {
                 shell.settle_band(started);
                 assert_eq!(
                     shell.screen_owner(),
-                    ScreenOwner::Approval,
+                    ScreenOwner::Alternate,
                     "a {rows}x{cols} screen refused a question the plane can show"
                 );
                 assert_eq!(
@@ -10102,7 +10100,7 @@ mod tests {
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         let painted = shell.band_rows().join("\n");
         assert!(
@@ -10188,7 +10186,7 @@ mod tests {
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.release_screen();
 
@@ -10234,7 +10232,7 @@ mod tests {
             first,
             "`C-n` did not walk back"
         );
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
     }
 
     #[test]
@@ -16822,7 +16820,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let _ = shell.document();
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.decide(Input::Action(Action::Tab), Instant::now());
         type_at_the_question(&mut shell, "rename the flag first");
@@ -16944,7 +16942,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let _ = shell.document();
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.decide(Input::Action(Action::Tab), Instant::now());
         type_at_the_question(&mut shell, "rename the flag first");
@@ -17208,7 +17206,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let _ = shell.document();
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         shell.decide(Input::Action(Action::Tab), Instant::now());
         type_at_the_question(&mut shell, "rename the flag first");
         let before = shell.marked();
@@ -17493,7 +17491,7 @@ mod tests {
             a_turn_that_ran_a_command(&mut shell);
             let _ = shell.written();
             shell.route_bytes(b"\x0f");
-            assert_eq!(shell.screen_owner(), ScreenOwner::Approval, "{close:?}");
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{close:?}");
             let screen = full_screen(&shell);
             assert_eq!(screen.len(), 40);
             assert_eq!(screen[37], format!("\u{2503} {}", full_transcript::FOOTER));
@@ -17650,10 +17648,10 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"\x0f");
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         assert!(
             shell.screen_rows().join("\n").contains("Permission needed"),
             "the plane did not go to the question"
@@ -17718,7 +17716,7 @@ mod tests {
     fn the_exit_gives_back_a_plane_the_full_transcript_was_holding() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x0f");
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());
