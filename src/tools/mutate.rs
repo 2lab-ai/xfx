@@ -2272,6 +2272,32 @@ mod tests {
     }
 
     #[test]
+    fn a_hostile_name_is_taken_back_and_said_spelled_out() {
+        // `hostile path stays encoded through approval transcript changes and
+        // undo` (`tests/e2e/tui-permissions.test.ts:1949-1980`): a file whose
+        // name carries a window-title sequence and a line feed is created,
+        // taken back, and named in the notice as text.
+        let (_dir, context) = committing();
+        let name = "name\u{1b}]2;FX_PWN\u{7}\nfile.txt";
+        assert!(write(&context, name, "hostile\n").ok);
+        let path = located(&context, name);
+        assert!(path.exists());
+
+        let undone = undo_last(&context);
+        assert_eq!(undone, Undone::Deleted(path.clone()));
+        assert!(!path.exists(), "the hostile file is still there");
+        let said = undone.sentence();
+        assert!(
+            said.ends_with("/name\\x1b]2;FX_PWN\\x07\\x0afile.txt (was newly created)"),
+            "{said:?}"
+        );
+        assert!(
+            !said.contains('\u{1b}') && !said.contains('\u{7}') && !said.contains('\n'),
+            "{said:?}"
+        );
+    }
+
+    #[test]
     fn undo_reaches_only_what_a_write_could_reach() {
         // The journal is filled by `commit` alone, so a change outside the
         // workspace or under `.git` cannot be on it -- and if one were, the
