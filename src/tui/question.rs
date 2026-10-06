@@ -195,6 +195,14 @@ pub(crate) enum Act {
     End,
     /// The grapheme after the caret (`freeformDeleteNext`).
     Delete,
+    /// The answer's word moves and kill keys, as upstream's field binds them
+    /// (`question_prompt.zig:361-378`): word left and right, `C-w`, `C-u`,
+    /// `C-k`.
+    WordLeft,
+    WordRight,
+    DeleteWordLeft,
+    KillToStart,
+    KillToEnd,
     /// A bracketed paste begins, ends, and the bytes between: into the
     /// answer while it is open, and dropped while a choice is marked
     /// (`paste_framing.zig:111-135`, `input_paste_runtime.zig:226-283`).
@@ -217,6 +225,11 @@ impl Act {
             Action::SelectUp => Some(Self::SelectUp),
             Action::SelectDown => Some(Self::SelectDown),
             Action::Delete => Some(Self::Delete),
+            Action::WordLeft => Some(Self::WordLeft),
+            Action::WordRight => Some(Self::WordRight),
+            Action::DeleteWordLeft => Some(Self::DeleteWordLeft),
+            Action::KillToStart => Some(Self::KillToStart),
+            Action::KillToEnd => Some(Self::KillToEnd),
             Action::PasteStart => Some(Self::PasteStart),
             Action::PasteEnd => Some(Self::PasteEnd),
             Action::Tab => Some(Self::Tab),
@@ -826,7 +839,17 @@ impl QuestionPanel {
                 Some(bytes) if drafting => self.insert(&pasted(&bytes)),
                 _ => Answered::Nothing,
             },
-            Act::Backspace | Act::Delete | Act::Left | Act::Right | Act::Home | Act::End => {
+            Act::Backspace
+            | Act::Delete
+            | Act::Left
+            | Act::Right
+            | Act::Home
+            | Act::End
+            | Act::WordLeft
+            | Act::WordRight
+            | Act::DeleteWordLeft
+            | Act::KillToStart
+            | Act::KillToEnd => {
                 if !drafting {
                     // A key that means something only to a draft, with no draft
                     // open. Swallowed rather than passed on -- the question has
@@ -841,8 +864,19 @@ impl QuestionPanel {
                     Act::Delete => {
                         draft.delete();
                     }
+                    Act::DeleteWordLeft => {
+                        draft.delete_token_left();
+                    }
+                    Act::KillToStart => {
+                        draft.kill_to_start();
+                    }
+                    Act::KillToEnd => {
+                        draft.kill_to_end();
+                    }
                     Act::Left => draft.left(),
                     Act::Right => draft.right(),
+                    Act::WordLeft => draft.word_left(),
+                    Act::WordRight => draft.word_right(),
                     Act::Home => draft.home(),
                     _ => draft.end(),
                 }
@@ -2344,6 +2378,25 @@ mod tests {
         let (row, _) = panel.caret(40, 24).expect("drafting");
         assert!(rows[usize::from(row)].contains("row0"), "{rows:?}");
         assert_eq!(panel.rows(40, 24).len(), usize::from(panel.height(40, 24)));
+    }
+
+    #[test]
+    fn the_answers_word_and_kill_keys_reach_it_and_nothing_at_a_choice() {
+        let mut panel = captured();
+        for act in [Act::WordLeft, Act::KillToEnd, Act::DeleteWordLeft] {
+            assert_eq!(panel.apply(act, 120, 40), Answered::Nothing, "{act:?}");
+        }
+        panel.apply(Act::Text('4'), 120, 40);
+        for character in "keep the last".chars() {
+            panel.apply(Act::Text(character), 120, 40);
+        }
+        panel.apply(Act::DeleteWordLeft, 120, 40);
+        assert_eq!(panel.draft(), Some("keep the "));
+        panel.apply(Act::WordLeft, 120, 40);
+        panel.apply(Act::KillToEnd, 120, 40);
+        assert_eq!(panel.draft(), Some("keep "));
+        panel.apply(Act::KillToStart, 120, 40);
+        assert_eq!(panel.draft(), Some(""));
     }
 
     #[test]

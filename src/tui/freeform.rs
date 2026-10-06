@@ -116,6 +116,77 @@ impl Freeform {
         true
     }
 
+    /// Back to the start of the word before the caret (`freeformCursorWordLeft`,
+    /// `previousWordStart`, `text_boundaries.zig:34-47`).
+    pub(crate) fn word_left(&mut self) {
+        self.preferred = None;
+        self.cursor = previous_word_start(&self.text, self.cursor);
+    }
+
+    /// On to the end of the word after it (`nextWordEnd`, `:49-58`).
+    pub(crate) fn word_right(&mut self) {
+        self.preferred = None;
+        self.cursor = next_word_end(&self.text, self.cursor);
+    }
+
+    /// The whitespace-delimited token before the caret, on its own line, gone
+    /// -- `C-w` (`freeformDeleteWhitespaceDelimitedWordLeft`,
+    /// `question_prompt.zig:531-542`).
+    pub(crate) fn delete_token_left(&mut self) -> bool {
+        self.preferred = None;
+        let line_start = self.text[..self.cursor].rfind('\n').map_or(0, |at| at + 1);
+        let mut start = self.cursor;
+        while start > line_start {
+            let previous = previous_start(&self.text, start);
+            if !is_space(&self.text[previous..start]) {
+                break;
+            }
+            start = previous;
+        }
+        while start > line_start {
+            let previous = previous_start(&self.text, start);
+            if is_space(&self.text[previous..start]) {
+                break;
+            }
+            start = previous;
+        }
+        self.remove(start, self.cursor)
+    }
+
+    /// From the caret to the start of its line, gone -- `C-u`
+    /// (`freeformDeleteToLineStart`, `question_prompt.zig:552-558`).
+    pub(crate) fn kill_to_start(&mut self) -> bool {
+        self.preferred = None;
+        let start = self.text[..self.cursor].rfind('\n').map_or(0, |at| at + 1);
+        self.remove(start, self.cursor)
+    }
+
+    /// From the caret to the end of its line, gone, and the line break with it
+    /// when the caret is already there -- `C-k` (`freeformDeleteToLineEnd`,
+    /// `question_prompt.zig:560-571`).
+    pub(crate) fn kill_to_end(&mut self) -> bool {
+        self.preferred = None;
+        let line_end = self.text[self.cursor..]
+            .find('\n')
+            .map_or(self.text.len(), |at| self.cursor + at);
+        let end = if self.cursor == line_end && line_end < self.text.len() {
+            line_end + 1
+        } else {
+            line_end
+        };
+        self.remove(self.cursor, end)
+    }
+
+    /// `start..end` gone and the caret where it was; `false` when empty.
+    fn remove(&mut self, start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+        self.text.replace_range(start..end, "");
+        self.cursor = start;
+        true
+    }
+
     pub(crate) fn left(&mut self) {
         self.preferred = None;
         self.cursor = previous_start(&self.text, self.cursor);
@@ -235,6 +306,52 @@ fn next_end(text: &str, cursor: usize) -> usize {
         .graphemes(true)
         .next()
         .map_or(cursor, |unit| cursor + unit.len())
+}
+
+/// Whether a grapheme is part of a word (`isWordCharacter`,
+/// `text_boundaries.zig:71-77`): ASCII letters, digits and `_`, and every code
+/// point from U+00C0 up.
+fn is_word(unit: &str) -> bool {
+    unit.chars().next().is_some_and(|character| {
+        character == '_' || character.is_ascii_alphanumeric() || u32::from(character) >= 0xc0
+    })
+}
+
+/// Whether a grapheme is white space, for `C-w`'s token.
+fn is_space(unit: &str) -> bool {
+    unit.chars().next().is_some_and(char::is_whitespace)
+}
+
+/// `previousWordStart`: back over what is not a word, then over the word.
+fn previous_word_start(text: &str, cursor: usize) -> usize {
+    let mut at = cursor;
+    while at > 0 {
+        let previous = previous_start(text, at);
+        if is_word(&text[previous..at]) {
+            break;
+        }
+        at = previous;
+    }
+    while at > 0 {
+        let previous = previous_start(text, at);
+        if !is_word(&text[previous..at]) {
+            break;
+        }
+        at = previous;
+    }
+    at
+}
+
+/// `nextWordEnd`: on over what is not a word, then over the word.
+fn next_word_end(text: &str, cursor: usize) -> usize {
+    let mut at = cursor;
+    while at < text.len() && !is_word(&text[at..next_end(text, at)]) {
+        at = next_end(text, at);
+    }
+    while at < text.len() && is_word(&text[at..next_end(text, at)]) {
+        at = next_end(text, at);
+    }
+    at
 }
 
 /// The cells of the grapheme that starts at `cursor`, and how long it is.
@@ -533,6 +650,33 @@ mod tests {
         let mut combining = field("e\u{301}x\nab", "e\u{301}x\nab".len());
         combining.move_vertical(20, Direction::Up);
         assert_eq!(combining.cursor, 4);
+    }
+
+    #[test]
+    fn word_moves_and_the_kill_keys_are_upstreams() {
+        // `text_boundaries.zig` and `question_prompt.zig:469-571`.
+        let mut typed = field("use the_db, please\nnext line", 18);
+        typed.word_left();
+        assert_eq!(typed.cursor, 12, "back to `please`");
+        typed.word_left();
+        assert_eq!(typed.cursor, 4, "back over `, ` to `the_db`");
+        typed.word_right();
+        assert_eq!(typed.cursor, 10, "on to the end of `the_db`");
+        // C-w: the whitespace-delimited token before the caret.
+        let mut token = field("use the_db, please", 11);
+        assert!(token.delete_token_left());
+        assert_eq!(token.text(), "use  please");
+        assert_eq!(token.cursor, 4);
+        // C-u and C-k stop at the line's own ends; C-k at a line's end takes
+        // the break.
+        let mut lines = field("one two\nthree", 4);
+        assert!(lines.kill_to_start());
+        assert_eq!(lines.text(), "two\nthree");
+        assert!(lines.kill_to_end());
+        assert_eq!(lines.text(), "\nthree");
+        assert!(lines.kill_to_end());
+        assert_eq!(lines.text(), "three");
+        assert!(!field("", 0).kill_to_end());
     }
 
     #[test]
