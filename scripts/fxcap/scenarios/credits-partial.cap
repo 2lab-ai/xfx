@@ -1,0 +1,8 @@
+# A field upstream does not read (`total_used`) is not printed.
+credits credits-partial.json
+wait 2
+type /credits
+key Enter
+wait 2
+snap after
+gwlog

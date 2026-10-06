@@ -1,0 +1,41 @@
+# Two turns the fake gateway billed (billed-turns.json: response-metadata,
+# then a finish with providerMetadata.gateway.{routing.canonicalSlug, cost,
+# generationId}), then the 30-day window, Enter, Down, Enter, and the session
+# scope. `home` dumps what each binary keeps.
+models models.json
+gateway billed-turns.json
+wait 2.5
+type first question
+key Enter
+wait 4
+type second question
+key Enter
+wait 4
+snap turns
+type /usage
+key Enter
+wait 3
+snap d30
+key Enter
+wait 0.7
+snap d30-expand
+key Down
+wait 0.5
+snap d30-down
+key Enter
+wait 0.7
+snap d30-down-expand
+key Tab
+key Tab
+key Tab
+wait 1.5
+snap session
+key r
+wait 1
+snap session-r
+key Tab
+wait 1.5
+snap wrap-30
+home end
+gwlog
+key Escape
