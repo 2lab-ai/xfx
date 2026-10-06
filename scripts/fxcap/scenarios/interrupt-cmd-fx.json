@@ -1,1 +1,1 @@
-[{"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "sleep 30", "yield_time_ms": 30000}}}}, {"delayMs": 80, "chunks": ["post ", "command ", "answer."]}]
+[{"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "sleep 6", "yield_time_ms": 30000}}}}, {"delayMs": 80, "chunks": ["post ", "command ", "answer."]}]

@@ -1,4 +1,3 @@
-
   line 0 of the streamed answer
   line 1 of the streamed answer
   line 2 of the streamed answer
@@ -17,7 +16,8 @@
   line 15 of the streamed answer
   line 16 of the streamed answer
   line 17 of the streamed answer
-  Generating (2s) (↑4 ↓152)
+  line 18 of the streamed answer
+  Generating (3s) (↑4 ↓168)
 
 ┃
 

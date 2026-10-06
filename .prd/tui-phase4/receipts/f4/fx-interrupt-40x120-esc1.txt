@@ -12,7 +12,7 @@
 
 ┃ stream again
 
-• Generating (3s) (↑4 ↓53)
+• Generating (3s) (↑4 ↓49)
 
 ┃
 

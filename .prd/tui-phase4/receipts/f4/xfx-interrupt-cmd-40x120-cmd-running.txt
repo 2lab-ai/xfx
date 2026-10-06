@@ -2,14 +2,14 @@ x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
 
 ┃ run cmd
 
-[tool] terminal running
+● 1 tool call · 1 command
+└ Running sleep 6
+
 • Running (2s) (↑2 ↓0)
 
 ┃
 
 yolo · model-a
-
-
 
 
 

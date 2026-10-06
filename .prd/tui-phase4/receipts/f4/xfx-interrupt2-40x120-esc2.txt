@@ -15,19 +15,19 @@ x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
   line 10 of the streamed answer
   line 11 of the streamed answer
   line 12 of the streamed answer
-  line 13 of the streamed answer
-  line 14 of the streamed answer
-  line 15 of the streamed answer
-  line 16 of the streamed answer
-  line 17 of the streamed answer
-  line 18 of the streamed answer
-  line 19 of the streamed answer
 
 ■ Cancelled · What can xfx do differently?
 
 ┃
 
 auto · model-a
+
+
+
+
+
+
+
 
 
 

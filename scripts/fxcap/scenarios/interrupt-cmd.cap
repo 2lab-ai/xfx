@@ -1,6 +1,7 @@
 # Ctrl-C while a command runs. Each product's own shell tool and its own
 # no-questions mode, so the command really starts: fx's `shell` under
-# `yolo` ("full access"), xfx's `terminal` under `yolo`.
+# `yolo` ("full access"), xfx's `terminal` under `yolo`. The command sleeps
+# six seconds; `cmd-done` is after it would have finished by itself.
 fx: gateway interrupt-cmd-fx.json
 xfx: gateway interrupt-cmd-xfx.json
 fx: env FX_PERMISSION_MODE=yolo
@@ -15,5 +16,7 @@ wait 0.4
 snap cmd-cc
 wait 1.5
 snap cmd-cc-2
+wait 4
+snap cmd-done
 snapfull end
 gwlog

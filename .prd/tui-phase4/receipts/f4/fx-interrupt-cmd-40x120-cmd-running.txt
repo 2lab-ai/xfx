@@ -3,7 +3,7 @@
 ┃ run cmd
 
 ● 1 tool call · 1 command
-└ Running sleep 30
+└ Running sleep 6
 
 • Running (2s) (↑2 ↓40)
 

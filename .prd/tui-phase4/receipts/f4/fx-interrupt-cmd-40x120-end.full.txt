@@ -3,13 +3,13 @@
 ┃ run cmd
 
 ● 1 tool call · 1 command · 1 cancelled
-└ Cancelled sleep 30
+└ Cancelled sleep 6
 
-■ Cancelled sleep 30 · What can fx do differently?
+■ Cancelled sleep 6 · What can fx do differently?
 
 ┃
 
-press ctrl+c again to exit
+full access · model-a
 
 
 

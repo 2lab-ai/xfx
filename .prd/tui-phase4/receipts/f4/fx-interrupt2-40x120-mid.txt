@@ -13,14 +13,14 @@
   line 8 of the streamed answer
   line 9 of the streamed answer
   line 10 of the streamed answer
+  line 11 of the streamed answer
+  line 12 of the streamed answer
 
-  Generating (2s) (↑4 ↓96)
+  Generating (2s) (↑4 ↓112)
 
 ┃
 
 auto · model-a
-
-
 
 
 

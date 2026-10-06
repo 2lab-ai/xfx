@@ -19,17 +19,17 @@
   line 14 of the streamed answer
   line 15 of the streamed answer
   line 16 of the streamed answer
+  line 17 of the streamed answer
 
 ■ Cancelled · What can fx do differently?
 
 ┃ stream words
 
-  Generating (1s) (↑4 ↓21)
+  Generating (1s) (↑4 ↓17)
 
 ┃
 
 auto · model-a
-
 
 
 

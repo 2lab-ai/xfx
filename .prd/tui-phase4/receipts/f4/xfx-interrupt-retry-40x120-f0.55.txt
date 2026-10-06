@@ -8,7 +8,7 @@ x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
 
 ┃ second try
 
-⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1s
+⚠ Provider unavailable · HTTP 500: unexpected request · retrying request
 
 ┃
 

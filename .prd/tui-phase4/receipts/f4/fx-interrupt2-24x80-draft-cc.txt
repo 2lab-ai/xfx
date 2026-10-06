@@ -17,7 +17,7 @@
 
 ┃ stream words
 
-  Generating (2s) (↑4 ↓37)
+• Generating (2s) (↑4 ↓29)
 
 ┃
 

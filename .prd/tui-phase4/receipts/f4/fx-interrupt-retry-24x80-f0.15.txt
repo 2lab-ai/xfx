@@ -8,7 +8,7 @@
 
 ┃ second try
 
-⚠ Provider unavailable · HTTP 500: unexpected request · retrying request
+• Thinking (0s) (↑3 ↓0)
 
 ┃
 

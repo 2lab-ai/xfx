@@ -2,14 +2,14 @@ x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
 
 ┃ run cmd
 
-[tool] terminal running
+● 1 tool call · 1 command
+└ Running sleep 6
 
-■ Cancelled · What can xfx do differently?
+• Running (4s) (↑2 ↓0)
 
 ┃
 
 press ctrl+c again to exit
-
 
 
 
