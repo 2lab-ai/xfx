@@ -269,6 +269,45 @@ pub(crate) enum Landed<E> {
 /// long the answer runs.
 const MAX_TAIL_ROWS: usize = 256;
 
+/// What every row of a line starts with, in upstream's transcript
+/// (`c1db919`).
+///
+/// A property of the **line**, not of the text: the rows a line wraps onto
+/// each carry it, and the text is wrapped to the width that is left. It is
+/// how a submitted prompt becomes upstream's card -- the rail
+/// (`user_message_card.zig:319-325`) -- and how the assistant's answer sits
+/// in its two-column gutter (`assistant_wrap.zig:706,744`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Gutter {
+    /// Nothing: xfx's own lines, the welcome line.
+    #[default]
+    None,
+    /// `┃` in the hint colour and a space.
+    Rail,
+    /// Two blank columns.
+    Indent,
+}
+
+impl Gutter {
+    /// How many columns the gutter takes from every row.
+    pub(crate) fn width(self) -> u16 {
+        match self {
+            Gutter::None => 0,
+            Gutter::Rail | Gutter::Indent => 2,
+        }
+    }
+
+    /// What every row of the line opens with. Self-contained: whatever it
+    /// opens it closes, so the text's own sequences start from a clean pen.
+    fn prefix(self, palette: Palette) -> String {
+        match self {
+            Gutter::None => String::new(),
+            Gutter::Rail => format!("{}\u{2503}{} ", palette.hint(), palette.reset()),
+            Gutter::Indent => "  ".to_string(),
+        }
+    }
+}
+
 /// One thing the document was told, in the shape it was told it.
 ///
 /// **Logical rather than visual, and that is the whole point of the queue.** A
@@ -285,6 +324,10 @@ enum Op {
     /// because it is a **state transition**: the line it closes stops being
     /// rewritable, and the text after it starts a row of its own.
     EndLine,
+    /// Lines from here on carry this gutter. Queued only at a line boundary
+    /// ([`Transcript::queue_gutter`]), so no row already on the screen is
+    /// re-prefixed.
+    Gutter(Gutter),
 }
 
 /// The unfinished line, what the screen already shows of it, and the text that
@@ -357,6 +400,10 @@ pub(crate) struct Transcript {
     /// is why the flag is consulted against the *raw* next chunk and why an
     /// empty push does not disturb it.
     split_crlf: bool,
+    /// The gutter the tail's line -- and every line after it until the next
+    /// [`Op::Gutter`] -- is written with, **as of the last operation the
+    /// terminal took**.
+    gutter: Gutter,
 }
 
 impl Transcript {
@@ -369,6 +416,7 @@ impl Transcript {
             queue: VecDeque::new(),
             open: false,
             split_crlf: false,
+            gutter: Gutter::None,
         }
     }
 
@@ -443,6 +491,17 @@ impl Transcript {
         self.queue.push_back(Op::EndLine);
         self.open = false;
         blank_row
+    }
+
+    /// Queues a change of gutter for the lines that follow.
+    ///
+    /// Ends the open line first, if there is one: a gutter is a property of a
+    /// whole line, and a line half-written with one and half with another would
+    /// be two shapes on the screen for one sentence.
+    pub(crate) fn queue_gutter(&mut self, gutter: Gutter) -> bool {
+        let asked = self.open && self.queue_end_line();
+        self.queue.push_back(Op::Gutter(gutter));
+        asked
     }
 
     /// Whether a line is open once everything queued has landed.
@@ -538,6 +597,13 @@ impl Transcript {
         match self.queue.front()? {
             Op::Push(body, role) => Some(self.prepare_push(body, *role, palette)),
             Op::EndLine => Some(self.prepare_end_line(palette)),
+            Op::Gutter(gutter) => Some(Prepared {
+                append: Append::nothing(),
+                tail: self.tail.clone(),
+                roles: self.roles.clone(),
+                painted: self.painted,
+                gutter: *gutter,
+            }),
         }
     }
 
@@ -573,7 +639,7 @@ impl Transcript {
         for next in segments {
             // Everything before the break is a finished line. Its rows are
             // written once, here, and never again.
-            rows.append(&mut texts(&tail, &roles, self.cols, palette));
+            rows.append(&mut texts(&tail, &roles, self.cols, self.gutter, palette));
             // The line is over, so its offsets are too: the text after the
             // break starts a row of its own and a span table of its own.
             tail.clear();
@@ -581,12 +647,12 @@ impl Transcript {
             tail.push_str(next);
             roles.extend(next.len(), role);
         }
-        let mut last = texts(&tail, &roles, self.cols, palette);
+        let mut last = texts(&tail, &roles, self.cols, self.gutter, palette);
         let mut open_rows = last.len();
         rows.append(&mut last);
         // After the append is built, because what is frozen is what the *next*
         // push may no longer rewrite; this one has already said what it owes.
-        freeze(&mut tail, &mut roles, &mut open_rows, self.cols);
+        freeze(&mut tail, &mut roles, &mut open_rows, inner(self.cols, self.gutter));
 
         Prepared {
             roles,
@@ -599,12 +665,13 @@ impl Transcript {
             },
             tail,
             painted: open_rows,
+            gutter: self.gutter,
         }
     }
 
     /// What ending the line would write, and the empty tail it would leave.
     fn prepare_end_line(&self, palette: Palette) -> Prepared {
-        let rows = texts(&self.tail, &self.roles, self.cols, palette);
+        let rows = texts(&self.tail, &self.roles, self.cols, self.gutter, palette);
         let scroll = rows.len().saturating_sub(self.painted);
         Prepared {
             append: if scroll == 0 {
@@ -615,6 +682,7 @@ impl Transcript {
             tail: String::new(),
             roles: Roles::default(),
             painted: 0,
+            gutter: self.gutter,
         }
     }
 
@@ -625,6 +693,7 @@ impl Transcript {
         self.tail = prepared.tail;
         self.roles = prepared.roles;
         self.painted = prepared.painted;
+        self.gutter = prepared.gutter;
     }
 
     /// Re-wraps the unfinished line for a screen that changed width.
@@ -662,8 +731,14 @@ impl Transcript {
         if self.painted == 0 {
             return;
         }
-        self.painted = wrap::wrap(&self.tail, cols).len();
+        self.painted = wrap::wrap(&self.tail, inner(cols, self.gutter)).len();
     }
+}
+
+/// The width a line's text is wrapped to: the screen less its gutter, and
+/// never nothing.
+fn inner(cols: u16, gutter: Gutter) -> u16 {
+    cols.saturating_sub(gutter.width()).max(1)
 }
 
 /// Stops holding the rows of an unfinished line that can no longer change.
@@ -722,7 +797,17 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
 /// each such row opens with the state its line had reached where it begins
 /// (`super::pacer::SgrState`, the same model the wire checker reads colours
 /// with), and closes whatever is still open at the point the painter cuts.
-fn texts(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<String> {
+fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette) -> Vec<String> {
+    let rows = body_rows(text, roles, inner(cols, gutter), palette);
+    if gutter == Gutter::None {
+        return rows;
+    }
+    let prefix = gutter.prefix(palette);
+    rows.into_iter().map(|row| format!("{prefix}{row}")).collect()
+}
+
+/// The text's own rows at `cols`, before any gutter.
+fn body_rows(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<String> {
     let styled = text.contains('\u{1b}');
     let mut state = super::pacer::SgrState::default();
     let mut seen = 0usize;
@@ -972,6 +1057,7 @@ struct Prepared {
     tail: String,
     roles: Roles,
     painted: usize,
+    gutter: Gutter,
 }
 
 /// `text` with every line break spelled the one way the document accepts.
