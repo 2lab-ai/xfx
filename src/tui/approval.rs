@@ -808,6 +808,10 @@ pub(crate) enum Deferred {
     /// conversation it leaves -- which has changed nothing yet -- rather than
     /// the one it drops.
     Undo { after_reset: bool },
+    /// [`TurnControl::Rename`], `after_reset` as [`Self::Undo`]'s: a title
+    /// typed after a reset the loop had already read is the session that
+    /// reset starts, so it is written once the drop is done.
+    Rename { title: String, after_reset: bool },
 }
 
 impl ControlChannel {
@@ -844,6 +848,15 @@ impl ControlChannel {
     /// the user never refused.
     pub(crate) fn defer_undo(&self, after_reset: bool) {
         self.deferred.guarded().push(Deferred::Undo { after_reset });
+    }
+
+    /// Puts a `/rename` aside until the work that is running ends
+    /// ([`TurnControl::Rename`]): the conversation's log is that work's to
+    /// write until then, and **a rename answers no question** either.
+    pub(crate) fn defer_rename(&self, title: String, after_reset: bool) {
+        self.deferred
+            .guarded()
+            .push(Deferred::Rename { title, after_reset });
     }
 
     /// Everything put aside, oldest first, for the turn loop to do now that
@@ -1124,6 +1137,13 @@ impl ApprovalPrompter for TuiPrompter {
                     // `stop` catch-all for the reason the arm before it is.
                     Some(TurnControl::Undo) => {
                         self.control.defer_undo(false);
+                        continue;
+                    }
+                    // `/rename` typed while this question is up: written once
+                    // the turn is over, and the question stays up
+                    // ([`ControlChannel::defer_rename`]).
+                    Some(TurnControl::Rename(title)) => {
+                        self.control.defer_rename(title, false);
                         continue;
                     }
                     // A cancel (Escape at the panel, or an interrupt) or a

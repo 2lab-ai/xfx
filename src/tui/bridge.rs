@@ -818,6 +818,22 @@ pub(crate) enum TurnControl {
     /// undo typed mid-turn takes back the newest change when the turn is over,
     /// which may be one the turn made after it was typed.
     Undo,
+    /// `/rename <title>`, the title already validated
+    /// (`crate::session::validate_title`) and already shown: the shell titles
+    /// the window and says `renamed to "…"` at once, as upstream does whether
+    /// or not a response streams (`handleRenameCommand`,
+    /// `app_commands.zig:3815-3858`). The runtime writes it into the
+    /// conversation's session -- at once between turns; while work runs, put
+    /// aside like [`Self::Undo`] (`super::approval::ControlChannel::defer_rename`)
+    /// and written the moment that work has said its last word, the log being
+    /// the running turn's until then -- and answers only a log that would
+    /// not take it ([`UiEvent::RenameUnsaved`]).
+    ///
+    /// **A control message rather than work**, for [`Self::Undo`]'s reasons,
+    /// and for one of its own: it is ordered with [`Self::Reset`] on one
+    /// channel, so a title typed before a `/new` is the session the reset
+    /// drops and one typed after it is the session the reset starts.
+    Rename(String),
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a

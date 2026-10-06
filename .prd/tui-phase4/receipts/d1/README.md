@@ -175,13 +175,17 @@ Every comparison of the first round holds on this tree, the same way:
   `the_search_and_a_scope_change_keep_to_the_pages_loaded`,
   `enter_on_load_more_loads_the_page_and_marks_its_first_session`; through the
   shell (`a_picker_with_more_sessions_than_a_page_loads_the_next_as_the_mark_reaches_it`).
-- **A rename around a reset**: one typed before `/new` is written into the
-  session `/new` drops, and one typed before `/quit` on the way out
-  (`src/tui/worker.rs`
-  `a_rename_is_written_into_the_conversation_it_was_typed_for`); one typed
-  while a reset still unwinds is held until its fence, and a second reset
-  drops it (`src/tui/shell.rs`
-  `rename_while_a_turn_runs_applies_at_once_and_one_after_a_reset_waits_for_its_fence`).
+- **A rename around a reset**: between turns, one typed before `/new` is
+  written into the session `/new` drops and one typed after it into the
+  session `/new` starts (`src/tui/worker.rs`
+  `between_turns_a_rename_is_written_into_the_session_it_was_typed_in`);
+  while work runs it is put aside, never a stop, and marked when it came
+  behind a reset (`a_rename_while_work_runs_waits_for_it_and_one_after_a_reset_is_the_fresh_ones`),
+  then written on the right side of the drop, `/quit` or not
+  (`renames_put_aside_land_on_either_side_of_the_reset_they_were_typed_around`);
+  the shell sends it on the control channel behind a reset
+  (`src/tui/shell.rs`
+  `rename_while_a_turn_runs_applies_at_once_and_follows_a_reset_on_one_channel`).
 - **A session another xfx holds** is refused at once with upstream's red row
   (`src/tui/worker.rs`
   `resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once`,
