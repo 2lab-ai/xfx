@@ -143,7 +143,7 @@ mod tests {
             "starting a copy waited for the tool"
         );
         assert_eq!(copies.finished(), None, "a copy still running was answered");
-        assert!(outcome(&copies, Duration::from_secs(10)));
+        assert!(outcome(&copies, Duration::from_secs(60)));
     }
 
     #[test]
@@ -151,7 +151,10 @@ mod tests {
         let tool = crate::clipboard::fake::FakeTool::keeping();
         let copies = Copies::new(tool.clipboard());
         assert!(copies.start_selection(Arc::from("picked"), Selection::Cut(7)));
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // A minute, as the fake's own clipboard waits: what is under test is
+        // what the copy did, and a fresh fake script's first run is assessed
+        // by macOS -- seconds under the suite's load, past ten (6-16 s seen).
+        let deadline = Instant::now() + Duration::from_secs(60);
         let answer = loop {
             if let Some(answer) = copies.selection_finished() {
                 break answer;
@@ -172,6 +175,6 @@ mod tests {
     fn a_copy_that_cannot_reach_a_tool_says_so_rather_than_nothing() {
         let copies = Copies::new(Clipboard::searching(NOWHERE));
         assert!(copies.start(Arc::from("reply")));
-        assert!(!outcome(&copies, Duration::from_secs(10)));
+        assert!(!outcome(&copies, Duration::from_secs(60)));
     }
 }
