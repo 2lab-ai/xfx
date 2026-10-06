@@ -16,6 +16,9 @@
 #   type <text>            literal keys
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
+#   snapfull <label>       the same with the pane's whole history above the
+#                          screen (`capture-pane -S -`), to
+#                          <bin>-<scenario>-<size>-<label>.full.{txt,ansi}
 #   title <label>          writes the pane's window title (OSC 2) to
 #                          <bin>-<scenario>-<size>-<label>.title
 #   keep                   keeps the pane after the program exits, so a title
@@ -113,6 +116,12 @@ XFX_MODEL=fake/model-a $bin"
         tmux -f /dev/null -S "$sock" capture-pane -p -t cap > "$name.txt"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -t cap > "$name.ansi"
         echo "$name.txt"
+        ;;
+      snapfull)
+        local name=$out/$which-$scenario-$size-$rest
+        tmux -f /dev/null -S "$sock" capture-pane -p -S - -t cap > "$name.full.txt"
+        tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.full.ansi"
+        echo "$name.full.txt"
         ;;
       title)
         local name=$out/$which-$scenario-$size-$rest
