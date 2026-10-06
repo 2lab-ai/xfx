@@ -458,9 +458,11 @@ const RAW_LOCAL_OFF: [LocalModes; 4] = [
 ];
 
 /// The input modes raw mode clears.
-const RAW_INPUT_OFF: [InputModes; 5] = [
+const RAW_INPUT_OFF: [InputModes; 7] = [
     InputModes::IXON,
+    InputModes::IGNCR,
     InputModes::ICRNL,
+    InputModes::INLCR,
     InputModes::BRKINT,
     InputModes::INPCK,
     InputModes::ISTRIP,
@@ -6604,6 +6606,78 @@ mod faults {
         }
         assert_eq!(before, modes(&pty));
     }
+
+    /// A report's file names under `dir`, published (`xfx-trace-…md`) and
+    /// staged (`.xfx-trace-…md.partial`).
+    fn trace_files(reports: &[std::path::PathBuf]) -> (Vec<String>, Vec<String>) {
+        let names: Vec<String> = reports
+            .iter()
+            .filter_map(|path| path.file_name()?.to_str().map(str::to_string))
+            .collect();
+        let published = names
+            .iter()
+            .filter(|name| name.starts_with("xfx-trace-") && name.ends_with(".md"))
+            .cloned()
+            .collect();
+        let staged = names
+            .iter()
+            .filter(|name| name.starts_with(".xfx-trace-") && name.ends_with(".md.partial"))
+            .cloned()
+            .collect();
+        (published, staged)
+    }
+
+    #[test]
+    fn a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report() {
+        // Upstream writes its report under its own name (`app_commands.zig:2207-2224`),
+        // so a kill mid-write leaves a truncated `fx-trace-…md`. Here the
+        // bytes go to a hidden stage and the name is given by one rename: the
+        // fault holds the report's thread after the stage is whole and before
+        // the rename, and the process is ended there by each signal that ends
+        // it -- SIGKILL, which runs nothing, and SIGTERM and SIGHUP, whose
+        // handlers restore the terminal and re-raise.
+        for signal in [Signal::KILL, Signal::TERM, Signal::HUP] {
+            let gateway = FakeGateway::start(Vec::new());
+            let clipboard = support::fake_clipboard::FakeClipboard::new();
+            let sandbox = Sandbox::new();
+            let pty = Pty::open();
+            pty.resize(40, 120);
+            let mut command = tui_with(&sandbox, &gateway);
+            command.env("XFX_TUI_FAULT", "trace-before-publish");
+            clipboard.first_on_path(&mut command);
+            clipboard.reports_into(&mut command);
+            let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+            session.wait_for(READY);
+            session.type_bytes(b"/trace\r");
+            // Until the report's bytes are on disk under whichever name they
+            // were written to: the moment the fault holds the thread at.
+            let deadline = Instant::now() + WAIT;
+            loop {
+                let reports = clipboard.reports();
+                let written = reports.iter().any(|path| {
+                    std::fs::read_to_string(path)
+                        .is_ok_and(|text| text.contains("\n## Transcript Timeline\n"))
+                });
+                if written {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "{signal:?}: the report was never written"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            session.signal(signal);
+            let status = session.wait_exit();
+            assert!(!status.success(), "{signal:?}: {status:?}");
+            let (published, staged) = trace_files(&clipboard.reports());
+            assert!(
+                published.is_empty(),
+                "{signal:?}: a report was published by a session killed before it: {published:?}"
+            );
+            assert_eq!(staged.len(), 1, "{signal:?}: {staged:?}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -9043,6 +9117,52 @@ fn a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_
 // ---------------------------------------------------------------------------
 // input typed before the session is up
 // ---------------------------------------------------------------------------
+
+#[test]
+fn a_return_typed_before_the_session_is_a_newline_in_the_composer_as_upstreams_is() {
+    // A Return pressed while the terminal is still the shell's is made a line
+    // feed by the cooked line discipline (`ICRNL`) before xfx can read it, and
+    // a line feed is `C-j`: a newline in the composer, on both products --
+    // upstream's `'\n' => .insert_newline` (`src/ui/input/shortcuts.zig:26`,
+    // reached for the composer at `terminal_action_decoder.zig:210`), xfx's
+    // `0x0a => Action::ControlJ` (`src/tui/input.rs`). So nothing is sent
+    // until a Return typed into the session itself.
+    use rustix::termios::{tcgetattr, tcsetattr, OptionalActions};
+    use std::io::Write as _;
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-EARLY-RETURN-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let slave = pty.slave.as_ref().expect("the retained slave");
+    let mut cooked = tcgetattr(slave).expect("read the terminal");
+    cooked.input_modes.insert(InputModes::ICRNL);
+    cooked
+        .input_modes
+        .remove(InputModes::IGNCR | InputModes::INLCR);
+    cooked.local_modes.insert(LocalModes::ICANON);
+    tcsetattr(slave, OptionalActions::Now, &cooked).expect("cook the terminal");
+    (&*pty.master)
+        .write_all(b"first\r")
+        .expect("type before the session");
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    on_screen(&session, (24, 80), &["\u{2503} first"], &[]);
+    assert_eq!(gateway.request_count(), 0, "the early Return sent the line");
+    session.type_bytes(b"second\r");
+    session.wait_for("MARKER-EARLY-RETURN-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(
+        requests[0].json().to_string().contains("first\\nsecond"),
+        "{}",
+        requests[0].json()
+    );
+}
 
 #[test]
 fn what_was_typed_before_the_session_took_the_terminal_is_in_the_composer() {
