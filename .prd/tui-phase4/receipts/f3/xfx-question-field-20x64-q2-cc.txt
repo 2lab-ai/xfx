@@ -3,7 +3,7 @@
 
   Got it.
 
-  6s (↑2 ↓40)
+  5s (↑2 ↓40)
 
 ┃ ask again
 

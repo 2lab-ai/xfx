@@ -9,7 +9,7 @@ x𝒇x v0.1.0 · Run /help for commands
 
   Got it.
 
-  6s (↑2 ↓40)
+  5s (↑2 ↓40)
 
 ┃ ask again
 
