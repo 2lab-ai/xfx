@@ -357,17 +357,90 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     // `/stats`, `/status` and `/permissions` after it, `/provider` when it
     // became the canonical name of the same command with `/setup` as its
     // alias, `/resume` and `/rename` after those, `/undo` after them, and
-    // `/image`, `/images` and `/paste` after that; `/models` did not, because
-    // the catalog browser is reached by a bare `/model` rather than by a
-    // command of its own.
+    // `/image`, `/images` and `/paste` after that, and `/usage` with its
+    // dashboard; `/models` did not, because the catalog browser is reached by
+    // a bare `/model` rather than by a command of its own.
     assert!(
         text.contains("(also /img)"),
         "the image command's alias is not advertised: {text}"
     );
-    for absent in ["/login", "/models", "/mcp", "/usage"] {
+    for absent in ["/login", "/models", "/mcp"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_usage_on_the_line_shell_says_where_the_dashboard_is() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    session.type_line("/usage");
+    session.wait_for("xfx: /usage shows its dashboard in the full-screen shell");
+    // `/cost` is the same command.
+    session.type_line("/cost");
+    session.wait_for_count("xfx: /usage shows its dashboard", 2);
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_asks_the_gateway_the_turn_would_use_with_the_turns_bearer() {
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string()),
+        Reply::Status(404, "not found".to_string()),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/credits");
+    let text = session.wait_for("[credits] plan=pro");
+    assert!(
+        text.contains("[credits] balance=42.17\r\n[credits] used=7.83\r\n[credits] plan=pro"),
+        "{text}"
+    );
+    let asked = gateway.only_request();
+    assert_eq!(
+        (asked.method.as_str(), asked.path.as_str()),
+        ("GET", "/coding-agent/v1/credits")
+    );
+    assert_eq!(
+        asked.header("authorization"),
+        Some(format!("Bearer {TEST_KEY}").as_str())
+    );
+
+    // `/balance` is the same command, and a refusal is upstream's wording.
+    session.type_line("/balance");
+    let text = session.wait_for("[credits] error: HTTP 404: not found");
+    assert_eq!(gateway.request_count(), 2);
+    assert!(
+        !text.contains(TEST_KEY),
+        "the credential reached the terminal"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_with_no_credential_or_on_llmux_asks_nobody() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    session.type_line("/credits");
+    session.wait_for(
+        "[credits] error: xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.",
+    );
+    assert_eq!(session.quit().code(), Some(0));
+
+    // llmux keeps no balance (`gateway_provider.zig:89-101`'s sentence), and
+    // the daemon is not asked for one.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+    session.type_line("/credits");
+    session.wait_for("[credits] error: Credits are unavailable for the selected provider.");
+    assert!(daemon.requests().is_empty(), "{:?}", daemon.requests());
     assert_eq!(session.quit().code(), Some(0));
 }
 

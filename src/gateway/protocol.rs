@@ -690,6 +690,34 @@ pub struct Usage {
     pub output_tokens: Option<u64>,
 }
 
+/// What one response cost, as the provider accounted for it.
+///
+/// Present only when the provider said **everything** upstream requires
+/// before it counts a request (`parseSseBilling`, `vercel-labs/fx@c1db9191
+/// src/gateway/client.zig:3313-3395`): when it was billed, what it was billed
+/// as, what it cost, and every token count it is made of. A response that
+/// said less is a response whose spend is unknown, and it has no billing
+/// rather than a partial one -- a partial bill would be summed as if whole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Billing {
+    /// When the provider billed it, milliseconds since the epoch.
+    pub at_ms: i64,
+    /// What it was billed as.
+    pub model: String,
+    /// The provider's id for the generation, when it has one.
+    pub generation_id: Option<String>,
+    /// US dollars, as the provider said.
+    pub cost: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Part of `input_tokens`.
+    pub cache_read_tokens: u64,
+    /// Part of `input_tokens`.
+    pub cache_write_tokens: u64,
+    /// Part of `output_tokens`, when the provider said.
+    pub reasoning_tokens: Option<u64>,
+}
+
 /// One completed model response.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Completion {
@@ -717,6 +745,9 @@ pub struct Completion {
     /// provider it *asked*, the decoder knows which wire actually answered, and
     /// the second is the one a replay contract is written against.
     pub wire: Wire,
+    /// What the response cost, when the provider accounted for it
+    /// ([`Billing`]). `None` is "unknown", never "free".
+    pub billing: Option<Billing>,
 }
 
 #[cfg(test)]

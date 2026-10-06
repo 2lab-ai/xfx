@@ -63,6 +63,11 @@ pub(crate) trait CommandHandlers {
     fn sound(&mut self, argument: &str);
     /// `/stats`: what this surface's terminal writer has done so far.
     fn stats(&mut self);
+    /// `/usage` (or its alias `/cost`): the spend dashboard. It takes nothing.
+    fn usage(&mut self);
+    /// `/credits` (or its alias `/balance`): what the Gateway account has
+    /// left. It takes nothing.
+    fn credits(&mut self);
     /// `/status`: the configuration a turn would run under, and the live
     /// conversation's counts.
     fn status(&mut self);
@@ -183,6 +188,8 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Paste => handlers.paste(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
+        Slash::Usage => handlers.usage(),
+        Slash::Credits => handlers.credits(),
         Slash::Status => handlers.status(),
         Slash::Statusline => handlers.statusline(argument),
         Slash::Version => handlers.version(),
@@ -255,6 +262,12 @@ mod tests {
         fn stats(&mut self) {
             self.calls.push("stats".to_string());
         }
+        fn usage(&mut self) {
+            self.calls.push("usage".to_string());
+        }
+        fn credits(&mut self) {
+            self.calls.push("credits".to_string());
+        }
         fn status(&mut self) {
             self.calls.push("status".to_string());
         }
@@ -303,6 +316,8 @@ mod tests {
             ("/copy", "copy"),
             ("/sound", "sound "),
             ("/stats", "stats"),
+            ("/usage", "usage"),
+            ("/credits", "credits"),
             ("/status", "status"),
             ("/statusline", "statusline "),
             ("/version", "version"),
@@ -353,6 +368,8 @@ mod tests {
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
         assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
+        assert_eq!(routed("/cost"), vec!["usage".to_string()]);
+        assert_eq!(routed("/balance"), vec!["credits".to_string()]);
         assert_eq!(
             classify("/exit"),
             Submitted::Command {
@@ -473,6 +490,10 @@ mod tests {
             "/undo\t",
             "/stats ",
             "/status\t",
+            "/usage ",
+            "/cost",
+            "/credits ",
+            "/balance",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::Command { .. }),
@@ -500,6 +521,13 @@ mod tests {
             "/stats extra",
             "/status now",
             "/status\tall",
+            // `fx-credits-404-40x120-arg.txt`: `/credits now` is an unknown
+            // command, and so is anything after `/usage`
+            // (`commands.zig:474,490` give neither row `accepts_payload`).
+            "/credits now",
+            "/balance now",
+            "/usage 7d",
+            "/cost session",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::UnknownCommand { .. }),

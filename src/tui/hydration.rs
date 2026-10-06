@@ -253,6 +253,7 @@ mod tests {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            usage: crate::session::RecordedUsage::default(),
         };
         let replay = Hydration::of(&state, None);
         // `#9` names no image of the turn: those are the user's own words.
