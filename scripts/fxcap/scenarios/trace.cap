@@ -1,0 +1,34 @@
+# /trace: a private report in the binary's own TMPDIR, copied as a file
+# through osascript (the shim keeps the path it was handed), then the same
+# with the clipboard refusing. `reports` reads the reports out of the run.
+gateway trace-turn.json
+wait 2
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap empty
+clipfile empty
+type /trace now
+wait 0.5
+key Enter
+wait 1
+snap now
+type say something
+key Enter
+wait 3
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap after-turn
+clipfile after-turn
+clipfail on
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap copy-fail
+clipfile copy-fail
+clipfail off
+reports report
