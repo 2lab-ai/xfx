@@ -736,6 +736,7 @@ mod term;
 mod theme;
 mod toolgroup;
 mod transcript;
+mod usage_menu;
 mod worker;
 mod wrap;
 

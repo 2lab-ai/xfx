@@ -1,0 +1,14 @@
+# The Gateway's credits answer with all three fields upstream reads.
+credits credits-ok.json
+wait 2
+type /credits
+wait 0.5
+snap typed
+key Enter
+wait 2
+snap after
+type /balance
+key Enter
+wait 2
+snap balance
+gwlog
