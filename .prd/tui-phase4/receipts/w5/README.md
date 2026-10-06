@@ -27,8 +27,14 @@ the run and nowhere else. A name with `/`, `.` or `..` is refused. The shims
 the fx sound guard (exit 0 on every fx run here), the isolated tmux socket and
 the empty `HOME` are unchanged.
 
-The xfx binary is `target/debug/xfx` built at `8a9c676` (the merge of
-`plan/tui-phase4` `aed448c` into this branch; the banner says so).
+The xfx binary is `target/debug/xfx` built at `1aa1153` (this branch with
+`plan/tui-phase4` `c252bbb` merged; the banner says so). The fx side and a
+first xfx set were taken at `8a9c676` (plan `aed448c` merged); the xfx side was
+retaken on the final head after D4d (`/settings`, prompt history on disk)
+came in, and rows 2-40 did not move. One retake under load lost the first
+`/workspace` typed two seconds after launch (the screen showed an idle
+composer and the history file had no `/workspace` line); it was discarded and
+the scenario run again.
 
 Sanitized: the run directory `/private/tmp/claude-501/fxcap.XXXXXX` is
 written `<scratch>` in every file. Where SGR runs split that path -- the
@@ -46,7 +52,7 @@ real path on both sides, identically.
 
 In all 14 snaps, rows 2-40 are byte-identical between fx and xfx, in both
 `.txt` and `.ansi`, after the substitution. Row 1 is each binary's own header
-(`𝒇x v0.0.13` against `x𝒇x v0.1.0-8a9c676 [debug]`), which WU-A settled.
+(`𝒇x v0.0.13` against `x𝒇x v0.1.0-1aa1153 [debug]`), which WU-A settled.
 
 ## Per snap
 
@@ -70,7 +76,7 @@ In all 14 snaps, rows 2-40 are byte-identical between fx and xfx, in both
 
 | dump | matches | differs, and why |
 |---|---|---|
-| `after-add` | `workspaces["<scratch>/work"].additional_directories == ["<scratch>/extra"]` on both. | xfx writes the profile pretty-printed (its one writer, `profile::write_preferences`, always has) where fx writes it compact; fx also keeps `~/.fx/backups/settings.json.backup.*`, a prompt history file and a session opened at launch, none of which this unit adds (xfx keeps no settings backups, its history is in memory, and its session opens at the first prompt -- each recorded elsewhere). |
+| `after-add` | `workspaces["<scratch>/work"].additional_directories == ["<scratch>/extra"]` on both, and the same lines in each prompt history file (`history.jsonl`, D4d's). | xfx writes the profile pretty-printed (its one writer, `profile::write_preferences`, always has) where fx writes it compact; fx also keeps `~/.fx/backups/settings.json.backup.*` and a session opened at launch, neither of which this unit adds (xfx keeps no settings backups, and its session opens at the first prompt -- each recorded elsewhere). |
 | `after-clear` | `settings.json` is `{}` on both: the emptied list took the key, the workspace entry and `workspaces` out with it. | As above. |
 
 ## Not captured, and why

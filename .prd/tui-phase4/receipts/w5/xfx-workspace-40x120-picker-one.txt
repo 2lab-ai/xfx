@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-8a9c676 [debug] · Run /help for commands
+x𝒇x v0.1.0-1aa1153 [debug] · Run /help for commands
 
 * workspace: primary=<scratch>/work
   saved_suppressed=false limit=16
