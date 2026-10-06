@@ -2602,6 +2602,14 @@ async fn compact_if_due(
             // 7413-7423`; e2e `tui-compaction-activity.test.ts:467-471`): a
             // resume shows the prompt, and the model is told the turn ended
             // before completion. One that failed never began; the row says why.
+            //
+            // Its reason is the sentence the user was shown, which is also
+            // how a resume knows the stop was the compaction's: upstream
+            // records `cancellation_origin: compaction` and replays such a
+            // turn as its card alone, no cancellation line
+            // (`app_session_runtime.zig:4796-4800`; e2e
+            // `tui-compaction-activity.test.ts:481-488`), and
+            // `super::hydration` reads it back the same way.
             if other == Feedback::Cancelled {
                 if let Some(conversation) = state.conversation.as_mut() {
                     conversation.recorder.commit(SessionEvent::UserMessage {
@@ -2609,7 +2617,7 @@ async fn compact_if_due(
                     });
                     conversation.recorder.commit(SessionEvent::TurnConcluded {
                         outcome: TurnConclusion::Interrupted {
-                            reason: crate::agent::TurnError::Cancelled.to_string(),
+                            reason: Feedback::Cancelled.label().to_string(),
                         },
                     });
                 }

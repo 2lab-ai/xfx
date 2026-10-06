@@ -104,6 +104,11 @@ pub(crate) enum Ending {
     /// (`appendTurnCancellation`, `app_session_runtime.zig:3994-4005`, written
     /// at `:4796-4800`).
     Cancelled,
+    /// The user stopped the automatic compaction it began with: upstream
+    /// writes nothing after the card, its cancellation line being only for a
+    /// stop whose origin is the turn (`:4796-4800`, `cancellation_origin`;
+    /// e2e `tui-compaction-activity.test.ts:481-488`).
+    CompactionCancelled,
     /// It failed: upstream's `✗ system: failed` (`interruptedTurnNotice`,
     /// `session.zig:45-50`, written at `:4801-4803`), whatever the live turn's
     /// sentence was.
@@ -206,11 +211,17 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             }
         }
         // The log keeps the sentence the live turn ended on, and a stop's is
-        // always this one ([`TurnError::Cancelled`]).
+        // always this one ([`TurnError::Cancelled`]) -- or, for a stop the
+        // automatic compaction took, the compaction's own.
         Some(crate::session::TurnConclusion::Interrupted { reason })
             if *reason == TurnError::Cancelled.to_string() =>
         {
             Ending::Cancelled
+        }
+        Some(crate::session::TurnConclusion::Interrupted { reason })
+            if *reason == super::compaction::Feedback::Cancelled.label() =>
+        {
+            Ending::CompactionCancelled
         }
         Some(crate::session::TurnConclusion::Interrupted { .. }) => Ending::Failed,
         None => Ending::Unconcluded,
@@ -583,6 +594,14 @@ mod tests {
             reason: "the provider failed: overloaded".to_string(),
         });
         assert_eq!(super::turn(&stopped).ending, Ending::Failed);
+        // A stop the automatic compaction took is logged with the
+        // compaction's sentence, and is not the turn's cancellation.
+        stopped.outcome = Some(TurnConclusion::Interrupted {
+            reason: super::super::compaction::Feedback::Cancelled
+                .label()
+                .to_string(),
+        });
+        assert_eq!(super::turn(&stopped).ending, Ending::CompactionCancelled);
         stopped.outcome = None;
         assert_eq!(super::turn(&stopped).ending, Ending::Unconcluded);
     }

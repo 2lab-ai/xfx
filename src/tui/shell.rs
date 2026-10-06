@@ -2697,7 +2697,9 @@ impl Shell {
             Ending::Failed => {
                 self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
             }
-            Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
+            // The card alone: nothing after a stop the compaction took, as
+            // nothing reached the log of a turn that never concluded.
+            Ending::CompactionCancelled | Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
         self.full.stamp_with(None);
     }
@@ -18723,6 +18725,17 @@ mod tests {
                         reason: "the provider failed: overloaded".to_string(),
                     },
                 ),
+                // Stopped while its automatic compaction ran: the card and
+                // nothing else (`tui-compaction-activity.test.ts:481-488`).
+                logged_turn(
+                    "Cancel this held response.",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: super::super::compaction::Feedback::Cancelled
+                            .label()
+                            .to_string(),
+                    },
+                ),
             ]),
             false,
         );
@@ -18739,9 +18752,20 @@ mod tests {
                 "",
                 "\u{2717} system: failed",
                 "",
+                "\u{2503} Cancel this held response.",
+                "",
             ],
             "{words:?}"
         );
+        // And the full transcript after it has the prompt and no
+        // cancellation of it.
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let held = full
+            .split("Cancel this held response.")
+            .nth(1)
+            .expect("the prompt is recorded");
+        assert!(!held.contains("Cancelled"), "{full}");
         // The mark in the warning colour and closed before the space, the
         // word in the hint colour (`lifecycleTerminalLine`, unmarked).
         assert_eq!(
