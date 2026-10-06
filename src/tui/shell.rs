@@ -1521,9 +1521,19 @@ impl Shell {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
                 // in the middle of the answer.
-                match failure {
-                    Some(failure) => self.say(failure),
-                    None => self.mark(Mark::Summary(self.tally.line(Instant::now()))),
+                // A summary only under a turn the runtime ran: `/model`, `/setup`
+                // and a catalog listing end with this event too, and they
+                // started no turn to summarize.
+                let summary = self
+                    .tally
+                    .started
+                    .is_some()
+                    .then(|| self.tally.line(Instant::now()));
+                self.tally.started = None;
+                match (failure, summary) {
+                    (Some(failure), _) => self.say(failure),
+                    (None, Some(summary)) => self.mark(Mark::Summary(summary)),
+                    (None, None) => self.mark(Mark::EndOfLine),
                 }
                 // The gesture is **not** deferred with it. What the last Ctrl-C
                 // was about ended when the turn did, whatever is left to paint,
@@ -9163,6 +9173,7 @@ mod tests {
     #[test]
     fn the_answer_arrives_as_deltas_and_lands_in_the_document() {
         let mut shell = shell(24, 80);
+        shell.apply(UiEvent::TurnStarted);
         shell.apply(UiEvent::Delta("MARKER-TURN-".to_string()));
         shell.apply(UiEvent::Delta("ONE".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
@@ -9179,6 +9190,20 @@ mod tests {
         assert_eq!(
             document,
             ["  MARKER-TURN-ONE", "", "  0s (\u{2191}0 \u{2193}4)", ""],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn work_that_started_no_turn_ends_without_a_summary() {
+        // `/model`, `/setup` and a catalog listing conclude with the same event
+        // a turn does, and fx writes no summary under a local command.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Notice("[shell] model=other".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let document = shell.released();
+        assert!(
+            !document.iter().any(|row| row.trim_start().ends_with("0s")),
             "{document:?}"
         );
     }

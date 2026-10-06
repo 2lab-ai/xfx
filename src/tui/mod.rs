@@ -379,6 +379,11 @@ fn hold(
     // own title borrowable rather than taken is in the mode set
     // (`term::PUSH_TITLE`), which `announce` has already written above.
     band.set_title(frame::title(&config.model));
+    // Sized now rather than by the first frame: the welcome line is a document
+    // row written before any frame, and a band whose record of the screen is
+    // still 0x0 when it lands keeps no record of it -- so a later theme report
+    // would find nothing on row 1 to recolour.
+    band.invalidate(geometry.rows, geometry.cols);
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
     shell.welcome();

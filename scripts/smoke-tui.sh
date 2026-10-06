@@ -9103,19 +9103,14 @@ def left_behind(grid, palette):
     the named cells moved, and this says no row of the document was left in the
     palette the session has left.
 
-    **One row is exempt, by name, and it is a reported defect rather than a
-    design**: the welcome line. `e153ff3` says a report "recolours the dim rows
-    (welcome version, turn summary)", and the welcome's brand and version are
-    in xfx's own `BODY`/`DIM` greys -- but on this branch's release binary the
-    retint vector never addresses that row (its `CUP`s land on the rails, the
-    summary and the notice only), so the welcome stays in the palette the
-    session left. Exempted so this row keeps gating every other document row;
-    delete the exemption when the product recolours the welcome line.
+    No row is exempt. The welcome line was once (it was written before the
+    band had a record of the screen, so no report reached it); that was fixed
+    by sizing the band before the first document write.
     """
     return [
         (row, attrs)
         for row, attrs in enumerate(attrs_above_the_rule(grid))
-        if any(attr in palette for attr in attrs) and not is_welcome(grid.row_text(row))
+        if any(attr in palette for attr in attrs)
     ]
 
 
