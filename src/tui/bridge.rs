@@ -566,9 +566,9 @@ impl UiEvent {
                 }))
             }
             // **A whole conversation read back off a disk**: every prompt,
-            // every answer, every argument a model gave a tool and every first
-            // line a tool answered with. The line breaks survive, as a delta's
-            // do -- a prompt's and an answer's rows are made of them.
+            // every answer, every argument a model gave a tool. The line breaks
+            // survive, as a delta's do -- a prompt's and an answer's rows are
+            // made of them.
             Self::Resumed(hydration) => Self::Resumed(super::hydration::Hydration {
                 title: hydration.title.map(inert_owned),
                 turns: hydration
@@ -577,12 +577,7 @@ impl UiEvent {
                     .map(|turn| super::hydration::HydratedTurn {
                         user: inert_owned(turn.user),
                         steps: turn.steps.into_iter().map(inert_step).collect(),
-                        ending: match turn.ending {
-                            super::hydration::Ending::Interrupted(reason) => {
-                                super::hydration::Ending::Interrupted(inert_owned(reason))
-                            }
-                            ending => ending,
-                        },
+                        ending: turn.ending,
                     })
                     .collect(),
                 model: hydration.model.map(inert_owned),
@@ -634,13 +629,13 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
         HydratedStep::ToolResult {
             id,
             ok,
-            detail,
             outcome,
+            changes,
         } => HydratedStep::ToolResult {
             id: inert_owned(id),
             ok,
-            detail: inert_owned(detail),
             outcome,
+            changes,
         },
         HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
     }

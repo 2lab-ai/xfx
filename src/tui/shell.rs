@@ -2003,14 +2003,14 @@ impl Shell {
                 HydratedStep::ToolResult {
                     id,
                     ok,
-                    detail,
                     outcome,
+                    changes,
                 } => self.run_mark(Mark::ToolResult {
                     id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    detail: String::new(),
                     outcome,
-                    changes: None,
+                    changes,
                 }),
                 HydratedStep::Feedback(text) => self.run_mark(Mark::Line(
                     format!(
@@ -2035,12 +2035,15 @@ impl Shell {
                     output,
                 )));
             }
-            // The sentence the live turn ended on, as its conclusion showed it.
-            Ending::Interrupted(reason) => {
-                self.run_mark(Mark::Notice(notice::Notice::error(
-                    "system",
-                    unattributed(&reason),
-                )));
+            // Upstream's line for a stopped turn, on rows of its own as a
+            // cancelled call's line is.
+            Ending::Cancelled => self.run_mark(Mark::Block(vec![(
+                super::toolgroup::turn_cancelled_line(self.palette),
+                DocumentRow::ToolStopped,
+            )])),
+            // And for one that failed, whatever the live turn's sentence was.
+            Ending::Failed => {
+                self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
             }
             Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
@@ -13743,104 +13746,259 @@ mod tests {
         );
     }
 
+    /// A saved session as its log reduces to ([`DurableState`]) and the
+    /// replay the runtime builds from it ([`Hydration::of`]) -- the whole
+    /// path a resume takes but the file.
+    fn logged(turns: Vec<crate::session::HistoryTurn>) -> Hydration {
+        let state = crate::session::DurableState {
+            id: "s".to_string(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            origin_workspace_root: "/w".to_string(),
+            workspace_root: "/w".to_string(),
+            model: "m".to_string(),
+            permission_mode: PermissionMode::Ask,
+            turns,
+            grants: Vec::new(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            context_sources: Vec::new(),
+            last_event_seq: 0,
+            renamed: None,
+        };
+        Hydration::of(&state, None)
+    }
+
+    fn logged_turn(
+        user: &str,
+        steps: Vec<crate::session::TurnStep>,
+        outcome: crate::session::TurnConclusion,
+    ) -> crate::session::HistoryTurn {
+        crate::session::HistoryTurn {
+            user: user.to_string(),
+            steps,
+            outcome: Some(outcome),
+            timing: crate::session::TurnTiming::default(),
+        }
+    }
+
+    fn logged_result(
+        id: &str,
+        ok: bool,
+        ending: Option<crate::session::ToolEnding>,
+        lines: Option<crate::session::LineCounts>,
+    ) -> crate::session::TurnStep {
+        crate::session::TurnStep::ToolResult {
+            call_id: id.to_string(),
+            tool: "t".to_string(),
+            ok,
+            output: "no such path: `gone.txt`".to_string(),
+            ending,
+            lines,
+        }
+    }
+
     #[test]
-    fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
-        let read = crate::tools::Registry::builtin()
-            .spec("read_file")
-            .expect("read_file")
-            .shown(&serde_json::json!({"path": "notes.txt"}));
+    fn a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts() {
+        use crate::session::{LineCounts, RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let calls = [
+            (
+                "e",
+                "edit_file",
+                serde_json::json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+            ),
+            (
+                "w",
+                "write_file",
+                serde_json::json!({"path": "c.txt", "content": "c"}),
+            ),
+            (
+                "x",
+                "terminal",
+                serde_json::json!({"action": "exec", "command": "exit 3"}),
+            ),
+            (
+                "n",
+                "edit_file",
+                serde_json::json!({"path": "b.txt", "old_string": "a", "new_string": "a"}),
+            ),
+            ("r", "read_file", serde_json::json!({"path": "gone.txt"})),
+        ];
+        // Live: each outcome form a row can take. The failure's reason is
+        // left out here because upstream's replay leaves it out
+        // (`Failed missing.txt`, capture `fx-resume-tools-40x120-resumed`),
+        // so the live group to hold the replay to is the one without it.
         let mut live = shell(40, 120);
-        live.route_bytes(b"look\r");
+        live.route_bytes(b"fix\r");
         let _ = live.picks_up();
         live.apply(UiEvent::TurnStarted);
         live.apply(UiEvent::Delta("Looking.".to_string()));
-        live.apply(tool_start(
-            "c1",
-            "read_file",
-            serde_json::json!({"path": "notes.txt"}),
-        ));
-        live.apply(tool_result("c1", "read_file", true, "notes.txt"));
-        live.apply(tool_start(
-            "c2",
-            "read_file",
-            serde_json::json!({"path": "gone.txt"}),
-        ));
-        live.apply(tool_result(
-            "c2",
-            "read_file",
-            false,
-            "no such path: `gone.txt`",
-        ));
+        let endings = [
+            (
+                true,
+                CallOutcome::Finished,
+                Some(LineChanges {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            (false, CallOutcome::Denied, None),
+            (true, CallOutcome::Exited(3), None),
+            (true, CallOutcome::Unchanged, None),
+            (false, CallOutcome::Finished, None),
+        ];
+        for ((id, tool, input), (ok, outcome, changes)) in calls.iter().zip(endings) {
+            live.apply(tool_start(id, tool, input.clone()));
+            live.apply(UiEvent::ToolResult {
+                call_id: id.to_string(),
+                tool: tool.to_string(),
+                ok,
+                detail: String::new(),
+                outcome,
+                changes,
+            });
+        }
         live.apply(UiEvent::Delta("Done.".to_string()));
         live.apply(UiEvent::TurnEnded { failure: None });
         live.shell.flush_paced();
         let live_rows = live.painted_document();
 
+        // Replayed: the same turn as the log keeps it.
+        let mut steps = vec![TurnStep::Assistant {
+            text: "Looking.".to_string(),
+            tool_calls: calls
+                .iter()
+                .map(|(id, name, input)| RecordedToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: input.clone(),
+                })
+                .collect(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }];
+        steps.extend([
+            logged_result(
+                "e",
+                true,
+                None,
+                Some(LineCounts {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            logged_result("w", false, Some(ToolEnding::Denied), None),
+            logged_result("x", true, Some(ToolEnding::Exited { code: 3 }), None),
+            logged_result("n", true, Some(ToolEnding::Unchanged), None),
+            logged_result("r", false, None, None),
+            TurnStep::Assistant {
+                text: "Done.".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+        ]);
         let mut resumed = shell(40, 120);
         resumed.hydrate(
-            replay(
-                Some("look"),
-                vec![
-                    saved(
-                        "look",
-                        vec![
-                            HydratedStep::Text("Looking.".to_string()),
-                            HydratedStep::ToolStart {
-                                id: "c1".to_string(),
-                                shown: read.clone(),
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c1".to_string(),
-                                ok: true,
-                                detail: String::new(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::ToolStart {
-                                id: "c2".to_string(),
-                                shown: crate::tools::Shown {
-                                    target: Some("gone.txt".to_string()),
-                                    ..read
-                                },
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c2".to_string(),
-                                ok: false,
-                                detail: "no such path: `gone.txt`".to_string(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::Text("Done.".to_string()),
-                        ],
-                        0,
-                        None,
-                    ),
-                    HydratedTurn {
-                        user: "and then".to_string(),
-                        steps: Vec::new(),
-                        ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
-                    },
-                ],
-            ),
+            logged(vec![logged_turn(
+                "fix",
+                steps,
+                TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            )]),
             false,
         );
         let rows = resumed.painted_document();
         // The live turn's summary estimated what streamed, as the replay
         // does when the log recorded no usage: the same row.
-        assert_eq!(rows[2..2 + live_rows.len()], live_rows[..], "{rows:?}");
+        assert_eq!(rows[2..], live_rows[..], "{rows:?}");
         let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
-        assert!(
-            words.contains(&"\u{25cf} 2 tool calls \u{b7} 2 read \u{b7} 1 failed".to_string()),
+        assert_eq!(
+            words[6..12],
+            [
+                "\u{25cf} 5 tool calls \u{b7} 2 edit \u{b7} 1 read \u{b7} 1 write \u{b7} 1 command \u{b7} 2 failed \u{b7} 1 denied",
+                "\u{251c} Edited a.txt +1 / -1",
+                "\u{251c} Denied file",
+                "\u{251c} Exited 3 exit 3",
+                "\u{251c} No changes to b.txt; it already contains the requested content",
+                "\u{2514} Failed gone.txt",
+            ],
             "{words:?}"
         );
-        // The stopped turn: its card and the sentence it ended on, under
-        // `system` as the live conclusion was, and no summary.
+    }
+
+    /// Upstream's stopped turn after a resume is its card and its
+    /// cancellation line -- the call the stop cut off is not replayed -- and
+    /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
+    /// capture `fx-resume-tools-40x120-resumed`, rows 21-28).
+    #[test]
+    fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
+        use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let cut_off = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "w".to_string(),
+                    name: "write_file".to_string(),
+                    input: serde_json::json!({"path": "d.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            logged_result("w", false, Some(ToolEnding::Cancelled), None),
+        ];
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            logged(vec![
+                logged_turn(
+                    "and once more",
+                    cut_off,
+                    TurnConclusion::Interrupted {
+                        reason: crate::agent::TurnError::Cancelled.to_string(),
+                    },
+                ),
+                logged_turn(
+                    "and then",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: "the provider failed: overloaded".to_string(),
+                    },
+                ),
+            ]),
+            false,
+        );
+        let rows = resumed.painted_document();
+        let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
         assert_eq!(
-            words[2 + live_rows.len()..],
+            words[2..],
             [
+                "\u{2503} and once more",
+                "",
+                "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+                "",
                 "\u{2503} and then",
                 "",
-                "\u{2717} system: the turn was cancelled",
+                "\u{2717} system: failed",
                 "",
-            ]
+            ],
+            "{words:?}"
+        );
+        // The mark in the warning colour and closed before the space, the
+        // word in the hint colour (`lifecycleTerminalLine`, unmarked).
+        assert_eq!(
+            rows[4],
+            format!(
+                "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+                PALETTE.warning(),
+                PALETTE.reset(),
+                PALETTE.hint(),
+                PALETTE.reset()
+            )
         );
         assert!(!resumed.owes_wipe(), "a launch's resume reset the terminal");
     }

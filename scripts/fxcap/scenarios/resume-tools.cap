@@ -1,0 +1,56 @@
+# A resumed session whose turns ran tools and stopped (D1 follow-up): the
+# toolgroup scenario's three turns -- every outcome form in one group, a call
+# stopped at its approval, a command stopped while it runs -- then `/new` and
+# the picker's resume of it. The live screens and the replay are snapped so
+# the replay can be held to both the live group and upstream's replay.
+fx: gateway toolgroup-fx.json
+xfx: gateway toolgroup-xfx.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 4
+type look at the files and fix them
+key Enter
+wait 2.5
+snap cmd-ask
+key 1
+wait 5
+snap edit-ask
+key 1
+wait 2
+snap write-ask
+key 3
+wait 2.5
+snap exit-ask
+key 1
+wait 2.5
+snap end
+type and once more
+key Enter
+wait 2.5
+key Escape
+wait 1.5
+snap again-stopped
+type run the long one
+key Enter
+wait 2.5
+key 1
+wait 1.5
+key C-c
+wait 6
+snap long-later
+snapfull live
+type /new
+wait 0.5
+key Enter
+wait 2
+type /resume
+wait 0.5
+key Enter
+wait 2
+snap picker
+key Enter
+wait 3
+snap resumed
+snapfull resumed

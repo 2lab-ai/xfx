@@ -39,7 +39,7 @@ use xfx::permission::{
 };
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
-use xfx::session::{NewSession, SessionEvent, SessionId, SessionStore};
+use xfx::session::{LineCounts, NewSession, SessionEvent, SessionId, SessionStore, ToolEnding};
 use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
 use xfx::workspace::{AccessScope, PathError, ProjectContext};
 
@@ -1896,6 +1896,93 @@ async fn amended_batch(tree: &Tree) -> (Vec<CompletionRequest>, Vec<SessionEvent
     .expect("the turn completes");
 
     (provider.requests(), journal.events)
+}
+
+/// The screen's half of a result reaches the log beside the model's half: a
+/// change's line counts and a denial, so a resumed session's rows say what
+/// the live ones did (`xfx::session::ToolEnding`).
+#[tokio::test]
+async fn the_journal_keeps_how_each_call_ended_for_the_row_and_the_lines_it_changed() {
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![
+            Amendment::plain(),
+            Amendment {
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+                then_cancel: false,
+            },
+        ],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            write_call("c1", "draft.md", "one\ntwo\n"),
+            write_call("c2", "refused.md", "no\n"),
+            read_call("c3", "absent.md"),
+        ]),
+        final_step("done"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        asking_turn(
+            "write two",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    let results: Vec<(String, bool, Option<ToolEnding>, Option<LineCounts>)> = journal
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            SessionEvent::ToolResult {
+                call_id,
+                ok,
+                ending,
+                lines,
+                ..
+            } => Some((call_id.clone(), *ok, *ending, *lines)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        results,
+        [
+            (
+                "c1".to_string(),
+                true,
+                None,
+                Some(LineCounts {
+                    added: 2,
+                    removed: 0
+                })
+            ),
+            ("c2".to_string(), false, Some(ToolEnding::Denied), None),
+            // A refusal of the tool's own is what `ok` already says.
+            ("c3".to_string(), false, None, None),
+        ]
+    );
+    // And older readers lose nothing: a result with nothing more to say is
+    // written exactly as it was before the fields existed.
+    let plain = journal
+        .events
+        .iter()
+        .find(|event| matches!(event, SessionEvent::ToolResult { call_id, .. } if call_id == "c3"))
+        .map(|event| serde_json::to_value(event).expect("encodes"))
+        .expect("the read's result");
+    assert!(
+        plain.get("ending").is_none() && plain.get("lines").is_none(),
+        "{plain}"
+    );
 }
 
 #[tokio::test]

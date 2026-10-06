@@ -2164,6 +2164,8 @@ mod tests {
                 wire: None,
             });
             teed.record(SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -2200,6 +2202,8 @@ mod tests {
         cancel.cancel();
         let mut kept = Kept(Vec::new());
         Teed::new(&mut kept, events, cancel).record(SessionEvent::ToolResult {
+            ending: None,
+            lines: None,
             call_id: "c".into(),
             tool: "glob_files".into(),
             ok: true,

@@ -493,6 +493,21 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     )
 }
 
+/// A stopped turn's line in a resumed session, where the call it stopped is
+/// not replayed: the warning mark, `Cancelled` in the hint colour, and the
+/// same question (`appendTurnCancellation`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:3994-4005`, through
+/// `formatHistoricalToolStatusLine`, `transcript/runtime.zig:680-686`, whose
+/// unmarked summary puts the space outside both colours, `:660-672`).
+pub(crate) fn turn_cancelled_line(palette: Palette) -> String {
+    let reset = palette.reset();
+    format!(
+        "{}\u{25a0}{reset} {}Cancelled{reset}{CANCELLED_FOLLOW_UP}",
+        palette.warning(),
+        palette.hint(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

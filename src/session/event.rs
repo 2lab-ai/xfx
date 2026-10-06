@@ -66,6 +66,43 @@ pub struct RecordedToolCall {
     pub input: Value,
 }
 
+/// How one tool call ended for the person watching it, as its row said.
+///
+/// The screen's half of a result, kept so a resumed session's row says what
+/// the live one did (`Exited 3`, `Denied file`) rather than only the model's
+/// half, `ok` -- which is what upstream's replay reads its outcome from
+/// (`writeCompletedToolResult`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:4954-5080`: the command's recorded
+/// process presentation, the denial in the result). Nothing reads it back for
+/// the model. A kind a later build adds reads here as [`Self::Other`], which
+/// replays as the plain row, rather than refusing the log it is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToolEnding {
+    /// A file change that would have left the file as it was.
+    Unchanged,
+    /// A permission decision refused it.
+    Denied,
+    /// A command ran to its end with this status.
+    Exited { code: i32 },
+    /// A command a signal stopped.
+    Signalled { signal: i32 },
+    /// A command stopped for running past its ceiling.
+    TimedOut,
+    /// Stopped because the turn was.
+    Cancelled,
+    /// A kind this build does not know.
+    #[serde(other)]
+    Other,
+}
+
+/// How many lines a file change added and removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineCounts {
+    pub added: u64,
+    pub removed: u64,
+}
+
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -167,6 +204,16 @@ pub enum SessionEvent {
         tool: String,
         ok: bool,
         output: String,
+        /// How the call ended for the person watching, where that is more
+        /// than `ok` says: an exit status, a denial, a stop
+        /// ([`ToolEnding`]). Absent for a call that simply did or did not do
+        /// what it was asked -- and in every log written before the field
+        /// existed, which a resume replays as it always did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending: Option<ToolEnding>,
+        /// The lines a file change added and removed, when it made one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<LineCounts>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -479,6 +526,8 @@ mod tests {
         let frame = envelope(
             1,
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -487,6 +536,56 @@ mod tests {
         );
         let err = frame.encode().expect_err("an oversized frame is refused");
         assert!(err.to_string().contains("frame limit"), "{err}");
+    }
+
+    #[test]
+    fn a_result_keeps_how_its_row_ended_and_an_older_or_newer_one_still_reads() {
+        let result = SessionEvent::ToolResult {
+            call_id: "c".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            output: "boom".to_string(),
+            ending: Some(ToolEnding::Exited { code: 3 }),
+            lines: Some(LineCounts {
+                added: 2,
+                removed: 1,
+            }),
+        };
+        let encoded = serde_json::to_string(&result).expect("encodes");
+        assert!(
+            encoded
+                .contains(r#""ending":{"kind":"exited","code":3},"lines":{"added":2,"removed":1}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
+            result
+        );
+        // Written before the fields existed: nothing more than `ok` to say.
+        let older: SessionEvent = serde_json::from_str(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":false,"output":"o"}"#,
+        )
+        .expect("an older result still reads");
+        assert!(matches!(
+            older,
+            SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                ..
+            }
+        ));
+        // A kind a later build adds is not a reason to refuse the log.
+        let newer: SessionEvent = serde_json::from_str(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","ending":{"kind":"paused","for":3}}"#,
+        )
+        .expect("a newer ending still reads");
+        assert!(matches!(
+            newer,
+            SessionEvent::ToolResult {
+                ending: Some(ToolEnding::Other),
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -522,6 +621,8 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,

@@ -56,8 +56,8 @@ use crate::gateway::protocol::{
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
-use crate::session::{RecordedToolCall, SessionEvent, TurnConclusion};
-use crate::tools::Registry;
+use crate::session::{LineCounts, RecordedToolCall, SessionEvent, ToolEnding, TurnConclusion};
+use crate::tools::{Outcome, Registry};
 use crate::workspace::ProjectContext;
 
 use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
@@ -122,6 +122,20 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
     });
+}
+
+/// What a result's row said beyond `ok`, as the log keeps it: nothing for a
+/// call that simply finished, which is what an older log's reader assumes.
+fn recorded_ending(outcome: Outcome) -> Option<ToolEnding> {
+    match outcome {
+        Outcome::Finished => None,
+        Outcome::Unchanged => Some(ToolEnding::Unchanged),
+        Outcome::Denied => Some(ToolEnding::Denied),
+        Outcome::Exited(code) => Some(ToolEnding::Exited { code }),
+        Outcome::Signalled(signal) => Some(ToolEnding::Signalled { signal }),
+        Outcome::TimedOut => Some(ToolEnding::TimedOut),
+        Outcome::Cancelled => Some(ToolEnding::Cancelled),
+    }
 }
 
 pub fn allows_step(limit: u32, step: u32) -> bool {
@@ -601,11 +615,18 @@ impl TurnMachine {
                 })
                 .map_err(TurnError::Sink)?;
 
+            // With what the row said beyond `ok`, so a resumed session's row
+            // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,
                 output: result.output.clone(),
+                ending: recorded_ending(result.outcome),
+                lines: result.changes.map(|changes| LineCounts {
+                    added: changes.added as u64,
+                    removed: changes.removed as u64,
+                }),
             });
             self.suffix
                 .push(Message::tool_result(&call.id, &call.name, result.output));

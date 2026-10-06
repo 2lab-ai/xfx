@@ -396,6 +396,12 @@ pub enum TurnStep {
         tool: String,
         ok: bool,
         output: String,
+        /// What the row said beyond `ok` ([`super::event::ToolEnding`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending: Option<super::event::ToolEnding>,
+        /// The lines a change added and removed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<super::event::LineCounts>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -1931,6 +1937,8 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             tool,
             ok,
             output,
+            ending,
+            lines,
         } => {
             open_turn(state, "a tool result")?
                 .steps
@@ -1939,6 +1947,8 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     tool: tool.clone(),
                     ok: *ok,
                     output: output.clone(),
+                    ending: *ending,
+                    lines: *lines,
                 });
         }
         SessionEvent::ToolFeedback { call_id, text } => {
@@ -2519,6 +2529,8 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,
@@ -2574,12 +2586,16 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c1".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
                 output: "wrote a.md".to_string(),
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c2".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
@@ -2752,6 +2768,8 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

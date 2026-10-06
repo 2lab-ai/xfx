@@ -13,15 +13,20 @@
 //! `Shell::hydrate`, through the same card, presenter, tool group and summary a
 //! live turn's events reach.
 //!
-//! The steps keep the log's order, which is the order a live turn showed them
-//! in: text, the calls it asked for, their results, the next text. Upstream's
-//! replay writes a turn's tool calls before the whole of its answer (`:4769`,
-//! `:4773-4775`), because its history keeps the answer as one string; xfx's log
-//! keeps each step, so a resumed screen reads as the live one did.
+//! The steps keep the log's order, which is upstream's: each tool step's text,
+//! then its calls and their results (`writeExecutionHistoryToSink`, `:4875-4920`,
+//! run at `:4769` and `:4789`), then the turn's closing answer (`:4773-4775`,
+//! `:4793-4795`) -- the text of the step that asked for no tool, which is the
+//! log's last step. A step none of whose calls came back is not replayed, text
+//! and all, and a call that never came back has no row: upstream's history
+//! keeps only the calls with a result, and only the steps with one
+//! (`buildNormalExecutionMemory`, `execution_memory.zig:449-452`,
+//! `dupeCompletedPersistedToolCalls`). A call the turn's stop cancelled is one
+//! of those -- upstream records no result for it, xfx's log does, marked.
 
-use crate::output::safe_one_line;
-use crate::session::{DurableState, HistoryTurn, TurnStep};
-use crate::tools::{Outcome, Registry, Shown, ToolResult};
+use crate::agent::TurnError;
+use crate::session::{DurableState, HistoryTurn, LineCounts, ToolEnding, TurnStep};
+use crate::tools::{LineChanges, Outcome, Registry, Shown};
 
 /// A resumed session, ready to be written.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,17 +57,20 @@ pub(crate) enum HydratedStep {
     Text(String),
     /// A call, named as a live turn named it before it ran.
     ToolStart { id: String, shown: Shown },
-    /// What came back.
+    /// What came back, as the live row said it: the outcome and the lines a
+    /// change made, as the log recorded them ([`ToolEnding`], [`LineCounts`]).
+    /// A log written before they were recorded settles every call as done or
+    /// failed.
     ///
-    /// The log keeps what the model was told -- `ok` and the output -- and not
-    /// how the call ended for the person watching (an exit status, a denial,
-    /// the lines a change added), so a call settles here as done or as failed
-    /// with its first line, and nothing more specific.
+    /// No failure's reason: upstream's replayed row is `Failed missing.txt`
+    /// where the live one said why (`subagentFailureLabel`, the label only,
+    /// `app_session_runtime.zig:5036-5042`; capture
+    /// `fx-resume-tools-40x120-resumed`).
     ToolResult {
         id: String,
         ok: bool,
-        detail: String,
         outcome: Outcome,
+        changes: Option<LineChanges>,
     },
     /// What the user said at an approval, as the live amendment row says it.
     Feedback(String),
@@ -74,8 +82,14 @@ pub(crate) enum Ending {
     /// It concluded: the summary row, from how long it took and what the
     /// provider said it wrote (`None` when it said nothing).
     Concluded { seconds: u64, output: Option<u64> },
-    /// It stopped, for this reason -- the sentence the live turn ended on.
-    Interrupted(String),
+    /// The user stopped it: upstream's turn cancellation line
+    /// (`appendTurnCancellation`, `app_session_runtime.zig:3994-4005`, written
+    /// at `:4796-4800`).
+    Cancelled,
+    /// It failed: upstream's `✗ system: failed` (`interruptedTurnNotice`,
+    /// `session.zig:45-50`, written at `:4801-4803`), whatever the live turn's
+    /// sentence was.
+    Failed,
     /// Its conclusion never reached the log: a process that died mid-turn.
     Unconcluded,
 }
@@ -93,19 +107,38 @@ impl Hydration {
 
 fn turn(turn: &HistoryTurn) -> HydratedTurn {
     let registry = Registry::builtin();
+    // The calls that came back, and with what: a result the turn's stop
+    // cancelled is not one of them.
+    let answered: Vec<&str> = turn
+        .steps
+        .iter()
+        .filter_map(|step| match step {
+            TurnStep::ToolResult {
+                call_id, ending, ..
+            } if *ending != Some(ToolEnding::Cancelled) => Some(call_id.as_str()),
+            _ => None,
+        })
+        .collect();
     let mut steps = Vec::new();
     for step in &turn.steps {
         match step {
             TurnStep::Assistant {
                 text, tool_calls, ..
             } => {
+                let came_back: Vec<_> = tool_calls
+                    .iter()
+                    .filter(|call| answered.contains(&call.id.as_str()))
+                    .collect();
+                if !tool_calls.is_empty() && came_back.is_empty() {
+                    continue;
+                }
                 if !text.is_empty() {
                     steps.push(HydratedStep::Text(text.clone()));
                 }
                 // A call to a tool this build does not offer never started on
                 // a live screen either: the turn ended on it before any row
                 // (`agent::machine`'s `ToolCallUnsupported`).
-                steps.extend(tool_calls.iter().filter_map(|call| {
+                steps.extend(came_back.into_iter().filter_map(|call| {
                     registry
                         .spec(&call.name)
                         .map(|spec| HydratedStep::ToolStart {
@@ -117,20 +150,20 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             TurnStep::ToolResult {
                 call_id,
                 ok,
-                output,
+                ending,
+                lines,
                 ..
-            } => steps.push(HydratedStep::ToolResult {
-                id: call_id.clone(),
-                ok: *ok,
-                // A refusal's row names its first line, which is what the live
-                // result's summary was (`ToolResult::failure`).
-                detail: if *ok {
-                    String::new()
-                } else {
-                    ToolResult::failure(output.as_str()).detail
-                },
-                outcome: Outcome::Finished,
-            }),
+            } => {
+                if *ending == Some(ToolEnding::Cancelled) {
+                    continue;
+                }
+                steps.push(HydratedStep::ToolResult {
+                    id: call_id.clone(),
+                    ok: *ok,
+                    outcome: outcome(*ending),
+                    changes: lines.map(changes),
+                });
+            }
             TurnStep::ToolFeedback { text, .. } => {
                 steps.push(HydratedStep::Feedback(text.clone()));
             }
@@ -147,15 +180,40 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
                 output: timing.output_tokens,
             }
         }
-        Some(crate::session::TurnConclusion::Interrupted { reason }) => {
-            Ending::Interrupted(safe_one_line(reason, 1_024))
+        // The log keeps the sentence the live turn ended on, and a stop's is
+        // always this one ([`TurnError::Cancelled`]).
+        Some(crate::session::TurnConclusion::Interrupted { reason })
+            if *reason == TurnError::Cancelled.to_string() =>
+        {
+            Ending::Cancelled
         }
+        Some(crate::session::TurnConclusion::Interrupted { .. }) => Ending::Failed,
         None => Ending::Unconcluded,
     };
     HydratedTurn {
         user: turn.user.clone(),
         steps,
         ending,
+    }
+}
+
+/// The row's outcome, from what the log recorded of it.
+fn outcome(ending: Option<ToolEnding>) -> Outcome {
+    match ending {
+        None | Some(ToolEnding::Other) => Outcome::Finished,
+        Some(ToolEnding::Unchanged) => Outcome::Unchanged,
+        Some(ToolEnding::Denied) => Outcome::Denied,
+        Some(ToolEnding::Exited { code }) => Outcome::Exited(code),
+        Some(ToolEnding::Signalled { signal }) => Outcome::Signalled(signal),
+        Some(ToolEnding::TimedOut) => Outcome::TimedOut,
+        Some(ToolEnding::Cancelled) => Outcome::Cancelled,
+    }
+}
+
+fn changes(lines: LineCounts) -> LineChanges {
+    LineChanges {
+        added: usize::try_from(lines.added).unwrap_or(usize::MAX),
+        removed: usize::try_from(lines.removed).unwrap_or(usize::MAX),
     }
 }
 
@@ -202,6 +260,8 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
+                    ending: None,
+                    lines: None,
                     call_id: "c1".to_string(),
                     tool: "read_file".to_string(),
                     ok: false,
@@ -244,8 +304,8 @@ mod tests {
             HydratedStep::ToolResult {
                 id: "c1".to_string(),
                 ok: false,
-                detail: "no such path: `a.txt`".to_string(),
                 outcome: Outcome::Finished,
+                changes: None,
             }
         );
         assert_eq!(
@@ -262,16 +322,157 @@ mod tests {
         );
     }
 
+    fn call(id: &str, name: &str, input: serde_json::Value) -> RecordedToolCall {
+        RecordedToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            input,
+        }
+    }
+
+    fn asked(text: &str, calls: Vec<RecordedToolCall>) -> TurnStep {
+        TurnStep::Assistant {
+            text: text.to_string(),
+            tool_calls: calls,
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }
+    }
+
+    fn came_back(
+        id: &str,
+        ok: bool,
+        ending: Option<ToolEnding>,
+        lines: Option<LineCounts>,
+    ) -> TurnStep {
+        TurnStep::ToolResult {
+            call_id: id.to_string(),
+            tool: "t".to_string(),
+            ok,
+            output: "out".to_string(),
+            ending,
+            lines,
+        }
+    }
+
     #[test]
-    fn a_stopped_turn_ends_on_its_reason_and_an_unfinished_one_on_nothing() {
+    fn a_result_replays_with_the_outcome_and_the_lines_its_row_had() {
+        let turn = concluded(
+            "fix it",
+            vec![
+                asked(
+                    "",
+                    vec![
+                        call("e", "edit_file", json!({ "path": "a.txt" })),
+                        call("w", "write_file", json!({ "path": "c.txt" })),
+                        call(
+                            "x",
+                            "terminal",
+                            json!({ "action": "exec", "command": "exit 3" }),
+                        ),
+                        call("n", "edit_file", json!({ "path": "b.txt" })),
+                    ],
+                ),
+                came_back(
+                    "e",
+                    true,
+                    None,
+                    Some(LineCounts {
+                        added: 1,
+                        removed: 1,
+                    }),
+                ),
+                came_back("w", false, Some(ToolEnding::Denied), None),
+                came_back("x", true, Some(ToolEnding::Exited { code: 3 }), None),
+                came_back("n", true, Some(ToolEnding::Unchanged), None),
+            ],
+            TurnTiming::default(),
+        );
+        let results: Vec<(Outcome, Option<LineChanges>)> = super::turn(&turn)
+            .steps
+            .into_iter()
+            .filter_map(|step| match step {
+                HydratedStep::ToolResult {
+                    outcome, changes, ..
+                } => Some((outcome, changes)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            results,
+            [
+                (
+                    Outcome::Finished,
+                    Some(LineChanges {
+                        added: 1,
+                        removed: 1
+                    })
+                ),
+                (Outcome::Denied, None),
+                (Outcome::Exited(3), None),
+                (Outcome::Unchanged, None),
+            ]
+        );
+    }
+
+    /// Upstream's history keeps only the calls that came back, and only the
+    /// steps with one (`execution_memory.zig:449-452`): a call the stop
+    /// cancelled has no row, and a step all of whose calls were cancelled is
+    /// not replayed, its text included.
+    #[test]
+    fn a_call_the_stop_cancelled_and_a_step_with_nothing_back_are_not_replayed() {
+        let mut turn = concluded(
+            "go",
+            vec![
+                asked(
+                    "First.",
+                    vec![
+                        call("r", "read_file", json!({ "path": "a.txt" })),
+                        call("s", "read_file", json!({ "path": "b.txt" })),
+                    ],
+                ),
+                came_back("r", true, None, None),
+                asked(
+                    "Then.",
+                    vec![call("w", "write_file", json!({ "path": "c.txt" }))],
+                ),
+                came_back("w", false, Some(ToolEnding::Cancelled), None),
+            ],
+            TurnTiming::default(),
+        );
+        turn.outcome = Some(TurnConclusion::Interrupted {
+            reason: TurnError::Cancelled.to_string(),
+        });
+        let replayed = super::turn(&turn);
+        let ids: Vec<String> = replayed
+            .steps
+            .iter()
+            .map(|step| match step {
+                HydratedStep::Text(text) => text.clone(),
+                HydratedStep::ToolStart { id, .. } => format!("start {id}"),
+                HydratedStep::ToolResult { id, .. } => format!("result {id}"),
+                HydratedStep::Feedback(text) => text.clone(),
+            })
+            .collect();
+        assert_eq!(ids, ["First.", "start r", "result r"]);
+        assert_eq!(replayed.ending, Ending::Cancelled);
+    }
+
+    #[test]
+    fn a_stop_is_a_cancellation_any_other_interruption_a_failure_and_an_unfinished_turn_nothing() {
         let mut stopped = concluded("q", Vec::new(), TurnTiming::default());
+        // The sentence a stop is logged with, pinned: a log written with it
+        // must keep replaying as a cancellation.
+        assert_eq!(TurnError::Cancelled.to_string(), "the turn was cancelled");
         stopped.outcome = Some(TurnConclusion::Interrupted {
             reason: "the turn was cancelled".to_string(),
         });
-        assert_eq!(
-            super::turn(&stopped).ending,
-            Ending::Interrupted("the turn was cancelled".to_string())
-        );
+        assert_eq!(super::turn(&stopped).ending, Ending::Cancelled);
+        stopped.outcome = Some(TurnConclusion::Interrupted {
+            reason: "the provider failed: overloaded".to_string(),
+        });
+        assert_eq!(super::turn(&stopped).ending, Ending::Failed);
         stopped.outcome = None;
         assert_eq!(super::turn(&stopped).ending, Ending::Unconcluded);
     }

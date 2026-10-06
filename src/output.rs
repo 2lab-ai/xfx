@@ -817,6 +817,7 @@ impl SessionDetailSnapshot {
                             tool,
                             ok,
                             output,
+                            ..
                         } => SessionStepRow::Tool {
                             call_id: clip_text(&one_line(call_id)),
                             tool: clip_text(&one_line(tool)),
@@ -1487,6 +1488,8 @@ mod tests {
         let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
             &long,
             vec![crate::session::TurnStep::ToolResult {
+                ending: None,
+                lines: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
