@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-ffa0811 [debug] · Run /help for commands
+x𝒇x v0.1.0-5c371f8 [debug] · Run /help for commands
 
 ✗ command: Unknown command. Try /help.
 

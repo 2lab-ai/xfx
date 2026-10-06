@@ -1,4 +1,3 @@
-./.xfx/settings.json
 == ./.xfx/settings.json
 {"models":{"gateway":"fake/model-a"},"provider":"gateway"}
 

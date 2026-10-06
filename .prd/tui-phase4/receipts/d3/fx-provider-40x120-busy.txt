@@ -8,7 +8,7 @@
 
 * provider: Provider switching is unavailable until active and queued work finishes.
 
-  Generating (2s) (↑8 ↓53)
+  Generating (2s) (↑8 ↓55)
 
 ┃
 
