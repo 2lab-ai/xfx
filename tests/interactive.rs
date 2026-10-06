@@ -258,6 +258,54 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn slash_permissions_says_the_mode_changes_it_and_records_it() {
+    // The line shell's half of `/permissions`: upstream's `[permissions] …`
+    // text lines, the same words as the TUI's notices, and the same profile
+    // key written.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/permissions");
+    let text = session.wait_for("[permissions] usage:");
+    for row in [
+        "[permissions] mode=auto",
+        "[permissions] configured rules: (none)",
+        "[permissions] session grants: (none)",
+        "[permissions] saved-session permission rules: none",
+        "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+    ] {
+        assert!(text.contains(row), "{row} missing: {text}");
+    }
+    assert!(!text.contains("remember"), "{text}");
+
+    session.type_line("/permissions Full-Access");
+    let text = session.wait_for("mode set to full access");
+    assert!(
+        text.contains("[permissions] mode set to full access"),
+        "{text}"
+    );
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "yolo"}));
+
+    session.type_line("/permissions");
+    session.wait_for("[permissions] mode=full access");
+
+    session.type_line("/permissions reset");
+    session.wait_for("[permissions] permissions reset to ask, session grants cleared");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "ask"}));
+
+    session.type_line("/permissions bogus");
+    session.wait_for("xfx: usage: /permissions [ask|auto|full-access|reset]");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_help_lists_exactly_the_canonical_commands() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
@@ -278,20 +326,12 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     );
     // Advertisement is a promise here too: no deferred upstream slash command
     // may appear. `/setup` left this list when it stopped being deferred, and
-    // `/stats` and `/status` after it, `/provider` when it became the
-    // canonical name of the same command with `/setup` as its alias, and
-    // `/resume` and `/rename` after those; `/models` did not, because the
-    // catalog browser is reached by a bare `/model` rather than by a command
-    // of its own.
-    for absent in [
-        "/login",
-        "/permissions",
-        "/models",
-        "/mcp",
-        "/undo",
-        "/usage",
-        "/image",
-    ] {
+    // `/stats`, `/status` and `/permissions` after it, `/provider` when it
+    // became the canonical name of the same command with `/setup` as its
+    // alias, and `/resume` and `/rename` after those; `/models` did not,
+    // because the catalog browser is reached by a bare `/model` rather than by
+    // a command of its own.
+    for absent in ["/login", "/models", "/mcp", "/undo", "/usage", "/image"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 
