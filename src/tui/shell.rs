@@ -510,11 +510,10 @@ pub(crate) struct Shell {
     /// How much authority a turn will have before it has to ask.
     ///
     /// Read from the configuration at startup, and moved by `/permissions` and
-    /// Shift-Tab ([`Self::choose_mode`]) **the moment the runtime has been
-    /// handed the change** -- which is what the hint row says from then on. The
-    /// runtime applies it before the next turn starts and not under one that
-    /// is running (`super::worker`'s `turn_loop`), so while a turn is in
-    /// flight this is the mode the *next* one will have.
+    /// Shift-Tab ([`Self::choose_mode`]) at the same moment the live authority
+    /// is ([`WorkHandle::change_permissions`]) -- so what the hint row says is
+    /// what the next tool call is judged in, including one in the turn that is
+    /// running now, as upstream's is (`app_callbacks.zig:976-979`).
     mode: PermissionMode,
     /// The one-time full-access warning on the hint row, and how much of its
     /// time on the screen is left (`super::permissions::Warning`).
@@ -6918,8 +6917,20 @@ impl CommandHandlers for Shell {
     /// Made inert here rather than at the channel, because this text never
     /// crosses it: the workspace path and a settings value quoted by
     /// `provider_rejected` are not xfx's to trust on a terminal.
+    ///
+    /// **The authority is the one in force now**, not the one the runtime
+    /// last published: a mode or a reset takes effect the moment it is chosen
+    /// (`WorkHandle::change_permissions`), so `permission_mode` is this
+    /// shell's -- the hint row's -- and a grant count made before a reset since
+    /// is no count of anything in force. Upstream's `/status` reads the live
+    /// engine (`session_commands.zig:302-305`).
     fn status(&mut self) {
-        let body = self.work.status().notice_body();
+        let mut snapshot = self.work.status();
+        snapshot.permission_mode = self.mode.label().to_string();
+        if self.work.grants_reset_since_published() {
+            snapshot.session_permission_grants = 0;
+        }
+        let body = snapshot.notice_body();
         self.announce(notice::Notice::neutral(
             "status",
             bridge::inert(&body).into_owned(),
@@ -7057,9 +7068,9 @@ impl CommandHandlers for Shell {
 }
 
 impl Shell {
-    /// Hands the runtime a change to the session's authority and, once it has
-    /// it, moves this shell's own idea of the mode -- the hint row -- to
-    /// `mode`. Answers whether it did.
+    /// Puts a change to the session's authority in force -- for the turn that
+    /// may be running too -- and moves this shell's own idea of the mode, the
+    /// hint row, to `mode`. Answers whether it did.
     ///
     /// **Not a [`TurnWork`]**: see [`WorkHandle::change_permissions`] for the
     /// three ways that channel would get this wrong. A runtime that is gone has
@@ -14105,6 +14116,56 @@ mod tests {
                 PALETTE.statusline()
             )),
             "{row:?}"
+        );
+    }
+
+    #[test]
+    fn status_and_the_hint_row_agree_on_the_authority_while_a_turn_runs() {
+        // The runtime publishes `/status` between pieces of work, so mid-turn
+        // its snapshot is the turn before's; the authority is the one in force
+        // now, and the row and `/status` say the same thing about it.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Auto, true);
+        let _started = turn_running(&mut shell, b"ask something\r");
+        let _turn = shell.picks_up();
+        shell.work.publish_status(a_status(1, 2));
+        shell.work.publish_grants(vec![
+            " - write_file -> a.txt".to_string(),
+            " - terminal -> ls in /w".to_string(),
+        ]);
+        let _ = shell.document();
+
+        shell.route_bytes(b"\x1b[Z\x1b[Z");
+        assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
+        assert_eq!(shell.work.live().mode(), PermissionMode::Ask);
+        shell.route_bytes(b"/status\r");
+        let said = shell.document();
+        assert!(
+            said.contains(&"  permission_mode=ask".to_string()),
+            "{said:?}"
+        );
+        assert!(
+            said.contains(&"  session_permission_grants=2".to_string()),
+            "{said:?}"
+        );
+
+        // A reset: no grants in force, at once, on both answers.
+        shell.route_bytes(b"/permissions reset\r");
+        let _ = shell.document();
+        shell.route_bytes(b"/status\r");
+        let said = shell.document();
+        assert!(
+            said.contains(&"  permission_mode=ask".to_string()),
+            "{said:?}"
+        );
+        assert!(
+            said.contains(&"  session_permission_grants=0".to_string()),
+            "{said:?}"
+        );
+        shell.route_bytes(b"/permissions\r");
+        let listed = shell.document();
+        assert!(
+            listed.contains(&"  session grants: (none)".to_string()),
+            "{listed:?}"
         );
     }
 

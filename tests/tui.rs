@@ -6767,10 +6767,26 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     session.type_bytes(b"\x1b[B");
     session.type_bytes(b"\r");
     session.wait_for("Switched to plain-model (effort: default, speed: normal)");
+    // The announcement is the band's, made at once; the runtime saves the
+    // choice after it (a model change is a control message since D2b). Wait
+    // for the save itself, or the snapshot below can predate it and the save
+    // reads as the rewrite this test forbids.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let before = loop {
+        let bytes = std::fs::read(sandbox.settings_path()).expect("a profile");
+        if String::from_utf8_lossy(&bytes).contains("plain-model") {
+            break bytes;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the chosen model was never saved: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
     // Choosing the provider already in force is no switch: upstream's
     // `Already using …` (`app_auth_runtime.zig:1159-1167`), and the profile is
     // not rewritten -- byte for byte -- nor the model the session holds reset.
-    let before = std::fs::read(sandbox.settings_path()).expect("a profile");
     session.type_bytes(b"/setup llmux\r");
     session.wait_for("Already using llmux.");
     assert_eq!(

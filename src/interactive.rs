@@ -811,22 +811,42 @@ impl Conversation {
     /// written down, as a resume does (`crate::tui`'s worker, `app::run_ask`),
     /// so a later resume reads what this session really ran under.
     ///
-    /// Grants already recorded in the log stay there: `reset` forgets them for
-    /// this process, as upstream's does (`permission_engine.clear`), and the log
-    /// has no event that revokes one.
+    /// A reset is **durable**. Upstream's `reset` clears the engine's session
+    /// grants (`permission_engine.clear`, `app_permission_runtime.zig:144-159`,
+    /// `permissions.zig:49-51`) -- the "don't ask again" answers -- and those
+    /// are never written down there (`permission_engine.allow` is reached only
+    /// from an approval, `app_callbacks.zig:1617-1620`), so a reset session
+    /// that is resumed has none. xfx writes the same answers into the log
+    /// (`permission_grant_recorded`), so the forgetting is written too
+    /// (`permission_grants_cleared`) or a resume would bring them back.
+    /// Upstream's saved-session rules -- `remember`, `permissions.json` -- are
+    /// a different store, which its `reset` leaves alone and xfx does not
+    /// have.
+    ///
+    /// The order matters: the clearing first, then whatever this session
+    /// holds afterwards. An "always" given after a live reset, in the turn
+    /// that was running when it happened ([`PermissionSession::clear_grants`]),
+    /// may be for a target the log already listed from before the reset, and
+    /// `record_new_grants` only writes what the log does not list -- so it is
+    /// written once the list has been emptied, or it would be lost with it.
     pub(crate) fn set_permission_mode(&mut self, mode: PermissionMode, clear_grants: bool) {
-        {
+        let kept = {
             let mut authority = self.tools.permissions();
             authority.set_mode(mode);
             if clear_grants {
                 authority.clear_grants();
             }
-        }
+            authority.grants().to_vec()
+        };
         if self.recorder.state().permission_mode != mode {
             self.recorder.commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: Some(mode.label().to_string()),
             });
+        }
+        if clear_grants {
+            self.recorder.commit(SessionEvent::PermissionGrantsCleared);
+            self.recorder.record_new_grants(&kept);
         }
     }
 
@@ -1585,12 +1605,22 @@ fn apply_permissions(
     if mode == PermissionMode::Yolo {
         writeln!(io::stderr(), "{YOLO_WARNING}")?;
     }
-    if let Err(reason) = written {
-        writeln!(
+    match written {
+        // A layer above the profile still decides what a fresh session here
+        // starts in: said, in upstream's words, on the stream warnings go to.
+        Ok(()) => {
+            if let Some(said) = crate::provider::profile::saved_but_shadowed(
+                "permission_mode",
+                config.sources.permission_mode,
+            ) {
+                writeln!(io::stderr(), "xfx: permission-mode: {said}")?;
+            }
+        }
+        Err(reason) => writeln!(
             io::stderr(),
             "xfx: permission-mode: {}",
             slash::not_saved(&reason)
-        )?;
+        )?,
     }
     Ok(())
 }
