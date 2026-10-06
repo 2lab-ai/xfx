@@ -63,22 +63,36 @@ pub const TUI_ENV: &str = "XFX_TUI";
 /// the TUI. A subcommand or a pipe on either end is the line shell or an
 /// ordinary command, unchanged.
 pub fn should_run(cli: &Cli) -> bool {
-    matches!(cli.command, Command::Interactive)
+    matches!(cli.command, Command::Interactive { .. })
         && std::env::var_os(TUI_ENV).is_none_or(|value| value != "0")
         && io::stdin().is_terminal()
         && io::stdout().is_terminal()
 }
 
 /// Runs the TUI on the calling thread, which must be the process's main thread.
-pub fn run_blocking(_cli: Cli) -> ExitCode {
+pub fn run_blocking(cli: Cli) -> ExitCode {
+    let resume = match cli.command {
+        Command::Interactive { resume } => resume,
+        _ => None,
+    };
     let config = match crate::app::load_config() {
         Ok(config) => config,
         Err(err) => return fail(&format!("{err}")),
     };
-    match session(&config) {
+    match session(&config, resume.as_ref()) {
         Ok(code) => code,
         Err(err) => fail(&format!("{err}")),
     }
+}
+
+/// How a session that ran to its end left.
+struct Exit {
+    code: ExitCode,
+    /// Upstream's way back in (`formatResumeHandoff`, `render.zig:795-810`):
+    /// the line that names the session to resume, written to standard output
+    /// once the terminal has been given back. `None` for a session with nothing
+    /// to come back to ([`worker::Worker::resumable`]).
+    handoff: Option<String>,
 }
 
 /// Takes the terminal, holds it, and gives it back.
@@ -88,7 +102,10 @@ pub fn run_blocking(_cli: Cli) -> ExitCode {
 /// while the mode sequences go to the one output leaves by. On an ordinary
 /// invocation they are the same terminal; when they are not, restoring the
 /// wrong one would leave the input raw.
-fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
+fn session(
+    config: &crate::config::RuntimeConfig,
+    resume: Option<&crate::session::Selector>,
+) -> io::Result<ExitCode> {
     // The matrix row for a startup that fails before the terminal is touched:
     // nothing has been captured, nothing has been set, and the exit must write
     // no restore bytes for state it never took.
@@ -106,6 +123,33 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     if layout::solve(rows, columns, layout::INITIAL_INPUT_ROWS).is_none() {
         return Err(io::Error::other(too_small(rows, columns)));
     }
+
+    // The session `--resume` names, opened -- and locked -- **before** the
+    // terminal is touched, for the reason the size refusal above is: an id
+    // that names nothing, or a session another xfx is writing, is reported on
+    // a terminal the user still has, rather than after a band was drawn and
+    // taken down again for nothing.
+    let resumed = resume
+        .map(|selector| worker::Resumption::open(config, selector))
+        .transpose()?;
+    // A model the session last ran under is restored when nothing chose one,
+    // which is `xfx ask --resume`'s rule (`app::run_ask`): an explicit setting
+    // or override outranks what a past turn happened to use. The band and the
+    // runtime both read the model from the configuration, so it is restored
+    // there, once, for both of them.
+    let restored;
+    let config = match &resumed {
+        Some(resumed)
+            if config.sources.model == crate::config::SettingSource::CompiledDefault
+                && config.model != resumed.model() =>
+        {
+            let mut owned = config.clone();
+            owned.model = resumed.model().to_string();
+            restored = owned;
+            &restored
+        }
+        _ => config,
+    };
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -188,7 +232,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // that gives it back, so this function must not return before it runs --
     // no `?`, no early return. Everything that can fail happens inside `hold`,
     // which reports its failure rather than escaping with it.
-    let held = hold(config, tmux, &wakeup, blocked, &mut band);
+    let held = hold(config, tmux, &wakeup, blocked, &mut band, resumed);
     // The plane the terminal is really on, asked of the band rather than of the
     // session: `event_loop::shut_down` gives an approval screen back in one
     // frame on every way out of the loop, so this is `false` on every ordinary
@@ -225,7 +269,21 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
             );
         }
     }
-    result
+    // The way back in, on a terminal that is the user's again: upstream writes
+    // it to standard output after the restore (`app_entry_runtime.zig:424-438`),
+    // so it lands under the document the band floated beneath, on the row the
+    // exit's own cleanup left the cursor on. Best effort, as upstream's is: a
+    // standard output that will not take it changes nothing about how the
+    // session ended.
+    result.map(|exit| {
+        if let Some(line) = exit.handoff {
+            let mut stdout = io::stdout();
+            let _ = stdout
+                .write_all(line.as_bytes())
+                .and_then(|()| stdout.flush());
+        }
+        exit.code
+    })
 }
 
 /// Why a screen cannot hold a band, in the words the refusal is reported in.
@@ -257,7 +315,8 @@ fn hold(
     wakeup: &signals::Wakeup,
     blocked: signals::Blocked,
     band: &mut frame::Band,
-) -> io::Result<ExitCode> {
+    resumed: Option<worker::Resumption>,
+) -> io::Result<Exit> {
     // **Before `install`, and that is the whole of the ordering.** A new thread
     // inherits the creating thread's signal mask, and the mask is still the
     // whole of `block_owned`'s here -- `install` is what lifts the death
@@ -272,7 +331,10 @@ fn hold(
     // failure in this function is: `hold` reports, and `session` restores.
     // Nothing has been spawned yet when it fires.
     let cancel = bridge::Cancellation::new(crate::gateway::CancelToken::new());
-    let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone())?;
+    // Read before the session goes to the runtime thread, which is the only
+    // place it lives from then on.
+    let resumed_title = resumed.as_ref().map(worker::Resumption::title);
+    let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone(), resumed)?;
 
     // The block lifts inside `install`, so anything held across the transition
     // is delivered there. A held `SIGTSTP` is the case that has to be answered
@@ -386,7 +448,10 @@ fn hold(
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
     shell.welcome();
-    event_loop::run(
+    if let Some(title) = resumed_title {
+        shell.resumed(title);
+    }
+    let code = event_loop::run(
         &mut shell,
         band,
         &event_loop::Launch {
@@ -397,7 +462,12 @@ fn hold(
         },
         &mut worker,
         &mut events,
-    )
+    )?;
+    // Asked of the worker after the loop, because the loop's exit is what
+    // joined the thread that knows ([`worker::Worker::resumable`]); formatted
+    // by the shell, because the palette and the width are its.
+    let handoff = worker.resumable().map(|id| shell.resume_handoff(id));
+    Ok(Exit { code, handoff })
 }
 
 /// The one measurement a launch is computed from.
@@ -613,6 +683,7 @@ mod approval_screen;
 mod blocks;
 mod bridge;
 mod check;
+mod copy;
 mod deliver;
 mod diagnostic;
 mod edit_history;
@@ -624,6 +695,7 @@ mod fault;
 mod frame;
 mod gesture;
 mod grid;
+mod help_menu;
 mod hint;
 mod history;
 mod input;

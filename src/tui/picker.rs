@@ -552,7 +552,7 @@ fn row_budget(terminal_rows: u16) -> u16 {
 /// Where a window of `rows` over `count` matches starts once `selected` is
 /// kept in it, moving from `current` only as far as it has to
 /// (`list_window.zig:50-62`, `updateEdgeStart`).
-fn edge_start(current: usize, count: usize, selected: usize, rows: u16) -> usize {
+pub(super) fn edge_start(current: usize, count: usize, selected: usize, rows: u16) -> usize {
     let rows = usize::from(rows);
     if count == 0 || rows == 0 || count <= rows {
         return 0;
@@ -595,13 +595,13 @@ fn widest<'a>(texts: impl Iterator<Item = &'a str>) -> usize {
 }
 
 /// How many cells `text` takes, by the measure the painter cuts with.
-fn cells(text: &str) -> usize {
+pub(super) fn cells(text: &str) -> usize {
     usize::from(super::wrap::width(text))
 }
 
 /// Spaces onto `row` until it is `target` cells wide, colours not counted
 /// (`appendSpacesToVisibleWidth`, `picker_presentation.zig:1406-1409`).
-fn pad_to(row: &mut String, target: usize) {
+pub(super) fn pad_to(row: &mut String, target: usize) {
     let mut width = cells(row);
     while width < target {
         row.push(' ');
@@ -611,7 +611,7 @@ fn pad_to(row: &mut String, target: usize) {
 
 /// `text` in at most `budget` cells, its tail swapped for an ellipsis when it
 /// does not fit (`appendSingleLineEllipsized`, `row_text.zig:60-101`).
-fn ellipsized(text: &str, budget: usize) -> String {
+pub(super) fn ellipsized(text: &str, budget: usize) -> String {
     if budget == 0 {
         return String::new();
     }
@@ -974,16 +974,27 @@ mod tests {
         let rows = picker.rows(120, 40, PALETTE);
         assert!(plain(&rows[0]).ends_with("2\u{2013}7"), "{:?}", rows[0]);
         assert!(rows[7].starts_with(MARKED), "{:?}", rows[7]);
-        assert!(plain(&rows[7]).starts_with("  /version"), "{:?}", rows[7]);
+        assert!(
+            plain(&rows[7]).starts_with(&format!("  {}", SLASH_REGISTRY[6].name)),
+            "{:?}",
+            rows[7]
+        );
         // Back up one: the mark moves and the window stays.
         assert_eq!(picker.apply(PickerAction::Up), PickerOutcome::Changed);
         assert_eq!(picker.layout(40).window, Window { start: 1, end: 7 });
         assert!(picker.rows(120, 40, PALETTE)[6].starts_with(MARKED));
-        // Down to the last row, `/quit`, and past the bottom it wraps to the
-        // top, taking the window with it.
-        assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
-        assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
-        assert_eq!(picker.layout(40).window, Window { start: 2, end: 8 });
+        // Down to the last row, `/quit`, the window following it, and past the
+        // bottom it wraps to the top, taking the window with it.
+        while picker.selected < SLASH_REGISTRY.len() - 1 {
+            assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
+        }
+        assert_eq!(
+            picker.layout(40).window,
+            Window {
+                start: SLASH_REGISTRY.len() - 6,
+                end: SLASH_REGISTRY.len()
+            }
+        );
         assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         assert_eq!(picker.selected, 0);
         assert_eq!(picker.layout(40).window, Window { start: 0, end: 6 });

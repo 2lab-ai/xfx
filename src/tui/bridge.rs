@@ -574,6 +574,15 @@ impl Cancellation {
         self.root.clone()
     }
 
+    /// `gateway`'s flag, for a conversation bound before any turn has begun.
+    ///
+    /// The same flag every [`Cancellation::turn`] hands its turn, so a tool
+    /// context made from it is stopped by the same keystroke as one
+    /// `worker`'s `ready` made from a turn's.
+    pub(crate) fn mirror(&self) -> CancelToken {
+        self.mirror.clone()
+    }
+
     /// Ends the session's work: the mirror first, then the token.
     pub(crate) fn cancel(&self) {
         self.cancel_between(|| {});

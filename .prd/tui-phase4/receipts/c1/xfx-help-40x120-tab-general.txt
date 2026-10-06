@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-04d9593 [debug] · Run /help for commands
+
+┃ /help
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 4  All  [General]  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /help       show available slash commands
+  /clear      clear the screen; the conversation and its session are kept
+  /version    show the xfx version
+  /quit       exit the interactive shell
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,26 @@
+gateway quit-turn.json
+wait 4
+title launch
+type first question alpha
+wait 0.5
+key Enter
+wait 4
+snap answered
+title answered
+type /quit now
+wait 0.5
+key Enter
+wait 1
+snap quit-arg
+type /exit now
+wait 0.5
+key Enter
+wait 1
+snap exit-arg
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+snap quit
+title quit

@@ -20,6 +20,10 @@
 #                          <bin>-<scenario>-<size>-<label>.title
 #   keep                   keeps the pane after the program exits, so a title
 #                          or a screen can still be read once it has
+#   clip <label>           moves the bytes the fake pbcopy was last fed to
+#                          <bin>-<scenario>-<size>-<label>.clip, or says that
+#                          nothing was copied since the last clip
+#   clipfail on|off        makes the fake pbcopy read its input and exit 1
 set -euo pipefail
 
 main() {
@@ -72,9 +76,15 @@ main() {
   for tool in open pbpaste afplay osascript; do
     printf '#!/bin/sh\nexit 0\n' > "$run/shim/$tool"
   done
-  # pbcopy is fed through a pipe: drain it, keep a copy for the receipt.
-  printf '#!/bin/sh\ncat > "%s/clipboard"\n' "$run" > "$run/shim/pbcopy"
+  # pbcopy is fed through a pipe: drain it, keep a copy for the receipt -- or,
+  # while `clipfail on`, drain it and fail.
+  printf '#!/bin/sh\nif [ -f "%s/clipboard-fail" ]; then cat >/dev/null; exit 1; fi\ncat > "%s/clipboard"\n' \
+    "$run" "$run" > "$run/shim/pbcopy"
   chmod +x "$run/shim/"*
+  # macOS assesses an executable the first time it runs, which costs a second
+  # or more and would land inside a scenario's `wait`: run pbcopy once now.
+  : | "$run/shim/pbcopy"
+  rm -f "$run/clipboard"
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
   local launch
   if [[ $which == fx ]]; then
@@ -110,6 +120,22 @@ XFX_MODEL=fake/model-a $bin"
         echo "$name.title"
         ;;
       keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
+      clip)
+        local name=$out/$which-$scenario-$size-$rest
+        if [[ -f $run/clipboard ]]; then
+          mv "$run/clipboard" "$name.clip"
+          echo "$name.clip"
+        else
+          echo "clip $rest: nothing was copied"
+        fi
+        ;;
+      clipfail)
+        case $rest in
+          on) : > "$run/clipboard-fail" ;;
+          off) rm -f "$run/clipboard-fail" ;;
+          *) echo "clipfail on|off, not $rest" >&2; exit 2 ;;
+        esac
+        ;;
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"

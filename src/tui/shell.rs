@@ -79,10 +79,12 @@ use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface}
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
 use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
+use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
@@ -97,6 +99,7 @@ use super::router::{self, CommandHandlers};
 use super::theme::{Mode, Palette};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
+use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
@@ -135,6 +138,40 @@ pub(crate) fn welcome_line(palette: Palette) -> String {
         palette.reset()
     )
 }
+
+/// Upstream's way back into a session, written to standard output once the
+/// terminal has been given back (`formatResumeHandoff`, `render.zig:795-810`,
+/// `c1db919`; written at `app_entry_runtime.zig:424-438`).
+///
+/// The label, then the command: on the same row when the whole line fits the
+/// screen, and on the next one, two columns in, when it does not -- all of it
+/// in the dim grey, ended by a reset and a line feed. `xfx` where upstream says
+/// `fx`, because the command has to be one this binary answers: a bare
+/// `xfx --resume <id>` is the TUI on that session (`crate::cli`).
+pub(crate) fn resume_handoff(id: &str, columns: u16, palette: Palette) -> String {
+    let command = format!("{RESUME_COMMAND} {id}");
+    let one_row = RESUME_LABEL.len() + 1 + command.len();
+    let separator = if one_row <= usize::from(columns) {
+        " "
+    } else {
+        "\n  "
+    };
+    format!(
+        "{}{RESUME_LABEL}{separator}{command}{}\n",
+        palette.dim(),
+        palette.reset()
+    )
+}
+
+/// Upstream's label for that line (`render.zig:801`).
+const RESUME_LABEL: &str = "Continue session with:";
+
+/// The command it names, without the id.
+const RESUME_COMMAND: &str = "xfx --resume";
+
+/// What a resumed session with no title of its own is called
+/// (`session_display_metadata.zig:14`).
+const UNTITLED_SESSION: &str = "Untitled session";
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -625,6 +662,18 @@ pub(crate) struct Shell {
     /// it is for is that the *next* keystroke does not re-open what Escape just
     /// closed.
     dismissed: Dismissed,
+    /// The `/help` catalog, while it is up ([`super::help_menu`]).
+    ///
+    /// The third occupant of the band's elastic slot, and like the completion
+    /// menu a view of the composer rather than a focus: what is typed goes on
+    /// going into the composer and is the catalog's search. The two are
+    /// mutually exclusive by construction -- [`Self::reconcile_picker`] opens
+    /// no completion menu while this is `Some`, and `/help` closes the menu
+    /// before it opens this. A question is not excluded: it outranks the
+    /// catalog in [`Self::slot`] and takes the keys while it is up, and the
+    /// catalog is back when it has been answered, as upstream's is
+    /// (`surface_frame.zig:401`, `!modal_active`).
+    help_menu: Option<HelpMenu>,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -703,6 +752,9 @@ pub(crate) struct Shell {
     fatal: Option<String>,
     /// How the session is ending, once it is.
     leaving: Option<Leaving>,
+    /// The `/copy`s still running on their own threads, and how each went
+    /// ([`super::copy`]).
+    copies: Copies,
 }
 
 /// Which plane the session is composing frames for.
@@ -878,6 +930,9 @@ enum Slot<'a> {
     /// **not** the same thing: it grants nothing and its answer is text
     /// ([`super::question`]).
     Ask(&'a QuestionPanel),
+    /// The `/help` catalog. Like the menu it owns nothing but rows, and the
+    /// composer is its search.
+    Catalog(&'a HelpMenu),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -902,6 +957,14 @@ impl Shell {
         theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
+        // The user's clipboard -- except in a shell a test built, which
+        // reaches none unless the test hands it a fake one: typing `/copy`
+        // in a case about something else must not be able to write the
+        // clipboard of whoever is running the suite.
+        #[cfg(not(test))]
+        let clipboard = Clipboard::system();
+        #[cfg(test)]
+        let clipboard = Clipboard::searching(super::copy::NOWHERE);
         Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -961,6 +1024,7 @@ impl Shell {
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
+            help_menu: None,
             activity_row: None,
             handoff: false,
             draining: None,
@@ -977,6 +1041,7 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            copies: Copies::new(clipboard),
         }
     }
 
@@ -1044,6 +1109,12 @@ impl Shell {
             let mut panel = match self.slot() {
                 Some(Slot::Question(panel)) => panel.rows(self.geometry.cols, self.geometry.rows),
                 Some(Slot::Ask(ask)) => ask.rows(self.geometry.cols, self.geometry.rows),
+                // In the rows the geometry gave it, which are the rows its own
+                // height asked for: one layout answers both
+                // (`composeHelpMenuRow` is handed `menuRowCount`'s answer).
+                Some(Slot::Catalog(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
@@ -1076,6 +1147,12 @@ impl Shell {
             Some(Slot::Menu(_)) => self.painted(
                 self.palette.dim(),
                 picker::key_help(self.geometry.cols).to_string(),
+            ),
+            // The catalog's own key help, in the same dim grey
+            // (`composeHelpMenuHintRow`, `input_presentation.zig:696-721`).
+            Some(Slot::Catalog(_)) => self.painted(
+                self.palette.dim(),
+                help_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -1219,6 +1296,9 @@ impl Shell {
         if let Some(ask) = self.ask.as_ref() {
             return Some(Slot::Ask(ask));
         }
+        if let Some(menu) = self.help_menu.as_ref() {
+            return Some(Slot::Catalog(menu));
+        }
         self.picker.as_ref().map(Slot::Menu)
     }
 
@@ -1329,6 +1409,34 @@ impl Shell {
         self.write_transcript_as(&line, Role::Plain);
         self.end_transcript_line();
         self.end_transcript_line();
+    }
+
+    /// Says that this session continues a saved one, as upstream's resume does
+    /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
+    /// notice under `session resumed` whose body is the session's title, and
+    /// the title is the window's from here on, as a title the first turn had
+    /// given it would be.
+    ///
+    /// `title` is the store's title of the session's first prompt, read off a
+    /// log on disk, so it is made inert before it is written anywhere. A
+    /// session with none is called what upstream calls one, and the window
+    /// keeps the workspace's fallback.
+    ///
+    /// Upstream replays the session's turns into the document under this line;
+    /// xfx does not yet, so the notice is what says the conversation the next
+    /// prompt continues is the saved one.
+    pub(crate) fn resumed(&mut self, title: Option<String>) {
+        let title = title
+            .map(|title| super::bridge::inert(&title).trim().to_string())
+            .filter(|title| !title.is_empty());
+        let body = title
+            .clone()
+            .unwrap_or_else(|| UNTITLED_SESSION.to_string());
+        self.announce(notice::Notice::neutral("session resumed", body));
+        if title.is_some() {
+            self.session_title = title;
+            self.retitle();
+        }
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -1962,6 +2070,110 @@ impl Shell {
         }
     }
 
+    /// Offers one keystroke to the `/help` catalog, and says whether it was
+    /// taken.
+    ///
+    /// The six keys [`HelpAction::of`] names, and nothing else: a letter, a
+    /// Backspace or a C-u is an edit of the search and goes on to the composer
+    /// with the catalog still up. The arrows **wrap** here, which the resume
+    /// picker upstream does not; Tab and Shift-Tab change the tab, and with it
+    /// the catalog's height, so the band is re-solved rather than repainted.
+    fn offer_to_catalog(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = HelpAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.help_menu.as_mut() else {
+            return false;
+        };
+        match request {
+            HelpAction::Up | HelpAction::Down => {
+                // The window a move scrolls against is the one on the screen:
+                // the rows the geometry gave the catalog.
+                let visible = menu.visible_items(self.geometry.panel);
+                if menu.step(request == HelpAction::Down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+                true
+            }
+            HelpAction::NextCategory | HelpAction::PreviousCategory => {
+                menu.cycle(request == HelpAction::NextCategory);
+                self.refit();
+                self.render.request(Reason::Modal);
+                true
+            }
+            HelpAction::Close => {
+                self.close_catalog(true);
+                true
+            }
+            HelpAction::Open => self.open_from_catalog(),
+        }
+    }
+
+    /// Enter, while the catalog is up (`submitHelpMenuSelection`,
+    /// `app_input_runtime.zig:2732-2762`), and whether the keystroke was spent.
+    ///
+    /// Three answers, in upstream's order:
+    ///
+    /// * **The composer already names a command** ([`help_menu::names_exactly`]):
+    ///   the catalog closes and the Return goes on to submit the line as typed
+    ///   -- `/version` typed into the search runs `/version`, whatever row the
+    ///   search left marked.
+    /// * **The marked command takes an argument**: it goes in the composer with
+    ///   the space after it, the catalog closes, and nothing runs -- the next
+    ///   thing typed is the argument.
+    /// * **Otherwise** the marked command replaces the search and the Return
+    ///   goes on to run it, as the completion menu's does
+    ///   ([`PickerOutcome::Run`]).
+    ///
+    /// With nothing listed -- an empty tab, a search that found nothing -- the
+    /// Return is spent and nothing happens.
+    fn open_from_catalog(&mut self) -> bool {
+        if help_menu::names_exactly(self.editor.text()) {
+            self.close_catalog(false);
+            return false;
+        }
+        let Some(spec) = self.help_menu.as_ref().and_then(HelpMenu::selected) else {
+            return true;
+        };
+        self.close_catalog(false);
+        if spec.has_args {
+            // Not a slash word any more once the space is in it, so no
+            // completion menu opens for it.
+            self.replace_word(&picker::completed(spec.name));
+            return true;
+        }
+        // Dismissed before the name is written, so the name does not open a
+        // completion menu of its own on the way to being submitted.
+        self.dismissed.dismiss(Trigger::Slash);
+        self.replace_word(spec.name);
+        false
+    }
+
+    /// Takes the catalog down, and its search with it when `clear_query`
+    /// (`closeHelpMenu`, `app_input_runtime.zig:2314-2322`).
+    ///
+    /// Escape clears it: the search was the catalog's, and a composer left
+    /// holding `ses` after the catalog that used it is gone would be a draft
+    /// the user never meant to type. Enter does not, because what Enter does
+    /// next is put a command where the search was or submit it as it stands.
+    fn close_catalog(&mut self, clear_query: bool) {
+        if self.help_menu.take().is_none() {
+            return;
+        }
+        if clear_query && !self.editor.is_empty() {
+            // Through the one funnel every whole-draft disposal takes, which
+            // re-solves the band for the rows the catalog gave back.
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
     /// Offers one keystroke to the completion menu, and says whether it was
     /// taken.
     ///
@@ -2074,6 +2286,16 @@ impl Shell {
     /// no path that changes the draft without coming through here, and none
     /// that changes the menu without the draft having changed.
     fn reconcile_picker(&mut self) {
+        // **While the catalog is up the draft is its search, not a command
+        // being typed**, so no completion menu opens for it -- `/version`
+        // typed into the catalog narrows the catalog to one row
+        // (`app_input_runtime.zig:2935-2938`, `syncHelpMenu`) -- and the
+        // dismissal is left exactly as it was for when the catalog closes.
+        if let Some(menu) = self.help_menu.as_mut() {
+            menu.set_query(self.editor.text());
+            self.picker = None;
+            return;
+        }
         if !self.dismissed.admits(Trigger::of(self.editor.text())) {
             self.picker = None;
             return;
@@ -2767,6 +2989,14 @@ impl Shell {
         self.leave_by(Leaving::Quit);
     }
 
+    /// The line that names `id` as the session to come back to
+    /// ([`resume_handoff`]), in this session's palette and at the width the
+    /// terminal last reported -- upstream measures it against its own layout's
+    /// columns (`resumeHandoffColumns`, `main.zig:918-920`).
+    pub(crate) fn resume_handoff(&self, id: &crate::session::SessionId) -> String {
+        resume_handoff(id.as_str(), self.screen.1, self.palette)
+    }
+
     /// Ends the session, keeping the first reason it was given.
     ///
     /// First rather than last: an interrupted session that then reaches a
@@ -2814,6 +3044,8 @@ impl Shell {
     /// keystroke, and a row painted from a fresher read than the one that
     /// triggered it would show a number no frame was owed for.
     pub(crate) fn settle_band(&mut self, now: Instant) {
+        // A copy finishing is another answer only the other thread produces.
+        self.settle_copies();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -2832,6 +3064,22 @@ impl Shell {
         // turn of the loop is what releases it. Last, so the rows it adds are
         // measured against a band this turn has already settled.
         self.pace(now);
+    }
+
+    /// Says how each `/copy` that has finished went, in the order they
+    /// finished.
+    ///
+    /// Once a turn, from [`Self::settle_band`]: a copy runs on its own thread
+    /// ([`super::copy`]), so its outcome is a fact that arrives rather than one
+    /// this thread waits for.
+    fn settle_copies(&mut self) {
+        while let Some(copied) = self.copies.finished() {
+            self.announce(if copied {
+                notice::Notice::neutral(clipboard::TOPIC, clipboard::COPIED)
+            } else {
+                notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
+            });
+        }
     }
 
     /// Settles the row that says what the turn is doing.
@@ -3094,10 +3342,14 @@ impl Shell {
                 self.decide(event, now);
                 continue;
             }
-            // And the completion menu takes the five keys it binds, before the
-            // editor and before the gestures see them. Everything else falls
-            // through with the menu still up, because a menu is a view of the
-            // draft and typing is what the draft is made of.
+            // And the catalog or the completion menu -- never both -- takes
+            // the keys it binds, before the editor and before the gestures see
+            // them. Everything else falls through with it still up, because
+            // each is a view of the draft and typing is what the draft is made
+            // of.
+            if self.offer_to_catalog(&event) {
+                continue;
+            }
             if self.offer_to_picker(&event) {
                 continue;
             }
@@ -3376,7 +3628,7 @@ impl Shell {
                     self.amended(delta);
                 }
             }
-            Action::Tab | Action::Ignore => {}
+            Action::Tab | Action::BackTab | Action::Ignore => {}
         }
     }
 
@@ -3870,18 +4122,22 @@ impl Shell {
 /// ([`TurnControl::Reset`]), because it must not wait behind the turn it
 /// stops.
 impl CommandHandlers for Shell {
+    /// Opens the catalog (`commandShowHelp`, `app_commands.zig:700-706`):
+    /// `All`, the first command marked, the composer -- emptied by the submit
+    /// that got here -- as its search.
+    ///
+    /// **Nothing is written to the document**: the catalog is the answer, and
+    /// it is in the band. The line-oriented shell keeps its page
+    /// ([`interactive::help_text`]); it has no band to put a catalog in.
     fn help(&mut self) {
-        // The page the line shell prints, as one notice: its first line after
-        // the topic and the rest under it. The page indents its command rows
-        // by two for a terminal with no gutter; the notice indents every row
-        // after its first by two already, so the page's own two come off.
-        let page = interactive::help_text();
-        let body = page
-            .lines()
-            .map(|line| line.strip_prefix("  ").unwrap_or(line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        self.announce(notice::Notice::neutral("help", body));
+        // The completion menu goes first: the two share the slot, and the
+        // catalog is what the user asked for.
+        self.picker = None;
+        self.help_menu = Some(HelpMenu::open(self.editor.text()));
+        // [`Self::run_command`] re-solved the band before routing here, for
+        // a band with no catalog in it.
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     fn new_session(&mut self) {
@@ -3907,12 +4163,44 @@ impl CommandHandlers for Shell {
         self.announce(notice::Notice::neutral("version", crate::VERSION));
     }
 
+    /// Upstream's `commandQuit` (`app_commands.zig:662-665`): the session
+    /// ends with status 0, and on the way out names itself as the one to
+    /// resume when it had a conversation (`requestResumeExit`, `:344-348`).
+    /// The naming is the exit's, not this handler's -- `super::worker`'s
+    /// `Worker::resumable` once the runtime has stopped, written by `super`'s
+    /// `session` after the restore -- so Ctrl-D and the second Ctrl-C, which
+    /// request the same handoff upstream (`app_input_runtime.zig:1691`,
+    /// `:1752`), name it too.
     fn quit(&mut self) {
         self.leave();
     }
 
     fn setup(&mut self, argument: &str) {
         self.use_provider(argument);
+    }
+
+    /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
+    /// conversation's last reply onto the clipboard, raw.
+    ///
+    /// The reply is the one the runtime last published
+    /// ([`WorkHandle::last_reply`]) -- read at once, so a `/copy` typed while a
+    /// turn is running copies the reply before it, as upstream's does, rather
+    /// than waiting for that turn. "Nothing to copy" is said here; how the
+    /// copy went is said when its thread says so ([`Self::settle_copies`]).
+    fn copy(&mut self) {
+        let Some(reply) = self.work.last_reply() else {
+            self.announce(notice::Notice::neutral(
+                clipboard::TOPIC,
+                clipboard::NO_REPLY,
+            ));
+            return;
+        };
+        if !self.copies.start(reply) {
+            self.announce(notice::Notice::error(
+                clipboard::TOPIC,
+                clipboard::COPY_FAILED,
+            ));
+        }
     }
 }
 
@@ -4396,11 +4684,21 @@ impl Shell {
         // completion menu -- is taking, asked of the screen in question because
         // a narrower one wraps the summary onto more of them and a shorter one
         // shows fewer matches.
-        let panel = match self.slot() {
+        //
+        // The catalog's is a function of the composer's height as well
+        // (`inlinePickerRowBudgetCapped`'s `input_extra`), so it is asked
+        // again for each composer height the search below tries; every other
+        // occupant's is asked once.
+        let slot = self.slot();
+        let fixed = match slot {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
-            None => 0,
+            Some(Slot::Catalog(_)) | None => 0,
+        };
+        let panel = |input_rows: u16| match slot {
+            Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            _ => fixed,
         };
         // **The composer gives way to the question, one row at a time.** A
         // panel and a tall draft together can want more rows than the screen
@@ -4413,7 +4711,9 @@ impl Shell {
         // question asked of a one-row composer.
         (1..=wanted)
             .rev()
-            .find_map(|input_rows| layout::solve_band(rows, cols, input_rows, activity, panel))
+            .find_map(|input_rows| {
+                layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+            })
             .map(|geometry| geometry.floated(self.document_rows))
     }
 
@@ -9215,11 +9515,19 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, and the reset's three names answer with a fresh screen and
-            // say nothing (`fx-sessions-40x120-new.txt`); every other one says
+            // a row, `/help` the one whose answer is the catalog in the band,
+            // and the reset's three names answer with a fresh screen and say
+            // nothing (`fx-sessions-40x120-new.txt`); every other one says
             // something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
+            } else if *name == "/help" {
+                assert!(shell.help_menu.is_some(), "/help opened no catalog");
+                assert!(
+                    document.is_empty(),
+                    "/help wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
                 assert!(
                     document
@@ -9288,6 +9596,148 @@ mod tests {
             !crate::VERSION.starts_with('v'),
             "upstream's body is the bare version"
         );
+    }
+
+    /// Turns the loop until a `/copy` that is running on its own thread has
+    /// said how it went, and hands back what the document gained.
+    fn copy_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            shell.settle_band(Instant::now());
+            let document = shell.document();
+            if !document.is_empty() {
+                return document;
+            }
+            assert!(Instant::now() < deadline, "the copy never said how it went");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn copy_with_no_reply_says_so_and_copies_nothing() {
+        // `fx-basic-40x120-copy-empty.txt`: `* clipboard: No assistant reply
+        // to copy.`, and no echo of `/copy` above it.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "clipboard",
+                "No assistant reply to copy."
+            ))
+        );
+        assert_eq!(tool.copied(), None, "a copy ran with nothing to copy");
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    #[test]
+    fn copy_puts_the_raw_reply_on_the_clipboard_and_then_says_so() {
+        // `fx-sessions-40x120-copy.txt` and its `od -c`: the markdown exactly
+        // as the model wrote it, backticks kept, no line break added -- and a
+        // tab the screen showed as a space (`bridge::inert`) is a tab here.
+        let reply = "ALPHA answer line one.\n\nSecond paragraph with `code`.\tTAB";
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied(reply);
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::neutral("clipboard", "Copied to clipboard."))
+        );
+        assert_eq!(
+            tool.copied().expect("the clipboard tool was fed"),
+            reply.as_bytes()
+        );
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    #[test]
+    fn copy_that_the_clipboard_refused_is_an_error_notice() {
+        // `fx-sessions-40x120-copy-fail.txt`: the fake `pbcopy` exited 1.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::error(
+                "clipboard",
+                "Failed to copy to clipboard."
+            ))
+        );
+    }
+
+    #[test]
+    fn copy_with_nowhere_to_copy_to_is_an_error_notice() {
+        // A test's shell reaches no clipboard at all (`super::copy::NOWHERE`),
+        // which is also what a machine without the tool looks like.
+        let mut shell = shell(24, 80);
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::error(
+                "clipboard",
+                "Failed to copy to clipboard."
+            ))
+        );
+    }
+
+    #[test]
+    fn copy_takes_no_argument() {
+        // `registry.zig:59-68`: `/copy` matches exactly, so `/copy now` is a
+        // command nobody has -- and nothing is copied.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy now\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        shell.settle_band(Instant::now());
+        assert_eq!(tool.copied(), None, "`/copy now` copied");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "`/copy now` reached the runtime"
+        );
+    }
+
+    #[test]
+    fn copy_does_not_wait_behind_the_work_the_runtime_has_in_hand() {
+        // Upstream answers `/copy` at once, mid-turn included, from the
+        // history it already has. Here every place in the queue is taken, and
+        // the copy still runs: it is not work, so it neither queues behind a
+        // turn nor is refused for want of a place.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        assert_eq!(shell.work.outstanding(), super::super::worker::WORK_LIMIT);
+        let _ = shell.document();
+        shell.work.replied("the answer before these two");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::neutral("clipboard", "Copied to clipboard."))
+        );
+        assert_eq!(
+            tool.copied().as_deref(),
+            Some("the answer before these two".as_bytes())
+        );
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
     }
 
     #[test]
@@ -9513,6 +9963,156 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title().as_deref(), Some("second try"));
+    }
+
+    // -----------------------------------------------------------------------
+    // /quit, /exit, and the way back in
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn quit_and_exit_end_the_session_with_status_zero_and_say_nothing() {
+        // `commandQuit` (`app_commands.zig:662-665`) writes no notice: what
+        // the session says on the way out is the handoff, after the restore,
+        // and that is not a document row.
+        for line in [&b"/quit\r"[..], b"/exit\r", b"/quit \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line);
+            assert!(shell.leaving(), "{line:?} did not end the session");
+            assert_eq!(
+                format!("{:?}", shell.exit_code()),
+                format!("{:?}", ExitCode::SUCCESS),
+                "{line:?}"
+            );
+            assert_eq!(shell.document(), Vec::<String>::new(), "{line:?}");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{line:?} reached the runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn quit_or_exit_with_an_argument_is_an_unknown_command_and_leaves_nothing() {
+        // `/quit` takes nothing (`commands.zig:498`), so with a word after it
+        // the line names no command (`command_router.zig:121-133`) and is
+        // refused in upstream's words -- the session goes on.
+        for line in [&b"/quit now\r"[..], b"/exit please\r", b"/exit  now \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line);
+            assert!(!shell.leaving(), "{line:?} ended the session");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("command", UNKNOWN_COMMAND)),
+                "{line:?}"
+            );
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{line:?} reached the runtime"
+            );
+            assert!(shell.editor.is_empty(), "{line:?} stayed in the composer");
+        }
+    }
+
+    #[test]
+    fn the_handoff_is_upstreams_dim_line_naming_the_xfx_command() {
+        // `fx-sessions-40x120-quit.ansi` row 10:
+        // `ESC[38;5;245mContinue session with: fx --resume PWuUVCd_N1-Z`, and
+        // upstream's own reset and line feed (`render.zig:806-809`).
+        let id = "1759800000000-0123456789abcdef";
+        assert_eq!(
+            resume_handoff(id, 120, PALETTE),
+            format!("\u{1b}[38;5;245mContinue session with: xfx --resume {id}\u{1b}[0m\n")
+        );
+        // The light theme's dim grey (`theme.zig:128`).
+        let light = Palette {
+            mode: super::super::theme::Mode::Light,
+            ..PALETTE
+        };
+        assert_eq!(
+            resume_handoff(id, 120, light),
+            format!("\u{1b}[38;5;247mContinue session with: xfx --resume {id}\u{1b}[0m\n")
+        );
+    }
+
+    #[test]
+    fn the_handoff_breaks_before_the_command_when_one_row_cannot_hold_it() {
+        // `render.zig:803-804`: one row when label, space and command fit the
+        // screen exactly, and otherwise the command on the next row, two in.
+        let id = "abc";
+        let whole = "Continue session with: xfx --resume abc".len();
+        let width = u16::try_from(whole).expect("short");
+        assert_eq!(
+            resume_handoff(id, width, PALETTE),
+            "\u{1b}[38;5;245mContinue session with: xfx --resume abc\u{1b}[0m\n"
+        );
+        assert_eq!(
+            resume_handoff(id, width - 1, PALETTE),
+            "\u{1b}[38;5;245mContinue session with:\n  xfx --resume abc\u{1b}[0m\n"
+        );
+        // Measured against the screen the session is on.
+        let shell = shell(24, 40);
+        let id = crate::session::SessionId::parse("1759800000000-0123456789abcdef").expect("an id");
+        assert_eq!(
+            shell.resume_handoff(&id),
+            format!("\u{1b}[38;5;245mContinue session with:\n  xfx --resume {id}\u{1b}[0m\n")
+        );
+    }
+
+    #[test]
+    fn a_resumed_session_says_so_and_its_title_is_the_windows() {
+        // `writeResumeNotice` (`app_session_runtime.zig:4657-4672`):
+        // `* session resumed: <title>`, and the cached title -- the window's --
+        // is the session's.
+        let mut shell = shell(24, 80);
+        let _ = shell.take_title();
+        shell.resumed(Some("first question alpha".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "first question alpha"
+            ))
+        );
+        assert_eq!(shell.take_title().as_deref(), Some("first question alpha"));
+        // Its first turn here does not retitle it: the title is the saved
+        // session's first prompt, not this launch's.
+        turn_running(&mut shell, b"a follow-up\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+    }
+
+    #[test]
+    fn a_resumed_session_with_no_title_is_untitled_and_keeps_the_fallback() {
+        // `session_display_metadata.zig:14`; and only a real title is cached,
+        // so the window stays on the workspace.
+        let mut shell = shell(24, 80);
+        let fallback = shell.take_title().expect("the launch owes a title");
+        shell.resumed(None);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "Untitled session"
+            ))
+        );
+        assert_eq!(shell.take_title(), None, "{fallback:?} was owed again");
+        // A title read off a log is foreign text: what a terminal would obey
+        // in it is a space by the time it is written.
+        let mut hostile = self::shell(24, 80);
+        let _ = hostile.take_title();
+        hostile.resumed(Some("evil\u{1b}]2;owned\u{7} title".to_string()));
+        let document = hostile.document();
+        assert!(
+            document.iter().all(|row| !row.contains('\u{1b}')),
+            "{document:?}"
+        );
+        assert!(
+            hostile
+                .take_title()
+                .is_some_and(|title| !title.contains('\u{1b}') && !title.contains('\u{7}')),
+            "the window title carried a control"
+        );
     }
 
     #[test]
@@ -11091,6 +11691,247 @@ mod tests {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // the /help catalog
+    // -----------------------------------------------------------------------
+
+    /// A session with the catalog up, the way a user gets one: `/help` typed,
+    /// the completion menu running it on the Return.
+    fn with_catalog(rows: u16, cols: u16) -> Fixture {
+        let mut shell = shell(rows, cols);
+        shell.route_bytes(b"/help\r");
+        let _echo = shell.document();
+        assert!(shell.help_menu.is_some(), "/help did not open the catalog");
+        shell
+    }
+
+    /// A band row's text with every sequence taken out, the bold included.
+    fn visible_text(row: &str) -> String {
+        let mut out = String::new();
+        let mut rest = row;
+        while !rest.is_empty() {
+            if let Some(len) = super::super::pacer::escape_at(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            let mut characters = rest.chars();
+            out.extend(characters.next());
+            rest = characters.as_str();
+        }
+        out
+    }
+
+    /// The catalog's key help as the hint row paints it on a 120-column screen.
+    fn catalog_key_help() -> String {
+        format!(
+            "{}\u{2191}\u{2193} navigate     tab category     enter open     esc close{}",
+            PALETTE.dim(),
+            PALETTE.reset()
+        )
+    }
+
+    #[test]
+    fn help_opens_the_catalog_in_the_band_and_writes_nothing_to_the_document() {
+        let mut shell = shell(40, 120);
+        // The handler alone: what the document gets for the submitted line is
+        // the submit's business, and `/help`'s own answer is the band.
+        shell.help();
+        assert!(shell.document().is_empty(), "/help wrote to the document");
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 2 + crate::interactive::SLASH_REGISTRY.len());
+        assert_eq!(usize::from(shell.geometry.panel), rows.len());
+        assert!(
+            visible_text(&rows[0]).starts_with(&format!(
+                "Commands {}  [All]  General  Session",
+                crate::interactive::SLASH_REGISTRY.len()
+            )),
+            "{rows:?}"
+        );
+        assert_eq!(rows[1], "", "the blank row under the header");
+        assert_eq!(
+            rows[2],
+            format!(
+                "  {bright}/help{reset}       {bright}show available slash commands{reset}",
+                bright = PALETTE.subtitle(),
+                reset = PALETTE.reset()
+            )
+        );
+        assert_eq!(
+            rows[2..]
+                .iter()
+                .map(|row| visible_text(row)
+                    .split_whitespace()
+                    .next()
+                    .map(str::to_string))
+                .collect::<Vec<_>>(),
+            [
+                "/help", "/clear", "/version", "/quit", "/new", "/reset", "/copy", "/setup",
+                "/model"
+            ]
+            .map(|name| Some(name.to_string()))
+        );
+        assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
+        // The caret stays in the composer: the catalog is a view of it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS),
+            "the catalog took the caret"
+        );
+    }
+
+    #[test]
+    fn a_slash_word_typed_into_the_catalog_is_its_search_and_opens_no_menu() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"/version");
+        assert!(
+            shell.picker.is_none(),
+            "the completion menu opened over the catalog"
+        );
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 3, "{rows:?}");
+        assert!(visible_text(&rows[0]).starts_with("Commands 1  [All]"));
+        assert_eq!(
+            visible_text(&rows[2]),
+            "  /version    show the xfx version",
+            "the summary column is the filtered list's, 2 + 8 + 4"
+        );
+        assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
+    }
+
+    #[test]
+    fn enter_on_a_command_typed_in_full_runs_it_whatever_the_list_says() {
+        // On the Session tab `/exit` finds nothing -- but it is a name, so
+        // Enter submits it as typed before it asks the list anything.
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\t\t/exit");
+        let rows = menu(&shell);
+        assert!(visible_text(&rows[0]).contains("[Session]"), "{rows:?}");
+        assert_eq!(
+            rows[2],
+            format!("{}No commands found.{}", PALETTE.dim(), PALETTE.reset())
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_none());
+        assert!(shell.leaving(), "the typed command was not run");
+    }
+
+    #[test]
+    fn enter_on_a_row_runs_its_command_in_one_return() {
+        // `/quit` is the fourth row of `All`: three Downs and a Return.
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B");
+        assert!(
+            menu(&shell)[5].starts_with(&format!("  {}/quit", PALETTE.subtitle())),
+            "{:?}",
+            menu(&shell)
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_none());
+        assert!(shell.leaving(), "the marked command was not run");
+        assert_eq!(shell.editor.text(), "");
+    }
+
+    #[test]
+    fn enter_on_a_command_that_takes_an_argument_leaves_room_for_it_and_runs_nothing() {
+        // Account's one command is `/setup`.
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\t\t\t");
+        assert!(visible_text(&menu(&shell)[2]).starts_with("  /setup"));
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_none());
+        assert_eq!(shell.editor.text(), "/setup ");
+        assert!(shell.picker.is_none(), "a word with a space opened a menu");
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.document().is_empty(), "something ran");
+        assert!(shell.sent.try_recv().is_err(), "something was sent");
+    }
+
+    #[test]
+    fn enter_on_an_empty_tab_does_nothing() {
+        let mut shell = with_catalog(40, 120);
+        // Agents, the ninth tab after `All`.
+        shell.route_bytes(b"\t\t\t\t\t\t\t\t\t");
+        let rows = menu(&shell);
+        assert!(visible_text(&rows[0]).starts_with("Commands 0"), "{rows:?}");
+        assert!(visible_text(&rows[0]).contains("[Agents]"), "{rows:?}");
+        assert_eq!(shell.geometry.panel, 3);
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_some(), "an empty tab's Return closed it");
+        assert!(!shell.leaving());
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn up_and_down_wrap_and_tab_and_shift_tab_resize_the_catalog() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\x1b[A");
+        let rows = menu(&shell);
+        let last = rows.len() - 1;
+        assert!(
+            rows[last].starts_with(&format!("  {}/model", PALETTE.subtitle())),
+            "Up from the first row is the last: {rows:?}"
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(menu(&shell)[2].starts_with(&format!("  {}/help", PALETTE.subtitle())));
+        // General is four commands, and the band gives the rows back.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.geometry.panel, 2 + 4);
+        assert_eq!(menu(&shell).len(), 6);
+        // Shift-Tab, as a terminal spells it, is back to `All`.
+        shell.route_bytes(b"\x1b[Z");
+        let count = crate::interactive::SLASH_REGISTRY.len();
+        assert_eq!(usize::from(shell.geometry.panel), 2 + count);
+        assert!(visible_text(&menu(&shell)[0]).starts_with(&format!("Commands {count}  [All]")));
+    }
+
+    #[test]
+    fn escape_closes_the_catalog_and_its_search_without_arming_the_clear() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"ses");
+        assert_eq!(menu(&shell).len(), 2 + 4, "/clear, /new, /reset and /copy");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.help_menu.is_none());
+        assert_eq!(shell.editor.text(), "", "the search outlived the catalog");
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.hint(), IDLE_HINT, "the clear gesture was armed");
+    }
+
+    #[test]
+    fn ctrl_u_empties_the_search_and_keeps_the_catalog() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"ses");
+        shell.route_bytes(&[0x15]);
+        assert_eq!(shell.editor.text(), "");
+        assert!(shell.help_menu.is_some(), "C-u closed the catalog");
+        assert!(visible_text(&menu(&shell)[0]).starts_with(&format!(
+            "Commands {}",
+            crate::interactive::SLASH_REGISTRY.len()
+        )));
+    }
+
+    #[test]
+    fn the_catalog_fits_a_short_screen_and_scrolls_rather_than_overflowing() {
+        // 15 rows: a budget of five, so a header, its blank row and three
+        // commands -- and the mark walks the window down rather than off it.
+        let mut shell = with_catalog(15, 80);
+        assert_eq!(shell.geometry.panel, 5);
+        for _ in 0..4 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 5);
+        assert!(
+            rows[4].starts_with(&format!("  {}/new", PALETTE.subtitle())),
+            "{rows:?}"
+        );
+        assert!(visible_text(&rows[2]).starts_with("  /version"), "{rows:?}");
+        // The key help is the one that fits 80 columns.
+        assert!(visible_text(shell.band_rows().last().expect("a hint row"))
+            .starts_with("\u{2191}\u{2193} navigate     tab category"));
+    }
+
     // -----------------------------------------------------------------------
     // provider switching, the catalog browser and the context meter
     // -----------------------------------------------------------------------

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ea484d5 [debug] · Run /help for commands
+
+* clipboard: No assistant reply to copy.
+
+✗ command: Unknown command. Try /help.
+
+┃ first question alpha
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑6 ↓40)
+
+* clipboard: Copied to clipboard.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

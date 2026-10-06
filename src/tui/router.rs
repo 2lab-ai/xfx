@@ -46,6 +46,8 @@ pub(crate) trait CommandHandlers {
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
+    /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
+    fn copy(&mut self);
     fn version(&mut self);
     fn quit(&mut self);
     /// `/setup`, with the rest of the line -- already trimmed, and empty when
@@ -133,6 +135,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Reset => handlers.reset(),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
+        Slash::Copy => handlers.copy(),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -185,6 +188,9 @@ mod tests {
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
         }
+        fn copy(&mut self) {
+            self.calls.push("copy".to_string());
+        }
         fn version(&mut self) {
             self.calls.push("version".to_string());
         }
@@ -210,6 +216,7 @@ mod tests {
             ("/clear", "clear"),
             ("/reset", "reset"),
             ("/model", "model "),
+            ("/copy", "copy"),
             ("/version", "version"),
             ("/quit", "quit"),
             ("/setup", "setup "),
@@ -283,6 +290,7 @@ mod tests {
             "/version \t ",
             "  /version",
             "/exit  ",
+            "/copy ",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::Command { .. }),
@@ -297,6 +305,8 @@ mod tests {
             "/version\n",
             "/quit please",
             "/exit now",
+            "/copy now",
+            "/copy\tall",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::UnknownCommand { .. }),

@@ -25,13 +25,16 @@ use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
+use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
 use crate::config::{Environment, PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SANDBOX_LABEL};
 use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
+use crate::session::{
+    NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, WritableSession,
+};
 use crate::tools::{QuestionRequester, ToolContext};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -59,6 +62,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/reset",
     "/setup",
     "/model",
+    "/copy",
     "/version",
     "/quit",
 ];
@@ -86,13 +90,15 @@ pub struct SlashSpec {
     pub aliases: &'static [&'static str],
     /// The single line `/help` prints beside the name, and the menu beside it.
     pub summary: &'static str,
-    /// The group the completion menu files it under, at the right of its row.
+    /// The group the completion menu files it under, at the right of its row,
+    /// and the tab the TUI's `/help` catalog lists it on.
     ///
-    /// Upstream's own names (`SlashPresentationCategory.label`,
-    /// `vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:143-157`):
-    /// General, Session, Account, Model, Appearance, Security, Workspace,
-    /// Media, Agents, Extensions and Product. A string rather than an `enum`
-    /// because it is only ever *shown*: nothing branches on it.
+    /// One of [`SLASH_CATEGORIES`], upstream's own names
+    /// (`SlashPresentationCategory.label`,
+    /// `vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:143-157`).
+    /// A string rather than an `enum` because nothing branches on *which* one it
+    /// is: the menu shows it and the catalog groups by it, and the assertion
+    /// under the registry keeps it to that closed set at compile time.
     pub category: &'static str,
     /// Whether the rest of the line means anything to it.
     ///
@@ -173,6 +179,14 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: true,
     },
     SlashSpec {
+        command: Slash::Copy,
+        name: "/copy",
+        aliases: &[],
+        summary: "copy the last assistant response",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Version,
         name: "/version",
         aliases: &[],
@@ -192,6 +206,49 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
 ];
+
+/// Every category a command can be filed under, in the order the `/help`
+/// catalog's tabs are in.
+///
+/// Upstream's `SlashPresentationCategory`, in its declaration order
+/// (`vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:130-157`),
+/// which is also the order the catalog lists commands in (`helpCatalogSpecAt`,
+/// `:429-440`). **All eleven, including the ones no xfx command is filed
+/// under**: a tab is a category, not a command, and upstream's own catalog has
+/// a tab with nothing on it (`Agents` at `c1db919`), so an empty one says
+/// "nothing here" rather than advertising anything.
+pub const SLASH_CATEGORIES: &[&str] = &[
+    "General",
+    "Session",
+    "Account",
+    "Model",
+    "Appearance",
+    "Security",
+    "Workspace",
+    "Media",
+    "Agents",
+    "Extensions",
+    "Product",
+];
+
+/// Every registry row is filed under one of [`SLASH_CATEGORIES`], or this crate
+/// does not build: a row under a name the catalog has no tab for would be a
+/// command the `/help` catalog never lists.
+const _: () = {
+    let mut row = 0;
+    while row < SLASH_REGISTRY.len() {
+        let mut found = false;
+        let mut category = 0;
+        while category < SLASH_CATEGORIES.len() {
+            if same(SLASH_REGISTRY[row].category, SLASH_CATEGORIES[category]) {
+                found = true;
+            }
+            category += 1;
+        }
+        assert!(found);
+        row += 1;
+    }
+};
 
 /// The registry row for one command.
 ///
@@ -289,6 +346,9 @@ pub enum Slash {
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
     Setup,
+    /// Put the last thing the model said on the system clipboard
+    /// ([`crate::clipboard`]).
+    Copy,
     Version,
     Quit,
 }
@@ -552,7 +612,40 @@ pub(crate) fn open_conversation(
             },
         )
         .map_err(|err| err.to_string())?;
-    let permissions = permissions.with_durable_session(session.id().as_str());
+    Ok(bind_conversation(
+        store,
+        session,
+        scope,
+        permissions,
+        questioner,
+        cancel,
+    ))
+}
+
+/// Binds an open session to the authority its tools run under.
+///
+/// [`open_conversation`]'s second half, and the whole of what continuing a
+/// saved session needs once `SessionStore::resume` has handed it back (the
+/// TUI's `xfx --resume`, `crate::tui::worker`): the grants the session's log
+/// already holds go back into the authority, as `xfx ask --resume` restores
+/// them, so an "always" answered last time is not asked again. A session this
+/// shell just created has none, so for it the loop adds nothing.
+///
+/// Infallible on purpose: the two things that can fail -- the scope and the
+/// session -- are the caller's to have in hand already, which is what lets a
+/// resumed session be refused before the terminal is taken.
+pub(crate) fn bind_conversation(
+    store: &SessionStore,
+    session: WritableSession,
+    scope: AccessScope,
+    permissions: PermissionSession,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Conversation {
+    let mut permissions = permissions.with_durable_session(session.id().as_str());
+    for grant in &session.state().grants {
+        permissions.grant(grant.clone());
+    }
     let recorder = SessionRecorder::new(store.clone(), session);
     let mut tools = ToolContext::new(scope)
         .with_permissions(permissions)
@@ -560,7 +653,7 @@ pub(crate) fn open_conversation(
     if let Some(questioner) = questioner {
         tools = tools.with_questioner(questioner);
     }
-    Ok(Conversation { recorder, tools })
+    Conversation { recorder, tools }
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +777,7 @@ pub async fn run(
                             "[shell] new session; the next prompt starts a fresh conversation"
                         )?;
                     }
+                    Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                 }
                 io::stdout().flush()?;
             }
@@ -1069,6 +1163,21 @@ async fn apply_model(
     }
 }
 
+/// `/copy` on this shell: the conversation's last reply onto the clipboard,
+/// and one line saying how that went ([`crate::clipboard`]).
+///
+/// The copy waits for the clipboard tool to exit, as upstream's does. This
+/// loop is waiting for the next line anyway; it is the TUI, whose thread holds
+/// a terminal that has to keep being painted, that hands the wait to a thread.
+fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -> io::Result<()> {
+    let reply = conversation.and_then(|conversation| last_reply(conversation.recorder.state()));
+    match reply {
+        None => writeln!(io::stdout(), "[shell] {NO_REPLY}"),
+        Some(reply) if clipboard.copy(reply) => writeln!(io::stdout(), "[shell] {COPIED}"),
+        Some(_) => writeln!(io::stderr(), "xfx: {COPY_FAILED}"),
+    }
+}
+
 /// The version line `/version` prints.
 ///
 /// Visible to the crate because the TUI answers the same commands from the
@@ -1119,13 +1228,13 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_eight_commands() {
+    fn the_shell_advertises_exactly_nine_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        // Seven since `/setup`, eight since `/reset` -- upstream's third name
+        // Eight since `/copy`, nine since `/reset` -- upstream's third name
         // for the one reset; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 8);
+        assert_eq!(SLASH_COMMANDS.len(), 9);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();

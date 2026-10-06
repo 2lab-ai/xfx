@@ -1,0 +1,9 @@
+wait 4
+title launch
+keep
+type /exit
+wait 0.5
+key Enter
+wait 2
+snap quit
+title quit

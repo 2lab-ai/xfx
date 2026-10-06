@@ -1,0 +1,24 @@
+x𝒇x v0.1.0-04d9593 [debug] · Run /help for commands
+
+┃ /help
+
+┃
+────────────────────────────────────────────────────────────────────────────────
+Commands 0  All  General  Session  Account  Model  Appearance  …  [Product]
+
+No commands found.
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,373 @@
+//! `/copy`: the last thing the model said, onto the system clipboard.
+//!
+//! Upstream's command (`commandCopyLast`, `vercel-labs/fx@c1db9191
+//! src/core/app/app_commands.zig:1974-2001`) is three answers, and each is
+//! given here once for both shells:
+//!
+//! - **What** is copied: [`last_reply`], the last assistant step that said
+//!   anything, exactly as the model wrote it (`lastAssistantReply`,
+//!   `src/core/session/session.zig:2067-2079`). The markdown, not the document
+//!   it was rendered into: no gutter, no colour, no line break added.
+//! - **How**: [`Clipboard::copy`], `pbcopy` on macOS and `xclip -selection
+//!   clipboard` on Linux, found on `PATH`, fed the bytes on its standard input
+//!   and judged by its exit status alone (`src/core/hosts/native.zig:15-52`,
+//!   `:229-242`).
+//! - **What is said** about it: [`NO_REPLY`], [`COPIED`] and [`COPY_FAILED`],
+//!   under the topic [`TOPIC`].
+//!
+//! **Where** it runs is each shell's own business. The line shell copies on
+//! its read loop, which waits for a line anyway; the TUI hands the copy to a
+//! thread of its own, because its UI thread holds the terminal and a clipboard
+//! tool that does not exit must not be something the screen waits for.
+
+use std::ffi::OsString;
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use crate::session::{DurableState, TurnStep};
+
+/// The topic every `/copy` notice is filed under (`app_commands.zig:1978`).
+pub const TOPIC: &str = "clipboard";
+
+/// What `/copy` says when the conversation has no reply in it
+/// (`app_commands.zig:1979`).
+pub const NO_REPLY: &str = "No assistant reply to copy.";
+
+/// What `/copy` says when the clipboard tool took the bytes and exited 0
+/// (`app_commands.zig:1996`).
+pub const COPIED: &str = "Copied to clipboard.";
+
+/// What `/copy` says about every other outcome: no tool for this system, one
+/// that could not be started or fed, and one that exited with anything but 0
+/// (`app_commands.zig:1988`). Upstream says the same sentence for all of them,
+/// and so does this: which of them it was is a fact about the machine, not
+/// something the user can act on from inside a session.
+pub const COPY_FAILED: &str = "Failed to copy to clipboard.";
+
+/// The last thing the model said in `state`, as it said it.
+///
+/// The newest assistant step whose text is not empty, searched from the end
+/// of the newest turn backwards -- so a turn that ended on a tool call, or one
+/// whose last step was only calls, still yields the text the model wrote
+/// before them, as upstream's history walk does. Not trimmed: the bytes are
+/// the model's, and a reply that ended without a line break is copied without
+/// one.
+pub fn last_reply(state: &DurableState) -> Option<&str> {
+    state
+        .turns
+        .iter()
+        .rev()
+        .flat_map(|turn| turn.steps.iter().rev())
+        .find_map(|step| match step {
+            TurnStep::Assistant { text, .. } if !text.is_empty() => Some(text.as_str()),
+            _ => None,
+        })
+}
+
+/// The tool this system copies with, and its arguments
+/// (`clipboardCommand`, `native.zig:229-235`).
+///
+/// `None` where upstream has none either, which makes every copy a failure
+/// there rather than a guess at what a third system calls its clipboard.
+const TOOL: Option<(&str, &[&str])> = if cfg!(target_os = "macos") {
+    Some(("pbcopy", &[]))
+} else if cfg!(target_os = "linux") {
+    Some(("xclip", &["-selection", "clipboard"]))
+} else {
+    None
+};
+
+/// The system clipboard, reached through the tool on `PATH`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Clipboard {
+    /// Where the tool is looked for, when it is not the process's own `PATH`.
+    ///
+    /// Set on the child alone ([`Command::env`]), which is also the path the
+    /// standard library resolves the program against -- so a test can put a
+    /// fake `pbcopy` first without touching the environment every other test
+    /// in the process is reading.
+    search: Option<OsString>,
+}
+
+impl Clipboard {
+    /// The clipboard the user has: the tool found on the process's `PATH`.
+    pub fn system() -> Self {
+        Self::default()
+    }
+
+    /// The tool found on `search` instead.
+    pub fn searching(search: impl Into<OsString>) -> Self {
+        Self {
+            search: Some(search.into()),
+        }
+    }
+
+    /// Puts `text` on the clipboard, byte for byte, and says whether it worked.
+    ///
+    /// **Blocks until the tool exits.** That is upstream's contract too
+    /// (`copyToClipboard` waits for the child), and it is why the TUI never
+    /// calls this on its UI thread.
+    ///
+    /// Everything that is not "the tool took every byte and exited 0" is
+    /// `false`: a system with no tool, a tool that is not on the path, a pipe
+    /// it closed before the bytes were through, and any end but an exit status
+    /// of 0 -- a signal included (`copySucceeded`, `native.zig:237-242`). Standard output and
+    /// error go nowhere, because the only thing the tool is asked is its exit
+    /// status -- and because the TUI owns the terminal they would land on.
+    pub fn copy(&self, text: &str) -> bool {
+        let Some((program, args)) = TOOL else {
+            return false;
+        };
+        let mut command = Command::new(program);
+        command
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(search) = &self.search {
+            command.env("PATH", search);
+        }
+        let Ok(mut child) = command.spawn() else {
+            return false;
+        };
+        // Dropped at the end of the statement: the tool sees its end of input
+        // there, and only then can it exit. A write that failed still drops it,
+        // so the wait below cannot be a wait for input that is never coming.
+        let written = child
+            .stdin
+            .take()
+            .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+        let exited = child.wait().is_ok_and(|status| status.success());
+        written && exited
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::PermissionMode;
+    use crate::session::{
+        NewSession, RecordedToolCall, SessionEvent, SessionId, SessionRecorder, SessionStore,
+    };
+
+    /// A session written through the real log, so the state a reply is read
+    /// out of is the one replay builds rather than one a test put together.
+    struct Recorded {
+        _home: tempfile::TempDir,
+        recorder: SessionRecorder,
+    }
+
+    impl Recorded {
+        fn new() -> Self {
+            let home = tempfile::tempdir().expect("a home");
+            // A directory the store creates, so it is created private.
+            let store = SessionStore::open(&home.path().join(".xfx")).expect("a store");
+            let session = store
+                .create(
+                    SessionId::generate(),
+                    NewSession {
+                        origin_workspace_root: home.path().to_path_buf(),
+                        workspace_root: home.path().to_path_buf(),
+                        model: "fake/model-a".to_string(),
+                        permission_mode: PermissionMode::Ask,
+                    },
+                )
+                .expect("a session");
+            Self {
+                recorder: SessionRecorder::new(store, session),
+                _home: home,
+            }
+        }
+
+        fn commit(mut self, event: SessionEvent) -> Self {
+            self.recorder.commit(event);
+            assert_eq!(self.recorder.failure(), None, "the log refused it");
+            self
+        }
+
+        fn asked(self) -> Self {
+            self.commit(SessionEvent::UserMessage {
+                text: "asked".to_string(),
+            })
+        }
+
+        /// One assistant step: `text`, and one tool call when `calls`.
+        fn said(self, text: &str, calls: bool) -> Self {
+            let tool_calls = if calls {
+                vec![RecordedToolCall {
+                    id: "call-1".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "a"}),
+                }]
+            } else {
+                Vec::new()
+            };
+            self.commit(SessionEvent::AssistantMessage {
+                text: text.to_string(),
+                tool_calls,
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            })
+        }
+
+        fn ran(self) -> Self {
+            self.commit(SessionEvent::ToolResult {
+                call_id: "call-1".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: "the file".to_string(),
+            })
+        }
+
+        fn reply(&self) -> Option<&str> {
+            last_reply(self.recorder.state())
+        }
+    }
+
+    #[test]
+    fn a_conversation_with_nothing_said_in_it_has_no_reply() {
+        assert_eq!(Recorded::new().reply(), None);
+        // A turn whose model only called a tool, or said an empty step, has
+        // not replied either.
+        let quiet = Recorded::new().asked().said("", true).ran().said("", false);
+        assert_eq!(quiet.reply(), None);
+    }
+
+    #[test]
+    fn the_reply_is_the_newest_text_the_model_wrote_byte_for_byte() {
+        // `fx-sessions-40x120-sh.log`: the backticks stay and no line break is
+        // added. The tab and the escape are what the TUI's own copy of the
+        // stream no longer has (`tui::bridge::inert`), which is why the reply
+        // is read from here.
+        let answer = "ALPHA answer line one.\n\nSecond paragraph with `code`.\t\u{1b}[1m";
+        let recorded = Recorded::new()
+            .asked()
+            .said("an older answer", false)
+            .asked()
+            .said(answer, false);
+        assert_eq!(recorded.reply(), Some(answer));
+    }
+
+    #[test]
+    fn a_turn_that_ended_on_a_tool_still_has_the_text_written_before_it() {
+        // `session.zig:2067-2079`: the walk passes over every entry that is not
+        // an assistant entry with text, wherever it is.
+        let said_then_called = Recorded::new()
+            .asked()
+            .said("the previous answer", false)
+            .asked()
+            .said("let me look", true)
+            .ran()
+            .said("", true);
+        assert_eq!(said_then_called.reply(), Some("let me look"));
+        let only_called = Recorded::new()
+            .asked()
+            .said("the previous answer", false)
+            .asked()
+            .said("", true)
+            .ran();
+        assert_eq!(only_called.reply(), Some("the previous answer"));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    mod tool {
+        use super::super::fake::FakeTool;
+
+        #[test]
+        fn the_tool_on_the_path_is_fed_the_exact_bytes() {
+            let tool = FakeTool::keeping();
+            let text = "ALPHA answer line one.\n\nSecond paragraph with `code`.\t\u{1b}[1m";
+            assert!(tool.clipboard().copy(text));
+            assert_eq!(
+                tool.copied().expect("the fake was fed"),
+                text.as_bytes(),
+                "the clipboard did not get the reply byte for byte"
+            );
+        }
+
+        #[test]
+        fn a_tool_that_exits_with_anything_but_zero_is_a_failure() {
+            let tool = FakeTool::keeping();
+            tool.fail();
+            assert!(!tool.clipboard().copy("reply"));
+            assert_eq!(tool.copied(), None, "the failing tool kept the bytes");
+        }
+
+        #[test]
+        fn a_tool_that_is_not_on_the_path_is_a_failure() {
+            let empty = tempfile::tempdir().expect("an empty directory");
+            assert!(!super::super::Clipboard::searching(empty.path().as_os_str()).copy("reply"));
+        }
+
+        #[test]
+        fn a_tool_that_leaves_before_reading_is_a_failure_and_not_a_hang() {
+            let tool = FakeTool::running("exit 0");
+            // Far more than a pipe holds, so the write cannot be through before
+            // the tool has gone: the broken pipe is an error here, not a signal
+            // (the runtime ignores `SIGPIPE`), and an exit status of 0 does not
+            // make a copy that never arrived a success.
+            let text = "x".repeat(4 << 20);
+            assert!(!tool.clipboard().copy(&text));
+        }
+    }
+}
+
+/// A clipboard tool for a test to run instead of the user's.
+#[cfg(all(test, unix))]
+pub(crate) mod fake {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    use super::Clipboard;
+
+    /// One directory holding a `pbcopy` and an `xclip` that are the same
+    /// script, so a case reads the same whichever system runs it.
+    pub(crate) struct FakeTool {
+        dir: tempfile::TempDir,
+    }
+
+    impl FakeTool {
+        /// A tool that keeps what it was fed ([`Self::copied`]), or reads it
+        /// and exits 1 once [`Self::fail`] has been called.
+        pub(crate) fn keeping() -> Self {
+            Self::running(concat!(
+                "if [ -f \"${0%/*}/fail\" ]; then cat >/dev/null; exit 1; fi\n",
+                "cat > \"${0%/*}/copied\"",
+            ))
+        }
+
+        /// A tool that runs `body` under `/bin/sh`.
+        pub(crate) fn running(body: &str) -> Self {
+            let dir = tempfile::tempdir().expect("a directory for the fake tools");
+            for tool in ["pbcopy", "xclip"] {
+                let path = dir.path().join(tool);
+                std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write a fake tool");
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                    .expect("make it executable");
+            }
+            Self { dir }
+        }
+
+        /// The clipboard that finds this tool: its directory, then `/bin` for
+        /// the `sh` and `cat` it runs -- and not `/usr/bin`, where macOS keeps
+        /// the real `pbcopy`.
+        pub(crate) fn clipboard(&self) -> Clipboard {
+            Clipboard::searching(format!("{}:/bin", self.dir.path().display()))
+        }
+
+        /// What the tool was last fed, or `None` when it has kept nothing.
+        pub(crate) fn copied(&self) -> Option<Vec<u8>> {
+            std::fs::read(self.path("copied")).ok()
+        }
+
+        /// Makes every copy from now on exit 1.
+        pub(crate) fn fail(&self) {
+            std::fs::write(self.path("fail"), "").expect("arm the failure");
+        }
+
+        fn path(&self, name: &str) -> PathBuf {
+            self.dir.path().join(name)
+        }
+    }
+}

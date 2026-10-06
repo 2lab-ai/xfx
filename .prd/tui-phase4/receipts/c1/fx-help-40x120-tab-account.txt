@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 6  All  General  Session  [Account]  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /login       choose the model provider and how it signs in
+  /logout      sign out of a provider session
+  /provider    choose the model provider and how it signs in
+  /stats       show token and turn statistics
+  /usage       show local fx tokens, models, and spend
+  /credits     show gateway credits balance
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

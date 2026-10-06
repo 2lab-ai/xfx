@@ -634,6 +634,199 @@ fn a_normal_exit_gives_the_terminal_back_byte_for_byte() {
     );
 }
 
+/// What a planned exit wrote from its restore on: the restore, the band's
+/// erase, and whatever the session said once the terminal was the user's
+/// again (`app_entry_runtime.zig:424-438`).
+fn after_the_restore(text: &str) -> &str {
+    &text[text.rfind(RESTORE).expect("the restore")..]
+}
+
+/// Waits until the session log holds `count` concluded turns.
+///
+/// [`wait_for_the_turn_to_conclude`] answers on the first one, which a resumed
+/// session's log already holds from the run that saved it.
+fn wait_for_conclusions(sandbox: &Sandbox, count: usize) {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let concluded: usize = sandbox
+            .session_ids()
+            .iter()
+            .filter_map(|id| {
+                std::fs::read_to_string(sandbox.sessions_dir().join(id).join("events.jsonl")).ok()
+            })
+            .map(|raw| {
+                raw.lines()
+                    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                    .filter(|frame| frame["event"]["kind"] == "turn_concluded")
+                    .count()
+            })
+            .sum();
+        if concluded >= count {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{concluded} of {count} turns concluded"
+        );
+        std::thread::sleep(IDLE_POLL);
+    }
+}
+
+#[test]
+fn quit_after_a_conversation_names_the_session_and_resume_continues_it() {
+    // `fx-sessions-40x120-quit.txt`: the band comes down, the document stays,
+    // and one dim row names the command that continues the session -- which
+    // has to be a command this binary answers.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-FIRST"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SECOND"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut first = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    first.wait_for(READY);
+    first.type_bytes(b"first question alpha\r");
+    first.wait_for("MARKER-FIRST");
+    wait_for_the_turn_to_conclude(&sandbox);
+    first.type_bytes(b"/quit\r");
+    assert_eq!(first.wait_exit().code(), Some(0));
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "one conversation is one session: {ids:?}");
+    let id = &ids[0];
+    let line = format!("Continue session with: xfx --resume {id}");
+    let text = first.settled_text();
+    let after = after_the_restore(&text);
+    let named = after
+        .find(&line)
+        .unwrap_or_else(|| panic!("the exit did not name the session: {after:?}"));
+    // On a terminal that is the user's again: after the band's erase, in the
+    // dim grey, ended by a reset and its own line.
+    let erased = after.find("\u{1b}[J").expect("the band's erase");
+    assert!(
+        erased < named,
+        "the line was written before the band came down: {after:?}"
+    );
+    // The grey is the dim one at whichever depth the terminal has -- `245`,
+    // or its truecolor spelling (`theme.rs`) -- and the line is one run.
+    assert!(
+        ["\u{1b}[38;5;245m", "\u{1b}[38;2;138;138;138m"]
+            .iter()
+            .any(|dim| after.contains(&format!("{dim}{line}\u{1b}[0m\r\n"))),
+        "the line is not upstream's dim row: {after:?}"
+    );
+    assert_eq!(
+        after.matches("Continue session with").count(),
+        1,
+        "{after:?}"
+    );
+
+    // The command it names really continues it: the next prompt carries the
+    // saved turn, and no second session is made.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(id);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    second.type_bytes(b"second question beta\r");
+    second.wait_for("MARKER-SECOND");
+    let sent = user_messages(&gateway.requests()[1].json());
+    assert_eq!(
+        sent,
+        vec![
+            "first question alpha".to_string(),
+            "second question beta".to_string()
+        ],
+        "the resumed turn was not sent with the saved one before it"
+    );
+    assert_eq!(
+        sandbox.session_ids(),
+        ids,
+        "the resume opened a second session"
+    );
+
+    // Ctrl-D leaves the same way and names the same session
+    // (`handleSemanticCtrlD`, `app_input_runtime.zig:1745-1754`).
+    wait_for_conclusions(&sandbox, 2);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+    let text = second.settled_text();
+    assert!(
+        after_the_restore(&text).contains(&line),
+        "Ctrl-D did not name the session it left: {:?}",
+        after_the_restore(&text)
+    );
+
+    // A resumed session is not a pristine one, so leaving it before asking
+    // anything still names it -- and the second Ctrl-C requests the same
+    // handoff upstream's does (`handleSemanticCtrlC`,
+    // `app_input_runtime.zig:1688-1694`), with its own status.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(id);
+    let mut third = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    third.wait_for(READY);
+    third.wait_for(FRAME_END);
+    third.type_bytes(&[0x03, 0x03]);
+    assert_eq!(third.wait_exit().code(), Some(130));
+    let text = third.settled_text();
+    assert!(
+        after_the_restore(&text).contains(&line),
+        "the second Ctrl-C did not name the session it left: {:?}",
+        after_the_restore(&text)
+    );
+    assert_eq!(
+        sandbox.session_ids(),
+        ids,
+        "a resume opened a second session"
+    );
+}
+
+#[test]
+fn quit_before_any_prompt_names_nothing_and_keeps_no_session() {
+    // `fx-misc-40x120-quit-pristine.txt`: no line, and nothing on disk.
+    let sandbox = Sandbox::new();
+    for quit in ["/quit", "/exit"] {
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+        session.wait_for(READY);
+        session.wait_for(FRAME_END);
+        session.type_line(quit);
+        assert_eq!(session.wait_exit().code(), Some(0), "{quit}");
+        let text = session.settled_text();
+        assert!(
+            !text.contains("Continue session with"),
+            "{quit} named a session nobody asked anything in: {text:?}"
+        );
+        assert_eq!(sandbox.session_ids(), Vec::<String>::new(), "{quit}");
+    }
+}
+
+#[test]
+fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut command = tui(&sandbox);
+    command.arg("--resume").arg("no-such-session");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    assert_eq!(session.wait_exit().code(), Some(1));
+    let text = session.settled_text();
+    assert!(
+        text.contains("xfx: there is no session `no-such-session`"),
+        "the refusal must name what was not found: {text:?}"
+    );
+    assert_no_mode_bytes(&text);
+    assert_eq!(before, modes(&pty), "a refused resume touched the terminal");
+    assert_eq!(sandbox.session_ids(), Vec::<String>::new());
+}
+
 #[test]
 fn under_tmux_the_kitty_keyboard_push_is_omitted() {
     let sandbox = Sandbox::new();
@@ -3389,17 +3582,22 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
-    // types: `/help`'s closing line, `/version`'s topic, the model report,
+    // types: `/help`'s catalog, `/version`'s topic, the model report,
     // `/setup`'s usage refusal, the reset's scrollback handoff for `/new`,
     // `/clear` and `/reset` (which say nothing), and a name the registry does
     // not carry. Each needle sits inside one run of colour: a notice's label
     // and body are separate runs on the wire.
     session.type_bytes(b"/help\r");
-    // The **closing** line of the help page rather than a summary out of the
-    // middle of it: the completion menu shows the same summaries while the name
-    // is being typed, so a needle taken from one of those would be satisfied by
-    // the menu and would stop saying that `/help` was answered at all.
-    session.wait_for("Anything else is a prompt.");
+    // The catalog's key help rather than a summary out of its rows: the
+    // completion menu shows the same summaries while the name is being typed,
+    // so a needle taken from one of those would be satisfied by the menu and
+    // would stop saying that `/help` was answered at all. Only the catalog says
+    // `tab category`.
+    session.wait_for("tab category");
+    // Typed into the open catalog, where it is the search -- and Enter on a
+    // command typed out in full runs it as typed and closes the catalog
+    // (upstream's `submitHelpMenuSelection`), which is what leaves the
+    // composer free for the rest of the names below.
     session.type_bytes(b"/version\r");
     session.wait_for("version:");
     session.type_bytes(b"/model\r");
@@ -6472,4 +6670,56 @@ fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
         0,
         "a bare /model reached the provider"
     );
+}
+
+// ---------------------------------------------------------------------------
+// /copy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
+    // Upstream's three answers (`app_commands.zig:1974-2001`) through the real
+    // binary, with a fake `pbcopy` first on the child's `PATH`. The reply has
+    // a tab in it: the screen shows it as a space (`bridge::inert`), and the
+    // clipboard is owed the tab, which is why the copy is read from the
+    // session's log rather than from what was painted.
+    let reply = "ALPHA answer line one.\n\nSecond paragraph with `code`.\tTAB-END";
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&[
+            "ALPHA answer line one.\n\n",
+            "Second paragraph with `code`.\tTAB-END",
+        ]),
+    )]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"/copy\r");
+    session.wait_for("No assistant reply to copy.");
+    assert_eq!(clipboard.copied(), None, "a copy ran with nothing to copy");
+
+    session.type_bytes(b"copy this answer\r");
+    // The turn is over once the session is titled by its first prompt, which
+    // happens on the turn's conclusion -- and the reply is published before
+    // the conclusion is sent (`worker::run_turn`).
+    session.wait_for("\u{1b}]2;copy this answer\u{7}");
+    session.type_bytes(b"/copy\r");
+    session.wait_for("Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        reply.as_bytes(),
+        "not the reply as the model wrote it"
+    );
+
+    clipboard.fail();
+    session.type_bytes(b"/copy\r");
+    session.wait_for("Failed to copy to clipboard.");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
