@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-89690c0 [debug] · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: session: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: workspace: on
+
+┃ say the marker
+
+  MARKER-STATUSLINE-TURN
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a · say the marker · 1k · <scratch>/work (main)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
