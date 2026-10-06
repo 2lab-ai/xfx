@@ -57,6 +57,9 @@ pub(crate) trait CommandHandlers {
     /// `/undo`: the newest file change the conversation's tools made, taken
     /// back. It takes nothing: `/undo now` never reaches it ([`classify`]).
     fn undo(&mut self);
+    /// `/trace`. It takes nothing either: `/trace now` is a line that names
+    /// no command, as upstream's is (`commands.zig:486` has no `has_args`).
+    fn trace(&mut self);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
@@ -173,6 +176,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Permissions => handlers.permissions(argument),
         Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
+        Slash::Trace => handlers.trace(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Usage => handlers.usage(),
@@ -243,6 +247,9 @@ mod tests {
         fn undo(&mut self) {
             self.calls.push("undo".to_string());
         }
+        fn trace(&mut self) {
+            self.calls.push("trace".to_string());
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
@@ -292,6 +299,7 @@ mod tests {
             ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/trace", "trace"),
             ("/sound", "sound "),
             ("/stats", "stats"),
             ("/usage", "usage"),
