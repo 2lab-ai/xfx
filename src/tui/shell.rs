@@ -75,8 +75,10 @@ use std::time::Instant;
 
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
+use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -87,11 +89,11 @@ use super::layout::{self, Geometry};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
+use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
-use super::theme::Palette;
-use super::transaction::{EditTransaction, LastTransaction};
-use super::transcript::{Append, Transcript};
+use super::theme::{Mode, Palette};
+use super::transcript::{Append, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
@@ -163,6 +165,40 @@ pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
 const PANEL_TOO_SMALL: &str =
     "xfx: this screen is too small to ask for permission, so the change was refused";
 
+/// What the user is told when they granted a question the screen has not shown
+/// them yet.
+///
+/// **Said rather than swallowed.** The keystroke is spent and the question stays
+/// up, so the alternative to a sentence is a key that appears to do nothing --
+/// and a user whose `1` does nothing presses it again, harder, which is the one
+/// input pattern this gate must not train.
+pub(crate) const APPROVAL_NOT_READY: &str =
+    "the question is not on the screen yet - press it again once you can read it";
+
+/// What they are told when this screen can never show the whole request, so no
+/// frame on it will ever grant.
+///
+/// A different sentence from [`APPROVAL_NOT_READY`] because it asks for a
+/// different action: waiting fixes the first and only a bigger window fixes the
+/// second. It names the two keys that still work, because a question that cannot
+/// be granted must still be refusable.
+pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
+    "this screen cannot show the whole request, so it cannot be approved here; \
+     make the window larger, or press 3 or esc to refuse";
+
+/// What the user is told when the screen cannot hold a question the **model**
+/// asked ([`super::question`]).
+///
+/// The same rule as [`PANEL_TOO_SMALL`] -- a decision xfx was never given is not
+/// one it may invent -- and a **different sentence**, because the two refusals
+/// are about different things. `ask_user_question` asks for no permission and
+/// changes nothing: a batch refused for want of rows grants nothing, denies
+/// nothing, and leaves the model to ask in freeform instead. Borrowing the
+/// permission panel's wording would tell the user that a change they never made
+/// was refused, which is the one kind of sentence a refusal must not contain.
+const QUESTION_TOO_SMALL: &str =
+    "xfx: this screen is too small to show the question, so the question was cancelled";
+
 /// What the user is told when the runtime thread is not there to take work.
 ///
 /// Told apart from [`QUEUE_REJECTED`] on purpose: a runtime that is gone is not
@@ -199,6 +235,13 @@ const PASTE_UNNUMBERED: &str = "this session has no paste numbers left; nothing 
 /// rather than left for the user to discover in what the model answers.
 const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are words now";
 
+/// The same exhaustion seen from a yank.
+///
+/// Its own sentence rather than [`RECALL_UNNUMBERED`]'s, because a user who
+/// pressed `C-y` did not recall anything and a row that said so would be
+/// describing a keystroke they did not make.
+const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are words now";
+
 /// What `/clear` leaves behind after it has erased the screen.
 ///
 /// The line-oriented shell prints its banner and a `kept` line here
@@ -212,6 +255,25 @@ const CLEARED_NOTICE: &str = "xfx: cleared the screen; the conversation is kept"
 /// What `/new` says, in the words the line-oriented shell says them in
 /// (`interactive.rs:461-463`).
 const NEW_SESSION_NOTICE: &str = "[shell] new session; the next prompt starts a fresh conversation";
+
+/// What labels the sentence a user attached to a permission decision.
+///
+/// **Its own label, beside `[tool]` and `[shell]` rather than one of them**,
+/// because it is a different kind of claim: those two rows are xfx reporting
+/// what it did, and this row is the user's own words being read back to them
+/// after they were delivered to the model. A sentence painted as `[tool] …`
+/// would read as the tool's account of what it did.
+pub(crate) const AMENDMENT_PREFIX: &str = "[you]";
+
+/// How much of an amendment the document row carries.
+///
+/// Longer than [`TOOL_DETAIL_BYTES`], because this one is a sentence a person
+/// wrote on purpose and the point of the row is that they can check it against
+/// what they meant; still bounded, because the draft behind it holds up to four
+/// kibibytes ([`super::approval_amendment::MAX_FEEDBACK_BYTES`]) and a
+/// transcript row is not where the whole of one belongs. The model gets the
+/// text whole either way -- this is a display of it, not the record.
+const AMENDMENT_BYTES: usize = 240;
 
 /// Erases the screen, its scrollback, and puts the cursor home.
 ///
@@ -259,12 +321,65 @@ pub(crate) struct Shell {
     pub(crate) render: RenderRequest,
     /// The colours the band paints its own rows in.
     ///
-    /// Settled once, at launch, from the terminal xfx was started in
-    /// ([`super::theme`]) and never re-asked: following a background that
-    /// changes mid-session is Phase 3. Held here rather than consulted per
-    /// frame for the reason [`Self::model`] is -- one field, not a borrow of
-    /// the launch.
+    /// Started from the terminal xfx was launched in ([`super::theme`]) and
+    /// moved by every theme report the terminal sends afterwards
+    /// ([`Self::retint`]). Held here rather than consulted per frame for the
+    /// reason [`Self::model`] is -- one field, not a borrow of the launch.
     palette: Palette,
+    /// Whether the user fixed the palette themselves, in which case no report
+    /// may move it.
+    ///
+    /// Decided at launch and never again: it is exactly "`XFX_THEME` named one
+    /// of the two modes" (`super::theme::decided`), which is the one source
+    /// that outranks the terminal. Carried in rather than read here, so that
+    /// nothing in this module touches the process environment and a case about
+    /// a locked session is a constructor argument rather than a global.
+    ///
+    /// **`COLORFGBG` is not a lock.** It is a guess a terminal exports once and
+    /// never updates, and it is consulted only when the terminal would not
+    /// answer at all; a session that started from it must still follow the
+    /// terminal when the terminal finally says something.
+    theme_locked: bool,
+    /// Whether the terminal owes an answer to [`super::theme::MODE_QUERY`] that
+    /// nothing has written yet.
+    ///
+    /// Set when something happened that may have changed the background while
+    /// this session was not listening -- a stop and continue, where the user's
+    /// shell had the terminal and the subscription was gone with it -- and
+    /// taken by the loop's paint tick, which is the one place in the session
+    /// that writes to the terminal under a budget.
+    theme_query: bool,
+    /// Whether the document rows already on the screen are still painted in a
+    /// palette the session has moved on from.
+    ///
+    /// Raised by [`Self::retint`] and paid by the loop's writer against the
+    /// band's own shadow ([`super::frame::Band::retint_document`]), which is
+    /// the only thing that knows which of those rows it wrote. Held as a debt
+    /// rather than written at the report for the reason [`Self::theme_query`]
+    /// is: a report is decoded on the input side, and the one writer on this
+    /// terminal is the paint tick.
+    ///
+    /// **It carries no palette of its own.** What is owed is "the visible
+    /// document, in whatever palette is in force when it is paid", so a
+    /// terminal that reports dark, light and dark again before any of it
+    /// reaches the screen converges on dark and costs nothing -- which a debt
+    /// remembering an old-to-new pair could not do.
+    retint_debt: bool,
+    /// Whether something that is not the band has written on the screen and
+    /// the band has not been told yet.
+    ///
+    /// Raised beside every [`Reason::ExternalDamage`] this shell asks for --
+    /// and by a resize, which invalidates on its own road -- and lowered by
+    /// the loop at the point it really tells the band
+    /// ([`super::frame::Band::invalidate`]).
+    ///
+    /// It exists because the two facts are recorded at **different moments of
+    /// one tick**: a `/clear` or a Ctrl-L is applied while events are, and the
+    /// band is told while the frame is built -- and the retint above is paid
+    /// in between, off a shadow that still describes the screen that was. A
+    /// report that arrives behind a `/clear` in the same batch would otherwise
+    /// repaint erased history back onto a screen the user emptied.
+    damage_untold: bool,
     /// The model a turn will talk to.
     ///
     /// Read from the configuration once, at startup, rather than consulted per
@@ -328,14 +443,15 @@ pub(crate) struct Shell {
     /// for it ([`super::paste`]). The blocks themselves live in the composer,
     /// as spans of the draft (`super::entity`).
     paste: Paste,
-    /// What the last edit did, in the terms an undo would need.
+    /// What the composer's edits were, and what was last killed out of it.
     ///
-    /// Overwritten by every edit ([`Self::edited`]) and read by nothing on a
-    /// Phase-2 path: it is the seam item 18 builds its stack on, and what it is
-    /// here to fix now is the boundary only this moment knows -- one framed
-    /// paste is one transaction, whatever it weighed
-    /// ([`super::transaction`]).
-    transaction: LastTransaction,
+    /// **`edit_history`, never `history`.** [`Self::history`] below is the
+    /// prompt recall -- the lines this session has submitted -- and it has no
+    /// undo. This is the composer's own history: bounded deltas
+    /// ([`super::edit_history`]), fed by [`Self::edited`], walked by
+    /// [`Action::Undo`] and [`Action::Redo`], and emptied at every whole-draft
+    /// boundary ([`Self::take_draft`]).
+    edit_history: EditHistory,
     /// The lines this session has submitted, and where a walk back through
     /// them has got to.
     ///
@@ -353,8 +469,14 @@ pub(crate) struct Shell {
     /// across two, a paste that spans a hundred. A decoder made per read would
     /// begin each of them again.
     decoder: Decoder,
-    /// The answer text that has not ended its line yet, and the rows it has put
-    /// on the screen.
+    /// The answer text that has not ended its line yet, the rows it has put on
+    /// the screen, and every write the document is owed and has not been given.
+    ///
+    /// The owed writes live there rather than here, as the **text** they were
+    /// made of, because what they cost the screen is a function of how wide the
+    /// screen is when they are written -- and a row measured here, against the
+    /// width the session happened to have when the delta arrived, is a row the
+    /// terminal clips after a resize it never saw (`super::transcript`).
     transcript: Transcript,
     /// What the runtime has produced and the document has not been given yet.
     ///
@@ -380,12 +502,6 @@ pub(crate) struct Shell {
     enqueued: usize,
     /// How many of them have reached the transcript.
     emitted: usize,
-    /// The document writes this session owes, oldest first.
-    ///
-    /// A `Vec` rather than one `Append`, because two pushes can land between
-    /// two frames and their scrolls do not merge: the second one's rows are
-    /// measured against a screen the first one already moved.
-    pending: Vec<Append>,
     /// Where a submitted line goes.
     work: WorkHandle,
     /// What the keystroke before this one was, for the two keys whose second
@@ -434,6 +550,32 @@ pub(crate) struct Shell {
     /// grid. A single field holding either would have every reader ask which
     /// kind it was.
     alternate: Option<ApprovalScreen>,
+    /// The id the standing question was asked under, while one is standing.
+    ///
+    /// Beside the two surfaces rather than inside either, because it is the one
+    /// fact that is the *same* on both and the answer has to carry it whichever
+    /// plane the question was shown on. `Some` exactly when [`Self::asking`] is
+    /// true: [`Self::ask`] sets it with the surface, and every way out --
+    /// [`Self::decide`] and [`Self::release_screen`] -- clears it with the
+    /// surface, in the same statement.
+    asked_id: Option<ApprovalId>,
+    /// What makes an affirmative answer to that question answerable.
+    ///
+    /// A module of its own rather than four more fields here
+    /// ([`super::approval_readiness`]): what it holds is a state machine with
+    /// its own contract, and the shell's job is only to tell it what was
+    /// composed, what the terminal did with it, and when the loop came round.
+    readiness: Readiness,
+    /// The batch of questions the **model** asked, while the user is answering
+    /// it ([`super::question`]).
+    ///
+    /// Beside [`Self::panel`] rather than inside it, and never both at once
+    /// ([`Self::slot`]'s assertion): a question grants nothing, it is refused
+    /// rather than denied, and its answer is text -- so an `Option<Panel>` that
+    /// could hold either would have every reader ask which kind it was before it
+    /// could say what a keystroke meant. What the two share is the band's
+    /// elastic slot and the focus, and that is stated once, in [`Self::slot`].
+    ask: Option<QuestionPanel>,
     /// Which plane the session is composing frames for.
     ///
     /// Taken when a question arrives that the band's summary cannot show, and
@@ -521,8 +663,15 @@ enum Asked {
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
-    /// A whole line, on rows of its own.
-    Line(String),
+    /// A whole line, on rows of its own, and what it is.
+    ///
+    /// The role is carried rather than decided where the mark is run, because
+    /// the two things that reach the document this way are not the same thing:
+    /// xfx's own sentences about the session are [`Role::Notice`], and the echo
+    /// of a line the **user** submitted is [`Role::Plain`] -- it is their text,
+    /// and colouring it as xfx's words would be this surface claiming to have
+    /// said it.
+    Line(String, Role),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -536,6 +685,10 @@ enum Mark {
 enum Slot<'a> {
     /// A decision the turn is waiting on. It owns the focus.
     Question(&'a Panel),
+    /// A batch of questions the model asked. It owns the focus too, and it is
+    /// **not** the same thing: it grants nothing and its answer is text
+    /// ([`super::question`]).
+    Ask(&'a QuestionPanel),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -557,12 +710,23 @@ impl Shell {
         config: &RuntimeConfig,
         geometry: Geometry,
         palette: Palette,
+        theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
         Self {
             geometry,
             screen: (geometry.rows, geometry.cols),
             palette,
+            theme_locked,
+            // Nothing is owed at launch: the probe already asked
+            // ([`super::probe::CursorProbe::ask`]), and asking again from the
+            // first frame would be a second query on a terminal that is still
+            // answering the first.
+            theme_query: false,
+            // Nothing on the screen to recolour, and nothing the band has not
+            // been told: a session that has painted nothing has neither.
+            retint_debt: false,
+            damage_untold: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
             // property of having a shell at all.
@@ -580,7 +744,7 @@ impl Shell {
             context_used: None,
             editor: Editor::new(),
             paste: Paste::default(),
-            transaction: LastTransaction::new(),
+            edit_history: EditHistory::new(),
             history: History::new(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
@@ -591,7 +755,6 @@ impl Shell {
             marks: VecDeque::new(),
             enqueued: 0,
             emitted: 0,
-            pending: Vec::new(),
             work,
             gestures: Gestures::default(),
             notice: None,
@@ -601,6 +764,9 @@ impl Shell {
             phase: 0,
             panel: None,
             alternate: None,
+            asked_id: None,
+            readiness: Readiness::default(),
+            ask: None,
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
@@ -623,9 +789,15 @@ impl Shell {
         // says the band owns that row: the row's presence and its text are one
         // fact settled together ([`Self::tick_activity`]), and a band that
         // painted a row the geometry did not give it would push its hint row
-        // off the bottom of the screen.
+        // off the bottom of the screen. Painted through the same clip+reset
+        // wrapper every other band row uses, so the palette's neutral,
+        // ongoing-status colour ([`Palette::activity`]) cannot leak onto the
+        // composer or the document below it.
         if self.geometry.activity.is_some() {
-            rows.push(self.activity_row.clone().unwrap_or_default());
+            rows.push(self.painted(
+                self.palette.activity(),
+                self.activity_row.clone().unwrap_or_default(),
+            ));
         }
         // The question -- or, when there is no question, the completion menu --
         // in the rows the geometry gave the slot and only while it gave them:
@@ -638,6 +810,9 @@ impl Shell {
             match self.slot() {
                 Some(Slot::Question(panel)) => {
                     rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+                }
+                Some(Slot::Ask(ask)) => {
+                    rows.extend(ask.rows(self.geometry.cols, self.geometry.rows));
                 }
                 Some(Slot::Menu(picker)) => {
                     rows.extend(picker.rows(self.geometry.cols, self.geometry.rows));
@@ -780,8 +955,24 @@ impl Shell {
     /// and it is stated once rather than twice, so it cannot be answered two
     /// ways.
     fn slot(&self) -> Option<Slot<'_>> {
+        // **A turn asks one thing at a time.** A permission question and a
+        // model's question batch both take the focus and both take the slot, so
+        // two at once would be one of them painted and the other holding a turn
+        // open behind it, unanswerable. It cannot be reached today -- a tool
+        // call is either the question tool or a mutation waiting on an approval,
+        // and both park the runtime thread until they are answered -- so this
+        // states the hazard where the next edit reads it rather than adding a
+        // branch no test can drive honestly, exactly as [`Self::ask`]'s
+        // one-surface assertion does.
+        debug_assert!(
+            !(self.panel.is_some() && self.ask.is_some()),
+            "a permission question and a model's question are both up"
+        );
         if let Some(panel) = self.panel.as_ref() {
             return Some(Slot::Question(panel));
+        }
+        if let Some(ask) = self.ask.as_ref() {
+            return Some(Slot::Ask(ask));
         }
         self.picker.as_ref().map(Slot::Menu)
     }
@@ -801,12 +992,24 @@ impl Shell {
         // menu exists.
         if self.geometry.panel > 0 {
             if let Some(panel) = self.panel.as_ref() {
-                return (
-                    self.geometry
-                        .panel_first()
-                        .saturating_add(panel.caret_row(self.geometry.rows)),
-                    0,
-                );
+                // **Two places the caret can be**, exactly as a model's
+                // question has: on the marked choice, where a digit takes one,
+                // and inside an amendment draft, where a digit is a character
+                // ([`super::approval_amendment`]). One call answers both, from
+                // the one walk that placed the rows.
+                let (row, column) = panel.caret(self.geometry.cols, self.geometry.rows);
+                return (self.geometry.panel_first().saturating_add(row), column);
+            }
+            // A model's question has **two** places the caret can be, and they
+            // are two different claims about the next keystroke: on the marked
+            // choice, where a digit takes one, and inside the freeform draft,
+            // where a digit is a character ([`super::question::QuestionPanel`]).
+            if let Some(ask) = self.ask.as_ref() {
+                let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+                let (row, column) = ask
+                    .caret(cols, rows)
+                    .unwrap_or_else(|| (ask.caret_row(cols, rows), 0));
+                return (self.geometry.panel_first().saturating_add(row), column);
             }
         }
         let (row, column) = self.editor.point(self.text_cols());
@@ -843,76 +1046,91 @@ impl Shell {
         )
     }
 
-    /// Adds answer text to the transcript.
+    /// Adds text of no particular kind to the transcript, for the cases that
+    /// are about **when** a row lands rather than about what it is.
+    ///
+    /// Test-only, and it is the shape this call had before a row's text came
+    /// with a meaning: every production write says what it is writing
+    /// ([`Self::write_transcript_as`]), because the colour of the row is that
+    /// answer and nothing else. What the cases reached through here get is the
+    /// plain row they always got.
+    #[cfg(test)]
+    pub(crate) fn write_transcript(&mut self, text: &str) {
+        self.write_transcript_as(text, Role::Plain);
+    }
+
+    /// Adds text to the transcript, with what it is.
     ///
     /// Nothing is written here. What the text costs the terminal is queued and
     /// a frame is asked for, because the append and the frame that follows it
     /// are one turn's worth of work and the loop is the only thing that owns
     /// the screen.
+    ///
+    /// No colour is chosen here either: the role travels with the text and the
+    /// sequence is made when the row is handed to the terminal, in whatever
+    /// palette the session is in by then ([`Transcript::emit_front`]).
     // The composer's submit is the first caller -- it echoes the line the user
     // sent so the loop is visibly closed -- and Task 12's deltas are the next.
-    pub(crate) fn write_transcript(&mut self, text: &str) {
-        let append = self.transcript.push(text);
-        self.owe(append);
+    fn write_transcript_as(&mut self, text: &str, role: Role) {
+        if self.transcript.queue_push(text, role) {
+            self.owed();
+        }
     }
 
     /// Ends the transcript's current line, leaving it in the document.
     // The composer's submit is the first caller, and Task 12's end-of-turn is
     // the next: a turn ends whether or not the last delta carried a newline.
     pub(crate) fn end_transcript_line(&mut self) {
-        let append = self.transcript.end_line();
-        self.owe(append);
+        if self.transcript.queue_end_line() {
+            self.owed();
+        }
     }
 
-    /// Records a document write, unless it is one that would write nothing.
+    /// Asks for the frame a document write owes.
     ///
-    /// The guard is not tidiness: an append that scrolls nothing and writes no
-    /// rows would still cost the loop a frame, and a frame the band did not
-    /// need is a repaint of the whole band on a link that may be a serial line.
-    fn owe(&mut self, append: Append) {
-        if append.scroll == 0 && append.rows.is_empty() {
-            return;
-        }
-        self.pending.push(append);
+    /// Only for a write that will really put something on the screen, and the
+    /// guard is not tidiness: an operation that scrolls nothing and writes no
+    /// rows -- ending a line the screen already has -- would still cost the
+    /// loop a frame, and a frame the band did not need is a repaint of the
+    /// whole band on a link that may be a serial line.
+    fn owed(&mut self) {
         // An append scrolls the screen out from under the band, so the frame
         // that follows it is not optional.
         self.render.request(Reason::Transcript);
     }
 
-    /// Takes the document writes this session owes, oldest first.
-    pub(crate) fn take_pending(&mut self) -> Vec<Append> {
-        std::mem::take(&mut self.pending)
-    }
-
-    /// Whether the **primary** plane is owed rows that have not been written.
+    /// Whether the **primary** plane is owed anything that has not been
+    /// written.
     ///
-    /// Asked without taking them, by the one thing that has to know before it
+    /// Asked without taking it, by the one thing that has to know before it
     /// decides what to write: the frame that would hand the terminal to a
     /// question on the other buffer, where a document row cannot be written at
     /// all (`super::event_loop`'s `commit_frame`). Text the pacer is still
     /// holding is deliberately **not** counted -- it is not a row yet, and it
     /// waits for its own release whichever plane the session is on.
     pub(crate) fn owes_document(&self) -> bool {
-        !self.pending.is_empty()
+        self.transcript.owes()
     }
 
-    /// Gives back writes the loop took and did not attempt.
+    /// Offers the oldest thing the document is owed to the terminal, measured
+    /// at the width the screen has **now**.
     ///
-    /// [`Self::take_pending`] hands over **everything** owed, and a loop that
-    /// stops part-way through the batch -- a refused write ends the tick -- is
-    /// holding rows that moved no bytes at all. They are still owed: Phase 1
-    /// never repaints a document row, so a batch dropped on the floor here is
-    /// gone from the session for good.
+    /// `None` when nothing is owed. The writer is the caller's, because the
+    /// loop owns the terminal; what is written is the transcript's, because
+    /// only it knows what text has not landed and what the rows it makes are
+    /// worth. One operation per call: what the terminal took decides whether
+    /// the next one may be offered at all, and that is the caller's question
+    /// (`super::event_loop`'s `commit_document`).
     ///
-    /// **Ahead of anything owed since**, which is where they were. The document
-    /// is a sequence, and a row that lands after one queued behind it is as
-    /// wrong as a row that never lands.
-    pub(crate) fn restore_pending(&mut self, untried: Vec<Append>) {
-        if untried.is_empty() {
-            return;
-        }
-        let queued_since = std::mem::replace(&mut self.pending, untried);
-        self.pending.extend(queued_since);
+    /// The rows do not outlive the call, which is what keeps them honest --
+    /// nothing can resize, clear or repaint between the moment they are
+    /// measured and the moment they are written, because this borrows the whole
+    /// shell for exactly that long.
+    pub(crate) fn emit_document_front<E>(
+        &mut self,
+        emit: impl FnOnce(&Append) -> Landed<E>,
+    ) -> Option<Result<(), E>> {
+        self.transcript.emit_front(self.palette, emit)
     }
 
     /// Shows what the runtime just did.
@@ -960,6 +1178,29 @@ impl Shell {
                 // turn, and a tool call is part of one.
                 self.activity.set(Work::Thinking);
                 self.say(line);
+            }
+            // What the user said about a decision, once the runtime has
+            // really delivered it (`crate::agent::machine`'s
+            // `flush_amendments`). A row rather than a hint, because it is part
+            // of the conversation rather than a fact about this keystroke --
+            // and it goes through [`Self::say`] like every other thing this
+            // session writes, so it takes its place in the stream behind
+            // whatever the pacer is still holding rather than overtaking the
+            // answer it belongs after.
+            //
+            // **Flattened here, and by the same function the tool detail two
+            // arms up uses.** `super::bridge::send_ui` already made every
+            // sequence the terminal would obey a space, but it deliberately
+            // keeps `\n`: a streamed answer's line breaks are rows the
+            // transcript exists to make. An amendment is not a stream, it is
+            // one sentence about one decision, and a draft can hold newlines
+            // (`C-j` at the panel, or a pasted paragraph) -- so the row it
+            // becomes is made one row here rather than left to the sender.
+            UiEvent::ToolFeedback { text, .. } => {
+                self.say(format!(
+                    "{AMENDMENT_PREFIX} {}",
+                    safe_one_line(&text, AMENDMENT_BYTES)
+                ));
             }
             UiEvent::Notice(text) => self.say(text),
             // The switch is **done** by the time this arrives: the file is
@@ -1047,7 +1288,12 @@ impl Shell {
             // about that -- the panel, the rows it costs the document, the
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
-            UiEvent::Approval(request) => self.ask(request),
+            UiEvent::Approval(asked) => self.ask(asked.id, asked.request),
+            // The same three facts for a question the **model** asked: the
+            // panel, the rows it costs the document, and the focus. What it is
+            // not is an approval -- nothing is granted, and refusing it denies
+            // nothing ([`super::question`]).
+            UiEvent::Question(request) => self.ask_question(request),
             UiEvent::TurnEnded { failure } => {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
@@ -1127,7 +1373,7 @@ impl Shell {
     /// ([`ApprovalScreen::presents_choices`]). Asking the band's question about
     /// a question the band was never going to show is how a short window came
     /// to deny a change the plane can display whole.
-    fn ask(&mut self, request: ApprovalRequest) {
+    fn ask(&mut self, id: ApprovalId, request: ApprovalRequest) {
         // Which plane the question belongs on, settled from the change itself
         // before anything is installed ([`approval::ApprovalSurface`]).
         let surface = approval::ApprovalSurface::for_request(&request);
@@ -1150,7 +1396,17 @@ impl Shell {
             // no screen to give back, and a session left owning a plane with
             // nothing on it would compose its next frame for nobody.
             self.say(PANEL_TOO_SMALL.to_string());
-            self.work.control(TurnControl::Answer(ApprovalAnswer::Deny));
+            // Under the id it was asked with, so the prompter parked on that
+            // question takes it: a refusal addressed to nobody would be
+            // consumed and ignored, and the session would wait for ever for an
+            // answer to a question it had already refused on the user's behalf.
+            self.work.control(TurnControl::Answer {
+                id,
+                answer: ApprovalAnswer::Deny,
+                // Nobody was asked, so nobody said anything: the panel this
+                // refusal stands in for was never painted and has no draft.
+                feedback: None,
+            });
             return;
         };
         // The two share one slot and one of them owns the focus, so the menu
@@ -1187,9 +1443,20 @@ impl Shell {
                 self.owner = ScreenOwner::Approval;
             }
         }
+        self.asked_id = Some(id);
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
+        // **Composed the moment it is installed, and after the band has been
+        // re-solved.** Before the refit the geometry still has `panel: 0` and
+        // its band top is the divider, so the panel's control rows would be
+        // placed below the last row of the screen and the composition would
+        // report itself undisclosed. And it is here at all so that a keystroke
+        // arriving before the next frame is answered with the right sentence:
+        // otherwise `undisclosed` would still be reporting on the last frame
+        // the band painted -- which had no question in it -- and a user who
+        // typed early would be told to make their window bigger.
+        self.intend_approval();
         self.render.request(Reason::Modal);
     }
 
@@ -1211,6 +1478,19 @@ impl Shell {
     /// about which surface is showing it.
     fn asking(&self) -> bool {
         self.panel.is_some() || self.alternate.is_some()
+    }
+
+    /// Whether **anything** in front of the user owns the focus.
+    ///
+    /// One reading for the two kinds of question, because everything that
+    /// consults it is about *the user being asked something* rather than about
+    /// what they are being asked: the keystrokes go there and not to the
+    /// composer, and the turn's clock is stopped because the interval is
+    /// measuring a person. [`Self::asking`] stays the narrower fact -- a
+    /// permission question, on either plane -- because the plane and the
+    /// approval channel are its alone.
+    fn modal(&self) -> bool {
+        self.asking() || self.ask.is_some()
     }
 
     /// The alternate plane's rows, top first: as many as the screen has.
@@ -1241,7 +1521,123 @@ impl Shell {
     /// releases the plane *with* the answer.
     pub(crate) fn release_screen(&mut self) {
         self.alternate = None;
+        self.asked_id = None;
+        self.invalidate_approval();
         self.owner = ScreenOwner::Primary;
+    }
+
+    // -----------------------------------------------------------------------
+    // what makes an affirmative answerable
+    // -----------------------------------------------------------------------
+
+    /// What the frame about to be written would disclose about the standing
+    /// question.
+    ///
+    /// Composed from the surface that is really installed, at the geometry the
+    /// frame is about to be built from, so the claim and the bytes are one
+    /// reading. With no question up it intends nothing, which clears whatever
+    /// the last composition left pending.
+    pub(crate) fn intend_approval(&mut self) {
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+        let intent = match (self.asked_id, self.panel.as_ref(), self.alternate.as_ref()) {
+            (Some(id), Some(panel), _) => Intent::capture(
+                id,
+                Surface::Inline,
+                cols,
+                rows,
+                panel
+                    .compose(
+                        cols,
+                        rows,
+                        self.geometry.band_top(),
+                        // The activity row is the only thing `band_rows` puts
+                        // ahead of the panel, so the offset is that one boolean
+                        // and needs no method of its own.
+                        u16::from(self.geometry.activity.is_some()),
+                    )
+                    .disclosure,
+            ),
+            (Some(id), _, Some(screen)) => Intent::capture(
+                id,
+                Surface::Alternate,
+                cols,
+                rows,
+                screen.composition(cols, rows).disclosure,
+            ),
+            _ => None,
+        };
+        self.readiness.intend(intent);
+    }
+
+    /// What the terminal did with those bytes.
+    pub(crate) fn approval_landed(&mut self, outcome: Outcome) {
+        self.readiness.landed(outcome);
+    }
+
+    /// A write the screen refused: it may have left half a frame.
+    pub(crate) fn approval_write_failed(&mut self) {
+        self.readiness.write_failed();
+    }
+
+    /// Everything the screen said is no longer true.
+    pub(crate) fn invalidate_approval(&mut self) {
+        self.readiness.invalidate();
+    }
+
+    /// The post-write check, one tick after the write
+    /// (`super::event_loop`'s `collect_facts`).
+    pub(crate) fn reconcile_approval(&mut self) {
+        self.readiness.reconcile(
+            self.geometry.cols,
+            self.geometry.rows,
+            self.render.resize_pending(),
+        );
+    }
+
+    /// Whether an affirmative answer to `id` may be taken on this screen.
+    pub(crate) fn approval_ready(&self, id: ApprovalId) -> bool {
+        self.readiness
+            .ready(id, self.geometry.cols, self.geometry.rows)
+    }
+
+    /// Whether an amendment draft has the keys, on whichever surface is up.
+    ///
+    /// One reading for both, because everything that consults it is about
+    /// *where the next character goes* rather than about which plane the
+    /// question happened to land on ([`super::approval_amendment`]).
+    fn drafting(&self) -> bool {
+        self.panel.as_ref().is_some_and(Panel::drafting)
+            || self
+                .alternate
+                .as_ref()
+                .is_some_and(ApprovalScreen::drafting)
+    }
+
+    /// Says whatever the standing question owes the user, on the plane they can
+    /// see.
+    ///
+    /// The same rule the readiness refusal follows and for the same reason:
+    /// while the review plane is up it owns every row of the terminal, so a
+    /// sentence written into the document is a sentence behind a screen nobody
+    /// can look past. The band's own hint row is where it goes otherwise --
+    /// which is where every other refused keystroke on this surface is
+    /// reported ([`Self::notice`]).
+    fn notice_at_the_question(&mut self) {
+        let notice = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.take_notice(),
+            (_, Some(screen)) => screen.take_notice(),
+            (None, None) => None,
+        };
+        let Some(notice) = notice else {
+            return;
+        };
+        match self.alternate.as_mut() {
+            Some(screen) => screen.set_status(notice.to_string()),
+            None => {
+                self.notice = Some(notice);
+                self.render.request(Reason::Footer);
+            }
+        }
     }
 
     /// Offers one keystroke to the completion menu, and says whether it was
@@ -1303,7 +1699,15 @@ impl Shell {
         // re-opened on its own completion would be one the user cannot leave by
         // taking something from it.
         self.dismissed.dismiss(Trigger::Slash);
-        self.amended();
+        // **`None`, and that is the whole contract.** The draft this replaced
+        // was the query, and it died at [`Self::take_draft`] above along with
+        // every delta that named its offsets. Recording the insert alone would
+        // give an undo that deletes the command name and leaves the composer
+        // empty -- silently discarding the query the user typed -- so a
+        // completion is a boundary and undo does not step back across it. An
+        // xfx decision, not an upstream ruling: `input_completion_runtime.zig`'s
+        // `historyBoundary` call sits on prompt recall.
+        self.amended(None);
     }
 
     /// Closes the menu, and remembers that it was closed.
@@ -1387,10 +1791,35 @@ impl Shell {
                 return;
             }
         }
+        // Whether an amendment has the keys, taken before anything is
+        // translated: it is what turns a `1` from an answer into a character
+        // and an editing key from nothing into an edit
+        // ([`super::approval_amendment`]).
+        let drafting = self.drafting();
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
             Input::Action(Action::Up) => approval::Action::Up,
             Input::Action(Action::Down) => approval::Action::Down,
+            // **`C-p` and `C-n` are the arrows here**, collapsed at the
+            // translation rather than given to the panel as two more keys
+            // (`input_approval_runtime.zig:127-141` maps `cursor_up` and
+            // `history_up` to one action).
+            //
+            // **A documented difference from that pin, on one surface.**
+            // Reached only with no review plane up: on the plane these two
+            // keys walk the change itself, and they are the only keys that do
+            // -- a bounded diff is up to 128 KiB
+            // (`crate::permission::ApprovalDiff`) and a screen is a few dozen
+            // rows, so a review surface with no way past its first screenful
+            // would be showing the head of a change and calling it the change.
+            // The arrows are unaffected on both surfaces: they move the choice
+            // and end editing everywhere, which is the property the pin exists
+            // for and which
+            // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
+            // asserts in all four spellings. Upstream has no second surface to
+            // scroll, so this is a retention rather than a divergence.
+            Input::Action(Action::HistoryPrevious) => approval::Action::Up,
+            Input::Action(Action::HistoryNext) => approval::Action::Down,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
@@ -1398,24 +1827,114 @@ impl Shell {
             // The whole band is repainted every frame, so a redraw is a frame
             // here as much as anywhere else.
             Input::Action(Action::Redraw) => {
-                self.render.request(Reason::ExternalDamage);
+                self.external_damage();
                 return;
             }
+            // The draft's own keys, and **only while a draft has them**: with
+            // no amendment open these stay what they have always been at a
+            // question, which is swallowed. `Up` and `Down` are deliberately
+            // not in the subset ([`approval::edits`]) -- they move the choice
+            // and end editing, and routing them into the editor would take away
+            // the only way out of a draft.
+            Input::Action(editing) if drafting && approval::edits(editing) => {
+                approval::Action::Edit(editing)
+            }
+            // Content, to the **draft's** assembler and never the composer's:
+            // a modal surface that leaked paste bytes into the composer would
+            // leave text behind the panel that the user never sees and cannot
+            // delete. With no draft open they fall through to the swallow
+            // below, exactly as they did before amendments existed.
+            Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
             Input::Action(_) | Input::PasteByte(_) => return,
+            // Answered before the focus is consulted ([`Self::consume`]), for
+            // the reason the same arm in [`Self::answer`] gives.
+            Input::Report(_) => return,
         };
         // Whichever surface is holding the question, and there is never more
         // than one ([`Self::ask`]). Both answer with the same function
         // (`super::approval::answered`), so which plane a change happened to be
         // large enough for cannot change what a key means.
+        let cols = self.geometry.cols;
         let answered = match (self.panel.as_mut(), self.alternate.as_mut()) {
-            (Some(panel), _) => panel.apply(action),
-            (_, Some(screen)) => screen.apply(action),
+            (Some(panel), _) => panel.apply(action, cols),
+            (_, Some(screen)) => screen.apply(action, cols),
             (None, None) => return,
         };
-        let Some(answer) = answered else {
-            // The marker moved, which is a frame and nothing else.
+        // Said on whichever plane the user can see, and taken so it is said
+        // once ([`Self::notice_at_the_question`]).
+        self.notice_at_the_question();
+        let (answer, amendable) = match answered {
+            // The keystroke meant nothing here. No frame is owed for it: a
+            // repaint of an unchanged band is bytes that say nothing.
+            approval::Reply::Ignored => return,
+            approval::Reply::Moved => {
+                // The marker or a draft moved, which is a frame and nothing
+                // else: the panel is the same height, so the band's geometry
+                // and the receipt about it both still hold.
+                self.render.request(Reason::Modal);
+                return;
+            }
+            approval::Reply::Reshaped => {
+                // A draft opened, closed or grew, so the panel has a different
+                // number of rows: the band has to be re-solved, and the screen
+                // a receipt was about is no longer the screen the user is
+                // looking at. `invalidate` rather than `intend(None)` because it
+                // is the direct name for the effect -- both revoke the seen
+                // disclosure as well as the receipt
+                // ([`super::approval_readiness::Readiness::invalidate`]) -- and
+                // the next genuinely disclosed frame re-earns it.
+                self.invalidate_approval();
+                self.refit();
+                self.render.request(Reason::Modal);
+                return;
+            }
+            approval::Reply::Answer { answer, amendable } => (answer, amendable),
+        };
+        // **The gate, and only on the two answers that grant.** A `Deny`, an
+        // Escape and a Ctrl-C stay answerable at every moment, ready or not:
+        // gating them as well would leave a user who cannot read the question
+        // with no way to say no to it either, which turns a safety check into a
+        // session that cannot be got out of. Ctrl-C is already excluded by the
+        // answer it produces -- the prompter turns a cancellation into a
+        // refusal.
+        if matches!(answer, ApprovalAnswer::Once | ApprovalAnswer::Always)
+            && !self.asked_id.is_some_and(|id| self.approval_ready(id))
+        {
+            // **Said, not swallowed**, and which sentence it is matters: waiting
+            // fixes one of these and only a bigger window fixes the other.
+            let notice = if self.readiness.undisclosed() {
+                APPROVAL_NOT_DISCLOSED
+            } else {
+                APPROVAL_NOT_READY
+            };
+            // **To whichever surface the user can actually see.** While the
+            // review plane is up it owns every row of the terminal, and
+            // [`Self::say`] writes into the document -- which is on the primary
+            // buffer, behind it. A refusal written there is a refusal nobody can
+            // read, and a key that appears to do nothing is a key the user
+            // presses again.
+            match self.alternate.as_mut() {
+                Some(screen) => screen.set_status(notice.to_string()),
+                None => self.say(notice.to_string()),
+            }
+            // The question stays up and the keystroke is spent: nothing is
+            // queued for a later grant, because an answer held until a frame
+            // lands would be a grant given by the renderer rather than by the
+            // person at the keyboard.
             self.render.request(Reason::Modal);
             return;
+        }
+        // **Past the gate, and only past it.** The amendment is taken here
+        // rather than where the answer was produced, because a refused
+        // affirmative leaves the question standing -- and a draft consumed on
+        // the way to a refusal would be a sentence the user typed, cannot see
+        // any more, and never sent. Escape and the interrupt take nothing and
+        // drop both: `amendable` is what says which of the two refusals this is
+        // ([`approval::Reply`]).
+        let feedback = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.take_feedback(answer, amendable),
+            (_, Some(screen)) => screen.take_feedback(answer, amendable),
+            (None, None) => None,
         };
         // The panel goes **before** anything is sent, so the band's next paint
         // is a band with no question in it whatever the runtime does next --
@@ -1426,6 +1945,20 @@ impl Shell {
         // owner released on the paths somebody remembered.
         self.panel = None;
         self.alternate = None;
+        // The identity the answer is addressed to, taken in the same statement
+        // the surfaces are. `debug_assert`ed rather than defaulted: [`Self::ask`]
+        // installs the two together and every exit clears them together, so a
+        // question being answered without an id is a broken invariant and not a
+        // case with a sensible answer -- and an id invented here would be an id
+        // some other question could be waiting on.
+        let asked = self.asked_id.take();
+        debug_assert!(
+            asked.is_some(),
+            "a question was answered without the id it was asked under"
+        );
+        // The receipt was about a screen with this question on it, and the
+        // question is coming off it.
+        self.invalidate_approval();
         self.owner = ScreenOwner::Primary;
         match action {
             // One message, both meanings. `Deny` is what the prompter answers a
@@ -1433,16 +1966,165 @@ impl Shell {
             // as well would be the *only* thing the runtime heard -- and the
             // turn this question belongs to, and whatever was queued behind it,
             // would go on running after the user asked everything to stop.
+            // **One message still**, and it carries no sentence: the drafts
+            // were dropped above, so an interrupt at a filled draft says
+            // nothing on either channel.
             approval::Action::Cancel => self.interrupt(now),
             // Esc and the rest are an answer about *this call* and nothing
-            // more: the turn goes on, and is told no.
-            _ => self.work.control(TurnControl::Answer(answer)),
+            // more: the turn goes on, and is told no -- with whatever the user
+            // said about it, which is context and never authority.
+            _ => {
+                if let Some(id) = asked {
+                    self.work.control(TurnControl::Answer {
+                        id,
+                        answer,
+                        feedback,
+                    });
+                }
+            }
         }
         // The band gives the panel's rows back to the document. The clock
         // starts again on the next settle rather than here, for the reason
         // every other timed answer on this surface is settled there: what is
         // painted has to be the same reading that asked for the frame
         // ([`Self::tick_activity`]).
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Puts a batch of the model's questions in front of the user, or cancels
+    /// it on their behalf.
+    ///
+    /// The refusal is the same rule the approval panel's is -- a decision xfx
+    /// was never given is not one it may invent -- said in **its own sentence**
+    /// ([`QUESTION_TOO_SMALL`]) rather than the permission panel's: a batch
+    /// whose choices were below the last row of the screen would leave the turn
+    /// waiting for an answer the user cannot give, and a batch that is cancelled
+    /// grants nothing, denies nothing and changes nothing. The tool turns the
+    /// cancellation into its own sentinel and the model is told to ask in
+    /// freeform instead.
+    fn ask_question(&mut self, request: QuestionRequest) {
+        let panel = QuestionPanel::new(request);
+        if !panel.presents_choices(self.geometry.cols, self.geometry.rows) {
+            // **Before anything is installed**, mirroring [`Self::ask`]: a
+            // question that was never asked has no rows to give back, and a band
+            // solved for a panel nobody can answer is a band the composer has
+            // lost rows to for the rest of the turn.
+            self.say(QUESTION_TOO_SMALL.to_string());
+            self.work
+                .control(TurnControl::QuestionCancelled { id: panel.id() });
+            return;
+        }
+        // The menu and the question share one slot and the question owns the
+        // focus, so the menu goes **before** the question is installed rather
+        // than being left for the geometry to prefer away: a menu still open
+        // behind a question is a menu whose keys the panel is swallowing.
+        self.dismiss_picker();
+        self.ask = Some(panel);
+        // The band just grew by the panel's rows, so the divider, the composer
+        // and the caret are all somewhere else.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// One keystroke, while a batch of the model's questions has the focus.
+    ///
+    /// **Everything the panel does not bind is swallowed**, exactly as at a
+    /// permission question: a `1` is an ordinal rather than a character in a
+    /// composer the caret has left, and a Ctrl-D at one does not end a session
+    /// that is holding a turn open waiting to be answered.
+    ///
+    /// **Escape and Ctrl-C both take the panel down and they mean different
+    /// things, so they send different messages -- one each.**
+    ///
+    /// Escape declines the *question*: `QuestionCancelled` under the batch's own
+    /// id, the model is told so with its own sentinel, and the turn carries on
+    /// with whatever it was doing. Ctrl-C stops the *turn*
+    /// ([`Self::interrupt`]), and sends only that: the requester parked on this
+    /// channel treats an interrupt as its question being over, answers the tool
+    /// with the same sentinel, and hands the interrupt **back** to the loop that
+    /// can stop the turn (`super::question::TuiQuestioner`).
+    ///
+    /// Sending both, as this once did, is what made a Ctrl-C at a question a
+    /// declined question that also stopped a turn *later*: the requester
+    /// answered on the first message and returned while the second was still in
+    /// the channel, so the calls behind the question ran before anything had
+    /// read the interrupt. One key, one message, and the turn's own stop is the
+    /// one the machine's boundary can see (`crate::agent::machine`'s
+    /// `execute_tool_calls`).
+    fn answer(&mut self, event: Input, now: Instant) {
+        let act = match event {
+            Input::Text(character) => question::Act::Text(character),
+            // The whole band is repainted every frame, so a redraw is a frame
+            // here as much as anywhere else.
+            Input::Action(Action::Redraw) => {
+                self.external_damage();
+                return;
+            }
+            // Which keys a question binds is the question's own fact
+            // ([`question::Act::of`]), so a key added to one is not a key this
+            // module has to be told about twice.
+            Input::Action(action) => match question::Act::of(action) {
+                Some(act) => act,
+                None => return,
+            },
+            // Content rather than keys, and there is nothing here for it to be
+            // content of: the composer is not what has the focus.
+            Input::PasteByte(_) => return,
+            // Not a key at all, and never routed here: [`Self::consume`]
+            // answers a theme report before the focus is consulted, precisely
+            // so that a question having the keyboard cannot swallow one. The
+            // arm exists because the match is exhaustive, and it returns
+            // because a report reaching it would mean the routing above had
+            // been taken apart.
+            Input::Report(_) => return,
+        };
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+        let Some(ask) = self.ask.as_mut() else {
+            return;
+        };
+        let id = ask.id();
+        match ask.apply(act, cols, rows) {
+            // A keystroke that changed nothing must not repaint the whole band.
+            question::Answered::Nothing => {}
+            // **Re-solved, not merely repainted.** The panel's height is not
+            // fixed: opening the freeform slot adds its draft row and leaving it
+            // takes the row back, so a keystroke that only asked for a frame
+            // would paint a block one row taller than the band solved for -- and
+            // the caret, which is read out of the geometry, would be reported on
+            // the divider.
+            question::Answered::Redraw => self.settled_question(),
+            question::Answered::Submitted(answers) => {
+                // **The panel goes before anything is sent**, so the band's next
+                // paint has no question in it whatever the runtime does next --
+                // including asking a second batch straight away. The order
+                // [`Self::decide`] uses, for the same reason.
+                self.ask = None;
+                self.work
+                    .control(TurnControl::QuestionAnswer { id, answers });
+                self.settled_question();
+            }
+            question::Answered::Cancelled => {
+                self.ask = None;
+                if matches!(act, question::Act::Cancel) {
+                    // The turn's own stop, and **only** it: the requester reads
+                    // this as its question being over and gives it back for the
+                    // loop to act on. A `QuestionCancelled` in front of it would
+                    // release the turn to run the rest of its step before the
+                    // interrupt had been read by anyone.
+                    self.settled_question();
+                    self.interrupt(now);
+                } else {
+                    self.work.control(TurnControl::QuestionCancelled { id });
+                    self.settled_question();
+                }
+            }
+        }
+    }
+
+    /// What the band owes whenever a question changed shape or left it: the
+    /// rows re-solved, and the frame that moves everything below them.
+    fn settled_question(&mut self) {
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -1468,7 +2150,12 @@ impl Shell {
     /// are about the keystroke rather than about the answer, and the reason is
     /// written where they are.
     fn say(&mut self, line: String) {
-        self.mark(Mark::Line(line));
+        self.say_as(line, Role::Notice);
+    }
+
+    /// The same, for a line that is not xfx's own words.
+    fn say_as(&mut self, line: String, role: Role) {
+        self.mark(Mark::Line(line, role));
     }
 
     /// Records a document write at the stream position it was issued at.
@@ -1530,7 +2217,10 @@ impl Shell {
             let mut text = std::mem::take(&mut reopen);
             text.push_str(piece);
             self.emitted = self.emitted.saturating_add(piece.len());
-            self.write_transcript(&text);
+            // The answer, and what makes it the answer's colour is this call
+            // and nothing about the bytes: the queue, the marks and the
+            // offsets above are the raw stream, untouched.
+            self.write_transcript_as(&text, Role::Body);
             body = tail;
         }
     }
@@ -1573,7 +2263,7 @@ impl Shell {
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
         match mark {
-            Mark::Line(line) => self.write_document_line(&line),
+            Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::EndOfLine => self.finish_document_line(),
         }
     }
@@ -1598,9 +2288,9 @@ impl Shell {
     ///
     /// A notice must not land in the middle of a sentence, so whatever the
     /// answer had open is closed first.
-    fn write_document_line(&mut self, line: &str) {
+    fn write_document_line(&mut self, line: &str, role: Role) {
         self.finish_document_line();
-        self.write_transcript(line);
+        self.write_transcript_as(line, role);
         self.end_transcript_line();
     }
 
@@ -1608,11 +2298,17 @@ impl Shell {
     ///
     /// The guard is the difference between "end the line" and "leave a blank
     /// row": a transcript already at the start of a line has no unfinished row,
-    /// and [`Transcript::end_line`] answers a second request for one with a
-    /// blank row of its own -- which is right for two breaks in an answer and
-    /// wrong for two notices in a row.
+    /// and ending one there answers with a blank row of its own -- which is
+    /// right for two breaks in an answer and wrong for two notices in a row.
+    ///
+    /// Asked of the transcript as it will be once everything queued has landed
+    /// ([`Transcript::open_line`]) rather than as the terminal has it. The two
+    /// differ exactly when a notice is written while an answer is still waiting
+    /// for a screen -- which is the case this guard is for -- and the committed
+    /// answer there would say "no line is open" about an answer that has one,
+    /// and put the notice on the end of its sentence.
     fn finish_document_line(&mut self) {
-        if self.transcript.tail_rows() > 0 {
+        if self.transcript.open_line() {
             self.end_transcript_line();
         }
     }
@@ -1737,7 +2433,7 @@ impl Shell {
         // both calls are idempotent (`super::activity`). Either plane: what the
         // interval measures is the person, and a person reading a change on a
         // screen of its own is no less a person than one reading a band.
-        if self.asking() {
+        if self.modal() {
             self.activity.freeze(now);
         } else {
             self.activity.thaw(now);
@@ -1763,9 +2459,139 @@ impl Shell {
         self.render.request(Reason::Animation);
     }
 
+    /// What a theme report says, applied to the palette.
+    ///
+    /// Three ways this changes nothing, and each of them is a decision rather
+    /// than an omission:
+    ///
+    /// * **A locked session.** `XFX_THEME` outranks the terminal at launch
+    ///   (`super::theme::detect`), so it outranks it here too -- a user who
+    ///   named a palette is not overruled by the terminal they named it on.
+    /// * **The mode it already has.** A terminal may re-report the same mode,
+    ///   and an answer to [`super::theme::MODE_QUERY`] after a resume usually
+    ///   is one; repainting the band for it would be a frame per report.
+    /// * **The depth.** How exactly a colour may be asked for is a property of
+    ///   the terminal program (`super::theme::depth_from_env`), and a
+    ///   background that changed is not a terminal that changed.
+    ///
+    /// Otherwise the band is owed a frame, and the panel above it is owed one
+    /// too when there is a panel: the palette paints the divider, the hint row
+    /// and a refusal, and a question in the band is painted between them.
+    /// And the rows the document is already showing are owed one too
+    /// ([`Self::retint_debt`]) -- but only while this session can still say
+    /// what is on them. Something that damaged the screen and has not reached
+    /// the band yet ([`Self::damage_untold`]) means the shadow those rows
+    /// would be repainted from describes a screen that is gone, and repainting
+    /// from it is how erased history comes back.
+    fn retint(&mut self, mode: Mode) {
+        if self.theme_locked || self.palette.mode == mode {
+            return;
+        }
+        self.palette.mode = mode;
+        if !self.damage_untold {
+            self.retint_debt = true;
+        }
+        self.render.request(Reason::Footer);
+        if self.slot().is_some() || self.owner == ScreenOwner::Approval {
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// The palette the band and the document are painted in now.
+    pub(crate) fn palette(&self) -> Palette {
+        self.palette
+    }
+
+    /// Whether the document rows on the screen are owed a recolour.
+    pub(crate) fn owes_retint(&self) -> bool {
+        self.retint_debt
+    }
+
+    /// Records that the recolour has been fully delivered, or that there was
+    /// nothing knowable to recolour.
+    ///
+    /// Called by the loop only on a vector that landed or one that was never
+    /// needed, so a refused write leaves the debt exactly where it was and the
+    /// next tick offers it again -- there is no re-arming anywhere, because
+    /// nothing takes it.
+    pub(crate) fn retint_paid(&mut self) {
+        self.retint_debt = false;
+    }
+
+    /// Records that something which is not the band has written on the screen.
+    ///
+    /// The **one** door for that fact: the frame the reason asks for is a whole
+    /// repaint of the band, and what is already on the document's rows stops
+    /// being knowable at the same instant -- so a visible recolour owed against
+    /// it is dropped here rather than paid onto a screen that has changed
+    /// underneath it. The prior ownership goes with it: nothing of what those
+    /// rows held is carried across the damage.
+    ///
+    /// `pub(crate)` for the one raiser outside this module, and it is the one
+    /// that matters most: a resume, where the terminal has been somebody
+    /// else's in between (`super::event_loop`'s `adopt_resume`).
+    pub(crate) fn external_damage(&mut self) {
+        self.render.request(Reason::ExternalDamage);
+        self.retint_debt = false;
+        self.damage_untold = true;
+    }
+
+    /// Records that the band has been told, which is where its own `damaged`
+    /// takes over ([`super::event_loop`]'s two `Band::invalidate` calls).
+    pub(crate) fn damage_told(&mut self) {
+        self.damage_untold = false;
+    }
+
+    /// Asks the terminal which way round it is now, the next time the loop
+    /// writes.
+    ///
+    /// **Not a write of its own**, and that is the whole of why this is a flag.
+    /// The only writer on this terminal is the loop's paint tick, which counts
+    /// its failures against a budget and refuses to address a screen no band
+    /// fits on; a query written from here would be a second writer with neither.
+    ///
+    /// Nothing is armed for a session whose palette is locked: there is no
+    /// answer it would act on, and a query is a sequence written onto a user's
+    /// terminal.
+    pub(crate) fn resync_theme(&mut self) {
+        if self.theme_locked {
+            return;
+        }
+        self.theme_query = true;
+    }
+
+    /// Whether a theme query is owed, taken so it is written once.
+    pub(crate) fn take_theme_query(&mut self) -> bool {
+        std::mem::take(&mut self.theme_query)
+    }
+
+    /// Hands one back after [`Self::take_theme_query`] took it and the write
+    /// never reached the terminal.
+    ///
+    /// The pair [`Self::take_clearing`] and [`Self::restore_clearing`] make,
+    /// for the same reason: a refused write moved no byte, so what it was
+    /// offering is still owed, and nothing else ever sets this flag for a
+    /// resume that has already been adopted.
+    pub(crate) fn restore_theme_query(&mut self) {
+        self.theme_query = true;
+    }
+
     /// Whether the screen owes a `/clear`, taken so it is written once.
     pub(crate) fn take_clearing(&mut self) -> bool {
         std::mem::take(&mut self.clearing)
+    }
+
+    /// Hands a `/clear` back after [`Self::take_clearing`] took it and the
+    /// write never reached the terminal.
+    ///
+    /// Sets the flag and nothing else -- it must not call
+    /// [`Self::clear_screen`] again: that would drop the pending appends and
+    /// pacer text a **second** time, discarding whatever arrived between the
+    /// take and this call, and repeat a notice the screen never saw the first
+    /// half of. The bytes are the only thing that failed to land; the state
+    /// `clear_screen` already changed did not un-happen.
+    pub(crate) fn restore_clearing(&mut self) {
+        self.clearing = true;
     }
 
     /// Applies decoded events in order.
@@ -1775,11 +2601,34 @@ impl Shell {
     /// two bytes timed each other out would be two unrelated keystrokes.
     fn consume(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
-            // The panel has the focus while it is up, and this is the whole of
-            // what that means: nothing below runs, so a `1` cannot be typed
-            // into the composer and a Ctrl-D cannot leave a session with a turn
-            // waiting on an answer. On either plane: the focus belongs to the
-            // question, not to the surface it happens to be asked on.
+            // **Before the focus, and that is the point of putting it here.**
+            // A theme report is not a keystroke: nobody typed it, and every
+            // branch below is written to swallow what it does not bind -- so a
+            // report routed after them would work at an empty composer and
+            // stop working the moment a question was up, which is exactly the
+            // kind of "works when you test it" this ordering exists to avoid.
+            // It reaches no editor, no panel and no draft; what it moves is
+            // which greys the next frame is painted in.
+            if let Input::Report(mode) = event {
+                self.retint(mode);
+                continue;
+            }
+            // Whatever is in front of the user has the focus while it is up,
+            // and this is the whole of what that means: nothing below runs, so
+            // a `1` cannot be typed into the composer and a Ctrl-D cannot leave
+            // a session with a turn waiting on an answer. On either plane, and
+            // for either kind of question: the focus belongs to what is being
+            // asked, not to the surface it happens to be asked on.
+            //
+            // The model's own question batch is read first only because it has
+            // to be read somewhere -- the two can never both be up
+            // ([`Self::slot`]) -- and the keys mean different things at each, so
+            // the two branches stay separate rather than sharing one
+            // translation.
+            if self.ask.is_some() {
+                self.answer(event, now);
+                continue;
+            }
             if self.asking() {
                 self.decide(event, now);
                 continue;
@@ -1802,6 +2651,8 @@ impl Shell {
                 // byte either -- a frame per byte of a megabyte paste is a
                 // session that stops answering the keyboard.
                 Input::PasteByte(byte) => self.paste.byte(byte),
+                // Handled at the top of this loop, before the focus.
+                Input::Report(_) => {}
             }
         }
     }
@@ -1833,8 +2684,8 @@ impl Shell {
         ) {
             return;
         }
-        if self.editor.insert(typed) {
-            self.amended();
+        if let Some(delta) = self.editor.insert(typed) {
+            self.amended(Some(delta));
         }
     }
 
@@ -1870,8 +2721,8 @@ impl Shell {
                 if text.is_empty() {
                     return;
                 }
-                if self.editor.insert(&text) {
-                    self.amended();
+                if let Some(delta) = self.editor.insert(&text) {
+                    self.amended(Some(delta));
                 }
             }
             // The screen gets the summary and the text goes behind it as an
@@ -1884,12 +2735,6 @@ impl Shell {
                 text,
                 lines,
             } => {
-                // Kept for the transaction below, before the edit that makes it
-                // stale. Two copies of a draft that can be 8 MiB, held until
-                // the next keystroke overwrites them, which is the price of an
-                // undo that can put an insertion back
-                // ([`super::transaction`]).
-                let before = self.editor.text().to_string();
                 // No arm for a composer that refuses the summary, and that is
                 // arithmetic rather than optimism: a block is only collapsed
                 // past `COLLAPSE_ABOVE` codepoints, the budget admitted the
@@ -1897,22 +2742,18 @@ impl Shell {
                 // number -- so the room left over is never smaller than a name
                 // ([`super::paste`]'s
                 // `a_collapsed_paste_the_budget_admits_always_fits_the_composer`).
-                let Some(entity) = self
+                let Some(delta) = self
                     .editor
                     .insert_entity(&summary, EntityKind::Paste { id, text, lines })
                 else {
                     return;
                 };
-                self.amended();
-                // **After the edit**, because `amended` runs through
-                // [`Self::edited`], which records `Other` for every change to
-                // the composer. One paste is one boundary however many bytes
-                // and however many reads of the terminal it arrived in.
-                self.transaction.record(EditTransaction::InsertPaste {
-                    before,
-                    after: self.editor.text().to_string(),
-                    entity,
-                });
+                // **One delta for the whole paste**, recorded at the moment the
+                // frame closed -- the only moment that knows the boundary. Its
+                // weight carries the payload, so a paste the history cannot hold
+                // is a boundary rather than an entry that lies
+                // ([`super::edit_history`]).
+                self.amended(Some(delta));
             }
         }
     }
@@ -1933,7 +2774,8 @@ impl Shell {
             | Action::End
             | Action::WordLeft
             | Action::WordRight => {
-                self.editor.apply(action, self.text_cols());
+                let recorded = self.editor.apply(action, self.text_cols());
+                debug_assert!(recorded.is_none(), "a caret move produced a delta");
                 self.moved();
             }
             // The composer's own, and **edits**: the text is the user's now
@@ -1944,8 +2786,8 @@ impl Shell {
             | Action::DeleteWordLeft
             | Action::KillToEnd
             | Action::KillToStart => {
-                self.editor.apply(action, self.text_cols());
-                self.amended();
+                let delta = self.editor.apply(action, self.text_cols());
+                self.amended(delta);
             }
             // The two keys that are the composer's until the caret has nowhere
             // left to go, and the history's exactly there.
@@ -1959,7 +2801,8 @@ impl Shell {
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
-                self.editor.apply(action, cols);
+                let recorded = self.editor.apply(action, cols);
+                debug_assert!(recorded.is_none(), "a vertical move produced a delta");
                 if self.editor.point(cols).0 != from {
                     self.moved();
                     return;
@@ -1976,9 +2819,9 @@ impl Shell {
                     // for even though the caret could not move, and that is the
                     // state the frame after it is drawn from. Repaint only --
                     // [`Self::moved`] rather than [`Self::edited`] -- because
-                    // nothing about the text changed, so the undo boundary the
-                    // last edit left is still the truth about the last edit
-                    // ([`super::transaction`]).
+                    // nothing about the text changed, so the history is still
+                    // the truth about the last edit
+                    // ([`super::edit_history`]).
                     self.moved();
                 }
             }
@@ -2010,12 +2853,12 @@ impl Shell {
                 if self.editor.is_empty() {
                     self.leave();
                 } else {
-                    self.editor.apply(Action::Delete, self.text_cols());
-                    self.amended();
+                    let delta = self.editor.apply(Action::Delete, self.text_cols());
+                    self.amended(delta);
                 }
             }
             // The whole band is repainted every frame, so a redraw is a frame.
-            Action::Redraw => self.render.request(Reason::ExternalDamage),
+            Action::Redraw => self.external_damage(),
             // The frame around a paste. Everything between them is content
             // rather than keys, which is the whole of why a pasted newline does
             // not submit the composer and a pasted `0x03` does not cancel a
@@ -2040,8 +2883,98 @@ impl Shell {
             Action::HistoryNext => {
                 self.recall(HistoryStep::Next);
             }
+            // **The composer's own history**, and neither of them is an
+            // `amended`: an undo is not the user replacing a recalled line, it
+            // is the user taking their own last edit back, and recording one
+            // would clear the redo stack it is walking.
+            //
+            // The two fields are split at the call site rather than moved
+            // through the history, which is two disjoint field borrows and what
+            // keeps the transfer atomic: a caller that popped an entry and
+            // forgot to stash it would silently destroy the redo path, so there
+            // is no public pop ([`super::edit_history::EditHistory::undo`]).
+            Action::Undo | Action::Redo => {
+                let Shell {
+                    edit_history,
+                    editor,
+                    ..
+                } = self;
+                let moved = match action {
+                    Action::Undo => edit_history.undo(|delta| editor.revert(delta)),
+                    _ => edit_history.redo(|delta| editor.replay(delta)),
+                };
+                if moved {
+                    self.moved();
+                }
+            }
+            // A yank **is** an edit: it puts text in the composer, so it ends
+            // the recall walk like every other one and is itself undoable.
+            Action::Yank => {
+                let delta = self.yank_killed();
+                if delta.is_some() {
+                    self.amended(delta);
+                }
+            }
             Action::Tab | Action::Ignore => {}
         }
+    }
+
+    /// Puts the kill slot's text at the caret, under numbers of its own.
+    ///
+    /// **Fresh ids, and the summaries rewritten to say them.** A yank does not
+    /// move a block, it makes another one: the original may still be in the
+    /// draft, and `entity.rs:212-216` refuses two live blocks under one number
+    /// -- so the payload is shared (`Arc`) and the name is not. The delta is
+    /// [`super::edit_history::DeltaKind::Ordinary`] rather than `Kill`, so that
+    /// recording it does not overwrite the slot it has just read.
+    fn yank_killed(&mut self) -> Option<Delta> {
+        let (killed, spans) = self.edit_history.killed()?;
+        let mut text = killed.to_string();
+        let mut entities = Entities::new();
+        for span in spans {
+            entities.register(span.clone());
+        }
+        let wanted = entities.len();
+        // **Minted against a copy of the counter, and committed only if the
+        // edit happens.** `renumber_recalled` writes the numbers it spends
+        // straight back into whatever it is handed, and nothing in this session
+        // ever rewinds that: a number spent is spent for good, deliberately, so
+        // that two live blocks can never answer to one name
+        // (`super::entity::Entities::register`'s assertion). Handed the
+        // session's own counter, a yank the budget then refuses would burn a
+        // name for an edit that did not happen -- press `C-y` at a full
+        // composer often enough and the ids run out for pastes nobody made.
+        let mut next = *self.paste.ids();
+        entities.renumber_recalled(&mut text, &mut next);
+        // The same question a typed character asks, and for the same reason: a
+        // yank brings its payload back too, so the draft plus what its blocks
+        // stand for has to stay inside one budget (`super::paste::fits`).
+        if !paste::fits(
+            self.editor.text().len(),
+            self.editor.retained(),
+            text.len().saturating_add(entities.retained()),
+        ) {
+            // Refused silently, like every other keystroke the budget refuses
+            // (`Self::type_character`): the slot keeps what it holds, the draft
+            // is exactly the text it was, and `next` is dropped with the
+            // numbers it was going to spend still unspent.
+            return None;
+        }
+        let delta = self.editor.insert_with_entities(&text, entities.spans())?;
+        // The edit landed, so the names it put on the screen are this session's
+        // now. Committed **after** it and not before, because the composer has
+        // a refusal of its own (`super::editor::Editor::insert`) and a name on
+        // no summary is the same leak by another door.
+        *self.paste.ids() = next;
+        if entities.len() < wanted {
+            // The end of the id space, seen from the yank: those summaries are
+            // words now, and a line that would be sent as its own description is
+            // one the user has to be told about. Said after the insert for the
+            // reason above -- and reachable only through it, since the budget
+            // question above is the stricter of the two.
+            self.notice = Some(YANK_UNNUMBERED);
+        }
+        Some(delta)
     }
 
     /// One Ctrl-C.
@@ -2089,14 +3022,14 @@ impl Shell {
                 // the turn is over a moment later, so what is left of that
                 // answer follows at the drain rate rather than at reading
                 // speed.
-                self.write_document_line(crate::app::INTERRUPT_NOTICE);
+                self.write_document_line(crate::app::INTERRUPT_NOTICE, Role::Notice);
                 if waiting {
                     // The second half of the same answer to the same keystroke,
                     // and immediate for the same reason: "and the queue went
                     // with it" is only useful beside the sentence it qualifies.
                     // Held back, it would arrive detached from the notice it
                     // belongs to and after text the user asked to stop.
-                    self.write_document_line(QUEUE_DROPPED);
+                    self.write_document_line(QUEUE_DROPPED, Role::Notice);
                 }
             }
             Interrupt::Clear => self.clear_composer(),
@@ -2112,6 +3045,18 @@ impl Shell {
     /// paste for the rest of the session, and a span into a buffer that has
     /// been emptied names bytes that are not there.
     fn take_draft(&mut self) -> String {
+        // **Every stacked delta named the draft that is about to be gone.** Its
+        // offsets are absolute into that text, so an undo after this would
+        // `replace_range` past the end of an empty `String` -- a panic -- or
+        // write a dead draft's bytes into an unrelated one. Cleared here, at the
+        // single funnel, so every caller present and future inherits it and no
+        // list of them has to be maintained ([`super::edit_history`]).
+        //
+        // The kill slot is deliberately **not** cleared: it is separate state
+        // upstream too, and only a new session empties it
+        // (`kill_ring.zig:71-84`). What was killed out of a submitted draft is
+        // still yankable into the next one.
+        self.edit_history.boundary();
         // The blocks go with the text, because they are runs of it: the
         // composer's own `take` clears them (`super::editor::Editor::take`), so
         // there is no second call site that has to remember to.
@@ -2128,7 +3073,7 @@ impl Shell {
             return;
         }
         self.take_draft();
-        self.amended();
+        self.amended(None);
     }
 
     /// What one submitted line is, and what happens to it.
@@ -2186,7 +3131,7 @@ impl Shell {
             // nothing is sent or written.
             Submitted::Blank => {
                 self.take_draft();
-                self.edited();
+                self.edited(None);
             }
             Submitted::Command { .. } => {
                 self.echo(&text);
@@ -2205,9 +3150,9 @@ impl Shell {
                 // onto the end of it.
                 let refusal = interactive::unknown_command_message(token);
                 self.take_draft();
-                self.edited();
+                self.edited(None);
                 self.echo(&text);
-                self.write_document_line(&refusal);
+                self.write_document_line(&refusal, Role::Notice);
             }
             // **Expanded here, and only here.** What the composer holds for a
             // collapsed paste is a summary; what the user meant to send is the
@@ -2261,7 +3206,7 @@ impl Shell {
                 // the runtime is *running*, so it waits for the runtime to say
                 // that this one is (`UiEvent::TurnStarted`).
                 self.take_draft();
-                self.edited();
+                self.edited(None);
                 self.echo(text);
                 self.gestures.submitted();
             }
@@ -2293,7 +3238,10 @@ impl Shell {
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
     fn echo(&mut self, text: &str) {
-        self.say(text.to_string());
+        // The user's own line, so xfx paints nothing onto it: what is written
+        // here is what they typed, in whatever the terminal's own foreground
+        // is.
+        self.say_as(text.to_string(), Role::Plain);
     }
 
     /// One canonical command, with the rest of the line as its argument.
@@ -2311,7 +3259,7 @@ impl Shell {
     /// answer it.
     fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
-        self.edited();
+        self.edited(None);
         self.gestures.submitted();
         router::route(submitted, self);
     }
@@ -2425,7 +3373,7 @@ impl Shell {
             // `ModelOutcome::Refused` arm. Nothing of the argument is quoted
             // back: every one of these reasons is xfx's own words, which is
             // what keeps a hostile id out of the document.
-            self.write_document_line(&format!("xfx: {problem}"));
+            self.write_document_line(&format!("xfx: {problem}"), Role::Notice);
             return;
         }
         // **And nothing else is decided here.** Whether the id is the one
@@ -2460,7 +3408,7 @@ impl Shell {
             // (`interactive::setup_usage`), so a build that grows one does not
             // grow a sentence that forgets it. Nothing of the argument is quoted
             // back, for the reason `/model`'s refusal quotes nothing.
-            self.write_document_line(&interactive::setup_usage());
+            self.write_document_line(&interactive::setup_usage(), Role::Notice);
             return;
         };
         if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
@@ -2478,10 +3426,13 @@ impl Shell {
     /// is reset, because it counts the rows it has put on the screen and every
     /// one of them is about to stop existing -- an append measured against the
     /// old count would place its rows around a row that is no longer there. And
-    /// the document writes already owed are **dropped**, because they were owed
-    /// against that same screen.
+    /// the document writes already owed are **dropped** with it, because they
+    /// were owed against that same screen.
+    ///
+    /// One statement for both, and that is the point: the owed text lives in
+    /// the transcript, so there is no second place to forget to empty and no
+    /// order between them to get wrong.
     fn clear_screen(&mut self) {
-        self.pending.clear();
         self.transcript = Transcript::new(self.geometry.cols);
         // The stream goes with them, and it is the one place this session
         // drops text the runtime produced. The rows it was going to be written
@@ -2496,8 +3447,10 @@ impl Shell {
         self.emitted = self.enqueued;
         self.clearing = true;
         // Every row of the band is gone from the screen too, so the next frame
-        // is a repaint of the whole thing rather than an optional one.
-        self.render.request(Reason::ExternalDamage);
+        // is a repaint of the whole thing rather than an optional one -- and
+        // the document's rows are gone with it, which is what takes any
+        // visible recolour owed against them down ([`Self::external_damage`]).
+        self.external_damage();
         self.say(CLEARED_NOTICE.to_string());
     }
 
@@ -2551,15 +3504,23 @@ impl Shell {
         // (`super::editor::Editor::set_text`), and the ones now in the composer
         // are the recalled entry's, under numbers this session has just minted.
         //
+        // **A completed recall is a boundary, not a delta**
+        // (`input_completion_runtime.zig:339-356`: `.moved =>
+        // historyBoundary`, `.unchanged => {}`). The whole draft was replaced,
+        // so every delta on the stack names offsets into a text that is gone.
+        // `set_text` is the one whole-draft disposal that does not go through
+        // [`Self::take_draft`], which is why the boundary is named here.
+        self.edit_history.boundary();
         // Not `amended`: an edit ends the walk, and this *is* the walk.
-        self.edited();
+        self.edited(None);
         true
     }
 
     /// What a change to the composer's **text** owes, over what a caret move
     /// owes.
     ///
-    /// The extra obligation is one thing and it is the walk: the line on the
+    /// The extra obligation over [`Self::edited`] is one thing and it is the
+    /// walk: the line on the
     /// screen is the user's own now rather than the one the history handed
     /// back, so the next step back begins at the newest entry again and comes
     /// back to *this* text. Split from [`Self::edited`] rather than folded into
@@ -2567,27 +3528,28 @@ impl Shell {
     /// prompt is how a user reads it before deciding to step further back, and
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
-    fn amended(&mut self) {
+    fn amended(&mut self, delta: Option<Delta>) {
         self.history.leave();
-        self.edited();
+        self.edited(delta);
     }
 
     /// What a change to the composer's **text** owes, over what a caret move
-    /// owes: the undo boundary.
+    /// owes: the history entry.
     ///
     /// **Every text change passes through here and no caret move does**, which
-    /// is the whole of the split. What an item-18 stack needs to know is what
-    /// the last change to the text was; a field written by the repaint path
-    /// would say "an ordinary edit" after a `Left`, and an undo built on it
-    /// would take a megabyte back a grapheme at a time. The paste path records
-    /// its own boundary *after* calling through here ([`Self::pasted`]), so one
-    /// framed paste is one transaction and the keystroke after it is another.
+    /// is the whole of the split. A funnel written by the repaint path would
+    /// record an entry after a `Left`, and an undo built on it would take a
+    /// megabyte back a grapheme at a time.
     ///
-    /// Nothing else is owed. While a block was a name this also had to re-read
-    /// the draft once per block to see which of them the edit had damaged; a
-    /// block is a span now and the edit already moved it (`super::entity`).
-    fn edited(&mut self) {
-        self.transaction.record(EditTransaction::Other);
+    /// `None` is a text change with **nothing to record**, and there are two
+    /// kinds: a whole-draft disposal, whose boundary was already taken at
+    /// [`Self::take_draft`] or at the recall, and a mutation the composer
+    /// refused or found nothing to do -- neither of which may clear the redo
+    /// stack ([`super::edit_history`]).
+    fn edited(&mut self, delta: Option<Delta>) {
+        if let Some(delta) = delta {
+            self.edit_history.record(delta);
+        }
         self.moved();
     }
 
@@ -2656,6 +3618,7 @@ impl Shell {
         // shows fewer matches.
         let panel = match self.slot() {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
+            Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(cols, rows),
             None => 0,
         };
@@ -2748,7 +3711,39 @@ impl Shell {
         self.transcript.resize_unfinished(cols);
         // Every row of the band is somewhere else, and so is every column.
         self.render.request(Reason::Resize);
+        // And every document row the terminal has re-wrapped by rules this
+        // crate does not model: a recolour owed against those cells is owed
+        // against a screen that no longer exists. The caller invalidates the
+        // shadow on this same road (`super::event_loop`'s `adopt_resize`),
+        // which is where the band is told.
+        self.retint_debt = false;
+        self.damage_untold = true;
         Resize::Repaint(geometry)
+    }
+
+    /// How deep the composer's undo and redo stacks are.
+    ///
+    /// Named for [`Self::edit_history`] rather than for "history", because the
+    /// other field of that name is the prompt recall and a helper called
+    /// `depths` would be read as its walk.
+    #[cfg(test)]
+    fn edit_depths(&self) -> (usize, usize) {
+        (
+            self.edit_history.undo_depth(),
+            self.edit_history.redo_depth(),
+        )
+    }
+
+    /// The transcript's own committed answer to "how many rows is the
+    /// unfinished line occupying right now" ([`Transcript::tail_rows`]),
+    /// forwarded rather than duplicated -- test-only, and no production
+    /// state or exposure: it reads the same field a real tick already
+    /// reads, it does not add one. `pub(crate)` (not private) for the same
+    /// reason `Transcript::tail_rows` already is: `super::event_loop`'s
+    /// tests need it and are a sibling module, not a descendant of this one.
+    #[cfg(test)]
+    pub(crate) fn tail_rows(&self) -> usize {
+        self.transcript.tail_rows()
     }
 }
 
@@ -2763,8 +3758,11 @@ mod tests {
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 
     use super::super::bridge::TurnControl;
+    use super::super::edit_history::DeltaKind;
     use super::super::gesture::EXIT_WINDOW;
     use super::super::pacer::{MAX_CPS, MIN_CPS};
+    use super::super::question::QuestionId;
+    use crate::tools::question::{QuestionEntry, QuestionOption};
 
     /// The loop's own tick, in milliseconds (`super::super::event_loop::TICK`),
     /// which is how often a real session gives the pacer its clock.
@@ -2815,12 +3813,50 @@ mod tests {
     }
 
     impl Fixture {
-        /// Everything the document owes, as the text of its rows.
+        /// Everything the document owes, landed onto a terminal that takes
+        /// everything, as the appends it was offered.
+        ///
+        /// What the loop's own drain does (`super::super::event_loop`'s
+        /// `commit_document`) with the one screen a shell test can promise: the
+        /// cases here are about *what* is owed and at what width, and the
+        /// terminal's refusals are the loop's cases rather than these.
+        ///
+        /// An operation that asks the terminal for nothing -- ending a line the
+        /// screen already has -- is landed without being offered, so it appears
+        /// here as nothing at all. That is the same thing the old queue said by
+        /// never holding it.
+        fn take_pending(&mut self) -> Vec<Append> {
+            let mut offered = Vec::new();
+            while self
+                .shell
+                .emit_document_front(|append| {
+                    offered.push(append.clone());
+                    Landed::<std::convert::Infallible>::All
+                })
+                .is_some()
+            {}
+            offered
+        }
+
+        /// Everything the document owes, as the **text** of its rows.
+        ///
+        /// The roles' own sequences are taken back off here, because what the
+        /// cases reached through this are about is what the document *says*:
+        /// which line landed, in what order, on how many rows. What it is
+        /// painted in is a claim of its own, and it is made against
+        /// [`Self::take_pending`] -- the untouched rows -- by the cases under
+        /// "the document's colours", which is why this may not be read as
+        /// "colour is not checked".
+        ///
+        /// A **closed** list of sequences ([`unpainted`]) rather than a strip
+        /// of every escape: a sequence inside a row's *text* is text as far as
+        /// the transcript is concerned, and a helper that ate those would hide
+        /// exactly what the cases holding one are about.
         fn document(&mut self) -> Vec<String> {
-            self.shell
-                .take_pending()
+            self.take_pending()
                 .into_iter()
                 .flat_map(|append| append.rows)
+                .map(|row| unpainted(&row))
                 .collect()
         }
 
@@ -2963,6 +3999,19 @@ mod tests {
         format!("{}{text}{}", PALETTE.hint(), PALETTE.reset())
     }
 
+    /// A document row with the sequences a **role** put on it taken off, and
+    /// nothing else touched.
+    ///
+    /// Exactly the three the fixture's palette can add to a transcript row --
+    /// the answer's, xfx's own lines', and the reset that closes either.
+    /// Anything else a row carries is part of its text and is left where it
+    /// is.
+    fn unpainted(row: &str) -> String {
+        row.replace(PALETTE.body(), "")
+            .replace(PALETTE.notice(), "")
+            .replace(PALETTE.reset(), "")
+    }
+
     /// The palette every fixture paints in.
     ///
     /// The default one, so a test that asserts on a band row asserts on what an
@@ -2973,6 +4022,13 @@ mod tests {
     };
 
     fn shell(rows: u16, cols: u16) -> Fixture {
+        // Unlocked, because the fixture every case here starts from is a
+        // session whose palette the **terminal** decided -- which is also the
+        // only kind a theme report may move.
+        shell_with(rows, cols, PALETTE, false)
+    }
+
+    fn shell_with(rows: u16, cols: u16, palette: Palette, theme_locked: bool) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let (work, sent, control) = WorkHandle::detached();
@@ -2980,7 +4036,8 @@ mod tests {
             shell: Shell::new(
                 &config(home.path(), workspace.path()),
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
-                PALETTE,
+                palette,
+                theme_locked,
                 work,
             ),
             sent,
@@ -3114,6 +4171,7 @@ mod tests {
             &config(home.path(), workspace.path()),
             crate::tui::layout::solve(24, 80, 4).expect("a four-row composer"),
             PALETTE,
+            false,
             work,
         );
         let rows = shell.band_rows();
@@ -3225,6 +4283,61 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)]
             }]
+        );
+    }
+
+    #[test]
+    fn text_owed_to_the_document_is_wrapped_for_the_screen_it_is_written_on() {
+        // The same claim across a resize the text lived through. A write is
+        // queued on this side of the divider and lands when the loop has a
+        // screen to write it on (`super::event_loop`'s `commit_document`); a
+        // resize in between is a screen the text has never been on, so it is
+        // measured against the one it really lands on. Rows frozen at the old
+        // width are clipped by the painter, and this phase never repaints a
+        // document row.
+        let mut shell = shell(24, 80);
+        shell.write_transcript(&"x".repeat(25));
+
+        assert_eq!(shell.resize(24, 20), Resize::Repaint(shell.geometry));
+
+        assert_eq!(
+            shell.take_pending(),
+            vec![Append {
+                scroll: 2,
+                rows: vec!["x".repeat(20), "x".repeat(5)]
+            }],
+            "the text was written as the one 25-column row the wider screen \
+             would have given it"
+        );
+    }
+
+    #[test]
+    fn a_line_that_ended_on_its_own_break_is_not_ended_a_second_time() {
+        // The empty-tail case, which the projection has to answer the same way
+        // the committed state used to: text ending in a break leaves the row
+        // its successor starts on open, so finishing the line there writes
+        // nothing -- and must ask for no frame either. The alternative is a
+        // blank row in the document for every notice that follows a paragraph.
+        let mut shell = shell(24, 80);
+        let _first = shell.render.begin().expect("the first frame");
+        shell.write_transcript("abc\n");
+        assert_eq!(
+            shell.take_pending(),
+            vec![Append {
+                scroll: 2,
+                rows: vec!["abc".to_string(), String::new()]
+            }]
+        );
+        let _asked = shell.render.begin().expect("the frame the write asked for");
+
+        shell.finish_document_line();
+        assert!(
+            shell.take_pending().is_empty(),
+            "a line that ended on its own break was given a second blank row"
+        );
+        assert!(
+            shell.render.begin().is_none(),
+            "a whole-band repaint was asked for by a write that wrote nothing"
         );
     }
 
@@ -3359,19 +4472,32 @@ mod tests {
     }
 
     #[test]
-    fn writes_given_back_unattempted_go_ahead_of_the_ones_owed_since() {
-        // The loop takes the whole batch and can stop part-way through it when
-        // the terminal refuses one (`super::event_loop::commit_frame`), so what
-        // comes back was never offered to the screen. It comes back *in front*:
-        // the tick that gives it back has already applied this tick's events,
-        // and a document is a sequence -- a row that lands after one queued
-        // behind it is as wrong as a row that never lands.
+    fn a_write_the_terminal_refused_stays_in_front_of_the_ones_owed_since() {
+        // The claim `restore_pending` used to keep, now kept by the queue's own
+        // shape: the loop can stop part-way through what is owed when the
+        // terminal refuses a write (`super::event_loop::commit_document`), and
+        // the tick that discovers it has already applied that tick's events. A
+        // document is a sequence -- a row that lands after one queued behind it
+        // is as wrong as a row that never lands -- so the refused one is still
+        // the oldest thing owed.
         let mut shell = shell(24, 80);
         shell.write_transcript("older\n");
-        let untried = shell.take_pending();
-        assert_eq!(untried.len(), 1, "the fixture owes one write, not a batch");
+        let refused = shell.shell.emit_document_front(|append| {
+            assert_eq!(
+                append.rows.first().map(String::as_str),
+                Some("older"),
+                "the oldest write is not what was offered: {append:?}"
+            );
+            Landed::None(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "not now",
+            ))
+        });
+        assert!(
+            matches!(refused, Some(Err(_))),
+            "a refusal was not reported to the loop: {refused:?}"
+        );
         shell.write_transcript("newer\n");
-        shell.restore_pending(untried);
 
         // The text of each write, in the order the document is owed them. Only
         // the first row of each is named: a break also opens the empty line
@@ -3587,7 +4713,10 @@ mod tests {
         // re-wraps on every edit, so half a megabyte of keystrokes would be
         // quadratic here. This is the same call `type_character` makes.
         let typed = "x".repeat(500_000);
-        assert!(shell.editor.insert(&typed), "the draft could not be set up");
+        assert!(
+            shell.editor.insert(&typed).is_some(),
+            "the draft could not be set up"
+        );
 
         let block = "y".repeat(8_000_000);
         shell.route_bytes(b"\x1b[200~");
@@ -3632,7 +4761,7 @@ mod tests {
         // Enough that the draft and the block it hides are together past the
         // budget, put in whole for the reason above.
         assert!(
-            shell.editor.insert(&"x".repeat(400_000)),
+            shell.editor.insert(&"x".repeat(400_000)).is_some(),
             "the draft could not be set up"
         );
         let full = shell.editor.text().len();
@@ -3694,7 +4823,8 @@ mod tests {
         assert!(
             shell
                 .editor
-                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary)),
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary))
+                .is_some(),
             "the draft could not be set up"
         );
         let full = shell.editor.text().len();
@@ -3724,7 +4854,8 @@ mod tests {
         assert!(
             shell
                 .editor
-                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary)),
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary))
+                .is_some(),
             "the draft could not be set up"
         );
         let full = shell.editor.text().len();
@@ -3963,14 +5094,13 @@ mod tests {
 
     #[test]
     fn one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in() {
-        // **The boundary an undo will take**, fixed at the only moment that
-        // knows it. A paste is one gesture and a great many bytes, and the
-        // bytes arrive in as many reads as the terminal feels like: a boundary
+        // **The boundary an undo takes**, fixed at the only moment that knows
+        // it. A paste is one gesture and a great many bytes, and the bytes
+        // arrive in as many reads as the terminal feels like: a boundary
         // inferred later from the buffer would be a boundary per read, or per
         // grapheme, and an undo built on it would take a megabyte back a
-        // character at a time. There is no `C-z` on this surface -- item 18
-        // brings the stack -- so this case is the seam's only reader, which is
-        // what `.prd/06-qa-harness.md`'s scenario 21 points at.
+        // character at a time. Migrated off the one-entry seam onto the delta
+        // the history really holds, which is now the thing `C-_` walks.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x1b[200~");
         let chunk = vec![b'y'; 64];
@@ -3979,57 +5109,67 @@ mod tests {
         }
         shell.route_bytes(b"\x1b[201~");
 
-        let Some(EditTransaction::InsertPaste {
-            before,
-            after,
-            entity,
-        }) = shell.transaction.last()
-        else {
-            panic!(
-                "a framed paste did not record one insert transaction: {:?}",
-                shell.transaction.last()
-            );
-        };
-        assert_eq!(before, "", "the draft before the paste was not recorded");
-        assert_eq!(after, "[Pasted text #1, 1 lines]");
-        assert_eq!(entity.range(), 0..after.len());
+        assert_eq!(
+            shell.edit_depths(),
+            (1, 0),
+            "a framed paste did not record exactly one entry"
+        );
+        let delta = shell.edit_history.last().expect("the paste's delta");
+        assert_eq!(delta.kind(), DeltaKind::Paste);
+        assert_eq!(delta.at(), 0, "the draft before the paste was not empty");
+        assert_eq!(delta.removed(), "", "a paste removed nothing");
+        assert_eq!(delta.inserted(), "[Pasted text #1, 1 lines]");
+        let entity = &delta.inserted_entities()[0];
+        assert_eq!(entity.range(), 0..delta.inserted().len());
         assert_eq!(
             entity.text().len(),
             40 * 64,
-            "the transaction's entity does not carry the whole paste"
+            "the delta's entity does not carry the whole paste"
         );
 
-        // And the next edit overwrites it, because what an undo needs to know
-        // is what the *last* change was.
+        // And the next edit is its **own** entry rather than an extension of
+        // this one: one paste is one thing to undo, and the keystroke after it
+        // is another.
         shell.route_bytes(b"!");
+        assert_eq!(shell.edit_depths(), (2, 0));
+        assert_eq!(
+            shell.edit_history.last().map(Delta::kind),
+            Some(DeltaKind::Ordinary),
+            "a keystroke after a paste was folded into the paste's transaction"
+        );
+
+        // The whole point of the boundary, driven: one `C-_` takes the
+        // keystroke, the second takes the paste **whole**.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "");
         assert!(
-            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
-            "a keystroke after a paste left the paste boundary standing: {:?}",
-            shell.transaction.last()
+            shell.editor.entities().is_empty(),
+            "the block outlived the summary it stands for"
         );
     }
 
     #[test]
     fn a_caret_move_leaves_the_paste_boundary_standing_and_an_edit_takes_it_down() {
-        // **A move is not an edit.** The boundary an undo would take is a fact
-        // about the last change to the *text*; a keystroke that only moved the
-        // caret has not changed the text, so a stack built on this seam would
-        // find "the last edit was an ordinary one" after a `Left` and take the
-        // paste back a grapheme at a time -- which is the whole thing the
-        // boundary exists to prevent.
+        // **A move is not an edit.** A keystroke that only moved the caret has
+        // not changed the text, so it records nothing: a history that grew an
+        // entry per `Left` would take the paste back a grapheme at a time --
+        // which is the whole thing the boundary exists to prevent -- and reading
+        // a pasted line before deciding to undo it would be what made the undo
+        // impossible.
         let mut shell = shell(24, 80);
         // Two rows, so that `Up` and `Down` have somewhere to go inside the
         // draft: typed **before** the paste, because typing is an edit and the
-        // boundary this case is about is the paste's.
+        // entry this case is about is the paste's.
         shell.route_bytes(&[b'x'; 100]);
         let _block = collapsed(&mut shell, 1);
-        assert!(
-            matches!(
-                shell.transaction.last(),
-                Some(EditTransaction::InsertPaste { .. })
-            ),
-            "the paste did not record a boundary, so this case proves nothing"
+        assert_eq!(
+            shell.edit_history.last().map(Delta::kind),
+            Some(DeltaKind::Paste),
+            "the paste did not record an entry, so this case proves nothing"
         );
+        let depths = shell.edit_depths();
 
         // Every key the composer binds that moves the caret and nothing else.
         // `Up`/`Down` are here twice over: once inside a two-row draft, where
@@ -4050,30 +5190,31 @@ mod tests {
             ("Down at the last row", &b"\x1b[B\x1b[B\x1b[B"[..]),
         ] {
             shell.route_bytes(keys);
-            assert!(
-                matches!(
-                    shell.transaction.last(),
-                    Some(EditTransaction::InsertPaste { .. })
-                ),
-                "{name} moved the caret and took the paste boundary down with it: {:?}",
-                shell.transaction.last()
+            assert_eq!(
+                shell.edit_history.last().map(Delta::kind),
+                Some(DeltaKind::Paste),
+                "{name} recorded a history entry for a caret that only moved"
+            );
+            assert_eq!(
+                shell.edit_depths(),
+                depths,
+                "{name} changed the depth of a history nothing was edited into"
             );
         }
 
-        // And an edit -- any edit -- does take it down, because after one the
-        // last change to the text is not the paste.
+        // And an edit -- any edit -- is its own entry on top of it.
         shell.route_bytes(b"!");
-        assert!(
-            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
-            "a keystroke after a paste left the paste boundary standing: {:?}",
-            shell.transaction.last()
+        assert_eq!(
+            shell.edit_history.last().map(Delta::kind),
+            Some(DeltaKind::Ordinary),
+            "a keystroke after a paste recorded nothing of its own"
         );
     }
 
     #[test]
     fn every_kind_of_edit_takes_the_paste_boundary_down() {
-        // The other half, once per family, because "an edit overwrites it" is a
-        // claim about the funnel every text change goes through rather than
+        // The other half, once per family, because "an edit is its own entry" is
+        // a claim about the funnel every text change goes through rather than
         // about the one keystroke that is easiest to test.
         let edits: [(&str, &[u8]); 5] = [
             ("a typed character", b"!"),
@@ -4085,20 +5226,430 @@ mod tests {
         for (name, keys) in edits {
             let mut shell = shell(24, 80);
             let _block = collapsed(&mut shell, 1);
-            assert!(
-                matches!(
-                    shell.transaction.last(),
-                    Some(EditTransaction::InsertPaste { .. })
-                ),
-                "{name}: the paste did not record a boundary"
+            assert_eq!(
+                shell.edit_history.last().map(Delta::kind),
+                Some(DeltaKind::Paste),
+                "{name}: the paste did not record an entry"
             );
             shell.route_bytes(keys);
+            assert_eq!(
+                shell.edit_depths(),
+                (2, 0),
+                "{name} was folded into the paste's transaction"
+            );
             assert!(
-                matches!(shell.transaction.last(), Some(EditTransaction::Other)),
-                "{name} left the paste boundary standing: {:?}",
-                shell.transaction.last()
+                !matches!(
+                    shell.edit_history.last().map(Delta::kind),
+                    Some(DeltaKind::Paste)
+                ),
+                "{name} left the paste as the newest entry"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // the composer's own history
+    // -----------------------------------------------------------------------
+    //
+    // Driven through the real recording funnel -- `route_bytes` into
+    // `Shell::act` -- rather than against a detached `EditHistory`, because
+    // every claim here is about *which* keystrokes reach it and with what.
+
+    #[test]
+    fn an_undo_after_a_submit_restores_nothing_and_does_not_panic() {
+        // Every stacked delta holds absolute offsets into a draft the submit
+        // threw away, so an undo that survived one would `replace_range` past
+        // the end of an empty `String`. The boundary is at `take_draft`, which
+        // is the funnel every whole-draft disposal goes through.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello");
+        assert_eq!(shell.edit_depths(), (5, 0));
+        shell.route_bytes(&[0x0d]);
+        let _taken = shell.sent.try_recv();
+
+        assert_eq!(shell.edit_depths(), (0, 0), "the submit was not a boundary");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "", "a discarded draft is not undoable");
+        assert_eq!(shell.edit_depths(), (0, 0));
+    }
+
+    #[test]
+    fn clear_composer_is_the_same_boundary_as_a_submit() {
+        // The same rule through the other door: an idle Ctrl-C throws the draft
+        // away, and it inherits the boundary from `take_draft` rather than
+        // taking one of its own.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello");
+        shell.route_bytes(&[0x03]);
+        assert_eq!(shell.editor.text(), "");
+        assert_eq!(shell.edit_depths(), (0, 0));
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "");
+        assert_eq!(shell.edit_depths(), (0, 0));
+    }
+
+    #[test]
+    fn a_slash_completion_is_a_boundary_and_never_a_half_undo() {
+        // The whole draft was the query (`picker::Trigger::of`), so the insert
+        // is the second half of a **replacement**. Recording only the insert
+        // would give an undo that deletes the command name and leaves the
+        // composer empty -- silently discarding what the user typed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/hel");
+        shell.complete("help");
+        assert_eq!(shell.editor.text(), picker::completed("help"));
+        assert_eq!(
+            shell.edit_depths(),
+            (0, 0),
+            "the completion recorded a delta"
+        );
+
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(
+            shell.editor.text(),
+            picker::completed("help"),
+            "undo deleted the command name and lost the query"
+        );
+        assert_eq!(shell.edit_depths(), (0, 0));
+    }
+
+    #[test]
+    fn a_recall_is_a_boundary_and_the_walk_survives_three_of_them() {
+        // Two rules in one drive, because they are the same call site
+        // (`Shell::recall`). A completed recall replaced the whole draft, so
+        // every stacked delta names a text that is gone
+        // (`input_completion_runtime.zig:339-356`) -- **and** the recall goes
+        // through `edited`, not `amended`, so the walk it is a step of stays
+        // open. A route through `amended` would call `history.leave()` and the
+        // second `C-p` would hand back the newest line again forever.
+        //
+        // The third line is a **command**, which is a submitted line like any
+        // other but is answered on this thread rather than by the runtime: the
+        // runtime holds two pieces of work at a time (`super::worker`'s
+        // `WORK_LIMIT`) and a third prompt would be refused, which would leave
+        // its draft in the composer and make this a case about `Rejected::Busy`.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first line");
+        submitted(&mut shell, "second line");
+        submitted(&mut shell, "/help");
+        shell.route_bytes(b"half typed");
+        assert_eq!(shell.edit_depths(), (10, 0));
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.editor.text(), "/help");
+        assert_eq!(
+            shell.edit_depths(),
+            (0, 0),
+            "the recall left deltas naming a draft that is gone"
+        );
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.editor.text(),
+            "second line",
+            "the second step back handed the newest line over again: the \
+             recall ended its own walk"
+        );
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.editor.text(),
+            "first line",
+            "the third step back did not reach the oldest line"
+        );
+
+        // And an undo does not step back across any of it.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "first line");
+        assert_eq!(shell.edit_depths(), (0, 0));
+
+        // The walk still comes home to the draft it stood aside, which is the
+        // other half of "the navigation is still live".
+        shell.route_bytes(&[0x0e]);
+        shell.route_bytes(&[0x0e]);
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.editor.text(), "half typed");
+    }
+
+    #[test]
+    fn a_yank_is_itself_undoable_and_leaves_the_kill_slot_loaded() {
+        // `C-y` is an edit like any other: it goes on the stack, so the undo
+        // after it takes the **yank** back rather than the kill. And the delta
+        // it records is `Ordinary`, so recording it does not overwrite the slot
+        // it has just read -- the same text can be yanked again.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two");
+        shell.route_bytes(&[0x17]); // C-w: kill "two"
+        assert_eq!(shell.editor.text(), "one ");
+
+        shell.route_bytes(&[0x19]); // C-y
+        assert_eq!(shell.editor.text(), "one two");
+        shell.route_bytes(&[0x1f]); // C-_
+        assert_eq!(
+            shell.editor.text(),
+            "one ",
+            "the undo took back the kill instead of the yank"
+        );
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "one two",
+            "an ordinary yank delta cleared the slot it read"
+        );
+    }
+
+    #[test]
+    fn backspace_and_delete_leave_the_kill_slot_alone() {
+        // The other half of the kill/ordinary split, driven: only `C-k`, `C-u`
+        // and `C-w` load the slot, so a backspace after a kill does not make
+        // `C-y` yank one character.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two");
+        shell.route_bytes(&[0x17]); // C-w: the slot holds "two"
+        shell.route_bytes(b"xy");
+        shell.route_bytes(&[0x7f]); // Backspace
+        shell.route_bytes(&[0x01]); // C-a
+        shell.route_bytes(&[0x1b, 0x5b, 0x33, 0x7e]); // Delete
+        assert_eq!(shell.editor.text(), "ne x");
+        shell.route_bytes(&[0x05]); // C-e
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "ne xtwo",
+            "a backspace or a forward delete reloaded the kill ring"
+        );
+    }
+
+    #[test]
+    fn a_kill_and_its_undo_are_two_different_things_from_a_yank() {
+        // An undo of the kill puts the text back where it was; a yank puts it
+        // where the caret is. The two are driven against each other so that a
+        // yank implemented as "undo the last kill" would fail.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two");
+        shell.route_bytes(&[0x17]); // C-w
+        shell.route_bytes(&[0x01]); // C-a: the caret is at the front now
+        shell.route_bytes(&[0x19]); // C-y
+        assert_eq!(
+            shell.editor.text(),
+            "twoone ",
+            "the yank put the text back where it was killed from"
+        );
+        shell.route_bytes(&[0x1f]); // undo the yank
+        assert_eq!(shell.editor.text(), "one ");
+        shell.route_bytes(&[0x1f]); // undo the kill
+        assert_eq!(
+            shell.editor.text(),
+            "one two",
+            "the kill's own undo did not restore it in place"
+        );
+    }
+
+    #[test]
+    fn a_no_op_keystroke_does_not_clear_redo() {
+        // Upstream's `prepare` has no empty-delta arm and its caller does
+        // nothing on `.unchanged` (`edit_history.zig:85-95`). Here the mutator
+        // answers `None` at `start >= end` (`Editor::delete`), so nothing is
+        // recorded and the redo stack the user is standing on survives.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.edit_depths(), (0, 1));
+
+        shell.route_bytes(&[0x1b, 0x5b, 0x33, 0x7e]); // Delete, caret at the end
+        assert_eq!(
+            shell.edit_depths(),
+            (0, 1),
+            "a keystroke with nothing to do cleared the redo stack"
+        );
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "a");
+    }
+
+    #[test]
+    fn an_undo_never_records_itself_and_a_redo_puts_the_caret_back() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"abc");
+        shell.route_bytes(&[0x01]); // C-a
+        shell.route_bytes(b"Z");
+        assert_eq!(shell.editor.text(), "Zabc");
+        // Column 3: two cells of prompt marker, then the one byte in front of
+        // the caret.
+        assert_eq!(shell.cursor(), (23, 3));
+
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "abc");
+        assert_eq!(shell.cursor(), (23, 2), "the caret did not go back with it");
+        assert_eq!(
+            shell.edit_depths(),
+            (3, 1),
+            "the undo recorded itself as an edit"
+        );
+
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "Zabc");
+        assert_eq!(shell.cursor(), (23, 3));
+        assert_eq!(shell.edit_depths(), (4, 0));
+    }
+
+    #[test]
+    fn a_pastes_payload_is_counted_and_undone_whole() {
+        // The delta carries the `Arc` behind the summary, so the history's byte
+        // budget is measured against what a paste really costs -- and the undo
+        // puts the block back under the number its summary says.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        assert!(
+            shell.edit_history.retained() > block.len(),
+            "the paste's payload was not counted: {} bytes for a {}-byte block",
+            shell.edit_history.retained(),
+            block.len()
+        );
+
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "");
+        assert!(shell.editor.entities().is_empty());
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        assert_eq!(
+            shell.editor.entities().spans()[0].id(),
+            1,
+            "the redone block came back under a different number"
+        );
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the redone block does not stand for the text it did"
+        );
+    }
+
+    #[test]
+    fn a_refused_yank_spends_no_paste_number() {
+        // **The allocation is transactional or it is a leak.** Renumbering a
+        // yank's blocks mints ids out of the session's one counter
+        // (`entity.rs`'s `renumber_recalled`, `*next = id`), and the counter is
+        // never rewound: a number this session has spent is spent for good. So
+        // a yank that is then refused by the budget has burned a number for an
+        // edit that did not happen -- press `C-y` at a full composer often
+        // enough and the session runs out of names for pastes it never made.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        // C-u takes the line and the block on it, so the slot holds a summary
+        // *and* the payload behind it -- which is what makes a yank a
+        // renumbering rather than an insertion of plain text.
+        shell.route_bytes(&[0x15]);
+        assert_eq!(shell.editor.text(), "");
+        let spent = *shell.paste.ids();
+        assert_eq!(spent, 1, "the paste this case killed was #1");
+
+        // A draft with no room for what the slot holds: the summary's own
+        // bytes plus the payload behind it, against the one budget the two
+        // share (`super::paste::fits`). Put in whole rather than a keystroke at
+        // a time, like every other case here that needs a full composer.
+        let yanked = "[Pasted text #1, 1 lines]".len() + block.len();
+        assert!(
+            shell
+                .editor
+                .insert(&"x".repeat(MAX_PASTE_BYTES - yanked + 1))
+                .is_some(),
+            "the draft could not be set up"
+        );
+        let draft = shell.editor.text().len();
+        let caret = shell.editor.before_caret().len();
+        let depths = shell.edit_depths();
+
+        for attempt in 1..=3 {
+            shell.route_bytes(&[0x19]);
+            assert_eq!(
+                shell.editor.text().len(),
+                draft,
+                "refusal {attempt} changed the draft"
+            );
+            assert_eq!(
+                shell.editor.before_caret().len(),
+                caret,
+                "refusal {attempt} moved the caret"
+            );
+            assert_eq!(
+                shell.edit_depths(),
+                depths,
+                "refusal {attempt} recorded a history entry"
+            );
+            let (text, spans) = shell
+                .edit_history
+                .killed()
+                .expect("the slot is still loaded");
+            assert_eq!(text, "[Pasted text #1, 1 lines]");
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].id(), 1, "refusal {attempt} renumbered the slot");
+            assert_eq!(
+                spans[0].text().len(),
+                block.len(),
+                "refusal {attempt} damaged the killed payload"
+            );
+            assert_eq!(
+                *shell.paste.ids(),
+                spent,
+                "refusal {attempt} spent a paste number on an edit that did not happen"
+            );
+        }
+
+        // And with room again the yank takes the **next unspent** number -- #2,
+        // not #5 -- carries the payload, and is undoable like any other edit.
+        shell.route_bytes(&[0x03]); // an idle Ctrl-C throws the draft away
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the yank did not take the next unspent number"
+        );
+        assert_eq!(*shell.paste.ids(), 2);
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the yanked summary stands for nothing"
+        );
+        assert_eq!(shell.edit_depths(), (1, 0));
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "", "the yank was not undoable");
+        assert!(shell.editor.entities().is_empty());
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "[Pasted text #2, 1 lines]");
+        assert_eq!(shell.editor.expanded(), block);
+    }
+
+    #[test]
+    fn a_killed_block_comes_back_under_its_own_number_and_a_yank_mints_a_new_one() {
+        // Two live blocks may not answer to one number (`entity.rs:212-216`),
+        // so a yank cannot re-register the id it read: the summary is rewritten
+        // to say the new one and the payload is shared. An undo of the kill is
+        // the other case -- it reverts to a draft in which the old id was live,
+        // so that one comes back exactly as it was.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x15]); // C-u: kill the line, block and all
+        assert_eq!(shell.editor.text(), "");
+
+        shell.route_bytes(&[0x19]); // C-y
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the yanked block kept the number the killed one had"
+        );
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the payload did not come with it"
+        );
+
+        shell.route_bytes(&[0x1f]); // undo the yank
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x1f]); // undo the kill
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the undone kill did not restore the block's own number"
+        );
+        assert_eq!(shell.editor.expanded(), block);
     }
 
     #[test]
@@ -4224,7 +5775,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let _started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"\x1b[200~abandoned");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.route_bytes(b" tail\x1b[201~");
         assert!(
             shell.panel.is_some(),
@@ -4359,8 +5910,8 @@ mod tests {
         // is quadratic work for a fact about one of them. What is under test is
         // what the band makes of the text, and that is reached the same way.
         let mut shell = shell(24, 80);
-        assert!(shell.editor.insert(&"x\n".repeat(70_000)));
-        shell.edited();
+        assert!(shell.editor.insert(&"x\n".repeat(70_000)).is_some());
+        shell.edited(None);
 
         assert_eq!(shell.geometry.input_rows(), 11, "the cap");
         let rows = shell.band_rows();
@@ -4512,8 +6063,52 @@ mod tests {
         // so this is two seconds exactly however long the rest of the test
         // takes.
         assert!(rows[0].contains("2s"), "{rows:?}");
+        // Literal, not derived from `Palette::activity` itself: a check that
+        // asked the accessor what it expects would pass for whatever
+        // `theme.rs` happened to declare. `252` is upstream's own dark index
+        // for this row (`shimmer_runtime.zig:262-291`'s
+        // `permission_auto_style`, `render.zig:55,86,105`).
+        assert!(
+            rows[0].starts_with("\u{1b}[38;5;252m"),
+            "the activity row is not painted in the dark palette's literal \
+             foreground: {rows:?}"
+        );
+        assert!(
+            rows[0].ends_with("\u{1b}[0m"),
+            "the activity row's colour was left open: {rows:?}"
+        );
         assert_eq!(rows[1], divider(80), "the rule moved");
+        assert!(
+            !rows[2].contains('\u{1b}'),
+            "the activity row's colour leaked onto the composer below it: {rows:?}"
+        );
         assert_eq!(rows.last().expect("a hint row"), &hint_row(IDLE_HINT));
+    }
+
+    #[test]
+    fn the_activity_rows_literal_foreground_is_the_light_palettes_too() {
+        // The dark index above is only half of what upstream pins: the light
+        // row is `238` (`render.zig:55,86,105`), and a role that only matched
+        // one of the two palettes would leave a light terminal reading
+        // `permission_auto_style`'s dark grey.
+        let mut shell = shell_with(24, 80, LIGHT, false);
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.settle_band(started + Duration::from_secs(2));
+
+        let rows = shell.band_rows();
+        assert!(
+            rows[0].contains("Thinking") && rows[0].contains("2s"),
+            "{rows:?}"
+        );
+        assert!(
+            rows[0].starts_with("\u{1b}[38;5;238m"),
+            "the activity row is not painted in the light palette's literal \
+             foreground: {rows:?}"
+        );
+        assert!(
+            rows[0].ends_with("\u{1b}[0m"),
+            "the activity row's colour was left open: {rows:?}"
+        );
     }
 
     #[test]
@@ -4736,7 +6331,15 @@ mod tests {
                 shell
                     .band_rows()
                     .first()
-                    .and_then(|row| row.chars().next())
+                    // The row now opens with the activity role's colour
+                    // (`Self::band_rows`), so the marker's own cell is past
+                    // it rather than at the row's first character.
+                    .and_then(|row| {
+                        row.strip_prefix(PALETTE.activity())
+                            .unwrap_or(row)
+                            .chars()
+                            .next()
+                    })
                     .expect("the activity row's first cell"),
             );
         }
@@ -4807,6 +6410,33 @@ mod tests {
         }
     }
 
+    /// How many rows [`asked`] really needs on an eighty-column screen.
+    ///
+    /// **A changed coordinate, and this is why.** It used to be eight, which
+    /// was the compact entry of a three-row table the panel no longer has: its
+    /// heights are measured from the request now
+    /// (`super::super::approval`'s `Shape::for_request`), because every
+    /// always-scope `crate::permission` builds is three wrapped rows at eighty
+    /// columns and a fixed two cut it. This fixture carries the short
+    /// hand-written scope, so what it demands is a title, one row of summary,
+    /// the three answers and one row of scope. Named once rather than spelled
+    /// at each of its seven uses, so that the next change to the wording moves
+    /// one number.
+    const PANEL_ROWS: u16 = 6;
+
+    /// The envelope a question reaches the shell in.
+    ///
+    /// `ApprovalId(1)` because that is what a session's first question is really
+    /// asked under (`super::super::approval::TuiPrompter`'s counter starts at
+    /// one), and every case here is a first question: an id invented for these
+    /// fixtures would let a shell that answered under the wrong one pass.
+    fn question(request: ApprovalRequest) -> super::super::approval::ApprovalAsked {
+        super::super::approval::ApprovalAsked {
+            id: ApprovalId(1),
+            request,
+        }
+    }
+
     /// The same question about a change too big for the band's own summary.
     fn asked_about_a_large_change() -> ApprovalRequest {
         let mut request = asked();
@@ -4817,13 +6447,348 @@ mod tests {
         request
     }
 
-    /// A shell with a turn running and a question in front of the user.
+    /// Document rows as one sentence, with the wrap taken back out.
+    ///
+    /// A notice is written as a sentence and the document wraps it to the
+    /// screen, so a case that asserted on one row would be asserting on where
+    /// the wrap fell rather than on what was said -- and would then fail on a
+    /// narrower fixture for a reason that has nothing to do with it. Every word
+    /// is still pinned, because both sides are normalised the same way.
+    fn unwrapped(rows: &[String]) -> String {
+        rows.join(" ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The frame that really disclosed the standing question, written and then
+    /// reconciled.
+    ///
+    /// What `super::super::event_loop` does across two ticks -- compose, hand
+    /// the bytes to the terminal, and check after the next drain of the resize
+    /// signal -- said in the three calls that carry it. Spelled out in the
+    /// fixture rather than granted by a switch on `Shell`: a `ready` that
+    /// answered `true` under `cfg(test)` would make every case below a case
+    /// about nothing.
+    fn delivered(shell: &mut Fixture) {
+        shell.intend_approval();
+        shell.approval_landed(Outcome::Painted);
+        shell.reconcile_approval();
+    }
+
+    /// A shell with a turn running and a question in front of the user, on a
+    /// screen that has really shown it.
     fn asking(shell: &mut Fixture) -> Instant {
         let started = turn_running(shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         let _ = shell.document();
+        delivered(shell);
         started
+    }
+
+    /// A question **`crate::permission` really built**, recorded or not.
+    ///
+    /// The hand-written [`asked`] carries a short always-scope; every scope a
+    /// session builds carries an unconditional suffix on top of it
+    /// (`crate::permission::policy`'s `always_scope_for`), and the cases below
+    /// are about whether an *ordinary* screen can disclose an *ordinary*
+    /// request. A fixture shorter than the product would answer yes for a panel
+    /// that cuts.
+    fn as_the_session_builds_it(durable: bool) -> ApprovalRequest {
+        use crate::permission::{
+            MutationKind, MutationPlan, PermissionMode, PermissionSession, Preimage,
+            ProposedAction, TargetScope,
+        };
+
+        struct Recording(std::sync::Arc<std::sync::Mutex<Vec<ApprovalRequest>>>);
+
+        impl crate::permission::ApprovalPrompter for Recording {
+            fn request(
+                &mut self,
+                request: &ApprovalRequest,
+            ) -> std::io::Result<crate::permission::ApprovalAnswer> {
+                self.0.lock().expect("lock").push(request.clone());
+                Ok(ApprovalAnswer::Deny)
+            }
+        }
+
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            // The long absolute path a real temporary workspace has.
+            std::path::PathBuf::from(
+                "/private/var/folders/f4/mj8750512wdb85799rpkct880000gn/T/.tmpqwGs5r/workspace/notes.txt",
+            ),
+            "notes.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"beta".to_vec(),
+        );
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let session = PermissionSession::new(PermissionMode::Ask);
+        let session = if durable {
+            session.with_durable_session("01K5Z8QF3V6TQ7B2N4H9J0XWRC")
+        } else {
+            session
+        };
+        let mut session = session.with_prompter(Box::new(Recording(std::sync::Arc::clone(&asked))));
+        session.decide_with_feedback(ProposedAction::Mutation(&plan));
+        let mut asked = asked.lock().expect("lock");
+        asked.remove(0)
+    }
+
+    #[test]
+    fn an_ordinary_screen_discloses_an_ordinary_request_and_takes_both_affirmatives() {
+        // **The regression the whole slice turns on.** A session's always-scope
+        // is three wrapped rows at eighty columns in both recording modes, and
+        // the panel used to allot it two: the sentence was cut, no frame could
+        // disclose the request, and every real approval on an ordinary terminal
+        // was ungrantable. Driven with the request the session really builds,
+        // at the size a terminal really opens at, for both affirmatives --
+        // `Always` because it is the one that buys the rest of the session.
+        for durable in [true, false] {
+            for (typed, answer) in [
+                (Input::Text('1'), ApprovalAnswer::Once),
+                (Input::Text('2'), ApprovalAnswer::Always),
+            ] {
+                let mut shell = shell(24, 80);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.apply(UiEvent::Approval(question(as_the_session_builds_it(
+                    durable,
+                ))));
+                shell.settle_band(started);
+                let _ = shell.document();
+                assert!(
+                    shell.geometry.panel > 0,
+                    "durable={durable}: the question was refused for want of rows"
+                );
+                // The whole sentence is on the band, tail included: what
+                // "always" buys is half the question.
+                let painted = shell.band_rows().join(" ");
+                let tail = if durable {
+                    "of this saved session"
+                } else {
+                    "the approval ends with this command"
+                };
+                assert!(
+                    unwrapped(std::slice::from_ref(&painted)).contains(tail),
+                    "durable={durable}: the always-scope was cut: {painted:?}"
+                );
+
+                delivered(&mut shell);
+                shell.decide(typed, Instant::now());
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer,
+                        feedback: None,
+                    }),
+                    "durable={durable}: a disclosed, committed and reconciled frame was refused"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_review_plane_that_cannot_disclose_says_so_on_its_own_screen_and_recovers_when_widened() {
+        // The alternate half of the gate, and of the notice. While this plane is
+        // up it owns every row the user can see, so a refusal written into the
+        // document would be a refusal behind the screen.
+        let mut shell = shell(24, 30);
+        let mut request = as_the_session_builds_it(true);
+        request.diff = Some(crate::permission::ApprovalDiff {
+            before: "a".repeat(4_000),
+            after: "b".repeat(4_000),
+        });
+        shell.apply(UiEvent::Approval(question(request)));
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        delivered(&mut shell);
+
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a screen that cannot show the request granted it"
+        );
+        assert!(
+            shell.released().is_empty(),
+            "the refusal went to the document, which is behind this plane"
+        );
+        let notice = unwrapped(&shell.screen_rows());
+        // The **leading clause**, not the whole sentence: the status line is
+        // bounded to `STATUS_ROWS` on purpose, and thirty cells is narrow
+        // enough that two rows do not hold all of it. A notice allowed to grow
+        // to fit would be a notice pushing an answer off the screen to explain
+        // why the answer could not be taken. What has to reach the user is
+        // which of the two refusals this is, and that is its first clause.
+        assert!(
+            notice.contains("this screen cannot show the whole request"),
+            "the plane that owns the screen never said why: {notice:?}"
+        );
+        assert!(
+            notice.contains("3. No (esc)"),
+            "the refusal took an answer off the screen: {notice:?}"
+        );
+
+        // Refusing is still possible at this size, which is what makes the gate
+        // a gate rather than a trap.
+        let mut trapped = shell.controlled();
+        assert!(trapped.is_none());
+        shell.decide(Input::Text('3'), Instant::now());
+        trapped = shell.controlled();
+        assert_eq!(
+            trapped,
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            }),
+            "a question that cannot be granted must still be refusable"
+        );
+
+        // And a wider screen recovers: the same question, disclosed whole, is
+        // answerable once a frame for that screen has landed.
+        drop(shell);
+        let mut wide = self::shell(40, 120);
+        let mut request = as_the_session_builds_it(true);
+        request.diff = Some(crate::permission::ApprovalDiff {
+            before: "a".repeat(4_000),
+            after: "b".repeat(4_000),
+        });
+        wide.apply(UiEvent::Approval(question(request)));
+        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        delivered(&mut wide);
+        wide.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            wide.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "a screen with room for the whole request still refused it"
+        );
+    }
+
+    #[test]
+    fn an_affirmative_before_the_frame_is_refused_and_not_replayed() {
+        // The whole point of the gate: a grant is given against a screen, and
+        // until a frame has really put this question on one there is no screen
+        // for it to be given against.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(shell.controlled(), None, "an unread question was answered");
+        let said = unwrapped(&shell.released());
+        assert!(
+            said.contains(&unwrapped(&[APPROVAL_NOT_READY.to_string()])),
+            "the refusal was silent: {said:?}"
+        );
+
+        delivered(&mut shell);
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the early key was consumed, not queued for a later grant"
+        );
+
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
+        );
+    }
+
+    #[test]
+    fn an_affirmative_on_the_review_plane_waits_for_that_planes_own_frame() {
+        // The same rule on the other surface, and it is not the same frame: the
+        // review plane's composition is a whole screen rather than a band's
+        // worth of rows, so a receipt earned by the band would be a receipt
+        // about something the user is not looking at.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert!(
+            !shell.screen_rows().is_empty(),
+            "the plane has nothing on it, so this case proves nothing"
+        );
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(shell.controlled(), None, "an unread change was approved");
+
+        delivered(&mut shell);
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
+        );
+    }
+
+    #[test]
+    fn refusing_is_always_possible_before_any_frame_lands() {
+        // A gate that held the refusals as well would leave a user who cannot
+        // read the question with no way to say no to it either -- which turns a
+        // safety check into a session that cannot be got out of.
+        for key in [Input::Text('3'), Input::Action(Action::Escape)] {
+            let mut shell = shell(24, 80);
+            shell.apply(UiEvent::Approval(question(asked())));
+            shell.decide(key.clone(), Instant::now());
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Deny,
+                    feedback: None,
+                }),
+                "{key:?} was gated"
+            );
+        }
+        // Ctrl-C needs a turn to be about ([`Shell::interrupt`] reads
+        // `WorkHandle::outstanding`), so this half is driven with one running.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.decide(Input::Action(Action::Cancel), started);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+    }
+
+    #[test]
+    fn a_screen_that_cannot_disclose_the_request_says_so_and_still_refuses() {
+        // Thirty cells cannot show the second choice whole, so no frame on this
+        // screen will ever grant -- and the sentence has to say that rather than
+        // "not yet", because waiting is not what fixes it.
+        let mut shell = shell(24, 30);
+        shell.apply(UiEvent::Approval(question(asked())));
+        delivered(&mut shell);
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(shell.controlled(), None);
+        let said = unwrapped(&shell.released());
+        assert!(
+            said.contains(&unwrapped(&[APPROVAL_NOT_DISCLOSED.to_string()])),
+            "the refusal did not say why: {said:?}"
+        );
+
+        shell.decide(Input::Text('3'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            }),
+            "a question that cannot be granted must still be refusable"
+        );
     }
 
     /// The same, with a second prompt waiting behind the interrupted turn.
@@ -4835,7 +6800,7 @@ mod tests {
         let started = turn_running(shell, b"edit the notes\r");
         shell.route_bytes(b"queued while deciding\r");
         assert_eq!(shell.hint(), queued_hint(1), "the prompt was not taken");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         let _ = shell.document();
         started
@@ -4855,16 +6820,19 @@ mod tests {
         };
         assert_eq!(working.panel, 0);
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
 
         assert_eq!(
-            shell.geometry.panel, 8,
-            "a 24-row screen gets the compact panel"
+            shell.geometry.panel, PANEL_ROWS,
+            "the band did not give the question the rows it measured"
         );
         assert_eq!(shell.geometry.divider, working.divider);
         assert_eq!(shell.geometry.input_first, working.input_first);
         assert_eq!(shell.geometry.hint, working.hint);
-        assert_eq!(shell.geometry.content_bottom, working.content_bottom - 8);
+        assert_eq!(
+            shell.geometry.content_bottom,
+            working.content_bottom - PANEL_ROWS
+        );
 
         let rows = shell.band_rows();
         assert_eq!(
@@ -4895,7 +6863,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"a draft");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
         assert_eq!(shell.marked(), "> 1. Yes");
@@ -4920,13 +6888,17 @@ mod tests {
                 asking(&mut shell);
                 shell.geometry
             };
-            assert_eq!(before.panel, 8);
+            assert_eq!(before.panel, PANEL_ROWS);
 
             shell.route_bytes(&[typed]);
 
             assert_eq!(
                 shell.controlled(),
-                Some(TurnControl::Answer(answer)),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer,
+                    feedback: None,
+                }),
                 "typing {} did not answer the question",
                 typed as char
             );
@@ -4947,15 +6919,32 @@ mod tests {
         let mut shell = shell(24, 80);
         asking(&mut shell);
 
-        shell.route_bytes(b"\t"); // the second choice
-        assert_eq!(shell.controlled(), None, "Tab answered instead of moving");
+        // **Down rather than Tab, and that is a changed coordinate rather than
+        // a loosened claim.** Tab stopped being a second spelling of Down when
+        // the amendment draft arrived: on a draft-eligible choice it opens that
+        // choice's draft (`super::super::approval_amendment`), and only on
+        // `Always` does it still cycle. Both halves of the new Tab are asserted
+        // at the same strength in
+        // `tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one`;
+        // what this case is about is that **Enter takes what the marker is on**,
+        // and the arrows are what move it.
+        shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, to the second choice
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an arrow answered instead of moving"
+        );
         shell.route_bytes(&[0x1b, 0x5b, 0x41]); // Up, back to the first
         shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, forward again
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Always)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Always,
+                feedback: None,
+            }),
             "Enter did not take the marked choice"
         );
     }
@@ -4968,7 +6957,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"a draft");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
         shell.route_bytes(&[0x1b]);
@@ -4976,7 +6965,11 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
         );
         assert!(!shell.hint().contains(ESCAPE_ARMED), "the clear was armed");
         assert_eq!(
@@ -5047,7 +7040,11 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
         );
         assert_eq!(shell.controlled(), None, "Esc cancelled the turn as well");
         assert_eq!(
@@ -5095,7 +7092,7 @@ mod tests {
 
         // The question arrives, and the next tick of the loop is what stops the
         // clock -- the same seam every other timed row is settled on.
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started + Duration::from_secs(2));
         shell.settle_band(started + Duration::from_secs(30));
         assert_eq!(
@@ -5103,6 +7100,7 @@ mod tests {
             Some(before.as_str()),
             "the clock ran while xfx was waiting for the user"
         );
+        delivered(&mut shell);
 
         shell.route_bytes(b"1");
         shell.settle_band(started + Duration::from_secs(30));
@@ -5130,18 +7128,23 @@ mod tests {
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         let started = turn_running(&mut shell, b"edit the notes\r");
 
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(
             shell.screen_owner(),
             ScreenOwner::Approval,
             "a change the band cannot show was left for the band to show"
         );
+        delivered(&mut shell);
 
         shell.route_bytes(b"1");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
         );
         assert_eq!(
             shell.screen_owner(),
@@ -5157,11 +7160,11 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
-        assert_eq!(shell.geometry.panel, 8);
+        assert_eq!(shell.geometry.panel, PANEL_ROWS);
         assert!(shell.band_rows().join("\n").contains("Permission needed"));
     }
 
@@ -5180,17 +7183,22 @@ mod tests {
             let mut shell = shell(24, 80);
             let started = turn_running(&mut shell, b"edit the notes\r");
             shell.route_bytes(b"a draft");
-            shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
             shell.settle_band(started);
             assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
             assert_eq!(shell.marked(), "> 1. Yes", "the caret left the question");
+            delivered(&mut shell);
 
             shell.route_bytes(typed);
             shell.settle_input(Instant::now() + Duration::from_millis(100));
 
             assert_eq!(
                 shell.controlled(),
-                Some(TurnControl::Answer(answer)),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer,
+                    feedback: None,
+                }),
                 "{typed:?} did not answer a question the approval plane owns"
             );
             assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
@@ -5210,7 +7218,7 @@ mod tests {
         // the session composing frames for a plane with no question on it.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
@@ -5237,7 +7245,7 @@ mod tests {
         let mut shell = shell(10, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
 
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
 
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
@@ -5273,7 +7281,7 @@ mod tests {
             for cols in [layout::MIN_COLS, 40, 80, 200] {
                 let mut shell = shell(rows, cols);
                 let started = turn_running(&mut shell, b"edit the notes\r");
-                shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+                shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
                 shell.settle_band(started);
                 assert_eq!(
                     shell.screen_owner(),
@@ -5303,7 +7311,7 @@ mod tests {
         // the rows back rather than keeping a second copy of the question.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
@@ -5353,15 +7361,20 @@ mod tests {
         // for on that plane would paint it.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert!(!shell.screen_rows().is_empty(), "nothing was installed");
+        delivered(&mut shell);
 
         shell.route_bytes(b"1");
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            })
         );
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(
@@ -5379,7 +7392,7 @@ mod tests {
         // plane is released without an answer being invented for the runtime.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
@@ -5404,7 +7417,7 @@ mod tests {
         // change and call it the change.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let first = shell.screen_rows().join("\n");
 
@@ -5436,12 +7449,16 @@ mod tests {
         // happen.
         let mut shell = shell(10, 80);
         turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
 
         assert_eq!(shell.geometry.panel, 0);
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
         );
         assert_eq!(shell.released(), vec![PANEL_TOO_SMALL.to_string()]);
         assert!(!shell.band_rows().join("\n").contains("Permission needed"));
@@ -5459,9 +7476,12 @@ mod tests {
         assert_eq!(shell.geometry.input_rows(), limit);
         turn_running(&mut shell, &[]);
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
 
-        assert_eq!(shell.geometry.panel, 8, "the question was refused instead");
+        assert_eq!(
+            shell.geometry.panel, PANEL_ROWS,
+            "the question was refused instead"
+        );
         assert!(
             shell.geometry.input_rows() < limit,
             "the composer kept every row and the panel was painted off-screen"
@@ -5497,12 +7517,413 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
             "the answer went nowhere"
         );
         assert!(
             shell.sent.try_recv().is_err(),
             "the answer was sent as work rather than as control"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the model's own questions (`ask_user_question`)
+    // -----------------------------------------------------------------------
+
+    /// One choice, in the shape `crate::tools::question::parse` produces: the
+    /// text is already terminal-safe encoded, and no freeform slot is in it --
+    /// the panel appends that itself.
+    fn choice(label: &str, description: Option<&str>) -> QuestionOption {
+        QuestionOption {
+            label: label.to_string(),
+            description: description.map(str::to_string),
+        }
+    }
+
+    /// A batch of two questions, named so the answers are predictable.
+    fn a_batch() -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(1),
+            entries: vec![
+                QuestionEntry {
+                    question: "Which depth?".to_string(),
+                    options: vec![
+                        choice("Thorough", Some("reads every file")),
+                        choice("Quick", None),
+                    ],
+                },
+                QuestionEntry {
+                    question: "Ship it?".to_string(),
+                    options: vec![choice("Yes", None), choice("No", None)],
+                },
+            ],
+        }
+    }
+
+    /// One question with the six choices the tool admits at most, which is seven
+    /// rows once the freeform slot is appended -- more than a short screen has.
+    fn six_option_batch() -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(2),
+            entries: vec![QuestionEntry {
+                question: "Which file?".to_string(),
+                options: (1..=6)
+                    .map(|index| choice(&format!("file{index}.rs"), None))
+                    .collect(),
+            }],
+        }
+    }
+
+    /// A shell with a turn running and a question batch in front of the user.
+    ///
+    /// The document is deliberately **not** drained here: a batch the screen
+    /// cannot show says so in the document, and a fixture that swallowed the
+    /// pending rows would leave that case asserting against an empty vector.
+    fn asking_question(fixture: &mut Fixture, request: QuestionRequest) -> Instant {
+        let started = turn_running(fixture, b"ask me\r");
+        fixture.apply(UiEvent::Question(request));
+        fixture.settle_band(started);
+        started
+    }
+
+    #[test]
+    fn a_question_takes_the_band_and_the_focus() {
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        assert!(fixture
+            .band_rows()
+            .iter()
+            .any(|row| row.contains("1. Thorough")));
+        fixture.route_bytes(b"1");
+        assert!(
+            fixture.editor.is_empty(),
+            "a digit answered rather than typing"
+        );
+    }
+
+    #[test]
+    fn the_answers_reach_the_runtime_in_order_under_the_request_id() {
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"2");
+        match fixture.control.try_recv().expect("an answer was sent") {
+            TurnControl::QuestionAnswer { id, answers } => {
+                assert_eq!(id, QuestionId(1));
+                assert_eq!(answers, vec!["Thorough".to_string(), "No".to_string()]);
+            }
+            other => panic!("got {other:?}"),
+        }
+        assert!(
+            fixture
+                .band_rows()
+                .iter()
+                .all(|row| !row.contains("1. Thorough")),
+            "the panel came down before the answer went out"
+        );
+    }
+
+    #[test]
+    fn a_partly_answered_batch_says_nothing_to_the_runtime_yet() {
+        // One tool call, one answer document. A message per question would make
+        // the requester's first read an answer to a batch that is still being
+        // filled in -- and the model would be handed one answer for two
+        // questions (`crate::tools::question::encode_answers` refuses that pair).
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "the first answer went out on its own"
+        );
+        assert!(
+            fixture.band_rows().iter().any(|row| row.contains("2 of 2")),
+            "the batch did not move to its second question: {:?}",
+            fixture.band_rows()
+        );
+    }
+
+    #[test]
+    fn escape_at_a_question_cancels_the_batch_and_arms_nothing_else() {
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        // A lone `ESC` is the Escape key only once it has gone quiet, which is
+        // the decoder's own timeout and the settle is what resolves it
+        // (`escape_at_a_question_refuses_it_rather_than_arming_the_clear`).
+        fixture.route_bytes(&[0x1b]);
+        fixture.settle_input(Instant::now() + Duration::from_millis(100));
+        assert!(matches!(
+            fixture.control.try_recv(),
+            Ok(TurnControl::QuestionCancelled { id: QuestionId(1) })
+        ));
+        assert!(
+            fixture.control.try_recv().is_err(),
+            "Escape is not also a clear"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else() {
+        // **One message, and it is the turn's.** Ctrl-C means "stop the work"
+        // here as everywhere else on this surface; the requester parked on this
+        // channel reads the interrupt as its question being over, answers the
+        // tool with the cancellation sentinel and hands the interrupt back to
+        // the loop (`super::question::TuiQuestioner`).
+        //
+        // A `QuestionCancelled` in front of it is what this used to send, and it
+        // is a real regression rather than a redundancy: the requester answers
+        // on the first message it recognises and returns, so the calls behind
+        // the question ran -- files written, another model request spent -- while
+        // the interrupt was still sitting in the channel unread
+        // (`super::worker`'s
+        // `a_ctrl_c_at_a_question_stops_the_turn_before_any_later_call_or_request`).
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        let accepted = fixture.work.accepted();
+
+        fixture.route_bytes(&[0x03]);
+
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::Cancel { through: accepted }),
+            "the turn was left running after the user asked everything to stop"
+        );
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "a second message: the batch was answered or refused as well as interrupted"
+        );
+        assert!(
+            !fixture.band_rows().join("\n").contains("Which depth?"),
+            "the question stayed up"
+        );
+    }
+
+    #[test]
+    fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half() {
+        let mut fixture = shell(6, 20);
+        asking_question(&mut fixture, a_batch());
+        assert!(matches!(
+            fixture.control.try_recv(),
+            Ok(TurnControl::QuestionCancelled { .. })
+        ));
+        // `released`, not `document`: the notice is behind the pacer, which is
+        // how the existing too-small assertions read it (`shell.rs:5816`,
+        // `:6004`). Concatenated rather than compared row by row, because a
+        // twenty-column screen is exactly the one that wraps this sentence --
+        // and what the case is about is that the refusal was said, not where the
+        // wrap fell.
+        //
+        // **Its own sentence, not the approval panel's.** A question asks for no
+        // permission and refuses no change, so [`PANEL_TOO_SMALL`]'s wording
+        // would tell the user two things that did not happen -- and it is the
+        // wording rather than the row that a reader has to be able to trust.
+        assert_eq!(fixture.released().concat(), QUESTION_TOO_SMALL);
+        assert_ne!(
+            QUESTION_TOO_SMALL, PANEL_TOO_SMALL,
+            "the question borrowed the permission panel's refusal again"
+        );
+        assert_eq!(
+            fixture.geometry.panel, 0,
+            "the band kept rows for a question it refused"
+        );
+    }
+
+    #[test]
+    fn a_resize_that_shrinks_under_a_standing_question_keeps_the_selection_visible() {
+        let mut fixture = shell(24, 80);
+        let started = asking_question(&mut fixture, six_option_batch());
+        for _ in 0..6 {
+            fixture.route_bytes(b"\x1b[B");
+        }
+        assert!(matches!(fixture.resize(12, 60), Resize::Repaint(_)));
+        fixture.settle_band(started);
+        assert!(
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("7. Other")),
+            "the marked choice survived the shrink: {:?}",
+            fixture.band_rows()
+        );
+        assert!(
+            fixture.control.try_recv().is_err(),
+            "a resize is not an answer"
+        );
+    }
+
+    #[test]
+    fn a_question_dismisses_the_menu_and_leaves_the_approval_panel_alone() {
+        let mut fixture = shell(24, 80);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        // A menu really open, so the dismissal is a fact rather than a vacuous
+        // `None`: the two share the band's slot and only one of them has the
+        // focus, so a menu left behind a question is one whose keys the question
+        // is swallowing.
+        fixture.route_bytes(b"/mo");
+        assert!(fixture.picker.is_some(), "the menu never opened");
+
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started);
+
+        assert!(fixture.picker.is_none() && fixture.panel.is_none());
+        assert!(fixture
+            .band_rows()
+            .iter()
+            .any(|row| row.contains("Which depth?")));
+    }
+
+    #[test]
+    fn a_question_leaves_the_draft_and_the_caret_exactly_where_they_were() {
+        // The composer is not what has the focus, and it is not what is being
+        // answered: every keystroke of the batch -- ordinals, freeform text, the
+        // Backspace inside it -- goes to the question, and the draft the user
+        // was writing is still theirs when the band comes back.
+        let mut fixture = shell(24, 80);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        fixture.route_bytes(b"half a thought");
+        fixture.route_bytes(&[0x1b, 0x5b, 0x44]); // Left, so the caret is not at the end
+        let caret = fixture.cursor();
+
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started);
+        // A digit, then the freeform slot, then text and an editing key inside
+        // it: everything that could reach a composer if the focus leaked.
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes("typed".as_bytes());
+        fixture.route_bytes(&[0x7f]); // Backspace
+        assert_eq!(
+            fixture.editor.text(),
+            "half a thought",
+            "the question typed into the composer"
+        );
+
+        fixture.route_bytes(&[0x0d]); // Enter: the draft answers the second question
+        assert!(matches!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer { .. })
+        ));
+        assert_eq!(
+            fixture.editor.text(),
+            "half a thought",
+            "the draft did not survive the batch"
+        );
+        assert_eq!(
+            fixture.cursor(),
+            caret,
+            "the caret came back somewhere else in the draft"
+        );
+    }
+
+    #[test]
+    fn the_freeform_answer_is_the_text_that_was_typed_at_the_question() {
+        // The other half of the same seam: the keystrokes really did build an
+        // answer, so the case above is not passing because they went nowhere.
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3"); // the freeform slot of the first question
+        fixture.route_bytes("네—ok".as_bytes());
+        fixture.route_bytes(&[0x0d]); // Enter takes the draft
+        fixture.route_bytes(b"1"); // and an ordinal ends the batch
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer {
+                id: QuestionId(1),
+                answers: vec!["네—ok".to_string(), "Yes".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn the_caret_sits_on_the_marked_choice_and_moves_into_the_draft_with_it() {
+        // Where the caret is *is* what the terminal says the focus is, and at a
+        // question it says two different things: on a choice, that a digit takes
+        // one; in the draft, that a digit is a character.
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        assert_eq!(fixture.marked(), "> 1. Thorough - reads every file");
+        fixture.route_bytes(&[0x1b, 0x5b, 0x42]); // Down
+        assert_eq!(fixture.marked(), "> 2. Quick");
+        assert_eq!(fixture.controlled(), None, "moving the marker answered");
+
+        fixture.route_bytes(b"\t"); // Tab is the *batch's* cycle, not the choices'
+        assert!(fixture
+            .band_rows()
+            .iter()
+            .any(|row| row.contains("Ship it?")));
+        assert_eq!(fixture.controlled(), None, "Tab answered");
+
+        fixture.route_bytes(b"\t"); // back to the first question, marker kept
+        fixture.route_bytes(b"3"); // the freeform slot
+        let (row, column) = fixture.cursor();
+        assert_eq!(
+            row,
+            fixture.geometry.divider - 1,
+            "the caret is not on the draft row"
+        );
+        fixture.route_bytes("ab".as_bytes());
+        assert_eq!(
+            fixture.cursor(),
+            (row, column + 2),
+            "the caret did not follow what was typed into the draft"
+        );
+    }
+
+    #[test]
+    fn the_turns_clock_stops_while_a_model_question_is_up_too() {
+        // The frozen clock is about *a person being asked something*, not about
+        // which kind of question it was: a turn that spent four minutes waiting
+        // for someone to choose a depth did not spend four minutes thinking.
+        let mut fixture = shell(24, 80);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        fixture.settle_band(started + Duration::from_secs(2));
+        let before = fixture.activity_row.clone().expect("a running turn");
+        assert!(before.contains("2s"), "{before:?}");
+
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started + Duration::from_secs(2));
+        fixture.settle_band(started + Duration::from_secs(30));
+        assert_eq!(
+            fixture.activity_row.as_deref(),
+            Some(before.as_str()),
+            "the clock ran while xfx was waiting for the user"
+        );
+
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"1");
+        fixture.settle_band(started + Duration::from_secs(30));
+        fixture.settle_band(started + Duration::from_secs(33));
+        let after = fixture.activity_row.clone().expect("the turn goes on");
+        assert!(
+            after.contains("5s"),
+            "the turn was charged for the time it spent waiting for a person: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_question_the_band_can_show_does_not_touch_the_other_plane() {
+        // The batch is a band occupant and nothing else: it takes no screen, so
+        // nothing has to be given back when it is answered. A question that
+        // moved the owner would leave the session composing frames for a plane
+        // the loop never entered.
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        assert_eq!(fixture.screen_owner(), ScreenOwner::Primary);
+        assert!(fixture.screen_rows().is_empty());
+        assert!(
+            fixture.geometry.panel > 0,
+            "the band gave the question no rows"
+        );
+        assert_eq!(
+            fixture.band_rows().len(),
+            usize::from(fixture.geometry.band_rows()),
+            "the band painted a different number of rows than it solved for"
         );
     }
 
@@ -6072,7 +8493,7 @@ mod tests {
         ));
         shell.shell.flush_paced();
         assert!(
-            !shell.shell.pending.is_empty(),
+            shell.shell.owes_document(),
             "nothing was owed to begin with"
         );
         // And a second answer still in the pacer, which is the fourth thing a
@@ -6110,7 +8531,10 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 1,
-                rows: vec!["the next answer".to_string()]
+                // The answer's own colour, spelled out: this case reads the
+                // rows as they are handed over rather than through
+                // [`Fixture::document`].
+                rows: vec!["\u{1b}[38;5;255mthe next answer\u{1b}[0m".to_string()]
             }],
             "the first delta after a clear was written onto a row the clear erased"
         );
@@ -6485,12 +8909,12 @@ mod tests {
         // while the user watches a band with no question in it.
         let mut shell = shell(24, 80);
         asking(&mut shell);
-        assert_eq!(shell.geometry.panel, 8);
+        assert_eq!(shell.geometry.panel, PANEL_ROWS);
 
         assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
 
         assert_eq!(
-            shell.geometry.panel, 8,
+            shell.geometry.panel, PANEL_ROWS,
             "the question lost its rows when the screen changed size"
         );
         assert!(
@@ -6503,11 +8927,19 @@ mod tests {
             None,
             "the resize answered the question on the user's behalf"
         );
-        // And the answer still reaches the runtime afterwards.
+        // And the answer still reaches the runtime afterwards -- once a frame
+        // for the screen's **new** size has landed. The resize revoked the
+        // receipt the question earned at 24x80, which is the whole of
+        // `Readiness::reconcile`'s post-write check.
+        delivered(&mut shell);
         shell.route_bytes(b"1");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
             "the keystroke that answers the question stopped reaching the runtime"
         );
     }
@@ -6538,7 +8970,7 @@ mod tests {
         // left, which is exactly the case a shell that only remembered its
         // geometry would report as "no news".
         assert!(matches!(shell.resize(24, 80), Resize::Repaint(_)));
-        assert_eq!(shell.geometry.panel, 8);
+        assert_eq!(shell.geometry.panel, PANEL_ROWS);
         assert!(
             shell.band_rows().join("\n").contains("Permission needed"),
             "the question was not painted after the screen grew back"
@@ -6546,7 +8978,11 @@ mod tests {
         shell.route_bytes(b"1");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
             "the decision no longer reaches the runtime"
         );
     }
@@ -6813,7 +9249,7 @@ mod tests {
         shell.route_bytes(b"/he");
         assert!(shell.geometry.panel > 0, "there is no menu to displace");
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         let _ = shell.document();
 
@@ -6828,7 +9264,7 @@ mod tests {
         );
         assert_eq!(
             shell.geometry.panel,
-            approval::COMPACT_ROWS,
+            Panel::new(asked()).height(shell.geometry.cols, shell.geometry.rows),
             "the slot is the question's height rather than the menu's"
         );
         // The question has the focus, so the caret is on it rather than in the
@@ -6868,7 +9304,7 @@ mod tests {
         both(&shell, "while a turn started");
         shell.route_bytes(b"/he");
         both(&shell, "with a menu open");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         both(&shell, "when the question arrived");
         // Every keystroke goes to the question while it is up, so nothing can
@@ -7880,5 +10316,890 @@ mod tests {
             "> ask me again",
             "the same line sent twice running became two entries"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the amendment draft, at the shell
+    // -----------------------------------------------------------------------
+
+    /// Types `text` at whatever has the focus, one decoded character at a time.
+    fn type_at_the_question(shell: &mut Fixture, text: &str) {
+        for character in text.chars() {
+            shell.decide(Input::Text(character), Instant::now());
+        }
+    }
+
+    /// A shell with a question up, a committed frame behind it, and the deny
+    /// draft open with `text` in it.
+    ///
+    /// Two Downs rather than a digit, because a digit answers: the marker walks
+    /// to `3. No` and Tab opens that side's amendment.
+    fn a_filled_deny_draft(shell: &mut Fixture, text: &str) {
+        asking(shell);
+        shell.decide(Input::Action(Action::Down), Instant::now());
+        shell.decide(Input::Action(Action::Down), Instant::now());
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(shell, text);
+    }
+
+    /// The rows of the band with the palette taken off, joined.
+    fn band(shell: &Fixture) -> String {
+        unwrapped(&shell.shell.band_rows())
+    }
+
+    #[test]
+    fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open() {
+        // Four cases, because `input_approval_runtime.zig:127-141` maps
+        // `cursor_up`/`history_up` to one action and `cursor_down`/`history_down`
+        // to another **regardless of whether an amendment is open**. The shell
+        // collapses each pair at the translation rather than giving the panel
+        // four keys to keep in step -- and neither spelling may ever reach the
+        // editor, because they are the only way out of a draft.
+        for open in [false, true] {
+            for (up, down) in [
+                (Action::Up, Action::Down),
+                (Action::HistoryPrevious, Action::HistoryNext),
+            ] {
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if open {
+                    shell.decide(Input::Action(Action::Tab), Instant::now());
+                    type_at_the_question(&mut shell, "y");
+                }
+                shell.decide(Input::Action(down), Instant::now());
+                assert!(
+                    shell.marked().contains("2. Yes, and"),
+                    "open={open} {down:?}: the marker did not move: {:?}",
+                    shell.marked()
+                );
+                shell.decide(Input::Action(up), Instant::now());
+                assert!(
+                    shell.marked().contains("1. Yes"),
+                    "open={open} {up:?}: the marker did not come back: {:?}",
+                    shell.marked()
+                );
+                // And nothing of either key reached the draft: what was typed
+                // is still exactly what was typed.
+                if open {
+                    assert!(
+                        band(&shell).contains(" y "),
+                        "an arrow was routed into the editor: {:?}",
+                        band(&shell)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opening_a_draft_revokes_a_committed_readiness_receipt() {
+        // The screen that was proven is no longer the screen the user is
+        // looking at: the panel just grew a row. `invalidate` clears the
+        // previously-seen disclosure as well as the receipt
+        // (`super::super::approval_readiness::Readiness::invalidate`), and the
+        // next genuinely disclosed frame re-earns it -- which is the intended
+        // cost rather than a gap.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        assert!(
+            shell.approval_ready(ApprovalId(1)),
+            "the fixture never earned a receipt, so this case proves nothing"
+        );
+
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "a draft opened on top of a proven screen and the receipt survived"
+        );
+
+        // The affirmative is refused until it is re-earned, and **the draft is
+        // untouched by the refusal**: the question is still up and the sentence
+        // is still the user's.
+        type_at_the_question(&mut shell, "only the one file");
+        // Enter rather than `1`: with a draft open a digit is a character
+        // (`digits_typed_into_a_draft_are_characters_and_digits_outside_one_are_answers`),
+        // and Submit is the affirmative that is still an affirmative there.
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an affirmative was taken on a screen no frame had disclosed"
+        );
+        assert!(
+            band(&shell).contains("only the one file"),
+            "the refused keystroke took the draft with it: {:?}",
+            band(&shell)
+        );
+
+        // Re-earned, and now the same key answers -- carrying the sentence.
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("only the one file".to_string()),
+            }),
+            "the re-earned frame did not let the amended answer through"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_filled_deny_draft_refuses_without_the_sentence_but_enter_sends_it() {
+        // The pair, on the wire, in one case so it cannot drift. Same draft
+        // text, two exits.
+        let mut escaped = shell(24, 80);
+        a_filled_deny_draft(&mut escaped, "never touch the fixtures");
+        escaped.decide(Input::Action(Action::Escape), Instant::now());
+        assert_eq!(
+            escaped.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            }),
+            "a user who bailed out of the panel was made to say the sentence in it"
+        );
+
+        let mut submitted = shell(24, 80);
+        a_filled_deny_draft(&mut submitted, "never touch the fixtures");
+        submitted.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            submitted.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: Some("never touch the fixtures".to_string()),
+            }),
+            "a chosen refusal did not carry its reason"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_a_draft_stops_the_turn_and_sends_no_feedback() {
+        // One message, both meanings, and the sentence in neither. The prompter
+        // turns the cancellation into the refusal on the far side
+        // (`super::super::approval::TuiPrompter`), so an `Answer` sent here as
+        // well would be the only thing the runtime heard -- and the turn would
+        // go on running after the user asked everything to stop.
+        let mut shell = shell(24, 80);
+        a_filled_deny_draft(&mut shell, "stop, this is wrong");
+        shell.decide(Input::Action(Action::Cancel), Instant::now());
+
+        let mut said = Vec::new();
+        while let Some(control) = shell.controlled() {
+            said.push(control);
+        }
+        assert!(
+            said.iter()
+                .all(|control| !matches!(control, TurnControl::Answer { .. })),
+            "the interrupt sent a second message the prompter would read as an answer: {said:?}"
+        );
+        assert!(
+            said.iter()
+                .any(|control| matches!(control, TurnControl::Cancel { .. })),
+            "the interrupt did not stop the turn the question belonged to: {said:?}"
+        );
+    }
+
+    #[test]
+    fn a_cancelled_draft_does_not_reach_the_next_request() {
+        // The leak test. Both drafts are dropped with the question, so the
+        // second question is asked at a panel with nothing in it -- and an
+        // answer to it carries nothing.
+        let mut shell = shell(24, 80);
+        a_filled_deny_draft(&mut shell, "stop, this is wrong");
+        shell.decide(Input::Action(Action::Cancel), Instant::now());
+        while shell.controlled().is_some() {}
+
+        let started = turn_running(&mut shell, b"edit the notes again\r");
+        shell.apply(UiEvent::Approval(super::super::approval::ApprovalAsked {
+            id: ApprovalId(2),
+            request: asked(),
+        }));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        assert!(
+            !band(&shell).contains("stop, this is wrong"),
+            "the cancelled draft is still painted at the next question: {:?}",
+            band(&shell)
+        );
+
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(2),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "one question's sentence was handed to the next one"
+        );
+    }
+
+    #[test]
+    fn no_panel_key_reaches_the_composer_and_no_composer_edit_reaches_a_closed_panel() {
+        // Both directions. A modal surface that leaked paste bytes into the
+        // composer would leave text behind the panel that the user never sees
+        // and cannot delete; a composer whose keys reached a closed panel would
+        // be answering a question nobody is being asked.
+        let mut shell = shell(24, 80);
+        // The composer is filled **after** the turn is submitted and before the
+        // question arrives: `asking` submits whatever the composer holds, so a
+        // draft typed in front of it would be the prompt rather than the text
+        // this case is about.
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"a draft the composer already had");
+        let before = shell.shell.editor.text().to_string();
+        assert!(!before.is_empty(), "the composer fixture is empty");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for byte in b"pasted at the panel" {
+            shell.decide(Input::PasteByte(*byte), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+        type_at_the_question(&mut shell, " and typed");
+
+        assert_eq!(
+            shell.shell.editor.text(),
+            before,
+            "a keystroke at the panel reached the composer"
+        );
+        assert!(
+            band(&shell).contains("pasted at the panel and typed"),
+            "the paste did not reach the draft it was typed at: {:?}",
+            band(&shell)
+        );
+
+        // The other direction: with the question answered, the panel is gone
+        // and the same keys are the composer's again.
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        let _ = shell.controlled();
+        shell.consume(vec![Input::Text('!')], Instant::now());
+        assert_eq!(
+            shell.shell.editor.text(),
+            format!("{before}!"),
+            "a composer keystroke was swallowed by a question that has gone"
+        );
+    }
+
+    #[test]
+    fn an_oversized_paste_at_a_draft_is_refused_atomically_and_the_hint_row_says_so() {
+        // Refused **whole**: the alternative -- the first 4096 bytes of
+        // somebody's file, silently -- is a draft the user did not type. The
+        // sentence goes on the band's own hint row, which is where every other
+        // refused keystroke on this surface is reported.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "keep this");
+
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for _ in 0..=super::super::approval_amendment::MAX_FEEDBACK_BYTES {
+            shell.decide(Input::PasteByte(b'x'), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+
+        assert!(
+            shell
+                .hint()
+                .contains(super::super::approval_amendment::PASTE_REFUSED),
+            "the refusal was silent: {:?}",
+            shell.hint()
+        );
+        assert!(
+            band(&shell).contains("keep this"),
+            "the draft was truncated rather than left alone: {:?}",
+            band(&shell)
+        );
+        assert!(
+            !band(&shell).contains("xxxxxxxxxx"),
+            "part of the refused paste reached the draft: {:?}",
+            band(&shell)
+        );
+
+        // And a paste the budget admits still works, so a refusal is about one
+        // paste rather than about the rest of the question.
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for byte in b" and this" {
+            shell.decide(Input::PasteByte(*byte), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+        assert!(
+            band(&shell).contains("keep this and this"),
+            "a refusal poisoned the next paste: {:?}",
+            band(&shell)
+        );
+    }
+
+    #[test]
+    fn a_draft_on_the_review_plane_says_its_refusal_on_the_plane_the_user_can_see() {
+        // While the review plane is up it owns every row of the terminal, so a
+        // notice written into the document is a notice behind a screen nobody
+        // can look past -- the same rule the readiness refusal follows.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "rename the flag first");
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("rename the flag first"),
+            "the plane is not painting the draft it is taking keys for: {painted:?}"
+        );
+
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for _ in 0..=super::super::approval_amendment::MAX_FEEDBACK_BYTES {
+            shell.decide(Input::PasteByte(b'x'), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains(super::super::approval_amendment::PASTE_REFUSED),
+            "the refusal was written behind the plane: {painted:?}"
+        );
+
+        // And the plane's own answer carries the plane's own draft.
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("rename the flag first".to_string()),
+            }),
+            "a question that landed on the review plane could not be amended"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+    }
+
+    #[test]
+    fn a_submitted_amendment_reaches_the_document_as_the_users_own_row() {
+        // **Where the user reads back what they said.** The row is written when
+        // the runtime says the sentence was delivered -- the same flush that
+        // journals it and puts it in the prompt -- and not when the key was
+        // pressed, so the transcript can never show a sentence the model was
+        // not told. It goes through `say` like every other thing this session
+        // writes, so it takes its place in the stream behind whatever the pacer
+        // is still holding.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"draft the plan\r");
+        shell.apply(UiEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "write_file".to_string(),
+            ok: true,
+            detail: "wrote plan.md".to_string(),
+        });
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "keep the header comment".to_string(),
+        });
+        shell.settle_band(started);
+        let said = unwrapped(&shell.released());
+        assert!(
+            said.contains("keep the header comment"),
+            "the user's own sentence never reached the document: {said:?}"
+        );
+        // Labelled as theirs rather than as the tool's report of what it did:
+        // the two are different claims and the row that carries one must not
+        // read as the other.
+        assert!(
+            said.contains(&format!("{AMENDMENT_PREFIX} keep the header comment")),
+            "the sentence is not labelled as the user's: {said:?}"
+        );
+        assert!(
+            !said.contains("[tool] write_file ok keep the header"),
+            "the sentence was folded into the tool's own row: {said:?}"
+        );
+    }
+
+    #[test]
+    fn an_amendment_takes_one_document_row() {
+        // The band places rows by number, so a sentence spread over two would
+        // be a row the layout does not know about. What keeps it to one is
+        // `super::super::bridge`'s `made_inert`, which turns every control the
+        // channel carries into a space -- asserted there, where that function
+        // is; asserted here is that this end really writes one row.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"draft the plan\r");
+        // A draft really can hold newlines -- `C-j` at the panel, or a pasted
+        // paragraph -- and `super::super::bridge`'s `made_inert` deliberately
+        // keeps them, because a streamed answer's breaks are rows the
+        // transcript exists to make. So the sentence arrives with one in it,
+        // and what is asserted is that this end makes it a row.
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "first\nsecond\nthird".to_string(),
+        });
+        shell.settle_band(started);
+        let rows = shell.released();
+        let carrying: Vec<&String> = rows.iter().filter(|row| row.contains("first")).collect();
+        assert_eq!(carrying.len(), 1, "{rows:?}");
+        assert!(
+            carrying[0].contains("third"),
+            "the sentence was split across rows: {rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains('\n')),
+            "a document row carries a break the band did not place: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it() {
+        // The documented difference, pinned from both sides. On the review
+        // plane `C-p`/`C-n` walk the change rather than the choices -- the only
+        // keys that can, since a bounded diff is 128 KiB and a screen is a few
+        // dozen rows -- so the property the upstream pin is really about has to
+        // be carried by the arrows there: **they move the choice and end
+        // editing**, whether or not an amendment is open, so a user is never
+        // inside a draft with no way out but a refusal.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "rename the flag first");
+        assert!(shell.drafting(), "the plane did not open a draft");
+
+        // `C-p` scrolls the change and leaves the draft open: it is not a
+        // choice key here.
+        shell.decide(Input::Action(Action::HistoryPrevious), Instant::now());
+        shell.decide(Input::Action(Action::HistoryNext), Instant::now());
+        assert!(
+            shell.drafting(),
+            "the plane's scroll keys ended the editing and took the only walk of the change with it"
+        );
+
+        // The arrows do end it, and keep the text.
+        shell.decide(Input::Action(Action::Down), Instant::now());
+        assert!(
+            !shell.drafting(),
+            "an arrow did not end the editing on the plane"
+        );
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("rename the flag first"),
+            "leaving the draft threw its text away: {painted:?}"
+        );
+        shell.decide(Input::Action(Action::Up), Instant::now());
+        assert!(!shell.drafting(), "an arrow re-opened a draft");
+    }
+    // -----------------------------------------------------------------------
+    // the terminal's own background, while the session runs
+    // -----------------------------------------------------------------------
+
+    /// The other palette, at the depth every fixture here paints in.
+    ///
+    /// Built from `super::super::theme` rather than spelled in greys, because
+    /// the module under test is this one: what a light session paints is
+    /// `theme`'s fact and `theme`'s tests, and what has to be true here is that
+    /// the band's rows come out of *that* palette rather than the one the
+    /// session started in.
+    const LIGHT: Palette = Palette {
+        mode: super::super::theme::Mode::Light,
+        depth: super::super::theme::Depth::Ansi256,
+    };
+
+    /// The bytes a terminal with mode 2031 sends when its background goes
+    /// light, typed onto the session's own input the way the terminal sends
+    /// them -- through `route_bytes`, which is the decoder's only door.
+    const WENT_LIGHT: &[u8] = b"\x1b[?997;2n";
+    const WENT_DARK: &[u8] = b"\x1b[?997;1n";
+
+    #[test]
+    fn a_background_that_changes_repaints_the_band_in_the_other_palette() {
+        // Both directions, because an arm wired to the wrong mode paints a
+        // light terminal in the dark greys and nothing in the session notices:
+        // the rows are still there, still readable to whoever wrote the test,
+        // and invisible on the screen they were painted for.
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_LIGHT);
+
+        let rows = shell.band_rows();
+        assert!(
+            rows[0].starts_with(LIGHT.divider()) && rows[0] != divider(80),
+            "the divider was not repainted in the light palette: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows.last().expect("a hint row").starts_with(LIGHT.hint()),
+            "the hint row was not repainted in the light palette: {rows:?}"
+        );
+        assert!(
+            shell.render.begin().is_some(),
+            "the band was left owing no frame, so the new palette would reach \
+             the screen only when something else asked for one"
+        );
+
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_DARK);
+        assert!(
+            shell.band_rows()[0].starts_with(PALETTE.divider()),
+            "the band did not come back to the dark palette"
+        );
+        assert!(shell.render.begin().is_some(), "the way back owed no frame");
+    }
+
+    #[test]
+    fn a_report_that_says_what_the_palette_already_says_costs_no_frame() {
+        // A terminal may re-report the mode it already reported -- and the
+        // answer to the query a resume asks (`Shell::resync_theme`) usually is
+        // exactly that. Repainting for it would be a frame per report, on a
+        // band whose rows would come out byte-identical.
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_DARK);
+        assert!(
+            shell.render.begin().is_none(),
+            "a report that changed nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_user_who_named_the_palette_outranks_the_terminal_here_too() {
+        // `XFX_THEME` outranks the terminal's answer at launch
+        // (`theme::detect`), and a session that then followed the terminal's
+        // *notifications* would be honouring the variable for exactly as long
+        // as nobody switched their system theme. The lock is carried in, so
+        // this case sets no environment variable and races nothing.
+        let mut shell = shell_with(24, 80, PALETTE, true);
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_LIGHT);
+
+        assert!(
+            shell.band_rows()[0].starts_with(PALETTE.divider()),
+            "a locked session followed the terminal: {:?}",
+            shell.band_rows()[0]
+        );
+        assert!(
+            shell.render.begin().is_none(),
+            "a locked session repainted for a report it ignored"
+        );
+    }
+
+    #[test]
+    fn a_report_owes_the_document_a_recolour_and_a_locked_session_owes_none() {
+        // The band is repainted every frame and the document is not, so the
+        // rows already on the screen are a debt of their own -- paid by the
+        // loop's writer against the band's shadow, which is the only thing
+        // that knows which of those rows it wrote. A locked session has
+        // nothing to pay: the report never moved its palette.
+        let mut shell = shell(24, 80);
+        assert!(!shell.owes_retint(), "a fresh session owed a recolour");
+        shell.route_bytes(WENT_LIGHT);
+        assert!(
+            shell.owes_retint(),
+            "a report left the document in the palette the session has left"
+        );
+        shell.retint_paid();
+        assert!(
+            !shell.owes_retint(),
+            "the debt outlived the vector that paid it"
+        );
+
+        let mut locked = shell_with(24, 80, PALETTE, true);
+        locked.route_bytes(WENT_LIGHT);
+        assert!(
+            !locked.owes_retint(),
+            "a session the user decided the palette for owed a recolour for a \
+             report it ignored"
+        );
+    }
+
+    #[test]
+    fn a_report_behind_something_that_damaged_the_screen_owes_no_recolour() {
+        // The rows a recolour would be painted from are the band's shadow, and
+        // a `/clear` or a Ctrl-L means that shadow describes a screen that is
+        // gone -- but the band is only *told* when the next frame is built,
+        // which is after the recolour would have been paid. So the arming
+        // asks, and a report that arrives behind either owes nothing at all.
+        for damage in [b"/clear\r".to_vec(), vec![0x0c]] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(&damage);
+            shell.route_bytes(WENT_LIGHT);
+            assert!(
+                !shell.owes_retint(),
+                "a report behind {damage:?} owed a recolour of a screen that \
+                 is gone"
+            );
+            // And once the band has been told, the next report is ordinary
+            // again: what it would repaint is what the band really knows.
+            shell.damage_told();
+            shell.route_bytes(WENT_DARK);
+            assert!(
+                shell.owes_retint(),
+                "the session stopped recolouring the document for good"
+            );
+        }
+    }
+
+    #[test]
+    fn a_background_that_changed_is_not_a_terminal_that_changed() {
+        // The depth is a property of the terminal *program* -- whether it
+        // renders `38;2` or quantizes it (`theme::depth_from_env`) -- and a
+        // background going light is not a new terminal. A retint that rebuilt
+        // the whole palette from a default would silently downgrade a
+        // truecolor session to 256 colours, which is the same five greys and
+        // therefore invisible to every case that only reads the mode.
+        let direct = Palette {
+            mode: super::super::theme::Mode::Dark,
+            depth: super::super::theme::Depth::TrueColor,
+        };
+        let mut shell = shell_with(24, 80, direct, false);
+        shell.route_bytes(WENT_LIGHT);
+
+        let wanted = Palette {
+            mode: super::super::theme::Mode::Light,
+            depth: super::super::theme::Depth::TrueColor,
+        };
+        assert!(
+            shell.band_rows()[0].starts_with(wanted.divider()),
+            "the flip lost the terminal's colour depth: {:?}",
+            shell.band_rows()[0]
+        );
+    }
+
+    #[test]
+    fn a_question_in_front_of_the_user_neither_swallows_the_report_nor_moves_under_it() {
+        // The ordering `consume` exists to keep. Every surface that takes the
+        // focus swallows what it does not bind, so a report routed after them
+        // would work at an empty composer and stop working the moment a
+        // question was up -- and the question is exactly when a session sits
+        // still long enough for a background to change under it.
+        //
+        // The other half is that the report is not a keystroke *at* the
+        // question: the marked choice and the standing batch are what they were
+        // before it arrived.
+        let mut shell = shell(24, 80);
+        asking_question(&mut shell, a_batch());
+        let before = shell.marked();
+        let _ = shell.render.begin();
+
+        shell.route_bytes(WENT_LIGHT);
+
+        assert_eq!(
+            shell.marked(),
+            before,
+            "the report moved the choice the user was on"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the report answered the question on the user's behalf"
+        );
+        let rows = shell.band_rows();
+        assert!(
+            rows.last().expect("a hint row").starts_with(LIGHT.hint()),
+            "the question's band was not repainted in the new palette: {rows:?}"
+        );
+        assert!(
+            shell.render.begin().is_some(),
+            "a question standing over a palette change owed no frame"
+        );
+    }
+
+    #[test]
+    fn a_question_on_the_other_plane_keeps_its_draft_across_a_palette_change() {
+        // The same claim on the surface the band cannot show, where the danger
+        // is bigger: an amendment is text the user typed and has not sent, and
+        // a report routed into `decide` as an unknown key would at best be
+        // swallowed and at worst reach the draft.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "rename the flag first");
+        let before = shell.marked();
+        let _ = shell.render.begin();
+
+        shell.route_bytes(WENT_LIGHT);
+
+        assert!(shell.drafting(), "the report closed the draft");
+        assert_eq!(shell.marked(), before, "the report moved the draft");
+        assert!(
+            unwrapped(&shell.screen_rows()).contains("rename the flag first"),
+            "the report took the draft's text with it"
+        );
+        assert!(
+            shell.render.begin().is_some(),
+            "the surface the question is on owed no repaint after a palette change"
+        );
+    }
+
+    #[test]
+    fn only_a_session_the_terminal_decides_for_asks_the_terminal_again() {
+        // What a resume arms (`event_loop::collect_facts`), and the one session
+        // it must not arm for. A locked palette has nothing for the answer to
+        // change, and a query is a sequence written onto somebody's terminal.
+        let mut shell = shell(24, 80);
+        shell.resync_theme();
+        assert!(shell.take_theme_query(), "a resume armed no query");
+        assert!(
+            !shell.take_theme_query(),
+            "one resume would have put two queries on the wire"
+        );
+
+        let mut locked = shell_with(24, 80, PALETTE, true);
+        locked.resync_theme();
+        assert!(
+            !locked.take_theme_query(),
+            "a session the user decided for asked the terminal anyway"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the document's colours
+    // -----------------------------------------------------------------------
+    //
+    // Read through `take_pending` rather than `document`, which takes the
+    // roles' sequences back off: these are the cases that state what those
+    // sequences are, so a helper that removed them would leave nothing to
+    // assert. The greys are spelled out rather than asked of the palette --
+    // an expectation built from the accessor passes whatever the accessor
+    // says, including nothing.
+
+    /// The dark palette's answer text, `theme::DARK`'s `255`.
+    const BODY_DARK: &str = "\u{1b}[38;5;255m";
+    /// The light palette's, `theme::LIGHT`'s `235`.
+    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
+    /// What xfx's own lines are painted in, dark: `theme::DARK`'s `250`.
+    const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    /// What closes either.
+    const ENDED: &str = "\u{1b}[0m";
+
+    /// Every row the document is owed, as it is handed to the terminal.
+    fn painted_rows(shell: &mut Fixture) -> Vec<String> {
+        shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect()
+    }
+
+    #[test]
+    fn the_answer_a_turn_streams_is_painted_as_the_answer() {
+        // The model's text reads as the model's text. The break this catches
+        // is the answer arriving in the terminal's default foreground -- which
+        // on a light terminal is the one thing this phase's palette exists to
+        // avoid.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("a streamed answer".to_string()));
+        shell.shell.flush_paced();
+
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![format!("{BODY_DARK}a streamed answer{ENDED}")]
+        );
+    }
+
+    #[test]
+    fn xfx_s_own_line_is_painted_as_xfx_s_and_the_echo_of_a_prompt_is_not() {
+        // The two things that reach the document through the same call. The
+        // echo is the **user's** text: painting it in xfx's grey would be this
+        // surface claiming to have said what they typed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello\r");
+        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.shell.flush_paced();
+
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![
+                "hello".to_string(),
+                format!("{NOTICE_DARK}[tool] read_file ok{ENDED}"),
+            ],
+            "the echo and the notice were not told apart"
+        );
+    }
+
+    #[test]
+    fn a_notice_inside_an_answer_keeps_its_own_colour_and_its_own_place() {
+        // Ordering and colour together: the notice belongs at the point the
+        // answer had reached when it happened (`Shell::mark`), and the answer
+        // that follows it is the answer again rather than more of the notice.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("before".to_string()));
+        shell.apply(UiEvent::Notice("[tool] ran".to_string()));
+        shell.apply(UiEvent::Delta("after".to_string()));
+        shell.shell.flush_paced();
+
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![
+                format!("{BODY_DARK}before{ENDED}"),
+                format!("{NOTICE_DARK}[tool] ran{ENDED}"),
+                format!("{BODY_DARK}after{ENDED}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_answer_the_pacer_was_still_holding_lands_in_the_palette_it_lands_in() {
+        // The palette is read at the write and not at the delta, so text that
+        // was queued while the terminal was dark is written for the terminal
+        // the user has now. Nothing of the stream is rewritten to make that
+        // true -- there is nothing to rewrite, because no colour was ever put
+        // into it.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("held while it was dark".to_string()));
+        let holding = shell.shell.paced_backlog();
+        assert!(holding > 0, "the pacer released the delta immediately");
+
+        shell.route_bytes(WENT_LIGHT);
+        assert_eq!(
+            shell.shell.paced_backlog(),
+            holding,
+            "a theme report moved the stream"
+        );
+
+        shell.shell.flush_paced();
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![format!("{BODY_LIGHT}held while it was dark{ENDED}")]
+        );
+    }
+
+    #[test]
+    fn a_theme_report_changes_no_byte_of_what_the_answer_says() {
+        // The same stream, cut by the pacer in the same places, with a report
+        // in the middle of it: what the report may change is the sequence
+        // around a row and nothing inside one.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("first half ".to_string()));
+        shell.route_bytes(WENT_LIGHT);
+        shell.apply(UiEvent::Delta("second half".to_string()));
+        shell.shell.flush_paced();
+
+        let rows = painted_rows(&mut shell);
+        let said: String = rows
+            .iter()
+            .map(|row| {
+                row.replace(BODY_DARK, "")
+                    .replace(BODY_LIGHT, "")
+                    .replace(ENDED, "")
+            })
+            .collect();
+        assert_eq!(said, "first half second half");
     }
 }

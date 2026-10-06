@@ -651,6 +651,56 @@ impl SgrState {
         }
     }
 
+    /// The foreground colour this state would paint a cell in.
+    ///
+    /// **The expected side of [`super::check`]'s comparison, and it must not
+    /// call [`Self::reopen`].** The emitted bytes *are* `reopen()`'s output, so
+    /// a checker whose expectation came from the same function would compare a
+    /// value with itself: an assembly defect would move both sides equally and
+    /// cancel. This reads the one slot it needs, in the spelling that slot was
+    /// stored in, and the wire is decoded by a parser written apart from this
+    /// one.
+    ///
+    /// A slot holding anything but the three shapes this crate emits is an
+    /// error rather than a shrug: a cell whose colour cannot be read is a cell
+    /// no comparison can be made about, and making none is how a colour defect
+    /// stays invisible. **No foreground slot is [`Color::Default`]**, which is
+    /// what a fresh terminal paints in.
+    pub(crate) fn color(&self) -> Result<super::check::Color, super::check::MalformedSlot> {
+        use super::check::{number, Color, MalformedSlot};
+
+        let Some((_, sequence)) = self
+            .open
+            .iter()
+            .find(|(slot, _)| matches!(slot, Slot::Foreground))
+        else {
+            return Ok(Color::Default);
+        };
+        let body = sequence
+            .strip_prefix("\u{1b}[")
+            .and_then(|body| body.strip_suffix('m'))
+            .ok_or(MalformedSlot)?;
+        let mut params = body.split(';');
+        if params.next() != Some("38") {
+            return Err(MalformedSlot);
+        }
+        let color = match params.next() {
+            Some("5") => {
+                Color::Indexed(number(params.next().ok_or(MalformedSlot)?).ok_or(MalformedSlot)?)
+            }
+            Some("2") => Color::Rgb(
+                number(params.next().ok_or(MalformedSlot)?).ok_or(MalformedSlot)?,
+                number(params.next().ok_or(MalformedSlot)?).ok_or(MalformedSlot)?,
+                number(params.next().ok_or(MalformedSlot)?).ok_or(MalformedSlot)?,
+            ),
+            _ => return Err(MalformedSlot),
+        };
+        if params.next().is_some() {
+            return Err(MalformedSlot);
+        }
+        Ok(color)
+    }
+
     /// The sequences that put a fresh terminal back into this state.
     pub(crate) fn reopen(&self) -> String {
         self.open

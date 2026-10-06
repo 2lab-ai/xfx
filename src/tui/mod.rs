@@ -44,6 +44,8 @@
 //! terminals gets instead of a cursor report.
 
 use std::io::{self, IsTerminal, Write};
+
+use deliver::Sink;
 use std::os::fd::{AsFd, AsRawFd};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -170,7 +172,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // around it -- `shutdown` has already run either way.
     #[cfg(feature = "fault-injection")]
     if fault::injected(fault::Fault::AfterRaw) {
-        term::shutdown(band.painted_top(), band.on_alternate())?;
+        term::shutdown(band.painted_top(), band.on_alternate(), band.screen_size())?;
         return Err(io::Error::other("the poll set could not be created"));
     }
     // The matrix row for a panic while the terminal is raw. It unwinds past
@@ -192,14 +194,36 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // all. Conditional, because `RESTORE` deliberately carries no `1049l`: an
     // exit that reset a buffer it never took would swap in, on a terminal that
     // models one, a screen its user was not looking at.
-    let restored = term::shutdown(band.painted_top(), band.on_alternate());
+    let restored = term::shutdown(band.painted_top(), band.on_alternate(), band.screen_size());
     // The terminal is back, so the signals go back too -- before `wakeup` is
     // dropped, because the handlers were handed its write end and outlive it.
     signals::release();
     // The first failure wins, and the restore was attempted either way: a
     // screen error that happened while xfx still had the terminal is the one
     // worth reporting, and a terminal left raw is worse than either.
-    held.and_then(|code| restored.map(|()| code))
+    let result = held.and_then(|code| restored.map(|()| code));
+    // P3-DIAGNOSTIC: a restoration attempt was already made, either way, by
+    // the two lines above -- `term::shutdown` itself can return `Err`, so
+    // this is a report written *after that attempt*, not a guarantee the
+    // termios or the parser state actually came back. `diagnostic::report`
+    // is itself a no-op for anything it did not mark, so an ordinary
+    // provider or I/O error is never relabeled and an unmarked failure never
+    // touches -- or overwrites -- an existing report. A report write that
+    // fails must not replace the result this session is about to return
+    // with; the only thing it may add is one fixed line on stderr, written
+    // best-effort so a broken stderr cannot itself panic on the way out --
+    // because "the report itself could not be saved" and "the report was
+    // saved but says the session failed" must never be confused with each
+    // other.
+    if let Err(err) = &result {
+        if diagnostic::report(config, err).is_err() {
+            let _ = writeln!(
+                io::stderr(),
+                "xfx: could not save a diagnostic report for this failure"
+            );
+        }
+    }
+    result
 }
 
 /// Why a screen cannot hold a band, in the words the refusal is reported in.
@@ -280,7 +304,14 @@ fn hold(
     // decided, and a decided session must not spend a deadline -- or put a
     // query on a terminal -- to be told something it will ignore.
     let env_theme = std::env::var(theme::ENV).ok();
-    let ask_background = !theme::decided(env_theme.as_deref());
+    // The same answer twice over, which is why it is read once: a session the
+    // user decided for asks the terminal nothing at launch **and** ignores what
+    // the terminal volunteers afterwards. The second half travels to the shell
+    // as a constructor argument rather than as a variable the shell reads for
+    // itself, so `super::shell` touches no environment and a case about a
+    // locked session sets no global.
+    let theme_locked = theme::decided(env_theme.as_deref());
+    let ask_background = !theme_locked;
     // The longer of the two deadlines when both questions are on the wire,
     // because they are waited for in one read; the cursor's own when the
     // palette is already settled.
@@ -305,7 +336,7 @@ fn hold(
                 columns,
             })
         },
-        |screen| push_scrollback(screen.cursor_row, screen.rows),
+        |screen| push_scrollback(screen.cursor_row, screen.rows, screen.columns),
         signals::take_winch,
     )?;
 
@@ -347,7 +378,7 @@ fn hold(
     // (`term::PUSH_TITLE`), which `announce` has already written above.
     band.set_title(frame::title(&config.model));
 
-    let mut shell = shell::Shell::new(config, geometry, palette, worker.handle());
+    let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
     event_loop::run(
         &mut shell,
         band,
@@ -481,9 +512,8 @@ fn settle_screen(
 /// claim; this is the two lines that hand it the real one. Nothing is erased
 /// here -- what leaves the top of the screen goes into the terminal's own
 /// scrollback, where the user can still reach it.
-fn push_scrollback(cursor_row: u16, rows: u16) -> io::Result<()> {
-    let mut out = io::stdout().lock();
-    probe::push(&mut out, cursor_row, rows)
+fn push_scrollback(cursor_row: u16, rows: u16, columns: u16) -> io::Result<()> {
+    probe::push(&mut deliver::RawTty::stdout(), cursor_row, rows, columns)
 }
 
 /// Announces the session on the wire.
@@ -493,17 +523,52 @@ fn push_scrollback(cursor_row: u16, rows: u16) -> io::Result<()> {
 /// bytes were written" are the same event. One function, so the ordinary path
 /// and the resume path cannot drift apart.
 fn announce(tmux: bool) -> io::Result<()> {
-    let mut out = io::stdout().lock();
-    write!(
-        out,
-        "{}",
-        if tmux {
-            term::MODE_SET_TMUX
-        } else {
-            term::MODE_SET
-        }
+    let modes = if tmux {
+        term::MODE_SET_TMUX
+    } else {
+        term::MODE_SET
+    };
+    check_announced(modes.as_bytes(), tmux)?;
+    // The same counted emit every later byte of the session goes out through,
+    // and it starts here: from this call until the restore there is no buffered
+    // writer on this terminal at all, so there is never a vector the session
+    // believes it wrote that is still sitting in a buffer.
+    deliver::RawTty::stdout()
+        .emit(modes.as_bytes())
+        .map_err(deliver::Emit::into_error)
+}
+
+/// What the mode set leaves behind, declared as state rather than read back out
+/// of the constant being written.
+///
+/// A mode this session turns on and never gives back, or a title stack pushed
+/// twice, is a terminal the user is left holding after xfx has gone.
+fn check_announced(bytes: &[u8], tmux: bool) -> io::Result<()> {
+    check::preflight(
+        // A mode sequence moves no cell, so the model needs no screen: anything
+        // in this vector that touched one is refused.
+        &check::TerminalModel::seed_modes(
+            1,
+            1,
+            check::ModeSet::fresh(),
+            0,
+            check::PlaneKind::Primary,
+        ),
+        bytes,
+        &check::Declared::new(
+            check::Intent::Modes {
+                modes: check::ModeSet::announced(tmux),
+                // The window title the terminal's own user set, pushed onto its
+                // title stack so the one this session sets is borrowed rather
+                // than taken.
+                title_stack: 1,
+                plane: check::PlaneKind::Primary,
+                cursor_visible: None,
+            },
+            check::Footprint::none(check::PlaneKind::Primary),
+        ),
     )?;
-    out.flush()
+    Ok(())
 }
 
 /// What a SIGCONT means, done on the UI thread where it is allowed to allocate.
@@ -535,8 +600,14 @@ fn fail(message: &str) -> ExitCode {
 
 mod activity;
 mod approval;
+mod approval_amendment;
+mod approval_readiness;
 mod approval_screen;
 mod bridge;
+mod check;
+mod deliver;
+mod diagnostic;
+mod edit_history;
 mod editor;
 mod entity;
 mod event_loop;
@@ -554,13 +625,13 @@ mod panic;
 mod paste;
 mod picker;
 mod probe;
+mod question;
 mod render_request;
 mod router;
 mod shell;
 mod signals;
 mod term;
 mod theme;
-mod transaction;
 mod transcript;
 mod worker;
 mod wrap;

@@ -1,0 +1,133 @@
+{
+ "control": {
+  "compare": {
+   "binary": "xfx-7dbd1a0",
+   "checks": {
+    "back_on_band": true,
+    "choices_after_walk": true,
+    "choices_before_walk": true,
+    "ctrl_d_exits_on_empty_draft": "PASS",
+    "marker_shown": true,
+    "primary_hidden_while_asked": true,
+    "question_after_walk": true,
+    "question_seen": true,
+    "read_file_ok_in_transcript": true,
+    "still_running_after_walk": true,
+    "walk_repainted_screen": true
+   },
+   "diag_present": false,
+   "diffs": {},
+   "fault": null,
+   "lflag_after": "0x200005cb",
+   "lflag_before": "0x200005cb",
+   "marker": "altmark-b89d4af0",
+   "nonce": "nonce-540e5690",
+   "nonce_in_request": true,
+   "notes_file": {
+    "after-answer": "after",
+    "after-walk-before-answer": "before",
+    "final": "after",
+    "question-shown": "before"
+   },
+   "pane": "w7:p1",
+   "pendin_after": true,
+   "pendin_before": true,
+   "requests": 3,
+   "status": "0",
+   "termios_exact": true,
+   "trial": "control",
+   "winsize": {
+    "cols": 60,
+    "rows": 40,
+    "xpixel": 0,
+    "ypixel": 0
+   }
+  },
+  "status": "0"
+ },
+ "fatal": {
+  "compare": {
+   "binary": "xfx-faulty-7dbd1a0",
+   "checks": {
+    "choices_before_walk": true,
+    "exited_after_walk": true,
+    "primary_hidden_while_asked": true,
+    "question_seen": true
+   },
+   "diag": "{\"schema\":1,\"reason\":\"partial\",\"error_kind\":\"Other\",\"errno\":null}\n",
+   "diag_present": true,
+   "diffs": {},
+   "fault": "partial-alternate",
+   "lflag_after": "0x200005cb",
+   "lflag_before": "0x200005cb",
+   "marker": "altmark-68d5fd0e",
+   "nonce": "nonce-b8a1fac5",
+   "nonce_in_request": true,
+   "notes_file": {
+    "final": "before",
+    "question-shown": "before"
+   },
+   "pane": "w7:p1",
+   "pendin_after": true,
+   "pendin_before": true,
+   "requests": 2,
+   "status": "1",
+   "termios_exact": true,
+   "trial": "fatal",
+   "walk_to_exit_s": 0.061,
+   "winsize": {
+    "cols": 60,
+    "rows": 40,
+    "xpixel": 0,
+    "ypixel": 0
+   }
+  },
+  "status": "1"
+ },
+ "once": {
+  "compare": {
+   "binary": "xfx-faulty-7dbd1a0",
+   "checks": {
+    "back_on_band": true,
+    "choices_after_walk": true,
+    "choices_before_walk": true,
+    "ctrl_d_exits_on_empty_draft": "PASS",
+    "marker_shown": true,
+    "primary_hidden_while_asked": true,
+    "question_after_walk": true,
+    "question_seen": true,
+    "read_file_ok_in_transcript": true,
+    "still_running_after_walk": true,
+    "walk_repainted_screen": true
+   },
+   "diag_present": false,
+   "diffs": {},
+   "fault": "partial-alternate-once",
+   "lflag_after": "0x200005cb",
+   "lflag_before": "0x200005cb",
+   "marker": "altmark-ca58f924",
+   "nonce": "nonce-68fbfb92",
+   "nonce_in_request": true,
+   "notes_file": {
+    "after-answer": "after",
+    "after-walk-before-answer": "before",
+    "final": "after",
+    "question-shown": "before"
+   },
+   "pane": "w7:p1",
+   "pendin_after": true,
+   "pendin_before": true,
+   "requests": 3,
+   "status": "0",
+   "termios_exact": true,
+   "trial": "once",
+   "winsize": {
+    "cols": 60,
+    "rows": 40,
+    "xpixel": 0,
+    "ypixel": 0
+   }
+  },
+  "status": "0"
+ }
+}

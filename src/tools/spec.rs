@@ -23,6 +23,7 @@ use crate::permission::{PermissionSession, ReadTracker};
 use crate::workspace::AccessScope;
 
 use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
+use super::question::{AskUserQuestionInput, QuestionRequester};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
 use super::terminal::TerminalInput;
 
@@ -42,12 +43,28 @@ pub enum PermissionKind {
     MutateFile,
     /// The tool starts a process. Every call mints an authority.
     RunCommand,
+    /// The tool asks the user something and hands their answer back. It
+    /// changes nothing on disk and starts no process, and answering it mints
+    /// no authority for a later mutation or command call -- an interaction is
+    /// a conversation, not a permission grant, so it is not `ReadOnly` either:
+    /// that kind is reserved for a tool the safety boundary in `docs/parity.md`
+    /// documents as admitted in every permission mode because it changes
+    /// nothing, and this row exists so a reviewer never has to ask which one a
+    /// new interactive tool is by squinting at what it does.
+    Interaction,
 }
 
 impl PermissionKind {
     /// Whether a call of this kind must cross a permission decision.
+    ///
+    /// Exhaustive on purpose, not `matches!`: a future `PermissionKind`
+    /// variant fails to compile here until someone decides which side of the
+    /// line it falls on, rather than silently inheriting `false`.
     pub fn requires_authority(self) -> bool {
-        !matches!(self, Self::ReadOnly)
+        match self {
+            Self::ReadOnly | Self::Interaction => false,
+            Self::MutateFile | Self::RunCommand => true,
+        }
     }
 }
 
@@ -57,6 +74,7 @@ pub enum PropertyKind {
     String,
     Integer,
     Boolean,
+    Array,
 }
 
 impl PropertyKind {
@@ -65,8 +83,23 @@ impl PropertyKind {
             Self::String => "string",
             Self::Integer => "integer",
             Self::Boolean => "boolean",
+            Self::Array => "array",
         }
     }
+}
+
+/// The shape of a bounded array field: what its items look like, and how many
+/// of them are allowed.
+///
+/// The item schema is itself a closed object -- never a bare scalar or a
+/// further-nested array -- so a field of this kind adds exactly one array edge
+/// (`InputSchema` -> `ArraySpec::items` -> `InputSchema`) rather than an
+/// unbounded one.
+#[derive(Debug, Clone, Copy)]
+pub struct ArraySpec {
+    pub items: &'static InputSchema,
+    pub min_items: usize,
+    pub max_items: usize,
 }
 
 /// One field of a tool's input schema.
@@ -77,6 +110,8 @@ pub struct Property {
     pub description: &'static str,
     /// The complete set of accepted values, when the field is an enumeration.
     pub allowed: &'static [&'static str],
+    /// The item schema and bounds, when the field is `PropertyKind::Array`.
+    pub array: Option<ArraySpec>,
 }
 
 /// A tool's input schema: a closed object of typed scalars.
@@ -101,6 +136,11 @@ impl InputSchema {
             rendered.insert("description".to_string(), Value::from(property.description));
             if !property.allowed.is_empty() {
                 rendered.insert("enum".to_string(), Value::from(property.allowed.to_vec()));
+            }
+            if let Some(spec) = property.array {
+                rendered.insert("items".to_string(), spec.items.to_json());
+                rendered.insert("minItems".to_string(), Value::from(spec.min_items));
+                rendered.insert("maxItems".to_string(), Value::from(spec.max_items));
             }
             properties.insert(property.name.to_string(), Value::Object(rendered));
         }
@@ -131,6 +171,7 @@ pub enum ToolInput {
     EditFile(EditFileInput),
     CreateFolder(CreateFolderInput),
     Terminal(TerminalInput),
+    AskUserQuestion(AskUserQuestionInput),
 }
 
 /// Turns raw model JSON into a typed input, or says why it cannot.
@@ -162,6 +203,13 @@ pub struct ToolResult {
     /// is not an argument the model can fix, and letting it retry would let
     /// whoever won the race keep racing.
     pub fatal: bool,
+    /// What the user said when they answered the approval this call needed.
+    ///
+    /// Delivered as a **separate user message after this result**, never merged
+    /// into [`Self::output`]: merging would let a user's sentence be read as the
+    /// tool's own report of what it did. It is context, not authority -- the
+    /// call that ran is the one that was judged, whatever this says.
+    pub feedback: Option<String>,
 }
 
 impl ToolResult {
@@ -173,6 +221,7 @@ impl ToolResult {
             output: output.into(),
             detail: summarize(&detail.into()),
             fatal: false,
+            feedback: None,
         }
     }
 
@@ -186,6 +235,7 @@ impl ToolResult {
             output,
             detail,
             fatal: false,
+            feedback: None,
         }
     }
 
@@ -196,6 +246,15 @@ impl ToolResult {
             fatal: true,
             ..Self::failure(output)
         }
+    }
+
+    /// Attaches what the user said. Blank is absent.
+    ///
+    /// A draft of spaces is not a sentence, and an empty user message on the
+    /// wire is worse than none: it would spend a turn saying nothing.
+    pub fn with_feedback(mut self, feedback: Option<String>) -> Self {
+        self.feedback = feedback.filter(|text| !text.trim().is_empty());
+        self
     }
 }
 
@@ -339,6 +398,11 @@ pub struct ToolContext {
     session: Arc<ToolSession>,
     cancel: CancelToken,
     interlude: Option<RaceInterlude>,
+    /// Who `ask_user_question` may hand a batch to. Absent by default -- the
+    /// tools layer never names the TUI, so this is set by whichever front end
+    /// built the context, and a context nobody set it on answers with the
+    /// availability sentinel rather than reaching for a UI that isn't there.
+    questioner: Option<Arc<dyn QuestionRequester>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -352,6 +416,7 @@ impl std::fmt::Debug for ToolContext {
             .field("session", &self.session)
             .field("cancelled", &self.cancel.is_cancelled())
             .field("has_race_interlude", &self.interlude.is_some())
+            .field("has_questioner", &self.questioner.is_some())
             .finish()
     }
 }
@@ -375,6 +440,7 @@ impl ToolContext {
             session: Arc::new(ToolSession::new(PermissionSession::default())),
             cancel: CancelToken::new(),
             interlude: None,
+            questioner: None,
         }
     }
 
@@ -397,6 +463,19 @@ impl ToolContext {
     pub fn with_race_interlude(mut self, interlude: RaceInterlude) -> Self {
         self.interlude = Some(interlude);
         self
+    }
+
+    /// The same context, with `questioner` as what `ask_user_question` calls
+    /// to show a batch and collect the answers.
+    pub fn with_questioner(mut self, questioner: Arc<dyn QuestionRequester>) -> Self {
+        self.questioner = Some(questioner);
+        self
+    }
+
+    /// The requester `ask_user_question` may hand a batch to, if this context
+    /// was built with one.
+    pub fn questioner(&self) -> Option<&Arc<dyn QuestionRequester>> {
+        self.questioner.as_ref()
     }
 
     pub fn scope(&self) -> &AccessScope {
@@ -644,12 +723,14 @@ mod tests {
                 kind: PropertyKind::String,
                 description: "A path.",
                 allowed: &[],
+                array: None,
             },
             Property {
                 name: "mode",
                 kind: PropertyKind::String,
                 description: "A mode.",
                 allowed: &["matches", "count"],
+                array: None,
             },
         ],
         required: &["path"],
@@ -720,6 +801,59 @@ mod tests {
         // must land on a boundary rather than mid-character.
         assert_eq!(clip("한한한한", 10), Some("한한한"));
         assert_eq!(clip("abcdef", 3), Some("abc"));
+    }
+
+    #[test]
+    fn a_bounded_array_of_closed_objects_renders_items_and_bounds() {
+        static ITEM: InputSchema = InputSchema {
+            properties: &[Property {
+                name: "label",
+                kind: PropertyKind::String,
+                description: "d",
+                allowed: &[],
+                array: None,
+            }],
+            required: &["label"],
+        };
+        static OUTER: InputSchema = InputSchema {
+            properties: &[Property {
+                name: "questions",
+                kind: PropertyKind::Array,
+                description: "d",
+                allowed: &[],
+                array: Some(ArraySpec {
+                    items: &ITEM,
+                    min_items: 1,
+                    max_items: 4,
+                }),
+            }],
+            required: &["questions"],
+        };
+        let field = &OUTER.to_json()["properties"]["questions"];
+        assert_eq!(field["type"], "array");
+        assert_eq!(field["minItems"], 1);
+        assert_eq!(field["maxItems"], 4);
+        assert_eq!(field["items"]["type"], "object");
+        assert_eq!(field["items"]["additionalProperties"], false);
+        assert_eq!(field["items"]["required"][0], "label");
+        // The whole nested shape, closed at every level -- not just a few keys.
+        assert_eq!(
+            field,
+            &json!({
+                "type": "array",
+                "description": "d",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["label"],
+                    "properties": {
+                        "label": { "type": "string", "description": "d" }
+                    }
+                }
+            })
+        );
     }
 
     #[test]

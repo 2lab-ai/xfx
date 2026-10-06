@@ -58,8 +58,8 @@
 use serde_json::Value;
 
 use crate::permission::{
-    bounded_excerpt, ApprovalDiff, ContentHash, MutationExcerpt, MutationKind, MutationPlan,
-    PolicyDecision, Preimage, ProposedAction,
+    bounded_excerpt, ApprovalDiff, ContentHash, Decided, MutationExcerpt, MutationKind,
+    MutationPlan, PolicyDecision, Preimage, ProposedAction,
 };
 
 use super::spec::{
@@ -114,12 +114,14 @@ pub const WRITE_FILE: ToolSpec = ToolSpec::new(
                 kind: PropertyKind::String,
                 description: PATH_DESCRIPTION,
                 allowed: &[],
+                array: None,
             },
             Property {
                 name: "content",
                 kind: PropertyKind::String,
                 description: "The complete new contents of the file.",
                 allowed: &[],
+                array: None,
             },
         ],
         required: &["path", "content"],
@@ -140,18 +142,21 @@ pub const EDIT_FILE: ToolSpec = ToolSpec::new(
                 kind: PropertyKind::String,
                 description: PATH_DESCRIPTION,
                 allowed: &[],
+                array: None,
             },
             Property {
                 name: "old_string",
                 kind: PropertyKind::String,
                 description: "The exact text to replace. Must occur exactly once in the file.",
                 allowed: &[],
+                array: None,
             },
             Property {
                 name: "new_string",
                 kind: PropertyKind::String,
                 description: "The text to put in its place.",
                 allowed: &[],
+                array: None,
             },
         ],
         required: &["path", "old_string", "new_string"],
@@ -171,6 +176,7 @@ pub const CREATE_FOLDER: ToolSpec = ToolSpec::new(
             kind: PropertyKind::String,
             description: PATH_DESCRIPTION,
             allowed: &[],
+            array: None,
         }],
         required: &["path"],
     },
@@ -582,30 +588,40 @@ fn commit(
 
     // The guard is released by the end of this statement: minting takes the same
     // lock, and holding it across both would deadlock the session.
-    let decision = context
+    //
+    // `feedback` is what the user said while answering, and it is owned by this
+    // call from here to whichever result it returns. Everything below the
+    // decision can fail, and the sentence was said about a call that was
+    // attempted, so every one of those exits carries it.
+    let Decided { decision, feedback } = context
         .permissions()
-        .decide(ProposedAction::Mutation(&plan));
+        .decide_with_feedback(ProposedAction::Mutation(&plan));
     let source = match decision {
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
             return ToolResult::failure(format!("{tool} was not permitted: {reason}"))
+                .with_feedback(feedback)
         }
-        // `decide` resolves every prompt; this arm exists so that a future
-        // decision variant cannot be silently treated as an approval.
+        // `decide_with_feedback` resolves every prompt; this arm exists so that
+        // a future decision variant cannot be silently treated as an approval.
         PolicyDecision::Prompt => {
             return ToolResult::failure(format!(
                 "{tool} was not permitted: the approval was never resolved"
             ))
+            .with_feedback(feedback)
         }
     };
 
+    // Not passed into minting: an authority is issued for the plan that was
+    // judged, and a sentence is not part of it.
     let authority = context.permissions().mint_mutation(plan, source);
     // Spend first, check second. Whatever happens below -- a stale preimage, a
     // full disk, a panic-free error path -- this authority is already gone, so a
     // retry has to be authorized again rather than reusing an answer about a
     // world that has since moved.
     if let Err(err) = context.permissions().consume(&authority) {
-        return ToolResult::revoked(format!("{tool} could not use its authority: {err}"));
+        return ToolResult::revoked(format!("{tool} could not use its authority: {err}"))
+            .with_feedback(feedback);
     }
 
     // The race window, made observable. Nothing in the product installs an
@@ -618,14 +634,15 @@ fn commit(
     match namespace::apply(&located, plan) {
         Ok(()) => {
             let summary = describe(plan);
-            ToolResult::success(summary.clone(), summary)
+            ToolResult::success(summary.clone(), summary).with_feedback(feedback)
         }
         Err(namespace::ApplyError::Stale(reason)) => ToolResult::revoked(format!(
             "{tool} stopped: the authority for `{}` no longer describes the filesystem -- {reason}",
             plan.display()
-        )),
+        ))
+        .with_feedback(feedback),
         Err(namespace::ApplyError::Failed(reason)) => {
-            ToolResult::failure(format!("{tool} failed: {reason}"))
+            ToolResult::failure(format!("{tool} failed: {reason}")).with_feedback(feedback)
         }
     }
 }

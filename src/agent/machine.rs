@@ -48,6 +48,7 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use crate::gateway::protocol::{
@@ -159,6 +160,32 @@ pub fn retry_delay(attempt: u32, retry_after: Option<Duration>) -> Duration {
         .min(MAX_RETRY_DELAY)
 }
 
+/// Hands control back to whatever is driving this turn, exactly once.
+///
+/// **Not `tokio::task::yield_now`**, and the difference is the point: this turn
+/// is driven from four places -- a current-thread runtime on the TUI's worker
+/// thread, `xfx ask`, the line shell, and unit tests that poll it by hand --
+/// and a yield that reached for a runtime context would be a yield that
+/// depended on which of them was driving. All this needs is one `Pending` with
+/// the waker already woken, which is a fact about futures rather than about
+/// tokio.
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(move |cx| {
+        if yielded {
+            return Poll::Ready(());
+        }
+        yielded = true;
+        // Woken before returning `Pending`, so nothing depends on another task
+        // waking this one: the driver is free to poll whatever else it holds --
+        // the control channel it is racing this turn against -- and then come
+        // straight back.
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    })
+    .await;
+}
+
 /// Waits `delay`, or stops early when the turn is cancelled.
 ///
 /// The token is a flag rather than a channel, so the wait is sliced instead of
@@ -188,6 +215,27 @@ pub async fn run_turn(
     events: &mut dyn EventSink,
 ) -> Result<TurnOutcome, TurnError> {
     TurnMachine::new(request).run(provider, events).await
+}
+
+/// What a flush of one step's amendments does when the stream refuses one.
+///
+/// The two callers want opposite things from the same failure, and the reason
+/// is what each of them still has to lose.
+///
+/// A turn that is otherwise fine is about to ask for another completion, so a
+/// reader who cannot be told what the user said is a turn that should stop --
+/// and stopping before the journal keeps "recorded" meaning "delivered".
+///
+/// A turn that is already ending has no second request and no reader left to
+/// protect: the log is the only copy of the sentence a resumed session can
+/// read, so a broken stream must cost the echo and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SinkRefusal {
+    /// Report it at once. Nothing after the refusal is journaled or queued.
+    Stop,
+    /// Go on journaling the rest of the batch, and hand the failure back at
+    /// the end for the caller to weigh against its own.
+    JournalOn,
 }
 
 /// Runs one turn with project context and a durable journal.
@@ -419,7 +467,8 @@ impl TurnMachine {
                 });
             }
 
-            self.execute_tool_calls(&completion, events, journal)?;
+            self.execute_tool_calls(&completion, events, journal)
+                .await?;
         }
     }
 
@@ -428,7 +477,24 @@ impl TurnMachine {
     /// Checks first, executions second. Both checks cover the whole step before
     /// anything runs, so a step with one bad call does not leave the workspace
     /// half-read and the conversation half-written.
-    fn execute_tool_calls(
+    ///
+    /// **What the user said while approving travels with the step, not with the
+    /// call.** A sentence typed beside an approval is buffered per call and
+    /// delivered after every result of the step; [`Self::flush_amendments`]
+    /// says why after, and which exits deliver it. It is context and never
+    /// authority: the call that ran is the call that was judged.
+    ///
+    /// **Async for one reason: the step has to be interruptible between its
+    /// calls.** Every executor here is synchronous, and one of them --
+    /// `ask_user_question`, and an `ask`-mode approval inside any of the others
+    /// -- parks this thread for as long as a person takes to answer. The stop
+    /// the person then types arrives while this loop is between two calls, and
+    /// a loop with no await in it gives whoever is driving this turn no moment
+    /// to record it: the flag this function reads is set by that driver
+    /// (`crate::tui::worker`'s `raced_against_control`, `crate::app`'s signal
+    /// handler), so without the yield below the check would read a flag nobody
+    /// has been able to write yet and the rest of the step would run.
+    async fn execute_tool_calls(
         &mut self,
         completion: &Completion,
         events: &mut dyn EventSink,
@@ -475,7 +541,24 @@ impl TurnMachine {
         });
         record_assistant(journal, completion);
 
+        // What the user said while answering this step's approvals, in call
+        // order. **Function-local, never a field**: a buffer on `self` would
+        // survive an early return and hand one call's sentence to the next
+        // call, or to the next step. Here, a panic unwinds it, a cancellation
+        // drops it, and the two flush sites below consume it exactly once.
+        let mut amendments: Vec<(String, String)> = Vec::new();
+
         for call in &completion.tool_calls {
+            // **Before this call is admitted at all.** The turn was stopped
+            // while an earlier call of this same step was running -- a Ctrl-C
+            // typed at the panel that call was parked in, a shutdown, a signal
+            // -- and the calls behind it are work nobody asked for any more. The
+            // step is abandoned here rather than at the top of `drive`, because
+            // by then the file would already be written.
+            if self.request.cancel.is_cancelled() {
+                return Err(TurnError::Cancelled);
+            }
+
             // Before the call is admitted, not after it runs: a rule about the
             // directory this call is about to touch is worth nothing once the
             // file has already been written.
@@ -517,19 +600,145 @@ impl TurnMachine {
             self.suffix
                 .push(Message::tool_result(&call.id, &call.name, result.output));
 
+            // Buffered here, delivered after the loop. Directly after the
+            // result push, so only a call that actually ran and was answered
+            // can contribute one -- which is what makes the disposition of
+            // every exit below decidable rather than incidental.
+            if let Some(text) = result.feedback {
+                amendments.push((call.id.clone(), text));
+            }
+
             // Almost every refusal goes back to the model, which can correct
             // itself. One does not: an authority that stopped describing the
             // filesystem means the premise of the exchange is void, so the turn
             // ends here rather than running the rest of the step or asking for
             // another one.
             if result.fatal {
-                return Err(TurnError::ToolAuthorityRevoked {
+                // A turn that ends still owes the journal and the reader what
+                // the user said about the calls that ran. Nothing is sent --
+                // this returns an error, so there is no next request -- but a
+                // resumed session can read it.
+                //
+                // **[`SinkRefusal::JournalOn`], and the journal is why.** This
+                // turn is already ending for a reason of its own, and the log
+                // is the only copy left: a stream that has gone must cost the
+                // echo and nothing else, or a display failure would silently
+                // take the sentence about the very call whose authority was
+                // revoked. Under `Stop` the first refusal would drop every
+                // amendment of the step, which is the defect this arm exists
+                // to not have.
+                let shown =
+                    self.flush_amendments(events, journal, amendments, SinkRefusal::JournalOn);
+                let revoked = TurnError::ToolAuthorityRevoked {
                     tool: call.name.clone(),
                     detail: result.detail,
+                };
+                // Two failures and one `TurnError`, so one of them is reported
+                // and the other is **superseded** -- which is a different claim
+                // from "handled", and is only defensible because the line above
+                // has already put every sentence in the journal. The revocation
+                // is what ends the turn and what the user must act on; a reader
+                // whose stream refused the sentence cannot be told anything
+                // either way. Written as a branch rather than as a discarded
+                // binding so the ruling is read at the point it is made, and
+                // total rather than wildcarded so an error kind added to the
+                // flush later cannot be folded into the revocation by default.
+                return Err(match shown {
+                    Ok(()) | Err(TurnError::Sink(_)) => revoked,
+                    Err(other) => other,
                 });
             }
+
+            // **The moment a stop can be recorded.** The call above ran to
+            // completion and its result is already in the conversation and the
+            // journal, so nothing is half-done; what this hands back is the
+            // chance for the driver to see the message the user sent while that
+            // call had this thread -- and, with it, to set the flag the top of
+            // the next iteration reads. One poll, taken once per call, and the
+            // only cost on a turn nobody interrupted.
+            yield_once().await;
         }
-        Ok(())
+
+        // **The last call needs this, or the cancellation contract is a
+        // fiction.** A stop is *observed* at the yield above and *acted on* at
+        // the top of the next iteration -- and after the final call there is no
+        // next iteration. Without this check the loop would fall straight into
+        // the flush and journal, then send, sentences from a turn the user had
+        // already stopped. It is the same predicate the loop head reads, so the
+        // one-call case behaves like every multi-call one.
+        if self.request.cancel.is_cancelled() {
+            drop(amendments);
+            return Err(TurnError::Cancelled);
+        }
+        // **[`SinkRefusal::Stop`] on the ordinary path**, unchanged: this turn
+        // is otherwise fine and is about to ask for another completion, so a
+        // reader who cannot be told what the user said is a turn that should
+        // not go on -- and the sentence is left out of the journal and the
+        // prompt rather than recorded as delivered to somebody who never saw
+        // it.
+        self.flush_amendments(events, journal, amendments, SinkRefusal::Stop)
+    }
+
+    /// Puts every amendment of one step into the journal and the prompt, in
+    /// call order, **after** every result of that step.
+    ///
+    /// After, because `llmux/protocol.rs:24-32` merges consecutive user
+    /// messages and hoists `tool_result` blocks to the front of the merged one:
+    /// a sentence interleaved between two results of a batch would arrive above
+    /// the result it was about. The `call_id` keeps the origin, since the
+    /// position no longer can.
+    ///
+    /// Called from exactly two places -- the normal end of a step, and the
+    /// `fatal` return -- so that every other exit drops the buffer as a
+    /// contract rather than as an accident of where the code happens to return.
+    ///
+    /// **The stream is written here and nowhere else**, which is what makes the
+    /// transcript honest rather than merely prompt. A UI that echoed the
+    /// sentence when the key was pressed would be claiming a delivery that had
+    /// not happened yet -- and for the two exits that drop the buffer, one that
+    /// never will. So all three copies of an amendment are made in this loop:
+    /// the reader's, the journal's and the model's, per call, in call order.
+    ///
+    /// The **emit comes first**, which is the order the result of a call
+    /// already uses a few lines above ([`Self::execute_tool_calls`]): a stream
+    /// that has gone ends the turn with its own error, and the sentence is left
+    /// out of the journal and out of the prompt rather than recorded as
+    /// delivered to a reader who never saw it.
+    fn flush_amendments(
+        &mut self,
+        events: &mut dyn EventSink,
+        journal: &mut dyn TurnJournal,
+        amendments: Vec<(String, String)>,
+        refusal: SinkRefusal,
+    ) -> Result<(), TurnError> {
+        // The first refusal, kept rather than returned at once under
+        // [`SinkRefusal::JournalOn`]. Once the stream has refused, the rest of
+        // the batch is journaled without being offered to it again: a second
+        // write to a pipe that has gone is noise, and this is what keeps
+        // "shown" and "journaled" two answers rather than one.
+        let mut refused: Option<io::Error> = None;
+        for (call_id, text) in amendments {
+            if refused.is_none() {
+                if let Err(err) = events.emit(&Event::ToolFeedback {
+                    call_id: call_id.clone(),
+                    text: text.clone(),
+                }) {
+                    match refusal {
+                        SinkRefusal::Stop => return Err(TurnError::Sink(err)),
+                        SinkRefusal::JournalOn => refused = Some(err),
+                    }
+                }
+            }
+            journal.record(SessionEvent::ToolFeedback {
+                call_id,
+                text: text.clone(),
+            });
+            self.suffix.push(Message::user(text));
+        }
+        match refused {
+            Some(err) => Err(TurnError::Sink(err)),
+            None => Ok(()),
+        }
     }
 
     /// Every tool call id already in the prompt.

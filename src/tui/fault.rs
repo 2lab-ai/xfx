@@ -36,6 +36,56 @@ pub(crate) enum Fault {
     /// `1049l`. Injected after the entering frame has been written, flushed and
     /// recorded, and before the answer that would give the plane back.
     AlternatePanic,
+    /// A terminal that takes **part** of one band frame and then stops taking
+    /// bytes at all.
+    ///
+    /// The one failure this build can produce that a refusing screen cannot:
+    /// every other injected write failure leaves the terminal exactly as it
+    /// was, and this one leaves it holding a prefix of a synchronized frame.
+    /// It is answered by the sink itself (`super::deliver`), so what the
+    /// session runs here is the real counting against the real descriptor --
+    /// the prefix is genuinely on the user's terminal -- and the containment
+    /// that follows is the product's, not the harness's.
+    PartialFrame,
+    /// The same torn prefix as [`Self::PartialFrame`], but a synchronous
+    /// recovery attempt's cleanup vector and rebuild are both answered for
+    /// real afterwards, so a session that catches the tear can be watched
+    /// recovering end to end on a real descriptor.
+    ///
+    /// A row of its own rather than a flag on [`Self::PartialFrame`] because
+    /// the two must measure opposite things: that one keeps containing a
+    /// tear no recovery in this build gets past (its own cleanup vector is
+    /// refused too), this one is the band tear recovery is actually asked to
+    /// survive.
+    PartialFrameOnce,
+    /// [`Self::PartialFrame`]'s tear, armed on the first **repaint of the
+    /// alternate plane** the session already owns rather than on a band frame:
+    /// the prefix, the original failure, and the recovery attempt's own cleanup
+    /// vector refused too, so the session has to end on it.
+    ///
+    /// Armed past the frame that takes the plane, and never on the one that
+    /// gives it back: a `1049h` or `1049l` the terminal took part of is a plane
+    /// transition, which stays contained and fatal and is not what this row
+    /// measures.
+    PartialAlternate,
+    /// [`Self::PartialFrameOnce`]'s tear on that same repaint: the prefix and
+    /// the original failure, and then the descriptor is the terminal's own
+    /// again, so the cleanup and the rebuild behind it both land and the
+    /// question is still on the screen -- and still answerable -- afterwards.
+    PartialAlternateOnce,
+    /// A screen that refuses every band frame it is shown, from the first one
+    /// on, and takes not one byte of any of them.
+    ///
+    /// The other road out of `disposed` (`super::event_loop`): every other
+    /// injected write failure either takes a prefix ([`Self::PartialFrame`])
+    /// or answers once, but this one answers *every* frame offered -- so the
+    /// only thing that ends the session is the frame budget already sitting
+    /// in `FrameFailures`, exactly as it would for a screen that is merely
+    /// gone. It answers only a vector that opens a frame: the mode-set and
+    /// restore sequences do not, so raw mode is entered and given back for
+    /// real and the matrix's exit assertions are still measuring the
+    /// product's own restore rather than a terminal this fault silenced.
+    RefusesFrames,
     /// **Not a failure**: the Phase-1 whole-band painter, kept as the reference
     /// the cell diff is judged against.
     ///
@@ -64,6 +114,11 @@ impl Fault {
             Self::WorkerTurn => "worker-turn",
             Self::SlowUi => "slow-ui",
             Self::AlternatePanic => "alternate-panic",
+            Self::PartialFrame => "partial-frame",
+            Self::PartialFrameOnce => "partial-frame-once",
+            Self::PartialAlternate => "partial-alternate",
+            Self::PartialAlternateOnce => "partial-alternate-once",
+            Self::RefusesFrames => "frame-refusal",
             Self::FullPaintReference => "full-paint-reference",
         }
     }
@@ -72,6 +127,149 @@ impl Fault {
 /// Whether this run was asked to fail at `point`.
 pub(crate) fn injected(point: Fault) -> bool {
     std::env::var_os(FAULT_ENV).is_some_and(|value| value == point.name())
+}
+
+/// How far the armed fault has got: `0` before anything armed it, `1` with
+/// the prefix owed, `2` with the original failure owed, `3` with a recovery
+/// cleanup vector owed a refusal too (the containing faults only -- see
+/// [`PARTIAL_FRAME_ONCE`]), `4` once it is spent for good.
+///
+/// A count rather than a flag because the fault is a fixed *sequence* of
+/// answers, in order, and exactly once in the life of a process: after the
+/// last one the descriptor is the terminal's own again, which is what lets
+/// the exit below it restore for real and be measured.
+///
+/// One sequence for both of the vectors a tear can be armed on -- a band
+/// frame ([`arm_partial_frame`]) and a repaint of the owned alternate plane
+/// ([`arm_partial_alternate`]) -- because the answers are the same answers
+/// and only the moment they start differs; a run asks for exactly one fault,
+/// so the two never compete for it.
+static PARTIAL_FRAME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Which kind of fault armed [`PARTIAL_FRAME`]: `0` unset, `1` a containing
+/// one ([`Fault::PartialFrame`], [`Fault::PartialAlternate`]), `2` a
+/// recovering one ([`Fault::PartialFrameOnce`], [`Fault::PartialAlternateOnce`]).
+///
+/// A separate cell rather than folding the choice into [`PARTIAL_FRAME`]'s
+/// own numbering because the two kinds share every state up to and
+/// including the original failure -- only what happens to the *next* write,
+/// the recovery attempt's own cleanup vector, differs.
+static PARTIAL_FRAME_ONCE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// What the injected terminal does to the next `write`.
+pub(crate) enum Prefix {
+    /// Takes this many bytes of what it was offered -- really writes them --
+    /// and says so.
+    Takes(usize),
+    /// Fails, having taken nothing this time.
+    Fails,
+}
+
+/// Arms the prefix fault, if this run asked for either variant of it and has
+/// not had it yet.
+///
+/// Called where the *first band frame* is about to be built, so the vector it
+/// lands on is a frame rather than the mode set: a session that lost the mode
+/// set would be a startup failure, which is a row the matrix already has.
+pub(crate) fn arm_partial_frame() {
+    if injected(Fault::PartialFrame) {
+        arm(1);
+    } else if injected(Fault::PartialFrameOnce) {
+        arm(2);
+    }
+}
+
+/// Arms the same prefix fault on the first **repaint of the alternate plane**
+/// the session already owns, if this run asked for either alternate variant
+/// and has not had it yet.
+///
+/// Called right before that repaint's one emit, and only for a repaint that
+/// has bytes: the vector it lands on is then the repaint, never the `1049h`
+/// frame that took the plane before it -- nor the `1049l` that gives it back,
+/// which an idle tick that armed it would have handed the tear to instead.
+pub(crate) fn arm_partial_alternate() {
+    if injected(Fault::PartialAlternate) {
+        arm(1);
+    } else if injected(Fault::PartialAlternateOnce) {
+        arm(2);
+    }
+}
+
+/// Starts [`PARTIAL_FRAME`]'s sequence, once in the life of the process, for a
+/// fault of kind `once` ([`PARTIAL_FRAME_ONCE`]'s numbering).
+fn arm(once: u8) {
+    use std::sync::atomic::Ordering;
+
+    if PARTIAL_FRAME
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        PARTIAL_FRAME_ONCE.store(once, Ordering::Release);
+    }
+}
+
+/// What an armed prefix fault answers for a write of `len` bytes.
+///
+/// `None` once, and for ever after, the sequence is spent.
+pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
+    use std::sync::atomic::Ordering;
+
+    match PARTIAL_FRAME.load(Ordering::Acquire) {
+        // Half the vector, and at least one byte of it: a "prefix" of nothing
+        // would be a zero-progress failure, which is the other case entirely.
+        1 => {
+            PARTIAL_FRAME.store(2, Ordering::Release);
+            Some(Prefix::Takes((len / 2).max(1).min(len)))
+        }
+        2 => {
+            // The original tear. A containing fault (`PartialFrame`,
+            // `PartialAlternate`) still owes a refusal to the very next vector
+            // -- the recovery attempt's own fixed cleanup write -- so that a
+            // session running under it never observes a successful recovery.
+            // A recovering one (`PartialFrameOnce`, `PartialAlternateOnce`) is
+            // spent here instead: the cleanup and the rebuild behind it both
+            // reach the real descriptor.
+            let next = if PARTIAL_FRAME_ONCE.load(Ordering::Acquire) == 1 {
+                3
+            } else {
+                4
+            };
+            PARTIAL_FRAME.store(next, Ordering::Release);
+            Some(Prefix::Fails)
+        }
+        3 => {
+            PARTIAL_FRAME.store(4, Ordering::Release);
+            Some(Prefix::Fails)
+        }
+        _ => None,
+    }
+}
+
+/// The escape prefix a band frame opens with (`frame::BEGIN_FRAME`).
+///
+/// A private copy of the same bytes, not an import: this module answers "is
+/// this vector a frame" without owning any of `frame`'s knowledge of what a
+/// frame contains -- the same reason `event_loop`'s own P3-WRAP benchmark
+/// keeps a private copy of `frame::ERASE_LINE` rather than exposing either
+/// constant beyond the module that defines it.
+const FRAME_BEGIN: &[u8] = b"\x1b[?2026h\x1b[?25l";
+
+/// What [`Fault::RefusesFrames`] answers for a write of exactly these bytes:
+/// `Some` only for a vector that opens a frame, so a mode-set or restore
+/// sequence -- neither of which does -- reaches the real descriptor
+/// unchanged.
+///
+/// Unlike [`partial_frame_answer`] this has no state and no budget of its
+/// own to spend: it says the same thing every time it is asked, for as long
+/// as this run was asked for it, and the session's own [`FrameFailures`
+/// budget](super::event_loop) is what turns a run of these into a session
+/// that ends.
+pub(crate) fn frame_refusal_answer(bytes: &[u8]) -> Option<std::io::Error> {
+    if injected(Fault::RefusesFrames) && bytes.starts_with(FRAME_BEGIN) {
+        Some(std::io::Error::from_raw_os_error(libc::EIO))
+    } else {
+        None
+    }
 }
 
 /// Panics on a thread that is not the one holding the terminal, and waits for

@@ -1,7 +1,15 @@
 # xfx — TUI port
 
-Status: **Phases 1 and 2 of the MVS ladder below are in the binary. Phase 3 and the explicitly
-deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
+Status: **Phases 1 and 2 of the MVS ladder below are in the binary. Phase 3 is in the preview channel
+only, in no stable release: items 18, 19, 20, 20b and 22 are implemented, item 17's CSI-u key matrix is
+promoted, and items 21 and 23 meet the Phase 3 carrier's acceptance (P3-COMMIT, P3-THEME) while staying
+*in part against upstream* (named in each item). Item 21's self-check is a per-vector output preflight
+and the writes under it are **counted**, so a write the screen takes only part of is measured and contained
+rather than unreadable; its partial-write **recovery** covers the two repaints whose whole intended content
+is in hand -- the primary band's frame and a repaint of the alternate plane the session already owns -- and
+every other `Partial` (a plane transition, a document append or carry, `/clear`, the theme query, the
+retint) is contained and ends the session with the diagnostic (item 21 has the per-path table). The rest of
+Phase 3 and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
 enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
 `interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
 which is the one to read against the code; what this document keeps is the upstream evidence and the
@@ -80,9 +88,13 @@ exact restore path. Everything below is written to make that obligation testable
   (`frame_surface.zig:11-29,116-190`), with a per-cell owner policy on write (`:236`).
 - **Layout** is `rows/cols/content_bottom/divider/input/hint` (`terminal.zig:47-59`);
   `frame_layout.solve` places transcript/footer/activity (`frame_layout.zig:156-300`) and
-  `footer_layout.resolve` places rows inside the footer (`footer_layout.zig:3-39`). Because footer
-  height and transcript occupancy are mutually dependent, upstream converges candidates with a
-  **fixed-point iteration** (`app_render_runtime.zig:3294-3420`).
+  `footer_layout.resolve` places rows inside the footer (`footer_layout.zig:3-39`). The
+  *requested* footer measurement is taken once before the fixed-point loop and is not
+  recomputed from the candidate (`app_render_runtime.zig:1762-1767,1873`); what the loop
+  (`frame_fixed_point.zig:21-93`) actually re-solves is the transcript's occupied extent and
+  the release floor (`app_render_runtime.zig:1833-1878,3352-3453`), moving ownership -- though
+  the allocated footer height remains constrained by `available_rows`
+  (`frame_layout.zig:413-418`, `surface_frame.zig:780-801`).
 - **A shadow VT is the single source of truth for what is on the terminal.** A bounded in-process
   engine (`src/core/terminal/engine.zig:1-3,222,489`) is fed *every byte xfx writes*
   (`app_lifecycle.zig:1069-1080`), and the frame commit diffs the target surface against it
@@ -129,14 +141,33 @@ exact restore path. Everything below is written to make that obligation testable
 - **Activity row**: `"• Thinking"` + elapsed + tokens (`activity_status.zig:26-33`), with the clock
   **frozen while an approval or question is pending** (`:37-40`) and a 500 ms blink; the shimmer
   position comes from the animation phase.
+- **Activity row colour** (`Palette::activity`, `src/tui/theme.rs`): the whole row paints in a
+  neutral, ongoing-turn foreground — what is running, or that a decision on it is pending — and
+  nothing more; it is not a success, an error, a permission grant or a progress percentage. Upstream
+  paints its thinking marker and the label/elapsed beside it in `permission_auto_style`
+  (`shimmer_runtime.zig:262-291`), whose dark/light indices are `252`/`238`
+  (`render.zig:55,86,105`), pinned here exactly because that is the only fact upstream settles about
+  this row's colour — the equivalent truecolor is `208,208,208`/`68,68,68` on the same grayscale
+  ramp. What is *not* borrowed is the name: xfx has no live token suffix, so the whole row shares
+  one colour, and that colour is called `activity` rather than `permission_auto`, because a running
+  turn and a granted permission happen to share upstream's grey and nothing else. This activity
+  foreground is in the preview channel only, in no stable release. Painted through the
+  band's existing clip+reset wrapper, so the foreground cannot leak onto the divider, the composer or
+  the document.
 
 ### Theme
 
 Start-up detection: `FX_THEME`-equivalent env override → OSC 11 query (200 ms deadline) → `COLORFGBG`
 → default dark; luminance > 32768 means light (`theme_detection.zig:22-62`, `theme_protocol.zig:11-40`).
-Truecolor is gated on `COLORTERM` with Apple Terminal downgraded (`:44-53`). Live re-tinting
-(mode 2031 + DSR `?996n`) additionally rewrites stored SGR in the transcript and patches the pacer's
-pending buffer (`app_render_runtime.zig:343-357`) — deferred, see the ladder.
+Truecolor is gated on `COLORTERM` with Apple Terminal downgraded (`:44-53`). Upstream's live
+re-tinting (mode 2031 + DSR `?996n`) additionally rewrites stored SGR in the transcript and patches
+the pacer's pending buffer (`app_render_runtime.zig:354-367`). Stable xfx releases stay
+startup-only; in the preview channel, a SIGCONT arms an outbound `?996n` query and the `997;n`
+reply is decoded before focus. Role-tagged tail and queued text use the current palette when emitted;
+known visible document cells are repainted without scrolling, with state adopted only after delivery;
+the pacer's pending-buffer
+patch is not applied by design -- pending rows materialize the current palette at actual emission
+instead — see item 23 in the ladder.
 
 ## Runtime topology (authoritative)
 
@@ -483,8 +514,11 @@ routing, approval/question state); the seam is a typed event union** —
   (`:1986-1992`): MCP tool → session; `terminal.exec` → "this exact command"; default → "this
   request". Upstream additionally gates the affirmative behind a **readiness commit record** — the
   committed frame at the same request id and dimensions must have actually shown the identity and all
-  controls (`approval_readiness.zig:15-39,65-75`); that is the anti-blind-approve property, deferred
-  below as hardening.
+  controls (`approval_readiness.zig:15-39,65-75`); that is the anti-blind-approve property, and it is
+  **implemented** in item 20 below. Holding it honestly is what made both surfaces measure their rows
+  from the request rather than from a table: every always-scope `PermissionSession` builds is three
+  wrapped rows at eighty columns, so a fixed allotment cut the sentence and no ordinary screen could
+  have disclosed an ordinary request.
 - **Status/hint row** (`render.zig:391-460`), segments joined by `" · "`, left to right: missing-
   credential call to action, `queued N`, permission mode, **compact model label** (strips `provider/`
   and `claude-` prefixes → `opus 4.7`, `:219-244`), effort label and a fast-mode `⚡︎`, session title,
@@ -521,7 +555,7 @@ The alternative was considered and rejected:
 What "ships the panel in Phase 1" is allowed to mean, so the scope stays honest: the **inline**
 3-choice panel only (1–3 / ↑↓ / Tab / Enter / Esc / Ctrl-C) with the three "always" wordings, painted
 in the footer band. The alt-screen file-diff review, the amendment draft, and the readiness commit
-gate stay in Phases 2–3 — upstream itself decides inline-vs-screen by diff size (`needsScreen`
+gate stay in Phases 2–3 (all three have since landed there — items 19, 20 and 20b) — upstream itself decides inline-vs-screen by diff size (`needsScreen`
 `approval_screen.zig:208`), so an inline-only Phase 1 is a narrower version of an existing branch, not
 a new behavior.
 
@@ -657,31 +691,363 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     the mode set pushes the terminal's own onto its stack and every restore path pops it back -- and
     the model label is stripped of controls before it goes in, so a configured name cannot close the
     sequence. The kitty push is written on the way in and popped on the way out, and it is **omitted
-    entirely under tmux**, where sending it breaks key input; both halves have pty receipts. What is
-    *not* here is the **full CSI-u matrix**, which stays deferred with the rest of the breadth below.
-    What the binary has is one push flag (`CSI > 1 u`) and its pop (`CSI < u`), and a decoder that
-    names the xterm shapes -- the tilde keys and the cursor keys with xterm's single modifier -- and
-    answers every `CSI ... u` with a keystroke that binds nothing (`src/tui/input.rs`'s `csi`).
-    Owner: the input layer. It is promoted when a binding needs a key those shapes cannot express,
-    which is upstream's own reason for the matrix, or when a receipt from a terminal that speaks the
-    protocol shows a key this session already claims to support arriving in the `u` form. Either way
-    the falsification is one pty case: drive the affected keys and read what the decoder made of
-    them, rather than reasoning about what a terminal would send.
+    entirely under tmux**, where sending it breaks key input; both halves have pty receipts. **The
+    CSI-u key matrix is promoted** (2026-10-06), by the second of the two conditions this item set
+    for it: a receipt from a terminal that speaks the protocol -- herdr 0.9.3, libghostty-vt's key
+    encoder, kitty flag 1 negotiated (`.prd/tui-phase3/receipts/2026-10-06-herdr-csi-u-keys.md`) --
+    shows Ctrl-C, Ctrl-D, Ctrl-U, Escape, Alt-Enter and every bound Ctrl letter arriving in the `u`
+    form, all of which the release binary dropped. The push flag (`CSI > 1 u`) and its pop
+    (`CSI < u`) are unchanged. The decoder now resolves a key report in **both** of its spellings --
+    kitty's `CSI <key> [; <mods>[:<event>]] u` and `modifyOtherKeys`' `CSI 27 ; <mods> ; <key> ~` --
+    through one port of upstream's `kittyUnicodeKeyAction` at `c1db919` (`escape_parser.zig:185-266`),
+    branch for branch and in its order (`src/tui/input.rs`'s `kitty_key`): a Ctrl letter or `_` is
+    that key's control byte and therefore the binding the bare byte already has; Escape, Enter (Ctrl
+    submits, Shift or Alt inserts a newline), Alt- and Super-Backspace, Alt-b/f, Super+Z and
+    Super+Shift+Z, and Shift+Space are the actions those keys already have; a keypad key is its
+    main-row key (`:116-118`), resolved against xfx's own cursor-key table; Caps Lock and Num Lock are
+    not modifiers (`:186-187`); and a colon event type acts on a press or a repeat and never on a
+    release (`:676-684`, `:756-780`). `ESC CR`/`ESC LF` is Alt-Enter too, and inserts a newline
+    (`:515-519`) instead of replaying as Escape and then Submit. An upstream result with no xfx action
+    -- select-all, copy, cut, a selection-extending move spelled on a letter (Ctrl+Shift+A/B/E/F,
+    `:235-242`; Alt+Shift+B/F, `:244`, `:248`), delete-word-right, the full-transcript, all-sessions
+    and permission-mode toggles, the page keys -- is a keystroke that binds nothing, and no action is
+    invented for one. **The arrows are the exception, and they are not a keystroke that binds
+    nothing**: kitty's Up and Down (`57352`/`57353`, `:208-217`) and the keypad's Up, Down, Left,
+    Right, Home and End (`:134-144`, `:163-167`) resolve through xfx's own cursor-key table
+    (`src/tui/input.rs`'s `cursor`), so with Shift held -- alone, or beside Ctrl or Alt -- where
+    upstream's `modifiedArrowAction` returns a `composerMove` that extends a selection (`:66-109`),
+    xfx makes the same key's plain move: Up, Down, Home and End stay what they are, and Left and
+    Right are a character move, or a word move with Ctrl or Alt. xfx has no selection, so Shift is
+    dropped together with the selection it would have extended; the legacy `CSI 1 ; <mod> A`
+    spelling of the same keys goes through the same table. The grammar stays stricter than upstream's: canonical decimal only
+    (no leading zero, a bounded length, no extra field), a modifier from `1` to `256`, and `27` as
+    the tilde spelling's first field, which upstream discards. The falsification is the one this item
+    asked for: every row of the receipt replayed into the decoder (`src/tui/input.rs`'s
+    `HERDR_RECEIPT`), and `ESC[117;5u` then `ESC[100;5u` driven on a real pty to the same exit and the
+    same `termios` a bare `0x04` leaves (`tests/tui.rs`'s
+    `herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal`). The WezTerm tilde case
+    (`6c42131`) is now that same function's other spelling rather than a hand-kept letter table.
 
-**Phase 3 — depth. Not implemented**; every item below is a target and none of it is advertised.
+**Phase 3 — depth. In the preview channel only, in no stable release. Items 18, 19, 20, 20b and 22
+are implemented, and items 21 and 23 meet the carrier's acceptance while staying in part against
+upstream — item 21's self-check, its counted-delivery
+containment and the recovery of two repaints (the primary band's frame and a repaint of the owned
+alternate plane) exist; retention exists only as the bounded prefix
+adaptation item 21 names below and not as the upstream reuse, and the rest is not**, and every
+unmarked item below is a target that is advertised nowhere. See item 21 below for the recovery's
+exact boundary.
 
 18. Delta undo/redo (100 entries / 1 MB caps, `edit_history.zig:5-6`) + the single-slot kill ring.
-19. Question panel with ordinal answers; the freeform "Other" slot after that.
-20. Approval **readiness** commit gate and amendment drafts — correctness hardening, not feel.
+    **Implemented** (`a03d08f`), with the bounds stated rather than implied: the 100 entries and the
+    1 MiB are one budget for undo and redo **together**, so moving an entry between the stacks
+    changes no total; a single delta heavier than that budget is a **boundary** that clears both
+    stacks rather than an entry, because a history that cannot hold a paste must not offer to undo
+    it; and the kill ring is beside the history with a cap of its own -- one slot, replaced rather
+    than appended to, emptied rather than truncated by a kill that overruns it -- so one large kill
+    cannot evict undo entries that have nothing to do with it (`src/tui/edit_history.rs`). Redo has
+    no control byte upstream, so both pinned CSI spellings are driven as **bytes written into a
+    pty** and each is proved on its own round trip; what that does not prove, and what no receipt
+    here claims, is that a given physical terminal emits those bytes for that chord.
+19. Question panel with ordinal answers; the freeform "Other" slot after that. **Implemented**, and
+    narrowed to exactly that: `ask_user_question` is a real registry entry with a permission kind of
+    its own (`PermissionKind::Interaction`) rather than an approval variant, so it mints no
+    authority, and `permission_request_id` is deliberately not advertised -- that route is the
+    readiness work in item 20. The batch is 1-4 questions of 2-6 options, one question on the screen
+    at a time, ordinals **absolute** so the number on a row is the number to type whatever the window
+    is showing, and the freeform slot is appended after the model's own options and identified by
+    **index** rather than by its label, so a model that ships its own `Other` does not open a text
+    editor. Canonical text is terminal-safe *encoded* and then size-checked with a refusal -- never
+    truncated to fit a screen -- and it is the canonical label, not the clipped row, that becomes the
+    answer. Escape and Ctrl-C are different keys and send one message each: Escape declines the batch
+    (`(user cancelled the question)`, byte-exact, and the turn carries on), Ctrl-C stops the turn, so
+    the calls queued behind the question in that completion never run. A screen too small to show two
+    choices is refused with its own sentence rather than painted, and a run with no interactive shell
+    gets the unavailable sentinel before anything is parsed. **Not** in this item: multi-select,
+    amendment drafts, and the approval readiness gate. Receipts:
+    [`06-qa-harness.md`](06-qa-harness.md) rows 23 and 23b on a release binary and a real terminal,
+    plus `src/tools/question.rs`, `src/tui/question.rs` and `tests/tui.rs`.
+20. Approval **readiness** commit gate — **implemented**: an affirmative is accepted only after a
+    frame that really disclosed this request's target, its three controls and its always-scope was
+    written, flushed and reconciled on the surface the question is on, and every request carries a
+    TUI-only id a stale keystroke cannot match. `Deny`, Escape and Ctrl-C stay answerable at every
+    moment, and a screen that cannot disclose the request says so where the user is looking — in the
+    document inline, on the review plane's own status line when that plane owns the terminal.
+    Receipts: [`06-qa-harness.md`](06-qa-harness.md) row 24 on a release binary and a real terminal,
+    plus `src/tui/approval_readiness.rs` and the `commit_band` cases in `src/tui/event_loop.rs`.
+20b. Approval **amendment drafts** — **implemented**: a decision may carry the user's own sentence,
+    and the sentence is **context and never authority**. Tab on `1. Yes` or `3. No` opens that
+    answer's draft (`2` — the answer that buys the rest of the session — has none, because its scope
+    is keyed by tool and target and cannot carry a condition); the two drafts are independent, each
+    with its own undo history, kill slot and bounded 4 KiB paste assembler that mints no entity; the
+    arrows and `C-p`/`C-n` end editing and move the choice while keeping both buffers; digits are
+    characters inside a draft and answers outside one; Enter sends **only** the draft belonging to
+    the answer it takes, and Escape and Ctrl-C send none at all. An allow with an amendment runs the
+    model's **original** arguments and a denial with one still writes nothing; the sentence reaches
+    the model as a user message **after** every tool result of its step. Opening, closing or growing
+    a draft revokes the readiness receipt, which the next disclosed frame re-earns, and a draft is
+    paid for out of what is left after the target, the controls and the scope. The sentence is
+    **read back in the transcript** on a `[you]` row, written at the flush that journals and sends
+    it rather than at the keystroke, so an interrupted draft is visible while it is typed and
+    afterwards appears in no transcript, no journal and no request. Receipts:
+    [`06-qa-harness.md`](06-qa-harness.md) row 25 on a release binary and a real terminal, plus
+    `src/tui/approval_amendment.rs`, `src/tui/approval.rs` and `src/agent/machine.rs`.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
-    recovery + frame retention.
-22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then
-    transcript).
+    recovery + frame retention. **The self-check half is implemented.** **Partial-write recovery is
+    implemented for the carrier's acceptance and in part against upstream** — for the two
+    repaints whose whole intended content is in hand, and for no
+    other write (the per-path table below). The primary band's was externally reviewed with no
+    MUST-FIX and independently confirmed on a real terminal's direct-launch tmux arm (2026-10-06;
+    [`06-qa-harness.md`](06-qa-harness.md)) and on herdr's interactive-shell arm, where every
+    `termios` word stayed equal; the repaint of the owned alternate plane is proven by in-crate cases,
+    `fault-injection` PTY tests and the release-binary row 3e, and was independently confirmed on
+    herdr's interactive-shell arm (2026-10-06, `7dbd1a0`: once exit 0 with the question still
+    answerable, persistent exit 1 with the edit not applied, every `termios` word equal; the tear is
+    screen-observed there, 3e carries the byte-level proof). **Frame retention
+    exists as one bounded adaptation and not as the upstream reuse.** None of this item is in a stable
+    release. An ordinary primary
+    commit reuses the adopted shadow's own cells above the top the band released *before* this
+    frame's plan ran, and tells the diff to begin there rather than at row 1
+    (`src/tui/frame.rs`'s `first_row`/`Grid::diff_from`), so those rows are excluded from the
+    **traversal** only: the preflight is unchanged and still whole, the footprint is still measured
+    from the released top, and the zero-byte `NoChange` skip is still checked against the model
+    seeded from the shadow. What makes the reuse sound is the clone itself: `plan` copies the shadow
+    and touches only the rows at or below the released top, so the rows above it are equal by
+    construction. The damaged, alternate-plane and size-mismatch guards do not mark those rows
+    unprovable — they conservatively keep the **full** traversal anyway, so the skip is never the
+    only thing standing between a frame and a wrong screen. **Source freshness is a mapping, not an
+    all-paths proof**: it comes from the document's adoption being synchronous and successful in the
+    same call, plus the refusal barrier — a `Rejected` or `ZeroProgress` document write blocks the
+    band that would have followed it. On the ordinary primary document-before-band path the tests
+    cover, that is what keeps a stale prefix from becoming a later frame's base; no wider claim is
+    made for the paths they do not reach. That
+    is now regression-proved rather than argued, by in-module cases that feed **only the bytes the
+    scripted test sink accepted** — an in-memory `TakenScreen`, with no kernel, pty or real terminal
+    anywhere in it — into an independent ASCII decoder: a landed `SOURCE-A`, a same-row `-B` whose
+    refusal blocks the following band, a retry that yields `SOURCE-A-B` exactly once, and
+    footer-only and idle frames that preserve it (`src/tui/event_loop.rs`). No separate archive of
+    the original history is required for this shape: the inspected pin `580a0c5`
+    (`frame_retention.zig:35-55`, `:78-89`, `frame_builder.zig:158-168`) proposes retention out of
+    state the frame already holds. What this is **not** is upstream parity — no full retained-body
+    reuse, no claim that every path preserving source identity has been enumerated, and nothing
+    here is released. What
+    exists is a *stateless per-vector* preflight (`src/tui/check.rs`): every vector the TUI is about
+    to write is decoded into a model of the terminal seeded from what its emitter already knows,
+    compared against an intent that emitter declares **separately from the bytes**, and refused
+    **before** `write_all` rather than after it — so the bytes that are checked are byte for byte
+    the bytes that are written, which is the whole difference between a check and a report. What it
+    proves is agreement between the emitted bytes, the decoder's model and the declared intent, not
+    the terminal's own parser state. It is
+    stateless on purpose: nothing is carried between vectors, so a check that was wrong about one
+    frame cannot be wrong about the next one for the same reason. The comparison is whole rather
+    than sampled. The model is compared **as a value** — the plane, cursor visibility, the shown
+    title and the title stack, each mode as a **tri-state** that distinguishes *nothing has said*
+    from a default nobody measured, whether scrollback was erased, the queries asked and the saved
+    cursor — so a vector carrying a sequence its intent never claimed is refused for the claim it
+    did not make, rather than passing because the cells happened to agree. Cells are compared
+    against an expected grid built from the emitter's **inputs** (the rows, counts and geometry it
+    was handed) rather than from the bytes it produced or the effects they decoded to, because a
+    grid built from the output can only ever agree with it. Colour is compared through **two**
+    parsers, one per side: the expected side reads the slot the band recorded and the wire side
+    reads what the bytes really say, so a painter and a checker cannot share a misreading. A
+    document append is **replayed in emission order**, one step at a time in lockstep with the
+    decoder, and the top row is compared **before** each scroll evicts it: matching the final screen
+    is not enough, because what leaves the top of the screen is in the terminal's own scrollback
+    where nothing can repaint it. Effects are plane-tagged and the plane transition is declared, so
+    a write aimed at the primary buffer while the alternate one is up is refused rather than
+    averaged away; cells the emitter never authored are seeded as foreign tokens and swept, so
+    "unchanged" is a comparison rather than an absence of one. A refusal is an `io::Error` on the
+    path a write error already took: it adds no failure policy, no exit route and no counting rule
+    of its own. The preflight refusal is a new **source** of that error rather than a new kind of
+    it, the rejected segment is simply not emitted, and the `termios` restore and the later shutdown
+    attempts are preserved. **The transport under it is no longer unchanged**, and that is the second
+    half of this row: every byte the TUI writes while it holds the terminal now goes out
+    through one unbuffered counted sink (`src/tui/deliver.rs`) — no buffer and no flush, so there is
+    no vector a session believes it wrote that is still sitting in one. An emit adds up what the
+    kernel accepted and reports one of three things, which is what the callers above needed and
+    could not get from `write_all`: a checker **refusal** and a syscall that took **nothing** leave
+    the screen exactly as it was, so the vector is still owed and both take the frame budget that
+    was already there; a **prefix** does not, so it ends the session at once, carrying the accepted
+    count as the error's own payload. Nothing is re-offered after a prefix, nothing is adopted from
+    one, and the exit's rule has the same shape: a restore segment the terminal took in part costs
+    the cleanup segment that would have followed it, while the `termios` restore stays unconditional
+    and the first error still wins. Two consequences are named rather than buried. `EAGAIN` **after**
+    a prefix is fatal here — the retry an inherited non-blocking descriptor would otherwise allow is
+    given up deliberately, because retrying the whole vector would write that prefix twice — and a
+    syscall count larger than the slice it was offered is **refused rather than capped**, since
+    capping it would end the write and report a whole-vector success built from the one answer known
+    to be false. **Still open, and narrowed only for two repaints**: an accepted count is a kernel
+    receipt and not a terminal's acknowledgement, so what a terminal made of an incomplete vector is
+    still not knowable here. A `Partial` on a repaint whose whole intended content is in hand now
+    drives a recovery in the same call: the one fixed cleanup vector — an exact `CAN`+`BEL`, an OSC 8
+    close, an SGR reset, sync mode off, autowrap off and cursor shown, carrying no `?1049`, so it
+    lands on the buffer the tear did (`src/tui/check.rs`'s
+    `the_recovery_cleanup_takes_and_gives_back_no_plane`) — then the same repaint rebuilt whole from
+    the rows, geometry and caret the torn attempt was built from: one attempt, and a failure in that
+    cleanup or rebuild is itself fatal, marked `partial` and naming the original tear. Both share one
+    policy (`src/tui/event_loop.rs`'s `recover_tear`): the original failure still spends the existing
+    500 ms frame budget, a tear found with the budget already spent ends the session on its own error
+    with no recovery attempt, a pending-recovery flag forces the next write on that plane to be a real
+    one (neither a `NoChange` frame nor an empty alternate repaint can clear it), and there is no
+    readiness signal on the tick the recovery lands on — readiness comes back only from that forced,
+    verified write. Every other `Partial` is contained and ends the session with the diagnostic
+    below: its bytes are never replayed and nothing re-establishes a frame from a prefix. Path by
+    path:
+
+    | Write | On a `Partial` | Why |
+    |---|---|---|
+    | The primary band's frame (`commit_band`) | recovered: the cleanup, then the band rebuilt from a shadow whose own rows are erased (`Band::recover_primary`) | the band's rows are its own and the whole frame is in hand; nothing it writes enters native scrollback |
+    | A repaint of the alternate plane the session already owns (`paint_alternate`'s already-there arm) | recovered: the cleanup, then the surface repainted whole with the plane's cache dropped (`Band::recover_alternate`); the next tick's repaint is forced to be a real one | no scroll, no plane transition and no native scrollback, and the surface shares its screen with nothing, so the whole of what it meant is in hand; the normal buffer the terminal saved at `1049h`, and its caret, are not touched |
+    | A plane transition: the `1049h` frame that takes the plane, the `1049l` restore that gives it back | contained, fatal | a `1049` the terminal took part of leaves which buffer it is showing — and so who owns the screen — unknown, and no rebuild is right on both |
+    | A document append or carry | contained, fatal | each scrolls, and a row already carried into native scrollback cannot be taken back; upstream gives up the same way (`vercel-labs/fx@580a0c5d src/ui/render_engine/terminal_diff.zig:632-669`, `DocumentAppendInterrupted`) |
+    | `/clear` | contained, fatal | it erases the scrollback, and nothing can give an erased scrollback back |
+    | The theme query (`CSI ? 996 n`) | contained, fatal | not a repaint: one sequence whose final byte is its last, so a prefix never completed a query, and it moves no cell — there is nothing to rebuild, and recovering it would mean asking again behind the cleanup, a replay rather than a rebuild |
+    | The retint of the visible document rows (`Band::retint_document`) | contained, fatal | the recoloured cells are in hand, but the rows they sit on can also hold what the terminal had before xfx ran, which the shadow records as nothing written — so the erase-and-rebuild the two repaints use would erase the user's own document; only a replay of the cell-addressed vector could recover it, and none is attempted |
+
+    Whether a terminal's own parser actually resynced is not established by any of this, on either
+    recovered repaint or elsewhere; offscreen native scrollback is never retinted (item 23); and the
+    upstream retained-body reuse — which the bounded prefix adaptation above does not amount to —
+    remains open independently of all three. In the preview channel only,
+    and in no stable release's contract (`src/tui/event_loop.rs`'s
+    `commit_document`/`commit_frame`, `src/tui/transcript.rs`'s queue, `Shell::restore_clearing`): a
+    `Rejected` or `ZeroProgress` append or `/clear` — the kernel accepted no bytes for either —
+    remains queued for the next eligible output attempt under the existing budget, oldest first,
+    rather than being dropped. **And the rows a retained append writes are measured when it writes
+    them.** What that queue holds is the raw logical operation — the text a delta carried, and the
+    fact that a line ended — rather than the rows it makes (`src/tui/transcript.rs`'s `Op`,
+    `queue_push`, `queue_end_line`); the rows are built from the committed tail at the width the
+    screen has **at the moment of the write**, inside the one call that offers them
+    (`Transcript::emit_front`), and the candidate tail and row count are adopted after a **complete**
+    emit or for a logical operation that writes no bytes at all (an end of line the screen already
+    has); a width change re-measures the already-committed open tail by the **existing** behavior
+    above. So a `Rejected` or a `ZeroProgress` leaves that state exactly as it was and the next
+    attempt re-wraps the same text for the screen it really lands on. What the change reaches is
+    **queued operations the terminal has not accepted**, and nothing else: the rendered-tail resize
+    assumption above is unchanged and no completed line is replayed out of native history. The red case
+    was deterministic and in-module: a 90-character line queued at 80 columns, refused with zero
+    progress, the screen narrowed to 40 before the retry — the retry's rows were clipped to the new
+    width and the middle forty columns (`B`×40) were absent from the session for good, since this
+    phase repaints no document row. It now lands as three rows, each exactly once and in the line's
+    own order, with cases beside it for the no-resize control, the widening direction, a first frame
+    that resizes before anything has been written, a write that already landed not being offered
+    again, ordering against what was queued since, blank lines and paragraphs, CRLFs split across
+    pushes at every offset, and a line ended while its text is still queued. **None of that is
+    published either**, and none of it widens the boundaries above: no fixed-point layout
+    convergence, no parser recovery, no upstream retained-body reuse, and partial-write recovery
+    stays out of this row's scope — the table above names the two repaints it reaches (the primary
+    band and the owned alternate plane), and every other `Partial`, including any this row's own
+    resize handling could hit, is still dropped with no state adopted from it. What has no
+    release-binary scenario is this exact schedule: a zero-progress refusal, then a resize, then the
+    retry. The containment row 3c below is a release-binary scenario and stays one. The
+    zero-progress refusal → resize → retry schedule is covered by in-crate tests in
+    `src/tui/transcript.rs` and `src/tui/event_loop.rs`, not by a standalone CLI PTY scenario.
+    The cost is **gated rather than
+    assumed**, because a check that cost a frame would be paid for by the screen it protects:
+    `scripts/check-tui-preflight-cost.sh` runs the two timing cases serially on a **release** build,
+    in the default and the `fault-injection` configuration, against an unchanged 8 ms / 32 ms
+    allowance, and CI runs that script as a step of its own — the ordinary parallel suite carries no
+    wall-clock assertion, since what it would measure is contention. Receipts: `src/tui/check.rs`'s
+    own cases, plus the tamper cases in `src/tui/frame.rs` and `src/tui/term.rs`, where a **real**
+    emitter's bytes are altered at a `#[cfg(test)]` seam and the refusal is observed **before** a
+    fake writer sees them — a seam that exists for in-crate tests only and is in no binary, which is
+    also why the release-binary harness cannot drive it. The **containment** half has a
+    release-binary scenario — [`06-qa-harness.md`](06-qa-harness.md) row 3c, where a
+    `fault-injection` build's sink puts a real prefix of a real frame on a real pseudoterminal; a
+    cleanup-refusal fixture now makes that row's own cleanup segment fail too, so the session ends
+    fatally rather than restoring cleanly, against a positive control that renders the same
+    scenario's marker with nothing injected. A second row, 3d ("partial-frame-once"), tracks the
+    recovery path instead: it asserts the raw prefix bytes, the exact `CAN`+`BEL`/OSC 8/SGR/sync/
+    autowrap/cursor cleanup and its ordering, and the post-cleanup Grid, input, request, response,
+    exit and `termios`. Row 3d's Grid is only sampled **after** cleanup runs, so it proves what this
+    product does about a prefix's cleanup and rebuild, not that the terminal's own parser actually
+    resynced from the partial write — that remains unestablished by either row. A third row, 3e
+    (`3e-alternate-repaint-recovery`), drives the same pair on the other recoverable repaint: a
+    question about a change too big for the band is up on the plane it took, one step of its walk
+    is torn (`partial-alternate-once` / `partial-alternate`, armed on that repaint and never on a
+    `1049h` or `1049l`), and the row asserts the prefix, the cleanup, a rebuild that opens with
+    exactly the bytes the terminal took, the repaint the next tick owed, the answer still taken and
+    `termios` exact — or, with the cleanup refused too, an exit of 1, no cleanup on the wire, the
+    reported count equal to the prefix on the wire, and a `partial` report; its grids are rebuilt
+    with the prefix and the cleanup cut out of the stream, so they make no parser-resync claim
+    either. Recovery itself is no longer bare specification: the primary-band implementation is
+    independently confirmed on the direct-launch tmux arm and on herdr, the alternate-plane one on
+    herdr. That meets the Phase 3 carrier's acceptance for this row (P3-COMMIT); against upstream the
+    item stays in part — every other `Partial` is contained and fatal for the reason the per-path
+    table gives, and retention is the bounded prefix adaptation, not the retained-body reuse.
+    **Diagnostic record, beside both halves above and neither of them:** the road a session left
+    by -- `Partial` or an exhausted `Rejected`/`ZeroProgress`, as `event_loop::disposed` marks it,
+    or `Partial` as `event_loop::recover_tear` marks a recoverable repaint whose recovery failed or
+    was never tried (`src/tui/event_loop.rs`) -- is written, after the restoration attempt in `session`
+    (`src/tui/mod.rs:189-226`; `term::shutdown` can itself return `Err`), to
+    `<profile_dir>/last-tui-error.json`: a fixed four-key, ≤1 KiB record (`schema`, `reason`,
+    `error_kind`, `errno`) that never carries the original error's own text, so a `Partial`
+    wrapping a private `Prefix` (`src/tui/deliver.rs`) cannot leak a prompt or an amendment sentence
+    through it. Separately, `errno` is `null` there because the `io::Error` wrapping that `Prefix`
+    has no raw OS errno of its own (`raw_os_error()` returns `None` on that wrapper) -- not as a
+    privacy choice (`src/tui/diagnostic.rs`). The write is staged (`create_new` + rename) and
+    owner-only through `profile::write_document` (`0600`;
+    `src/provider/profile.rs:150-154,391-421`), replaces a symlink at the destination rather than
+    following it, and is last-writer-wins on one fixed name; the profile directory itself is only
+    existence-checked before that (`create_private_dir`, `src/provider/profile.rs:299-317`), so a
+    race on the directory, unlike the file, is not defended against. No `profile_dir` writes nothing
+    and invents no path; an error nothing here marked is left alone and never overwrites an existing
+    report; a write failure is a best-effort stderr line and never replaces the session's own result.
+    In the preview channel only: proven by `diagnostic.rs`'s own cases and by native,
+    `fault-injection`-gated PTY tests in `tests/tui.rs`
+    (`a_terminal_that_takes_half_a_frame_ends_the_session_and_is_given_back_exactly`,
+    `a_torn_repaint_of_the_question_whose_cleanup_is_refused_ends_the_session_reported_as_partial`,
+    `a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted`,
+    `a_failure_after_raw_mode_still_gives_the_terminal_back`) plus one unconditional positive control
+    (`an_ordinary_exit_leaves_no_independent_diagnostic_behind`) -- in-crate/native evidence, not a
+    row in [`06-qa-harness.md`](06-qa-harness.md)'s tracked table, so that suite's green is not
+    evidence for this path (the 2026-10-06 independent run in that document observed it on release
+    binaries). **It records which road a session left by; it is not recovery** --
+    parser resync remains exactly as open as stated above, and partial-write recovery is open
+    everywhere except the two repaints in the table above.
+22. Layout convergence: on a known-undamaged band, a carry restores `document_bottom < band_top` and
+    an append re-anchors it to `band_top - 1` (`src/tui/frame.rs:1278-1403,1594`); a damaged band's
+    carry is a no-op, so this is not a universal postcondition, only the successful-carry path
+    (`src/tui/layout.rs:17-26`).
+    **Validated, preview channel only**: [`06-qa-harness.md`](06-qa-harness.md) row 26
+    drives a release binary through three ordered document lines, a paste-grown and undone draft, and
+    a separate turn's real inline approval panel/deny/finish, and proves unique ordered markers survive
+    across combined screen+scrollback plus a timed idle silence at the end (35 checks); row 26b holds
+    an edit turn's reply so a ten-row draft is provably standing before the panel opens over it, then
+    proves the composer really yields rows to that panel and gets them back on deny (27 checks). The
+    exact-same-instant idle replay after every transition -- zero bytes, unchanged geometry -- is a
+    separate, in-crate proof (`src/tui/event_loop.rs`'s
+    `document_and_band_transitions_settle_without_reemitting_document_rows`), not something either PTY
+    row asserts; an independent unit review found no blocker there. Together this is local validation
+    that supported surfaces stabilize consistently -- it is not a claim of exact parity with upstream's
+    position or algorithm, and it does not cover every geometry. The shipped painter's performance is
+    tracked separately as P3-WRAP and is not part of this item's acceptance: row-reuse work
+    committed at `e94b933` measured the full-painter run at 250→251 frames with a p95 of
+    16.92 ms and a max of 17.25 ms at 300x200, and a max of 0.79 ms at 80x24, with `desiredScript`
+    kept and no forced repaint or real-IO guarantee -- an improvement on the prior release figures,
+    but not itself a released or accepted measurement.
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.
+    **Meets the carrier's acceptance (P3-THEME); partial against upstream, preview channel only**: mode 2031 enable/restore is paired in both tmux and native
+    launch, and the launch probe itself sequences OSC 11 → `?996n` → CPR. A SIGCONT arms an
+    outbound `?996n` query, delivered on a checked counted paint tick even under alt-screen or
+    blind; the `997;1`/`997;2` reply is decoded before focus and consumed on input, with
+    `ZeroProgress`/`Rejected` retained and `Partial` fatal. An explicit `XFX_THEME` lock is still
+    honored (Depth unchanged), and repaint bands follow notifications. Transcript re-tint is split:
+    role-tagged plain tail/queue rows materialize using the current palette at emission --
+    Body `255`/`235`, Notice `250`/`241`, with echo rows rendered Plain -- and are
+    implemented. Known visible document rows are repainted without scrolling; this work waits only while
+    the plane or shadow is unsuitable: a zero-progress or refused retint there retains existing retint debt, no shadow
+    adoption; a `Partial` retint is fatal; and `resume`/`clear`/resize invalidate any stale ownership
+    rather than carrying it forward. One visible-retint debt remains pending while deferred, and
+    ordinary band work continues -- there is no separate debt on the tail/queue rows. The pacer's
+    pending-buffer patch is intentionally not applied: the raw queue stays plain, and pending
+    Body/Notice rows materialize the current palette at actual emission, satisfying pending-text
+    behavior without any in-place patch or offset mutation. Offscreen native scrollback is never
+    retinted.
 
 **Deferred, explicitly** (upstream has them as defense or breadth, and a port earns them later):
 full-transcript / subagent-manager / terminal-session alt screens and the owner-handoff transitions;
-catalog alt screens; mouse beyond wheel; the full kitty CSI-u matrix; skill `$` tokens and image
+catalog alt screens; mouse beyond wheel; the meta-prefixed key report and the legacy Alt letters
+(`ESC ESC [ ...`, `ESC b`/`f`/`d`, `ESC BS`; `escape_parser.zig` at `c1db919`, :528-554 -- the CSI-u
+matrix itself is promoted, item 17); skill `$` tokens and image
 tokens/badges; subagent input routing; compact command menus; the model 3-stage picker; queued-prompt
 banner cards; tmux `clear-history` and the Apple Terminal RIS path; record tape / ui_observer; WASM.
 

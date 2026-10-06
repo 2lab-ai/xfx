@@ -12,7 +12,7 @@ and a session log you can resume.
 It is **a behavioral port of the load-bearing loop, not a reimplementation of the
 whole product.** Upstream `fx` is far larger: it has MCP, skills, subagents, an
 ACP server, OAuth logins, an updater, and 26 tools. xfx has two backends behind
-one provider boundary, eight tools, seven named commands plus the shell a bare
+one provider boundary, nine tools, seven named commands plus the shell a bare
 `xfx` opens, seven slash commands in that shell, and an opt-in full-screen TUI
 that is narrower than upstream's. Everything absent is absent *from the binary*
 -- not hidden behind a flag, not stubbed to return success. The row-by-row

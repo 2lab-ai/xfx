@@ -337,35 +337,41 @@ fn last_frame(text: &str) -> Option<&str> {
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
 /// an integration test, and a test that read the constant it is checking would
 /// pass for any sequence the module happened to declare.
-const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
+const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
-const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
+const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
 /// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`).
-const RESTORE: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE: &str =
+    "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
-const RESTORE_TMUX: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE_TMUX: &str =
+    "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
 /// `1049l` defensively (`app_lifecycle.zig:36-38`).
 ///
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
-const ABNORMAL_RESTORE: &str =
-    "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const ABNORMAL_RESTORE: &str = "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
+                               \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
 /// A route that is not the TUI's must emit none of them: an invocation that
 /// merely *looked* like the classic path while having already stamped the
 /// terminal would be the regression these negatives exist to catch.
-const TUI_BYTES: [&str; 6] = [
+const TUI_BYTES: [&str; 7] = [
     "\u{1b}[>4;2m",
     "\u{1b}[>1u",
     "\u{1b}[?2004h",
     "\u{1b}[?7l",
+    // The theme-change subscription: a route that is not the TUI's subscribes
+    // to nothing, and a terminal left reporting background changes to a
+    // line-oriented shell types them onto the user's prompt.
+    "\u{1b}[?2031h",
     // The title stack push, and the window title itself: the line-oriented
     // shell borrows no title and sets none, so a route that is not the TUI's
     // must leave the terminal's own title alone.
@@ -1365,6 +1371,355 @@ fn the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palet
     );
 }
 
+/// P3-THEME (`.prd/tui-phase3/ssot.md:43`) -- the band's palette tracks the
+/// terminal's live background for the whole life of the session, not only
+/// its start: a `CSI ?997;2n` notification -- upstream's spelling for "the
+/// background just went light" (`.prd/research/tui-core.md:47`) -- repaints
+/// the band in the light palette, and does it without disturbing whatever
+/// the composer already holds.
+///
+/// The keystroke typed right behind the notification is not this case's
+/// subject; it is what keeps the RED an assertion on colour rather than a
+/// timeout. The notification and that keystroke are two separate writes and
+/// may land in two separate frames, so what is waited for is a *completed*
+/// frame that carries the keystroke's marker -- a mid-frame snapshot would
+/// race the paint, and the last `FRAME_BEGIN` on the stream is not
+/// necessarily paired with the last `FRAME_END` if a further frame is still
+/// open. What is asserted on is the accumulated output after the dark
+/// start-up frame, because the light paint and the marker are not required
+/// to share one frame with each other.
+#[test]
+fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut command = tui(&sandbox);
+    // Unlocked: neither the env override nor `COLORFGBG` decides the startup
+    // palette, so the only source left is the terminal's own answer to the
+    // background query -- the same source a live monitor re-reads.
+    command.env_remove("XFX_THEME");
+    command.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+
+    session.wait_for(THEME_PROBE);
+    session.type_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    let dark_text = session.wait_for(FRAME_END);
+    assert!(
+        dark_text.contains("\u{1b}[38;5;240m") && dark_text.contains("\u{1b}[38;5;255m"),
+        "a black answer did not start the band in the dark palette: {dark_text:?}"
+    );
+
+    let marker = "P3THEME-DRAFT-7F2C1D";
+    session.type_bytes(b"\x1b[?997;2n");
+    session.type_bytes(marker.as_bytes());
+
+    // A *completed* frame carrying the marker, paired begin-to-end in stream
+    // order (`zip`, not the independent last of each list) so an open frame
+    // still being painted cannot be mistaken for one that finished.
+    let after = session.wait_until(
+        &format!("a completed synchronized frame carrying {marker:?}"),
+        |text| {
+            let begins = text.match_indices(FRAME_BEGIN).map(|(i, _)| i);
+            let ends = text.match_indices(FRAME_END).map(|(i, _)| i);
+            begins
+                .zip(ends)
+                .any(|(begin, end)| text[begin..end + FRAME_END.len()].contains(marker))
+        },
+    );
+
+    // Everything after the dark start-up frame: the light paint and the
+    // marker are each other's proof of a live, working notification, not
+    // proof of landing in the same frame as one another.
+    let dark_frame_end = after.find(FRAME_END).expect("the dark start-up frame") + FRAME_END.len();
+    let post_baseline = &after[dark_frame_end..];
+    assert!(
+        post_baseline.contains(marker),
+        "the draft never reached the composer: {post_baseline:?}"
+    );
+    assert!(
+        !post_baseline.contains("\x1b[?997;2n"),
+        "the notification leaked into the visible output instead of being consumed: {post_baseline:?}"
+    );
+    assert!(
+        post_baseline.contains("\u{1b}[38;5;250m") && post_baseline.contains("\u{1b}[38;5;235m"),
+        "the light notification did not repaint the band in the light palette: {post_baseline:?}"
+    );
+
+    // `C-u` before `C-d`: the composer holds the draft this case typed into
+    // it, and `C-d` on a non-empty draft is not the tested exit gesture
+    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+    // first). The kill takes the line the caret is on.
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+/// The mode query a session asks outright (`DSR ? 996 n`).
+///
+/// Response-only in the same sense as [`THEME_PROBE`]: xfx writes it and this
+/// suite never types it.
+const MODE_PROBE: &str = "\u{1b}[?996n";
+
+/// An unlocked session started on a terminal that answered *black*.
+///
+/// The three ways a palette can be decided reduced to one: no `XFX_THEME`, no
+/// `COLORFGBG`, a pinned depth, and the terminal's own answer. What comes back
+/// is the session, the text of its start-up frame, and the attributes that
+/// frame used -- which is the only comparison this suite can make about colour
+/// (see [`sgr_runs`]).
+fn started_dark(pty: &Pty, sandbox: &Sandbox) -> (Session, String, Vec<String>) {
+    let mut command = tui(sandbox);
+    command.env_remove("XFX_THEME");
+    command.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut command);
+    let session = Session::spawn_without_taking_the_terminal(pty, command);
+    session.wait_for(THEME_PROBE);
+    session.type_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    let text = session.wait_for(FRAME_END);
+    let runs = sgr_runs(&text);
+    assert!(
+        !runs.is_empty(),
+        "the start-up frame painted no colour at all, so nothing below can \
+         fail for the reason it claims: {text:?}"
+    );
+    (session, text, runs)
+}
+
+/// Everything the session wrote after its dark start-up frame.
+///
+/// Anchored on the **first** frame end rather than on a byte offset taken from
+/// an earlier snapshot: the capture grows while the child runs, and a length
+/// carried across reads is an index into a string that has since changed.
+fn after_the_first_frame(text: &str) -> &str {
+    let end = text.find(FRAME_END).expect("the start-up frame") + FRAME_END.len();
+    &text[end..]
+}
+
+#[test]
+fn a_theme_notification_repaints_the_band_with_no_keystroke_behind_it() {
+    // The live half of P3-THEME with nothing else in it. The case above types a
+    // marker behind the notification, which is what keeps *its* failure an
+    // assertion rather than a timeout -- and leaves open the reading that the
+    // repaint was the keystroke's. Here nothing is typed at all: the only thing
+    // that reaches the session is eight bytes the terminal volunteered, and the
+    // band has to come back in attributes it was not using before.
+    //
+    // What is compared is the *set of attributes*, not the greys themselves:
+    // what the two palettes are belongs to `src/tui/theme.rs`, which an
+    // integration test cannot see, and a needle spelling a grey would pass for
+    // whatever that module happened to declare.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let (mut session, _dark_text, dark_runs) = started_dark(&pty, &sandbox);
+
+    session.type_bytes(b"\x1b[?997;2n");
+    let after = session.wait_until(
+        "a frame painted in an attribute the dark start-up frame never used",
+        |text| {
+            sgr_runs(after_the_first_frame(text))
+                .iter()
+                .any(|run| !dark_runs.contains(run))
+        },
+    );
+    let light_runs: Vec<String> = sgr_runs(after_the_first_frame(&after))
+        .into_iter()
+        .filter(|run| !dark_runs.contains(run))
+        .collect();
+    assert!(
+        !light_runs.is_empty(),
+        "the wait was satisfied by something other than a new attribute"
+    );
+
+    // And back, because a session that could only ever go one way is not
+    // following the terminal -- it is reacting once. The tail is read from the
+    // frame that *ends* the stream so far, so what is asserted is the band as
+    // it stands rather than every attribute the session has ever written.
+    session.type_bytes(b"\x1b[?997;1n");
+    let back = session.wait_until("the band back in the dark attributes", |text| {
+        last_frame(text).is_some_and(|frame| {
+            let runs = sgr_runs(frame);
+            !runs.is_empty()
+                && runs.iter().all(|run| dark_runs.contains(run))
+                && light_runs.iter().all(|light| !runs.contains(light))
+        })
+    });
+    assert!(
+        !back.contains("\u{1b}[?997;"),
+        "a notification reached the screen instead of being consumed: {back:?}"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+#[test]
+fn a_palette_the_user_named_is_not_overruled_by_the_terminal() {
+    // `XFX_THEME` outranks the terminal's answer at launch
+    // (`the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette`),
+    // and a session that then followed the terminal's *notifications* would be
+    // honouring the variable for exactly as long as nobody switched their
+    // system theme.
+    //
+    // The keystroke behind the notification is what makes the failure an
+    // assertion rather than a timeout: something has to reach the screen for
+    // "and it was not a repaint" to be checkable at all.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui(&sandbox);
+    command.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    let dark_runs = sgr_runs(&session.wait_for(FRAME_END));
+    assert!(
+        !dark_runs.is_empty(),
+        "the start-up frame painted no colour"
+    );
+
+    let marker = "P3THEME-LOCKED-4B19E0";
+    session.type_bytes(b"\x1b[?997;2n");
+    session.type_bytes(marker.as_bytes());
+    let after = session.wait_until(
+        &format!("a completed synchronized frame carrying {marker:?}"),
+        |text| {
+            let begins = text.match_indices(FRAME_BEGIN).map(|(index, _)| index);
+            let ends = text.match_indices(FRAME_END).map(|(index, _)| index);
+            begins
+                .zip(ends)
+                .any(|(begin, end)| text[begin..end + FRAME_END.len()].contains(marker))
+        },
+    );
+
+    let tail = after_the_first_frame(&after);
+    assert!(
+        sgr_runs(tail).iter().all(|run| dark_runs.contains(run)),
+        "a locked session repainted in attributes its own palette does not \
+         have: {tail:?}"
+    );
+    // And the report was still *consumed*: a locked palette is a reason to
+    // ignore what a notification says, not a reason to type it into the draft.
+    assert!(
+        !tail.contains("997"),
+        "the notification reached the composer: {tail:?}"
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn the_launch_asks_for_the_background_then_the_mode_and_the_cursor_report_fences_both() {
+    // One read answers every question a launch asks, and that only works if the
+    // cursor report is written **last**: a terminal answers in the order it
+    // parsed, so a reply arriving with the cursor report already past it is a
+    // reply that is not coming. A mode query written behind the fence would
+    // cost the whole deadline on every terminal that has no `?996n`.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui(&sandbox);
+    command.env_remove("XFX_THEME");
+    command.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+
+    let asked = session.wait_for(PROBE);
+    let background = asked.find(THEME_PROBE).expect("the background query");
+    let mode = asked.find(MODE_PROBE).expect("the theme-mode query");
+    let cursor = asked.find(PROBE).expect("the cursor report");
+    assert!(
+        background < mode && mode < cursor,
+        "the launch asked its questions in an order the fence does not have: \
+         {asked:?}"
+    );
+
+    session.type_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The other half of the same conditional: a session whose palette the user
+    // decided asks neither question. Read after the child was reaped, because
+    // this is a claim about bytes that were never written.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut decided = tui(&sandbox);
+    decided.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut decided);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, decided);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert!(
+        !settled.contains(MODE_PROBE),
+        "a decided session asked the terminal which way round it is: {settled:?}"
+    );
+}
+
+#[test]
+fn a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_paints_in() {
+    // The mode query is written during the launch probe, so its answer arrives
+    // in the same read as the cursor report -- through a machine that is
+    // looking for a `CSI r ; c R` and knows nothing about theme reports. Those
+    // bytes are handed back rather than eaten (`src/tui/probe.rs`), and the
+    // session's own decoder is what turns them into a palette. A probe that
+    // swallowed them would start every terminal that has `?996n` and no
+    // `OSC 11` in the wrong greys.
+    //
+    // Both terminals answer the background query with nothing at all, so the
+    // *only* difference between them is the notification.
+    let sandbox = Sandbox::new();
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut told = tui(&sandbox);
+    told.env_remove("XFX_THEME");
+    told.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut told);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, told);
+    session.wait_for(MODE_PROBE);
+    session.type_bytes(b"\x1b[?997;2n");
+    session.type_bytes(b"\x1b[2;1R");
+    let answered = sgr_runs(&session.wait_for(FRAME_END));
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut silent = tui(&sandbox);
+    silent.env_remove("XFX_THEME");
+    silent.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut silent);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, silent);
+    session.wait_for(MODE_PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    let unanswered = sgr_runs(&session.wait_for(FRAME_END));
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert!(
+        !unanswered.is_empty(),
+        "the start-up frame painted no colour at all"
+    );
+    assert_ne!(
+        answered, unanswered,
+        "a notification the probe read during the launch changed nothing"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // the band
 // ---------------------------------------------------------------------------
@@ -1573,6 +1928,240 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
     // move is part of clearing it rather than decoration.
     session.type_bytes(&[0x05, 0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn edit_history_undo_and_yank_on_a_real_terminal() {
+    // Ladder item 18 driven through a real terminal rather than through the
+    // shell's own funnel: the keys are the bytes a terminal really sends
+    // (`C-w` `0x17`, `C-y` `0x19`, `C-_` `0x1f`), and the judge is the grid
+    // emulator rather than the wire, because a frame is a difference and the
+    // row it changed is never on the wire in one piece.
+    //
+    // **Redo is driven here too**, in both of its pinned spellings. It has no
+    // control byte -- `shortcuts.zig`'s table has no arm for one -- so what a
+    // session receives for Super+Shift+Z is a CSI sequence, and a sequence is
+    // bytes: writing `ESC[122;10u` and `ESC[27;10;122~` into this pty is
+    // exactly what a terminal that speaks either protocol would write
+    // (`runtime.zig:3018,3025`). What that does **not** prove is that a
+    // particular terminal emits them for that chord, which is a claim about
+    // terminals rather than about xfx and is not made here.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+    session.type_bytes(b"one two");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> one two"
+    });
+
+    // C-w: the word goes, and it goes into the kill slot. `row_text` trims the
+    // blanks at the end of a row, so the draft's own trailing space is not part
+    // of what the grid reports.
+    session.type_bytes(&[0x17]);
+    session.wait_until("the word delete to take the last word", |text| {
+        composer(text) == "> one"
+    });
+
+    // C-y: it comes back at the caret, and the frame that painted it leaves the
+    // caret at the end of what was yanked -- column 3 for the marker plus seven
+    // characters of draft.
+    session.type_bytes(&[0x19]);
+    session.wait_until("the yank to put the killed word back", |text| {
+        composer(text) == "> one two"
+            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;10H"))
+    });
+
+    // C-_: the undo takes back the **yank**, not the kill. The caret goes back
+    // with the text -- column 7 is the marker plus `one `, which is where the
+    // yank started.
+    session.type_bytes(&[0x1f]);
+    session.wait_until("the undo to take back the yank", |text| {
+        composer(text) == "> one"
+            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;7H"))
+    });
+
+    // Each redo encoding is proved on its own round trip: redo, assert the text
+    // **and** the caret, then undo again so that the next spelling starts from
+    // the same state rather than riding on the first one's work.
+    for spelling in [&b"\x1b[122;10u"[..], &b"\x1b[27;10;122~"[..]] {
+        session.type_bytes(spelling);
+        session.wait_until("the redo to put the yank back", |text| {
+            composer(text) == "> one two"
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;10H"))
+        });
+        session.type_bytes(&[0x1f]);
+        session.wait_until("the undo after the redo to take it back again", |text| {
+            composer(text) == "> one"
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;7H"))
+        });
+    }
+
+    // A near miss under the same final byte is **not** a redo, and this is
+    // where that discriminates: redo still has the yank in it, so a decoder
+    // that accepted either of these would put `two` back and the wait below
+    // would never see `one !`. `122;1` has no super bit; `122;010` is a
+    // spelling no terminal emits.
+    session.type_bytes(b"\x1b[122;1u");
+    session.type_bytes(b"\x1b[122;010u");
+
+    // A recorded edit clears redo, so the same bytes mean nothing afterwards.
+    // Proved with a keystroke behind them rather than by waiting for a screen
+    // that did not change: `!` reaches the composer, and the draft it reaches
+    // is the one the redo did not touch.
+    session.type_bytes(b"!");
+    session.wait_until("the typed character to reach the composer", |text| {
+        composer(text) == "> one !"
+    });
+    session.type_bytes(b"\x1b[122;10u");
+    session.type_bytes(b"\x1b[27;10;122~");
+    session.type_bytes(b"?");
+    session.wait_until(
+        "the keystroke after the two redo spellings to reach the composer",
+        |text| composer(text) == "> one !?",
+    );
+
+    // And the undo stack below the cleared redo is still a stack: back over the
+    // two typed characters, then over the kill.
+    session.type_bytes(&[0x1f, 0x1f, 0x1f]);
+    session.wait_until("the undo walk to reach the kill", |text| {
+        composer(text) == "> one two"
+    });
+
+    // A submit is a boundary: the draft is gone and an undo after it restores
+    // nothing and does not bring the session down.
+    session.type_bytes(&[0x0d]);
+    session.wait_until("the submit to empty the composer", |text| {
+        composer(text) == ">"
+    });
+    session.type_bytes(&[0x1f]);
+    session.type_bytes(b"\x1b[122;10u");
+    session.type_bytes(b"\x1b[27;10;122~");
+    session.type_bytes(b"z");
+    session.wait_until(
+        "the composer to hold only what was typed after it",
+        |text| composer(text) == "> z",
+    );
+    assert!(matches!(session.state(), Wait::Running));
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal() {
+    // A real terminal (WezTerm, `enable_kitty_keyboard` on) was captured
+    // sending Ctrl-C, Ctrl-D and Ctrl-U as `ESC[27;5;<code>~` rather than the
+    // bare control byte the rest of this file types -- driven through the
+    // terminal's own `SendKey` action, not a physical keypress, and logged
+    // raw in `.prd/tui-phase3/loop.md:416` (R125). Replayed here
+    // literal-for-literal against a real pty: what this proves is that the
+    // captured **encoding** decodes to the same actions the bare byte already
+    // reaches elsewhere in this file, not that any particular terminal sends
+    // this spelling for this chord, which is a claim about terminals this
+    // file does not make.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+
+    // Ctrl-U (`ESC[27;5;117~`): kill to start, the same key the bare `0x15`
+    // types in `edit_history_undo_and_yank_on_a_real_terminal`.
+    session.type_bytes(b"one two");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> one two"
+    });
+    session.type_bytes(b"\x1b[27;5;117~");
+    session.wait_until("the captured Ctrl-U to kill the line", |text| {
+        composer(text) == ">"
+    });
+
+    // Ctrl-C (`ESC[27;5;99~`) at an idle prompt: `Interrupt::Clear` throws the
+    // draft away rather than ending the session (`gesture.rs`'s idle column),
+    // the same as the bare `0x03`.
+    session.type_bytes(b"three");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> three"
+    });
+    session.type_bytes(b"\x1b[27;5;99~");
+    session.wait_until("the captured Ctrl-C to clear the idle draft", |text| {
+        composer(text) == ">"
+    });
+    assert!(
+        matches!(session.state(), Wait::Running),
+        "one idle Ctrl-C cancelled the draft, not the session"
+    );
+
+    // Ctrl-D (`ESC[27;5;100~`) on the empty composer it left: the end of the
+    // session, the same as the bare `0x04`.
+    session.type_bytes(b"\x1b[27;5;100~");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+#[test]
+fn herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal() {
+    // The bytes herdr 0.9.3 (libghostty-vt's encoder, kitty flag 1) was
+    // captured sending for Ctrl-U and Ctrl-D
+    // (`.prd/tui-phase3/receipts/2026-10-06-herdr-csi-u-keys.md`), on which the
+    // release binary did nothing at all. Replayed literal-for-literal: what
+    // this proves is what xfx makes of the encoding, not which terminal sends
+    // it.
+    //
+    // The exit half mirrors `a_normal_exit_gives_the_terminal_back_byte_for_byte`
+    // -- the same size, the same wait for a whole frame before the key, the
+    // same status and the same `termios` comparison -- so a `u`-form Ctrl-D is
+    // held to exactly what the bare `0x04` is held to.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+
+    // Ctrl-U (`ESC[117;5u`): kill to start, the same key the bare `0x15` is.
+    session.type_bytes(b"one two");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> one two"
+    });
+    session.type_bytes(b"\x1b[117;5u");
+    session.wait_until("the u-form Ctrl-U to kill the line", |text| {
+        composer(text) == ">"
+    });
+    assert!(matches!(session.state(), Wait::Running));
+
+    // Ctrl-D (`ESC[100;5u`) on the empty composer it left: the end of the
+    // session, by the same door the bare `0x04` leaves through.
+    session.type_bytes(b"\x1b[100;5u");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+    let text = session.settled_text();
+    assert!(
+        text.contains(RESTORE),
+        "the restore sequence is not on the terminal, in order: {text:?}"
+    );
+    assert!(
+        text.contains(&format!("{RESTORE}{BAND_TOP}\u{1b}[J")),
+        "the exit did not clear from the band's top row, after the restore: {text:?}"
+    );
 }
 
 #[test]
@@ -2042,16 +2631,65 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    let mut command = tui_with(&sandbox, &gateway);
+    // The row's colour is the claim this case adds, so the palette that
+    // paints it is pinned by the same two levers the theme tests above use:
+    // `XFX_THEME` decides *which* palette, `depth_of_the_test_machine`
+    // decides which of its two spellings the terminal gets. Left to the
+    // developer's own terminal, this would still be dark by default
+    // (`theme.rs`'s fallback) -- pinned outright rather than relying on
+    // that, because a light-terminal developer's `COLORFGBG` is not this
+    // suite's to depend on.
+    command.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     session.type_bytes(b"think about it\r");
 
     // Response-only **and** positional: on a 24-row screen the divider is row
     // 22, so this is the frame writing the row directly above it. A needle
     // matched anywhere on the screen would be satisfied by the word appearing
-    // in the document; this one is satisfied only by the band.
-    session.wait_for("\u{1b}[21;1H\u{2022} Thinking");
+    // in the document; this one is satisfied only by the band. Literal, not
+    // derived from `Palette::activity` itself (`src/tui/theme.rs`): `252` is
+    // upstream's own dark index for this row
+    // (`shimmer_runtime.zig:262-291`'s `permission_auto_style`,
+    // `render.zig:55,86,105`) -- a check that asked the accessor what it
+    // expects would pass for whatever the module happened to declare.
+    //
+    // Waited for as *one complete frame*, not as a raw substring on the
+    // whole buffer: `last_frame` returns `None` while the frame that carries
+    // the row is still open, and a predicate that only asked for the row's
+    // own needle could still be satisfied by an incomplete paint the rule's
+    // half hasn't reached yet. The two needles below are read out of the
+    // same `last_frame` result the eventual assert uses, so "found" here
+    // means the exact frame that follows is the one both live in.
+    let activated = session.wait_until(
+        "a completed frame carrying the activity row and its rule below",
+        |text| {
+            last_frame(text).is_some_and(|frame| {
+                frame.contains("\u{1b}[21;1H\u{1b}[38;5;252m\u{2022} Thinking")
+                    && frame.contains("\u{1b}[38;5;240m\u{2500}")
+            })
+        },
+    );
+    // No leak past the row it was painted for, proven on the same frame that
+    // first painted it. `commit`'s writer is lazy about the reset -- it is
+    // not necessarily the very next byte after the row's own text, because
+    // the writer only spends a transition when the next glyph actually needs
+    // one -- so the proof is not "a reset comes before the rule's cursor
+    // move" but the stronger fact that matters: the rule's own glyphs are
+    // never drawn under the activity row's foreground. Its own literal
+    // colour (`240`, dark -- `render.zig:28`) is the last thing set before
+    // the first dash, whatever byte carried the transition there.
+    let frame = last_frame(&activated).expect("a completed frame carrying the activity row");
+    assert!(
+        frame.contains("\u{1b}[21;1H\u{1b}[38;5;252m\u{2022} Thinking"),
+        "the completed frame lost the activity row's own literal foreground: {frame:?}"
+    );
+    assert!(
+        frame.contains("\u{1b}[38;5;240m\u{2500}"),
+        "the rule below the activity row was not repainted in its own colour: {frame:?}"
+    );
     // And the clock really advances while the model is quiet, which is the
     // whole of what the row is for. Read off the **row** rather than off the
     // wire: a frame is a difference, so a second that ticked over writes the
@@ -2059,6 +2697,48 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
     session.wait_until("the activity row's clock to reach two seconds", |text| {
         Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(21).contains("2s"))
     });
+
+    session.type_bytes(&[0x03, 0x03]);
+    assert_eq!(session.wait_exit().code(), Some(130));
+}
+
+#[test]
+fn the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_terminal() {
+    // The dark index above is only half of what upstream pins: the light
+    // row is `238` (`render.zig:55,86,105`), and a role that only matched
+    // one of the two palettes would leave a light terminal reading
+    // `permission_auto_style`'s dark grey. Same fixture, same turn, same
+    // row -- only the palette lever moves.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_THEME", "light");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"think about it\r");
+
+    // Same completed-frame discipline as the dark case above: a raw
+    // substring wait is satisfiable by a frame still half-written, and the
+    // claim here is about the row as it actually stands once painted, not
+    // about whatever bytes have crossed the wire so far.
+    let activated = session.wait_until(
+        "a completed frame carrying the activity row in the light palette",
+        |text| {
+            last_frame(text).is_some_and(|frame| {
+                frame.contains("\u{1b}[21;1H\u{1b}[38;5;238m\u{2022} Thinking")
+            })
+        },
+    );
+    let frame = last_frame(&activated).expect("a completed frame carrying the activity row");
+    assert!(
+        frame.contains("\u{1b}[21;1H\u{1b}[38;5;238m\u{2022} Thinking"),
+        "the completed frame lost the activity row's own literal foreground: {frame:?}"
+    );
 
     session.type_bytes(&[0x03, 0x03]);
     assert_eq!(session.wait_exit().code(), Some(130));
@@ -3057,10 +3737,18 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // `Deny` and stopped there would leave the interrupted turn running with the
     // queued prompt behind it -- which is what this file pinned before the fix.
     //
-    // The script carries two spare replies so the *broken* build fails on an
-    // assertion rather than on an unscripted 500: with the interrupt eaten, the
-    // queued prompt runs and takes the first of them.
+    // **The interrupted turn spends no further model request**, which is why
+    // the script's own closing reply is dropped here: the refusal reaches the
+    // step's cancellation boundary (`crate::agent::machine`'s
+    // `execute_tool_calls`) and the turn ends there rather than sending the
+    // tool result and asking for one more completion. Left in place, that reply
+    // would be taken by the *next* prompt and this case would be measuring the
+    // script rather than the interrupt.
+    //
+    // The two spare replies stay so that a build which ran on regardless fails
+    // on an assertion rather than on an unscripted 500.
     let mut script = support::sandbox::edit_then_finish();
+    script.pop().expect("the closing reply");
     for _ in 0..2 {
         script.push(support::fake_gateway::Reply::Sse(
             support::fake_gateway::content_only(&["AFTER-THE-INTERRUPT"]),
@@ -3145,9 +3833,18 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
             .any(|body| body.contains("after the interrupt")),
         "the prompt typed after the interrupt was eaten as well: {asked:?}"
     );
-    // (b) again, from the other side: the interrupted turn never reached its
-    // own conclusion. Settled rather than snapshotted, because this is a claim
-    // about something that must *never* appear.
+    // (b) again, from the other side, and counted rather than described: three
+    // requests reached the provider -- the prompt, its tool continuation, and
+    // the prompt typed after the interrupt. A fourth would be the interrupted
+    // turn carrying on past the refusal to ask for one more completion, which is
+    // the break the step's cancellation boundary exists to close.
+    assert_eq!(
+        asked.len(),
+        3,
+        "the interrupted turn spent a further model request: {asked:?}"
+    );
+    // And it never reached its own conclusion. Settled rather than snapshotted,
+    // because this is a claim about something that must *never* appear.
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     let text = session.settled_text();
@@ -3238,7 +3935,17 @@ fn large_edit_then_finish(before: &str, after: &str) -> Vec<support::fake_gatewa
 /// the assertions have to be about the *same* set: a wait that stopped one row
 /// short of what is asserted is a wait that hands a half-painted screen to a
 /// `contains`.
-const PAINTED_QUESTION: [&str; 4] = [PERMISSION_TITLE, "before", "alpha line 0", "alpha line 10"];
+/// **A changed coordinate.** The deepest row was `alpha line 10` while the
+/// review plane cut the subject to two rows and the always-scope to one. It
+/// shows both whole now -- every scope `crate::permission` builds is three
+/// wrapped rows at eighty columns -- so the viewport gave rows to the
+/// disclosure and the first screenful ends earlier. How much earlier depends on
+/// how many rows the workspace path takes, and that is a property of whatever
+/// `TMPDIR` this runs under: the depth is deliberately shallow rather than
+/// exact, so this is a claim about the product and not about the sandbox. The
+/// tail of the change is still asserted; it is reached by the walk below, which
+/// is what the walk is for.
+const PAINTED_QUESTION: [&str; 4] = [PERMISSION_TITLE, "before", "alpha line 0", "alpha line 4"];
 
 /// Whether `text` holds the question, whole, on the other plane.
 ///
@@ -3351,11 +4058,23 @@ fn a_question_still_being_painted_is_not_a_painted_question() {
 }
 
 fn asked_on_the_alternate_screen(sandbox: &Sandbox, pty: &Pty) -> (FakeGateway, Session) {
+    asked_on_the_alternate_screen_with(sandbox, pty, |_| {})
+}
+
+/// [`asked_on_the_alternate_screen`], with the command handed to `adjust`
+/// before it is spawned -- which is how a fault-injection case asks the same
+/// session to fail at a point of its choosing.
+fn asked_on_the_alternate_screen_with(
+    sandbox: &Sandbox,
+    pty: &Pty,
+    adjust: impl FnOnce(&mut Command),
+) -> (FakeGateway, Session) {
     let (_path, before, after) = with_a_large_file(sandbox);
     let gateway = FakeGateway::start(large_edit_then_finish(&before, &after));
     pty.resize(24, 80);
     let mut command = tui_with(sandbox, &gateway);
     command.env("XFX_PERMISSION_MODE", "ask");
+    adjust(&mut command);
     let session = Session::spawn_without_taking_the_terminal(pty, command);
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
@@ -3413,7 +4132,10 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     // needle answered by the scrollback would be answered by a screen the user
     // is not looking at.
     let frame = last_frame(&text).expect("the wait returns on a complete frame");
-    for needle in ["before", "alpha line 0", "alpha line 10"] {
+    // The same three the wait was satisfied by, for the reason `PAINTED_QUESTION`
+    // gives: a wait that stopped short of what is asserted hands a half-painted
+    // screen to a `contains`.
+    for needle in ["before", "alpha line 0", "alpha line 4"] {
         assert!(
             frame.contains(needle),
             "{needle:?} was not shown on the screen that exists to show it: {text:?}"
@@ -3425,7 +4147,13 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     );
     // `C-n` walks the change, and the tail of the first side and the head of
     // the second are down there.
-    session.type_bytes(&[0x0e; 12]);
+    //
+    // **A changed coordinate**, for the reason `PAINTED_QUESTION` gives: the
+    // viewport gave three rows to the whole target and the whole always-scope,
+    // so the same walk covers three fewer rows of the change and needs the
+    // steps back. Sixteen puts the boundary between the two sides inside the
+    // window with a row to spare on either side of it.
+    session.type_bytes(&[0x0e; 16]);
     session.wait_for("alpha line 19");
     session.wait_for("after");
     session.wait_for("beta line 0");
@@ -3726,6 +4454,30 @@ fn a_small_change_is_still_asked_in_the_band_and_takes_no_plane() {
     assert!(
         !settled.contains(LEAVES_ALTERNATE),
         "a session that took no plane reset one anyway: {settled:?}"
+    );
+}
+
+#[test]
+fn an_ordinary_exit_leaves_no_independent_diagnostic_behind() {
+    // P3-DIAGNOSTIC's positive control, unconditional on `fault-injection`: a
+    // report exists only for a session `event_loop::disposed` marked, and a
+    // clean session never reaches `disposed` on a failing road at all. A
+    // stray file here would be indistinguishable from a real session's
+    // report a later, unrelated failure overwrote.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert!(
+        !sandbox
+            .home
+            .join(".xfx")
+            .join("last-tui-error.json")
+            .exists(),
+        "a clean exit left an independent diagnostic report behind"
     );
 }
 
@@ -4036,6 +4788,469 @@ mod faults {
     }
 
     #[test]
+    fn a_terminal_that_takes_half_a_frame_ends_the_session_and_is_given_back_exactly() {
+        // The containment row, driven at the product on a real pty. The sink
+        // takes half of the first band frame onto the terminal and then fails,
+        // which is the one failure a refusing screen cannot stand in for: the
+        // terminal really is holding a prefix of a synchronized frame, and no
+        // vector this session could write is known to fix that.
+        //
+        // What must hold is the containment and the exit. **Containment**: the
+        // frame is not offered again -- there is exactly one `?2026h` on the
+        // wire, the torn one -- and nothing else is painted after it. **Exit**:
+        // the session ends rather than spending a frame budget it could not
+        // have paid, and the `termios` comes back byte for byte, which only
+        // `tcsetattr` can do.
+        //
+        // What is deliberately **not** claimed: that the terminal's parser
+        // recovered. The restore sequence is written and the attributes are
+        // measured, and neither says what a parser holding half a frame did
+        // with the bytes that followed. That is why the diagnostic below is
+        // asserted to name an accepted count rather than a restoration.
+        //
+        // `partial-frame` also refuses the one cleanup vector a synchronous
+        // recovery attempt tries next, so this fixture stays a fatal one even
+        // though the build now knows how to recover a torn primary-band
+        // frame in general (`faults::a_torn_first_frame_recovered_once_...`,
+        // below, drives that with `partial-frame-once` instead). Recovery is
+        // never available *here* on purpose: the row this test is for is
+        // still "no vector this session could write is known to fix that".
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "partial-frame"));
+
+        let status = session.wait_exit();
+        assert!(
+            !status.success(),
+            "a terminal that took half a frame was reported as a clean session"
+        );
+
+        let text = session.settled_text();
+        assert_eq!(
+            text.matches(FRAME_BEGIN).count(),
+            1,
+            "the frame the terminal took half of was written {} times: {text:?}",
+            text.matches(FRAME_BEGIN).count()
+        );
+        assert!(
+            text.contains("accepted"),
+            "the session did not say how much the terminal took: {text:?}"
+        );
+        assert!(
+            text.contains(RESTORE),
+            "the exit did not write the restore: {text:?}"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+
+        // P3-DIAGNOSTIC: the screen this session just tore is gone, so the
+        // reason it left has to reach the operator some other way -- a file
+        // in the profile home, independent of the terminal the failure was
+        // about. Read after the exit above, the same way `text` is: a report
+        // written racing the process's own reap is not a report proven to
+        // exist.
+        let report = sandbox.home.join(".xfx").join("last-tui-error.json");
+        let body = std::fs::read_to_string(&report).unwrap_or_else(|err| {
+            panic!("a torn frame left no independent report at {report:?}: {err}")
+        });
+        assert!(
+            body.len() <= 1024,
+            "the report exceeded its byte budget: {body:?}"
+        );
+        assert!(
+            body.contains("\"schema\":1"),
+            "the report did not name its schema: {body:?}"
+        );
+        assert!(
+            body.contains("\"reason\":\"partial\""),
+            "a torn frame was not reported as partial: {body:?}"
+        );
+        assert!(
+            body.contains("\"errno\":null"),
+            "a wrapped prefix carries no raw errno of its own; this invented one: {body:?}"
+        );
+        assert!(
+            !body.contains("accepted"),
+            "the independent report leaked the terminal's own human-readable sentence: {body:?}"
+        );
+    }
+
+    #[test]
+    fn a_torn_first_frame_recovered_once_still_lets_the_session_run_and_exit_clean() {
+        // The paired row to the containment test above: the identical torn
+        // prefix, but this time a synchronous recovery attempt's own cleanup
+        // vector and rebuild both reach the real descriptor, so the session
+        // that caught the tear keeps running rather than ending on it.
+        //
+        // What is asserted is this session's own observable behaviour after
+        // the tear: a whole band back on the screen, ordinary input still
+        // taken, a clean exit, and the terminal given back exactly. What is
+        // deliberately **not** claimed is that any particular terminal's own
+        // parser recovered from the torn prefix -- the accepted-byte counting
+        // is real, but a substring match against this suite's own captured
+        // text is evidence about the bytes this session wrote, not about a
+        // parser this suite does not run.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session = Session::spawn_without_taking_the_terminal(
+            &pty,
+            faulty(&sandbox, "partial-frame-once"),
+        );
+
+        // The torn frame, the fixed cleanup that follows it, and the whole
+        // rebuilt frame behind that: two `FRAME_BEGIN`s on the wire where the
+        // fatal fixture has exactly one.
+        session.wait_for_count(FRAME_BEGIN, 2);
+        let recovered = session.wait_for(FRAME_END);
+        assert!(
+            recovered.contains(HINT),
+            "the recovered band did not carry a hint row: {recovered:?}"
+        );
+
+        // Ordinary input still works after the recovery: a keystroke is
+        // echoed into the composer the rebuilt frame left. Only the changed
+        // cell, not the whole row, since the frame right after a landed
+        // recovery diffs against a shadow the rebuild already matches.
+        session.type_bytes(b"hi");
+        session.wait_for("hi");
+
+        // Ctrl-U kills the line, Ctrl-D ends the session -- the same two keys
+        // every other live-session row in this suite exercises.
+        session.type_bytes(&[0x15, 0x04]);
+        assert_eq!(
+            session.wait_exit().code(),
+            Some(0),
+            "a session that recovered a torn frame did not exit clean"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+    }
+
+    /// `check::RECOVERY_CLEANUP`, spelled out for the reason every needle in
+    /// this suite is: a test that read the constant it is checking would pass
+    /// for whatever that module happened to declare.
+    const RECOVERY_CLEANUP: &[u8] = b"\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h";
+
+    /// Every byte the terminal has received so far, undecoded.
+    ///
+    /// Bytes rather than [`Session::text`], because these cases compare a torn
+    /// prefix with the vector it was cut from, and a prefix may end inside a
+    /// multibyte character the lenient decoding would turn into a replacement
+    /// -- which no rebuild begins with.
+    fn wire(session: &Session) -> Vec<u8> {
+        session.output.lock().expect("output lock").clone()
+    }
+
+    /// Where `needle` first occurs in `haystack` at or after `from`.
+    fn position(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+        haystack
+            .get(from..)?
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .map(|at| at + from)
+    }
+
+    /// Where `needle` last occurs in `haystack` before `before`.
+    fn last_position(haystack: &[u8], needle: &[u8], before: usize) -> Option<usize> {
+        haystack[..before]
+            .windows(needle.len())
+            .rposition(|window| window == needle)
+    }
+
+    #[test]
+    fn a_torn_repaint_of_the_question_is_recovered_and_the_question_is_still_answerable() {
+        // The alternate plane's recovery row, on a real terminal. The question
+        // is up on the plane it took; one step of the walk asks for a repaint
+        // of that plane; the sink takes half of that repaint and fails, and
+        // then the descriptor is the terminal's own again -- so the cleanup
+        // vector and the rebuild behind it really land, and the question is
+        // on the screen whole again, on the plane it was on.
+        //
+        // What is asserted is this session's own behaviour after the tear:
+        // the bytes on the wire, the plane never changing hands until the
+        // answer, a repaint after the rebuild that the next tick owed, the
+        // answer still taken, a clean exit, and the terminal given back
+        // exactly. What is **not** claimed is that any terminal's parser
+        // resynchronized on the torn prefix.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let path = sandbox.workspace.join("notes.txt");
+        // The size the helper gives the terminal, before it is measured: the
+        // comparison below is of the whole state, and the size is part of it.
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let (gateway, mut session) = asked_on_the_alternate_screen_with(&sandbox, &pty, |c| {
+            c.env("XFX_TUI_FAULT", "partial-alternate-once");
+        });
+        let asked = wire(&session).len();
+
+        // One step of the walk: the first repaint of the plane the session
+        // already owns, and the vector the fault is armed on.
+        session.type_bytes(&[0x0e]);
+        // The tear, the cleanup, the rebuild -- and then the repaint the tick
+        // behind a recovery is forced to write, which is the frame readiness
+        // comes back from. An answer typed before that one lands is refused
+        // as not ready, which is correct and a different case.
+        session.wait_until(
+            "the cleanup, the rebuild behind it and the repaint the next tick owed",
+            |text| {
+                text.find(std::str::from_utf8(RECOVERY_CLEANUP).expect("ascii"))
+                    .is_some_and(|at| text[at..].matches(FRAME_END).count() >= 2)
+            },
+        );
+        let bytes = wire(&session);
+
+        let cleanup_at = position(&bytes, RECOVERY_CLEANUP, asked)
+            .expect("the fixed cleanup vector is on the wire after the question was painted");
+        let torn_at = last_position(&bytes, FRAME_BEGIN.as_bytes(), cleanup_at)
+            .expect("the torn repaint opened a frame");
+        assert!(
+            torn_at >= asked,
+            "the vector torn was not a repaint written after the question was painted"
+        );
+        let prefix = &bytes[torn_at..cleanup_at];
+        assert!(
+            position(prefix, FRAME_END.as_bytes(), 0).is_none(),
+            "the torn repaint completed its own frame, so nothing was torn"
+        );
+        // **The same vector, whole.** The rebuild is built from the rows the
+        // torn repaint was, so it opens with exactly the bytes the terminal
+        // already took and then finishes them.
+        let rebuilt = &bytes[cleanup_at + RECOVERY_CLEANUP.len()..];
+        let rebuilt_end = position(rebuilt, FRAME_END.as_bytes(), 0)
+            .expect("the rebuild closed its frame")
+            + FRAME_END.len();
+        assert!(
+            rebuilt.starts_with(prefix) && rebuilt_end > prefix.len(),
+            "the rebuild is not the vector the tear was of"
+        );
+        let rebuild = String::from_utf8_lossy(&rebuilt[..rebuilt_end]).into_owned();
+        assert!(
+            rebuild.contains("\u{1b}[2J") && rebuild.contains(PERMISSION_TITLE),
+            "the rebuild is not a whole repaint of the question: {rebuild:?}"
+        );
+        let forced = String::from_utf8_lossy(&rebuilt[rebuilt_end..]).into_owned();
+        assert!(
+            forced.contains(FRAME_BEGIN) && forced.contains(PERMISSION_TITLE),
+            "the tick behind the recovery did not repaint the question: {forced:?}"
+        );
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "recovery took the plane again: {text:?}"
+        );
+        assert!(
+            !text.contains(LEAVES_ALTERNATE),
+            "recovery gave the plane back before the question was answered: {text:?}"
+        );
+
+        // The question is still the one being asked, and still answerable.
+        session.type_bytes(b"1");
+        session.wait_for(LEAVES_ALTERNATE);
+        session.wait_for("the edit is done");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            format!("{}\n", large_edit_sides().1),
+            "`1` did not let the edit through after the recovery"
+        );
+        session.wait_until(
+            "the band to be painted on the primary plane again",
+            |text| Screen::painted(text, 24, 80).is_some_and(|screen| screen.divider() == Some(22)),
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(
+            session.wait_exit().code(),
+            Some(0),
+            "a session that recovered a torn repaint of its question did not exit clean"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+        let settled = session.settled_text();
+        assert_eq!(
+            settled.matches(ENTERS_ALTERNATE).count(),
+            settled.matches(LEAVES_ALTERNATE).count(),
+            "the alternate screen was entered and left a different number of times"
+        );
+        assert!(
+            !sandbox
+                .home
+                .join(".xfx")
+                .join("last-tui-error.json")
+                .exists(),
+            "a session that recovered left a give-up report behind"
+        );
+        drop(gateway);
+    }
+
+    #[test]
+    fn a_torn_repaint_of_the_question_whose_cleanup_is_refused_ends_the_session_reported_as_partial(
+    ) {
+        // The containing pair of the row above: the same torn repaint, and the
+        // recovery attempt's own cleanup vector refused too. Nothing this
+        // session could write is known to fix the plane now, so the session
+        // ends on it -- non-zero, with the terminal given back exactly and the
+        // independent record naming the road it left by.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let path = sandbox.workspace.join("notes.txt");
+        // The size the helper gives the terminal, before it is measured: the
+        // comparison below is of the whole state, and the size is part of it.
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let (gateway, mut session) = asked_on_the_alternate_screen_with(&sandbox, &pty, |c| {
+            c.env("XFX_TUI_FAULT", "partial-alternate");
+        });
+        let asked = wire(&session).len();
+
+        session.type_bytes(&[0x0e]);
+        let status = session.wait_exit();
+        assert!(
+            !status.success(),
+            "a torn repaint nothing could recover was reported as a clean session"
+        );
+        let text = session.settled_text();
+        let bytes = wire(&session);
+
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "the plane was taken more than once: {text:?}"
+        );
+        assert!(
+            position(&bytes, RECOVERY_CLEANUP, 0).is_none(),
+            "a cleanup the terminal refused reached the wire"
+        );
+        let torn_at = position(&bytes, FRAME_BEGIN.as_bytes(), asked)
+            .expect("the repaint that was torn opened a frame after the question was painted");
+        let left_at = position(&bytes, LEAVES_ALTERNATE.as_bytes(), torn_at)
+            .expect("the exit gave the plane back after the tear");
+        let prefix = &bytes[torn_at..left_at];
+        assert!(
+            position(prefix, FRAME_END.as_bytes(), 0).is_none(),
+            "a frame was completed after the tear: {:?}",
+            String::from_utf8_lossy(prefix)
+        );
+        assert!(
+            position(prefix, FRAME_BEGIN.as_bytes(), 1).is_none(),
+            "the torn repaint was offered again: {:?}",
+            String::from_utf8_lossy(prefix)
+        );
+        assert!(
+            text.contains(&format!("accepted {} bytes", prefix.len())),
+            "the session did not say how much of the repaint the terminal took ({} bytes on \
+             the wire): {text:?}",
+            prefix.len()
+        );
+        assert!(
+            text.contains("could not be recovered"),
+            "the session did not say a recovery was tried and failed: {text:?}"
+        );
+        assert!(
+            text[text.rfind(LEAVES_ALTERNATE).expect("the leave")..].contains(RESTORE),
+            "the exit did not write the restore after giving the plane back: {text:?}"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            format!("{}\n", large_edit_sides().0),
+            "the edit ran although the question it waited on was never answered"
+        );
+
+        let report = sandbox.home.join(".xfx").join("last-tui-error.json");
+        let body = std::fs::read_to_string(&report).unwrap_or_else(|err| {
+            panic!("a torn repaint left no independent report at {report:?}: {err}")
+        });
+        let parsed: Value =
+            serde_json::from_str(&body).unwrap_or_else(|err| panic!("not JSON: {err}: {body:?}"));
+        assert_eq!(parsed["schema"], 1, "{body:?}");
+        assert_eq!(
+            parsed["reason"], "partial",
+            "a torn repaint was not reported as partial: {body:?}"
+        );
+        assert!(
+            !body.contains("accepted"),
+            "the independent report leaked the session's own sentence: {body:?}"
+        );
+        drop(gateway);
+    }
+
+    #[test]
+    fn a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted() {
+        // The other road `disposed` (`event_loop.rs`) can end a session on:
+        // no byte ever reaches the terminal, so there is nothing to protect
+        // and nothing this session could offer that would not just be
+        // refused again -- only `FRAME_BUDGET` (500 ms) deciding it has
+        // waited long enough. The fault answers only a vector that opens a
+        // frame, so the mode-set and the restore below the loop -- neither of
+        // which does -- go out for real: this proves the report is tied to
+        // *what the error was*, not merely to the process's exit code.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "frame-refusal"));
+
+        let status = session.wait_exit();
+        assert!(
+            !status.success(),
+            "a screen that refused every frame was reported as a clean session"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+        let text = session.settled_text();
+        assert!(
+            text.contains(RESTORE),
+            "a session ended by budget exhaustion did not write the restore: {text:?}"
+        );
+
+        let report = sandbox.home.join(".xfx").join("last-tui-error.json");
+        let body = std::fs::read_to_string(&report).unwrap_or_else(|err| {
+            panic!("an exhausted session left no independent report at {report:?}: {err}")
+        });
+        assert!(
+            body.len() <= 1024,
+            "the report exceeded its byte budget: {body:?}"
+        );
+        assert!(body.contains("\"schema\":1"), "{body:?}");
+        assert!(
+            body.contains("\"reason\":\"exhausted\""),
+            "a screen that refused every frame was not reported as exhausted: {body:?}"
+        );
+        assert!(
+            body.contains(&format!("\"errno\":{}", libc::EIO)),
+            "the original errno did not reach the report: {body:?}"
+        );
+        let expected_kind = format!("{:?}", std::io::Error::from_raw_os_error(libc::EIO).kind());
+        assert!(
+            body.contains(&format!("\"error_kind\":\"{expected_kind}\"")),
+            "the original kind did not reach the report: {body:?}"
+        );
+    }
+
+    #[test]
     fn a_failure_after_raw_mode_still_gives_the_terminal_back() {
         let sandbox = Sandbox::new();
         let pty = Pty::open();
@@ -4051,6 +5266,17 @@ mod faults {
             before,
             modes(&pty),
             "a half-initialized TUI left a raw terminal"
+        );
+        // P3-DIAGNOSTIC: `disposed` never sees this failure -- it is held
+        // above `event_loop::run` entirely -- so nothing here may relabel a
+        // startup failure as a screen giving up.
+        assert!(
+            !sandbox
+                .home
+                .join(".xfx")
+                .join("last-tui-error.json")
+                .exists(),
+            "a startup failure after raw mode was reported as though a screen had refused frames"
         );
     }
 

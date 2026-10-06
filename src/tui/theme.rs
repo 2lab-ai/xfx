@@ -23,12 +23,18 @@
 //! launch's cursor report ([`super::probe`]) rather than opening a second one:
 //! see [`QUERY`] for why that is exact rather than merely cheaper.
 //!
-//! What this module is **not** is upstream's live theme monitor. Following a
-//! background that changes while xfx runs needs mode 2031 and a `DSR ?996n`
-//! (`theme_monitor.zig`), and that is Phase 3; a session here paints in the
-//! palette it started in until it ends.
+//! The palette a session **starts** in is decided that way, and it does not
+//! stay decided: a terminal whose user switches their system theme mid-session
+//! says so, and this module carries that half of the protocol too -- mode 2031
+//! asks to be told ([`super::term::MODE_SET`]), [`MODE_QUERY`] asks outright,
+//! and [`notification`] reads the answer either arrives as. What is *not* here
+//! is upstream's live RGB monitor (`theme_monitor.zig`): a notification carries
+//! a [`Mode`] and nothing else, so a session following one is following which
+//! way round the terminal is rather than re-reading its background colour.
 
 use std::time::Duration;
+
+use super::check::Color;
 
 /// The variable that fixes the palette without asking the terminal.
 ///
@@ -85,6 +91,43 @@ pub(crate) fn is_background_reply(text: &str) -> bool {
     text.starts_with(REPLY_PREFIX)
 }
 
+/// The question a running session asks: *which way round are you now?*
+///
+/// `DSR ? 996 n`, upstream's `theme_monitor.zig:288-289` pair with mode 2031:
+/// the mode asks the terminal to volunteer a [`notification`] when its
+/// background changes, and this asks for one outright. A session needs both
+/// because the mode only covers changes that happen while somebody is listening
+/// -- a process that was stopped, handed the terminal back, and resumed was not.
+///
+/// **Not written at launch by anything but [`super::probe`]**, and not written
+/// at all by a session whose palette [`ENV`] already decided: a terminal that
+/// does not implement 2031 answers neither this nor [`QUERY`], and a decided
+/// session has nothing for either answer to change.
+pub(crate) const MODE_QUERY: &str = "\u{1b}[?996n";
+
+/// What a `CSI ? 997 ; N n` says the terminal's background just became
+/// (`theme_monitor.zig:288-289`).
+///
+/// `params` is the sequence's parameter bytes **with its private-marker
+/// prefix**, exactly as the decoder framed them, and the match is on those
+/// bytes rather than on numbers they parse to. That is the same strictness
+/// [`super::input`] gives the paste markers and for the same reason: `?0997;1`
+/// and `?997;1;0` parse to the same pair and are not sequences any terminal
+/// sends, so reading them as a theme change would be inventing a report out of
+/// a stream that carried none. `None` is every one of those, and the caller
+/// answers it the way it answers any sequence it has no binding for.
+///
+/// Two values and no third: `1` is dark and `2` is light. A `?997;3` is a
+/// terminal saying something this protocol has no meaning for, and guessing at
+/// it would repaint the band on a report nobody made.
+pub(crate) fn notification(params: &[u8]) -> Option<Mode> {
+    match params {
+        b"?997;1" => Some(Mode::Dark),
+        b"?997;2" => Some(Mode::Light),
+        _ => None,
+    }
+}
+
 /// How long the terminal has to answer before the launch stops waiting
 /// (`theme_detection.zig:45`).
 ///
@@ -110,11 +153,13 @@ pub(crate) enum Depth {
 
 /// The colours the band paints its own rows in.
 ///
-/// Three roles, because three rows carry colour in this phase: the rule that
-/// separates the document from the band, the hint row at the bottom, and a
-/// refusal shown on it. The composer's own rows carry none, which is upstream's
+/// Four of the roles are the band's, because four of its rows carry colour in
+/// this phase: the rule that separates the document from the band, the hint row
+/// at the bottom, a refusal shown on it, and the activity row a running turn
+/// adds above the rule. The composer's own rows carry none, which is upstream's
 /// choice too -- `input_bar_style` is empty in both themes
-/// (`render.zig:69,88`).
+/// (`render.zig:69,88`). The fifth is the **document's**: the answer text a
+/// transcript row is made of ([`Self::body`]).
 ///
 /// Every accessor answers with a whole SGR sequence rather than with a colour
 /// number, so a painter concatenates and never formats, and
@@ -132,18 +177,36 @@ pub(crate) struct Palette {
 /// sure about.
 const RESET: &str = "\u{1b}[0m";
 
-/// The greys upstream paints these three roles in, by 256-colour index
-/// (`render.zig:28,29,34` dark and `render.zig:70,71,76` light).
+/// The greys upstream paints these four roles in, by 256-colour index
+/// (`render.zig:28,29,34` dark and `render.zig:70,71,76` light, for the
+/// first three).
 ///
 /// The third is upstream's `system_notice_text_style`, which is what a refusal
 /// on the hint row is: xfx's own words about something that did not happen.
-const DARK: [u8; 3] = [240, 255, 250];
-const LIGHT: [u8; 3] = [250, 235, 241];
+///
+/// The fourth is the activity row's. Upstream paints its thinking marker and
+/// the label/elapsed beside it in `permission_auto_style`
+/// (`shimmer_runtime.zig:262-291`), whose dark/light greys are
+/// `render.zig:55,86,105`'s `252`/`238` -- pinned here exactly, because that
+/// is the only fact upstream settles about this row's colour. What is *not*
+/// borrowed is the name: a running turn and a granted permission happen to
+/// share upstream's grey, not upstream's meaning, so this crate calls the
+/// role what it is -- an ongoing, neutral turn status -- and never
+/// `permission_auto`.
+/// The fifth is the answer text itself, which upstream paints in the same grey
+/// as the hint row (`render.zig:29` dark and `:71` light -- `255` and `235`).
+/// Spelled as a role of its own rather than read off [`HINT`], because the two
+/// are the same colour and not the same decision: a phase that retints the hint
+/// row must not silently retint every row of the document with it.
+const DARK: [u8; 5] = [240, 255, 250, 252, 255];
+const LIGHT: [u8; 5] = [250, 235, 241, 238, 235];
 
-/// Where in one of those triples each role sits.
+/// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
 const HINT: usize = 1;
 const NOTICE: usize = 2;
+const ACTIVITY: usize = 3;
+const BODY: usize = 4;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -161,9 +224,86 @@ impl Palette {
         self.paint(NOTICE)
     }
 
+    /// The row a running turn adds above the rule.
+    ///
+    /// A neutral, ongoing-turn status -- what is running, or that a decision
+    /// on it is pending -- and nothing more: not a success, an error, a
+    /// permission grant or a progress percentage. See [`DARK`]/[`LIGHT`] for
+    /// why this shares upstream's colour without sharing upstream's name for
+    /// it.
+    pub(crate) fn activity(&self) -> &'static str {
+        self.paint(ACTIVITY)
+    }
+
+    /// The answer text a document row carries.
+    ///
+    /// Not a band role: the rows this paints are the terminal's own document
+    /// ([`super::transcript`]), and they are painted at the moment they are
+    /// handed over rather than repainted with the band.
+    pub(crate) fn body(&self) -> &'static str {
+        self.paint(BODY)
+    }
+
     /// What ends a run, in either mode and at either depth.
     pub(crate) fn reset(&self) -> &'static str {
         RESET
+    }
+
+    /// What this palette repaints an **already painted** document cell in, or
+    /// `None` for a cell it has nothing to say about.
+    ///
+    /// Two of the five roles reach the document -- the answer text
+    /// ([`Self::body`]) and xfx's own lines ([`Self::notice`]) -- and a cell is
+    /// recognised by the colour it is *holding*, in **either** mode, at this
+    /// palette's own depth. Both sides map onto the mode in force rather than
+    /// old-to-new, and that is what makes a run of reports converge: a chained
+    /// pair would take a session reported dark, light and dark again back to
+    /// light, because the second report would find cells the first one never
+    /// reached.
+    ///
+    /// `None` is most of a screen, and each of its three shapes is a decision.
+    /// A colour this crate did not paint is somebody else's -- the user's own
+    /// echo carries none at all -- and is left exactly as it is. A cell already
+    /// in this palette's grey is not a cell to rewrite, which is what makes a
+    /// report that flipped and flipped back cost no bytes. And a spelling at
+    /// the other depth is not this session's painting: the depth is a property
+    /// of the terminal program and does not move under a running session
+    /// (`depth_from_env`).
+    pub(crate) fn document_retint(&self, colour: Color) -> Option<&'static str> {
+        let role = [NOTICE, BODY].into_iter().find(|&role| {
+            [Mode::Dark, Mode::Light]
+                .into_iter()
+                .any(|mode| self.shade(role, mode) == Some(colour))
+        })?;
+        if self.shade(role, self.mode) == Some(colour) {
+            return None;
+        }
+        Some(self.paint(role))
+    }
+
+    /// One role's colour in `mode`, at this palette's depth, **as a value**.
+    ///
+    /// The comparison side of [`Self::document_retint`], and it does not go
+    /// through [`Self::paint`] on purpose: what a cell holds was decoded from
+    /// the wire into a [`Color`], so a match made on the bytes this module
+    /// happens to spell a colour with would be comparing a sequence with
+    /// itself. The direct spelling is xterm's greyscale ramp -- index `i` in
+    /// `232..=255` is level `8 + (i - 232) * 10` on all three channels -- which
+    /// is the same claim [`truecolor`] makes per index, said here as
+    /// arithmetic. `None` for an index off that ramp, which is a colour this
+    /// palette could not have painted at this depth.
+    fn shade(&self, role: usize, mode: Mode) -> Option<Color> {
+        let index = match mode {
+            Mode::Dark => DARK[role],
+            Mode::Light => LIGHT[role],
+        };
+        match self.depth {
+            Depth::Ansi256 => Some(Color::Indexed(index)),
+            Depth::TrueColor => {
+                let level = index.checked_sub(232)?.checked_mul(10)?.checked_add(8)?;
+                Some(Color::Rgb(level, level, level))
+            }
+        }
     }
 
     /// One role's sequence.
@@ -193,9 +333,11 @@ impl Palette {
 fn ansi256(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;5;235m",
+        238 => "\u{1b}[38;5;238m",
         240 => "\u{1b}[38;5;240m",
         241 => "\u{1b}[38;5;241m",
         250 => "\u{1b}[38;5;250m",
+        252 => "\u{1b}[38;5;252m",
         255 => "\u{1b}[38;5;255m",
         // Unreachable from `paint`, whose only inputs are the two tables above.
         // A grey a future palette adds and forgets to spell here reads as no
@@ -221,9 +363,11 @@ fn ansi256(index: u8) -> &'static str {
 fn truecolor(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;2;38;38;38m",
+        238 => "\u{1b}[38;2;68;68;68m",
         240 => "\u{1b}[38;2;88;88;88m",
         241 => "\u{1b}[38;2;98;98;98m",
         250 => "\u{1b}[38;2;188;188;188m",
+        252 => "\u{1b}[38;2;208;208;208m",
         255 => "\u{1b}[38;2;238;238;238m",
         _ => "",
     }
@@ -450,6 +594,7 @@ mod tests {
             "the two palettes paint identically"
         );
         assert_ne!(dark.divider(), light.divider());
+        assert_ne!(dark.activity(), light.activity());
     }
 
     #[test]
@@ -466,9 +611,17 @@ mod tests {
             (Mode::Dark, DIVIDER, 240u32, 88u32),
             (Mode::Dark, HINT, 255, 238),
             (Mode::Dark, NOTICE, 250, 188),
+            // `shimmer_runtime.zig:262-291` / `render.zig:55,86,105`: the
+            // activity row's literal indices, pinned rather than derived.
+            (Mode::Dark, ACTIVITY, 252, 208),
+            // `render.zig:29,71`: the answer text's own grey, which is the hint
+            // row's number under a name of its own.
+            (Mode::Dark, BODY, 255, 238),
             (Mode::Light, DIVIDER, 250, 188),
             (Mode::Light, HINT, 235, 38),
             (Mode::Light, NOTICE, 241, 98),
+            (Mode::Light, ACTIVITY, 238, 68),
+            (Mode::Light, BODY, 235, 38),
         ] {
             assert_eq!(
                 level,
@@ -505,5 +658,132 @@ mod tests {
         };
         assert_eq!(dark.divider(), "\u{1b}[38;2;88;88;88m");
         assert_eq!(light.hint(), "\u{1b}[38;2;38;38;38m");
+        // The activity row's direct-colour spelling, literal: `252` and `238`
+        // are `208` and `68` on the ramp, not a number this test asked the
+        // accessor to confirm about itself.
+        assert_eq!(dark.activity(), "\u{1b}[38;2;208;208;208m");
+        assert_eq!(light.activity(), "\u{1b}[38;2;68;68;68m");
+    }
+
+    #[test]
+    fn a_document_cell_is_retinted_from_either_mode_onto_the_one_in_force() {
+        // Both sides map onto the mode the session is in, rather than old to
+        // new: a chained pair would take a terminal reported dark, light and
+        // dark again back to *light*, because the second report would find the
+        // cells the first one never reached.
+        //
+        // The colours are literals on both sides -- what a cell holds and what
+        // it is to be repainted in -- so nothing here is an expectation this
+        // mapper computed about itself.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            light.document_retint(Color::Indexed(255)),
+            Some("\u{1b}[38;5;235m"),
+            "the dark answer grey was not taken to the light one"
+        );
+        assert_eq!(
+            light.document_retint(Color::Indexed(250)),
+            Some("\u{1b}[38;5;241m"),
+            "the dark notice grey was not taken to the light one"
+        );
+        assert_eq!(
+            light.document_retint(Color::Indexed(235)),
+            None,
+            "a cell already in the palette's own grey was rewritten"
+        );
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(
+            dark.document_retint(Color::Indexed(235)),
+            Some("\u{1b}[38;5;255m")
+        );
+        assert_eq!(
+            dark.document_retint(Color::Indexed(241)),
+            Some("\u{1b}[38;5;250m")
+        );
+        assert_eq!(dark.document_retint(Color::Indexed(255)), None);
+    }
+
+    #[test]
+    fn a_direct_colour_session_matches_and_repaints_in_the_same_notation() {
+        // The same two pairs at the other depth, spelled out: `255` and `235`
+        // are `238` and `38` on xterm's ramp, and `250` and `241` are `188` and
+        // `98`. A session that matched one notation and repainted in the other
+        // would leave every answer row holding a colour nothing recognises the
+        // next time the terminal changes.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        assert_eq!(
+            light.document_retint(Color::Rgb(238, 238, 238)),
+            Some("\u{1b}[38;2;38;38;38m")
+        );
+        assert_eq!(
+            light.document_retint(Color::Rgb(188, 188, 188)),
+            Some("\u{1b}[38;2;98;98;98m")
+        );
+        assert_eq!(light.document_retint(Color::Rgb(38, 38, 38)), None);
+        // And nothing across the two depths: an indexed cell is not one this
+        // session painted, and neither is a direct one in a 256-colour session.
+        assert_eq!(light.document_retint(Color::Indexed(255)), None);
+        assert_eq!(
+            Palette {
+                mode: Mode::Light,
+                depth: Depth::Ansi256,
+            }
+            .document_retint(Color::Rgb(238, 238, 238)),
+            None
+        );
+    }
+
+    #[test]
+    fn the_colours_this_crate_does_not_own_in_the_document_are_left_alone() {
+        // The band's own three roles are painted by the band's own frame, and
+        // the user's echo and anything the terminal was already holding are
+        // nobody's to repaint here: a retint that reached them would rewrite a
+        // shell's output in xfx's greys.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        for foreign in [
+            Color::Default,
+            Color::Indexed(240), // the divider's
+            Color::Indexed(252), // the activity row's
+            Color::Indexed(238),
+            Color::Indexed(31),
+            Color::Rgb(1, 2, 3),
+        ] {
+            assert_eq!(
+                light.document_retint(foreign),
+                None,
+                "{foreign:?} was treated as a colour this crate painted"
+            );
+        }
+    }
+
+    #[test]
+    fn the_document_body_reads_against_the_background_the_session_is_on() {
+        // What a transcript row is painted with, and the one thing about it
+        // this module decides: the two modes must not paint it the same, or a
+        // light terminal gets the dark palette's near-white answer text on
+        // white.
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.body(), "\u{1b}[38;5;255m");
+        assert_eq!(light.body(), "\u{1b}[38;5;235m");
+        assert_ne!(dark.body(), light.body());
     }
 }

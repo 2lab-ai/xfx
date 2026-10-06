@@ -29,7 +29,8 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 
 use xfx::config::PermissionMode;
-use xfx::gateway::protocol::Role;
+use xfx::gateway::protocol::{Message, Role};
+use xfx::output::SessionDetailSnapshot;
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
 use xfx::session::{
@@ -263,7 +264,7 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult { tool, .. } => Some(tool.as_str()),
-            TurnStep::Assistant { .. } => None,
+            TurnStep::Assistant { .. } | TurnStep::ToolFeedback { .. } => None,
         })
         .collect();
     assert_eq!(tools, ["read_file", "edit_file", "terminal"]);
@@ -2778,6 +2779,214 @@ fn a_record_this_version_wrote_carries_no_new_field_when_there_is_nothing_to_rep
     assert!(!log.contains("responses_state"), "{log}");
     assert!(!log.contains("\"wire\""), "{log}");
     assert!(!log.contains("raw_content"), "{log}");
+}
+
+// ---------------------------------------------------------------------------
+// an amended approval, replayed and inspected
+// ---------------------------------------------------------------------------
+
+/// A three-call step that died after the first result, with the sentence the
+/// user said about that first call.
+///
+/// What a crash mid-batch leaves behind: one answered call, two unanswered
+/// ones, no conclusion.
+fn interrupted_batch_events() -> Vec<SessionEvent> {
+    vec![
+        SessionEvent::UserMessage {
+            text: "draft three files".to_string(),
+        },
+        SessionEvent::AssistantMessage {
+            text: "drafting".to_string(),
+            tool_calls: vec![
+                RecordedToolCall {
+                    id: "c1".to_string(),
+                    name: "write_file".to_string(),
+                    input: json!({ "path": "a.md", "content": "alpha\n" }),
+                },
+                RecordedToolCall {
+                    id: "c2".to_string(),
+                    name: "write_file".to_string(),
+                    input: json!({ "path": "b.md", "content": "beta\n" }),
+                },
+                RecordedToolCall {
+                    id: "c3".to_string(),
+                    name: "write_file".to_string(),
+                    input: json!({ "path": "c.md", "content": "gamma\n" }),
+                },
+            ],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        },
+        SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "write_file".to_string(),
+            ok: true,
+            output: "Wrote a.md (6 bytes)".to_string(),
+        },
+        SessionEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "prefer bullet points".to_string(),
+        },
+    ]
+}
+
+#[test]
+fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_nor_its_sentence() {
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(&profile, &workspace, interrupted_batch_events());
+
+    let replay = state.history_messages(Wire::AnthropicMessages);
+
+    // Two calls are still unanswered, so the group never flushes -- and the
+    // sentence goes with it. An orphan result would be refused on the next
+    // request, and an orphaned sentence would be a user message about a call
+    // the model was never shown the result of.
+    assert_eq!(
+        replay.messages,
+        vec![Message::user("draft three files")],
+        "{:?}",
+        replay.messages
+    );
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+
+    // The record itself is intact: dropping shapes a request, never the log.
+    let steps = &state.turns[0].steps;
+    assert!(
+        matches!(
+            steps.last(),
+            Some(TurnStep::ToolFeedback { call_id, text })
+                if call_id == "c1" && text == "prefer bullet points"
+        ),
+        "{steps:?}"
+    );
+}
+
+/// The events of one complete, amended two-call step.
+fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
+    vec![
+        SessionEvent::UserMessage {
+            text: "draft two files".to_string(),
+        },
+        SessionEvent::AssistantMessage {
+            text: "drafting".to_string(),
+            tool_calls: vec![
+                RecordedToolCall {
+                    id: "c1".to_string(),
+                    name: "write_file".to_string(),
+                    input: json!({ "path": "a.md", "content": "alpha\n" }),
+                },
+                RecordedToolCall {
+                    id: "c2".to_string(),
+                    name: "read_file".to_string(),
+                    input: json!({ "path": "a.md" }),
+                },
+            ],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        },
+        SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "write_file".to_string(),
+            ok: true,
+            output: "Wrote a.md (6 bytes)".to_string(),
+        },
+        SessionEvent::ToolResult {
+            call_id: "c2".to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            output: "1\talpha".to_string(),
+        },
+        SessionEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: sentence.to_string(),
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ]
+}
+
+/// Writes one amended session and returns it as `xfx session` renders it: the
+/// same snapshot `src/app.rs:242` prints, in both output shapes.
+fn amended_session_view(name: &str, sentence: &str) -> (String, Value) {
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let store = profile.store();
+    let mut session = store
+        .create(id(name), new_session(workspace.path()))
+        .expect("create the session");
+    for event in amended_batch_events(sentence) {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+
+    let detail = profile
+        .read_only_store()
+        .detail(&Selector::Id(id(name)), workspace.path())
+        .expect("read the session back");
+    let snapshot = SessionDetailSnapshot::new(&detail);
+    let json: Value = serde_json::from_str(&snapshot.render_json()).expect("a JSON document");
+    (snapshot.render_text(), json)
+}
+
+#[test]
+fn the_session_view_displays_an_amendment_with_its_call_id() {
+    // The variant is *shown*, not skipped. Repairing the renderer's match with
+    // a catch-all would make the user's own sentence the one thing the session
+    // view hides.
+    let (text, json) = amended_session_view("amended", "prefer bullet points");
+
+    assert!(
+        text.contains("role=feedback call_id=c1 text=prefer bullet points"),
+        "{text}"
+    );
+    let steps = json["turns"][0]["steps"].as_array().expect("steps");
+    let feedback: Vec<&Value> = steps
+        .iter()
+        .filter(|step| step["role"] == "feedback")
+        .collect();
+    assert_eq!(feedback.len(), 1, "{json}");
+    assert_eq!(feedback[0]["call_id"], "c1");
+    assert_eq!(feedback[0]["text"], "prefer bullet points");
+}
+
+#[test]
+fn a_recorded_sentence_cannot_forge_a_row_of_the_session_view() {
+    // A log is a file, and a file is something a mistake or an attacker can
+    // write. The text renderer promises one labelled fact per line, so a
+    // sentence carrying a newline goes through the same flattening every other
+    // recorded value does -- and the stored text is not rewritten to achieve
+    // it.
+    let forged_row = "stop\n[turn] index=0 outcome=final finish_reason=forged";
+    let (text, json) = amended_session_view("forged", forged_row);
+
+    let outcomes: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with("[turn] index=0 outcome="))
+        .collect();
+    assert_eq!(
+        outcomes,
+        ["[turn] index=0 outcome=final finish_reason=stop steps=1"],
+        "{text}"
+    );
+    assert!(
+        text.contains("role=feedback call_id=c1 text=stop [turn] index=0 outcome=final"),
+        "{text}"
+    );
+
+    // Flattened for the terminal, never rewritten in the record: the JSON
+    // document carries what the user actually typed.
+    let steps = json["turns"][0]["steps"].as_array().expect("steps");
+    let feedback = steps
+        .iter()
+        .find(|step| step["role"] == "feedback")
+        .expect("a feedback row");
+    assert_eq!(feedback["text"], forged_row);
 }
 
 // ---------------------------------------------------------------------------

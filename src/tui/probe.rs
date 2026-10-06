@@ -35,6 +35,8 @@
 
 use std::collections::VecDeque;
 use std::io::{self, Write};
+
+use super::deliver::{Emit, Sink};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::time::{Duration, Instant};
 
@@ -300,8 +302,8 @@ impl CursorProbe {
     /// a cursor report arriving with no background reply in front of it proves
     /// the terminal has no answer to give rather than merely not having given
     /// one yet. See [`super::theme::QUERY`].
-    fn ask(out: &mut impl Write, background: bool) -> io::Result<()> {
-        // Built whole and issued as **one** `write_all`, which is the ordering
+    fn ask(out: &mut impl Sink, background: bool) -> io::Result<()> {
+        // Built whole and issued as **one** emit, which is the ordering
         // argument made good rather than merely stated. The fence works because
         // the terminal parses the two queries in the order they reach it; two
         // writes put that order at the mercy of whatever is between this and
@@ -309,13 +311,32 @@ impl CursorProbe {
         // a signal -- and a terminal that saw the cursor report first would
         // answer it first, at which point the reply that arrives with nothing
         // in front of it is the *cursor's* and the fence proves nothing.
-        let mut queries = String::with_capacity(super::theme::QUERY.len() + QUERY.len());
+        let mut queries = String::with_capacity(
+            super::theme::QUERY.len() + super::theme::MODE_QUERY.len() + QUERY.len(),
+        );
         if background {
             queries.push_str(super::theme::QUERY);
+            // **Behind the colour and in front of the fence.** It is the second
+            // half of the same question -- which way round is this terminal --
+            // asked in the spelling a terminal with mode 2031 answers, and it
+            // is asked here rather than from a writer of its own so that it
+            // costs no extra read and no extra deadline. A terminal that has
+            // neither answers neither and the cursor report still ends the
+            // wait; one that has only this one answers it and the launch starts
+            // in the palette a notification would otherwise have to correct.
+            //
+            // Under the same condition as the colour, and for the same reason:
+            // a session whose palette `XFX_THEME` fixed ignores every answer,
+            // so asking is a query written onto a terminal for nothing.
+            queries.push_str(super::theme::MODE_QUERY);
         }
         queries.push_str(QUERY);
-        out.write_all(queries.as_bytes())?;
-        out.flush()
+        check_ask(queries.as_bytes(), background)?;
+        // A launch failure unwinds through the session's own restore, so the
+        // typed outcome is converted here rather than carried further: there is
+        // no frame budget above this and nothing to re-offer. A prefix keeps
+        // its count inside the error it becomes.
+        out.emit(queries.as_bytes()).map_err(Emit::into_error)
     }
 
     /// Asks the terminal where the cursor is and reads the answer.
@@ -329,7 +350,7 @@ impl CursorProbe {
         background: bool,
         deadline: Instant,
     ) -> io::Result<Option<(u16, u16)>> {
-        Self::ask(&mut io::stdout().lock(), background)?;
+        Self::ask(&mut super::deliver::RawTty::stdout(), background)?;
         let stdin = io::stdin();
         self.read_answer(stdin.as_fd(), deadline)
     }
@@ -523,16 +544,88 @@ pub(crate) fn scrollback_push(cursor_row: u16, rows: u16) -> u16 {
 ///
 /// A push of nothing writes nothing: there is no reason to move the shell's
 /// cursor when there is nothing above it to save.
-pub(crate) fn push(out: &mut impl Write, cursor_row: u16, rows: u16) -> io::Result<()> {
+pub(crate) fn push(
+    out: &mut impl Sink,
+    cursor_row: u16,
+    rows: u16,
+    columns: u16,
+) -> io::Result<()> {
     let lines = scrollback_push(cursor_row, rows);
     if lines == 0 {
         return Ok(());
     }
-    write!(out, "\x1b[{rows};1H")?;
-    for _ in 0..lines {
-        writeln!(out)?;
+    // Built whole, checked, and then written -- **these** bytes, not a second
+    // formatting of them. Assembling into a `Vec` is formatting rather than
+    // transport, and it is what makes "the vector that was checked is the
+    // vector that went out" true for a push as well as for a frame. It costs
+    // one write where there were `lines + 1`; the byte stream is unchanged.
+    let mut bytes = Vec::with_capacity(usize::from(lines) + 16);
+    // Writing into a `Vec` cannot fail.
+    let _ = write!(bytes, "\x1b[{rows};1H");
+    bytes.extend(std::iter::repeat_n(b'\n', usize::from(lines)));
+    check_push(&bytes, lines, rows, columns)?;
+    // Converted here for the reason `CursorProbe::ask` converts: this runs
+    // once, at launch, above a restore and below no budget.
+    out.emit(&bytes).map_err(Emit::into_error)
+}
+
+/// The launch queries, in the order the fence needs them.
+///
+/// Asserted rather than assumed: a build that reversed the two would destroy
+/// the only thing that tells a missing background reply from a late one, and a
+/// check that only asked "did any cell move" would pass it.
+fn check_ask(bytes: &[u8], background: bool) -> io::Result<()> {
+    let mut asked = Vec::with_capacity(3);
+    if background {
+        asked.push(super::check::QueryId::Background);
+        asked.push(super::check::QueryId::ThemeMode);
     }
-    out.flush()
+    asked.push(super::check::QueryId::CursorPosition);
+    super::check::preflight(
+        // A query moves no cell, so the smallest screen a model can have is
+        // enough: anything in this vector that touched one is refused.
+        &super::check::TerminalModel::seed_modes(
+            1,
+            1,
+            super::check::ModeSet::fresh(),
+            0,
+            super::check::PlaneKind::Primary,
+        ),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::Queries(&asked),
+            super::check::Footprint::none(super::check::PlaneKind::Primary),
+        ),
+    )?;
+    Ok(())
+}
+
+/// What a push says it does: `lines` rows of scroll and a caret on the bottom
+/// row, and no cell written at all.
+///
+/// The screen above the band is the shell's and its cells are unknowable, so
+/// this is the whole of what a push can honestly be checked at -- and it is
+/// exactly what a push is for. A linefeed whose `CUP` to the bottom row went
+/// missing walks the caret down and scrolls nothing; the count then disagrees,
+/// which is how the pairing is checked without matching on the bytes.
+fn check_push(bytes: &[u8], lines: u16, rows: u16, columns: u16) -> io::Result<()> {
+    super::check::preflight(
+        &super::check::TerminalModel::seed_foreign(rows, columns, None),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::ScrollOnly {
+                caret: (rows, 1),
+                rows: lines,
+            },
+            super::check::Footprint::new(
+                super::check::PlaneKind::Primary,
+                vec![super::check::Seg::Scroll {
+                    rows: u32::from(lines),
+                }],
+            ),
+        ),
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -672,7 +765,7 @@ mod tests {
     /// What the push does to a screen the shell printed `through - 1` lines on.
     fn pushed(rows: u16, through: u16) -> (Screen, Vec<u8>) {
         let mut wire = Vec::new();
-        push(&mut wire, through, rows).expect("write the push");
+        push(&mut wire, through, rows, 80).expect("write the push");
         let mut screen = Screen::shell_printed(rows, through);
         screen.feed(&wire);
         (screen, wire)
@@ -848,23 +941,17 @@ mod tests {
     /// A terminal that remembers how it was written to, not only what.
     ///
     /// The `ask` contract has two halves and a `Vec<u8>` can only check one of
-    /// them: the bytes, and the number of calls it took to put them there.
+    /// them: the bytes, and the number of vectors it took to put them there.
     #[derive(Default)]
     struct Counting {
         bytes: Vec<u8>,
         writes: usize,
-        flushes: usize,
     }
 
-    impl Write for Counting {
-        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+    impl Sink for Counting {
+        fn emit(&mut self, buffer: &[u8]) -> Result<(), Emit> {
             self.writes += 1;
             self.bytes.extend_from_slice(buffer);
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.flushes += 1;
             Ok(())
         }
     }
@@ -874,8 +961,10 @@ mod tests {
         let mut wire = Counting::default();
         CursorProbe::ask(&mut wire, false).expect("write the query");
         assert_eq!(wire.bytes, QUERY.as_bytes());
+        // One vector. The flush that used to be counted beside it is gone
+        // rather than retargeted: nothing buffers these bytes any more, so
+        // there is no second call for a test to be about.
         assert_eq!(wire.writes, 1);
-        assert_eq!(wire.flushes, 1);
     }
 
     #[test]
@@ -888,7 +977,19 @@ mod tests {
         let mut wire = Counting::default();
         CursorProbe::ask(&mut wire, true).expect("write the queries");
         let bytes = String::from_utf8(wire.bytes).expect("the queries are text");
-        assert_eq!(bytes, format!("{}{QUERY}", super::super::theme::QUERY));
+        // The colour, then which way round, then the fence -- and the fence
+        // last is what makes it one. A launch that asked the terminal for its
+        // mode *behind* the cursor report would have nothing to prove the
+        // answer was not merely late, and would wait the deadline out on every
+        // terminal that has no `?996n`.
+        assert_eq!(
+            bytes,
+            format!(
+                "{}{}{QUERY}",
+                super::super::theme::QUERY,
+                super::super::theme::MODE_QUERY
+            )
+        );
         // **In one write**, so the order the terminal parses them in is this
         // function's to decide and not a buffer's: the fence is an ordering
         // argument, and an argument about order that is issued in two pieces is
@@ -898,7 +999,6 @@ mod tests {
             "the two queries were written separately, so nothing here decides \
              which one the terminal parses first"
         );
-        assert_eq!(wire.flushes, 1);
     }
 
     #[test]
@@ -1096,5 +1196,116 @@ mod tests {
         assert_eq!(answer, None);
         // The truncated candidate included: it was typed, not answered.
         assert_eq!(probe.take_deferred(), b"hi\x1b[".to_vec());
+    }
+
+    #[test]
+    fn a_push_whose_caret_move_went_missing_is_refused() {
+        // The `CUP` to the bottom row is the whole of the mechanics: without it
+        // a linefeed walks the cursor down and the screen does not move, so the
+        // shell's output is still on the rows the band is about to open on.
+        let refused = check_push(b"\x1b[1;1H\n\n\n", 3, 24, 80)
+            .expect_err("a push that walked the caret down instead");
+        assert!(
+            refused.to_string().contains("scroll"),
+            "the refusal did not name the scroll: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_push_of_one_row_too_many_is_refused() {
+        // A row over the count leaves the top of the screen for native
+        // scrollback, and no later frame can take it back.
+        let bytes = b"\x1b[24;1H\n\n\n".to_vec();
+        assert!(check_push(&bytes, 2, 24, 80).is_err());
+        check_push(&bytes, 3, 24, 80).expect("the count it declared");
+    }
+
+    #[test]
+    fn a_push_that_wrote_a_cell_is_refused() {
+        // The push may move the screen and nothing else: the rows above the
+        // band are the shell's, and this vector has no business painting one.
+        let refused = check_push(b"\x1b[24;1Hx\n", 1, 24, 80)
+            .expect_err("a push that wrote on the shell's screen");
+        assert!(
+            refused.to_string().contains("outside the footprint"),
+            "the refusal did not name the footprint: {refused}"
+        );
+    }
+
+    #[test]
+    fn the_bytes_a_push_checks_are_the_bytes_it_writes() {
+        // One vector, built once: what `check_push` was handed above is the
+        // slice the emit is handed, rather than a second formatting of the
+        // same intention that a check could pass while the screen got the other.
+        let mut wire = Vec::new();
+        push(&mut wire, 5, 24, 80).expect("a push the check accepted");
+        let mut expected = b"\x1b[24;1H".to_vec();
+        expected.extend(std::iter::repeat_n(b'\n', 4));
+        assert_eq!(wire, expected, "the push changed what it puts on the wire");
+    }
+
+    #[test]
+    fn a_push_reaches_the_descriptor_as_one_vector() {
+        // **The byte stream is unchanged and the call pattern is not**, and
+        // both halves are stated because only the first is a promise. Building
+        // the vector whole is what makes the checked bytes the written bytes;
+        // it also turns `lines + 1` formatting calls into one emit. No claim is
+        // made here about syscalls: one emit is one vector the caller decided
+        // on, and how many writes the kernel takes it in is its own business
+        // (`super::super::deliver`).
+        #[derive(Default)]
+        struct Counted {
+            writes: usize,
+            written: Vec<u8>,
+        }
+
+        impl Sink for Counted {
+            fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+                self.writes += 1;
+                self.written.extend_from_slice(bytes);
+                Ok(())
+            }
+        }
+
+        let mut screen = Counted::default();
+        push(&mut screen, 12, 24, 80).expect("a push the check accepted");
+        assert_eq!(screen.writes, 1, "the push was written in pieces");
+        assert_eq!(
+            screen.written.iter().filter(|byte| **byte == b'\n').count(),
+            11,
+            "the rows above the cursor were not the rows pushed"
+        );
+    }
+
+    #[test]
+    fn a_query_pair_in_the_wrong_order_is_refused() {
+        // The fence: a cursor report arriving with no background reply in front
+        // of it proves the terminal has no answer only if the two went out in
+        // that order.
+        let background = super::super::theme::QUERY;
+        let mode = super::super::theme::MODE_QUERY;
+        let reversed = format!("{QUERY}{background}{mode}");
+        assert!(check_ask(reversed.as_bytes(), true).is_err());
+        // And the two questions in front of the fence keep their own order, so
+        // the reader that consumes them one at a time cannot be handed the
+        // second one's answer for the first.
+        let swapped = format!("{mode}{background}{QUERY}");
+        assert!(check_ask(swapped.as_bytes(), true).is_err());
+        let ordered = format!("{background}{mode}{QUERY}");
+        check_ask(ordered.as_bytes(), true).expect("the order the fence needs");
+    }
+
+    #[test]
+    fn a_decided_palette_asks_the_terminal_nothing_it_would_ignore() {
+        // The other half of `ask`'s conditional, and the reason it is a
+        // conditional: a session whose palette `XFX_THEME` already fixed has
+        // nothing for either answer to change, so both questions and the
+        // deadline they cost are skipped. The cursor report is not optional --
+        // the launch needs it to know what to push into scrollback.
+        let mut wire = Counting::default();
+        CursorProbe::ask(&mut wire, false).expect("write the query");
+        let bytes = String::from_utf8(wire.bytes).expect("the query is text");
+        assert_eq!(bytes, QUERY);
+        check_ask(QUERY.as_bytes(), false).expect("the cursor report alone");
     }
 }

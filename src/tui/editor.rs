@@ -65,6 +65,7 @@
 
 use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
+use super::edit_history::{Delta, DeltaKind};
 use super::entity::{Direction, Entities, EntityKind, Span};
 use super::input::Action;
 use super::wrap::{self, Row};
@@ -154,12 +155,28 @@ impl Editor {
 
     /// Inserts `text` at the caret, or refuses it whole.
     ///
-    /// `false` is the byte budget: the composer keeps exactly the text it had,
+    /// `None` is the byte budget: the composer keeps exactly the text it had,
     /// which is the difference between a paste that did not fit and a paste
-    /// that half fit.
-    pub(crate) fn insert(&mut self, text: &str) -> bool {
+    /// that half fit -- and, since a refusal records nothing, it is also what
+    /// keeps a keystroke that could not happen from clearing the redo stack
+    /// (`super::edit_history`).
+    pub(crate) fn insert(&mut self, text: &str) -> Option<Delta> {
+        self.insert_with_entities(text, &[])
+    }
+
+    /// The same insertion, with blocks inside the text at offsets relative to
+    /// it: what a yank puts back (`super::shell::Shell::yank_killed`).
+    ///
+    /// The spans arrive relative because the text is going somewhere it has
+    /// never been -- the caret, not the offsets it was killed from -- and this
+    /// is the module that owns the arithmetic that moves them
+    /// (`super::entity`).
+    pub(crate) fn insert_with_entities(&mut self, text: &str, entities: &[Span]) -> Option<Delta> {
+        if text.is_empty() {
+            return None;
+        }
         if self.text.len().saturating_add(text.len()) > MAX_COMPOSER_BYTES {
-            return false;
+            return None;
         }
         let at = self.cursor;
         self.text.insert_str(at, text);
@@ -177,7 +194,27 @@ impl Editor {
         // the text went in: after the merged glyph rather than into it.
         self.cursor = boundary_at_or_after(&self.text, at + text.len());
         self.sticky = None;
-        true
+        let placed: Vec<Span> = entities
+            .iter()
+            .map(|span| Span {
+                start: at.saturating_add(span.start),
+                end: at.saturating_add(span.end),
+                kind: span.kind.clone(),
+            })
+            .collect();
+        for span in &placed {
+            self.entities.register(span.clone());
+        }
+        Some(Delta::new(
+            at,
+            String::new(),
+            text.to_string(),
+            Vec::new(),
+            placed,
+            at,
+            self.cursor,
+            DeltaKind::Ordinary,
+        ))
     }
 
     /// Inserts a collapsed paste's summary at the caret and records the block
@@ -188,18 +225,31 @@ impl Editor {
     /// be a caller doing arithmetic on the offset this module keeps as an
     /// invariant, and a failed insert would leave a block naming bytes that are
     /// not there.
-    pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Span> {
+    /// The span the caller still needs is read back from the delta
+    /// ([`Delta::inserted_entities`]), which is the same fact with one producer
+    /// instead of two: a paste is one recorded transaction, and the entity in it
+    /// is the one that was really registered.
+    pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Delta> {
         let at = self.cursor;
-        if !self.insert(summary) {
-            return None;
-        }
         let span = Span {
-            start: at,
-            end: at.saturating_add(summary.len()),
+            start: 0,
+            end: summary.len(),
             kind,
         };
-        self.entities.register(span.clone());
-        Some(span)
+        let delta = self.insert_with_entities(summary, std::slice::from_ref(&span))?;
+        debug_assert_eq!(delta.at(), at);
+        Some(Delta::new(
+            delta.at(),
+            String::new(),
+            delta.inserted().to_string(),
+            Vec::new(),
+            delta.inserted_entities().to_vec(),
+            delta.caret_before(),
+            delta.caret_after(),
+            // One framed paste is one transaction, whatever it weighed and
+            // however many reads of the terminal it arrived in.
+            DeltaKind::Paste,
+        ))
     }
 
     /// Replaces the whole draft, or refuses it whole.
@@ -248,29 +298,58 @@ impl Editor {
     /// screen: the band renders the composer in a gutter and passes what is
     /// left. It matters only to the two vertical moves, because they are the
     /// only actions whose answer depends on where the text wraps.
-    pub(crate) fn apply(&mut self, action: Action, cols: u16) {
+    /// `Some` is the difference the keystroke made, for the history to hold
+    /// (`super::edit_history`); `None` is a caret move, or an edit with nothing
+    /// to do -- a `Delete` at the end of the text, a `Backspace` at the start.
+    /// A `None` records nothing, which is what keeps a keystroke that changed
+    /// nothing from clearing the redo stack.
+    pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Option<Delta> {
         match action {
-            Action::Left => self.move_to(self.left()),
-            Action::Right => self.move_to(self.right()),
-            Action::WordLeft => self.move_to(self.outside(self.word_left(), Direction::Backward)),
-            Action::WordRight => self.move_to(self.outside(self.word_right(), Direction::Forward)),
-            Action::Home => self.move_to(self.line_start()),
-            Action::End => self.move_to(self.line_end()),
-            Action::Up => self.move_by_row(Step::Up, cols),
-            Action::Down => self.move_by_row(Step::Down, cols),
-            Action::Backspace => self.delete(self.left(), self.cursor),
-            Action::Delete => self.delete(self.cursor, self.right()),
-            Action::DeleteWordLeft => {
-                self.delete(
-                    self.outside(self.word_left(), Direction::Backward),
-                    self.cursor,
-                );
+            Action::Left => {
+                self.move_to(self.left());
+                None
             }
-            Action::KillToEnd => self.delete(self.cursor, self.line_end()),
-            Action::KillToStart => self.delete(self.line_start(), self.cursor),
-            Action::InsertNewline => {
-                self.insert("\n");
+            Action::Right => {
+                self.move_to(self.right());
+                None
             }
+            Action::WordLeft => {
+                self.move_to(self.outside(self.word_left(), Direction::Backward));
+                None
+            }
+            Action::WordRight => {
+                self.move_to(self.outside(self.word_right(), Direction::Forward));
+                None
+            }
+            Action::Home => {
+                self.move_to(self.line_start());
+                None
+            }
+            Action::End => {
+                self.move_to(self.line_end());
+                None
+            }
+            Action::Up => {
+                self.move_by_row(Step::Up, cols);
+                None
+            }
+            Action::Down => {
+                self.move_by_row(Step::Down, cols);
+                None
+            }
+            // The two that are not kills: what a `Backspace` or a `Delete`
+            // takes does **not** go to the kill ring, so `C-y` still yanks the
+            // last thing that was really killed (`kill_ring.zig:86-116`).
+            Action::Backspace => self.delete(self.left(), self.cursor, DeltaKind::Ordinary),
+            Action::Delete => self.delete(self.cursor, self.right(), DeltaKind::Ordinary),
+            Action::DeleteWordLeft => self.delete(
+                self.outside(self.word_left(), Direction::Backward),
+                self.cursor,
+                DeltaKind::Kill,
+            ),
+            Action::KillToEnd => self.delete(self.cursor, self.line_end(), DeltaKind::Kill),
+            Action::KillToStart => self.delete(self.line_start(), self.cursor, DeltaKind::Kill),
+            Action::InsertNewline => self.insert("\n"),
             // Not the composer's: submitting, leaving and cancelling are the
             // session's (`super::shell`), a paste is Task 18's, and an
             // `Ignore` is a keystroke this session has no binding for.
@@ -293,6 +372,12 @@ impl Editor {
             // composer is what is being replaced rather than what decides to
             // replace it (`super::shell::Shell::recall`, through
             // [`Self::set_text`]).
+            //
+            // The three editing-history keys are the session's for the same
+            // reason: an undo is a delta the *history* holds being put back
+            // ([`Self::revert`]), and a yank is text the kill slot holds being
+            // inserted -- neither is a keystroke the composer can answer out of
+            // its own buffer (`super::shell::Shell::act`).
             Action::Submit
             | Action::HistoryPrevious
             | Action::HistoryNext
@@ -301,9 +386,68 @@ impl Editor {
             | Action::Eof
             | Action::Redraw
             | Action::Tab
+            | Action::Undo
+            | Action::Redo
+            | Action::Yank
             | Action::PasteStart
             | Action::PasteEnd
-            | Action::Ignore => {}
+            | Action::Ignore => None,
+        }
+    }
+
+    /// Puts the draft back the way it was before `delta`.
+    ///
+    /// The offsets are the delta's own -- widened where the editor widened them
+    /// -- so this is a `replace_range` on a boundary this module produced rather
+    /// than one re-derived from a buffer that no longer says how its bytes got
+    /// there. The blocks come back with the **ids they had**, because the
+    /// summaries being restored say those numbers out loud (`entity.rs:212-216`
+    /// would reject a duplicate, and there is none: the block was gone).
+    pub(crate) fn revert(&mut self, delta: &Delta) {
+        self.splice(
+            delta.at(),
+            delta.inserted().len(),
+            delta.removed(),
+            delta.removed_entities(),
+        );
+        self.cursor = delta.caret_before();
+        self.sticky = None;
+    }
+
+    /// Does `delta` again, after a [`Self::revert`] took it back.
+    pub(crate) fn replay(&mut self, delta: &Delta) {
+        self.splice(
+            delta.at(),
+            delta.removed().len(),
+            delta.inserted(),
+            delta.inserted_entities(),
+        );
+        self.cursor = delta.caret_after();
+        self.sticky = None;
+    }
+
+    /// Replaces `remove` bytes at `at` with `insert`, and puts `entities` back
+    /// at the absolute offsets they name.
+    ///
+    /// The one place a history operation touches the buffer, so the two
+    /// directions cannot disagree about what "putting it back" means.
+    fn splice(&mut self, at: usize, remove: usize, insert: &str, entities: &[Span]) {
+        if remove > 0 {
+            let end = at.saturating_add(remove);
+            // Widening cannot reach past this range: what a delta names is
+            // either the run the editor already widened to, or the summary it
+            // registered whole -- and an entity that merely *abuts* the range is
+            // not an overlap (`super::entity::Entities::delete_touching`).
+            let taken = self.entities.delete_touching(at..end);
+            debug_assert_eq!(taken, at..end, "a history delta named a partial entity");
+            self.text.replace_range(taken, "");
+        }
+        if !insert.is_empty() {
+            self.text.insert_str(at, insert);
+            self.entities.shift_after_insert(at, insert.len());
+        }
+        for span in entities {
+            self.entities.register(span.clone());
         }
     }
 
@@ -362,19 +506,44 @@ impl Editor {
     }
 
     /// Removes `start..end`, and puts the caret where the text used to be.
-    fn delete(&mut self, start: usize, end: usize) {
+    ///
+    /// `None` is a keystroke with nothing to do -- `start >= end`, which is a
+    /// `Delete` at the end of the text or a `Backspace` at the start (the same
+    /// guard `kill_ring.zig:93` makes). It records no history, so a no-op
+    /// keystroke cannot clear the redo stack.
+    fn delete(&mut self, start: usize, end: usize, kind: DeltaKind) -> Option<Delta> {
         if start >= end {
-            return;
+            return None;
         }
+        let caret_before = self.cursor;
+        // The spans as the draft still holds them, so the ones the widening is
+        // about to take can be handed to the history with the offsets and the
+        // **ids** they had. An undo puts those numbers back.
+        let held: Vec<Span> = self.entities.spans().to_vec();
         // **What it really has to lose.** A deletion that overlaps a block at
         // all takes the whole of it, so what is removed is the widened range
         // rather than the one that was asked for -- a backspace at a summary's
         // right edge removes the block instead of damaging its name
         // (`super::entity::Entities::delete_touching`).
         let taken = self.entities.delete_touching(start..end);
+        let removed = self.text[taken.clone()].to_string();
+        let lost: Vec<Span> = held
+            .into_iter()
+            .filter(|span| span.start < taken.end && taken.start < span.end)
+            .collect();
         self.text.replace_range(taken.clone(), "");
         self.cursor = taken.start;
         self.sticky = None;
+        Some(Delta::new(
+            taken.start,
+            removed,
+            String::new(),
+            lost,
+            Vec::new(),
+            caret_before,
+            self.cursor,
+            kind,
+        ))
     }
 
     /// Where a step back goes: the near side of the unit the caret is at the
@@ -607,15 +776,183 @@ mod tests {
 
     fn editor(text: &str) -> Editor {
         let mut editor = Editor::new();
-        assert!(editor.insert(text));
+        assert!(editor.insert(text).is_some());
         editor
+    }
+
+    // -----------------------------------------------------------------------
+    // the deltas an undo is built on
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn undo_of_a_paste_restores_the_block_with_its_original_id() {
+        let mut editor = Editor::new();
+        let delta = editor
+            .insert_entity(
+                "[Pasted text #1, 12 lines]",
+                EntityKind::Paste {
+                    id: 1,
+                    text: std::sync::Arc::from("a\nb\nc"),
+                    lines: 12,
+                },
+            )
+            .expect("the paste fits");
+        assert_eq!(delta.kind(), DeltaKind::Paste);
+        let id = delta.inserted_entities()[0].id();
+
+        editor.revert(&delta);
+        assert_eq!(editor.text(), "");
+        assert!(
+            editor.entities().is_empty(),
+            "the block outlived the summary it stands for"
+        );
+        assert_eq!(caret(&editor), delta.caret_before());
+
+        editor.replay(&delta);
+        assert_eq!(editor.text(), "[Pasted text #1, 12 lines]");
+        assert_eq!(
+            editor.entities().spans()[0].id(),
+            id,
+            "the replayed block came back under a different number"
+        );
+        assert_eq!(editor.expanded(), "a\nb\nc");
+        assert_eq!(caret(&editor), delta.caret_after());
+    }
+
+    #[test]
+    fn a_delta_round_trips_over_an_entity_boundary() {
+        // A backspace at a summary's right edge takes the **whole** block, so
+        // the delta names the widened range (`Entities::delete_touching`) and
+        // the undo has to put the block back with it -- text, span and id.
+        let (mut editor, range) = with_block("before ", "a very long paste", " after");
+        assert_eq!(editor.entities().len(), 1);
+        let whole = editor.text().to_string();
+        editor.apply(Action::Home, 80);
+        editor.apply(Action::End, 80);
+        // The caret is at the end of the line; walk it back over ` after` and
+        // then take the block with one more Backspace.
+        for _ in 0..6 {
+            editor.apply(Action::Left, 80);
+        }
+        assert_eq!(caret(&editor), range.end);
+
+        let delta = editor
+            .apply(Action::Backspace, 80)
+            .expect("a backspace over a block is an edit");
+        assert_eq!(editor.text(), "before  after");
+        assert!(editor.entities().is_empty());
+        assert_eq!(
+            delta.at(),
+            range.start,
+            "the delta named the un-widened range"
+        );
+        assert_eq!(delta.removed().len(), range.end - range.start);
+        assert_eq!(delta.removed_entities().len(), 1);
+        assert_eq!(delta.removed_entities()[0].id(), 1);
+
+        editor.revert(&delta);
+        assert_eq!(editor.text(), whole);
+        assert_eq!(editor.entities().len(), 1, "the block did not come back");
+        assert_eq!(editor.entities().spans()[0].range(), range);
+        assert_eq!(editor.expanded(), "before a very long paste after");
+        assert_eq!(caret(&editor), delta.caret_before());
+
+        editor.replay(&delta);
+        assert_eq!(editor.text(), "before  after");
+        assert!(editor.entities().is_empty());
+        assert_eq!(caret(&editor), delta.caret_after());
+    }
+
+    #[test]
+    fn undo_then_redo_restores_text_and_caret_over_a_grapheme_cluster() {
+        // The caret is an offset that must land on a cluster boundary, or
+        // `wrap::cursor_point` reports a column inside a glyph. A revert that
+        // restored the bytes and left the caret where the edit put it would be
+        // exactly that defect.
+        let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+        let mut editor = editor(&format!("x{family}y"));
+        editor.apply(Action::Left, 80);
+        let before = caret(&editor);
+        let delta = editor
+            .apply(Action::Backspace, 80)
+            .expect("a backspace over a family is an edit");
+        assert_eq!(editor.text(), "xy");
+        assert_eq!(
+            delta.removed(),
+            family,
+            "the backspace took part of a cluster"
+        );
+
+        editor.revert(&delta);
+        assert_eq!(editor.text(), format!("x{family}y"));
+        assert_eq!(caret(&editor), before);
+        editor.replay(&delta);
+        assert_eq!(editor.text(), "xy");
+        assert_eq!(caret(&editor), delta.caret_after());
+    }
+
+    #[test]
+    fn the_three_kills_are_kills_and_the_two_deletes_are_not() {
+        // Which keystroke loads the kill ring is decided here, once, because
+        // `super::edit_history` reads the kind rather than the keystroke
+        // (`kill_ring.zig:86-116` has no arm for a backspace).
+        for (action, kind) in [
+            (Action::KillToEnd, DeltaKind::Kill),
+            (Action::KillToStart, DeltaKind::Kill),
+            (Action::DeleteWordLeft, DeltaKind::Kill),
+            (Action::Backspace, DeltaKind::Ordinary),
+            (Action::Delete, DeltaKind::Ordinary),
+        ] {
+            let mut editor = editor("one two");
+            editor.apply(Action::Left, 80);
+            let delta = editor
+                .apply(action, 80)
+                .unwrap_or_else(|| panic!("{action:?} had nothing to do"));
+            assert_eq!(delta.kind(), kind, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn a_keystroke_with_nothing_to_do_records_nothing() {
+        // The guard `kill_ring.zig:93` makes, in the terms this module answers
+        // in: `None` rather than an empty delta, so a caller cannot record a
+        // history entry for a keystroke that changed nothing.
+        let mut editor = editor("ab");
+        assert!(editor.apply(Action::Delete, 80).is_none(), "at the end");
+        editor.apply(Action::Home, 80);
+        assert!(
+            editor.apply(Action::Backspace, 80).is_none(),
+            "at the start"
+        );
+        assert!(editor.apply(Action::KillToStart, 80).is_none());
+        editor.apply(Action::End, 80);
+        assert!(editor.apply(Action::KillToEnd, 80).is_none());
+        assert_eq!(editor.text(), "ab");
+    }
+
+    #[test]
+    fn a_refused_insert_is_not_an_edit() {
+        let mut editor = Editor::new();
+        assert!(editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)).is_some());
+        assert!(
+            editor.insert("b").is_none(),
+            "the budget admitted a byte it had no room for"
+        );
+        assert!(
+            editor.insert("").is_none(),
+            "an empty insert is not a change to record"
+        );
     }
 
     /// A composer holding `before`, one collapsed block, and `after`, with the
     /// run the block's summary occupies.
     fn with_block(before: &str, text: &str, after: &str) -> (Editor, std::ops::Range<usize>) {
         let mut editor = Editor::new();
-        assert!(editor.insert(before));
+        // An empty insert is not an edit and has no delta to hand back
+        // (`Editor::insert`), so the two ends are only put in when they exist.
+        if !before.is_empty() {
+            assert!(editor.insert(before).is_some());
+        }
         let lines = text.lines().count();
         let name = crate::tui::paste::summary(1, lines);
         let span = editor
@@ -628,8 +965,10 @@ mod tests {
                 },
             )
             .expect("the block fits the composer");
-        assert!(editor.insert(after));
-        (editor, span.range())
+        if !after.is_empty() {
+            assert!(editor.insert(after).is_some());
+        }
+        (editor, span.inserted_entities()[0].range())
     }
 
     /// Where the caret is, in bytes, without handing the tests the offset the
@@ -744,7 +1083,7 @@ mod tests {
         // row below can have a summary where the column is, and a caret there
         // would be a caret inside a unit.
         let mut editor = Editor::new();
-        assert!(editor.insert("xxxxxxxxxxxx\n"));
+        assert!(editor.insert("xxxxxxxxxxxx\n").is_some());
         let name = crate::tui::paste::summary(1, 1);
         let span = editor
             .insert_entity(
@@ -756,6 +1095,7 @@ mod tests {
                 },
             )
             .expect("the block fits")
+            .inserted_entities()[0]
             .range();
         editor.apply(Action::Home, 80);
         editor.apply(Action::Up, 80);
@@ -775,10 +1115,10 @@ mod tests {
     #[test]
     fn text_typed_beside_a_block_leaves_it_whole_and_expanding() {
         let (mut editor, span) = with_block("see ", "y", "");
-        assert!(editor.insert("!"));
+        assert!(editor.insert("!").is_some());
         assert_eq!(editor.expanded(), "see y!");
         editor.apply(Action::Home, 80);
-        assert!(editor.insert("? "));
+        assert!(editor.insert("? ").is_some());
         assert_eq!(editor.expanded(), "? see y!");
         assert_eq!(editor.entities().len(), 1);
         assert_eq!(editor.entities().spans()[0].start, span.start + 2);
@@ -817,7 +1157,7 @@ mod tests {
         // Identity is the span, not the text: a second copy of the name is
         // never expanded, however exactly it matches.
         let (mut editor, _) = with_block("", "y", "");
-        assert!(editor.insert(&crate::tui::paste::summary(1, 1)));
+        assert!(editor.insert(&crate::tui::paste::summary(1, 1)).is_some());
         assert_eq!(
             editor.expanded(),
             format!("y{}", crate::tui::paste::summary(1, 1)),
@@ -870,7 +1210,9 @@ mod tests {
             // The summary is part of the draft, so the filler is what is left
             // of this block's share of it -- a draft built past
             // `MAX_COMPOSER_BYTES` would be refused rather than measured.
-            assert!(editor.insert(&"x".repeat(per.saturating_sub(name.len()))));
+            assert!(editor
+                .insert(&"x".repeat(per.saturating_sub(name.len())))
+                .is_some());
             editor
                 .insert_entity(
                     &name,
@@ -899,7 +1241,7 @@ mod tests {
             let mut editor = loaded(bytes, blocks);
             assert_eq!(editor.entities().len(), blocks);
             crate::tui::entity::scans::reset();
-            assert!(editor.insert("z"));
+            assert!(editor.insert("z").is_some());
             editor.apply(Action::Backspace, 80);
             editor.apply(Action::Left, 80);
             editor.apply(Action::Right, 80);
@@ -940,7 +1282,7 @@ mod tests {
         for (bytes, blocks) in [(1024 * 1024, 64), (8 * 1024 * 1024 - 4096, 1000)] {
             let mut editor = loaded(bytes, blocks);
             let started = std::time::Instant::now();
-            assert!(editor.insert("z"));
+            assert!(editor.insert("z").is_some());
             editor.apply(Action::Backspace, 80);
             let keystroke = started.elapsed();
 
@@ -1033,8 +1375,11 @@ mod tests {
     #[test]
     fn the_byte_budget_refuses_rather_than_truncates() {
         let mut editor = Editor::new();
-        assert!(editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)));
-        assert!(!editor.insert("b"), "the budget was exceeded silently");
+        assert!(editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)).is_some());
+        assert!(
+            editor.insert("b").is_none(),
+            "the budget was exceeded silently"
+        );
         assert_eq!(editor.text().len(), MAX_COMPOSER_BYTES);
     }
 
@@ -1238,7 +1583,7 @@ mod tests {
             editor.apply(action, 80);
             assert!(editor.is_empty(), "{action:?} invented text");
         }
-        assert!(editor.insert("ab"));
+        assert!(editor.insert("ab").is_some());
         editor.apply(Action::Delete, 80);
         editor.apply(Action::Right, 80);
         assert_eq!(editor.text(), "ab", "a delete at the end removed a byte");
@@ -1250,14 +1595,14 @@ mod tests {
         assert_eq!(editor.take(), "submitted");
         assert!(editor.is_empty());
         assert_eq!(editor.point(80), (0, 0));
-        assert!(editor.insert("next"));
+        assert!(editor.insert("next").is_some());
         assert_eq!(editor.text(), "next", "the caret was left past the text");
     }
 
     #[test]
     fn a_refused_insert_changes_nothing_at_all() {
         let mut editor = editor("kept");
-        assert!(!editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)));
+        assert!(editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)).is_none());
         assert_eq!(editor.text(), "kept");
         assert_eq!(editor.point(80), (0, 4), "the caret moved for a refusal");
     }
@@ -1280,7 +1625,7 @@ mod tests {
         // cell.
         let mut editor = editor("\u{1f468}\u{1f469}");
         editor.apply(Action::Left, 80);
-        assert!(editor.insert("\u{200d}"), "the zero-width joiner");
+        assert!(editor.insert("\u{200d}").is_some(), "the zero-width joiner");
         assert_eq!(editor.text(), "\u{1f468}\u{200d}\u{1f469}");
         assert_eq!(
             editor.rows(80).len(),
@@ -1304,7 +1649,7 @@ mod tests {
     fn a_combining_mark_typed_after_its_base_joins_it_rather_than_standing_alone() {
         let mut editor = editor("ex");
         editor.apply(Action::Left, 80);
-        assert!(editor.insert("\u{301}"));
+        assert!(editor.insert("\u{301}").is_some());
         assert_eq!(editor.text(), "e\u{301}x");
         assert_eq!(
             editor.point(80),
@@ -1321,7 +1666,7 @@ mod tests {
         // move the caret past anything.
         let mut editor = editor("ac");
         editor.apply(Action::Left, 80);
-        assert!(editor.insert("b"));
+        assert!(editor.insert("b").is_some());
         assert_eq!(editor.text(), "abc");
         assert_eq!(editor.point(80), (0, 2));
         editor.apply(Action::Backspace, 80);
@@ -1336,7 +1681,7 @@ mod tests {
         // row 65536, which is the window's one job.
         for rows in [65_535usize, 65_536, 65_537] {
             let mut editor = Editor::new();
-            assert!(editor.insert(&"\n".repeat(rows - 1)));
+            assert!(editor.insert(&"\n".repeat(rows - 1)).is_some());
             assert_eq!(editor.rows(80).len(), rows);
             let (row, column) = editor.point(80);
             assert_eq!((row, column), (rows - 1, 0), "{rows} rows");

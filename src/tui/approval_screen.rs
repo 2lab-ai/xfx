@@ -46,7 +46,9 @@
 
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 
-use super::approval::{self, Action};
+use super::approval::{self, Action, Composition, Reply};
+use super::approval_amendment::Drafts;
+use super::approval_readiness::Disclosure;
 use super::frame::clip;
 
 /// What every row but the title is written into.
@@ -58,8 +60,22 @@ const INDENT_CELLS: u16 = 2;
 /// What marks the choice Enter would take.
 const MARKER: &str = "> ";
 
-/// How many rows the tool-and-target line may take.
-const SUBJECT_ROWS: usize = 2;
+/// How many rows the status line may take.
+///
+/// Bounded, because it is the one block on this screen that is **not** the
+/// question: a notice allowed to grow would push the change out of the viewport
+/// in order to explain why the change could not be approved.
+const STATUS_ROWS: usize = 2;
+
+/// How many rows of the choices block come before the first answer.
+///
+/// One: the blank row the block opens with. What used to be a constant `3` for
+/// "which row the last control is on" is no longer a constant at all -- an
+/// amendment draft is painted under the answer it belongs to, so the rows
+/// between the first answer and the last are a function of what the user has
+/// typed. [`Choices`] reports the indices instead, from the one construction
+/// that placed them.
+const CHOICES_OPEN: usize = 1;
 
 /// How many rows of the summary the screen shows.
 ///
@@ -163,6 +179,19 @@ fn safe_rows(text: &str, budget: u16) -> Vec<String> {
     out
 }
 
+/// Whether the painter's cut takes nothing but trailing blanks off `row`.
+///
+/// The wrap breaks **at** a space and keeps it ([`safe_rows`] slices the range
+/// the wrap returned), so a row can be one cell wider than the screen while
+/// carrying no character the screen does not show -- and the painter's clip then
+/// removes exactly that space. A disclosure is a claim about text the user was
+/// not shown, and a space is not text: comparing the raw strings would report
+/// every wrapped sentence as cut, which is how a screen that discloses
+/// everything comes to be ungrantable.
+fn uncut(row: &str, cols: u16) -> bool {
+    clip(row, cols).trim_end() == row.trim_end()
+}
+
 /// A question about a change the band cannot show, and the screen it is shown
 /// on.
 ///
@@ -180,6 +209,27 @@ pub(crate) struct ApprovalScreen {
     scroll: usize,
     /// Which of the three answers is marked, as an index into the choices.
     selected: usize,
+    /// What the screen has to tell the user about their last keystroke.
+    ///
+    /// **This plane's own status line**, and it exists because this plane owns
+    /// the whole terminal while it is up: `super::shell::Shell::say` writes into
+    /// the document, the document is on the *primary* buffer, and a refusal
+    /// written there while a question holds the alternate buffer is a refusal
+    /// nobody can see. A user whose `1` did nothing and said nothing presses it
+    /// again, harder, which is the one response this gate must not train.
+    ///
+    /// Part of the composition rather than a write of its own, so it is placed,
+    /// measured and reconciled with every other row of the screen -- and so that
+    /// a screen carrying a notice is a *different* screen, which is exactly what
+    /// a readiness receipt should be about.
+    status: Option<String>,
+    /// The two amendments this question may carry.
+    ///
+    /// **Both surfaces get drafts**, from the same module and with the same
+    /// keys: which surface a question landed on is a fact about how big the
+    /// change was, and a user should not lose the ability to say something
+    /// because the diff was long ([`super::approval_amendment`]).
+    drafts: Drafts,
 }
 
 /// One composed screen: its rows, and the row the caret belongs on.
@@ -192,8 +242,18 @@ struct Composed {
     rows: Vec<String>,
     /// The caret's row, one-based, as the terminal counts.
     caret: u16,
+    /// The cells to the left of the caret on that row.
+    ///
+    /// Nought on an answer row -- the marker is the answer to "which one" --
+    /// and past the draft's indent while an amendment has the keys.
+    caret_column: u16,
     /// How many rows of the change the viewport is showing.
     viewport: usize,
+    /// What this composition really put in front of the user, decided **here**
+    /// rather than by reading the rows back: every cut this screen makes is
+    /// silent, so the only reader that can answer honestly is the one that made
+    /// them ([`super::approval_readiness`]).
+    disclosure: Disclosure,
 }
 
 impl ApprovalScreen {
@@ -204,7 +264,45 @@ impl ApprovalScreen {
             // Yes-once, the same default the band's panel starts on: an Enter
             // pressed without reading grants one call rather than the session.
             selected: 0,
+            status: None,
+            drafts: Drafts::default(),
         }
+    }
+
+    /// Whether an amendment has the keys.
+    pub(crate) fn drafting(&self) -> bool {
+        self.drafts.editing()
+    }
+
+    /// What the screen owes the user about their last keystroke, taken once.
+    pub(crate) fn take_notice(&mut self) -> Option<&'static str> {
+        self.drafts.take_notice()
+    }
+
+    /// The amendment this answer carries, and the disposal of the other draft.
+    ///
+    /// The band panel's rule on this plane too
+    /// (`super::approval::Panel::take_feedback`): called after the readiness
+    /// gate, so a refused affirmative leaves the drafts as the user typed them.
+    pub(crate) fn take_feedback(
+        &mut self,
+        answer: ApprovalAnswer,
+        amendable: bool,
+    ) -> Option<String> {
+        if !amendable {
+            self.drafts.discard();
+            return None;
+        }
+        self.drafts.submit(answer)
+    }
+
+    /// Puts a sentence about the last keystroke on this plane's status line.
+    ///
+    /// The alternate half of `super::shell::Shell::say`: while this screen is up
+    /// it owns every row the user can see, so a refusal has to be painted here
+    /// or it is not painted at all.
+    pub(crate) fn set_status(&mut self, status: String) {
+        self.status = Some(status);
     }
 
     /// What one keystroke does. `Some` is an answer; `None` moved something.
@@ -212,8 +310,8 @@ impl ApprovalScreen {
     /// Routed through the same function the band's panel answers with
     /// (`super::approval::answered`), so "which key means which answer" is one
     /// fact on both surfaces rather than two that can drift.
-    pub(crate) fn apply(&mut self, action: Action) -> Option<ApprovalAnswer> {
-        approval::answered(action, &mut self.selected)
+    pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Reply {
+        approval::answered(action, &mut self.selected, &mut self.drafts, cols)
     }
 
     /// Moves the viewport `delta` rows, bounded by what there is to show.
@@ -243,6 +341,20 @@ impl ApprovalScreen {
         self.compose(cols, terminal_rows).rows
     }
 
+    /// The same screen, with what it really disclosed beside it.
+    ///
+    /// A **projection** of [`Self::compose`] rather than a second layout: the
+    /// caret and the viewport stay private to this module, and the rows a
+    /// readiness receipt is about are byte for byte the rows [`Self::rows`]
+    /// hands the painter.
+    pub(crate) fn composition(&self, cols: u16, terminal_rows: u16) -> Composition {
+        let composed = self.compose(cols, terminal_rows);
+        Composition {
+            rows: composed.rows,
+            disclosure: composed.disclosure,
+        }
+    }
+
     /// Where the caret goes: the terminal's own row, and the cells to the left
     /// of it on that row.
     ///
@@ -250,7 +362,8 @@ impl ApprovalScreen {
     /// the terminal says the next keystroke goes to, and this screen has the
     /// focus while it is up.
     pub(crate) fn caret(&self, cols: u16, terminal_rows: u16) -> (u16, u16) {
-        (self.compose(cols, terminal_rows).caret, 0)
+        let composed = self.compose(cols, terminal_rows);
+        (composed.caret, composed.caret_column)
     }
 
     /// Whether this screen can put **all three** answers in front of the user
@@ -295,13 +408,17 @@ impl ApprovalScreen {
         // Two rows for the subject, because a target is a path and a path is
         // routinely longer than a row: one row would show `edit_file` and stop
         // at the word boundary in front of the thing being edited.
+        // **As many rows as the path really needs**, with [`SUBJECT_ROWS`] as a
+        // floor rather than a ceiling: a workspace path is routinely longer than
+        // two rows of an eighty-column screen, and a `.take(2)` here cut it
+        // silently -- which made the target something the user was never shown
+        // and the request something no frame could disclose.
         rows.extend(
             safe_rows(
                 &format!("{} {}", self.request.tool, self.request.target),
                 budget,
             )
             .into_iter()
-            .take(SUBJECT_ROWS)
             .map(|row| format!("{INDENT}{row}")),
         );
         rows.push(String::new());
@@ -322,24 +439,71 @@ impl ApprovalScreen {
     /// and the change gets what is left -- so a screen too short for everything
     /// is a screen with less of the diff on it, never one with the choices
     /// below its last row.
-    fn choices(&self, cols: u16) -> Vec<String> {
+    fn choices(&self, cols: u16) -> Choices {
         let budget = cols.saturating_sub(INDENT_CELLS).max(1);
         let mut rows = vec![String::new()];
+        let blocks = self.drafts.blocks(approval::draft_cols(cols));
+        let mut last_control = CHOICES_OPEN;
+        let mut marked = CHOICES_OPEN;
+        let mut caret = None;
         for (index, label) in approval::labels(self.request.tool).iter().enumerate() {
             let marker = if index == self.selected {
                 MARKER
             } else {
                 INDENT
             };
+            last_control = rows.len();
+            if index == self.selected {
+                marked = rows.len();
+            }
             rows.push(format!("{marker}{label}"));
+            // The amendment under the answer it belongs to, and **after**
+            // `last_control` was taken: a draft is not a control, and counting
+            // it as one would make a readiness receipt claim a row the user
+            // typed was a row xfx disclosed.
+            let Some(block) = blocks.iter().find(|block| block.choice == index) else {
+                continue;
+            };
+            if let Some((within, column)) = block.caret {
+                caret = Some((
+                    rows.len() + within.min(block.rows.len().saturating_sub(1)),
+                    INDENT_CELLS
+                        .saturating_add(column)
+                        .min(cols.saturating_sub(1)),
+                ));
+            }
+            rows.extend(block.rows.iter().map(|row| format!("{INDENT}{row}")));
         }
+        let scope_start = rows.len();
+        // **Every row the scope needs.** Each one `crate::permission` builds
+        // carries an unconditional suffix -- the resume-id of a saved session,
+        // or the note that this turn is not being recorded -- so a real scope is
+        // three wrapped rows at eighty columns and the `.take(1)` this replaced
+        // showed a third of it. What "always" buys is half the question.
         rows.extend(
             safe_rows(&format!("2 = {}", self.request.always_scope), budget)
                 .into_iter()
-                .take(1)
                 .map(|row| format!("{INDENT}{row}")),
         );
-        rows
+        let scope = scope_start..rows.len();
+        // Last, so that a screen too short to hold everything loses the notice
+        // before it loses the scope, and the scope before it loses an answer.
+        if let Some(status) = self.status.as_ref() {
+            rows.push(String::new());
+            rows.extend(
+                safe_rows(status, budget)
+                    .into_iter()
+                    .take(STATUS_ROWS)
+                    .map(|row| format!("{INDENT}{row}")),
+            );
+        }
+        Choices {
+            rows,
+            last_control,
+            marked,
+            scope,
+            caret,
+        }
     }
 
     /// The change itself, as rows, before any window is taken of it.
@@ -364,18 +528,79 @@ impl ApprovalScreen {
         rows
     }
 
+    /// How many rows the tool-and-target line really wants.
+    ///
+    /// The **source** measurement the disclosure is about. [`Self::heading`]
+    /// now emits exactly this many, so the only way to lose one is the
+    /// truncation [`Self::compose`] applies when the screen has no room -- which
+    /// is a fact about the screen and is checked there.
+    fn subject_rows(&self, cols: u16) -> usize {
+        let budget = cols.saturating_sub(INDENT_CELLS).max(1);
+        safe_rows(
+            &format!("{} {}", self.request.tool, self.request.target),
+            budget,
+        )
+        .len()
+    }
+
+    // What used to be `scope_rows` is gone with the amendment draft: the scope
+    // no longer sits at a fixed offset inside the choices block, so where it is
+    // and how many rows it takes are reported by the construction that placed
+    // it ([`Choices::scope`]) rather than re-derived by a second measurement
+    // that could disagree.
+
     /// One screen: the heading, as much of the change as fits, and the choices.
     fn compose(&self, cols: u16, terminal_rows: u16) -> Composed {
         let height = usize::from(terminal_rows);
         // The choices first, because they are the part that may not be dropped.
-        let mut choices = self.choices(cols);
+        let placed = self.choices(cols);
+        let mut choices = placed.rows;
         choices.truncate(height);
         let room = height - choices.len();
         let mut heading = self.heading(cols);
         heading.truncate(room);
         let viewport = room - heading.len();
 
+        // What the composition really disclosed, decided **here** because here
+        // is the only place that knows what was cut: both truncations above are
+        // silent, so a reader given only `rows` could not tell a subject that
+        // ends at row two from one that was stopped there.
+        //
+        // The subject: every row of it survived `heading.truncate` and the clip
+        // below changes nothing about it. The rows are `heading[1..=wanted]`,
+        // since the title is first.
+        let wanted = self.subject_rows(cols);
+        let subject_whole =
+            heading.len() > wanted && heading[1..=wanted].iter().all(|row| uncut(row, cols));
+        // The controls: all three rows survived `choices.truncate` -- the blank
+        // row the block opens with is `choices[0]` -- and each is unclipped.
+        // **Unclipped, not merely non-empty**: see [`Self::presents_choices`],
+        // which asks the weaker question because it is answering a different
+        // one.
+        let mut controls_whole = choices.len() > placed.last_control;
+        for (index, label) in approval::labels(self.request.tool).iter().enumerate() {
+            let marker = if index == self.selected {
+                MARKER
+            } else {
+                INDENT
+            };
+            let whole = format!("{marker}{label}");
+            controls_whole &= uncut(&whole, cols);
+        }
+        // The always-scope: [`Self::choices`] emits every row of it, so the only
+        // way to lose one is `choices.truncate` above -- a screen with no room.
+        // **Where** it sits is the block's own report rather than a constant,
+        // because a draft under an answer moves it down.
+        let scope_whole = choices.len() >= placed.scope.end
+            && choices[placed.scope.clone()]
+                .iter()
+                .all(|row| uncut(row, cols));
+
         let change = self.change_rows(cols);
+        // At least one row of the change is inside the window. Both halves
+        // matter: a screen with no room left for it shows none, and a viewport
+        // walked to the far side of a short change would show none either.
+        let change_visible = viewport > 0 && self.scroll < change.len();
         let mut rows = heading;
         rows.extend(
             change
@@ -385,16 +610,50 @@ impl ApprovalScreen {
                 .map(|row| format!("{INDENT}{row}")),
         );
         rows.resize(height - choices.len(), String::new());
-        // The first choice sits one row below the blank row the block opens
-        // with, and the caret is one-based.
-        let caret = u16::try_from(rows.len() + 2 + self.selected).unwrap_or(terminal_rows);
+        // Inside the draft while one has the keys, on the marked answer
+        // otherwise -- and both are indices the block itself reported, so the
+        // caret and the paint are one reading of one layout. One-based, which
+        // is the only correction: the plane owns every row of the screen, so a
+        // row of the composition **is** a terminal row.
+        let (caret_row, caret_column) = placed.caret.unwrap_or((placed.marked, 0));
+        let caret = u16::try_from(rows.len() + caret_row + 1).unwrap_or(terminal_rows);
+        let last_control = rows.len() + placed.last_control;
         rows.extend(choices);
+        let disclosure = Disclosure {
+            last_control_row: u16::try_from(last_control + 1).unwrap_or(u16::MAX),
+            controls_whole,
+            scope_whole,
+            subject_whole,
+            change_visible,
+        };
         Composed {
             rows: rows.iter().map(|row| clip(row, cols).to_string()).collect(),
             caret: caret.min(terminal_rows).max(1),
+            caret_column,
             viewport,
+            disclosure,
         }
     }
+}
+
+/// The block of answers, and where the things a reader needs are inside it.
+///
+/// Indices rather than constants, because the drafts move them: an amendment is
+/// painted under the answer it belongs to, so "which row is the last control"
+/// and "which rows are the scope" stopped being arithmetic on `3` the moment a
+/// draft could sit between them. Reported by the **one** construction that
+/// placed the rows, for the reason `Composed` reports its own disclosure.
+struct Choices {
+    rows: Vec<String>,
+    /// The index of the last answer row -- never a draft row.
+    last_control: usize,
+    /// The index of the marked answer.
+    marked: usize,
+    /// The rows the always-scope occupies.
+    scope: std::ops::Range<usize>,
+    /// Where the caret goes while a draft has the keys: a row of
+    /// [`Self::rows`], and the cells to its left on that row.
+    caret: Option<(usize, u16)>,
 }
 
 #[cfg(test)]
@@ -493,10 +752,19 @@ mod tests {
             screen.rows(80, 24)[usize::from(row) - 1].clone()
         };
         assert_eq!(marked(&screen), "> 1. Yes");
-        assert_eq!(screen.apply(Action::Down), None);
+        assert_eq!(answered(screen.apply(Action::Down, 80)), None);
         assert!(marked(&screen).starts_with("> 2. Yes, and"));
-        assert_eq!(screen.apply(Action::Up), None);
+        assert_eq!(answered(screen.apply(Action::Up, 80)), None);
         assert_eq!(marked(&screen), "> 1. Yes");
+    }
+
+    /// The answer a key produced, for a case that is about the decision rather
+    /// than about the frame it owes (`super::super::approval::Reply`).
+    fn answered(reply: Reply) -> Option<ApprovalAnswer> {
+        match reply {
+            Reply::Answer { answer, .. } => Some(answer),
+            _ => None,
+        }
     }
 
     #[test]
@@ -512,9 +780,13 @@ mod tests {
             (Action::Cancel, ApprovalAnswer::Deny),
             (Action::Submit, ApprovalAnswer::Once),
         ] {
-            assert_eq!(screen().apply(action), Some(answer), "{action:?}");
+            assert_eq!(
+                answered(screen().apply(action, 80)),
+                Some(answer),
+                "{action:?}"
+            );
         }
-        assert_eq!(screen().apply(Action::Text('9')), None);
+        assert_eq!(answered(screen().apply(Action::Text('9'), 80)), None);
     }
 
     #[test]
@@ -759,6 +1031,164 @@ mod tests {
             first,
             "the viewport did not come back to the top"
         );
+    }
+
+    #[test]
+    fn a_long_target_is_shown_whole_where_there_is_room_and_refused_where_there_is_not() {
+        // The truncation that dropped the tail of a path was silent -- no
+        // ellipsis, no marker, just a path that stops -- so a rule reading the
+        // painted rows back could not tell it from a path that ends there.
+        //
+        // **A changed coordinate.** The fix is not to keep detecting the cut at
+        // an ordinary size; it is to stop cutting. The subject now takes the
+        // rows it needs, so a twenty-four-row screen shows this target whole.
+        let mut request = asked_about("one", "two");
+        request.target = "a/".repeat(120) + "notes.txt";
+        let screen = ApprovalScreen::new(request);
+        let roomy = screen.composition(80, 24);
+        assert!(
+            roomy.disclosure.subject_whole,
+            "the target was still dropped: {:?}",
+            roomy.rows
+        );
+        assert!(
+            roomy.disclosure.controls_whole,
+            "the choices are still whole"
+        );
+        // The **tail** of the path, which is precisely what the old `.take(2)`
+        // dropped: a subject reported whole whose last component is missing
+        // would be the original defect wearing a `true`.
+        assert!(
+            roomy.rows.iter().any(|row| row.contains("notes.txt")),
+            "the end of the path is not on the screen it was reported disclosed on: {:?}",
+            roomy.rows
+        );
+
+        // And where the screen really cannot carry it, `compose` truncates and
+        // the disclosure says so rather than pretending -- while every answer
+        // stays on the screen, because a question that cannot be granted must
+        // still be refusable.
+        let cramped = screen.composition(80, 8);
+        assert!(
+            !cramped.disclosure.subject_whole,
+            "a screen with no room for the path claimed to have shown it: {:?}",
+            cramped.rows
+        );
+        assert!(
+            cramped.disclosure.controls_whole,
+            "a short screen dropped an answer: {:?}",
+            cramped.rows
+        );
+    }
+
+    #[test]
+    fn a_screen_too_short_for_the_heading_discloses_no_subject() {
+        // Six rows: the choices block takes what it may never lose, and the
+        // heading is truncated into whatever that left -- room enough for the
+        // title and nothing else, so the subject rows never reach the screen at
+        // all.
+        let composed = ApprovalScreen::new(asked_about("one", "two")).composition(80, 6);
+        assert_eq!(
+            composed.rows.len(),
+            6,
+            "the composition still fills the plane"
+        );
+        assert!(
+            !composed.disclosure.subject_whole,
+            "the heading was truncated into the choices' room"
+        );
+    }
+
+    #[test]
+    fn the_last_control_row_is_the_row_the_refusal_is_really_painted_on() {
+        // The plane owns every row of the screen, so a local index **is** a
+        // terminal row -- one-based, which is the only thing that has to be
+        // added.
+        for rows in [10u16, 24, 40] {
+            let composed = ApprovalScreen::new(asked_about("one", "two")).composition(80, rows);
+            let refusal = composed
+                .rows
+                .iter()
+                .rposition(|row| row.contains("3. No"))
+                .expect("the refusal is on the screen");
+            assert_eq!(
+                usize::from(composed.disclosure.last_control_row),
+                refusal + 1,
+                "{rows}-row screen: {:?}",
+                composed.rows
+            );
+        }
+    }
+
+    #[test]
+    fn a_status_line_is_painted_on_this_plane_because_the_document_is_behind_it() {
+        // While this screen is up it owns every row the user can see, so a
+        // refusal written into the document (`super::super::shell::Shell::say`)
+        // is a refusal on the *primary* buffer, behind the plane, that nobody
+        // can read. A gate whose explanation is invisible is a key that appears
+        // to do nothing.
+        let mut screen = screen();
+        let quiet = screen.composition(80, 24);
+        screen.set_status("the question is not on the screen yet".to_string());
+        let noticed = screen.composition(80, 24);
+        assert!(
+            noticed
+                .rows
+                .iter()
+                .any(|row| row.contains("the question is not on the screen yet")),
+            "the notice never reached the plane that owns the screen: {:?}",
+            noticed.rows
+        );
+        // The answers survive it, and so does what "always" would buy: the
+        // notice is the first thing this screen gives up, never the last.
+        assert!(noticed.disclosure.controls_whole && noticed.disclosure.scope_whole);
+        assert_eq!(
+            noticed.rows.len(),
+            usize::from(24u16),
+            "the notice changed the height of a screen that is the terminal"
+        );
+        // And a screen carrying a notice is a *different* screen, which is
+        // exactly what a readiness receipt must be about: the disclosure moved,
+        // so the receipt earned before it cannot answer for it.
+        assert_ne!(quiet.disclosure, noticed.disclosure);
+    }
+
+    #[test]
+    fn a_status_line_never_costs_the_question_its_answers() {
+        // Bounded, and last in the block that may not be dropped. A notice
+        // allowed to grow -- or placed above the choices -- would push an answer
+        // off a short screen in order to explain why the question could not be
+        // approved, which is the one trade this screen may never make.
+        let mut screen = screen();
+        screen.set_status("a ".repeat(400));
+        for rows in [6u16, 8, 10, 24] {
+            let composed = screen.composition(80, rows);
+            assert_eq!(composed.rows.len(), usize::from(rows), "{rows}");
+            let painted = composed.rows.join("\n");
+            for choice in ["1. Yes", "2. Yes, and", "3. No (esc)"] {
+                assert!(
+                    painted.contains(choice),
+                    "a {rows}-row screen dropped {choice:?} to make room for a notice: {painted:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_change_scrolled_out_of_the_viewport_is_no_longer_visible() {
+        // The half of the clause `super::approval_readiness::Readiness`'s `seen`
+        // remembers: what is on the screen **now** is a different fact from what
+        // this request has ever shown, and only the composition can answer the
+        // first.
+        let mut screen = screen();
+        assert!(screen.composition(80, 24).disclosure.change_visible);
+        screen.scroll_by(1_000_000, 80, 24);
+        assert!(
+            screen.composition(80, 24).disclosure.change_visible,
+            "the walk stops at the end of the change, so rows are still shown"
+        );
+        // A screen with no room left for the change at all.
+        assert!(!screen.composition(80, 6).disclosure.change_visible);
     }
 
     #[test]

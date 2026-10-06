@@ -7,8 +7,9 @@
 # The second runner beside `scripts/smoke.sh`, which keeps running unchanged:
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
-# one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12 and
-# Phase 2's 13-21, plus the two lettered rows 3b and 10b -- against a
+# one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
+# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 3d, 3e,
+# 10b and 23b -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
 # the check total is summed from what the scenarios wrote down, so neither
@@ -130,11 +131,12 @@ What is modelled, and nothing else:
 
 * `CUP` (`CSI row ; col H`), `ED` (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
 * `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on
-* `DECSET`/`DECRST` for the five private modes xfx sets: `?2026` (synchronized
+* `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
   output), `?25` (cursor visibility), `?7` (autowrap -- xfx turns it **off**,
   which is why the wrap below is not the usual one), `?2004` (bracketed paste),
   `?1049` (**the alternate screen buffer**, with its own cells and its own
-  cursor)
+  cursor), `?2031` (the theme-change subscription -- accepted and nothing
+  else, since a subscribe or unsubscribe moves no cell)
 
 The `?1049` pair is modelled rather than ignored, and that is what makes the
 Phase-2 approval screen assertable at all. A terminal answers `?1049h` by saving
@@ -178,7 +180,12 @@ CSI = re.compile(rb"\x1b\[(?P<private>[<=>?]?)(?P<params>[0-9;]*)(?P<inter>[ -/]
 OSC = re.compile(rb"\x1b\](?P<body>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 
 # The private modes xfx is allowed to set. Anything else is a finding.
-KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049"}
+#
+# `?2031` is the theme-change subscription (`src/tui/term.rs:56,65`): a session
+# turns it on in its mode set and off in every restore, the same enable/disable
+# pair as `?2004` and `?7` above it, so a terminal volunteers a notification
+# rather than being polled for one.
+KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 
 # The `OSC` numbers xfx is allowed to write: the window title
 # (`src/tui/frame.rs`) and the background query it asks the terminal
@@ -192,8 +199,18 @@ KNOWN_WINDOW_OPS = {"22;2", "23;2"}
 
 # The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
-# keyboard flags and `<u` pops them.
-KNOWN_PRIVATE = {(">", "4;2", "m"), (">", "4;0", "m"), (">", "1", "u"), ("<", "", "u")}
+# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:104`) is the
+# outright "which way round are you now?" query a launch asks once, paired
+# with the `?2031` subscription above but not itself an enable/disable pair --
+# it carries no parameter, and a report with one (`?996;1n`) is a sequence
+# nobody sends and stays a finding.
+KNOWN_PRIVATE = {
+    (">", "4;2", "m"),
+    (">", "4;0", "m"),
+    (">", "1", "u"),
+    ("<", "", "u"),
+    ("?", "996", "n"),
+}
 
 # How many rows of what left the top of the screen are kept.
 SCROLLBACK_ROWS = 2000
@@ -882,6 +899,43 @@ def a_frame_is_recorded_only_when_it_is_asked_for():
     require(not fed(stream).frames, "frames were recorded by an emulator that was not asked to")
 
 
+def the_theme_subscription_mode_and_query_the_product_emits_are_accepted():
+    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:104`).
+
+    The subscription mode xfx's session sets so a terminal volunteers a
+    background change, and the outright query it asks at launch, both move no
+    cell -- accepting them is a claim about the allowlist, not about the grid,
+    so the screen, the caret and the plane are read off before and after and
+    have to agree. The snapshot is taken against a grid seeded with real
+    content and a caret away from the origin first: a blank default grid is
+    satisfied by an emulator that *erases* on `?2031` exactly as well as by one
+    that does nothing, so the seed (`keep me` written mid-screen, caret parked
+    away from it) is what makes "moves no cell" a claim that can fail. The
+    negative controls sit right next to the accepted three: `?2032` (an
+    undeclared neighboring mode), `?997;1n` (the terminal's *inbound* answer to
+    the subscription, which xfx's own output stream never carries) and
+    `?996;1n` (the query with a parameter nobody sends) all stay findings -- an
+    oracle that accepted any of them would be whitelisting a report or a
+    request the product never makes.
+    """
+    grid = Grid(3, 20)
+    grid.feed(b"\x1b[2;3Hkeep me\x1b[1;2H")
+    before = (grid.text(), (grid.row, grid.col), grid.plane)
+    grid.feed(b"\x1b[?2031h\x1b[?996n\x1b[?2031l")
+    after = (grid.text(), (grid.row, grid.col), grid.plane)
+    require(
+        not grid.unknown,
+        "the product's theme subscription/query was rejected: %r" % (grid.unknown,),
+    )
+    require(
+        before == after,
+        "the accepted theme sequences moved the grid, caret, or plane: %r != %r" % (before, after),
+    )
+    require(fed("\x1b[?2032h").unknown, "an undeclared neighboring mode ?2032 passed the oracle unremarked")
+    require(fed("\x1b[?997;1n").unknown, "an inbound-only ?997;1n report passed the oracle unremarked")
+    require(fed("\x1b[?996;1n").unknown, "a parametrized ?996;1n passed the oracle unremarked")
+
+
 TESTS = (
     a_zwj_family_is_one_cluster_two_cells_wide,
     a_combining_mark_stays_with_the_cell_it_marks,
@@ -899,6 +953,7 @@ TESTS = (
     a_row_that_leaves_the_alternate_plane_reaches_no_scrollback,
     entering_the_alternate_plane_twice_is_a_finding,
     a_frame_is_recorded_only_when_it_is_asked_for,
+    the_theme_subscription_mode_and_query_the_product_emits_are_accepted,
 )
 
 
@@ -1153,6 +1208,130 @@ def large_write_then_finish(marker):
     ]
 
 
+def ask_then_finish(marker):
+    """Ask a two-question batch, then say `marker`.
+
+    Two questions rather than one because the result is an *ordered* document: a
+    one-question batch passes whether or not order is preserved. The first
+    question's first option carries a description and the second's carries none,
+    which is the one part of a choice that is optional.
+    """
+    return [
+        {
+            "events": [
+                tool_call(
+                    "call-0",
+                    "ask_user_question",
+                    {
+                        "questions": [
+                            {
+                                "question": "Which depth?",
+                                "options": [
+                                    {"label": "Thorough", "description": "reads every file"},
+                                    {"label": "Quick"},
+                                ],
+                            },
+                            {
+                                "question": "Anything else?",
+                                "options": [{"label": "No"}, {"label": "Yes"}],
+                            },
+                        ]
+                    },
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
+# What the call **behind** an interrupted question would write, and where.
+#
+# A path that does not exist yet rather than `notes.txt`: a write over a file
+# this turn has not read is refused for a reason of its own
+# (`src/tools/mutate.rs`), and a scenario whose negative check was satisfied by
+# that refusal would report "the interrupt stopped the call" about a call the
+# interrupt never touched.
+# What the scripted amendable write puts down, and where.
+#
+# A path that does **not** exist before the turn, which is what makes the denied
+# trial's assertion an observation rather than a tautology: an absent file after
+# a refusal means the call did not run, and it can only mean that if the file
+# was never there.
+AMENDMENT_PATH = "plan.md"
+AMENDMENT_CONTENT = "the arguments the model asked for, unchanged\n"
+
+
+def amendable_write_then_finish(marker):
+    """Write a new file, then say `marker`.
+
+    A **whole-file write to a fresh path**, so the two trials of scenario 25 are
+    two different observations of the same call: allowed, the file holds
+    `AMENDMENT_CONTENT` byte for byte -- an amendment is context and never an
+    argument, so what runs is what the model asked for; refused, the path does
+    not exist at all. No read ahead of it, because a file that is not there has
+    no preimage for the write to have to match (`src/tools/mutate.rs`).
+    """
+    return [
+        {
+            "events": [
+                tool_call(
+                    "call-0",
+                    "write_file",
+                    {"path": AMENDMENT_PATH, "content": AMENDMENT_CONTENT},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
+QUESTION_FOLLOWER_PATH = "written-by-the-call-behind-the-question.txt"
+QUESTION_FOLLOWER_CONTENT = "the call behind the question ran\n"
+
+
+def ask_then_write(marker):
+    """One completion that asks **and then writes**, and a reply for the turn after it.
+
+    The write is in the *same* completion as the question, and that is the whole
+    point of the fixture: `execute_tool_calls` runs a completion's calls in
+    order, so the file is what says whether the calls queued behind an
+    interrupted question ran. A second completion would prove something weaker
+    -- that no further request was made -- and would leave the file untouched
+    even on a build that ran the rest of the step.
+
+    The reply after it belongs to the **next** prompt: an interrupted turn asks
+    for nothing more, so a session that reached it is a session that took a
+    fresh turn after the interrupt.
+    """
+    return [
+        {
+            "events": [
+                tool_call(
+                    "call-0",
+                    "ask_user_question",
+                    {
+                        "questions": [
+                            {
+                                "question": "Proceed?",
+                                "options": [{"label": "Go ahead"}, {"label": "Hold on"}],
+                            }
+                        ]
+                    },
+                ),
+                tool_call(
+                    "call-1",
+                    "write_file",
+                    {"path": QUESTION_FOLLOWER_PATH, "content": QUESTION_FOLLOWER_CONTENT},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
 class LoopbackHTTPServer(ThreadingHTTPServer):
     """`HTTPServer` without the reverse-DNS lookup it does while binding.
 
@@ -1248,6 +1427,25 @@ class Fixture:
             handler.wfile.write(payload)
             return
         reply = self.script[index]
+        # A scripted reply may carry a `release_when` `threading.Event`: the
+        # request is already recorded above, and what waits here is only the
+        # *response bytes* -- a scenario can capture "the request landed" and
+        # then act (paste, resize, deny) while the reply is provably still
+        # pending, instead of racing a sleep against the product. Bounded by
+        # the same `HANG_TIMEOUT` the held-stream branch below answers to: an
+        # event a scenario forgot to `.set()` must fail this request loudly,
+        # the same reasoning the unscripted-request branch above already
+        # applies, rather than let the wait expire into an ordinary reply that
+        # would hide a broken barrier behind a passing screen.
+        release_when = reply.get("release_when")
+        if release_when is not None and not release_when.wait(HANG_TIMEOUT):
+            payload = b'{"error":"fixture: release_when not set within HANG_TIMEOUT"}'
+            handler.send_response(500)
+            handler.send_header("content-type", "application/json")
+            handler.send_header("content-length", str(len(payload)))
+            handler.end_headers()
+            handler.wfile.write(payload)
+            return
         if "status" in reply:
             payload = json.dumps(reply.get("body", {})).encode("utf-8")
             handler.send_response(reply["status"])
@@ -1464,6 +1662,44 @@ def anthropic_answer(*texts):
         ("message_stop", {"type": "message_stop"}),
     ])
     return events
+
+
+def _barrier_selfcheck():
+    """`python3 fixture_server.py`, never imported by a scenario.
+
+    Proves `release_when` both halves of its contract against a real loopback
+    request, rather than trusting that the read of `_answer` above is right:
+    an unreleased gate answers **loudly** within its own bounded wait, and a
+    released one answers exactly as if it had never carried one at all.
+    """
+    import urllib.error
+    import urllib.request
+
+    def hit(events, event, timeout):
+        global HANG_TIMEOUT
+        saved, HANG_TIMEOUT = HANG_TIMEOUT, timeout
+        fixture = Fixture([{"events": events, "release_when": event}])
+        try:
+            try:
+                urllib.request.urlopen(fixture.url(), data=b"{}", timeout=5)
+                return 200
+            except urllib.error.HTTPError as error:
+                return error.code
+        finally:
+            fixture.stop()
+            HANG_TIMEOUT = saved
+
+    held = hit([], threading.Event(), 0.2)
+    assert held == 500, "an unreleased barrier answered %r instead of failing" % held
+    released = threading.Event()
+    released.set()
+    freed = hit([finish()], released, HANG_TIMEOUT)
+    assert freed == 200, "a released barrier answered %r instead of the scripted reply" % freed
+    print("fixture_server selfcheck: release_when fails unreleased, answers released -- ok")
+
+
+if __name__ == "__main__":
+    _barrier_selfcheck()
 PYTHON
 
 cat >"$helpers/pty_tui.py" <<'PYTHON'
@@ -1531,8 +1767,14 @@ FRAME_END = "\x1b[?2026l\x1b[?25h"
 # The whole interactive mode sequence and the two restores, in order
 # (`src/tui/term.rs:32-52`). Spelled out rather than imported: a harness that
 # read the constant it is checking would pass for whatever the module declared.
-MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[22;2t"
-RESTORE = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h"
+# The title push (`22;2t`) is the last thing in the mode set and its pop
+# (`23;2t`) is the first thing in every restore below -- the only last/first
+# pair here. `?2031h`/`?2031l` (`src/tui/term.rs:56,65`), the theme-change
+# subscription, sits the other way round it: set *before* the push and unset
+# *after* the pop, so the subscription is taken and given back inside the
+# title the session borrows, never outside it.
+MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t"
+RESTORE = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h"
 ABNORMAL_RESTORE = "\x1b[?1049l" + RESTORE
 
 # The local and input modes raw mode clears (`shell_runtime.zig:108-138`).
@@ -1915,13 +2157,14 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixture_server as fixtures  # noqa: E402
 import pty_tui as pty  # noqa: E402
-from vt_grid import Grid  # noqa: E402
+from vt_grid import Grid, cluster_width, clusters  # noqa: E402
 
 # The dark background reply and the cursor report, in the order they were asked
 # for -- which is the order one read serves them in. Answering both keeps every
@@ -1933,6 +2176,12 @@ PERMISSION_TITLE = "Permission needed"
 
 # The second choice's wording for anything that is not a shell command.
 ALWAYS_WORDING = "don't ask again for this request"
+
+# What the shell says to an affirmative given before the question's frame has
+# been committed and reconciled (`shell::APPROVAL_NOT_READY`). A literal here,
+# beside the other product wordings this script pins, and byte-identical to the
+# Rust constant.
+APPROVAL_NOT_READY = "the question is not on the screen yet"
 
 # The bytes that take the terminal's second buffer and give it back. Spelled out
 # here rather than imported, for the reason every needle in this suite is.
@@ -2692,10 +2941,18 @@ def scenario_3b(run):
     # repainted, every frame"), and the draft below makes one frame 39,187
     # bytes -- 2.25x the largest of those screens and 38x the smallest.
     #
-    # One frame is one `write_all` (`src/tui/frame.rs:145-157`, onto the locked
-    # standard output passed down from `event_loop.rs:286`), and `write_all`
-    # retries `Interrupted` and nothing else: the first `WouldBlock` ends the
-    # frame, and the band owes it again rather than continuing it. So for a
+    # One frame is one counted emit (`src/tui/deliver.rs`, onto the terminal
+    # descriptor passed down from `event_loop.rs`), and an emit retries
+    # `Interrupted` and nothing else. `WouldBlock` ends it, on whichever of the
+    # two roads its position puts it: a screen that took **nothing** is a
+    # refusal the band owes again and the budget counts, and a screen that took
+    # a **prefix** ends the session on the spot, because the vector cannot be
+    # re-offered without writing that prefix twice. Both are bounded and both
+    # are asserted below by the same pair of claims -- exit 1 inside the
+    # deadline. Which of the two a given kernel produces is its buffer's
+    # business: a screen larger than one frame refuses whole vectors, and one
+    # smaller takes a prefix of the first (macOS 26 answers this row with
+    # `accepted 1024 bytes`, its whole pty buffer). So for a
     # frame this size to *land*, the reader would have to keep freeing room
     # inside the gaps between consecutive `write(2)` calls of a loop that has
     # no sleep in it -- twenty-two more kilobytes of it on the larger screen,
@@ -2768,8 +3025,8 @@ def scenario_3b(run):
     elapsed = time.time() - began
     run.require(
         elapsed < STARVED_DEADLINE,
-        "it ended on the budget rather than retrying forever (%.2fs, deadline %.2fs)"
-        % (elapsed, STARVED_DEADLINE),
+        "it ended on the budget, or on the first prefix, rather than retrying forever "
+        "(%.2fs, deadline %.2fs)" % (elapsed, STARVED_DEADLINE),
     )
     starved.session.wait_exit()
     run.require(
@@ -2793,6 +3050,714 @@ def scenario_3b(run):
 
 
 # ---------------------------------------------------------------------------
+# 3c. a terminal that takes part of a frame
+# ---------------------------------------------------------------------------
+
+
+def first_frame(captured):
+    """The launch's first **complete** frame, as bytes, or `None`.
+
+    Complete on purpose: it is the thing the torn run below is measured
+    against, so an incomplete one would make the comparison vacuous.
+    """
+    begins = captured.find(FRAME_BEGIN_BYTES)
+    if begins < 0:
+        return None
+    ends = captured.find(FRAME_END_BYTES, begins)
+    if ends < 0:
+        return None
+    return captured[begins : ends + len(FRAME_END_BYTES)]
+
+
+def scenario_3c(run):
+    """A prefix on a real terminal: written once, never re-offered, terminal back.
+
+    The one failure a refusing screen cannot stand in for. Every other row of
+    the restoration matrix fails a write that delivered **nothing**, so the
+    terminal is exactly where it was and the vector may be offered again; here
+    the terminal really has taken part of a synchronized frame. This build's
+    one answer to that -- a fixed cleanup vector, then a rebuild
+    (`Band::recover_primary`) -- is attempted, and `partial-frame` refuses
+    that cleanup vector too, which is what makes the tear fatal here rather
+    than recovered. `3d-primary-band-recovery` drives the row where the same
+    cleanup vector is answered for real.
+
+    **What this row cannot use, and what it uses instead.** The three-part
+    discriminator wants a nonce in a prompt, in the captured request and on the
+    screen -- and this session dies on the *first band frame*, before a prompt
+    can be typed and before any turn exists to send one. Faking a nonce that was
+    never sent would be a mockup of the very kind that discriminator exists to
+    catch. So the nonce row is driven in full against a **control** session --
+    same fixture, same geometry, same profile, nothing injected -- which proves
+    this scenario's fixture and binary really render this scenario's own text;
+    and the torn session is discriminated positively against *that* control:
+    what the terminal took is asserted to be a genuine, incomplete **prefix of
+    the very frame the control's launch paints**. Nothing here passes by
+    absence.
+
+    The control runs the release binary and the torn session the
+    fault-injection one, which is the pairing every faulty row uses. The two
+    builds differ in branches that no launch reaches (`super::fault`), so a
+    disagreement between their launch frames is a real finding rather than a
+    tolerated one -- and it is the comparison below that would report it.
+
+    **What is deliberately not claimed**: that the terminal's parser recovered.
+    The `termios` comparison is a `tcsetattr` fact read off the child's
+    terminal, and the restore sequence is a byte fact read off the wire. Neither
+    says what a terminal made of an incomplete vector, and this row asserts
+    neither.
+    """
+    marker = run.marker("partial")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+
+    # -- the control: this scenario's own text, rendered for real ---------
+    control = run.trial("normal-control", gateway=fixture).settled()
+    run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
+    launch_frame = first_frame(bytes(control.session.captured))
+    run.require(
+        launch_frame is not None and len(launch_frame) > len(FRAME_BEGIN_BYTES),
+        "control: the launch painted a complete first frame to compare against",
+    )
+    discriminate(run, control, fixture, marker)
+    control.send("/quit\r")
+    run.require(control.session.wait_exit() == ("exited", 0), "control: /quit leaves with 0")
+    run.require(control.modes() == control.before, "control: termios byte-identical")
+
+    # -- the same launch, onto a terminal that stops mid-frame ------------
+    torn = run.trial("partial-frame", faulty=True, fault="partial-frame", gateway=fixture)
+    state = torn.session.wait_exit()
+    # One rather than merely non-zero: `ExitCode::FAILURE` is what the give-up
+    # path returns, and a panic would leave with 101 while proving the opposite.
+    run.require(
+        state == ("exited", 1),
+        "partial frame: the session left with its own error rather than surviving (%r)" % (state,),
+    )
+    captured = bytes(torn.session.captured)
+    text = torn.session.settled_text()
+
+    begins = captured.find(FRAME_BEGIN_BYTES)
+    run.require(begins >= 0, "partial frame: a band frame really reached the terminal")
+    run.require(
+        captured.count(FRAME_BEGIN_BYTES) == 1,
+        "partial frame: the torn frame was never offered again (%d frames on the wire)"
+        % captured.count(FRAME_BEGIN_BYTES),
+    )
+    run.require(
+        FRAME_END_BYTES not in captured,
+        "partial frame: no frame was ever completed on this terminal",
+    )
+    restore = pty.RESTORE.encode()
+    restore_at = captured.find(restore, begins if begins >= 0 else 0)
+    run.require(restore_at > begins >= 0, "partial frame: the exit's restore followed the prefix")
+    prefix = captured[begins:restore_at] if restore_at > begins >= 0 else b""
+    run.require(
+        0 < len(prefix) < len(launch_frame or b""),
+        "partial frame: what the terminal took is a real and incomplete part of a frame "
+        "(%d bytes of %d)" % (len(prefix), len(launch_frame or b"")),
+    )
+    run.require(
+        bool(launch_frame) and launch_frame.startswith(prefix),
+        "partial frame: those bytes are a prefix of the frame this launch paints",
+    )
+
+    # The count the session reports is the count on the wire. Two independent
+    # measurements of one number: the product's own accounting, and the harness
+    # counting what its terminal was handed.
+    reported = re.search(r"accepted (\d+) bytes", text)
+    run.require(
+        reported is not None,
+        "partial frame: the session says how much the terminal accepted: %r" % text[-200:],
+    )
+    run.require(
+        reported is not None and int(reported.group(1)) == len(prefix),
+        "partial frame: the reported count is the number of bytes on the wire (%s vs %d)"
+        % (reported.group(1) if reported else "none", len(prefix)),
+    )
+
+    # The exit's own segments. The restore went out whole -- the terminal was
+    # taking bytes again by then -- so the cleanup below it is still written:
+    # the skip belongs to an exit whose *first* segment is taken in part, and a
+    # frame that ended in a prefix earlier in the session is not that.
+    after = captured[restore_at + len(restore) :] if restore_at >= 0 else b""
+    run.require(
+        b"\x1b[J" in after,
+        "partial frame: the exit still wrote the cleanup it owed after a whole restore",
+    )
+    run.require(
+        torn.modes() == torn.before,
+        "partial frame: termios byte-identical -- the line discipline, which is all this measures",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 3d. the primary-band recovery this build actually answers
+# ---------------------------------------------------------------------------
+
+# The fixed vector `Band::recover_primary` emits and `check::RECOVERY_CLEANUP`
+# licenses (`src/tui/check.rs:1084`), spelled out rather than imported for the
+# same reason every other needle in this suite is.
+RECOVERY_CLEANUP_BYTES = b"\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h"
+
+
+def recovered_peek(trial, after, record_frames=False):
+    """`Trial.peek`, sliced to start at `after` (a recovery cleanup's end).
+
+    The oracle's allowlist knows neither a bare `CAN` nor `OSC 8` -- the bytes
+    `RECOVERY_CLEANUP` is built from -- and cannot model a parser mid tear
+    either way, so nothing in this scenario ever feeds it the raw capture
+    from byte zero. `Trial.peek`'s own last-complete-frame guard is kept on
+    the slice: everything from `after` on is either the rebuild this row
+    asserts on or an ordinary later frame, and both are real, complete,
+    synchronized ones.
+    """
+    captured = bytes(trial.session.captured)[after:]
+    begins = captured.rfind(FRAME_BEGIN_BYTES)
+    if begins >= 0 and captured.find(FRAME_END_BYTES, begins) < 0:
+        captured = captured[:begins]
+    return Grid(trial.rows, trial.cols, record_frames=record_frames).feed(captured)
+
+
+def recovered_grid(trial, after, label):
+    grid = recovered_peek(trial, after)
+    trial.snapshots += 1
+    path = os.path.join(trial.dir, "grid-%02d-post-cleanup-%s.txt" % (trial.snapshots, label))
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("# post-cleanup reconstruction; not proof of parser resync\n")
+        handle.write(grid.snapshot())
+    return grid
+
+
+def recovered_discriminate(run, trial, fixture, marker, after, label, prompt=None):
+    """`discriminate`, minus the read through `trial.grid`.
+
+    That helper decodes this trial's whole capture from byte zero, so on this
+    trial it would fail `grid.unknown` on the tear's own undeclared bytes
+    rather than on anything this row is actually testing. Every other part of
+    the three-part check -- nonce in the request, marker on the screen, the
+    screen not blank -- is unchanged.
+    """
+    trial.send((prompt or ("say " + run.nonce)) + "\r")
+    trial.wait_for(marker)
+    sent = fixture.bodies()
+    run.require(
+        any(run.nonce in body for body in sent),
+        "recovery: the nonce this run minted is in the request xfx sent (%d request(s) captured)"
+        % len(sent),
+    )
+    grid = recovered_grid(trial, after, label)
+    run.require(grid.text().strip() != "", "recovery: the screen is not blank")
+    run.require(
+        grid.find(marker) is not None,
+        "recovery: the fixture's own marker %r is rendered on the screen" % marker,
+    )
+    run.require(
+        not grid.unknown,
+        "recovery: the reconstructed post-cleanup screen emits only declared sequences: %r"
+        % grid.unknown,
+    )
+    return grid
+
+
+def scenario_3d(run):
+    """The one row `3c` cannot drive: a torn primary-band frame this build
+    actually recovers from, in the same call, on a real terminal.
+
+    `fault="partial-frame-once"` tears the same first frame `3c` does, but
+    answers the recovery attempt's own fixed cleanup vector for real instead
+    of refusing it too -- so this row watches the rest of
+    `Band::recover_primary` actually happen: the cleanup lands, the band is
+    rebuilt from an erased shadow, and the session keeps running rather than
+    dying.
+
+    The oracle cannot be trusted with the torn prefix or the cleanup vector's
+    own bytes (`recovered_peek` above), so every grid this row reads is
+    sliced to start after the cleanup vector. That is a real screen a real
+    terminal shows, but it is **post-cleanup reconstruction**: it says the
+    rebuild reached the terminal correctly, not that a terminal's own parser
+    resynchronized on the torn prefix -- that claim needs an independent
+    terminal experiment, same as `Band::recover_primary`'s own doc comment
+    says, and is not made here.
+    """
+    marker = run.marker("recovered")
+    # Two scripted replies: the control's own turn and the recovered trial's
+    # turn, each a real round trip against this scenario's own fixture.
+    fixture = start_fixture(run, [fixtures.content_only(marker), fixtures.content_only(marker)])
+
+    # -- the control: this scenario's own text, rendered for real ---------
+    control = run.trial("normal-control", gateway=fixture).settled()
+    run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
+    launch_frame = first_frame(bytes(control.session.captured))
+    run.require(
+        launch_frame is not None and len(launch_frame) > len(FRAME_BEGIN_BYTES),
+        "control: the launch painted a complete first frame to compare against",
+    )
+    discriminate(run, control, fixture, marker)
+    control.send("/quit\r")
+    run.require(control.session.wait_exit() == ("exited", 0), "control: /quit leaves with 0")
+    run.require(control.modes() == control.before, "control: termios byte-identical")
+
+    # -- the same launch, onto a terminal that tears once and is recovered -
+    trial = run.trial(
+        "torn-then-recovered", faulty=True, fault="partial-frame-once", gateway=fixture
+    ).settled()
+    run.require(trial.modes().is_raw(), "recovery: raw mode really was entered")
+    captured = bytes(trial.session.captured)
+
+    begins = captured.find(FRAME_BEGIN_BYTES)
+    run.require(begins >= 0, "recovery: a band frame really reached the terminal")
+    cleanup_at = captured.find(RECOVERY_CLEANUP_BYTES, begins if begins >= 0 else 0)
+    run.require(cleanup_at > begins >= 0, "recovery: the fixed cleanup vector followed the tear")
+    prefix = captured[begins:cleanup_at] if cleanup_at > begins >= 0 else b""
+    run.require(
+        0 < len(prefix) < len(launch_frame or b""),
+        "recovery: the terminal first took a real, incomplete part of a frame (%d of %d bytes)"
+        % (len(prefix), len(launch_frame or b"")),
+    )
+    run.require(
+        bool(launch_frame) and launch_frame.startswith(prefix),
+        "recovery: those bytes are a prefix of the frame this launch paints",
+    )
+    run.require(
+        FRAME_END_BYTES not in prefix, "recovery: the torn write never completed its own frame"
+    )
+
+    # Two `FRAME_BEGIN`s (the tear, then the rebuild) and one `FRAME_END`
+    # (only the rebuild reaches it) -- pairing the *first* begin with the
+    # only end on the wire, as `first_frame` does, would silently splice the
+    # tear, the cleanup vector and the rebuild into one "frame" no terminal
+    # ever showed. Every check below is bounded by `cleanup_at`/`cleanup_end`
+    # instead, on purpose.
+    run.require(
+        captured.count(FRAME_BEGIN_BYTES) == 2,
+        "recovery: exactly the frame this build tore and the one it rebuilt (%d)"
+        % captured.count(FRAME_BEGIN_BYTES),
+    )
+    run.require(
+        captured.count(FRAME_END_BYTES) == 1,
+        "recovery: exactly one frame on this wire ever completed (%d)"
+        % captured.count(FRAME_END_BYTES),
+    )
+    cleanup_end = cleanup_at + len(RECOVERY_CLEANUP_BYTES)
+    rebuild_region = captured[cleanup_end:]
+    rebuild_begins = rebuild_region.find(FRAME_BEGIN_BYTES)
+    run.require(rebuild_begins >= 0, "recovery: a fresh frame opened behind the cleanup vector")
+    rebuild_ends = rebuild_region.find(
+        FRAME_END_BYTES, rebuild_begins if rebuild_begins >= 0 else 0
+    )
+    run.require(
+        rebuild_ends > rebuild_begins >= 0,
+        "recovery: the rebuild is a whole frame, opened and closed after the cleanup",
+    )
+
+    # -- the rebuilt screen: divider, composer, hint row, caret -----------
+    trial.wait_until(
+        "the composer to hold an empty draft after the rebuild",
+        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == "",
+    )
+    grid = recovered_grid(trial, cleanup_end, "rebuilt")
+    run.require(composer_text(grid) == "", "recovery: the rebuilt composer is empty")
+    run.require(divider_row(grid) is not None, "recovery: the rebuilt screen has a divider")
+    run.require(
+        grid.row_text(grid.rows - 1).strip() == HINT_AUTO,
+        "recovery: the rebuilt hint row says what a turn would run with: %r"
+        % grid.row_text(grid.rows - 1).strip(),
+    )
+    composer_row = composer_first_row(grid)
+    run.require(
+        composer_row is not None and grid.row == composer_row and grid.col == 2,
+        "recovery: the caret sits at the rebuilt, empty composer's own start (row %r, col %d)"
+        % (grid.row, grid.col),
+    )
+    run.require(
+        not grid.unknown,
+        "recovery: the rebuilt screen emits only declared sequences: %r" % grid.unknown,
+    )
+
+    # -- typed nonce visible, C-u empties it, the real prompt is submitted -
+    trial.send(run.nonce)
+    trial.wait_until(
+        "the typed nonce in the rebuilt composer",
+        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == run.nonce,
+    )
+    typed = recovered_grid(trial, cleanup_end, "typed-nonce")
+    run.require(
+        composer_text(typed) == run.nonce,
+        "recovery: the typed nonce is in the composer: %r" % composer_text(typed),
+    )
+    trial.send(b"\x15")  # C-u
+    trial.wait_until(
+        "the composer to empty after C-u",
+        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == "",
+    )
+    recovered_discriminate(run, trial, fixture, marker, cleanup_end, "post-recovery")
+
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "recovery: Ctrl-D leaves with 0")
+    run.require(
+        trial.modes() == trial.before, "recovery: termios byte-identical after a recovered tear"
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 3e. a torn repaint of the alternate plane the session already owns
+# ---------------------------------------------------------------------------
+
+# The bytes that open any `?1049` sequence, take or give: what a vector that
+# moved the terminal between its two buffers would have to carry.
+PLANE_MOVE_BYTES = b"\x1b[?1049"
+
+
+def excised(trial, torn_at, cleanup_end, until=None):
+    """The capture with the torn repaint and the cleanup vector cut out of it.
+
+    `recovered_peek`'s slice from the cleanup's end would lose the `1049h` that
+    took the plane, and with it the one fact this row is about -- which buffer
+    the rebuild landed on. So the stream is kept on both sides of the tear and
+    only the two regions the oracle cannot read are removed: the torn prefix,
+    which may end inside a sequence, and the cleanup, whose `CAN` and `OSC 8`
+    its allowlist refuses. Neither carries a `?1049` -- the scenario asserts
+    that on the bytes before it reads a grid built this way -- so cutting them
+    out cannot change the plane; what it does assume is that the terminal
+    discarded the fragment, which is the parser-resync claim nothing here
+    makes. Every grid from it says so in its file.
+    """
+    captured = bytes(trial.session.captured)
+    if until is not None:
+        captured = captured[:until]
+    spliced = captured[:torn_at] + captured[cleanup_end:]
+    begins = spliced.rfind(FRAME_BEGIN_BYTES)
+    if begins >= 0 and spliced.find(FRAME_END_BYTES, begins) < 0:
+        spliced = spliced[:begins]
+    return spliced
+
+
+def excised_peek(trial, torn_at, cleanup_end, until=None):
+    return Grid(trial.rows, trial.cols).feed(excised(trial, torn_at, cleanup_end, until))
+
+
+def excised_grid(trial, torn_at, cleanup_end, label, until=None):
+    grid = excised_peek(trial, torn_at, cleanup_end, until)
+    trial.snapshots += 1
+    path = os.path.join(trial.dir, "grid-%02d-excised-%s.txt" % (trial.snapshots, label))
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "# torn prefix and cleanup vector excised; post-cleanup reconstruction, "
+            "not proof of parser resync\n"
+        )
+        handle.write(grid.snapshot())
+    return grid
+
+
+def asked_on_the_alternate_plane(run, trial, what):
+    """Asks for the large edit with this run's nonce and waits for the question.
+
+    Returns how many bytes the terminal held once the question's frame was
+    complete, which is where every later search for the repaint starts.
+    """
+    trial.send("edit the notes " + run.nonce + "\r")
+    trial.wait_for("[tool] read_file ok")
+    trial.wait_for(ALTERNATE_ENTER)
+    trial.wait_until(
+        "%s: the question to be painted on the plane it took" % what,
+        lambda _t: trial.peek().find(PERMISSION_TITLE) is not None,
+    )
+    grid = trial.grid("question-on-the-alternate-plane")
+    run.require(grid.plane == "alternate", "%s: the question is on a plane of its own" % what)
+    run.require(grid.entered_alternate == 1, "%s: the plane was taken once" % what)
+    run.require(not grid.unknown, "%s: the question emits only declared sequences" % what)
+    return len(trial.session.captured)
+
+
+def scenario_3e(run):
+    """A torn repaint of the alternate plane the session already owns: recovered
+    in the same call when the cleanup lands, fatal when it does not.
+
+    The one other vector `3d`'s recovery reaches. A question about a change too
+    big for the band is up on the plane it took; one step of the walk (`C-n`)
+    asks for a repaint of that plane, which takes no plane, gives none back and
+    scrolls nothing into a scrollback the terminal keeps -- so its whole
+    intended content is in hand when it tears. `partial-alternate-once` takes
+    half of that repaint and fails, and then answers the fixed cleanup and the
+    rebuild for real; `partial-alternate` refuses the cleanup too, so the
+    session must end on it. Neither fault can land on the `1049h` that took the
+    plane or the `1049l` that gives it back: those transitions stay contained
+    and fatal, and are not what this row drives.
+
+    **The discriminator.** The control -- release binary, nothing injected --
+    answers the same question end to end and carries this run's nonce in its
+    request and the fixture's marker on its screen. The torn sessions cannot be
+    compared with the control's bytes, because the review screen shows the
+    workspace path and every trial has its own; so each is discriminated
+    against **itself**: the rebuild is asserted to open with exactly the bytes
+    the terminal took and then finish them -- the same rows, geometry and caret
+    the torn attempt was built from -- and the recovered session's nonce, marker
+    and answer are asserted as the control's are.
+
+    **What is not claimed**: that a terminal's parser resynchronized on the torn
+    prefix. Every grid after the tear is built with the prefix and the cleanup
+    cut out (`excised`), which reconstructs what the rebuild painted and says
+    nothing about what the fragment did.
+    """
+    marker = run.marker("altrecovered")
+    before, after = fixtures.large_edit_sides()
+
+    # -- the control: the same question, answered, nothing injected -------
+    control_fixture = start_fixture(
+        run, fixtures.large_edit_then_finish(marker), name="control-gateway"
+    )
+    control = run.trial(
+        "normal-control",
+        gateway=control_fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+    run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
+    asked = asked_on_the_alternate_plane(run, control, "control")
+    control.send(b"\x0e")
+    control.wait_until(
+        "control: the walk to repaint the plane",
+        lambda _t: bytes(control.session.captured).find(FRAME_END_BYTES, asked) >= 0,
+    )
+    control.send(b"1")
+    control.wait_for(marker)
+    run.require(
+        any(run.nonce in body for body in control_fixture.bodies()),
+        "control: the nonce this run minted is in the request xfx sent",
+    )
+    control.wait_until(
+        "control: the band to be painted on the primary plane again",
+        lambda _t: control.peek().plane == "primary"
+        and control.peek().find(HINT_MODEL) is not None,
+    )
+    grid = control.grid("control-back-on-the-primary-plane")
+    run.require(grid.text().strip() != "", "control: the screen is not blank")
+    run.require(grid.find(marker) is not None, "control: the fixture's own marker is rendered")
+    run.require(not grid.unknown, "control: only declared sequences: %r" % grid.unknown)
+    run.require(read(control.notes) == after + "\n", "control: `1` let the edit through")
+    control.send(b"\x04")
+    run.require(control.session.wait_exit() == ("exited", 0), "control: Ctrl-D leaves with 0")
+    run.require(control.modes() == control.before, "control: termios byte-identical")
+    control_fixture.stop()
+
+    # -- the repaint torn once, and recovered --------------------------------
+    once_fixture = start_fixture(
+        run, fixtures.large_edit_then_finish(marker), name="recovered-gateway"
+    )
+    trial = run.trial(
+        "torn-then-recovered",
+        faulty=True,
+        fault="partial-alternate-once",
+        gateway=once_fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+    run.require(trial.modes().is_raw(), "recovery: raw mode really was entered")
+    asked = asked_on_the_alternate_plane(run, trial, "recovery")
+
+    trial.send(b"\x0e")
+
+    def recovered_and_repainted(_text):
+        captured = bytes(trial.session.captured)
+        at = captured.find(RECOVERY_CLEANUP_BYTES, asked)
+        return at >= 0 and captured.count(FRAME_END_BYTES, at) >= 2
+
+    # The tear, the cleanup, the rebuild -- and the repaint the tick behind a
+    # recovery is forced to write, which is the frame readiness comes back
+    # from. An answer typed before it lands is refused as not ready.
+    trial.wait_until(
+        "the cleanup, the rebuild and the repaint the next tick owed", recovered_and_repainted
+    )
+    captured = bytes(trial.session.captured)
+
+    cleanup_at = captured.find(RECOVERY_CLEANUP_BYTES, asked)
+    run.require(cleanup_at >= asked, "recovery: the fixed cleanup vector followed the question")
+    torn_at = captured.rfind(FRAME_BEGIN_BYTES, asked, cleanup_at)
+    run.require(
+        torn_at >= asked, "recovery: the torn vector was a repaint written after the question"
+    )
+    prefix = captured[torn_at:cleanup_at] if torn_at >= asked else b""
+    run.require(
+        len(prefix) > len(FRAME_BEGIN_BYTES),
+        "recovery: the terminal took a real part of the repaint (%d bytes)" % len(prefix),
+    )
+    run.require(
+        FRAME_END_BYTES not in prefix, "recovery: the torn repaint never completed its frame"
+    )
+    run.require(
+        PLANE_MOVE_BYTES not in prefix,
+        "recovery: the torn vector was a repaint, not a plane transition",
+    )
+    cleanup_end = cleanup_at + len(RECOVERY_CLEANUP_BYTES)
+    rebuilt = captured[cleanup_end:]
+    rebuilt_end = rebuilt.find(FRAME_END_BYTES)
+    rebuilt_end = rebuilt_end + len(FRAME_END_BYTES) if rebuilt_end >= 0 else -1
+    run.require(rebuilt_end > 0, "recovery: the rebuild is a whole frame after the cleanup")
+    run.require(
+        rebuilt.startswith(prefix) and rebuilt_end > len(prefix),
+        "recovery: the rebuild opens with exactly the bytes the terminal took and finishes them",
+    )
+    run.require(
+        b"\x1b[1;1H\x1b[2J" in rebuilt[:rebuilt_end],
+        "recovery: the rebuild erases the plane before it paints it",
+    )
+    run.require(
+        PLANE_MOVE_BYTES not in captured[torn_at:cleanup_end + max(rebuilt_end, 0)],
+        "recovery: neither the cleanup nor the rebuild moved the terminal between its planes",
+    )
+    forced = rebuilt[max(rebuilt_end, 0) :]
+    run.require(
+        forced.find(FRAME_BEGIN_BYTES) >= 0 and forced.find(FRAME_END_BYTES) >= 0,
+        "recovery: the tick behind the recovery wrote a whole repaint of its own",
+    )
+    run.require(
+        captured.count(ALTERNATE_ENTER.encode()) == 1
+        and ALTERNATE_LEAVE.encode() not in captured,
+        "recovery: the plane was taken once and not given back before the answer",
+    )
+
+    # -- the rebuilt screen, and the one the next tick painted ------------------
+    until_rebuilt = cleanup_end + max(rebuilt_end, 0)
+    grid = excised_grid(trial, torn_at, cleanup_end, "rebuilt", until=until_rebuilt)
+    run.require(grid.plane == "alternate", "recovery: the rebuild landed on the plane it tore")
+    run.require(
+        grid.entered_alternate == 1 and grid.left_alternate == 0,
+        "recovery: the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(grid.find(PERMISSION_TITLE) is not None, "recovery: the rebuild names the question")
+    for choice in ("1. Yes", "3. No (esc)"):
+        run.require(grid.find(choice) is not None, "recovery: the rebuild kept %r" % choice)
+    run.require(
+        not grid.unknown,
+        "recovery: the rebuild emits only declared sequences: %r" % grid.unknown,
+    )
+    primary = grid.primary_text()
+    run.require(
+        "read_file ok" in primary and HINT_MODEL in primary,
+        "recovery: the user's own screen is still saved behind the plane: %r" % primary,
+    )
+    repainted = excised_grid(trial, torn_at, cleanup_end, "repainted-by-the-next-tick")
+    run.require(
+        repainted.text() == grid.text() and repainted.plane == "alternate",
+        "recovery: the forced repaint shows the same question the rebuild did",
+    )
+
+    # -- still answerable, and the session goes on --------------------------
+    trial.send(b"1")
+    trial.wait_for(marker)
+    run.require(ALTERNATE_LEAVE in trial.text(), "recovery: the answer gave the plane back")
+    run.require(read(trial.notes) == after + "\n", "recovery: `1` let the edit through")
+    trial.wait_until(
+        "the band to be painted on the primary plane after the recovered question",
+        lambda _t: excised_peek(trial, torn_at, cleanup_end).plane == "primary"
+        and excised_peek(trial, torn_at, cleanup_end).find(HINT_MODEL) is not None,
+    )
+    grid = excised_grid(trial, torn_at, cleanup_end, "back-on-the-primary-plane")
+    run.require(
+        grid.entered_alternate == grid.left_alternate == 1,
+        "recovery: the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(grid.find(marker) is not None, "recovery: the fixture's own marker is rendered")
+    run.require(grid.find("beta line") is None, "recovery: the change left the user's screen")
+    run.require(not grid.unknown, "recovery: only declared sequences: %r" % grid.unknown)
+    run.require(
+        any(run.nonce in body for body in once_fixture.bodies()),
+        "recovery: the nonce this run minted is in the request xfx sent",
+    )
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "recovery: Ctrl-D leaves with 0")
+    run.require(trial.modes() == trial.before, "recovery: termios byte-identical")
+    run.require(
+        not os.path.exists(os.path.join(trial.home, ".xfx", "last-tui-error.json")),
+        "recovery: a session that recovered left no give-up report",
+    )
+    once_fixture.stop()
+
+    # -- the same tear, with the cleanup refused too ------------------------
+    fatal_fixture = start_fixture(
+        run, fixtures.large_edit_then_finish(marker), name="unrecovered-gateway"
+    )
+    torn = run.trial(
+        "torn-unrecovered",
+        faulty=True,
+        fault="partial-alternate",
+        gateway=fatal_fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+    run.require(torn.modes().is_raw(), "containment: raw mode really was entered")
+    asked = asked_on_the_alternate_plane(run, torn, "containment")
+    run.require(
+        any(run.nonce in body for body in fatal_fixture.bodies()),
+        "containment: the nonce this run minted is in the request xfx sent",
+    )
+    torn.send(b"\x0e")
+    state = torn.session.wait_exit()
+    run.require(
+        state == ("exited", 1),
+        "containment: the session left with its own error (%r)" % (state,),
+    )
+    captured = bytes(torn.session.captured)
+    text = torn.session.settled_text()
+    run.require(
+        RECOVERY_CLEANUP_BYTES not in captured,
+        "containment: the refused cleanup is not on the wire",
+    )
+    torn_at = captured.find(FRAME_BEGIN_BYTES, asked)
+    left_at = captured.find(ALTERNATE_LEAVE.encode(), torn_at if torn_at >= 0 else asked)
+    run.require(
+        left_at > torn_at >= asked, "containment: the exit gave the plane back after the tear"
+    )
+    prefix = captured[torn_at:left_at] if left_at > torn_at >= asked else b""
+    run.require(
+        len(prefix) > len(FRAME_BEGIN_BYTES) and FRAME_END_BYTES not in prefix,
+        "containment: the terminal took a real, incomplete part of the repaint (%d bytes)"
+        % len(prefix),
+    )
+    run.require(
+        prefix.count(FRAME_BEGIN_BYTES) == 1 and PLANE_MOVE_BYTES not in prefix,
+        "containment: the torn repaint was never offered again and moved no plane",
+    )
+    reported = re.search(r"accepted (\d+) bytes", text)
+    run.require(
+        reported is not None and int(reported.group(1)) == len(prefix),
+        "containment: the reported count is the number of bytes on the wire (%s vs %d)"
+        % (reported.group(1) if reported else "none", len(prefix)),
+    )
+    run.require(
+        "could not be recovered" in text,
+        "containment: the session says a recovery was tried and failed: %r" % text[-300:],
+    )
+    restore_at = captured.find(pty.RESTORE.encode(), left_at if left_at >= 0 else 0)
+    run.require(restore_at > left_at >= 0, "containment: the exit's restore followed the leave")
+    run.require(torn.modes() == torn.before, "containment: termios byte-identical")
+    run.require(
+        read(torn.notes) == before + "\n",
+        "containment: the edit did not run on a question that was never answered",
+    )
+    report_path = os.path.join(torn.home, ".xfx", "last-tui-error.json")
+    try:
+        with open(report_path, encoding="utf-8") as handle:
+            body = handle.read()
+        report = json.loads(body)
+    except (OSError, ValueError) as failure:
+        body, report = "", {}
+        run.require(False, "containment: the independent report is readable: %s" % failure)
+    run.require(
+        report.get("schema") == 1 and report.get("reason") == "partial",
+        "containment: the independent report names the tear: %r" % body,
+    )
+    run.require("accepted" not in body, "containment: the report carries no session text")
+    fatal_fixture.stop()
+
+
+# ---------------------------------------------------------------------------
 # 4. raw mode positively entered
 # ---------------------------------------------------------------------------
 
@@ -2802,7 +3767,10 @@ def scenario_3b(run):
 # `event_loop::FRAME_BUDGET` -- **half a second** of wall clock, past which a
 # screen that has taken nothing ends the session instead of being retried
 # forever -- so the bound has to be close enough to half a second that a budget
-# which quietly stopped being enforced is detectable. The first version of this
+# which quietly stopped being enforced is detectable. It is an **upper** bound
+# on both roads out: a screen that takes a prefix of the first frame ends the
+# session before the budget's clock matters at all, which is faster than this
+# and inside it. The first version of this
 # row accepted fifteen seconds, which bounds nothing: a regression to a
 # fourteen-second retry would have passed it.
 #
@@ -3297,8 +4265,13 @@ def scenario_9(run):
     trial.send("think about " + run.nonce + "\r")
     # Response-only **and** positional: on a 24-row screen the divider is row
     # 22, so this is the row directly above it. A needle matched anywhere would
-    # be satisfied by the word appearing in the document.
-    trial.wait_for("\x1b[21;1H• Thinking")
+    # be satisfied by the word appearing in the document. Literal, not derived
+    # from `Palette::activity` itself (`src/tui/theme.rs`): `252` is upstream's
+    # own dark index for this row (`shimmer_runtime.zig:262-291`'s
+    # `permission_auto_style`, `render.zig:55,86,105`) -- a check that asked
+    # the module what it expects would pass for whatever it happened to
+    # declare.
+    trial.wait_for("\x1b[21;1H\x1b[38;5;252m• Thinking")
     # Off the activity row rather than off the wire: a second that ticked over
     # writes the one digit that changed, so the wire never carries `2s` whole.
     trial.wait_until(
@@ -3335,6 +4308,22 @@ def scenario_9(run):
         set(grid.row_text(21)) == {"─"},
         "and the divider is the row under it: %r" % grid.row_text(21),
     )
+    # The row's own literal foreground (`attrs_of_row`, not a string search:
+    # what the palette *is* belongs to `src/tui/theme.rs`, and a check
+    # against that module's own accessor would pass for whatever it happened
+    # to declare), and none of it past row 22 -- the composer carries no
+    # colour of its own (`render.zig:69,88`'s empty `input_bar_style`), so a
+    # leaked foreground would show up as this row's grey rather than as none.
+    run.require(
+        grid.attrs_of_row(20) == ["\x1b[38;5;252m"],
+        "the activity row is not painted in the dark palette's literal foreground: %r"
+        % grid.attrs_of_row(20),
+    )
+    run.require(
+        grid.attrs_of_row(22) == [],
+        "the activity row's colour leaked past the rule onto the composer: %r"
+        % grid.attrs_of_row(22),
+    )
     run.require(
         any(run.nonce in body for body in quiet.bodies()),
         "the nonce this run minted is in the request xfx sent",
@@ -3343,6 +4332,52 @@ def scenario_9(run):
     trial.send(b"\x03\x03")
     run.require(trial.session.wait_exit() == ("exited", 130), "the quiet turn was interruptible")
     quiet.stop()
+
+    # The dark index above is only half of what upstream pins: the light row
+    # is `238` (`render.zig:55,86,105`), and a role that only matched one of
+    # the two palettes would leave a light terminal reading
+    # `permission_auto_style`'s dark grey. Fixed by environment rather than by
+    # answering the background query, the same way scenario 12's
+    # `fixed-by-environment` case is -- the palette lever moved and nothing
+    # else.
+    bright = start_fixture(run, [fixtures.hang()], name="bright")
+    lit = run.trial(
+        "thinking-light", gateway=bright, env_extra={"XFX_THEME": "light"}, answer_probes=False
+    )
+    lit.wait_for(pty.PROBE)
+    lit.send("\x1b[2;1R")
+    lit.settled()
+    lit.send("think about " + run.nonce + "\r")
+    # A raw `wait_for` only proves the needle reached the wire, not that a
+    # whole frame carrying it is complete -- `peek`/`grid` are fed only as
+    # far as the last **complete** frame (`Trial.peek`, above), so a grid
+    # built right after a raw match can still read the *previous* complete
+    # frame: a screen from before the row was painted. Waited for on the
+    # grid itself instead, the same way the dark half above already is --
+    # its clock-tick `wait_until` forces a complete frame to exist before
+    # its own `grid()` call, and this is that same discipline for the case
+    # that has no clock tick to wait on.
+    lit.wait_until(
+        "a completed frame carrying the activity row in the light palette",
+        lambda _t: lit.peek().attrs_of_row(20) == ["\x1b[38;5;238m"]
+        and "Thinking" in lit.peek().row_text(20),
+    )
+    grid_light = lit.grid("thinking-light")
+    run.require(
+        grid_light.attrs_of_row(20) == ["\x1b[38;5;238m"],
+        "the activity row is not painted in the light palette's literal foreground: %r"
+        % grid_light.attrs_of_row(20),
+    )
+    run.require(
+        grid_light.attrs_of_row(22) == [],
+        "the activity row's colour leaked past the rule onto the composer: %r"
+        % grid_light.attrs_of_row(22),
+    )
+    lit.send(b"\x03\x03")
+    run.require(
+        lit.session.wait_exit() == ("exited", 130), "the light-palette turn was interruptible"
+    )
+    bright.stop()
 
     # And the clock stops while xfx is waiting to be told what it may do,
     # because that interval measures the person rather than the model.
@@ -3808,6 +4843,14 @@ def scenario_13(run):
                 "%s: the composer to read %r" % (label, composer),
                 lambda _text, wanted=composer: composer_text(trial.peek()) == wanted,
             )
+        # **The two runs are compared in the same turn state, or they are not
+        # comparing painters.** See [`settled_band`]: the marker
+        # `discriminate` waited for arrives while the turn is still running, and
+        # an active band holds the document's last line as its activity row --
+        # so a snapshot taken before the release and one taken after it disagree
+        # about that row whichever painter wrote them. Nothing is filtered and
+        # no equality is loosened; only the moment of the snapshot is pinned.
+        settled_band(run, trial, label)
         grid = trial.grid("%s-final" % label)
         run.require(
             not grid.unknown,
@@ -3879,6 +4922,78 @@ def scenario_13(run):
     run.require(
         reference.row_text(reference.rows - 1).strip() != "",
         "the reference screen has no band on it, so the comparison is vacuous",
+    )
+
+
+# What an activity row looks like, in **either** blinking face.
+#
+# `src/tui/activity.rs`: a lit `•` or a blank cell in the same column, a
+# space, the label (`Thinking`, or a tool's name), two spaces, the elapsed time
+# (`12s`, or `1m03s` past a minute), and optionally two more spaces and a token
+# count. Both faces are matched on purpose -- the marker is dark for half of
+# every second (`activity.rs`'s `BLINK`), so a barrier that knew only the lit
+# `•` would call a running turn idle twice a second, which is the one way a
+# wait like this can pass for the wrong reason.
+#
+# The elapsed-time tail is what tells this row from a document row that happens
+# to begin with two spaces: an answer's line does not end in `  0s`.
+ACTIVITY_ROW = re.compile(r"^[• ] \S.*?  \d+(?:m\d{2})?s(?:  \d+ tokens)?$")
+
+
+def band_is_idle(grid):
+    """Whether the band on `grid` has given its activity row back.
+
+    Three answers rather than two. `True` is an idle band, `False` is a turn
+    still running, and **`None` is a screen with no divider on it** -- which is
+    not an idle screen, it is a screen this oracle cannot read: a torn frame, a
+    session that has not painted yet, or one whose band has gone. A barrier that
+    folded `None` into `True` would be satisfied by exactly those.
+
+    The row consulted is the one directly above the divider, because that is
+    where an active band's extra row is: the band is anchored to the bottom of
+    the screen and grows **upward** (`src/tui/shell.rs`'s `band_rows`), so a
+    running turn costs the document its last line rather than moving the
+    divider.
+    """
+    rule = "─" * grid.cols
+    for row in range(grid.rows - 1, -1, -1):
+        if grid.row_text(row) == rule:
+            if row == 0:
+                return None
+            return ACTIVITY_ROW.match(grid.row_text(row - 1).rstrip()) is None
+    return None
+
+
+def settled_band(run, trial, what):
+    """Waits until the band has given its activity row back, and says so.
+
+    **Why the comparison needs it.** `discriminate` waits for the fixture's
+    marker, and the marker arrives while the turn is still running: the answer
+    is streamed, and the turn ends some time afterwards. For that interval the
+    band keeps its activity row -- and, per [`band_is_idle`], the row it keeps
+    is the document's last line. So a grid taken on one side of the release and
+    a grid taken on the other disagree about that row: the released one holds
+    the tail of the answer there and the running one holds `• Thinking  0s`.
+    Scenario 13 was comparing two painters across that difference, which is a
+    property of the scheduler and not of either painter.
+
+    **The absence is not filtered out and the equality is not loosened**, which
+    would each hide a real defect: a build that stranded its activity row, or
+    one that wrote a different document, would still pass. What changes is only
+    *when* the snapshot is taken -- both grids are now taken in the same turn
+    state, which is what the comparison always meant.
+
+    Bounded, and a real stranded row **fails** here rather than being ignored:
+    `Trial.wait_until` raises after its deadline, and the scenario runner
+    records that as the failure it is.
+    """
+    trial.wait_until(
+        "%s: the band to give its activity row back" % what,
+        lambda _text: band_is_idle(trial.peek()) is True,
+    )
+    run.require(
+        band_is_idle(trial.peek()) is True,
+        "%s: the snapshot was taken while a turn still owned a row of the document" % what,
     )
 
 
@@ -4980,10 +6095,11 @@ def scenario_21(run):
     * **history** hands the line back with its block under a number this session
       has not used, and what is *sent* is the paste rather than the words.
 
-    The row's fourth clause -- the undo boundary -- is a cargo receipt
-    (`tui::shell::tests::one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in`)
-    rather than a key here, because there is no `C-z` on this surface until item
-    18: driving one would assert against a binding that does not exist.
+    The row's fourth clause -- the undo boundary -- is driven as a key in
+    scenario 22 now that item 18 has one (`C-_`, `0x1f`; `C-z` is still not
+    undo). The cargo receipt that a framed paste is exactly one entry however
+    many reads it arrived in stays where it can count entries:
+    `tui::shell::tests::one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in`.
 
     The two markers are the fixture's own answers and nothing else says them, so
     a prompt echoed into the document can never satisfy a wait for one; the
@@ -5219,11 +6335,25 @@ def scenario_20(run):
     # one a row (`permission::bounded_diff_side`), so twenty lines are twenty
     # rows rather than one wrapped run -- which is why the tail of the change is
     # not on the first screenful, and why the walk below exists.
-    for needle in ("before", "alpha line 0", "alpha line 10"):
-        run.require(
-            grid.find(needle) is not None,
-            "%r is not on the screen that exists to show the change" % needle,
-        )
+    #
+    # **A changed coordinate, replaced by the property it stood for.** It was
+    # `alpha line 10`. The review plane shows the whole target and the whole
+    # always-scope now, so the viewport gave rows to the disclosure -- and how
+    # many depends on how long the workspace path is, which is where the
+    # evidence directory happens to live. A literal depth would be a check on
+    # this runner's `TMPDIR`. What the screen owes is the head of the change,
+    # line for line and in order; the tail is the walk's, below.
+    run.require(
+        grid.find("before") is not None,
+        "'before' is not on the screen that exists to show the change",
+    )
+    shown = 0
+    while grid.find("alpha line %d" % shown) is not None:
+        shown += 1
+    run.require(
+        shown >= 4,
+        "the first screenful showed %d lines of the change, which is not a viewport" % shown,
+    )
     run.require(
         grid.find("alpha line 0\\nalpha line 1") is None,
         "the file's line breaks were flattened into one run: %r" % grid.text(),
@@ -5353,11 +6483,18 @@ def scenario_20(run):
     # this session is replacing -- which is the *edit's* result, so a screen
     # showing the edit again fails here -- and the "after" is the text the write
     # would put down.
-    for needle in ("before", "beta line 0", "beta line 10"):
-        run.require(
-            grid.find(needle) is not None,
-            "%r is not on the screen that exists to show the write" % needle,
-        )
+    # Measured rather than pinned, for the reason the edit's screen is.
+    run.require(
+        grid.find("before") is not None,
+        "'before' is not on the screen that exists to show the write",
+    )
+    written_shown = 0
+    while grid.find("beta line %d" % written_shown) is not None:
+        written_shown += 1
+    run.require(
+        written_shown >= 4,
+        "the write's first screenful showed %d lines, which is not a viewport" % written_shown,
+    )
     for choice in ("1. Yes", "3. No (esc)"):
         run.require(grid.find(choice) is not None, "the write's screen dropped %r" % choice)
     trial.send(b"\x0e" * 60)
@@ -5526,8 +6663,18 @@ def scenario_20(run):
     trial.wait_until(
         "the control payload's question to be painted on the plane it took",
         lambda _t: trial.peek().plane == "alternate"
-        and trial.peek().find(PERMISSION_TITLE) is not None
-        and trial.peek().find("\\u{001B}") is not None,
+        and trial.peek().find(PERMISSION_TITLE) is not None,
+    )
+    # **A changed coordinate.** The named bytes are the *after* side, and the
+    # viewport gives rows to the whole target and the whole always-scope now, so
+    # the first screenful ends on the `after` heading rather than under it. They
+    # are reached by the walk -- the same walk the two changes above use for
+    # their tails -- and three steps keeps the heading in the window with the
+    # rows below it, which is what `rows_below` reads.
+    trial.send(b"\x0e" * 3)
+    trial.wait_until(
+        "the named control bytes to be walked into the viewport",
+        lambda _t: trial.peek().find("\\u{001B}") is not None,
     )
     grid = trial.grid("a-change-made-of-bytes-the-terminal-would-obey")
 
@@ -5595,11 +6742,1987 @@ def scenario_20(run):
     fixture.stop()
 
 
+def scenario_22(run):
+    """Undo, redo in both pinned spellings, the kill ring, and the boundary.
+
+    Ladder item 18 on a real terminal. Six claims that only a terminal can make
+    together, each read off the grid emulator rather than off the wire, because
+    a frame is a difference and the row it changed is never on the wire in one
+    piece:
+
+    * a kill fills the **one** slot and `C-y` puts it back at the caret;
+    * `C-_` undoes the **yank** rather than the kill, and the caret goes back
+      with the text;
+    * **redo** puts it back, once per spelling, each proved on its own round
+      trip -- redo, assert the text *and* the caret, undo again -- so neither
+      encoding rides on the other's work;
+    * a near miss under the same final byte is not a redo, driven while redo
+      still holds something so that accepting one would show;
+    * `C-z` is **not** undo, and a recorded edit **clears** redo: after either,
+      the keystroke behind the bytes proves the draft they did not touch;
+    * a submit is a **boundary**: the draft it took is not undoable, and the
+      undo after it changes nothing and brings nothing down.
+
+    Redo has no control byte -- `shortcuts.zig`'s table has no arm for one -- so
+    what a session receives for Super+Shift+Z is a CSI sequence, and a sequence
+    is bytes: writing `ESC[122;10u` and `ESC[27;10;122~` into this pty is
+    exactly what a terminal speaking either protocol would write
+    (`runtime.zig:3018,3025`). What that does **not** prove is that a given
+    terminal emits them for that chord -- a claim about terminals rather than
+    about xfx, and one this scenario does not make.
+    """
+    marker = run.marker("edit-history")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+    trial = run.trial("edit-history", gateway=fixture).settled()
+
+    trial.send("one two")
+    trial.wait_until(
+        "the composer to hold what was typed",
+        lambda _t: composer_text(trial.peek()) == "one two",
+    )
+    trial.grid("typed")
+
+    # `row_text` strips the blanks at the end of a row, so the draft's own
+    # trailing space is not part of what the grid reports.
+    trial.send(b"\x17")  # C-w: the word goes into the kill slot
+    trial.wait_until(
+        "the word delete to take the last word",
+        lambda _t: composer_text(trial.peek()) == "one",
+    )
+    grid = trial.grid("killed")
+    run.require(
+        composer_text(grid) == "one",
+        "C-w took the last word: %r" % composer_text(grid),
+    )
+
+    trial.send(b"\x19")  # C-y: and it comes back
+    trial.wait_until(
+        "the yank to put the killed word back",
+        lambda _t: composer_text(trial.peek()) == "one two",
+    )
+    grid = trial.grid("yanked")
+    run.require(
+        composer_text(grid) == "one two",
+        "C-y yanked what C-w killed: %r" % composer_text(grid),
+    )
+
+    # The composer row is the second-to-last, and the caret's column is three
+    # for the two-cell marker plus the bytes in front of it: 7 for `one ` and 10
+    # for `one two`. Read off the emulator's own cursor, which is the same
+    # oracle the rows come from.
+    caret_row = trial.rows - 1
+
+    def caret(grid):
+        return (grid.row + 1, grid.col + 1)
+
+    trial.send(b"\x1f")  # C-_: the undo takes back the yank, not the kill
+    trial.wait_until(
+        "the undo to take back the yank",
+        lambda _t: composer_text(trial.peek()) == "one",
+    )
+    grid = trial.grid("undone-yank")
+    run.require(
+        composer_text(grid) == "one",
+        "C-_ took back the yank rather than the kill: %r" % composer_text(grid),
+    )
+    run.require(
+        caret(grid) == (caret_row, 7),
+        "the caret went back with the undone text: %r" % (caret(grid),),
+    )
+
+    # Each spelling on its own round trip.
+    for label, spelling in (
+        ("csi-u", b"\x1b[122;10u"),  # runtime.zig:3018
+        ("csi-tilde", b"\x1b[27;10;122~"),  # runtime.zig:3025
+    ):
+        trial.send(spelling)
+        trial.wait_until(
+            "the %s redo to put the yank back" % label,
+            lambda _t: composer_text(trial.peek()) == "one two",
+        )
+        grid = trial.grid("redone-" + label)
+        run.require(
+            composer_text(grid) == "one two",
+            "%s redid the yank: %r" % (label, composer_text(grid)),
+        )
+        run.require(
+            caret(grid) == (caret_row, 10),
+            "%s put the caret back where the yank left it: %r" % (label, caret(grid)),
+        )
+        run.require(
+            (trial.session.last_frame() or "").endswith("\x1b[%d;10H" % caret_row),
+            "the frame that painted the %s redo placed the caret itself" % label,
+        )
+        trial.send(b"\x1f")
+        trial.wait_until(
+            "the undo after the %s redo to take it back again" % label,
+            lambda _t: composer_text(trial.peek()) == "one",
+        )
+        grid = trial.grid("undone-after-" + label)
+        run.require(
+            composer_text(grid) == "one" and caret(grid) == (caret_row, 7),
+            "the undo after %s took back exactly that redo: %r %r"
+            % (label, composer_text(grid), caret(grid)),
+        )
+
+    # A near miss under the same final byte is not a redo -- and redo still
+    # holds the yank here, so a decoder that accepted one would show it.
+    trial.send(b"\x1b[122;1u")  # no super bit
+    trial.send(b"\x1b[122;010u")  # a spelling no terminal emits
+
+    # C-z is not undo either. Upstream binds nothing to it and neither does this
+    # decoder. Both claims are proved by the keystroke behind them: `!` reaches
+    # a composer none of those four sequences touched.
+    trial.send(b"\x1a")
+    trial.send("!")
+    trial.wait_until(
+        "the keystroke after the near misses and C-z to reach the composer",
+        lambda _t: composer_text(trial.peek()) == "one !",
+    )
+    grid = trial.grid("ctrl-z-and-near-misses-are-not-undo")
+    run.require(
+        composer_text(grid) == "one !",
+        "a near miss or C-z changed the draft: %r" % composer_text(grid),
+    )
+
+    # And that recorded edit cleared redo, so the two real spellings mean
+    # nothing now -- proved the same way.
+    trial.send(b"\x1b[122;10u")
+    trial.send(b"\x1b[27;10;122~")
+    trial.send("?")
+    trial.wait_until(
+        "the keystroke after the two redo spellings to reach the composer",
+        lambda _t: composer_text(trial.peek()) == "one !?",
+    )
+    grid = trial.grid("redo-cleared-by-an-edit")
+    run.require(
+        composer_text(grid) == "one !?",
+        "a redo survived the edit that cleared it: %r" % composer_text(grid),
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # The undo stack below the cleared redo is still a stack: back over the two
+    # typed characters, then over the kill.
+    trial.send(b"\x1f")
+    trial.send(b"\x1f")
+    trial.send(b"\x1f")
+    trial.wait_until(
+        "the undo walk to reach the kill",
+        lambda _t: composer_text(trial.peek()) == "one two",
+    )
+    grid = trial.grid("undone-kill")
+    run.require(
+        composer_text(grid) == "one two",
+        "the undo walk did not reach the kill: %r" % composer_text(grid),
+    )
+
+    # A submit is a boundary: what it took is not undoable.
+    discriminate(run, trial, fixture, marker, label="submitted")
+    trial.wait_until(
+        "the submit to empty the composer",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    trial.send(b"\x1f")
+    trial.send(b"\x1b[122;10u")
+    trial.send(b"\x1b[27;10;122~")
+    trial.send("z")
+    trial.wait_until(
+        "the composer to hold only what was typed after the boundary",
+        lambda _t: composer_text(trial.peek()) == "z",
+    )
+    grid = trial.grid("after-the-boundary")
+    run.require(
+        composer_text(grid) == "z",
+        "an undo after a submit put a discarded draft back: %r" % composer_text(grid),
+    )
+    run.require(
+        trial.session.state()[0] == "running",
+        "an undo with nothing to undo brought the session down",
+    )
+
+    trial.send(b"\x15")
+    trial.send(b"\x04")
+    run.require(
+        trial.session.wait_exit() == ("exited", 0),
+        "Ctrl-D did not leave cleanly after the edit history was driven",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 23. the question the model asks
+# ---------------------------------------------------------------------------
+
+
+# The cancellation the tool hands the model when a batch is refused, byte for
+# byte (`src/tools/question.rs`'s `CANCEL_SENTINEL`). Spelled out rather than
+# imported, for the reason every needle in this suite is spelled out: a harness
+# that read the constant it is checking would pass for whatever the module
+# happened to declare.
+QUESTION_CANCELLED = "(user cancelled the question)"
+
+# The synthetic freeform choice every question grows, appended after the
+# model's own options and never one of them.
+FREEFORM_SLOT = "Other"
+
+# What a session says when a Ctrl-C stops the turn a question belongs to
+# (`src/app.rs`'s `INTERRUPT_NOTICE`).
+INTERRUPT_NOTICE = "stopping the turn"
+
+# What the panel's own indent costs, which is the column a draft row starts in
+# (`src/tui/question.rs`'s `INDENT`).
+PANEL_INDENT = 2
+
+# What labels the sentence a user attached to a decision, in the transcript.
+#
+# Spelled out rather than imported, for the reason `ALWAYS_WORDING` is: a needle
+# that read the constant it is checking would pass for whatever `src/tui/shell.rs`
+# happened to declare.
+AMENDMENT_PREFIX = "[you]"
+
+
+def on_the_grid(trial, needle, what=None):
+    """Waits until `needle` is on the **committed** grid, and returns that grid.
+
+    Not `trial.wait_for`, and the difference is the whole reason this exists:
+    the band paints a cell diff inside a synchronized frame, so a row that is
+    really on the screen reaches the wire as the cells that changed with cursor
+    moves between them, and a title that is on the screen may never appear in
+    the stream as one run of bytes. `peek` feeds the emulator as far as the last
+    **complete** frame, which is the only place a screen is a screen.
+    """
+    trial.wait_until(
+        what or "%r to be on the screen" % needle,
+        lambda _text: trial.peek().find(needle) is not None,
+    )
+    return trial.peek()
+
+
+def cells_wide(text):
+    """How many cells `text` takes, measured the way the band measures it.
+
+    The oracle's own measurement, which is `unicode-width`'s: the caret the
+    panel reports is a column count, so a harness that counted scalars would put
+    the caret of a Korean draft several cells left of where the product
+    correctly placed it, and would report that as a defect.
+    """
+    return sum(cluster_width(cluster) for cluster in clusters(text))
+
+
+def draft_caret(trial):
+    """The freeform draft and the column the caret is in, or `None`.
+
+    The **cursor**, not the marker. A `> ` in front of `3. Other` says the slot
+    is the marked choice, and the panel paints that marker whether or not there
+    is a draft open -- so `caret_on(trial, "3. Other")` is satisfied the instant
+    the slot is marked and says nothing about where a keystroke goes. What says
+    the draft has the keys is where the terminal was told to put its cursor: the
+    row **under** the slot, past the block's indent
+    (`src/tui/question.rs`'s `caret`).
+    """
+    grid = trial.peek()
+    found = grid.find(FREEFORM_SLOT)
+    if found is None:
+        return None
+    row = found[0] + 1
+    if row >= grid.rows or grid.row != row:
+        return None
+    return (grid.row_text(row)[PANEL_INDENT:], grid.col)
+
+
+def tool_result_text(body, call_id):
+    """The text of `call_id`'s tool result in a captured request, or `None`.
+
+    Correlated by **id and role** rather than by searching the body for the
+    tool's name: `ask_user_question` is advertised in the `tools` array of every
+    request this suite captures, so picking a request by that substring picks
+    the first one -- the request that *asked* the question, which carries no
+    answer at all. A tool result is a `tool-result` part on a `tool` message
+    (`src/gateway/protocol.rs`), and nothing else in a request is.
+    """
+    for message in json.loads(body).get("prompt", []):
+        if message.get("role") != "tool":
+            continue
+        for part in message.get("content", []):
+            if part.get("type") == "tool-result" and part.get("toolCallId") == call_id:
+                return part.get("output", {}).get("value")
+    return None
+
+
+def message_parts(body):
+    """Every part of a captured request, in order, as `(role, kind, value)`.
+
+    Order is the claim scenario 25 is about: upstream delivers an amendment as a
+    user message **after** the tool result it is about
+    (`orchestrator.zig:6598-6618`), because the wire merges consecutive user
+    messages and hoists `tool_result` blocks to the front of the merged one -- so
+    a sentence interleaved between two results would arrive above the result it
+    answered.
+    """
+    out = []
+    for message in json.loads(body).get("prompt", []):
+        role = message.get("role")
+        for part in message.get("content", []):
+            if part.get("type") == "tool-result":
+                out.append((role, "tool-result", part.get("toolCallId")))
+            elif part.get("type") == "text":
+                out.append((role, "text", part.get("text")))
+    return out
+
+
+def amendment_after_result(body, call_id, phrase):
+    """Whether `phrase` is a user message of `body`, exactly once, after `call_id`'s result.
+
+    Both halves matter and neither is enough: a phrase that never arrived is a
+    sentence the model was not told, and a phrase ahead of the result is a
+    sentence about a call the model has not been shown yet.
+    """
+    parts = message_parts(body)
+    results = [
+        index
+        for index, (_role, kind, value) in enumerate(parts)
+        if kind == "tool-result" and value == call_id
+    ]
+    said = [
+        index
+        for index, (role, kind, value) in enumerate(parts)
+        if role == "user" and kind == "text" and value == phrase
+    ]
+    return bool(results) and len(said) == 1 and max(results) < said[0]
+
+
+def amended_request(fixture, call_id):
+    """The first captured request that carries a result for `call_id`, or `None`.
+
+    The **next** request after the answered call, which is the one an amendment
+    travels in. Picked by correlation rather than by position, because a session
+    that asked for one more turn than expected would otherwise be read as one
+    that lost the sentence.
+    """
+    for body in fixture.bodies():
+        if tool_result_text(body, call_id) is not None:
+            return body
+    return None
+
+
+def approval_draft_caret(trial, choice):
+    """The amendment draft under `choice`, and the column the caret is in.
+
+    The **cursor**, not the marker. A `> ` in front of `1. Yes` says the choice
+    is marked and says nothing about where a keystroke goes; what says the draft
+    has the keys is where the terminal was told to put its cursor -- the row
+    under the answer, past the panel's indent (`src/tui/approval.rs`'s `caret`).
+    """
+    grid = trial.peek()
+    found = grid.find(choice)
+    if found is None:
+        return None
+    row = found[0] + 1
+    if row >= grid.rows or grid.row != row:
+        return None
+    return (grid.row_text(row)[PANEL_INDENT:].rstrip(), grid.col)
+
+
+def carried_results(fixture, call_id):
+    """Every captured request's result for `call_id`, in the order they were sent.
+
+    A list rather than the last one, because "the model was told exactly this,
+    once" is two claims and a scenario that read only the newest request could
+    not make the second.
+    """
+    results = [tool_result_text(body, call_id) for body in fixture.bodies()]
+    return [result for result in results if result is not None]
+
+
+def scenario_23(run):
+    """A real question tool call, answered by ordinal and by `Other`.
+
+    Ladder item 19 on a real terminal, and the three claims no unit test can
+    make together: the panel is a screen the user can read, the keys do what the
+    screen says they do, and the ordered answer document reaches the **wire** as
+    the next request's tool result.
+    """
+    marker = run.marker("question")
+    fixture = start_fixture(run, fixtures.ask_then_finish(marker), name="question")
+    trial = run.trial("question", gateway=fixture, mode="ask").settled()
+    trial.send("decide for me " + run.nonce + "\r")
+
+    grid = on_the_grid(trial, "Which depth?", "the first question of the batch")
+    trial.grid("panel")
+    for expected, why in [
+        ("1. Thorough", "the first model option is offered by number"),
+        ("2. Quick", "so is the second"),
+        ("3. " + FREEFORM_SLOT, "the synthetic freeform slot is last"),
+        ("reads every file", "the option's description is shown"),
+    ]:
+        run.require(grid.find(expected) is not None, why)
+    title = grid.find("Which depth?")
+    run.require(
+        grid.row_text(title[0]) == "Which depth? (1 of 2)",
+        "the batch says which question this is: %r" % grid.row_text(title[0]),
+    )
+    run.require(grid.find("Anything else?") is None, "one question is visible at a time")
+    run.require(
+        grid.row_text(grid.find("1. Thorough")[0]).startswith("> "),
+        "the caret sits on the choice Enter would take",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    trial.send(b"1")  # a model ordinal submits at once
+    grid = on_the_grid(trial, "Anything else?", "the second question of the batch")
+    trial.grid("second")
+    run.require(
+        grid.find("Which depth?") is None,
+        "the answered question left the screen when the next one arrived",
+    )
+
+    trial.send(b"3")  # `Other` only opens editing
+    trial.wait_until(
+        "the freeform slot to open a draft with the caret in it",
+        lambda _text: draft_caret(trial) == ("", PANEL_INDENT),
+    )
+    freeform = "다시 묻지 마 — später"
+    trial.send(freeform.encode("utf-8"))
+    trial.wait_until(
+        "the draft to hold what was typed",
+        lambda _text: draft_caret(trial) == (freeform, PANEL_INDENT + cells_wide(freeform)),
+    )
+    grid = trial.grid("freeform")
+    run.require(
+        draft_caret(trial) == (freeform, PANEL_INDENT + cells_wide(freeform)),
+        "the draft holds the text and the caret is past it: %r" % (draft_caret(trial),),
+    )
+    run.require(
+        grid.row_text(grid.find("3. " + FREEFORM_SLOT)[0]).startswith("> "),
+        "and the slot the draft belongs to is still the marked choice",
+    )
+    trial.send(b"\r")
+
+    grid = on_the_grid(trial, marker, "the turn to carry on past the answered batch")
+    grid = trial.grid("answered")
+    carried = carried_results(fixture, "call-0")
+    run.require(
+        len(carried) == 1,
+        "exactly one request carried a result for the question (%d did)" % len(carried),
+    )
+    run.require(
+        carried
+        and json.loads(carried[0])
+        == [
+            {"question": "Which depth?", "answer": "Thorough"},
+            {"question": "Anything else?", "answer": freeform},
+        ],
+        "the next model request carries both answers, in question order, unclipped: %r" % carried,
+    )
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.text().strip() != "", "the screen is not blank")
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        grid.text().count(marker) == 1,
+        "response-only: the marker the fixture minted appears once on the screen",
+    )
+    run.require(
+        not any(marker in body for body in fixture.bodies()),
+        "and it was never typed at this session: no request xfx sent carries it",
+    )
+    run.require(
+        grid.find("1. Thorough") is None and grid.find("Which depth?") is None,
+        "the panel came down and is not left standing behind the answer",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
+    fixture.stop()
+
+
+def scenario_23b(run):
+    """Escape declines the batch; Ctrl-C stops the turn the batch belonged to.
+
+    The two keys that take a question down without answering it, and they are
+    **not** the same key: Escape is an answer about this call -- the byte-exact
+    sentinel, and the turn carries on to its own conclusion -- while Ctrl-C is
+    the interrupt it is everywhere else on this surface, and the calls queued
+    behind the question in that same completion are work nobody asked for any
+    more (`src/agent/machine.rs`'s `execute_tool_calls`).
+
+    The interrupt half is driven twice on purpose. Once answered, so the write
+    behind the question is **observed to run**, and once interrupted, so the
+    same write is observed not to: a file that never appears proves nothing
+    about an interrupt unless the run that was not interrupted wrote it.
+    """
+    marker = run.marker("cancelled")
+    fixture = start_fixture(run, fixtures.ask_then_finish(marker), name="cancelled")
+    trial = run.trial("cancelled", gateway=fixture, mode="ask").settled()
+    trial.send("decide for me " + run.nonce + "\r")
+    on_the_grid(trial, "Which depth?", "the question Escape is about to decline")
+    trial.grid("panel")
+
+    trial.send(b"\x1b")
+    grid = on_the_grid(trial, marker, "the turn to carry on past the declined batch")
+    grid = trial.grid("after")
+    carried = carried_results(fixture, "call-0")
+    run.require(
+        carried == [QUESTION_CANCELLED],
+        "the model was told the cancellation, byte for byte and once: %r" % carried,
+    )
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.find("Which depth?") is None, "the panel came down on Escape")
+    run.require(grid.find(marker) is not None, "and the turn carried on")
+    run.require(
+        grid.text().count(marker) == 1,
+        "response-only: the marker the fixture minted appears once on the screen",
+    )
+    run.require(
+        not any(marker in body for body in fixture.bodies()),
+        "and it was never typed at this session: no request xfx sent carries it",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
+    fixture.stop()
+
+    # The same completion, answered: the call behind the question runs, and the
+    # turn asks for its own conclusion. This is what makes the absence below an
+    # observation about the interrupt rather than about a call that was never
+    # going to happen.
+    answered_marker = run.marker("answered")
+    served = start_fixture(run, fixtures.ask_then_write(answered_marker), name="answered")
+    answered = run.trial("answered", gateway=served).settled()
+    answered.send("go on then " + run.nonce + "\r")
+    on_the_grid(answered, "Proceed?", "the question the answered run takes")
+    answered.send(b"1")
+    on_the_grid(answered, answered_marker, "the answered turn to reach its conclusion")
+    answered.grid("answered")
+    written = os.path.join(answered.workspace, fixtures.QUESTION_FOLLOWER_PATH)
+    run.require(
+        os.path.exists(written) and read(written) == fixtures.QUESTION_FOLLOWER_CONTENT,
+        "the call behind an **answered** question ran and wrote its file",
+    )
+    run.require(
+        carried_results(served, "call-0") == ['[{"question":"Proceed?","answer":"Go ahead"}]'],
+        "and the answer document reached the wire: %r" % carried_results(served, "call-0"),
+    )
+    run.require(
+        served.request_count() == 2,
+        "an answered turn asked for its own conclusion (%d requests)" % served.request_count(),
+    )
+    answered.send(b"\x04")
+    run.require(answered.session.wait_exit() == ("exited", 0), "the answered session left at 0")
+    served.stop()
+
+    # And interrupted at the same question. One key, one message: the requester
+    # answers the tool with the sentinel and hands the interrupt back, and the
+    # step is abandoned **before** the next call of that completion is admitted.
+    stopped_marker = run.marker("after-interrupt")
+    scripted = start_fixture(run, fixtures.ask_then_write(stopped_marker), name="interrupted")
+    stopped = run.trial("interrupted", gateway=scripted).settled()
+    stopped.send("go on then " + run.nonce + "\r")
+    on_the_grid(stopped, "Proceed?", "the question Ctrl-C is about to stop the turn at")
+    stopped.grid("question")
+
+    stopped.send(b"\x03")
+    on_the_grid(stopped, INTERRUPT_NOTICE, "the interrupt to be answered on the screen")
+    grid = stopped.grid("interrupted")
+    run.require(grid.find("Proceed?") is None, "the panel came down on the interrupt")
+    unwritten = os.path.join(stopped.workspace, fixtures.QUESTION_FOLLOWER_PATH)
+    run.require(
+        not os.path.exists(unwritten),
+        "the call queued behind the interrupted question did not run",
+    )
+    run.require(
+        scripted.request_count() == 1,
+        "and the interrupted turn asked for nothing more (%d requests)"
+        % scripted.request_count(),
+    )
+    run.require(
+        stopped.session.state()[0] == "running",
+        "a Ctrl-C at a question is a keystroke: the session is still alive",
+    )
+
+    # The session is still a session: a fresh prompt is answered, which is the
+    # positive half of "the turn stopped" -- a hung requester would fail here
+    # rather than at any absence above.
+    after = run.nonce + "-AFTER"
+    stopped.send("now say it " + after + "\r")
+    grid = on_the_grid(stopped, stopped_marker, "the fresh turn after the interrupt")
+    grid = stopped.grid("after-interrupt")
+    run.require(
+        scripted.request_count() == 2,
+        "exactly one request followed the interrupt, and it was this prompt's (%d)"
+        % scripted.request_count(),
+    )
+    run.require(
+        any(after in body for body in scripted.bodies()),
+        "the prompt typed after the interrupt is in the request xfx sent",
+    )
+    run.require(
+        grid.find(stopped_marker) is not None, "and the fixture's own marker is rendered"
+    )
+    run.require(
+        not os.path.exists(unwritten),
+        "the write behind the interrupted question did not run later either",
+    )
+    run.require(
+        not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown
+    )
+    stopped.send(b"\x04")
+    run.require(stopped.session.wait_exit() == ("exited", 0), "the interrupted session left at 0")
+    scripted.stop()
+
+
+def scenario_24(run):
+    """A committed frame is what makes an affirmative answerable, and a resize
+    takes that back until the next one lands.
+
+    Synchronized on the **committed** grid throughout (`on_the_grid`), which is
+    what makes this deterministic without a sleep: it feeds the emulator only as
+    far as the last complete frame, so an assertion after it is an assertion
+    about a screen the terminal really showed.
+
+    **What this does not prove.** The pre-commit case -- a key pressed strictly
+    between the request arriving and its first frame being written -- has no
+    seam here: `on_the_grid` can only wait for something already on the screen,
+    and the tool call is produced asynchronously, so a byte sent with the prompt
+    can reach the composer before the request does and pass this for the wrong
+    reason. That boundary is proven by the deterministic `commit_band` cases in
+    `cargo test --lib tui::event_loop`, where a refused write is the cause and
+    the receipt is read directly. Recorded as a limitation rather than papered
+    over with timing.
+    """
+    marker = run.marker("readiness")
+    fixture = start_fixture(run, fixtures.edit_then_finish(marker), name="readiness")
+    trial = run.trial("readiness", gateway=fixture, mode="ask", notes=True).settled()
+    trial.send("edit the notes " + run.nonce + "\r")
+
+    # Positive control: the question is on the screen, whole, and `1` is taken.
+    grid = on_the_grid(trial, PERMISSION_TITLE, "the approval frame to be committed")
+    run.require(grid.find(ALWAYS_WORDING) is not None, "the always-scope is disclosed whole")
+    run.require(grid.find("3. No") is not None, "the refusal is on the screen")
+    # The **tail** of the scope, which is the half a fixed two-row allotment cut
+    # and the reason no ordinary screen could disclose an ordinary request.
+    run.require(
+        grid.find("of this saved session") is not None
+        or grid.find("the approval ends with this command") is not None,
+        "what `always` would buy was cut off, so nothing on this screen may be granted",
+    )
+    trial.grid("disclosed")
+    trial.send(b"1")
+    on_the_grid(trial, marker, "the turn to carry on past the granted call")
+    run.require(
+        carried_results(fixture, "call-0") != [],
+        "the answered call produced no tool result, so the positive control proves nothing",
+    )
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the readiness session left at 0")
+    fixture.stop()
+
+    # A resize revokes the receipt: the same key is refused until a frame for
+    # the new screen has landed.
+    second = start_fixture(run, fixtures.edit_then_finish(marker), name="resized")
+    resized = run.trial("resized", gateway=second, mode="ask", notes=True).settled()
+    resized.send("edit the notes " + run.nonce + "\r")
+    on_the_grid(resized, PERMISSION_TITLE, "the approval frame before the resize")
+    resized.resize(30, 100)
+    resized.send(b"1")
+    on_the_grid(resized, APPROVAL_NOT_READY, "the refusal of an answer to a moved screen")
+    run.require(
+        read(resized.notes) == "alpha\n",
+        "the refused answer let the edit through anyway",
+    )
+    # **The question is still standing**, and this is a wait rather than a check
+    # on the grid the notice arrived with: the notice is a document write, a
+    # document write is a scroll, and the band is repainted by the frame after
+    # it -- so there is one committed frame, between the two, that carries the
+    # sentence and not yet the panel. That is the band's ordinary behaviour for
+    # any line written while a panel is up rather than anything this gate does,
+    # and asserting on the earlier of the two frames would be asserting that it
+    # never happens.
+    grid = on_the_grid(
+        resized, PERMISSION_TITLE, "the question to be standing again after the refusal"
+    )
+    run.require(
+        grid.find("3. No") is not None,
+        "the refused answer left a question with no visible way to refuse it",
+    )
+    resized.grid("revoked")
+    on_the_grid(resized, ALWAYS_WORDING, "the repaint on the new screen")
+    resized.send(b"1")
+    on_the_grid(resized, marker, "the turn to carry on once the frame had landed")
+    run.require(
+        read(resized.notes) == "beta\n",
+        "the answer after the repaint did not let the edit through",
+    )
+    resized.send(b"\x04")
+    run.require(resized.session.wait_exit() == ("exited", 0), "the resized session left at 0")
+    second.stop()
+
+
+# ---------------------------------------------------------------------------
+# 25. an amended approval
+# ---------------------------------------------------------------------------
+
+
+def scenario_25(run):
+    """A decision the user amended, and where the sentence goes.
+
+    The three claims no unit test can make together: the draft is a surface the
+    user can read and type into on a real terminal, the decision it is attached
+    to is unchanged by it, and the sentence reaches the **wire** as a user
+    message behind the tool result it is about.
+
+    Two trials, because an amendment means a different thing on each side of the
+    decision and both have to be observed: allowed, the original arguments run;
+    refused, nothing runs. The two phrases are distinct and appear nowhere else
+    in the harness, so a grep across the evidence directory tells "the sentence
+    reached the wire" from "the sentence was echoed on the screen".
+    """
+    marker = run.marker("amendment")
+    allow_phrase = "keep the header comment when you rewrite it"
+    deny_phrase = "that path belongs to the deploy job"
+
+    def asked(label, fixture_name):
+        fixture = start_fixture(
+            run, fixtures.amendable_write_then_finish(marker), name=fixture_name
+        )
+        trial = run.trial(label, gateway=fixture, mode="ask").settled()
+        trial.send("draft the plan " + run.nonce + "\r")
+        on_the_grid(trial, PERMISSION_TITLE, "the approval frame to be committed")
+        return fixture, trial
+
+    def written(trial):
+        return os.path.join(trial.workspace, fixtures.AMENDMENT_PATH)
+
+    # -- trial A: allowed, with an amendment ------------------------------
+    fixture, allowed = asked("allowed-with-amendment", "amend-allow")
+    run.require(
+        not os.path.exists(written(allowed)),
+        "the write ran before it was approved, so nothing below is about an approval",
+    )
+    allowed.send(b"\t")
+    allowed.wait_until(
+        "the allow draft to open with the caret in it",
+        lambda _text: approval_draft_caret(allowed, "1. Yes") == ("", PANEL_INDENT),
+    )
+    allowed.send(allow_phrase.encode("utf-8"))
+    allowed.wait_until(
+        "the draft to hold what was typed",
+        lambda _text: approval_draft_caret(allowed, "1. Yes")
+        == (allow_phrase, PANEL_INDENT + cells_wide(allow_phrase)),
+    )
+    grid = allowed.grid("draft")
+    run.require(
+        approval_draft_caret(allowed, "1. Yes")
+        == (allow_phrase, PANEL_INDENT + cells_wide(allow_phrase)),
+        "the draft holds the text and the caret is past it: %r"
+        % (approval_draft_caret(allowed, "1. Yes"),),
+    )
+    run.require(
+        grid.row_text(grid.find("1. Yes")[0]).startswith("> "),
+        "the answer the draft belongs to is still the marked choice",
+    )
+    run.require(
+        grid.find("3. No") is not None and grid.find(ALWAYS_WORDING) is not None,
+        "the draft cut an answer off the panel",
+    )
+    run.require(
+        grid.find("for the rest of this session") is not None,
+        "the draft cut what `always` would buy",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    during = allowed.modes()
+    run.require(during.is_raw(), "the terminal is raw while a draft has the keys")
+
+    allowed.send(b"\r")
+    on_the_grid(allowed, marker, "the turn to carry on past the amended approval")
+    # **The transcript, not the draft.** The draft row came down with the panel;
+    # what has to survive is the sentence the model was really told, written when
+    # the runtime says it was delivered (`src/agent/machine.rs`'s
+    # `flush_amendments`) rather than when the key was pressed.
+    on_the_grid(
+        allowed,
+        allow_phrase,
+        "the accepted sentence to be read back in the transcript",
+    )
+    grid = allowed.grid("answered")
+    run.require(
+        grid.find(allow_phrase) is not None,
+        "the user's own sentence is not in the transcript after the panel came down",
+    )
+    run.require(
+        grid.find(AMENDMENT_PREFIX) is not None,
+        "the sentence is not labelled as the user's own",
+    )
+    run.require(
+        grid.find(PERMISSION_TITLE) is None,
+        "the sentence is still only on the draft, behind a panel that is still up",
+    )
+
+    run.require(
+        os.path.exists(written(allowed))
+        and read(written(allowed)) == fixtures.AMENDMENT_CONTENT,
+        "the amended allow did not run the model's own arguments, byte for byte: %r"
+        % (read(written(allowed)) if os.path.exists(written(allowed)) else None,),
+    )
+    body = amended_request(fixture, "call-0")
+    run.require(body is not None, "no request carried a result for the amended call")
+    run.require(
+        body is not None and amendment_after_result(body, "call-0", allow_phrase),
+        "the sentence did not reach the wire once, behind the result it was about: %r"
+        % (message_parts(body) if body else None,),
+    )
+    run.require(
+        body is not None and allow_phrase not in (tool_result_text(body, "call-0") or ""),
+        "the user's sentence was merged into the tool's own report of what it did",
+    )
+    run.require(
+        any(run.nonce in captured for captured in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        grid.find(PERMISSION_TITLE) is None,
+        "the panel is still standing behind the answer",
+    )
+    allowed.send(b"\x04")
+    run.require(allowed.session.wait_exit() == ("exited", 0), "the amended session left at 0")
+    run.require(
+        allowed.modes() == allowed.before,
+        "and the terminal came back byte for byte after a session that drafted",
+    )
+    fixture.stop()
+
+    # -- trial B: refused, with an amendment ------------------------------
+    refused_fixture, refused = asked("denied-with-amendment", "amend-deny")
+    refused.send(b"\x1b[B\x1b[B")
+    refused.wait_until(
+        "the marker to reach the refusal", lambda _t: caret_on(refused, "3. No")
+    )
+    refused.send(b"\t")
+    refused.wait_until(
+        "the deny draft to open with the caret in it",
+        lambda _text: approval_draft_caret(refused, "3. No") == ("", PANEL_INDENT),
+    )
+    refused.send(deny_phrase.encode("utf-8"))
+    refused.wait_until(
+        "the deny draft to hold what was typed",
+        lambda _text: approval_draft_caret(refused, "3. No")
+        == (deny_phrase, PANEL_INDENT + cells_wide(deny_phrase)),
+    )
+    grid = refused.grid("deny-draft")
+    run.require(
+        approval_draft_caret(refused, "3. No")
+        == (deny_phrase, PANEL_INDENT + cells_wide(deny_phrase)),
+        "the deny draft holds the text and the caret is past it: %r"
+        % (approval_draft_caret(refused, "3. No"),),
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    run.require(refused.modes().is_raw(), "the terminal is raw while the deny draft has the keys")
+
+    refused.send(b"\r")
+    on_the_grid(refused, marker, "the turn to carry on past the amended refusal")
+    on_the_grid(
+        refused,
+        deny_phrase,
+        "the refusal's sentence to be read back in the transcript",
+    )
+    grid = refused.grid("refused")
+    run.require(
+        grid.find(deny_phrase) is not None,
+        "a refusal's own sentence is not in the transcript after the panel came down",
+    )
+    run.require(
+        not os.path.exists(written(refused)),
+        "a refusal with a sentence beside it wrote the file anyway",
+    )
+    body = amended_request(refused_fixture, "call-0")
+    run.require(body is not None, "no request carried a result for the refused call")
+    run.require(
+        body is not None and amendment_after_result(body, "call-0", deny_phrase),
+        "the refusal's sentence did not reach the wire once, behind its result: %r"
+        % (message_parts(body) if body else None,),
+    )
+    run.require(
+        body is not None and "not permitted" in (tool_result_text(body, "call-0") or ""),
+        "the model was not told the call was refused: %r"
+        % (tool_result_text(body, "call-0") if body else None),
+    )
+    run.require(
+        body is not None and deny_phrase not in (tool_result_text(body, "call-0") or ""),
+        "the user's sentence was merged into the refusal the tool reported",
+    )
+    run.require(
+        allow_phrase not in json.dumps(refused_fixture.bodies()),
+        "the allowed trial's sentence reached the refused trial's wire",
+    )
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    refused.send(b"\x04")
+    run.require(refused.session.wait_exit() == ("exited", 0), "the refusing session left at 0")
+    run.require(
+        refused.modes() == refused.before,
+        "and the terminal came back byte for byte after a refusal that drafted",
+    )
+    refused_fixture.stop()
+
+    # -- Ctrl-C at a filled draft says nothing on the next turn -----------
+    cancelled_fixture, cancelled = asked("cancelled-draft", "amend-cancel")
+    cancelled.send(b"\t")
+    cancelled.wait_until(
+        "the draft to open",
+        lambda _text: approval_draft_caret(cancelled, "1. Yes") == ("", PANEL_INDENT),
+    )
+    cancelled.send("never sent".encode("utf-8"))
+    cancelled.wait_until(
+        "the draft to hold what was typed",
+        lambda _text: approval_draft_caret(cancelled, "1. Yes") is not None
+        and approval_draft_caret(cancelled, "1. Yes")[0] == "never sent",
+    )
+    cancelled.grid("filled")
+    cancelled.send(b"\x03")
+    on_the_grid(cancelled, INTERRUPT_NOTICE, "the interrupt to be answered on the screen")
+    run.require(
+        not os.path.exists(written(cancelled)),
+        "the interrupted call wrote its file anyway",
+    )
+
+    after = run.nonce + "-AFTER"
+    cancelled.send("say it again " + after + "\r")
+    on_the_grid(cancelled, marker, "the fresh turn after the interrupt")
+    grid = cancelled.grid("after-interrupt")
+    run.require(
+        not any("never sent" in captured for captured in cancelled_fixture.bodies()),
+        "a draft the user interrupted out of reached the wire on the next turn",
+    )
+    # **The display half of the same drop.** Showing it would tell the user
+    # something was said that never was. The draft *was* on the screen before
+    # the interrupt (`grid-01-filled`), which is what makes this absence an
+    # observation rather than a phrase that was never rendered at all.
+    run.require(
+        grid.find("never sent") is None,
+        "the transcript claims a sentence was delivered that the interrupt dropped",
+    )
+    run.require(
+        grid.find(AMENDMENT_PREFIX) is None,
+        "an interrupted amendment was labelled as delivered: %r" % grid.text(),
+    )
+    run.require(
+        any(after in captured for captured in cancelled_fixture.bodies()),
+        "the prompt typed after the interrupt is in the request xfx sent",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    cancelled.send(b"\x04")
+    run.require(
+        cancelled.session.wait_exit() == ("exited", 0), "the interrupted session left at 0"
+    )
+    cancelled_fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 26. layout stabilization
+# ---------------------------------------------------------------------------
+
+
+def draft_rows(grid):
+    """Every row of an open composer draft, top first, gutter stripped.
+
+    Not `composer_text` -- that joins rows with nothing between them, which is
+    right for a draft that never had a line break in it and wrong for one that
+    did: a paste with two embedded newlines is three *rows*, and joining them
+    bare would compare `"FIRSTSECONDTHIRD"` against a draft that was never
+    submitted as one word.
+    """
+    start = composer_first_row(grid)
+    if start is None:
+        return None
+    return [grid.row_text(row)[2:] for row in range(start, grid.rows - 1)]
+
+
+def scenario_26(run):
+    """Document content and order survive the composer's growth and shrink,
+    and the band's steadiness survives an inline panel opening and closing.
+
+    Three claims chained through one continuous session, because a fresh trial
+    per stage would compare a screen against itself rather than against what an
+    earlier stage really left behind:
+
+    * a real answer writes three ordered lines into the terminal's own
+      document, and a paste that grows the draft to three rows -- and an undo
+      that shrinks it back without ever submitting it -- neither loses them nor
+      reorders them. Read off `Grid.document_text()`, scrollback and screen
+      together, because a scroll the growth or the shrink caused is exactly
+      what this scenario is testing and a check that read only the screen would
+      be blind to a line the growth had already carried into scrollback.
+    * a real approval panel -- not a mockup, `edit_then_finish` answered by
+      denying it -- opens and closes within the band's own owned region above
+      the divider (`Geometry::band_top`/`panel_first`, `src/tui/layout.rs:75-82`:
+      the panel's rows are counted down from the divider, between it and the
+      activity row, and `band_top` moves to include them), and the three lines
+      from the stage before are still in the combined document, once each, in
+      order, behind it. **An unchanged divider and composer are not the same
+      claim as an unchanged band** -- the band's own top row is exactly what
+      the panel occupies -- so what is asserted here is the narrower thing:
+      `divider_row`/`composer_first_row`, the two rows this scenario's literal
+      coordinates are about, hold their one-row-baseline position through a
+      panel this size, same as `scenario_24`'s own reading of the identical
+      fixture.
+    * the finish is ordinary: the draft is cleared before `C-D`, the idle
+      screen is watched rather than assumed quiet, and the terminal comes back
+      byte for byte.
+
+    **Coordinates are literal where the contract makes them so, and nowhere
+    else.** The composer's growth is `rows - 2 - <its own row count>`
+    (`1-launch-and-band-ownership`'s three band rows and `15-resize-reflow`'s
+    two-row wrap agree on it), so the one-row baseline -- divider 21, composer
+    22 -- and the three-row paste -- divider 19, composer 20 -- are asserted as
+    those numbers on this scenario's 24-row screen. A panel that fits inline
+    never moves *those two rows* (`panel_first` counts the panel's rows down
+    from the divider, rather than the divider counting up from the panel), so
+    21/22 is asserted through the panel too, not just around it -- but that is
+    narrower than a claim about the band itself, whose own top row the panel
+    does move, the same way the composer's own growth moved it in stage 1.
+    `20-alternate-screen-approval` is the case a panel this size never reaches:
+    a change too large for the band to hold at all leaves the primary plane
+    instead of growing further into it, a different mechanism, out of scope
+    for the `edit_then_finish` fixture used here.
+
+    **What this does not prove**, named rather than left implicit:
+
+    * Whether a keystroke sent in the narrow window between the panel's
+      request going out and its first frame landing reaches the composer or
+      the panel is the same seam `24-approval-readiness` names and does not
+      close: `on_the_grid` can only wait for a frame already committed, so no
+      wait built from it can stand on the far side of that race. That boundary
+      is proven instead, and only, by the deterministic `commit_band` cases in
+      `cargo test --lib tui::event_loop`. Left there rather than claimed here.
+    * Composer-yield-to-panel is not exercised here, and for a different
+      reason than the readiness race above: by the time stage 2's question is
+      sent, stage 1's draft has already been undone back to empty, and nothing
+      is typed again until the question line itself is sent and submitted
+      whole before any wait for the panel begins -- there is no draft standing
+      in the composer for this scenario to observe yielding rows at all. That
+      absence is `26b-composer-yield-to-panel`'s own scope: a draft grown past
+      what a panel this size and this composer can both fit is held pending
+      with `fixture_server.Fixture`'s `release_when` gate, pasted and read off
+      the grid while the request that would open the panel is provably still
+      unanswered, and only then released -- so the panel's growth is read
+      against a composer the harness knows was already tall, not one raced
+      into being tall at the same moment.
+    """
+    doc1 = run.marker("doc-one")
+    doc2 = run.marker("doc-two")
+    doc3 = run.marker("doc-three")
+    edit_marker = run.marker("edit")
+    fixture = start_fixture(
+        run,
+        [fixtures.content_only(doc1 + "\n", doc2 + "\n", doc3 + "\n")]
+        + fixtures.edit_then_finish(edit_marker),
+    )
+    trial = run.trial("layout", gateway=fixture, mode="ask", notes=True).settled()
+    from_a_known_composer(run, trial, "layout")
+
+    def survives(text, markers):
+        """Whether every one of `markers` is in `text` exactly once, in order."""
+        positions = [text.find(marker) for marker in markers]
+        return (
+            all(position >= 0 for position in positions)
+            and positions == sorted(positions)
+            and all(text.count(marker) == 1 for marker in markers)
+        )
+
+    # -- stage 1: three ordered lines, a paste-grown draft, a safe shrink ----
+    trial.send("recite the three lines " + run.nonce + "\r")
+    # Not `on_the_grid` alone: the answer is paced onto the screen, so a frame
+    # that already carries the third line can still be one the band is
+    # mid-repaint on (the activity row not yet folded back in). The marker's
+    # presence is waited for first, as the positive half of the pair; what
+    # actually says the turn has ended is `settled_band`'s `band_is_idle`
+    # check, below -- divider position is not that evidence, and never was:
+    # the divider sits at the one-row baseline whether a turn is running or
+    # not, so it says nothing about settlement on its own.
+    trial.wait_until(
+        "the third document line to be on the committed grid",
+        lambda _t: trial.peek().find(doc3) is not None,
+    )
+    settled_band(run, trial, "initial layout")
+    grid = trial.peek()
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.text().strip() != "", "the screen is not blank")
+    run.require(
+        survives(grid.document_text(), (doc1, doc2, doc3)),
+        "the three lines reached the document once each, in order: %r" % (grid.document_text(),),
+    )
+    trial.grid("three-lines")
+    run.require(
+        divider_row(grid) == 21 and composer_first_row(grid) == 22,
+        "the one-row composer's own rows, before anything grew it: divider %r composer %r"
+        % (divider_row(grid), composer_first_row(grid)),
+    )
+
+    draft_lines = [
+        "FIRST-ROW-" + run.nonce,
+        "SECOND-ROW-" + run.nonce,
+        "THIRD-ROW-" + run.nonce,
+    ]
+    trial.send(b"\x1b[200~")
+    trial.send("\n".join(draft_lines).encode("utf-8"))
+    trial.send(b"\x1b[201~")
+    trial.wait_until(
+        "the pasted draft's three rows in the composer",
+        lambda _t: draft_rows(trial.peek()) == draft_lines,
+    )
+    run.require(fixture.request_count() == 1, "the paste did not submit itself")
+    grown = trial.grid("grown-three-rows")
+    run.require(
+        divider_row(grown) == 19 and composer_first_row(grown) == 20,
+        "the divider and the composer moved up for a three-row draft: divider %r composer %r"
+        % (divider_row(grown), composer_first_row(grown)),
+    )
+    run.require(
+        grown.row == 22 and grown.col == 2 + cells_wide(draft_lines[-1]),
+        "the caret sits past the pasted text on the draft's own last row: (%d, %d)"
+        % (grown.row, grown.col),
+    )
+    run.require(
+        survives(grown.document_text(), (doc1, doc2, doc3)),
+        "the growth did not disturb the earlier document: %r" % (grown.document_text(),),
+    )
+
+    # Not `C-u`: `Action::KillToStart` (`editor.rs:351`) kills to the start of
+    # the *line* the caret sits on -- one of the paste's three, delimited by
+    # the real newlines it carried -- not the whole draft, so it would leave
+    # the first two rows standing. The paste that grew this draft went in
+    # through one `editor.insert()` call (`shell.rs:2597`), which is one
+    # history entry, so `C-_` (`Action::Undo`, `input.rs:702`) reverses the
+    # whole paste in the one step a shrink is supposed to be -- and is what a
+    # person who pasted the wrong thing would actually reach for.
+    trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was
+    trial.wait_until(
+        "the composer to empty without submitting",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    run.require(fixture.request_count() == 1, "clearing the draft did not submit it")
+    shrunk = trial.grid("shrunk-back")
+    run.require(
+        divider_row(shrunk) == 21 and composer_first_row(shrunk) == 22,
+        "the divider and the composer returned to the one-row baseline: divider %r composer %r"
+        % (divider_row(shrunk), composer_first_row(shrunk)),
+    )
+    run.require(
+        not any(line in shrunk.text() for line in draft_lines),
+        "the cleared draft left a row of itself painted",
+    )
+    run.require(
+        survives(shrunk.document_text(), (doc1, doc2, doc3)),
+        "the shrink did not disturb the earlier document: %r" % (shrunk.document_text(),),
+    )
+
+    # -- stage 2: a real approval panel opens within the band's own owned
+    # region above the divider, then closes ----
+    #
+    # The panel's rows belong to the band, not the document (`layout.rs`: "a
+    # block of rows above [the activity row] while a turn is waiting for a
+    # decision", and `Geometry::band_top` is exactly that row while a panel is
+    # up) -- so the band's own top row moves for this stage, the same way the
+    # composer's own growth moved it in stage 1. What does not move is the
+    # divider and the composer: `panel_first` counts the panel's rows down
+    # from the divider rather than the divider counting up from the panel, so
+    # those two rows -- not the band as a whole -- are what a panel this size
+    # leaves exactly where an idle one-row composer left them. The growth this
+    # stage proves is the panel's own -- title, both choices and the tail-cut
+    # disclosure all committed at once -- read against those two fixed rows,
+    # not a claim that nothing above them changed.
+    run.require(read(trial.notes) == "alpha\n", "the notes are unedited before any panel asked")
+    trial.send("edit the notes " + run.nonce + "\r")
+    trial.wait_for("[tool] read_file ok")
+    panel = on_the_grid(trial, PERMISSION_TITLE, "the approval panel to be committed")
+    trial.grid("panel-grown")
+    run.require(panel.find("3. No") is not None, "the refusal is on the screen")
+    run.require(
+        panel.find(ALWAYS_WORDING) is not None,
+        "the always-scope is disclosed whole",
+    )
+    run.require(
+        divider_row(panel) == 21 and composer_first_row(panel) == 22,
+        "the divider and composer -- not the band, whose own top row this panel "
+        "occupies -- hold the one-row baseline through a panel this size: "
+        "divider %r composer %r" % (divider_row(panel), composer_first_row(panel)),
+    )
+    run.require(
+        survives(panel.document_text(), (doc1, doc2, doc3)),
+        "the panel's own growth did not disturb the earlier document: %r" % (panel.document_text(),),
+    )
+
+    trial.send(b"3")  # deny
+    grid = on_the_grid(trial, edit_marker, "the turn's own marker past the refused call")
+    closed = trial.grid("panel-closed")
+    run.require(
+        closed.find(PERMISSION_TITLE) is None,
+        "the panel is still standing behind the answer",
+    )
+    run.require(
+        divider_row(closed) == 21 and composer_first_row(closed) == 22,
+        "the divider and composer are still where the panel found them, now that "
+        "the band has given the rows above them back: divider %r composer %r"
+        % (divider_row(closed), composer_first_row(closed)),
+    )
+    run.require(read(trial.notes) == "alpha\n", "the denied edit ran anyway")
+    body = amended_request(fixture, "call-1")
+    refusal = tool_result_text(body, "call-1") if body else None
+    run.require(
+        body is not None and refusal is not None and "not permitted" in refusal,
+        "the model was not told the edit was refused: %r" % refusal,
+    )
+    run.require(
+        any(run.nonce in captured for captured in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.find(edit_marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        grid.text().count(edit_marker) == 1,
+        "response-only: the marker the fixture minted appears once on the screen",
+    )
+    run.require(
+        not any(edit_marker in captured for captured in fixture.bodies()),
+        "and it was never typed at this session: no request xfx sent carries it",
+    )
+    run.require(
+        survives(grid.document_text(), (doc1, doc2, doc3, edit_marker)),
+        "all four markers survived the whole scenario once each, in order: %r"
+        % (grid.document_text(),),
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # -- finish: draft cleared, idle watched, terminal restored -------------
+    settled_band(run, trial, "final")
+    trial.send(b"\x15")
+    trial.wait_until(
+        "the composer to be empty before the session is given up",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+
+    # A positive marker before a negative watch, per `14-no-op-frame-skip`'s own
+    # discipline: absence is only evidence once presence has been shown first.
+    deadline = time.time() + pty.WAIT
+    settled_len = len(trial.session.captured)
+    quiet_since = time.time()
+    while time.time() - quiet_since < QUIET_SETTLE:
+        trial.session.pump(0.05)
+        if len(trial.session.captured) != settled_len:
+            settled_len = len(trial.session.captured)
+            quiet_since = time.time()
+        if time.time() > deadline:
+            raise Failure("the session never stopped writing, so the idle screen cannot be measured")
+    before_idle = len(trial.session.captured)
+    idle = trial.grid("final-idle")
+    run.require(idle.find(edit_marker) is not None, "the final marker is still on the idle screen")
+    watch = time.time() + QUIET_WATCH
+    while time.time() < watch:
+        trial.session.pump(0.05)
+    after_idle = len(trial.session.captured)
+    run.require(
+        after_idle == before_idle,
+        "the idle screen wrote %d bytes across %.1fs with nothing to say: %r"
+        % (after_idle - before_idle, QUIET_WATCH, trial.session.text()[before_idle:after_idle]),
+    )
+
+    run.require(trial.modes().is_raw(), "the terminal is raw before the session gives it back")
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the layout session left at 0")
+    run.require(
+        trial.modes() == trial.before,
+        "the terminal came back byte for byte after a session that grew and shrank the band",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 26b. composer yield to an inline panel
+# ---------------------------------------------------------------------------
+
+
+def scenario_26b(run):
+    """A tall draft really yields rows to an inline panel, and gets them back.
+
+    The gap `26`'s own docstring names: its panel opens against a one-row
+    composer, so the divider never has a reason to move and `shell.rs::fit`'s
+    "the composer gives way to the question, one row at a time" never runs.
+    Reaching it needs a draft standing in the composer at the moment the panel
+    would open -- and a wait built only from frames already on the wire
+    (`on_the_grid`) cannot itself prove a paste landed *before* a race with the
+    panel's own arrival, only that both eventually did. So the edit call's
+    reply is held at the source instead: `fixtures.edit_then_finish`'s shape,
+    scripted with a `release_when` gate (`fixture_server.Fixture._answer`)
+    on the edit-call reply, lets the request that would open the panel be
+    captured and confirmed still unanswered, *then* the draft pasted and read
+    off the committed grid, and only then the gate opened -- a real barrier
+    ordering the two rather than a sleep racing them.
+
+    The panel's own height is fixed rather than discovered: a 150-byte
+    replacement sits below `permission::authority`'s `MAX_EXCERPT_BYTES` (160)
+    -- the byte count `ApprovalSurface::for_request` admits before it routes a
+    change to the alternate screen instead (`20-alternate-screen-approval`'s
+    surface, out of scope here), and at 80 columns its quoted before/after
+    wrap to a fixed fourteen-row panel -- measured directly off this fixture's
+    own grid rather than hand-derived from `approval.rs`'s wrapping, the same
+    reason `26` reads its own baseline off `solve_band`'s tested formula rather
+    than re-deriving it. Ten pasted rows against that panel leaves exactly six
+    the composer's own cap (`layout::input_row_limit(24)` = 11) and this
+    panel's rows together can still afford -- both fixed by this trial's own
+    scripted content, not by the environment it runs in.
+
+    **Divider is not `band_top`.** `26` already draws that line for an
+    unmoved composer; the point of *this* trial is the band's own top row
+    moving while the divider -- a pure function of the composer's own row
+    count (`layout.rs`'s `solve_band`) -- does not move for the reason `26`
+    moved it: it is given fewer rows, not zero, so it is a different divider
+    reached by the same formula, not the same divider left standing.
+    """
+    finish_marker = run.marker("finish")
+    before, after = "a" * 150, "b" * 150
+    release = threading.Event()
+    script = [
+        {"events": [fixtures.tool_call("call-0", "read_file", {"path": "notes.txt"}), fixtures.finish("tool-calls")]},
+        {
+            "events": [
+                fixtures.tool_call(
+                    "call-1", "edit_file", {"path": "notes.txt", "old_string": before, "new_string": after}
+                ),
+                fixtures.finish("tool-calls"),
+            ],
+            "release_when": release,
+        },
+        fixtures.content_only(finish_marker),
+    ]
+    fixture = start_fixture(run, script)
+    trial = run.trial("yield", gateway=fixture, mode="ask", notes=True, notes_text=before + "\n").settled()
+    from_a_known_composer(run, trial, "yield")
+
+    trial.send("edit the notes " + run.nonce + "\r")
+    trial.wait_for("[tool] read_file ok")
+    trial.wait_until(
+        "the edit call's own request to be captured and held",
+        lambda _t: fixture.request_count() == 2,
+    )
+
+    draft_lines = ["ROW-%02d-%s" % (line, run.nonce) for line in range(10)]
+    trial.send(b"\x1b[200~")
+    trial.send("\n".join(draft_lines).encode("utf-8"))
+    trial.send(b"\x1b[201~")
+    trial.wait_until(
+        "the ten-row draft to be on the committed grid while the edit reply is held",
+        lambda _t: draft_rows(trial.peek()) == draft_lines,
+    )
+    held = trial.grid("draft-captured-while-held")
+    run.require(fixture.request_count() == 2, "the paste neither submitted nor started a new request")
+    run.require(held.find(PERMISSION_TITLE) is None, "no barrier: the panel painted before its reply was released")
+    run.require(
+        divider_row(held) == 12 and composer_first_row(held) == 13,
+        "the ten-row draft's own rows, before any panel: divider %r composer %r"
+        % (divider_row(held), composer_first_row(held)),
+    )
+    run.require(
+        held.row == 22 and held.col == 2 + cells_wide(draft_lines[-1]),
+        "the caret sits past the pasted text's own last row: (%d, %d)" % (held.row, held.col),
+    )
+
+    release.set()
+    panel = on_the_grid(trial, PERMISSION_TITLE, "the panel to be committed once the held reply is released")
+    trial.grid("panel-open-over-tall-draft")
+    run.require(panel.find("1. Yes") is not None, "the first choice is offered")
+    run.require(panel.find("3. No") is not None, "the refusal is offered")
+    run.require(panel.find(ALWAYS_WORDING) is not None, "the second choice is offered")
+    # The **tail** of the scope, separately from the second choice's own fixed
+    # prefix (`ALWAYS_WORDING`): a screen could disclose "2. Yes, and don't ask
+    # again for this request" and still have cut the clause that says what
+    # "always" buys, the same distinction `24-approval-readiness` draws for the
+    # identical reason.
+    run.require(
+        panel.find("of this saved session") is not None
+        or panel.find("the approval ends with this command") is not None,
+        "the scope's own tail is on the screen, not just the choice's fixed prefix",
+    )
+
+    title_row = panel.find(PERMISSION_TITLE)[0]
+    # The activity row is *found*, not inferred as `title_row - 1`: it is
+    # wherever the row that names the running `edit_file` call actually is,
+    # matched against `ACTIVITY_ROW`'s own shape (blink marker optional, both
+    # faces admitted, exactly as `settled_band` reads it).
+    activity_candidates = [
+        row
+        for row in range(panel.rows)
+        if "edit_file" in panel.row_text(row) and ACTIVITY_ROW.match(panel.row_text(row).rstrip())
+    ]
+    run.require(
+        len(activity_candidates) == 1,
+        "exactly one row looks like the running edit_file call's activity row: %r" % activity_candidates,
+    )
+    activity_row = activity_candidates[0]
+    # This fixture's own row budget, zero-based, top to bottom: one row of
+    # document, one activity row, fourteen panel rows, one divider, six visible
+    # composer rows and one hint row -- 1+1+14+1+6+1 == 24, so the activity row
+    # and the panel's own title land on these two fixed rows, found on the
+    # grid rather than derived from each other.
+    run.require(
+        activity_row == 1 and title_row == 2,
+        "the activity row and the panel's title sit where this fixture's own row "
+        "budget puts them: activity %r title %r" % (activity_row, title_row),
+    )
+
+    divider_open = divider_row(panel)
+    composer_visible_open = panel.rows - 2 - divider_open if divider_open is not None else None
+    run.require(
+        divider_open == 16,
+        "the composer's own formula applied to its new, smaller row count: divider %r" % divider_open,
+    )
+    run.require(
+        divider_open not in (title_row, activity_row),
+        "the divider is not the band's own top row: divider %r title %r activity %r"
+        % (divider_open, title_row, activity_row),
+    )
+    run.require(
+        composer_visible_open == 6,
+        "the composer's visible rows reduced from ten to what this panel leaves it: %r" % composer_visible_open,
+    )
+    tail = draft_lines[-6:]
+    shown = [panel.row_text(row)[2:] for row in range(divider_open + 1, panel.rows - 1)]
+    run.require(
+        shown == tail,
+        "the draft's own tail is what the shrunk window shows, in order and unedited: %r vs %r" % (shown, tail),
+    )
+
+    trial.send(b"3")  # deny
+    grid = on_the_grid(trial, finish_marker, "the turn's own marker past the refused call")
+    # The marker alone is not proof the band has finished settling back down --
+    # it arrives while the turn can still own the document's last row
+    # (`settled_band`'s own reasoning) -- and what is read off `closed` below
+    # is final geometry (divider, composer rows, the whole restored draft), so
+    # the snapshot is taken only once the band has given that row back.
+    settled_band(run, trial, "yield")
+    closed = trial.grid("panel-closed-draft-restored")
+    run.require(closed.find(PERMISSION_TITLE) is None, "the panel is gone")
+    run.require(
+        divider_row(closed) == 12 and composer_first_row(closed) == 13,
+        "the draft's own ten rows are back now that the panel gave them back: divider %r composer %r"
+        % (divider_row(closed), composer_first_row(closed)),
+    )
+    run.require(
+        draft_rows(closed) == draft_lines,
+        "the whole draft survived the yield and the restore, unedited and in order: %r" % (draft_rows(closed),),
+    )
+    run.require(read(trial.notes) == before + "\n", "the denied edit ran anyway")
+    body = amended_request(fixture, "call-1")
+    refusal = tool_result_text(body, "call-1") if body else None
+    run.require(
+        body is not None and refusal is not None and "not permitted" in refusal,
+        "the model was not told the edit was refused: %r" % refusal,
+    )
+    run.require(
+        any(run.nonce in captured for captured in fixture.bodies()),
+        "the nonce this run minted is in a request xfx sent",
+    )
+    run.require(grid.find(finish_marker) is not None, "the fixture's own marker is rendered")
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # -- finish: the draft is undone (never submitted), then C-D ------------
+    trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was
+    trial.wait_until(
+        "the composer to empty without submitting the draft",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    run.require(fixture.request_count() == 3, "clearing the draft did not submit it")
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the yield session left at 0")
+    run.require(
+        trial.modes() == trial.before,
+        "the terminal came back byte for byte after a panel that shrank and restored the composer",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 27. live theme retint
+# ---------------------------------------------------------------------------
+
+# The four greys the document's own two roles are painted in, spelled out here
+# rather than read off anything the product shares with this file. They are
+# `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4) and
+# `NOTICE` (index 2), in the `Ansi256` spelling every trial below runs at --
+# there is no `COLORTERM` in a trial's environment, so `theme::depth_from_env`
+# answers `Ansi256` and the sequences are the indexed ones.
+#
+# A literal, because the question this scenario asks is *which* grey a cell
+# ended up in. A harness that built the expectation from a palette helper would
+# agree with whatever the module happened to declare, and one that searched the
+# captured bytes for an SGR would be satisfied by the same sequence opened for
+# some other row: the reading below is the attribute of one **named cell**.
+RETINT_DARK_BODY = "\x1b[38;5;255m"
+RETINT_DARK_NOTICE = "\x1b[38;5;250m"
+RETINT_LIGHT_BODY = "\x1b[38;5;235m"
+RETINT_LIGHT_NOTICE = "\x1b[38;5;241m"
+
+# What a terminal that took the `?2031` subscription volunteers when its
+# background changes (`src/tui/theme.rs:108-126`). Nobody typed it, so every
+# assertion about a draft below is also an assertion that it stayed out of the
+# composer.
+WENT_LIGHT = b"\x1b[?997;2n"
+WENT_DARK = b"\x1b[?997;1n"
+
+# The command whose answer is used as this scenario's `Role::Notice` row
+# (`src/tui/shell.rs`'s `version`, `Shell::say`).
+#
+# Chosen for what it does **not** do. `/model` answers with a second, later line
+# once the catalog comes back and `/new` submits work whose end the band shows,
+# so both leave the document still moving after the line under test has landed
+# -- and a row that is about to be scrolled is not a row a colour can be
+# compared on. `/version` is one local sentence, said and finished: no request,
+# no worker, no activity row painting over the bottom of the document.
+NOTICE_COMMAND = "/version"
+
+# What its answer starts with (`src/interactive.rs`'s `version_line`). A prefix,
+# because the version and the channel are the build's and not this file's.
+NOTICE_PREFIX = "xfx "
+
+
+def cell_attribute(grid, needle):
+    """The attribute of the **first cell** of `needle`, or `None` if it is gone.
+
+    The whole colour question of this scenario, asked of one cell. `find`
+    answers a cell index, so this is the attribute the terminal is really
+    holding for the first grapheme of a marker -- not a substring of the row and
+    not a sequence seen somewhere in the stream.
+    """
+    found = grid.find(needle)
+    if found is None:
+        return None
+    row, column = found
+    return grid.attrs[row][column]
+
+
+def own_line_row(grid, text):
+    """The row whose **whole** text is `text`, or `None`.
+
+    An equality rather than a search, because the row this is used for is the
+    echo of a submitted `/model` and the screen also carries a notice with the
+    word `model` in it. A reader that matched a substring could read the colour
+    of xfx's line and report it as the user's.
+    """
+    for row in range(grid.rows):
+        if grid.row_text(row) == text:
+            return row
+    return None
+
+
+def notice_row(grid):
+    """The row xfx answered [`NOTICE_COMMAND`] on, or `None`.
+
+    Read as "the row under the echo" rather than by searching for its text: the
+    band's own hint row also carries the word this line starts with, and a
+    top-down search for a prefix would compare the colour of the band with the
+    colour a document row is owed.
+    """
+    echo = own_line_row(grid, NOTICE_COMMAND)
+    if echo is None or echo + 1 >= grid.rows:
+        return None
+    return echo + 1
+
+
+def rows_above_the_rule(grid):
+    """The rows above the band's rule: the terminal's own document, as text.
+
+    Named for where it reads rather than for what is there, because
+    `document_rows` above is a different question (`17-history`'s "which rows
+    carry this needle") and two helpers with one name is a scenario quietly
+    calling the other one.
+    """
+    rule = divider_row(grid)
+    last = grid.rows if rule is None else rule
+    return [grid.row_text(row) for row in range(last)]
+
+
+def attrs_above_the_rule(grid):
+    """The same rows' attribute runs, in order."""
+    rule = divider_row(grid)
+    last = grid.rows if rule is None else rule
+    return [grid.attrs_of_row(row) for row in range(last)]
+
+
+def left_behind(grid, palette):
+    """Every document row still carrying one of `palette`'s greys, with the row.
+
+    The "and nothing was missed" half of a retint: the marker readings below say
+    the named cells moved, and this says no row of the document was left in the
+    palette the session has left.
+    """
+    return [
+        (row, attrs)
+        for row, attrs in enumerate(attrs_above_the_rule(grid))
+        if any(attr in palette for attr in attrs)
+    ]
+
+
+def a_document_with_both_owned_roles(run, trial, fixture, body_text, label):
+    """Drives `trial` to a screen holding an answer, a notice and the user's echo.
+
+    The three things a report has different duties towards, put on the screen in
+    an order chosen so they survive: the turn first, because a turn's activity
+    row takes its place from the bottom of the document and paints over it, and
+    [`NOTICE_COMMAND`] after it, because that one starts no turn at all.
+
+    The wait is on the answer's **own row** rather than on the echo of the
+    command, so what the caller is handed back is a document that has stopped
+    moving.
+    """
+    trial.send("say " + run.nonce + "\r")
+    trial.wait_for(body_text)
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "%s: the nonce this run minted is in the request xfx sent" % label,
+    )
+    asked = fixture.request_count()
+    trial.send(NOTICE_COMMAND + "\r")
+    trial.wait_until(
+        "%s: xfx's own line about the session" % label,
+        lambda _t: said_row(trial.peek()) is not None,
+    )
+    run.require(
+        fixture.request_count() == asked,
+        "%s: the notice was answered locally (%d new request(s))"
+        % (label, fixture.request_count() - asked),
+    )
+    return trial
+
+
+def said_row(grid):
+    """The notice row once it is really there, or `None` while it is not."""
+    row = notice_row(grid)
+    if row is None or not grid.row_text(row).startswith(NOTICE_PREFIX):
+        return None
+    return row
+
+
+def notice_attribute(grid):
+    """The attribute of the notice row's first cell, or `None` without one."""
+    row = said_row(grid)
+    return None if row is None else grid.attrs[row][0]
+
+
+def scenario_27(run):
+    """A background report recolours what is on the screen, and changes nothing else."""
+    first, second = run.marker("first"), run.marker("second")
+
+    # --- a session that was told the terminal is dark -----------------------
+    #
+    # Through the launch's own `OSC 11` conversation rather than `XFX_THEME`,
+    # because a fixed palette is a session that takes no reports at all -- which
+    # is the control at the bottom of this scenario and not its subject. Dark is
+    # also what the detection falls back to, so this start is **not** read here
+    # as proof that the reply was adopted: `12-theme-detection` owns that claim
+    # by painting a light answer and a dark one differently.
+    fixture = start_fixture(run, [fixtures.content_only(first + "\n" + second)])
+    trial = run.trial("visible", gateway=fixture, answer_probes=False)
+    trial.wait_for(pty.THEME_PROBE)
+    run.require(pty.THEME_PROBE in trial.text(), "the launch asked the terminal its background")
+    trial.send(PROBE_ANSWERS)
+    trial.settled()
+    # The subscription, positively: the report typed below is a sequence a
+    # terminal sends **because it was asked to**, and a session that never asked
+    # would be being fed something no real terminal would volunteer.
+    run.require(
+        "\x1b[?2031h" in trial.text(),
+        "the launch subscribed to background changes before any report was sent",
+    )
+    from_a_known_composer(run, trial, "visible")
+    a_document_with_both_owned_roles(run, trial, fixture, second, "visible")
+
+    # A draft, so the claim below is about a composer with something in it. A
+    # report that reached the input decoder as text would land here.
+    draft = run.marker("draft")
+    trial.send(draft)
+    trial.wait_until(
+        "the draft in the composer",
+        lambda _t: composer_text(trial.peek()) == draft,
+    )
+
+    before = trial.grid("dark-before-the-report")
+    echo = own_line_row(before, NOTICE_COMMAND)
+    run.require(echo is not None, "the user's own submitted line is on the screen")
+    run.require(
+        cell_attribute(before, first) == RETINT_DARK_BODY
+        and cell_attribute(before, second) == RETINT_DARK_BODY,
+        "the answer's rows are in the dark body grey (%r / %r)"
+        % (cell_attribute(before, first), cell_attribute(before, second)),
+    )
+    run.require(
+        notice_attribute(before) == RETINT_DARK_NOTICE,
+        "xfx's own line is in the dark notice grey (%r)" % notice_attribute(before),
+    )
+    run.require(
+        echo is None or before.attrs_of_row(echo) == [],
+        "the user's own line carries none of xfx's attributes (%r)"
+        % (None if echo is None else before.attrs_of_row(echo)),
+    )
+    asked = fixture.request_count()
+
+    # --- the terminal says it went light ------------------------------------
+    trial.send(WENT_LIGHT)
+    trial.wait_until(
+        "the rows already on the screen to be recoloured",
+        lambda _t: cell_attribute(trial.peek(), first) == RETINT_LIGHT_BODY
+        and notice_attribute(trial.peek()) == RETINT_LIGHT_NOTICE,
+    )
+    after = trial.grid("light-after-the-report")
+    run.require(
+        cell_attribute(after, first) == RETINT_LIGHT_BODY
+        and cell_attribute(after, second) == RETINT_LIGHT_BODY,
+        "both answer rows moved to the light body grey (%r / %r)"
+        % (cell_attribute(after, first), cell_attribute(after, second)),
+    )
+    run.require(
+        notice_attribute(after) == RETINT_LIGHT_NOTICE,
+        "xfx's own line moved to the light notice grey (%r)" % notice_attribute(after),
+    )
+    run.require(
+        echo is None or after.attrs_of_row(echo) == [],
+        "the user's own line was not repainted (%r)"
+        % (None if echo is None else after.attrs_of_row(echo)),
+    )
+    run.require(
+        left_behind(after, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)) == [],
+        "no document row was left in the palette the session has left: %r"
+        % left_behind(after, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)),
+    )
+    # A recolour and **only** a recolour. Text, row positions, the caret, what
+    # has left the top of the screen, the plane, the draft and the provider are
+    # each a way for this vector to have been more than it claims.
+    run.require(
+        rows_above_the_rule(after) == rows_above_the_rule(before),
+        "not one character of the document moved",
+    )
+    run.require(after.text() == before.text(), "and no row of the screen changed its text")
+    run.require(
+        after.find(first) == before.find(first) and after.find(second) == before.find(second),
+        "the answer is on the rows and columns it was on (%r/%r vs %r/%r)"
+        % (after.find(first), after.find(second), before.find(first), before.find(second)),
+    )
+    run.require(
+        (after.row, after.col) == (before.row, before.col),
+        "the caret came back where the last frame left it (%r vs %r)"
+        % ((after.row, after.col), (before.row, before.col)),
+    )
+    run.require(
+        after.scrollback == before.scrollback,
+        "nothing was pushed into the terminal's own scrollback (%d vs %d rows)"
+        % (len(after.scrollback), len(before.scrollback)),
+    )
+    run.require(
+        (after.plane, after.entered_alternate) == (before.plane, before.entered_alternate),
+        "the recolour stayed on the normal buffer (%r)" % (after.plane,),
+    )
+    run.require(composer_text(after) == draft, "the draft survived: %r" % composer_text(after))
+    run.require(
+        fixture.request_count() == asked,
+        "a report asked the provider for nothing (%d new request(s))"
+        % (fixture.request_count() - asked),
+    )
+    run.require(not after.unknown, "xfx emitted only the sequences it declares: %r" % after.unknown)
+
+    # --- and back ------------------------------------------------------------
+    trial.send(WENT_DARK)
+    trial.wait_until(
+        "the rows to be recoloured back",
+        lambda _t: cell_attribute(trial.peek(), first) == RETINT_DARK_BODY
+        and notice_attribute(trial.peek()) == RETINT_DARK_NOTICE,
+    )
+    back = trial.grid("dark-again")
+    run.require(
+        cell_attribute(back, second) == RETINT_DARK_BODY,
+        "the second answer row came back too (%r)" % cell_attribute(back, second),
+    )
+    run.require(
+        left_behind(back, (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE)) == [],
+        "and nothing was left in the light palette: %r"
+        % left_behind(back, (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE)),
+    )
+    run.require(back.text() == before.text(), "the screen is the one it started as, in text")
+    run.require(
+        (back.row, back.col) == (before.row, before.col),
+        "with the caret where it started (%r vs %r)"
+        % ((back.row, back.col), (before.row, before.col)),
+    )
+    run.require(back.scrollback == before.scrollback, "and nothing in scrollback either")
+    run.require(not back.unknown, "xfx emitted only the sequences it declares: %r" % back.unknown)
+
+    trial.send(b"\x15\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the retinted session left at 0")
+    run.require(
+        pty.RESTORE in trial.session.settled_text(),
+        "and gave the subscription back with the rest of the terminal",
+    )
+    fixture.stop()
+
+    # --- the control: a session told what the palette is ---------------------
+    #
+    # **A control and not a mutation proof.** What it establishes is that the
+    # same bytes, on a session whose palette was decided by `XFX_THEME`, move
+    # nothing -- so the trial above measured a report rather than any keystroke
+    # that happens to arrive. It cannot stand in for a build without the
+    # recolour: this binary has it, and a palette that is locked never reaches
+    # the code the trial above exercises.
+    locked_marker = run.marker("locked")
+    locked_fixture = start_fixture(run, [fixtures.content_only(locked_marker)], name="locked")
+    locked = run.trial(
+        "locked",
+        gateway=locked_fixture,
+        env_extra={"XFX_THEME": "dark"},
+        answer_probes=False,
+    )
+    locked.wait_for(pty.PROBE)
+    locked.send("\x1b[2;1R")
+    locked.settled()
+    run.require(
+        pty.THEME_PROBE not in locked.text(),
+        "XFX_THEME decided the palette, so no background query was sent",
+    )
+    from_a_known_composer(run, locked, "locked")
+    a_document_with_both_owned_roles(run, locked, locked_fixture, locked_marker, "locked")
+    held = locked.grid("locked-before-the-report")
+    run.require(
+        cell_attribute(held, locked_marker) == RETINT_DARK_BODY,
+        "the locked session's answer is in the dark body grey (%r)"
+        % cell_attribute(held, locked_marker),
+    )
+    run.require(
+        notice_attribute(held) == RETINT_DARK_NOTICE,
+        "and its notice in the dark notice grey (%r)" % notice_attribute(held),
+    )
+    band_before = (held.attrs_of_row(held.rows - 1), held.attrs_of_row(held.rows - 3))
+
+    # The report and a keystroke in **one** write, which is what makes "nothing
+    # changed" a bounded claim rather than a sleep: the decoder consumes one
+    # read in order, so a composer holding the `z` is a session that has already
+    # been past the report.
+    locked.send(WENT_LIGHT + b"z")
+    locked.wait_until(
+        "the keystroke behind the report to reach the composer",
+        lambda _t: composer_text(locked.peek()) == "z",
+    )
+    unmoved = locked.grid("locked-after-the-report")
+    run.require(
+        cell_attribute(unmoved, locked_marker) == RETINT_DARK_BODY
+        and notice_attribute(unmoved) == RETINT_DARK_NOTICE,
+        "a locked palette took no report (%r / %r)"
+        % (cell_attribute(unmoved, locked_marker), notice_attribute(unmoved)),
+    )
+    run.require(
+        rows_above_the_rule(unmoved) == rows_above_the_rule(held)
+        and attrs_above_the_rule(unmoved) == attrs_above_the_rule(held),
+        "and the document is the same rows in the same colours",
+    )
+    run.require(
+        (unmoved.attrs_of_row(unmoved.rows - 1), unmoved.attrs_of_row(unmoved.rows - 3))
+        == band_before,
+        "the band kept its own colours too (%r vs %r)"
+        % ((unmoved.attrs_of_row(unmoved.rows - 1), unmoved.attrs_of_row(unmoved.rows - 3)),
+           band_before),
+    )
+    run.require(
+        not unmoved.unknown, "xfx emitted only the sequences it declares: %r" % unmoved.unknown
+    )
+    locked.send(b"\x15\x04")
+    run.require(locked.session.wait_exit() == ("exited", 0), "the locked session left at 0")
+    locked_fixture.stop()
+
+    # --- a report while the rest of the answer is still inside xfx -----------
+    #
+    # Head and tail are in **one** `text-delta`, which is what makes the pending
+    # text a fact rather than a name: the fixture writes that event in a single
+    # chunk and only then holds the stream open, so a screen showing the head
+    # is a session that has already parsed the whole event -- and the tail it is
+    # not showing is held by the product, not by the producer. Which of the
+    # product's own buffers holds it is not readable from a screen; the pacer's
+    # timing has its own proof in `src/tui/pacer.rs`'s unit tests, and
+    # `8-streaming-render` makes the same release claim about the same shape.
+    head, tail = run.marker("head"), run.marker("tail")
+    paced = "%s %s %s" % (head, "xx " * 100, tail)
+    pending_fixture = start_fixture(
+        run, [fixtures.hang(fixtures.text_delta("a", paced))], name="pending"
+    )
+    pending = run.trial("pending-stream", gateway=pending_fixture, answer_probes=False)
+    pending.wait_for(pty.THEME_PROBE)
+    pending.send(PROBE_ANSWERS)
+    pending.settled()
+    from_a_known_composer(run, pending, "pending-stream")
+    pending.send("stream " + run.nonce + "\r")
+    pending.wait_for(head)
+    run.require(
+        tail not in pending.text(),
+        "the head of the delta was on the screen and its tail had not been written at all",
+    )
+    holding = pending.grid("stream-dark-head")
+    run.require(
+        cell_attribute(holding, head) == RETINT_DARK_BODY,
+        "what is already released is in the dark body grey (%r)" % cell_attribute(holding, head),
+    )
+
+    pending.send(WENT_LIGHT)
+    pending.wait_until(
+        "the released head to be recoloured mid-stream",
+        lambda _t: cell_attribute(pending.peek(), head) == RETINT_LIGHT_BODY,
+    )
+    pending.wait_for(tail)
+    final = pending.grid("stream-final")
+    run.require(
+        cell_attribute(final, head) == RETINT_LIGHT_BODY,
+        "text painted before the report is in the palette now in force (%r)"
+        % cell_attribute(final, head),
+    )
+    run.require(
+        cell_attribute(final, tail) == RETINT_LIGHT_BODY,
+        "and the text released after it is painted in the same one (%r)"
+        % cell_attribute(final, tail),
+    )
+    run.require(
+        left_behind(final, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)) == [],
+        "no visible document row is left in the old palette: %r"
+        % left_behind(final, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)),
+    )
+    run.require(
+        final.text().count(tail) == 1,
+        "the fixture's own end marker is on the screen exactly once (%d)"
+        % final.text().count(tail),
+    )
+    run.require(
+        any(run.nonce in body for body in pending_fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent (%d request(s))"
+        % pending_fixture.request_count(),
+    )
+    run.require(not final.unknown, "xfx emitted only the sequences it declares: %r" % final.unknown)
+    pending.send(b"\x03")
+    pending.wait_for("stopping the turn")
+    pending.send(b"\x03")
+    run.require(
+        pending.session.wait_exit() == ("exited", 130), "the streaming session left with 130"
+    )
+    pending_fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
     "3-restore-matrix": scenario_3,
     "3b-shutdown-drain": scenario_3b,
+    "3c-partial-frame-containment": scenario_3c,
+    "3d-primary-band-recovery": scenario_3d,
+    "3e-alternate-repaint-recovery": scenario_3e,
     "4-raw-mode-positively-entered": scenario_4,
     "5-editor-basics": scenario_5,
     "6-soft-wrap-and-growth-cap": scenario_6,
@@ -5619,6 +8742,14 @@ SCENARIOS = {
     "19-model-catalog-and-context-meter": scenario_19,
     "20-alternate-screen-approval": scenario_20,
     "21-paste-entities": scenario_21,
+    "22-edit-history": scenario_22,
+    "23-question-panel": scenario_23,
+    "23b-question-cancelled": scenario_23b,
+    "24-approval-readiness": scenario_24,
+    "25-amended-approval": scenario_25,
+    "26-layout-stabilization": scenario_26,
+    "26b-composer-yield-to-panel": scenario_26b,
+    "27-live-theme-retint": scenario_27,
 }
 
 
@@ -5682,15 +8813,25 @@ export XFX_THEME="light"
 export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
-# the two lettered rows the drain and the mid-turn approval added, then Phase
-# 2's 13-21. This list and `SCENARIOS` in the python helper are the two
-# registrations, and they are one order -- a name in either that the other does
-# not have is a scenario nothing runs or a runner nothing names.
+# the lettered rows the drain, the counted-delivery containment, the recovery
+# that containment's own cleanup vector answers, the same recovery for a torn
+# repaint of the alternate plane, and the mid-turn approval added, then
+# Phase 2's 13-21 and Phase 3's 22, 23, the lettered row 23b, 24 and 25 --
+# plus 26, 26b and 27, QA-only additions not in that PRD's own numbered list,
+# for the band's growth-and-shrink layout contract, the composer's own yield to
+# a panel within it, and the recolour a terminal's own background report owes
+# the rows already on the screen. This
+# list and `SCENARIOS` in the python helper are
+# the two registrations, and they are one order -- a name in either that the
+# other does not have is a scenario nothing runs or a runner nothing names.
 scenarios=(
 	1-launch-and-band-ownership
 	2-cursor-probe-and-scrollback-push
 	3-restore-matrix
 	3b-shutdown-drain
+	3c-partial-frame-containment
+	3d-primary-band-recovery
+	3e-alternate-repaint-recovery
 	4-raw-mode-positively-entered
 	5-editor-basics
 	6-soft-wrap-and-growth-cap
@@ -5710,6 +8851,14 @@ scenarios=(
 	19-model-catalog-and-context-meter
 	20-alternate-screen-approval
 	21-paste-entities
+	22-edit-history
+	23-question-panel
+	23b-question-cancelled
+	24-approval-readiness
+	25-amended-approval
+	26-layout-stabilization
+	26b-composer-yield-to-panel
+	27-live-theme-retint
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

@@ -80,6 +80,7 @@ use super::approval::{ControlChannel, TuiPrompter};
 use super::bridge::{
     self, Cancellation, ModelAnswer, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink,
 };
+use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
@@ -210,6 +211,8 @@ impl WorkHandle {
         }
         // The claim and the test are one operation: two keystrokes cannot both
         // find the last place free.
+        // fetch_update is renamed try_update in Rust 1.99; kept for the 1.96 MSRV.
+        #[allow(deprecated)]
         if self
             .outstanding
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
@@ -443,6 +446,16 @@ pub(crate) fn spawn(
     // why that is sound and what it costs.
     let control = ControlChannel::new(control_rx);
     let prompter = TuiPrompter::new(events_tx.clone(), Arc::clone(&control), cancel.clone());
+    // Beside the prompter, over **the same** channel, the same UI sender and the
+    // same session cancellation: one receiver, one runtime, one park protocol.
+    // The two never wait at once -- a turn asks one thing at a time, which is
+    // the shell's own rule (`super::shell::Shell::ask`) -- and each consumes and
+    // ignores the other's stale traffic rather than answering it.
+    let questioner = Arc::new(TuiQuestioner::new(
+        events_tx.clone(),
+        Arc::clone(&control),
+        cancel.clone(),
+    ));
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
     let outstanding = Arc::new(AtomicUsize::new(0));
@@ -466,7 +479,7 @@ pub(crate) fn spawn(
                 return;
             };
             runtime.block_on(turn_loop(
-                Runtime::new(config, store, prompter),
+                Runtime::new(config, store, prompter, questioner),
                 &events_tx,
                 &mut work_rx,
                 control,
@@ -536,6 +549,20 @@ struct Runtime {
     /// conversation's authority. Held here rather than made per turn -- see the
     /// module header on what "always" is worth.
     prompter: TuiPrompter,
+    /// The way the **model** asks the person at the terminal a question, cloned
+    /// into each conversation's `ToolContext`.
+    ///
+    /// Held here for the reason the prompter is, and for one of its own: the
+    /// request ids it mints are a session-wide sequence, so a requester rebuilt
+    /// per conversation would start again at one and make a keystroke left over
+    /// from the previous conversation's last batch indistinguishable from an
+    /// answer to the new one's first.
+    ///
+    /// **The concrete type rather than `Arc<dyn QuestionRequester>`**: what a
+    /// real session asks through is this surface's requester, and a field typed
+    /// at the trait would let a fixture put something else there and still be
+    /// asserting about "the runtime".
+    questioner: Arc<TuiQuestioner>,
     /// The model in force, and the catalog of the **currently configured**
     /// provider.
     ///
@@ -556,8 +583,19 @@ struct Runtime {
 }
 
 impl Runtime {
-    fn new(config: RuntimeConfig, store: SessionStore, prompter: TuiPrompter) -> Self {
-        Self::with_environment(config, Environment::from_process(), store, prompter)
+    fn new(
+        config: RuntimeConfig,
+        store: SessionStore,
+        prompter: TuiPrompter,
+        questioner: Arc<TuiQuestioner>,
+    ) -> Self {
+        Self::with_environment(
+            config,
+            Environment::from_process(),
+            store,
+            prompter,
+            questioner,
+        )
     }
 
     /// [`Runtime::new`], with the environment named rather than read.
@@ -570,6 +608,7 @@ impl Runtime {
         env: Environment,
         store: SessionStore,
         prompter: TuiPrompter,
+        questioner: Arc<TuiQuestioner>,
     ) -> Self {
         let selector = ModelSelector::new(&config);
         Self {
@@ -579,6 +618,7 @@ impl Runtime {
             conversation: None,
             provider: None,
             prompter,
+            questioner,
             selector,
         }
     }
@@ -595,6 +635,18 @@ impl Runtime {
                 &self.config,
                 &model,
                 self.authority(),
+                // The TUI's own requester, over the control channel this
+                // session's prompter already reads
+                // ([`super::question::TuiQuestioner`]). This is the one front
+                // end that has a UI to ask in, so it is the one that hands
+                // `ask_user_question` a requester at all: the line shell and a
+                // non-interactive run pass `None` and get the availability
+                // sentinel.
+                //
+                // **The session's requester, not a new one**, so the ids a
+                // rebuilt conversation asks under go on where the last one left
+                // off -- see the field.
+                Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
         }
@@ -828,8 +880,15 @@ async fn turn_loop(
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
-                // reachable from inside a turn.
-                Some(TurnControl::Answer(_)) => Taken::Nothing,
+                // reachable from inside a turn. The model's own questions are
+                // the same fact under a different name -- and their id makes it
+                // provable rather than argued: no turn is running, so no
+                // requester holds the id this message names.
+                Some(
+                    TurnControl::Answer { .. }
+                    | TurnControl::QuestionAnswer { .. }
+                    | TurnControl::QuestionCancelled { .. },
+                ) => Taken::Nothing,
             },
             item = queue.work.recv() => Taken::Work(item),
         };
@@ -1301,7 +1360,19 @@ async fn raced_against_control<F: Future>(
                 // parked (`super::approval`), so anything reaching here is a
                 // second keystroke on a panel that has already gone. Consumed
                 // rather than left, so the next question does not inherit it.
-                Some(TurnControl::Answer(_)) => {}
+                //
+                // The model's own question batches reach this arm for the same
+                // reason and are discarded for a stricter one: nothing on this
+                // side is waiting on the id they name --
+                // [`super::question::TuiQuestioner`] takes its own answer off
+                // this channel while it is parked, and while it is parked this
+                // loop is not running -- so an answer that arrives here is by
+                // construction stale.
+                Some(
+                    TurnControl::Answer { .. }
+                    | TurnControl::QuestionAnswer { .. }
+                    | TurnControl::QuestionCancelled { .. },
+                ) => {}
                 // The UI dropped its sender, which is the same fact as a
                 // shutdown and is treated as one.
                 None => {
@@ -1511,11 +1582,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::config::{Environment, PermissionMode};
+    use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
     use crate::gateway::CancelToken;
     use crate::permission::{
         AllowSource, ApprovalAnswer, Grant, MutationKind, MutationPlan, PolicyDecision, Preimage,
         ProposedAction, TargetScope,
     };
+    use crate::provider::Wire;
 
     /// A configuration from a home and a workspace that exist and hold no
     /// settings.
@@ -2163,7 +2236,11 @@ mod tests {
         let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let control = ControlChannel::new(control_rx);
         control_tx
-            .send(TurnControl::Answer(crate::permission::ApprovalAnswer::Deny))
+            .send(TurnControl::Answer {
+                id: super::super::approval_readiness::ApprovalId(1),
+                answer: crate::permission::ApprovalAnswer::Deny,
+                feedback: None,
+            })
             .expect("alive");
         // The body outlives the stray and then finishes by itself, which is what
         // makes "the stray changed nothing" observable.
@@ -2361,6 +2438,19 @@ mod tests {
         )
     }
 
+    /// The same, for the requester the model's questions go through. Nothing on
+    /// either end of it either: the fixtures that use it never run a turn, and
+    /// what they are about is that a conversation is *given* one.
+    fn a_questioner() -> Arc<TuiQuestioner> {
+        let (events, _seen) = mpsc::channel(1);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        Arc::new(TuiQuestioner::new(
+            events,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+        ))
+    }
+
     /// A `Runtime` with an open conversation, held in the model the
     /// configuration resolves to.
     ///
@@ -2378,10 +2468,11 @@ mod tests {
             &config,
             &config.model.clone(),
             PermissionSession::new(config.permission_mode),
+            None, // this fixture does not exercise the question path
             &CancelToken::new(),
         )
         .expect("open a conversation");
-        let mut state = Runtime::new(config, store, a_prompter());
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
         state.conversation = Some(conversation);
         (home, workspace, state)
     }
@@ -2569,7 +2660,11 @@ mod tests {
         let (events, seen) = mpsc::channel(4);
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         control_tx
-            .send(TurnControl::Answer(ApprovalAnswer::Always))
+            .send(TurnControl::Answer {
+                id: super::super::approval_readiness::ApprovalId(1),
+                answer: ApprovalAnswer::Always,
+                feedback: None,
+            })
             .expect("the channel is open");
         let prompter = TuiPrompter::new(
             events,
@@ -2577,7 +2672,7 @@ mod tests {
             Cancellation::new(CancelToken::new()),
         );
 
-        let mut state = Runtime::new(config, store, prompter);
+        let mut state = Runtime::new(config, store, prompter, a_questioner());
         // Through `authority()`, which is what `ready` opens a real
         // conversation with: a fixture that built its own permission session
         // would be asserting against its own argument.
@@ -2587,6 +2682,7 @@ mod tests {
             &state.config,
             &model,
             state.authority(),
+            None, // this fixture does not exercise the question path
             &CancelToken::new(),
         )
         .expect("open a conversation");
@@ -2623,7 +2719,9 @@ mod tests {
         // write, and the ledger's lock is not reentrant.
         let decision = {
             let mut permissions = conversation.tools.permissions();
-            permissions.decide(ProposedAction::Mutation(&plan))
+            permissions
+                .decide_with_feedback(ProposedAction::Mutation(&plan))
+                .decision
         };
         assert_eq!(
             decision,
@@ -2664,7 +2762,7 @@ mod tests {
         let conversation = state.conversation.as_mut().expect("open");
         {
             let mut permissions = conversation.tools.permissions();
-            permissions.decide(ProposedAction::Mutation(&plan));
+            permissions.decide_with_feedback(ProposedAction::Mutation(&plan));
         }
 
         record_grants(conversation);
@@ -2806,7 +2904,8 @@ mod tests {
         let prompter = TuiPrompter::new(events, control, cancel);
         let store = SessionStore::open(before.profile_dir.as_ref().expect("a profile dir"))
             .expect("open the store");
-        let mut runtime = Runtime::with_environment(before.clone(), env, store, prompter);
+        let mut runtime =
+            Runtime::with_environment(before.clone(), env, store, prompter, a_questioner());
         // Stand something in for what a session accumulates. The bundle is what
         // a turn would reuse; `provider` being `Some` is the whole of "there is
         // a connection to the old endpoint".
@@ -2822,6 +2921,7 @@ mod tests {
                 &runtime.config,
                 &model,
                 runtime.authority(),
+                None, // this fixture does not exercise the question path
                 &CancelToken::new(),
             )
             .expect("open a conversation"),
@@ -2849,5 +2949,606 @@ mod tests {
             Some("http://127.0.0.1:3456"),
             "the swap took the url from anything other than the reloaded configuration"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the requester a real session's tools are given
+    // -----------------------------------------------------------------------
+
+    /// A runtime whose `ready()` can really run: a credential, so a bundle can
+    /// be selected without a socket, and a store to record into.
+    ///
+    /// The same shape `a_provider_switch_drops_the_old_bundle_and_the_conversation`
+    /// builds, because the fact under test is the same one: what `ready()`
+    /// constructs, rather than what a fixture assembled by hand.
+    fn a_runtime_that_can_open_one() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([(
+                "AI_GATEWAY_API_KEY".to_string(),
+                "xfx-test-key-not-a-real-credential".to_string(),
+            )]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = SessionStore::open(config.profile_dir.as_ref().expect("a profile dir"))
+            .expect("open the store");
+        let runtime = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        (home, workspace, runtime)
+    }
+
+    #[test]
+    fn a_real_tui_conversation_can_ask_the_user_a_question() {
+        // The wiring this task exists for, asked of `ready()` -- the one place
+        // a real session's conversation is opened -- rather than of a
+        // `ToolContext` a fixture built. Without it `ask_user_question` answers
+        // every call with the availability sentinel on the **one** front end
+        // that has a UI to ask in.
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        state.ready(&CancelToken::new()).expect("a conversation");
+
+        assert!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .tools
+                .questioner()
+                .is_some(),
+            "the real TUI session's tools have nobody to ask, so the model's \
+             question is answered with the unavailable sentinel"
+        );
+    }
+
+    #[test]
+    fn a_conversation_rebuilt_after_a_provider_switch_can_still_ask() {
+        // `adopt` drops the conversation on purpose, and `ready()` builds
+        // whatever it does not have. A requester attached only at the first
+        // `ready` would leave every session that switched provider -- or typed
+        // `/new`, which drops the same field -- unable to ask, and the failure
+        // would look like a model that stopped using the tool.
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        state.ready(&CancelToken::new()).expect("a conversation");
+
+        let mut after = state.config.clone();
+        after.provider = ProviderId::Llmux;
+        after.model = "fable".to_string();
+        after.llmux_url = Some("http://127.0.0.1:3456".to_string());
+        state.adopt(after);
+        assert!(
+            state.conversation.is_none(),
+            "the switch kept the old conversation, so the rebuild is not what is measured"
+        );
+
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .tools
+                .questioner()
+                .is_some(),
+            "the rebuilt conversation has nobody to ask"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // a Ctrl-C typed at a question, through the real machine
+    // -----------------------------------------------------------------------
+
+    /// A provider that answers from a script and counts what it was asked.
+    ///
+    /// The same shape `tests/tool_loop.rs` uses. It is here rather than there
+    /// because the case below needs the **worker's** control channel and the
+    /// TUI's requester in the same turn, neither of which a test outside the
+    /// crate can reach.
+    struct ScriptedProvider {
+        steps: std::cell::RefCell<std::collections::VecDeque<Completion>>,
+        seen: std::cell::RefCell<usize>,
+    }
+
+    impl ScriptedProvider {
+        fn new(steps: Vec<Completion>) -> Self {
+            Self {
+                steps: std::cell::RefCell::new(steps.into()),
+                seen: std::cell::RefCell::new(0),
+            }
+        }
+
+        /// How many model requests this turn really spent.
+        fn requests(&self) -> usize {
+            *self.seen.borrow()
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for ScriptedProvider {
+        async fn stream(
+            &self,
+            _request: &crate::gateway::protocol::CompletionRequest,
+            _deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            // **Yields before answering**, because a real step awaits a socket
+            // and the whole question below is what the runtime does at its
+            // yields: a provider that answered without one would never let
+            // `raced_against_control` poll the control channel at all, and the
+            // case would be measuring the fixture.
+            tokio::task::yield_now().await;
+            *self.seen.borrow_mut() += 1;
+            Ok(self
+                .steps
+                .borrow_mut()
+                .pop_front()
+                .expect("the provider was asked more times than the script allows"))
+        }
+    }
+
+    /// One scripted step that calls tools, in the order given.
+    fn calls(tool_calls: Vec<ToolCall>) -> Completion {
+        Completion {
+            text: String::new(),
+            tool_calls,
+            finish_reason: FinishReason::ToolCalls,
+            usage: Usage::default(),
+            provider_detail: None,
+            raw_content: Vec::new(),
+            wire: Wire::VercelGateway,
+        }
+    }
+
+    /// A step with no tool calls, which is where a turn ends.
+    fn answers(text: &str) -> Completion {
+        Completion {
+            text: text.to_string(),
+            tool_calls: Vec::new(),
+            finish_reason: FinishReason::Stop,
+            usage: Usage::default(),
+            provider_detail: None,
+            raw_content: Vec::new(),
+            wire: Wire::VercelGateway,
+        }
+    }
+
+    fn call(id: &str, name: &str, input: serde_json::Value) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            input,
+        }
+    }
+
+    /// One session that can run turns the way the worker runs them, kept whole
+    /// so that "the session is still usable" is a claim a **second** turn can
+    /// make rather than an inference from the first one's exit.
+    struct AskingSession {
+        workspace: tempfile::TempDir,
+        events_tx: Sender<UiEvent>,
+        events_rx: Receiver<UiEvent>,
+        control_tx: UnboundedSender<TurnControl>,
+        control: Arc<ControlChannel>,
+        cancel: Cancellation,
+        tools: crate::tools::ToolContext,
+    }
+
+    /// What one turn of such a session did.
+    struct Ran {
+        outcome: Result<crate::agent::TurnOutcome, crate::agent::TurnError>,
+        ended: Ended,
+        /// Whether the loop's `stop` really ran, so a case about a cancelled
+        /// turn cannot pass on a turn nobody interrupted.
+        stopped: bool,
+    }
+
+    /// The file the second call of the interrupted step would create.
+    const AFTER_THE_INTERRUPT: &str = "after-the-interrupt.txt";
+
+    impl AskingSession {
+        /// `asks` is what the tools may do without being asked: `Yolo` where the
+        /// case is about the cancellation, `Ask` where it is about the approval
+        /// panel.
+        fn new(mode: PermissionMode) -> Self {
+            let workspace = tempfile::tempdir().expect("a workspace");
+            let (events_tx, events_rx) = mpsc::channel(bridge::UI_EVENTS);
+            let (control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            let cancel = Cancellation::new(CancelToken::new());
+            let questioner = Arc::new(TuiQuestioner::new(
+                events_tx.clone(),
+                Arc::clone(&control),
+                cancel.clone(),
+            ));
+            let scope =
+                crate::workspace::AccessScope::primary_only(workspace.path()).expect("a scope");
+            let permissions = PermissionSession::new(mode).with_prompter(Box::new(
+                TuiPrompter::new(events_tx.clone(), Arc::clone(&control), cancel.clone()),
+            ));
+            let tools = crate::tools::ToolContext::new(scope)
+                .with_permissions(permissions)
+                // The **session's** mirror, exactly as `open_conversation` is
+                // given it once and every turn then resets it
+                // (`bridge::Cancellation::turn`).
+                .with_cancel(cancel.turn().mirror)
+                .with_questioner(
+                    Arc::clone(&questioner) as Arc<dyn crate::tools::QuestionRequester>
+                );
+            Self {
+                workspace,
+                events_tx,
+                events_rx,
+                control_tx,
+                control,
+                cancel,
+                tools,
+            }
+        }
+
+        fn written(&self) -> std::path::PathBuf {
+            self.workspace.path().join(AFTER_THE_INTERRUPT)
+        }
+
+        /// Runs one turn, with the UI typing `typed` the moment `watch_for`
+        /// names an event as the panel this case is about.
+        ///
+        /// The runtime thread parks inside the panel, so the typing has to
+        /// happen on another thread -- which is the production topology, not a
+        /// test convenience.
+        fn turn_while_typing(
+            &mut self,
+            provider: &ScriptedProvider,
+            watch_for: fn(UiEvent) -> Option<Option<super::super::question::QuestionId>>,
+            typed: impl FnOnce(Option<super::super::question::QuestionId>) -> Vec<TurnControl> + Send,
+        ) -> Ran {
+            let turn = self.cancel.turn();
+            let request = TurnRequest {
+                model: "vendor/model".to_string(),
+                prompt: "anything".to_string(),
+                history: Vec::new(),
+                max_steps: 4,
+                max_attempts: 1,
+                cancel: turn.mirror.clone(),
+                tools: self.tools.clone(),
+            };
+            let mut sink = UiEventSink::new(self.events_tx.clone(), turn.token.clone());
+            let stopped = Arc::new(AtomicBool::new(false));
+            let watched = Arc::clone(&stopped);
+            let interrupted = turn.clone();
+            let AskingSession {
+                events_rx,
+                control_tx,
+                control,
+                cancel,
+                ..
+            } = self;
+            let finished = Arc::new(AtomicBool::new(false));
+            let done = Arc::clone(&finished);
+            let (outcome, ended) = std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    let seen = panel_shown(events_rx, watch_for, cancel);
+                    for message in typed(seen) {
+                        control_tx.send(message).expect("the runtime is listening");
+                    }
+                });
+                // **The bound on the whole turn.** A turn parked in a panel
+                // nobody answers is exactly what a missing cancellation boundary
+                // produces -- the call *behind* the interrupted one asks its own
+                // question, and there is no second keystroke coming -- and it
+                // would hang the suite rather than fail it. Ending the session
+                // is the one exit every panel has.
+                let watchdog = cancel.clone();
+                scope.spawn(move || {
+                    let deadline = Instant::now() + TEST_DRAIN;
+                    while Instant::now() < deadline {
+                        if done.load(Ordering::Acquire) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    watchdog.cancel();
+                });
+                let ran = on_a_runtime(raced_against_control(
+                    crate::agent::run_turn(request, provider, &mut sink),
+                    control,
+                    move |_through| {
+                        // What `turn_loop` does with a `Cancel`: this turn stops
+                        // and the session does not.
+                        interrupted.cancel();
+                        watched.store(true, Ordering::Release);
+                    },
+                ));
+                finished.store(true, Ordering::Release);
+                ran
+            });
+            Ran {
+                outcome,
+                ended,
+                stopped: stopped.load(Ordering::Acquire),
+            }
+        }
+
+        /// A turn nobody interrupts, for the claim that the session survived one
+        /// that was.
+        fn plain_turn(&mut self, provider: &ScriptedProvider) -> Ran {
+            let turn = self.cancel.turn();
+            let request = TurnRequest {
+                model: "vendor/model".to_string(),
+                prompt: "and now".to_string(),
+                history: Vec::new(),
+                max_steps: 4,
+                max_attempts: 1,
+                cancel: turn.mirror.clone(),
+                tools: self.tools.clone(),
+            };
+            let mut sink = UiEventSink::new(self.events_tx.clone(), turn.token.clone());
+            let (outcome, ended) = on_a_runtime(raced_against_control(
+                crate::agent::run_turn(request, provider, &mut sink),
+                &self.control,
+                |_through| panic!("nothing interrupted this turn"),
+            ));
+            Ran {
+                outcome,
+                ended,
+                stopped: false,
+            }
+        }
+
+        /// Whether the model's question came back as the user's cancellation
+        /// rather than as a failure or an unanswered call.
+        fn question_was_cancelled(&mut self) -> bool {
+            let mut seen = false;
+            while let Ok(event) = self.events_rx.try_recv() {
+                if let UiEvent::ToolResult {
+                    call_id,
+                    tool,
+                    ok,
+                    detail,
+                } = event
+                {
+                    if call_id == "call-1" && tool == "ask_user_question" {
+                        assert!(ok, "a cancelled question is not a failed tool call");
+                        assert_eq!(detail, "the question was cancelled");
+                        seen = true;
+                    }
+                }
+            }
+            seen
+        }
+    }
+
+    /// Waits until the UI is shown the panel this case is about.
+    ///
+    /// Bounded, and the bound **ends the session** rather than only failing: the
+    /// runtime thread is parked inside the panel, so a bare panic here would
+    /// leave the turn waiting for an answer that is never coming and the test
+    /// would hang instead of failing.
+    fn panel_shown(
+        events_rx: &mut Receiver<UiEvent>,
+        watch_for: fn(UiEvent) -> Option<Option<super::super::question::QuestionId>>,
+        cancel: &Cancellation,
+    ) -> Option<super::super::question::QuestionId> {
+        let deadline = Instant::now() + TEST_DRAIN;
+        while Instant::now() < deadline {
+            match events_rx.try_recv() {
+                Ok(event) => {
+                    if let Some(seen) = watch_for(event) {
+                        return seen;
+                    }
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(2)),
+            }
+        }
+        cancel.cancel();
+        panic!("the panel this case is about never reached the UI");
+    }
+
+    /// The model's question, and the id it was asked under.
+    fn a_question(event: UiEvent) -> Option<Option<super::super::question::QuestionId>> {
+        match event {
+            UiEvent::Question(request) => Some(Some(request.id)),
+            _ => None,
+        }
+    }
+
+    /// A permission question, which carries no id of its own.
+    fn an_approval(event: UiEvent) -> Option<Option<super::super::question::QuestionId>> {
+        match event {
+            UiEvent::Approval(_) => Some(None),
+            _ => None,
+        }
+    }
+
+    /// A step that asks the user something and then writes a file, in that
+    /// order: the second call is what an interrupted turn must not run.
+    fn ask_then_write() -> Completion {
+        calls(vec![
+            call(
+                "call-1",
+                "ask_user_question",
+                serde_json::json!({"questions": [{"question": "Which depth?",
+                    "options": [{"label": "Thorough"}, {"label": "Quick"}]}]}),
+            ),
+            call(
+                "call-2",
+                "write_file",
+                serde_json::json!({"path": AFTER_THE_INTERRUPT,
+                    "content": "written on a turn the user had stopped\n"}),
+            ),
+        ])
+    }
+
+    #[test]
+    fn a_ctrl_c_at_a_question_stops_the_turn_before_any_later_call_or_request() {
+        // **The real machine, not a queue.** A Ctrl-C typed at the model's
+        // question is an *interrupt*, and the shell sends exactly one message
+        // for it (`super::super::shell`'s `answer_question`): the turn's
+        // `Cancel`. What has to be true afterwards is a fact about the turn --
+        // the question comes back as the cancellation sentinel, no later call
+        // of that same step runs, and no second model request is spent.
+        //
+        // The two hops that make it true, and both are load-bearing: the
+        // requester hands the `Cancel` back to the loop **before** it returns
+        // (`super::super::question`'s `request`), so the message is already in
+        // `ControlChannel::put_back` when the machine reaches its next
+        // boundary; and the machine yields at that boundary
+        // (`crate::agent::machine`'s `execute_tool_calls`), which is the only
+        // moment `raced_against_control` can consume it and set the mirror the
+        // machine then reads.
+        let mut session = AskingSession::new(PermissionMode::Yolo);
+        let provider = ScriptedProvider::new(vec![
+            ask_then_write(),
+            answers("a second request the stopped turn must not have made"),
+        ]);
+
+        let ran = session.turn_while_typing(&provider, a_question, |_id| {
+            vec![TurnControl::Cancel { through: 0 }]
+        });
+
+        assert!(
+            session.question_was_cancelled(),
+            "the question was never answered at all, so nothing here is about a cancelled one"
+        );
+        assert!(
+            ran.stopped,
+            "the interrupt never reached the loop, so nothing here is about a cancelled turn"
+        );
+        assert!(
+            matches!(ran.outcome, Err(crate::agent::TurnError::Cancelled)),
+            "the interrupted turn did not end as a cancelled one: {:?}",
+            ran.outcome
+        );
+        assert!(
+            !session.written().exists(),
+            "a mutating call from the interrupted step ran after the user stopped the turn"
+        );
+        assert_eq!(
+            provider.requests(),
+            1,
+            "the stopped turn spent another model request after the interrupt"
+        );
+        assert_eq!(ran.ended, Ended::Turn, "one Ctrl-C ended the whole session");
+
+        // And the session is still usable, which is the other half of "the turn
+        // stopped, not the session": the next turn runs on the same
+        // conversation's tools, with the mirror reset by `Cancellation::turn`.
+        let next = ScriptedProvider::new(vec![answers("the session is still usable")]);
+        let after = session.plain_turn(&next);
+        assert!(
+            after.outcome.is_ok(),
+            "the turn after the interrupt could not run: {:?}",
+            after.outcome
+        );
+        assert_eq!(next.requests(), 1);
+    }
+
+    #[test]
+    fn a_shutdown_at_a_question_stops_the_turn_and_the_loop_behind_it() {
+        // The same boundary, reached by the other stop. A shutdown must not be
+        // a slower interrupt: the calls behind the question are as unwanted when
+        // the session is going down as when one turn is.
+        let mut session = AskingSession::new(PermissionMode::Yolo);
+        let provider = ScriptedProvider::new(vec![
+            ask_then_write(),
+            answers("a second request the shut-down turn must not have made"),
+        ]);
+
+        let ran =
+            session.turn_while_typing(&provider, a_question, |_id| vec![TurnControl::Shutdown]);
+
+        assert!(ran.stopped);
+        assert!(
+            matches!(ran.outcome, Err(crate::agent::TurnError::Cancelled)),
+            "{:?}",
+            ran.outcome
+        );
+        assert!(!session.written().exists());
+        assert_eq!(provider.requests(), 1);
+        assert_eq!(
+            ran.ended,
+            Ended::Session,
+            "a shutdown left the loop going round for another prompt"
+        );
+    }
+
+    #[test]
+    fn an_escape_at_a_question_declines_the_batch_and_the_turn_runs_on() {
+        // **The distinction the two keys carry.** Escape declines the *question*
+        // -- the model is told so with its own sentinel and the turn goes on,
+        // later calls and next request included. Ctrl-C stops the *turn*. A
+        // panel that sent both, or a machine that treated a declined question as
+        // an interrupt, would collapse the two into one meaning and lose the
+        // ability to say "not that question, but carry on".
+        let mut session = AskingSession::new(PermissionMode::Yolo);
+        let provider = ScriptedProvider::new(vec![
+            ask_then_write(),
+            answers("the turn carried on after the question was declined"),
+        ]);
+
+        let ran = session.turn_while_typing(&provider, a_question, |id| {
+            vec![TurnControl::QuestionCancelled {
+                id: id.expect("the question carried an id"),
+            }]
+        });
+
+        assert!(session.question_was_cancelled());
+        assert!(
+            !ran.stopped,
+            "a declined question stopped the turn as though it were an interrupt"
+        );
+        assert!(ran.outcome.is_ok(), "{:?}", ran.outcome);
+        assert!(
+            session.written().exists(),
+            "the call behind the declined question was dropped, so declining a question \
+             now stops the turn"
+        );
+        assert_eq!(
+            provider.requests(),
+            2,
+            "the model was never told what it asked for"
+        );
+    }
+
+    #[test]
+    fn a_ctrl_c_at_an_approval_stops_the_turn_before_the_next_call_too() {
+        // The approval panel parks the same thread at the same kind of boundary
+        // (`super::super::approval::TuiPrompter`), so the same interrupt has to
+        // reach the same place. Without the machine's boundary this refuses one
+        // mutation and then performs the next one.
+        let mut session = AskingSession::new(PermissionMode::Ask);
+        let provider = ScriptedProvider::new(vec![
+            calls(vec![
+                call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "asked-about.txt", "content": "first\n"}),
+                ),
+                call(
+                    "call-2",
+                    "write_file",
+                    serde_json::json!({"path": AFTER_THE_INTERRUPT, "content": "second\n"}),
+                ),
+            ]),
+            answers("a second request the stopped turn must not have made"),
+        ]);
+
+        let ran = session.turn_while_typing(&provider, an_approval, |_none| {
+            vec![TurnControl::Cancel { through: 0 }]
+        });
+
+        assert!(ran.stopped, "the interrupt never reached the loop");
+        assert!(
+            matches!(ran.outcome, Err(crate::agent::TurnError::Cancelled)),
+            "{:?}",
+            ran.outcome
+        );
+        assert!(
+            !session.workspace.path().join("asked-about.txt").exists(),
+            "the refused mutation was performed anyway"
+        );
+        assert!(
+            !session.written().exists(),
+            "the call behind the refused one ran after the user stopped the turn"
+        );
+        assert_eq!(provider.requests(), 1);
     }
 }

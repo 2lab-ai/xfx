@@ -1018,6 +1018,7 @@ fn kinds(sink: &RecordingSink) -> Vec<&'static str> {
             Event::AssistantDelta { .. } => "assistant_delta",
             Event::ToolStart { .. } => "tool_start",
             Event::ToolResult { .. } => "tool_result",
+            Event::ToolFeedback { .. } => "tool_feedback",
             Event::Final { .. } => "final",
             Event::Error { .. } => "error",
         })

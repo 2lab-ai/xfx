@@ -351,11 +351,13 @@ fn the_tools_prose_splits_them_the_way_the_permission_system_does() {
     let (read_only_count, read_only) = prose_group("read-only");
     let (mutating_count, mutating) = prose_group("mutating");
     let (command_count, command) = prose_group("command");
+    let (interaction_count, interaction) = prose_group("interaction");
 
     // Each group says how many it has, and has that many.
     assert_eq!(read_only_count, read_only.len(), "{read_only:?}");
     assert_eq!(mutating_count, mutating.len(), "{mutating:?}");
     assert_eq!(command_count, command.len(), "{command:?}");
+    assert_eq!(interaction_count, interaction.len(), "{interaction:?}");
 
     // The groups are the registry's own classification rather than a
     // description of it. A tool that changed from a read to a mutation without
@@ -363,17 +365,18 @@ fn the_tools_prose_splits_them_the_way_the_permission_system_does() {
     assert_eq!(read_only, tools_of_kind(PermissionKind::ReadOnly));
     assert_eq!(mutating, tools_of_kind(PermissionKind::MutateFile));
     assert_eq!(command, tools_of_kind(PermissionKind::RunCommand));
+    assert_eq!(interaction, tools_of_kind(PermissionKind::Interaction));
 
     // Together they are every advertised tool, once.
     let mut union: BTreeSet<String> = BTreeSet::new();
-    for group in [&read_only, &mutating, &command] {
+    for group in [&read_only, &mutating, &command, &interaction] {
         for name in group {
             assert!(union.insert(name.clone()), "`{name}` is in two groups");
         }
     }
     assert_eq!(union, advertised_tool_names());
     assert_eq!(
-        read_only_count + mutating_count + command_count,
+        read_only_count + mutating_count + command_count + interaction_count,
         advertised_tool_names().len()
     );
 }
@@ -490,6 +493,7 @@ fn every_turn_event_kind_the_binary_can_emit_is_documented() {
         "assistant_delta",
         "tool_start",
         "tool_result",
+        "tool_feedback",
         "final",
         "error",
     ] {

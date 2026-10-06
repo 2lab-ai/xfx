@@ -389,6 +389,12 @@ pub enum TurnStep {
         ok: bool,
         output: String,
     },
+    /// What the user said when they answered the approval `call_id` needed.
+    ///
+    /// A step of the open turn rather than a turn of its own: a user message
+    /// opens a turn here, and one opened mid-batch would leave the results still
+    /// to come with no call ahead of them.
+    ToolFeedback { call_id: String, text: String },
 }
 
 /// A history rebuilt for one active wire, and what the user has to be told
@@ -548,6 +554,18 @@ impl DurableState {
                     } => {
                         pending.push(Message::tool_result(call_id, tool, output.clone()));
                         awaiting.retain(|id| id != call_id);
+                    }
+                    TurnStep::ToolFeedback { text, .. } => {
+                        // Into `pending`, with `awaiting` untouched: this is
+                        // not an answer to a call, so it cannot complete a
+                        // group. The machine emits it only after every result
+                        // of its step, so `awaiting` is already empty here on a
+                        // complete step and the flush below carries the
+                        // sentence out with its group -- and on an incomplete
+                        // one it is dropped with the group, rather than
+                        // arriving as a user message about a result the model
+                        // was never shown.
+                        pending.push(Message::user(text.clone()));
                     }
                 }
                 if awaiting.is_empty() {
@@ -1515,7 +1533,7 @@ impl SessionStore {
                     envelope.event_id
                 )));
             }
-            apply(&mut state, &envelope).map_err(&corrupt)?;
+            apply(&mut state, &envelope).map_err(corrupt)?;
             expected_seq += 1;
         }
         if expected_seq - 1 != manifest.last_event_seq {
@@ -1806,6 +1824,17 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     tool: tool.clone(),
                     ok: *ok,
                     output: output.clone(),
+                });
+        }
+        SessionEvent::ToolFeedback { call_id, text } => {
+            // A step of the open turn, exactly as a result is. Reducing it the
+            // way a `UserMessage` is reduced would push a new turn and leave
+            // the rest of the batch's results with no call ahead of them.
+            open_turn(state, "an approval amendment")?
+                .steps
+                .push(TurnStep::ToolFeedback {
+                    call_id: call_id.clone(),
+                    text: text.clone(),
                 });
         }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
@@ -2258,6 +2287,7 @@ fn verify_private(_path: &Path, _expected: u32) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gateway::protocol::Role;
     use crate::session::event::TurnConclusion;
 
     fn frame(seq: u64, event: SessionEvent) -> EventEnvelope {
@@ -2315,6 +2345,12 @@ mod tests {
                 ok: true,
                 output: "o".to_string(),
             },
+            // An amendment is a step of a turn like any other: there is no
+            // approval to answer before a turn has been asked for.
+            SessionEvent::ToolFeedback {
+                call_id: "c".to_string(),
+                text: "say it differently".to_string(),
+            },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Final {
                     finish_reason: "stop".to_string(),
@@ -2328,6 +2364,84 @@ mod tests {
                 event.kind()
             );
         }
+    }
+
+    #[test]
+    fn an_amendment_stays_inside_the_turn_whose_approval_it_answered() {
+        // Reduced as a step, not as a turn. Were it reduced the way a
+        // `UserMessage` is, this log would end with two turns and the second
+        // one would hold a result whose call is in the first.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "draft two files".to_string(),
+            },
+            SessionEvent::AssistantMessage {
+                text: "drafting".to_string(),
+                tool_calls: vec![
+                    RecordedToolCall {
+                        id: "c1".to_string(),
+                        name: "write_file".to_string(),
+                        input: serde_json::json!({ "path": "a.md" }),
+                    },
+                    RecordedToolCall {
+                        id: "c2".to_string(),
+                        name: "write_file".to_string(),
+                        input: serde_json::json!({ "path": "b.md" }),
+                    },
+                ],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "write_file".to_string(),
+                ok: true,
+                output: "wrote a.md".to_string(),
+            },
+            SessionEvent::ToolResult {
+                call_id: "c2".to_string(),
+                tool: "write_file".to_string(),
+                ok: true,
+                output: "wrote b.md".to_string(),
+            },
+            SessionEvent::ToolFeedback {
+                call_id: "c1".to_string(),
+                text: "prefer bullet points".to_string(),
+            },
+        ])
+        .expect("an amendment inside an open turn is accepted");
+
+        assert_eq!(state.turns.len(), 1, "{:?}", state.turns);
+        let steps = &state.turns[0].steps;
+        assert_eq!(steps.len(), 4, "{steps:?}");
+        assert!(
+            matches!(
+                &steps[3],
+                TurnStep::ToolFeedback { call_id, text }
+                    if call_id == "c1" && text == "prefer bullet points"
+            ),
+            "{steps:?}"
+        );
+
+        // And it replays behind both results, in the group they belong to.
+        let replay = state.history_messages(crate::provider::Wire::VercelGateway);
+        assert_eq!(
+            replay
+                .messages
+                .iter()
+                .map(|message| message.role)
+                .collect::<Vec<_>>(),
+            [
+                Role::User,
+                Role::Assistant,
+                Role::Tool,
+                Role::Tool,
+                Role::User
+            ]
+        );
+        assert_eq!(replay.messages[4].text(), "prefer bullet points");
     }
 
     #[test]

@@ -38,6 +38,15 @@ use sha2::{Digest, Sha256};
 /// A frame that names any other version is refused rather than guessed at: an
 /// older xfx must not half-read a newer log and report the prefix as the whole
 /// conversation.
+///
+/// **A new variant does not bump this, and the asymmetry is deliberate.**
+/// [`EventEnvelope::validate`] compares versions for equality, so bumping would
+/// make every log written before the bump unreadable by the new binary -- a
+/// total break, to avoid a partial one. Adding [`SessionEvent::ToolFeedback`]
+/// under version 1 instead means a new binary reads every old log, while an
+/// older binary reading a log that contains a `tool_feedback` frame refuses that
+/// frame as an unknown variant. Preview and stable mix forward, not backward,
+/// across a session whose approvals were amended.
 pub const EVENT_SCHEMA_VERSION: u32 = 1;
 
 /// The most bytes one encoded frame may occupy.
@@ -159,6 +168,17 @@ pub enum SessionEvent {
         ok: bool,
         output: String,
     },
+    /// What the user said when they answered the approval one call needed.
+    ///
+    /// Correlated by `call_id` and deliberately **not** a [`Self::UserMessage`]:
+    /// a user message opens a turn in the reducer, and opening one in the middle
+    /// of a tool batch would leave the batch's remaining results in a turn with
+    /// no call ahead of them -- orphan results, refused on the next resume.
+    ///
+    /// Written only after every result of the step it belongs to, so a replayed
+    /// prompt puts the sentence behind the result it was about. It is context,
+    /// never authority: nothing reads it to widen a grant or re-run a call.
+    ToolFeedback { call_id: String, text: String },
     /// An approval the user gave for the rest of the session.
     PermissionGrantRecorded { tool: String, target: String },
     /// Tokens the provider reported for the turn that is ending. Added to the
@@ -182,6 +202,7 @@ impl SessionEvent {
             Self::UserMessage { .. } => "user_message",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
+            Self::ToolFeedback { .. } => "tool_feedback",
             Self::PermissionGrantRecorded { .. } => "permission_grant_recorded",
             Self::UsageRecorded { .. } => "usage_recorded",
             Self::TurnConcluded { .. } => "turn_concluded",
@@ -490,6 +511,10 @@ mod tests {
                 ok: true,
                 output: "o".to_string(),
             },
+            SessionEvent::ToolFeedback {
+                call_id: "c".to_string(),
+                text: "say it differently".to_string(),
+            },
             SessionEvent::PermissionGrantRecorded {
                 tool: "t".to_string(),
                 target: "x".to_string(),
@@ -517,6 +542,37 @@ mod tests {
                 frame
             );
         }
+    }
+
+    #[test]
+    fn an_amendment_is_its_own_kind_and_not_a_user_message() {
+        // The distinction is the whole point of the variant: a `user_message`
+        // opens a turn when it is replayed, and one opened in the middle of a
+        // tool batch orphans the results still to come.
+        let amendment = SessionEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "use tabs, not spaces".to_string(),
+        };
+        assert_eq!(amendment.kind(), "tool_feedback");
+        assert_ne!(
+            amendment.kind(),
+            SessionEvent::UserMessage {
+                text: "use tabs, not spaces".to_string()
+            }
+            .kind()
+        );
+
+        // Written under schema 1, so a new binary reads every old log. The
+        // frame keeps its correlation, which is all that says which call the
+        // sentence answered once it sits behind every result of its step.
+        let frame = envelope(1, amendment);
+        let encoded = frame.encode().expect("encodes");
+        assert!(encoded.starts_with("{\"schema_version\":1,"), "{encoded}");
+        assert!(encoded.contains("\"call_id\":\"c1\""), "{encoded}");
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
     }
 
     #[test]

@@ -134,8 +134,33 @@ pub(crate) enum UiEvent {
     },
     /// Something the session wants said that is not part of an answer.
     Notice(String),
+    /// What the user said when they answered an approval, on its way to the
+    /// document.
+    ///
+    /// **Not an echo of the keystroke.** It is produced where the journal frame
+    /// and the user message are (`crate::agent::machine`'s `flush_amendments`),
+    /// so what the transcript shows is what the model was really told: a
+    /// sentence the user typed and then interrupted out of reaches neither, and
+    /// a sentence that reached one reached all three.
+    ToolFeedback { call_id: String, text: String },
     /// A question only the person at the terminal can answer (Task 17).
-    Approval(ApprovalRequest),
+    ///
+    /// Carries the id it was asked under
+    /// ([`super::approval_readiness::ApprovalId`]) for the reason
+    /// [`Self::Question`] carries its batch's: this channel has no other way to
+    /// tell an answer to *this* question from a keystroke left over at one the
+    /// turn has already given up on, and two identical-looking questions really
+    /// are two questions.
+    Approval(super::approval::ApprovalAsked),
+    /// A batch of multiple-choice questions the **model** asked
+    /// (`crate::tools::question`).
+    ///
+    /// Not an [`Self::Approval`] and not a variant of one: it grants nothing,
+    /// refusing it is not a denial, and what comes back is text rather than an
+    /// answer from a fixed set. The id is what makes a late answer discardable
+    /// -- the request outlives the keystroke that answers it only if the turn is
+    /// still asking.
+    Question(super::question::QuestionRequest),
     /// A provider switch committed and the configuration was re-read.
     ///
     /// Sent **after** the reload, never after the write: what it carries is what
@@ -257,6 +282,15 @@ impl UiEvent {
                 detail: inert_owned(detail),
             },
             Self::Notice(text) => Self::Notice(inert_owned(text)),
+            // **The most foreign text on this channel.** It is typed at a
+            // terminal by a person, so it is the one string here that a user
+            // can put an `ESC` into on purpose -- and it is about to be painted
+            // into the document. The `call_id` is the registry's and is not
+            // exempt for it.
+            Self::ToolFeedback { call_id, text } => Self::ToolFeedback {
+                call_id: inert_owned(call_id),
+                text: inert_owned(text),
+            },
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,
             // and is therefore exactly as foreign as a delta.
@@ -322,15 +356,47 @@ impl UiEvent {
             // change's own lines, which the review screen turns into rows. A
             // seam that flattened them here would take the shape out of the one
             // surface built to show it.
-            Self::Approval(request) => Self::Approval(ApprovalRequest {
-                tool: request.tool,
-                target: inert_owned(request.target),
-                summary: inert_owned(request.summary),
-                always_scope: inert_owned(request.always_scope),
-                diff: request.diff.map(|diff| ApprovalDiff {
-                    before: inert_owned(diff.before),
-                    after: inert_owned(diff.after),
-                }),
+            //
+            // The id is a number this crate minted, so there is nothing in it a
+            // terminal can be made to obey.
+            Self::Approval(asked) => Self::Approval(super::approval::ApprovalAsked {
+                id: asked.id,
+                request: ApprovalRequest {
+                    tool: asked.request.tool,
+                    target: inert_owned(asked.request.target),
+                    summary: inert_owned(asked.request.summary),
+                    always_scope: inert_owned(asked.request.always_scope),
+                    diff: asked.request.diff.map(|diff| ApprovalDiff {
+                        before: inert_owned(diff.before),
+                        after: inert_owned(diff.after),
+                    }),
+                },
+            }),
+            // **A belt on an encoded payload.** `crate::tools::question`'s
+            // encoder has already turned every sequence a terminal would obey
+            // into a literal escape before the request left the tools layer, so
+            // this arm changes nothing on the path a real question travels. It
+            // is here because `made_inert` is total by design: a variant that
+            // named no text would be an exemption, and the next producer of one
+            // of these requests -- a test, a future non-tool asker -- would
+            // inherit the exemption rather than the policy.
+            Self::Question(request) => Self::Question(super::question::QuestionRequest {
+                id: request.id,
+                entries: request
+                    .entries
+                    .into_iter()
+                    .map(|entry| crate::tools::question::QuestionEntry {
+                        question: inert_owned(entry.question),
+                        options: entry
+                            .options
+                            .into_iter()
+                            .map(|option| crate::tools::question::QuestionOption {
+                                label: inert_owned(option.label),
+                                description: option.description.map(inert_owned),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
             }),
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
@@ -348,7 +414,39 @@ impl UiEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TurnControl {
     /// The user answered an approval request.
-    Answer(ApprovalAnswer),
+    ///
+    /// Carries the id the question was asked under, for the same reason
+    /// [`Self::QuestionAnswer`] does: the prompter takes it only when it is its
+    /// own, and consumes anything else rather than leaving it for the next
+    /// question to inherit as though it had been typed at that one.
+    Answer {
+        id: super::approval_readiness::ApprovalId,
+        answer: ApprovalAnswer,
+        /// The amendment typed at the draft for `answer`, if there was one.
+        ///
+        /// The other side's draft is discarded at submit and never travels, and
+        /// neither does the one belonging to a refusal the user bailed out of
+        /// with Escape ([`super::approval_amendment::Drafts::submit`]). It is
+        /// **context, not authority**: nothing downstream reads it to widen,
+        /// narrow or re-key a grant, and the call that runs is the call that
+        /// was judged (`crate::permission::ApprovalResponse`).
+        feedback: Option<String>,
+    },
+    /// The user answered every question of one batch, in entry order.
+    ///
+    /// Carries the id the batch was asked under, because this channel has no
+    /// other way to tell an answer to *this* question from one the user typed at
+    /// a question the turn has since given up on: the answer is applied only by
+    /// a requester that is still waiting for that id, and discarded otherwise
+    /// (`super::worker`, Task 5's requester).
+    QuestionAnswer {
+        id: super::question::QuestionId,
+        answers: Vec<String>,
+    },
+    /// The user refused a batch. **Not a denial of anything**: the tool mints no
+    /// authority, and what the model reads back is its own cancellation
+    /// sentinel.
+    QuestionCancelled { id: super::question::QuestionId },
     /// Stop this turn, and drop what was queued behind it. The session
     /// continues.
     ///
@@ -755,6 +853,13 @@ fn translate(event: &Event) -> Option<UiEvent> {
             tool: tool.clone(),
             ok: *ok,
             detail: detail.clone(),
+        }),
+        // Carried through, unlike `Final` and `Error`: nothing else on this
+        // channel says it, and the worker's `TurnEnded` is about the turn
+        // rather than about what the user said inside it.
+        Event::ToolFeedback { call_id, text } => Some(UiEvent::ToolFeedback {
+            call_id: call_id.clone(),
+            text: text.clone(),
         }),
         Event::Final { .. } | Event::Error { .. } => None,
     }
@@ -1341,20 +1446,23 @@ mod tests {
                 detail: "\x1b[2Jd".into(),
             },
             UiEvent::Notice("\x1b]0;retitled\x07".into()),
-            UiEvent::Approval(ApprovalRequest {
-                tool: "write",
-                target: "\x1b[2Jsrc/main.rs".into(),
-                summary: "write \x1b[2Jsomething".into(),
-                always_scope: "\x1b[2Jsrc".into(),
-                // Both sides of the diff, because they are the largest quotation
-                // of a file this product ever carries and the policy has to hold
-                // for a payload built by a caller that did not escape it -- the
-                // permission boundary's own bounding is the first seam, and this
-                // is the second.
-                diff: Some(ApprovalDiff {
-                    before: "\x1b[2Jold".into(),
-                    after: "\x1b]0;new\x07".into(),
-                }),
+            UiEvent::Approval(super::super::approval::ApprovalAsked {
+                id: super::super::approval_readiness::ApprovalId(4),
+                request: ApprovalRequest {
+                    tool: "write",
+                    target: "\x1b[2Jsrc/main.rs".into(),
+                    summary: "write \x1b[2Jsomething".into(),
+                    always_scope: "\x1b[2Jsrc".into(),
+                    // Both sides of the diff, because they are the largest
+                    // quotation of a file this product ever carries and the
+                    // policy has to hold for a payload built by a caller that
+                    // did not escape it -- the permission boundary's own
+                    // bounding is the first seam, and this is the second.
+                    diff: Some(ApprovalDiff {
+                        before: "\x1b[2Jold".into(),
+                        after: "\x1b]0;new\x07".into(),
+                    }),
+                },
             }),
         ] {
             send_ui(&tx, &cancel, event).await.expect("room");
@@ -1383,15 +1491,22 @@ mod tests {
         );
         assert_eq!(
             next(&mut rx).await,
-            Some(UiEvent::Approval(ApprovalRequest {
-                tool: "write",
-                target: " [2Jsrc/main.rs".into(),
-                summary: "write  [2Jsomething".into(),
-                always_scope: " [2Jsrc".into(),
-                diff: Some(ApprovalDiff {
-                    before: " [2Jold".into(),
-                    after: " ]0;new ".into(),
-                }),
+            Some(UiEvent::Approval(super::super::approval::ApprovalAsked {
+                // The id is a number this crate minted, so it crosses the seam
+                // as it was: there is nothing in it a terminal can be made to
+                // obey, and an id changed in flight would address the answer to
+                // a question nobody asked.
+                id: super::super::approval_readiness::ApprovalId(4),
+                request: ApprovalRequest {
+                    tool: "write",
+                    target: " [2Jsrc/main.rs".into(),
+                    summary: "write  [2Jsomething".into(),
+                    always_scope: " [2Jsrc".into(),
+                    diff: Some(ApprovalDiff {
+                        before: " [2Jold".into(),
+                        after: " ]0;new ".into(),
+                    }),
+                },
             })),
             "an approval quotes a file, which is where an escape would be"
         );
@@ -1491,6 +1606,76 @@ mod tests {
             );
         }
         assert_eq!(entry.max_context, Some(200_000), "a number is not text");
+    }
+
+    #[test]
+    fn every_string_a_question_batch_carries_is_made_inert() {
+        // The payload really is encoded before it gets here
+        // (`crate::tools::question::terminal_safe`, run inside `parse`), so this
+        // arm is a belt rather than the braces. It is asserted anyway because
+        // `made_inert` is **total**: this type is constructible anywhere in the
+        // crate, and a variant that named no text would exempt every later
+        // producer of one from a policy the channel is supposed to guarantee.
+        // Every string of every option, because a row is what each of them
+        // becomes.
+        let hostile = "a\u{1b}[2Jb".to_string();
+        let event = UiEvent::Question(crate::tui::question::QuestionRequest {
+            id: crate::tui::question::QuestionId(7),
+            entries: vec![crate::tools::question::QuestionEntry {
+                question: hostile.clone(),
+                options: vec![
+                    crate::tools::question::QuestionOption {
+                        label: hostile.clone(),
+                        description: Some("d\u{1b}]0;pwned\u{7}".to_string()),
+                    },
+                    crate::tools::question::QuestionOption {
+                        label: "plain".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        })
+        .made_inert();
+        let UiEvent::Question(request) = event else {
+            panic!("the variant changed");
+        };
+        assert_eq!(
+            request.id,
+            crate::tui::question::QuestionId(7),
+            "the id is a number, not text"
+        );
+        let entry = &request.entries[0];
+        for text in std::iter::once(&entry.question)
+            .chain(entry.options.iter().map(|option| &option.label))
+            .chain(
+                entry
+                    .options
+                    .iter()
+                    .filter_map(|option| option.description.as_ref()),
+            )
+        {
+            assert!(!text.contains('\u{1b}'), "{text:?} still carries an escape");
+            assert!(
+                !text.chars().any(char::is_control),
+                "{text:?} still carries a control character"
+            );
+        }
+        assert_eq!(
+            entry.options[1].description, None,
+            "a missing half stayed missing"
+        );
+    }
+
+    #[test]
+    fn a_question_batch_is_not_a_terminal_event() {
+        // A question is asked *inside* a turn, and the drain leaves on exactly
+        // the two events a turn cannot continue past. One that ended the drain
+        // would leave while the turn was still waiting to be answered.
+        assert!(!UiEvent::Question(crate::tui::question::QuestionRequest {
+            id: crate::tui::question::QuestionId(1),
+            entries: Vec::new(),
+        })
+        .is_terminal());
     }
 
     #[test]
@@ -1597,5 +1782,48 @@ mod tests {
         }
         .is_terminal());
         assert!(UiEvent::TurnEnded { failure: None }.is_terminal());
+    }
+
+    #[test]
+    fn an_amendment_reaches_the_band_as_the_users_sentence_and_reaches_it_inert() {
+        // The one string on this channel a **person** typed on purpose, and the
+        // band is about to paint it into the document. `made_inert` is
+        // exhaustive precisely so that a variant carrying text cannot be added
+        // without answering this.
+        let translated = translate(&Event::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "keep the header".to_string(),
+        });
+        assert_eq!(
+            translated,
+            Some(UiEvent::ToolFeedback {
+                call_id: "c1".to_string(),
+                text: "keep the header".to_string(),
+            }),
+            "the amendment never reached the UI at all"
+        );
+
+        let UiEvent::ToolFeedback { call_id, text } = UiEvent::ToolFeedback {
+            call_id: "c\u{1b}[2J1".to_string(),
+            text: "keep\nthe\u{1b}[2Jheader".to_string(),
+        }
+        .made_inert() else {
+            panic!("made_inert changed the variant");
+        };
+        assert!(
+            !text.contains('\u{1b}'),
+            "a sentence typed at a terminal reached the band able to paint it: {text:?}"
+        );
+        assert!(!call_id.contains('\u{1b}'), "{call_id:?}");
+        // The newline survives here **on purpose**, and this is the case that
+        // says so rather than leaving it to be discovered: [`obeyed`] exempts
+        // `\n` because a streamed answer's line breaks are the rows the
+        // transcript exists to make. An amendment is one row, and it is
+        // `super::shell` that makes it one -- with the same `safe_one_line` it
+        // already flattens a tool's detail with.
+        assert!(
+            text.contains('\n'),
+            "the channel started flattening text the transcript needs whole: {text:?}"
+        );
     }
 }

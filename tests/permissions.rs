@@ -37,9 +37,10 @@ use xfx::gateway::protocol::{Completion, CompletionRequest, FinishReason, ToolCa
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::output::{Event, RecordingSink};
 use xfx::permission::{
-    classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, AuthorityError,
-    CommandEffect, CommandPlan, CommandRoute, DeniedEffect, Grant, PermissionMode, PermissionRules,
-    PermissionSession, PolicyDecision, ProposedAction, Rule, YOLO_WARNING,
+    classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
+    AuthorityError, CommandEffect, CommandPlan, CommandRoute, DeniedEffect, DenyCause, Grant,
+    PermissionMode, PermissionRules, PermissionSession, PolicyDecision, ProposedAction, Rule,
+    YOLO_WARNING,
 };
 use xfx::provider::Wire;
 use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
@@ -664,7 +665,9 @@ fn ask_mode_without_an_approval_channel_fails_closed() {
     assert_eq!(decision, PolicyDecision::Prompt);
 
     let mut noninteractive = session(PermissionMode::Ask);
-    let PolicyDecision::Deny { reason, .. } = noninteractive.decide(ProposedAction::Command(&plan))
+    let PolicyDecision::Deny { reason, .. } = noninteractive
+        .decide_with_feedback(ProposedAction::Command(&plan))
+        .decision
     else {
         panic!("a noninteractive ask must deny");
     };
@@ -836,7 +839,9 @@ fn an_approval_answered_once_covers_this_call_and_not_the_next() {
     let mut asking = session(PermissionMode::Ask).with_prompter(Box::new(prompter.clone()));
 
     assert_eq!(
-        asking.decide(ProposedAction::Command(&plan)),
+        asking
+            .decide_with_feedback(ProposedAction::Command(&plan))
+            .decision,
         PolicyDecision::Allow {
             source: AllowSource::InteractiveOnce
         }
@@ -853,7 +858,9 @@ fn an_approval_answered_always_records_one_exact_session_grant() {
     let mut asking = session(PermissionMode::Ask).with_prompter(Box::new(prompter.clone()));
 
     assert_eq!(
-        asking.decide(ProposedAction::Command(&plan)),
+        asking
+            .decide_with_feedback(ProposedAction::Command(&plan))
+            .decision,
         PolicyDecision::Allow {
             source: AllowSource::InteractiveAlways
         }
@@ -863,7 +870,9 @@ fn an_approval_answered_always_records_one_exact_session_grant() {
     // The second call is answered from the grant, so the prompter is not asked
     // again.
     assert_eq!(
-        asking.decide(ProposedAction::Command(&plan)),
+        asking
+            .decide_with_feedback(ProposedAction::Command(&plan))
+            .decision,
         PolicyDecision::Allow {
             source: AllowSource::SessionGrant
         }
@@ -1016,7 +1025,10 @@ fn a_denied_approval_refuses_and_records_nothing() {
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
     let mut asking = session(PermissionMode::Ask).with_prompter(Box::new(prompter));
 
-    let PolicyDecision::Deny { reason, .. } = asking.decide(ProposedAction::Command(&plan)) else {
+    let PolicyDecision::Deny { reason, .. } = asking
+        .decide_with_feedback(ProposedAction::Command(&plan))
+        .decision
+    else {
         panic!("a denied approval must deny");
     };
     assert!(reason.contains("declined"), "{reason}");
@@ -1030,10 +1042,277 @@ fn a_broken_approval_channel_denies_rather_than_defaulting_to_yes() {
     let mut asking =
         session(PermissionMode::Ask).with_prompter(Box::new(ScriptedPrompter::broken()));
 
-    let PolicyDecision::Deny { reason, .. } = asking.decide(ProposedAction::Command(&plan)) else {
+    let PolicyDecision::Deny { reason, .. } = asking
+        .decide_with_feedback(ProposedAction::Command(&plan))
+        .decision
+    else {
         panic!("a broken channel must deny");
     };
     assert!(reason.contains("approval channel"), "{reason}");
+}
+
+// ---------------------------------------------------------------------------
+// what the user said while answering
+// ---------------------------------------------------------------------------
+//
+// Feedback is **context, not authority**. It reaches the model as a separate
+// user message after the tool result, and it changes neither the arguments that
+// ran nor the grant the answer bought
+// (`vercel-labs/fx@580a0c5d src/core/permissions/tool_admission.zig:2039-2050`).
+// Nothing here is on the model's wire yet -- the transport out of the band is
+// Unit 2 -- so these cases assert the envelope: what the decision carries, and
+// what every result after it carries.
+
+/// A prompter that answers the same way every time and amends its answer with a
+/// sentence, the way a draft in the band will.
+///
+/// It overrides `respond` and keeps a real `request` beside it: the two are the
+/// same answer on two channels, and only one of them has room for a draft.
+#[derive(Clone)]
+struct AmendingPrompter {
+    answer: ApprovalAnswer,
+    feedback: Option<String>,
+}
+
+impl AmendingPrompter {
+    fn new(answer: ApprovalAnswer, feedback: &str) -> Self {
+        Self {
+            answer,
+            feedback: Some(feedback.to_string()),
+        }
+    }
+}
+
+impl ApprovalPrompter for AmendingPrompter {
+    fn request(&mut self, _request: &ApprovalRequest) -> std::io::Result<ApprovalAnswer> {
+        Ok(self.answer)
+    }
+
+    fn respond(&mut self, _request: &ApprovalRequest) -> std::io::Result<ApprovalResponse> {
+        Ok(ApprovalResponse {
+            answer: self.answer,
+            feedback: self.feedback.clone(),
+        })
+    }
+}
+
+/// A context in `ask` mode whose channel answers `answer` and says `feedback`.
+fn amended(tree: &Tree, answer: ApprovalAnswer, feedback: &str) -> ToolContext {
+    ToolContext::new(AccessScope::primary_only(tree.root()).expect("a usable primary root"))
+        .with_permissions(
+            session(PermissionMode::Ask)
+                .with_prompter(Box::new(AmendingPrompter::new(answer, feedback))),
+        )
+}
+
+#[test]
+fn an_allowed_call_runs_the_original_arguments_and_carries_the_sentence() {
+    let tree = Tree::new();
+    let context = amended(&tree, ApprovalAnswer::Once, "use tabs not spaces");
+
+    let result = call(
+        &context,
+        "write_file",
+        json!({ "path": "notes.md", "content": "alpha\n" }),
+    );
+
+    assert!(result.ok, "{result:?}");
+    // The staged bytes of the plan that was judged, exactly. A sentence the
+    // user typed beside the question is not an edit to the arguments.
+    assert_eq!(tree.read("notes.md"), "alpha\n");
+    assert_eq!(result.feedback.as_deref(), Some("use tabs not spaces"));
+}
+
+#[test]
+fn a_denied_call_changes_no_file_and_still_carries_the_sentence() {
+    let tree = Tree::new();
+    let context = amended(&tree, ApprovalAnswer::Deny, "write it to drafts instead");
+
+    let result = call(
+        &context,
+        "write_file",
+        json!({ "path": "notes.md", "content": "alpha\n" }),
+    );
+
+    assert!(!result.ok, "{result:?}");
+    // A denial with feedback is still a denial, and still writes nothing.
+    assert!(
+        !tree.root().join("notes.md").exists(),
+        "a denied write left a file behind"
+    );
+    assert_eq!(
+        result.feedback.as_deref(),
+        Some("write it to drafts instead")
+    );
+}
+
+#[test]
+fn an_always_answer_grants_exactly_the_tool_and_target_it_did_before() {
+    // Feedback is not authority: it is not part of the key, and it cannot
+    // widen, narrow, or re-key what "always" bought.
+    let tree = Tree::new();
+    let plan = plan(&tree, "cargo publish");
+
+    let mut amending = session(PermissionMode::Ask).with_prompter(Box::new(AmendingPrompter::new(
+        ApprovalAnswer::Always,
+        "and check the changelog",
+    )));
+    amending.decide_with_feedback(ProposedAction::Command(&plan));
+
+    let mut silent =
+        session(PermissionMode::Ask).with_prompter(Box::new(ScriptedPrompter::new(vec![
+            ApprovalAnswer::Always,
+        ])));
+    silent.decide_with_feedback(ProposedAction::Command(&plan));
+
+    assert_eq!(amending.grants(), silent.grants());
+    assert_eq!(
+        amending.grants(),
+        [Grant::new("terminal", target_of(&plan))]
+    );
+}
+
+#[test]
+fn a_blank_draft_is_no_feedback() {
+    let tree = Tree::new();
+    let context = amended(&tree, ApprovalAnswer::Once, "   ");
+
+    let result = call(
+        &context,
+        "write_file",
+        json!({ "path": "notes.md", "content": "alpha\n" }),
+    );
+
+    assert!(result.ok, "{result:?}");
+    // An empty user message would spend a turn saying nothing.
+    assert_eq!(result.feedback, None, "{result:?}");
+}
+
+#[test]
+fn a_prompter_that_cannot_amend_still_compiles_and_reports_nothing() {
+    // The defaulted method is *correct* for an old implementor, not merely
+    // present: a `y/a/n` line has no draft, so it reports none, and the answer
+    // it does have still arrives.
+    let mut line_oriented = ScriptedPrompter::new(vec![ApprovalAnswer::Once]);
+    let request = ApprovalRequest {
+        tool: "write_file",
+        target: "/w/notes.md".to_string(),
+        summary: "write 6 bytes to `notes.md`".to_string(),
+        always_scope: "allow every future write_file to `notes.md`".to_string(),
+        diff: None,
+    };
+
+    let response = line_oriented
+        .respond(&request)
+        .expect("a line-oriented prompter answers");
+
+    assert_eq!(response.answer, ApprovalAnswer::Once);
+    assert_eq!(response.feedback, None);
+    assert_eq!(line_oriented.asked(), ["write_file:/w/notes.md"]);
+}
+
+#[test]
+fn a_failed_approval_channel_carries_no_sentence() {
+    let tree = Tree::new();
+    let plan = plan(&tree, "cargo publish");
+    let mut asking =
+        session(PermissionMode::Ask).with_prompter(Box::new(ScriptedPrompter::broken()));
+
+    let decided = asking.decide_with_feedback(ProposedAction::Command(&plan));
+
+    // A channel that failed did not deliver a sentence, and inventing one would
+    // put words in the user's mouth.
+    assert!(
+        matches!(
+            decided.decision,
+            PolicyDecision::Deny {
+                cause: DenyCause::ApprovalChannelFailed,
+                ..
+            }
+        ),
+        "{decided:?}"
+    );
+    assert_eq!(decided.feedback, None);
+}
+
+#[test]
+fn an_authority_that_went_stale_after_the_decision_still_carries_the_sentence() {
+    // Failures can occur *after* the decision. The user said this about a call
+    // that was attempted, whatever the attempt did.
+    let tree = Tree::new();
+    tree.write("notes.md", "original\n");
+    let root = tree.root().to_path_buf();
+    let context = amended(&tree, ApprovalAnswer::Once, "keep the heading").with_race_interlude(
+        Arc::new(move || {
+            fs::write(root.join("notes.md"), "swapped\n").expect("swap the preimage");
+        }),
+    );
+
+    read_whole(&context, "notes.md");
+    let result = call(
+        &context,
+        "edit_file",
+        json!({ "path": "notes.md", "old_string": "original", "new_string": "edited" }),
+    );
+
+    assert!(!result.ok, "{result:?}");
+    assert!(
+        result.fatal,
+        "a lost authority must end the turn: {result:?}"
+    );
+    assert_eq!(result.feedback.as_deref(), Some("keep the heading"));
+    assert_eq!(tree.read("notes.md"), "swapped\n");
+}
+
+#[test]
+fn an_approved_command_runs_what_was_asked_and_carries_the_sentence() {
+    let tree = Tree::new();
+    let context = amended(&tree, ApprovalAnswer::Once, "use --locked next time");
+
+    let result = call(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "pwd" }),
+    );
+
+    assert!(result.ok, "{result:?}");
+    // The command that was judged is the command that ran: the sentence is not
+    // an instruction the executor reads.
+    assert!(
+        result.output.contains("<command>pwd</command>"),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .output
+            .contains(&tree.root().to_string_lossy().into_owned()),
+        "{result:?}"
+    );
+    assert_eq!(result.feedback.as_deref(), Some("use --locked next time"));
+}
+
+#[test]
+fn a_denied_command_does_not_run_and_still_carries_the_sentence() {
+    let tree = Tree::new();
+    tree.write("notes.md", "original\n");
+    let context = amended(&tree, ApprovalAnswer::Deny, "that would delete my notes");
+
+    let result = call(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "rm notes.md" }),
+    );
+
+    assert!(!result.ok, "{result:?}");
+    assert_eq!(
+        tree.read("notes.md"),
+        "original\n",
+        "a denied command ran anyway"
+    );
+    assert_eq!(
+        result.feedback.as_deref(),
+        Some("that would delete my notes")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2553,7 +2832,7 @@ fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment(
 // ---------------------------------------------------------------------------
 
 #[test]
-fn the_registry_advertises_the_read_tools_then_the_mutating_tools() {
+fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_interaction_tool() {
     assert_eq!(
         ADVERTISED_TOOLS,
         [
@@ -2565,6 +2844,7 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools() {
             "edit_file",
             "create_folder",
             "terminal",
+            "ask_user_question",
         ]
     );
     assert_eq!(Registry::builtin().names(), ADVERTISED_TOOLS);
@@ -2708,6 +2988,7 @@ fn kinds(sink: &RecordingSink) -> Vec<&'static str> {
             Event::AssistantDelta { .. } => "assistant_delta",
             Event::ToolStart { .. } => "tool_start",
             Event::ToolResult { .. } => "tool_result",
+            Event::ToolFeedback { .. } => "tool_feedback",
             Event::Final { .. } => "final",
             Event::Error { .. } => "error",
         })
