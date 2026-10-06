@@ -94,6 +94,10 @@ pub(crate) trait CommandHandlers {
     /// when there was none. What it may be is
     /// `crate::permission::slash::Request::parse`'s to say, not the router's.
     fn permissions(&mut self, argument: &str);
+    /// `/settings`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the settings menu; anything else is
+    /// its usage line, because xfx answers none of upstream's argument forms.
+    fn settings(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -183,6 +187,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Credits => handlers.credits(),
         Slash::Status => handlers.status(),
         Slash::Statusline => handlers.statusline(argument),
+        Slash::Settings => handlers.settings(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -280,6 +285,9 @@ mod tests {
         fn permissions(&mut self, argument: &str) {
             self.calls.push(format!("permissions {argument}"));
         }
+        fn settings(&mut self, argument: &str) {
+            self.calls.push(format!("settings {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -310,6 +318,7 @@ mod tests {
             ("/quit", "quit"),
             ("/provider", "setup "),
             ("/permissions", "permissions "),
+            ("/settings", "settings "),
             ("/undo", "undo"),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());

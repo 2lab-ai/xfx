@@ -2367,6 +2367,16 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
+    // `/settings`' effort row: the effort is the session's from here on, and
+    // that is all -- the band chose it, wrote it and said so
+    // ([`ModelChange::effort_only`]).
+    if change.effort_only {
+        if let Some(effort) = change.effort {
+            state.effort = effort;
+            state.publish();
+        }
+        return Ended::Turn;
+    }
     let mut ended = Ended::Turn;
     if !change.announced {
         state.selector.retry_after_failure();
@@ -5343,6 +5353,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn,
+                effort_only: false,
             },
         )
     }
@@ -5429,6 +5440,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             },
         );
         assert_eq!(
@@ -5463,6 +5475,38 @@ mod tests {
         assert_eq!(effort, &low, "a model change dropped the session's effort");
         assert_eq!(settings(home.path())["effort"], "low");
         assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
+    }
+
+    #[test]
+    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
+        // band wrote `effort` and said so; the runtime only takes it up. The
+        // model stays, and the profile is not touched -- in particular no
+        // `models` entry is written for a model some other layer chose.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"theme":"dark"}"#,
+        )
+        .expect("seed");
+        let model = state.model().to_string();
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "something/else".to_string(),
+                effort: Some(high.clone()),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            },
+        );
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(state.effort, high);
+        assert_eq!(state.model(), model, "the model moved");
+        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
     }
 
     #[test]
@@ -5548,6 +5592,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         control_tx
             .send(TurnControl::Model(asked.clone()))
@@ -5591,6 +5636,7 @@ mod tests {
             picker: true,
             announced: true,
             next_turn: true,
+            effort_only: false,
         });
         control.defer(ModelChange {
             name: "unresolved".to_string(),
@@ -5598,6 +5644,7 @@ mod tests {
             picker: false,
             announced: false,
             next_turn: true,
+            effort_only: false,
         });
         let ended = on_a_runtime(apply_deferred(
             &mut state,
