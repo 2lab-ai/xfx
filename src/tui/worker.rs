@@ -1315,15 +1315,16 @@ impl Runtime {
             .ok_or_else(|| "the conversation could not be opened".to_string())
     }
 
-    /// `/undo` against the conversation as it stands: its newest change taken
-    /// back ([`crate::tools::mutate::undo_last`]), or nothing when there is no
-    /// conversation -- a session that has asked nothing has changed nothing,
-    /// and one `/new` or a provider switch dropped took its changes with it.
-    fn undo(&self) -> crate::tools::undo::Undone {
+    /// `/undo` against the conversation as it stands: its newest change as of
+    /// `through` taken back ([`crate::tools::mutate::undo_through`]), or
+    /// nothing when there is no conversation -- a session that has asked
+    /// nothing has changed nothing, and one `/new` or a provider switch
+    /// dropped took its changes with it.
+    fn undo(&self, through: crate::tools::undo::Mark) -> crate::tools::undo::Undone {
         self.conversation
             .as_ref()
             .map_or(crate::tools::undo::Undone::Nothing, |conversation| {
-                crate::tools::mutate::undo_last(&conversation.tools)
+                crate::tools::mutate::undo_through(&conversation.tools, through)
             })
     }
 
@@ -1858,7 +1859,7 @@ async fn turn_loop(
                 Some(TurnControl::Model(change)) => Taken::Model(change),
                 // Nothing is running, so nothing is changing the files: the
                 // undo is done now, as upstream's always is.
-                Some(TurnControl::Undo) => Taken::Undo,
+                Some(TurnControl::Undo { through }) => Taken::Undo(through),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -1906,8 +1907,8 @@ async fn turn_loop(
                 }
                 continue;
             }
-            Taken::Undo => {
-                run_undo(&state, events, false).await;
+            Taken::Undo(through) => {
+                run_undo(&state, events, through, false).await;
                 continue;
             }
             Taken::Nothing => continue,
@@ -2077,8 +2078,8 @@ enum Taken {
     Reset(usize),
     /// `/model`, between turns: applied now.
     Model(ModelChange),
-    /// `/undo`, between turns: done now.
-    Undo,
+    /// `/undo`, between turns: done now, as of the position it was typed at.
+    Undo(crate::tools::undo::Mark),
     /// A message that means nothing here.
     Nothing,
     /// A change to the session's authority, or the channel that carries them
@@ -2487,8 +2488,11 @@ async fn apply_deferred(
                 // Done whatever ended: an undo needs no socket, and the file
                 // is what the person asked about -- a `/quit` after it does
                 // not take it back.
-                Deferred::Undo { after_reset } => {
-                    run_undo(state, events, after_reset).await;
+                Deferred::Undo {
+                    through,
+                    after_reset,
+                } => {
+                    run_undo(state, events, through, after_reset).await;
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -2511,8 +2515,9 @@ async fn apply_deferred(
 
 /// `/undo`, and what became of it (`commandUndoLast`,
 /// `vercel-labs/fx@c1db9191 src/core/app/app_commands.zig:1242-1290`): the
-/// conversation's newest change taken back ([`Runtime::undo`]) and upstream's
-/// sentence for it, neutral whatever it says, as upstream's is.
+/// conversation's newest change as of `through` -- the position the keystroke
+/// saw -- taken back ([`Runtime::undo`]) and upstream's sentence for it,
+/// neutral whatever it says, as upstream's is.
 ///
 /// `after_reset` is an undo typed after a reset this runtime has not acted on
 /// yet ([`Deferred::Undo`]): it is answered for the conversation that reset
@@ -2524,11 +2529,16 @@ async fn apply_deferred(
 /// told (`change_tracker.zig`; `commandUndoLast` writes a notice and nothing
 /// else). Through `send_terminal`, like every answer about something already
 /// done: a file has changed by the time this is sent.
-async fn run_undo(state: &Runtime, events: &Sender<UiEvent>, after_reset: bool) {
+async fn run_undo(
+    state: &Runtime,
+    events: &Sender<UiEvent>,
+    through: crate::tools::undo::Mark,
+    after_reset: bool,
+) {
     let undone = if after_reset {
         crate::tools::undo::Undone::Nothing
     } else {
-        state.undo()
+        state.undo(through)
     };
     bridge::send_terminal(
         events,
@@ -2703,8 +2713,8 @@ async fn raced_against_control<F: Future>(
                 // a reset has already been read here -- that undo was typed in
                 // the conversation the reset starts, which has changed nothing
                 // yet, rather than in the one it drops once this work is over.
-                Some(TurnControl::Undo) => {
-                    control.defer_undo(matches!(ended, Ended::Reset(_)));
+                Some(TurnControl::Undo { through }) => {
+                    control.defer_undo(through, matches!(ended, Ended::Reset(_)));
                 }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
@@ -3041,6 +3051,7 @@ mod tests {
         ProposedAction, TargetScope,
     };
     use crate::provider::Wire;
+    use crate::tools::undo::Mark;
 
     /// A configuration from a home and a workspace that exist and hold no
     /// settings.
@@ -5802,13 +5813,13 @@ mod tests {
         );
         assert!(made.ok, "{}", made.output);
 
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(
             undo_said(&mut events_rx),
             format!("Deleted {} (was newly created)", path.display())
         );
         assert!(!path.exists(), "the created file is still there");
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
     }
 
@@ -5817,7 +5828,7 @@ mod tests {
         let (_home, _workspace, state) = a_runtime_that_can_open_one();
         assert!(state.conversation.is_none());
         let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
     }
 
@@ -5851,13 +5862,13 @@ mod tests {
             events_rx.try_recv(),
             Ok(UiEvent::Fresh { through: 0 })
         ));
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
 
         state
             .resume_by_id(&id, &CancelToken::new())
             .expect("the session resumes");
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
         assert_eq!(
             std::fs::read_to_string(&path).expect("still there"),
@@ -5870,16 +5881,12 @@ mod tests {
         // Put aside, never a stop. Ahead of a reset it is about the
         // conversation that reset drops; behind one it is about the
         // conversation the reset starts.
+        let typed = Mark::now();
+        let undo = TurnControl::Undo { through: typed };
         for (messages, after_reset) in [
-            (vec![TurnControl::Undo], false),
-            (
-                vec![TurnControl::Undo, TurnControl::Reset { through: 0 }],
-                false,
-            ),
-            (
-                vec![TurnControl::Reset { through: 0 }, TurnControl::Undo],
-                true,
-            ),
+            (vec![undo.clone()], false),
+            (vec![undo.clone(), TurnControl::Reset { through: 0 }], false),
+            (vec![TurnControl::Reset { through: 0 }, undo.clone()], true),
         ] {
             let (control_tx, control_rx) = mpsc::unbounded_channel();
             let control = ControlChannel::new(control_rx);
@@ -5899,9 +5906,14 @@ mod tests {
                 |through| stops.push(through),
             ));
             assert_eq!(stops.len(), resets, "an undo stopped the work");
+            // The keystroke's position, carried as it came: the work that
+            // runs on does not move it.
             assert_eq!(
                 control.take_deferred(),
-                vec![Deferred::Undo { after_reset }]
+                vec![Deferred::Undo {
+                    through: typed,
+                    after_reset
+                }]
             );
         }
     }
@@ -5931,9 +5943,9 @@ mod tests {
         );
         // One typed behind a reset: answered for the fresh conversation, and
         // the change it would have reached is left alone.
-        control.defer_undo(true);
+        control.defer_undo(Mark::now(), true);
         // One typed before it, and a `/quit` after both: still done.
-        control.defer_undo(false);
+        control.defer_undo(Mark::now(), false);
         let ended = on_a_runtime(apply_deferred(
             &mut state,
             Ended::Session,
@@ -5949,6 +5961,77 @@ mod tests {
             format!("Deleted {} (was newly created)", path.display())
         );
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn an_undo_put_aside_takes_back_what_was_newest_when_it_was_typed() {
+        // fx undoes at the keystroke; this runtime does it once the work is
+        // over. The work committed a second change after the `/undo` was
+        // typed: that one stays, and the one that was newest at the keystroke
+        // is taken back.
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let first = in_workspace(&state, "a.txt");
+        let second = in_workspace(&state, "b.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "one\n"})
+            )
+            .ok
+        );
+        // The keystroke, as the band sends it, read while the work runs.
+        control_tx
+            .send(TurnControl::Undo {
+                through: Mark::now(),
+            })
+            .expect("alive");
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            },
+            &control,
+            |_| {},
+        ));
+        // The same work goes on to change another file.
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "b.txt", "content": "two\n"})
+            )
+            .ok
+        );
+
+        on_a_runtime(apply_deferred(
+            &mut state, ended, &events_tx, &cancel, &control, &mut queue,
+        ));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", first.display())
+        );
+        assert!(!first.exists(), "the change typed at was not taken back");
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("the later change stays"),
+            "two\n"
+        );
+        // And it is the next `/undo`'s.
+        on_a_runtime(run_undo(&state, &events_tx, Mark::now(), false));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", second.display())
+        );
     }
 
     fn settings(home: &std::path::Path) -> serde_json::Value {

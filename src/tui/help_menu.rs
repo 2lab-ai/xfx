@@ -49,7 +49,7 @@ use super::theme::Palette;
 const HEADER_ROWS: u16 = 2;
 
 /// The most commands shown at once (`max_visible_items`, `:14`).
-const MOST_ITEMS: usize = 20;
+pub(crate) const MOST_ITEMS: usize = 20;
 
 /// The most rows the catalog is given: upstream sizes it with the resume
 /// picker's cap (`surface_frame.zig:550-555`, `expanded_picker_row_budget`
@@ -797,16 +797,16 @@ mod tests {
     #[test]
     fn the_catalog_opens_with_its_header_a_blank_row_and_every_command() {
         let menu = HelpMenu::open("");
-        // Every command, up to upstream's twenty at once ([`MOST_ITEMS`]):
-        // the registry has passed twenty, and the window walks the rest.
-        let count = SLASH_REGISTRY.len().min(MOST_ITEMS);
+        // Upstream shows at most twenty at once (`max_visible_items`); past
+        // that the window scrolls, so a longer registry fills it and no more.
+        let visible = SLASH_REGISTRY.len().min(MOST_ITEMS);
         assert_eq!(
             usize::from(menu.height(40, 0)),
-            2 + count,
-            "only as tall as what it lists"
+            2 + visible,
+            "only as tall as what it lists, up to upstream's cap"
         );
         let rows = menu.rows(120, menu.height(40, 0), PALETTE);
-        assert_eq!(rows.len(), 2 + count);
+        assert_eq!(rows.len(), 2 + visible);
         assert_eq!(rows[1], "", "the blank row under the header");
         // The marked row: name and summary bright, each closed, the spaces
         // between them uncoloured; the summary at 2 + the widest name + 4 --
@@ -828,7 +828,7 @@ mod tests {
                 SLASH_REGISTRY[1].summary
             )
         );
-        assert_eq!(shown(&rows), by_category()[..count]);
+        assert_eq!(shown(&rows), by_category()[..visible]);
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
             assert_eq!(summary_column(row), column, "{row:?}");
