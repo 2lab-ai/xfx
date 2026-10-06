@@ -199,6 +199,15 @@ impl Drop for Sound {
     /// a broken file -- but it would leave the switch the user just set
     /// unsaved. Closing the channel ends the thread once it has written what
     /// it was given.
+    ///
+    /// **And the thread is gone before the signal handlers are.** The shell
+    /// is dropped inside `super::hold`, ahead of `super::signals::release`,
+    /// whose safety argument is that no handler can be running on a thread
+    /// other than the UI's when the dispositions go back. This thread is
+    /// spawned from the UI thread outside a wait, so it inherits a mask with
+    /// the stop blocked, but the death signals and the wakeups are deliverable
+    /// to it while it lives. The cost is that an exit waits for a save in
+    /// flight -- two `fsync`s, in the one place a wait is the right answer.
     fn drop(&mut self) {
         if let Some(Writer { orders, thread }) = self.writer.take() {
             drop(orders);
