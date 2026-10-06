@@ -16,31 +16,26 @@ again-stopped: fx 13 group rows, xfx 13, byte-identical 11
    xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
    fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
    xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
-long-ask: fx 14 group rows, xfx 13, byte-identical 11
+long-ask: fx 14 group rows, xfx 11, byte-identical 9
    fx : ESC[38;5;245m├ Read a.txtESC[39m
+   fx : ESC[38;5;245m├ Read b.txtESC[39m
+   fx : ESC[38;5;245m├ Matched **/*.rsESC[39m
    fx : ESC[38;5;245m├ Failed missing.txt: Path not found: missing.txtESC[39m
    xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
    fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
    xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
-long-running: fx 14 group rows, xfx 13, byte-identical 11
+long-running: fx 14 group rows, xfx 11, byte-identical 9
    fx : ESC[38;5;245m├ Read a.txtESC[39m
+   fx : ESC[38;5;245m├ Read b.txtESC[39m
+   fx : ESC[38;5;245m├ Matched **/*.rsESC[39m
    fx : ESC[38;5;245m├ Failed missing.txt: Path not found: missing.txtESC[39m
    xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
    fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
    xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
-long-stopped: fx 15 group rows, xfx 13, byte-identical 9
+long-stopped: fx 15 group rows, xfx 11, byte-identical 7
    fx : ESC[38;5;245m├ Read a.txtESC[39m
-   fx : ESC[38;5;245m├ Failed missing.txt: Path not found: missing.txtESC[39m
-   xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
-   fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
-   fx : ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 command · 1 cancelledESC[39m
-   fx : ESC[38;5;245m└ Cancelled ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
-   fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;252msleepESC[38;5;245m 4ESC[39m · What can fx do differently?
-   xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
-   xfx: ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 commandESC[39m
-   xfx: ESC[38;5;245m└ Running ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
-long-later: fx 15 group rows, xfx 15, byte-identical 9
-   fx : ESC[38;5;245m├ Read a.txtESC[39m
+   fx : ESC[38;5;245m├ Read b.txtESC[39m
+   fx : ESC[38;5;245m├ Matched **/*.rsESC[39m
    fx : ESC[38;5;245m├ Failed missing.txt: Path not found: missing.txtESC[39m
    xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
    fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
@@ -50,6 +45,27 @@ long-later: fx 15 group rows, xfx 15, byte-identical 9
    xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
    xfx: ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 commandESC[39m
    xfx: ESC[38;5;245m└ Running ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
+long-later: fx 15 group rows, xfx 11, byte-identical 7
+   fx : ESC[38;5;245m├ Read a.txtESC[39m
+   fx : ESC[38;5;245m├ Read b.txtESC[39m
+   fx : ESC[38;5;245m├ Matched **/*.rsESC[39m
+   fx : ESC[38;5;245m├ Failed missing.txt: Path not found: missing.txtESC[39m
+   xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
+   fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
+   fx : ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 command · 1 cancelledESC[39m
+   fx : ESC[38;5;245m└ Cancelled ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
+   fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;252msleepESC[38;5;245m 4ESC[39m · What can fx do differently?
+   xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
    xfx: ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 commandESC[39m
    xfx: ESC[38;5;245m└ Ran ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
-TOTAL byte-identical group rows (tmux-reserialized ANSI): 103/126
+end.full: fx 16 group rows, xfx 15, byte-identical 11
+   fx : ESC[38;5;245m├ Failed missing.txt: Path not found: missing.txtESC[39m
+   xfx: ESC[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`ESC[39m
+   fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can fx do differently?
+   fx : ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 command · 1 cancelledESC[39m
+   fx : ESC[38;5;245m└ Cancelled ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
+   fx : ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;252msleepESC[38;5;245m 4ESC[39m · What can fx do differently?
+   xfx: ESC[38;5;252m■ESC[38;5;255m CancelledESC[39m ESC[38;5;245mfileESC[39m · What can xfx do differently?
+   xfx: ESC[38;5;255m●ESC[39m ESC[38;5;245m1 tool call · 1 commandESC[39m
+   xfx: ESC[38;5;245m└ Ran ESC[38;5;252msleepESC[38;5;245m 4ESC[39m
+TOTAL byte-identical group rows (tmux-reserialized ANSI): 106/142

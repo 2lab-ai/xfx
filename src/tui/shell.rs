@@ -703,6 +703,9 @@ pub(crate) struct Shell {
     /// one call. Emptied when the turn is over ([`Mark::TurnOver`]): the
     /// runtime sends a turn's conclusion after everything else of it.
     abandoned: Vec<String>,
+    /// xfx's own lines written while the tool group was open, which are the
+    /// group's block's last rows until it closes ([`Self::trail_group`]).
+    trailer: Vec<Trailed>,
     /// What the summary under the turn's answer will say ([`Tally`]).
     tally: Tally,
     /// The token estimate of every prompt that was sent and whose turn has
@@ -786,6 +789,57 @@ enum Asked {
     Inline(Panel),
     /// A screen of its own, for a change the band's summary cannot show.
     Alternate(ApprovalScreen),
+}
+
+/// One of xfx's own lines written while a tool group was open
+/// ([`Shell::trail_group`]): what it is, so it can be laid out again at the
+/// width of whatever screen the block is next written to.
+#[derive(Debug, Clone)]
+enum Trailed {
+    Line(String, Role),
+    Notice(notice::Notice),
+}
+
+/// Queues one whole line onto `transcript`, on rows of its own -- the
+/// transcript half of [`Shell::write_document_line`].
+fn queue_line(transcript: &mut Transcript, line: &str, role: Role) {
+    if transcript.open_line() {
+        transcript.queue_end_line();
+    }
+    transcript.queue_push(line, role);
+    transcript.queue_end_line();
+}
+
+/// Queues one notice onto `transcript` as upstream renders one -- the
+/// transcript half of [`Shell::write_notice`], whose documentation says what
+/// the shape is -- and says whether the document is owed a frame for it.
+fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice) -> bool {
+    let mut owed = false;
+    // The gutter in force is the one the row above is written with.
+    owed |= transcript.queue_gutter(Gutter::None);
+    if !transcript.ends_blank() {
+        owed |= transcript.queue_end_line();
+    }
+    owed |= transcript.queue_gutter(Gutter::Head(notice.tone));
+    // One push for the label and the whole body: the head is one row's, and
+    // every line after the first is written two columns in by the gutter
+    // itself (`Gutter::continued`), so nothing here splits lines.
+    let label = notice.label();
+    let body = notice.said();
+    let gap = if label.is_empty() || body.is_empty() {
+        ""
+    } else {
+        " "
+    };
+    owed |= transcript.queue_push_runs(&[
+        (&label, Role::Label(notice.tone)),
+        (gap, Role::Notice),
+        (body, Role::Notice),
+    ]);
+    owed |= transcript.queue_end_line();
+    owed |= transcript.queue_gutter(Gutter::None);
+    owed |= transcript.queue_end_line();
+    owed
 }
 
 /// One of xfx's own document writes, waiting for its place in the stream.
@@ -1029,6 +1083,7 @@ impl Shell {
             answer: Answer::default(),
             group: ToolGroup::default(),
             abandoned: Vec::new(),
+            trailer: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
             session_title: None,
@@ -2841,6 +2896,11 @@ impl Shell {
                 self.write_document_line(&line, Role::Dim);
                 self.end_transcript_line();
             }
+            // One of xfx's own lines rides under an open tool group rather
+            // than closing it ([`Self::trail_group`]).
+            Mark::Line(line, role) if self.group.drawn() => {
+                self.trail_group(Trailed::Line(line, role));
+            }
             Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::Notice(notice) => self.write_notice(&notice),
             Mark::EndOfLine => self.finish_document_line(),
@@ -2876,7 +2936,8 @@ impl Shell {
     /// rewritten where it is, because it is still the document's last thing --
     /// every other write closes it first ([`Self::close_group`]).
     fn redraw_group(&mut self) {
-        let Some(rows) = self.group.redraw(self.palette) else {
+        let trailer = self.trailer_rows();
+        let Some(rows) = self.group.redraw(self.palette, &trailer) else {
             return;
         };
         if self.transcript.queue_block(rows) {
@@ -2903,9 +2964,11 @@ impl Shell {
             return false;
         }
         self.group = std::mem::take(&mut self.group).unsettled();
+        // What was written under it went with the block, which keeps it.
+        self.trailer.clear();
         // Straight to the transcript: the block ends as a line does, and its
         // last row is already the blank one that separates it from what
-        // follows.
+        // follows -- or the last of the lines written under it.
         if self.transcript.queue_end_line() {
             self.owed();
         }
@@ -2975,41 +3038,73 @@ impl Shell {
     ///
     /// Like [`Self::write_document_line`], whatever the answer had open is
     /// closed first: a notice does not land in the middle of a sentence.
+    ///
+    /// **Under an open tool group it is one of the group's last rows**
+    /// ([`Self::trail_group`]), and the group goes on growing above it.
     fn write_notice(&mut self, notice: &notice::Notice) {
+        if self.group.drawn() {
+            self.trail_group(Trailed::Notice(notice.clone()));
+            return;
+        }
         self.close_answer();
         self.finish_document_line();
-        // The gutter in force is the one the row above is written with.
-        if self.transcript.queue_gutter(Gutter::None) {
+        if queue_notice(&mut self.transcript, notice) {
             self.owed();
         }
-        if !self.transcript.ends_blank() {
-            self.end_transcript_line();
+    }
+
+    /// Puts one of xfx's own lines under the open tool group, as the group's
+    /// last rows rather than as rows after it.
+    ///
+    /// **One group per turn, broken by text and by nothing else**: upstream
+    /// gives every call of a turn's active group one presentation id
+    /// (`tool_presentation.zig:667-708`) and draws them all at the group's
+    /// anchor (`tool_group_projection.zig:1294-1319`), so a line written while
+    /// the group is open -- what the user said at an approval, a notice, the
+    /// interrupt's sentence -- lands under the group while the group's later
+    /// calls are still added above it (`fx-approvals-40x120-cmd2`: the fourth
+    /// call is counted and drawn over `┃ use capitals`). The document here is
+    /// append-only past its open block, so the line is made part of the block:
+    /// laid out exactly as it would have been written ([`Self::trailer_rows`])
+    /// and rewritten with the block until it closes.
+    fn trail_group(&mut self, line: Trailed) {
+        self.trailer.push(line);
+        self.redraw_group();
+    }
+
+    /// The lines under the open group, laid out at this screen's width as the
+    /// document would lay them out -- by a transcript of their own, through
+    /// the same operations ([`queue_line`], [`queue_notice`]), so a notice's
+    /// head, its wrap, its blank rows and the line's colours are the ones it
+    /// would have had written on its own.
+    fn trailer_rows(&self) -> Vec<String> {
+        if self.trailer.is_empty() {
+            return Vec::new();
         }
-        if self.transcript.queue_gutter(Gutter::Head(notice.tone)) {
-            self.owed();
+        // The group ends on a blank row, which is the row above the first of
+        // these: a fresh transcript starts out "ending blank" for exactly that.
+        let mut scratch = Transcript::new(self.geometry.cols);
+        for line in &self.trailer {
+            match line {
+                Trailed::Line(text, role) => queue_line(&mut scratch, text, *role),
+                Trailed::Notice(notice) => {
+                    queue_notice(&mut scratch, notice);
+                }
+            }
         }
-        // One push for the label and the whole body: the head is one row's,
-        // and every line after the first is written two columns in by the
-        // gutter itself (`Gutter::continued`), so nothing here splits lines.
-        let label = notice.label();
-        let body = notice.said();
-        let gap = if label.is_empty() || body.is_empty() {
-            ""
-        } else {
-            " "
-        };
-        if self.transcript.queue_push_runs(&[
-            (&label, Role::Label(notice.tone)),
-            (gap, Role::Notice),
-            (body, Role::Notice),
-        ]) {
-            self.owed();
-        }
-        self.end_transcript_line();
-        if self.transcript.queue_gutter(Gutter::None) {
-            self.owed();
-        }
-        self.end_transcript_line();
+        let mut rows: Vec<String> = Vec::new();
+        while scratch
+            .emit_front(self.palette, |append| {
+                // Each append rewrites the rows it does not scroll in, at the
+                // bottom of what is already there ([`Append`]).
+                let settled = append.rows.len() - append.scroll.min(append.rows.len());
+                rows.truncate(rows.len().saturating_sub(settled));
+                rows.extend(append.rows.iter().cloned());
+                Landed::<std::convert::Infallible>::All
+            })
+            .is_some()
+        {}
+        rows
     }
 
     /// Ends the document's current line, if there is one open.
@@ -4371,6 +4466,7 @@ impl Shell {
         // Its block went with the screen; a call still running is drawn again
         // on the cleared one when its result arrives.
         self.group = std::mem::take(&mut self.group).unsettled();
+        self.trailer.clear();
         // The stream goes with them, and it is the one place this session
         // drops text the runtime produced. The rows it was going to be written
         // on are being erased *and* taken out of the terminal's scrollback at
@@ -10544,9 +10640,9 @@ mod tests {
     fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
         // A running executor holds the runtime's thread until it returns, so
         // the stop is read after the command has finished: a `Cancelled` row at
-        // the keystroke would claim a stop the command never had. The block
-        // keeps saying `Running` above the sentence that answers the key, and
-        // the command's real result is drawn under it when it comes.
+        // the keystroke would claim a stop the command never had. The sentence
+        // that answers the key goes under the group, and the command's real
+        // result settles its row above it when it comes.
         let mut shell = shell(24, 80);
         let _ = turn_running(&mut shell, b"run it\r");
         shell.apply(tool_start(
@@ -10577,7 +10673,7 @@ mod tests {
             .position(|row| row.starts_with(INTERRUPTED_ROW))
             .expect("the interrupt notice");
         assert_eq!(
-            written[notice + 2..notice + 5],
+            written[notice - 3..notice],
             [
                 "\u{25cf} 1 tool call \u{b7} 1 command",
                 "\u{2514} Ran sleep 30",
@@ -10616,10 +10712,11 @@ mod tests {
     }
 
     #[test]
-    fn a_line_written_while_a_call_runs_closes_the_group_and_its_result_draws_it_again() {
-        // The document is append-only past its last block: a row written
-        // under a running call's group leaves that block as it stood, and the
-        // call's result is drawn under the row rather than above it.
+    fn a_line_written_while_a_call_runs_stays_under_the_group_its_result_updates() {
+        // One group per turn, broken by text and nothing else
+        // (`tool_presentation.zig:667-708`): a notice written while a call
+        // runs lands under the group, and the call's result settles its row
+        // above the notice rather than starting a second group under it.
         let mut shell = shell(24, 80);
         shell.apply(tool_start(
             "1",
@@ -10641,14 +10738,74 @@ mod tests {
             shell.written(),
             [
                 "\u{25cf} 1 tool call \u{b7} 1 command",
-                "\u{2514} Running make",
+                "\u{2514} Ran make",
                 "",
                 "* something worth saying",
                 "",
-                "\u{25cf} 1 tool call \u{b7} 1 command",
-                "\u{2514} Ran make",
-                "",
             ]
+        );
+    }
+
+    #[test]
+    fn what_the_user_said_at_an_approval_does_not_split_the_group() {
+        // `fx-approvals-40x120-cmd2`: the amendment is read back under the
+        // group, and the next call of the same turn is counted in the same
+        // header and drawn above it. Text is what breaks a group.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "echo hi"}),
+        ));
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "1".to_string(),
+            text: "use capitals".to_string(),
+        });
+        shell.apply(tool_start(
+            "2",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "echo again"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 2 tool calls \u{b7} 2 commands",
+                "\u{251c} Ran echo hi",
+                "\u{2514} Running echo again",
+                "",
+                &format!("{AMENDMENT_PREFIX} use capitals"),
+            ]
+        );
+        // And the answer closes it, under the line.
+        shell.apply(tool_ended(
+            "2",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::Delta("Done.\n\n".to_string()));
+        shell.flush_paced();
+        let written = shell.written();
+        assert_eq!(
+            written[..7],
+            [
+                "\u{25cf} 2 tool calls \u{b7} 2 commands",
+                "\u{251c} Ran echo hi",
+                "\u{2514} Ran echo again",
+                "",
+                &format!("{AMENDMENT_PREFIX} use capitals"),
+                "  Done.",
+                "",
+            ],
+            "{written:#?}"
         );
     }
 

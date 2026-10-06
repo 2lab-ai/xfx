@@ -26,13 +26,13 @@ x𝒇x v0.1.0-0ce2d17 [debug] · Run /help for commands
 
 ■ Cancelled file · What can xfx do differently?
 
-xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
-the turn was cancelled
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+
+✗ system: the turn was cancelled
+
 ┃
 
 ask · model-a
-
-
 
 
 

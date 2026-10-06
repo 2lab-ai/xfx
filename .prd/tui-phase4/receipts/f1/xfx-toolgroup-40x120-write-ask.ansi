@@ -22,7 +22,7 @@
   2. Yes, and don't ask again for this request
   3. No (esc)
   2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later
-  `xfx ask --resume-id 1791302088534-06a54488a6620beb` of this saved session
+  `xfx ask --resume-id 1791304493587-4a515a592eda971d` of this saved session
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [38;5;245mask · model-a[39m
 

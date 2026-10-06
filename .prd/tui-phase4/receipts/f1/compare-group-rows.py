@@ -1,6 +1,6 @@
 import sys, re, difflib
 d = sys.argv[1]  # this directory
-snaps = ["cmd-ask","cmd-running","edit-ask","write-ask","exit-ask","end","again-ask","again-stopped","long-ask","long-running","long-stopped","long-later"]
+snaps = ["cmd-ask","cmd-running","edit-ask","write-ask","exit-ask","end","again-ask","again-stopped","long-ask","long-running","long-stopped","long-later","end.full"]
 marks = ("●","├","└","■")
 strip = re.compile(r"\x1b\[[0-9;]*m")
 def rows(path):

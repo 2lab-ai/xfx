@@ -91,6 +91,8 @@ enum State {
     Running,
     /// It did what it was asked; a file change carries what it changed.
     Done(Option<LineChanges>),
+    /// A file change that changed nothing.
+    Unchanged,
     /// It refused on its own, for this reason.
     Failed(String),
     /// A command that ran to this status. Zero is a success.
@@ -143,6 +145,12 @@ impl Call {
         match &self.state {
             State::Running => presentation.running.to_string(),
             State::Done(_) | State::Exited(0) => presentation.done.to_string(),
+            // Upstream's row is the tool's own sentence, `No changes to a.txt;
+            // it already contains the requested content` (the result text,
+            // `file_mutation_execution.zig:88`, used as the status at
+            // `tool_presentation.zig:1046-1047`): the verb would claim an edit
+            // that was not made. [`Self::phrase`] finishes the sentence.
+            State::Unchanged => "No changes to".to_string(),
             State::Failed(_) => "Failed".to_string(),
             State::Exited(code) => format!("Exited {code}"),
             // Upstream's spelling (`commandOutcomeDecision`).
@@ -170,6 +178,7 @@ impl Call {
                 (0, removed) => phrase.push_str(&format!(" -{removed}")),
                 (added, removed) => phrase.push_str(&format!(" +{added} / -{removed}")),
             },
+            State::Unchanged => phrase.push_str("; it already contains the requested content"),
             _ => {}
         }
         phrase
@@ -246,6 +255,7 @@ impl ToolGroup {
             return false;
         };
         call.state = match outcome {
+            Outcome::Unchanged => State::Unchanged,
             Outcome::Denied => State::Denied,
             Outcome::Exited(code) => State::Exited(code),
             Outcome::Signalled(signal) => State::Signalled(signal),
@@ -277,9 +287,19 @@ impl ToolGroup {
 
     /// The rows the block should hold now, or `None` when they are the ones it
     /// already holds -- or when the group has nothing to show.
-    pub(crate) fn redraw(&mut self, palette: Palette) -> Option<Vec<String>> {
-        let rows = self.rows(palette);
-        if rows.is_empty() || rows == self.drawn {
+    ///
+    /// `trailer` is what was written under the group while it was open --
+    /// xfx's own lines, already laid out -- and is the block's last rows: the
+    /// group goes on growing above them, as upstream's does above whatever
+    /// follows its first call in the same turn (`tool_presentation.zig:667-708`,
+    /// one presentation group per turn, drawn at its anchor).
+    pub(crate) fn redraw(&mut self, palette: Palette, trailer: &[String]) -> Option<Vec<String>> {
+        let mut rows = self.rows(palette);
+        if rows.is_empty() {
+            return None;
+        }
+        rows.extend_from_slice(trailer);
+        if rows == self.drawn {
             return None;
         }
         self.drawn.clone_from(&rows);
@@ -402,7 +422,7 @@ impl State {
             State::Exited(code) if *code != 0 => Some("failed"),
             State::Denied => Some("denied"),
             State::Cancelled => Some("cancelled"),
-            State::Running | State::Done(_) | State::Exited(_) => None,
+            State::Running | State::Done(_) | State::Unchanged | State::Exited(_) => None,
         }
     }
 }
@@ -413,7 +433,9 @@ impl State {
 /// `lifecycleTerminalLine`).
 fn cancelled_line(call: &Call, palette: Palette) -> String {
     let reset = palette.reset();
-    let base = palette.statusline();
+    // Upstream's `tool_stdout_style`: 245 on either screen, where the rows
+    // above it are the statusline's 241 on a light one.
+    let base = palette.tool_output();
     let target = if call.shown.presentation.activity == Activity::Command {
         highlighted(&call.target(), base, palette)
     } else {
@@ -729,7 +751,7 @@ mod tests {
         );
         assert!(group.rows(DARK).is_empty());
         assert_eq!(
-            group.redraw(DARK),
+            group.redraw(DARK, &[]),
             None,
             "a block with nothing in it was drawn"
         );
@@ -758,11 +780,11 @@ mod tests {
     fn a_rebuild_that_changed_nothing_is_not_drawn_again() {
         let mut group = ToolGroup::default();
         group.start("1".into(), command("ls"));
-        assert!(group.redraw(DARK).is_some());
+        assert!(group.redraw(DARK, &[]).is_some());
         assert!(group.drawn());
-        assert_eq!(group.redraw(DARK), None);
+        assert_eq!(group.redraw(DARK, &[]), None);
         assert!(group.finish("1", true, "", Outcome::Exited(0), None));
-        assert!(group.redraw(DARK).is_some());
+        assert!(group.redraw(DARK, &[]).is_some());
     }
 
     #[test]
@@ -774,7 +796,7 @@ mod tests {
         );
         ok(&mut group, "1");
         group.start("2".into(), command("sleep 5"));
-        assert!(group.redraw(DARK).is_some());
+        assert!(group.redraw(DARK, &[]).is_some());
         let mut rest = group.unsettled();
         assert!(!rest.drawn(), "the closed block is the terminal's now");
         assert!(rest.finish("2", true, "", Outcome::Exited(0), None));
@@ -803,5 +825,160 @@ mod tests {
         let rows = plain(&group);
         assert_eq!(rows[1], "\u{251c} Running echo a echo b");
         assert_eq!(rows[2], "\u{2514} Listing .");
+    }
+
+    #[test]
+    fn a_change_that_changed_nothing_is_the_tools_own_sentence() {
+        // `tool_presentation.zig:1046-1047`: a no-op file change is shown as
+        // the tool's sentence, with no verb and no counts, and it is not a
+        // failure (`fx-toolgroup-noop-40x120-end`).
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
+            shown(
+                &EDIT_FILE,
+                json!({"path": "a.txt", "old_string": "a", "new_string": "a"}),
+            ),
+        );
+        assert!(group.finish(
+            "1",
+            true,
+            "a.txt is already what was asked for",
+            Outcome::Unchanged,
+            Some(LineChanges::default())
+        ));
+        assert_eq!(
+            plain(&group)[..2],
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 edit",
+                "\u{2514} No changes to a.txt; it already contains the requested content"
+            ]
+        );
+    }
+
+    #[test]
+    fn lines_written_under_an_open_group_are_its_last_rows_and_it_grows_above_them() {
+        // `fx-approvals-40x120-cmd2`: the call after `┃ use capitals` is
+        // counted in the same header and drawn above it.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), command("echo hi"));
+        assert!(group.finish("1", true, "", Outcome::Exited(0), None));
+        let trailer = ["[you] use capitals".to_string()];
+        assert!(group.redraw(DARK, &trailer).is_some());
+        group.start("2".into(), command("echo again"));
+        let rows: Vec<String> = group
+            .redraw(DARK, &trailer)
+            .expect("the block changed")
+            .iter()
+            .map(|row| strip(row))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                "\u{25cf} 2 tool calls \u{b7} 2 commands",
+                "\u{251c} Ran echo hi",
+                "\u{2514} Running echo again",
+                "",
+                "[you] use capitals",
+            ]
+        );
+        // Closing the group takes the trailer with the block.
+        assert!(group.unsettled().redraw(DARK, &[]).is_some());
+    }
+
+    /// Upstream's two grayscale palettes, as a theme report moves between them.
+    const LIGHT: Palette = Palette {
+        mode: Mode::Light,
+        depth: Depth::Ansi256,
+    };
+
+    /// The rows `group` is drawn as in `palette`.
+    fn drawn_in(group: &mut ToolGroup, palette: Palette) -> Vec<String> {
+        group.drawn.clear();
+        group.redraw(palette, &[]).expect("rows")
+    }
+
+    /// `rows` placed from row 1 down on a 120-column grid, and a turn's summary
+    /// (the dim grey, 245 on dark like the group's own) under them.
+    fn on_a_grid(rows: &[String], palette: Palette) -> (super::super::grid::Grid, u16) {
+        let geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
+        let mut grid = super::super::grid::Grid::blank(geometry.rows, geometry.cols);
+        let mut line = 1u16;
+        for row in rows {
+            grid.place_row(line, row, &geometry);
+            line += 1;
+        }
+        grid.place_row(
+            line,
+            &format!("{}  5s (\u{2191}8 \u{2193}240){RESET}", palette.dim()),
+            &geometry,
+        );
+        (grid, line)
+    }
+
+    fn same_cells(a: &super::super::grid::Grid, b: &super::super::grid::Grid, last: u16) {
+        for line in 1..=last {
+            for column in 1..=a.cols() {
+                assert!(
+                    a.cell(line, column) == b.cell(line, column),
+                    "row {line}, column {column}: {:?} against {:?}",
+                    a.cell(line, column),
+                    b.cell(line, column)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it() {
+        // The 245 of a group's rows is upstream's statusline grey and goes to
+        // 241 on a light screen; the summary under it is the dim grey, also
+        // 245 on dark, and goes to 247. A command's words go 252 -> 238, the
+        // mark 255 -> 235, and a cancelled call's own line keeps its argument
+        // in 245 on either screen (`tool_stdout_style`). Each cell is compared
+        // with what drawing the same group in the light palette leaves.
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
+            shown(&read::READ_FILE, json!({"path": "a.txt"})),
+        );
+        ok(&mut group, "1");
+        group.start("2".into(), command("echo boom; echo err >&2; exit 3"));
+        assert!(group.finish("2", true, "", Outcome::Exited(3), None));
+        group.start("3".into(), command("sleep 30"));
+        group.cancel_running();
+
+        let (mut repainted, last) = on_a_grid(&drawn_in(&mut group, DARK), DARK);
+        let moved = repainted.retint_document(last, &LIGHT);
+        assert!(moved > 0, "nothing was repainted");
+        let (fresh, _) = on_a_grid(&drawn_in(&mut group, LIGHT), LIGHT);
+        same_cells(&repainted, &fresh, last);
+
+        // And back: a light screen reported dark again is the dark drawing.
+        // (Without a quoted string or a number in the command: on light those
+        // share 241 with the statusline, and the statusline wins.)
+        let mut plain_group = ToolGroup::default();
+        plain_group.start("1".into(), command("sleep 30"));
+        plain_group.cancel_running();
+        let (mut back, last) = on_a_grid(&drawn_in(&mut plain_group, LIGHT), LIGHT);
+        assert!(back.retint_document(last, &DARK) > 0);
+        let (dark, _) = on_a_grid(&drawn_in(&mut plain_group, DARK), DARK);
+        same_cells(&back, &dark, last);
+    }
+
+    #[test]
+    fn a_cancelled_calls_argument_is_the_tool_grey_on_either_screen() {
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
+            shown(
+                &EDIT_FILE,
+                json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+            ),
+        );
+        group.cancel_running();
+        let tool = "\u{1b}[38;5;245mfile";
+        assert!(drawn_in(&mut group, DARK)[3].contains(tool));
+        assert!(drawn_in(&mut group, LIGHT)[3].contains(tool));
     }
 }

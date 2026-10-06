@@ -279,6 +279,9 @@ pub enum Outcome {
     /// its own.
     #[default]
     Finished,
+    /// A file change that would have left the file as it is, so nothing was
+    /// written (upstream's `resultIsNoop`, `file_mutation_contract.zig:492`).
+    Unchanged,
     /// A permission decision refused it, so it never ran.
     Denied,
     /// A command ran to its end with this status.

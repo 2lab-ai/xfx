@@ -43,7 +43,9 @@ use xfx::permission::{
     YOLO_WARNING,
 };
 use xfx::provider::Wire;
-use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
+use xfx::tools::{
+    LineChanges, Outcome, Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS,
+};
 use xfx::workspace::AccessScope;
 
 use support::fake_gateway::{finish, sse_body, text_delta, tool_call, FakeGateway, Reply};
@@ -1652,6 +1654,46 @@ fn an_edit_that_changes_nothing_says_so_and_does_not_touch_the_file() {
             .expect("mtime"),
         before,
         "a no-op must not rewrite the file"
+    );
+}
+
+#[test]
+fn a_change_that_changes_nothing_tells_the_screen_so_and_tells_the_model_what_it_did() {
+    // The row a person watching sees is upstream's `No changes to …`
+    // (`tool_presentation.zig:1046-1047`), so the result says it was a no-op
+    // apart from its text -- and the text the model reads is unchanged.
+    let tree = Tree::new();
+    tree.write("notes.md", "alpha\n");
+    let context = context(&tree, PermissionMode::Auto);
+    read_whole(&context, "notes.md");
+    for (tool, input) in [
+        (
+            "edit_file",
+            json!({ "path": "notes.md", "old_string": "alpha", "new_string": "alpha" }),
+        ),
+        (
+            "write_file",
+            json!({ "path": "notes.md", "content": "alpha\n" }),
+        ),
+    ] {
+        let result = call(&context, tool, input);
+        assert!(result.ok, "{tool}: {}", result.output);
+        assert_eq!(result.outcome, Outcome::Unchanged, "{tool}");
+        assert!(result.output.starts_with("No changes to "), "{tool}");
+    }
+    // A change that did change something is not one.
+    let changed = call(
+        &context,
+        "edit_file",
+        json!({ "path": "notes.md", "old_string": "alpha", "new_string": "beta" }),
+    );
+    assert_eq!(changed.outcome, Outcome::Finished);
+    assert_eq!(
+        changed.changes,
+        Some(LineChanges {
+            added: 1,
+            removed: 1
+        })
     );
 }
 

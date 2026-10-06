@@ -600,7 +600,8 @@ fn commit(
         return ToolResult::success(
             format!("No changes to {}", plan.display()),
             format!("{} is already what was asked for", plan.display()),
-        );
+        )
+        .ending(Outcome::Unchanged);
     }
 
     // The guard is released by the end of this statement: minting takes the same

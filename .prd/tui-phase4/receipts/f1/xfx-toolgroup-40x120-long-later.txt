@@ -1,5 +1,3 @@
-├ Read b.txt
-├ Matched **/*.rs
 ├ Searched alpha
 ├ Ran sleep 3; echo hello from shell; ls
 ├ Edited a.txt +1 / -1
@@ -18,23 +16,25 @@
 
 ■ Cancelled file · What can xfx do differently?
 
-xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
-the turn was cancelled
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+
+✗ system: the turn was cancelled
+
 ┃ run the long one
 
-● 1 tool call · 1 command
-└ Running sleep 4
 
 
 
-
-xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
 ● 1 tool call · 1 command
 └ Ran sleep 4
 
-the turn was cancelled
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+
+✗ system: the turn was cancelled
+
 ┃
 
 ask · model-a
+
 
 

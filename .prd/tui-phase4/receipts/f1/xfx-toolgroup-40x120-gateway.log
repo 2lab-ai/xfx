@@ -1,4 +1,4 @@
-[fakegw] listening 64337
+[fakegw] listening 49715
 [fakegw] completion /v3/ai/language-model -> tool read_file,read_file
 [fakegw] completion /v3/ai/language-model -> tool glob_files,grep_files
 [fakegw] completion /v3/ai/language-model -> tool terminal
