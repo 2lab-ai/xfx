@@ -1589,6 +1589,127 @@ impl Band {
         Ok(grown)
     }
 
+    /// Hands every document row still on the screen to the terminal's own
+    /// scrollback and leaves the screen blank, in one write and one flush: the
+    /// screen half of `/clear`, `/new` and `/reset`.
+    ///
+    /// Upstream's `commitVisibleTranscriptBeforeFreshSession`
+    /// (`transcript/runtime.zig:4844-4931`): the screen under the document is
+    /// blanked, the document is scrolled off the top by exactly the rows it
+    /// occupies, and the fresh session is painted on the screen that is left
+    /// (`app_session_runtime.zig:1978`). **Nothing is erased that the user
+    /// could scroll back to**, which is the whole difference from the
+    /// `2J`/`3J` this replaced: what leaves the top of the screen is the user's
+    /// to keep, the way every append's rows are.
+    ///
+    /// `reach` is how far down the screen the document reaches as the shell
+    /// counts it ([`super::shell::Shell::document_rows`]). It is clamped to the
+    /// rows above where this band last painted its top, and to the screen: a
+    /// band anchored at the bottom under a document taller than the screen has
+    /// its own rows under the document, and scrolling those would put the
+    /// erased band into history as blank rows.
+    ///
+    /// The erase runs from the row under the document to the bottom of the
+    /// screen -- the band's rows, the activity row with them, and whatever is
+    /// below a band that floated -- **before** anything scrolls, so no band row
+    /// is carried into scrollback; `ED` from the first column, the sequence the
+    /// exit's cleanup erases the band with. Then the instrument every scroll
+    /// here uses ([`scroll_one`]): `CUP` to the bottom row, then one linefeed
+    /// per row.
+    ///
+    /// **Nothing is recorded until the write lands**, as everywhere else here.
+    /// Once it has, the band knows exactly what is on the screen -- nothing --
+    /// so the shadow is blank, the band has painted nowhere, the document has
+    /// no row on the screen, and the next frame owes a `CUP`.
+    pub(crate) fn hand_off(
+        &mut self,
+        out: &mut impl Sink,
+        reach: u32,
+        geometry: &Geometry,
+    ) -> Result<(), Emit> {
+        let rows = geometry.rows;
+        // The rows above the band's top as the screen last showed it: a band
+        // that has painted nothing claims none of the screen.
+        let above_band = self.painted.map_or(rows, |top| {
+            top.min(rows.saturating_add(1)).saturating_sub(1)
+        });
+        let carried = u16::try_from(reach)
+            .unwrap_or(u16::MAX)
+            .min(above_band)
+            .min(rows);
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        let mut script = check::Script::new(geometry);
+        let mut footprint = Vec::with_capacity(2);
+        self.buffer.clear();
+        let first_blank = carried.saturating_add(1);
+        let mut caret = (rows, 1);
+        if first_blank <= rows {
+            cup(&mut self.buffer, first_blank, 1);
+            self.buffer.extend_from_slice(ERASE_BELOW.as_bytes());
+            for line in first_blank..=rows {
+                script.erase(line);
+            }
+            footprint.push(check::Seg::Erase(first_blank..=rows));
+            caret = (first_blank, 1);
+        }
+        if carried > 0 {
+            // One `CUP` and then the linefeeds, as the launch's push writes them
+            // (`super::probe::push`) and upstream scrolls (`writeTerminalScroll`,
+            // `terminal_diff.zig`): every linefeed after the first is already on
+            // the bottom margin.
+            cup(&mut self.buffer, rows, 1);
+            self.buffer
+                .extend(std::iter::repeat_n(b'\n', usize::from(carried)));
+            for _ in 0..carried {
+                script.scroll();
+            }
+            footprint.push(check::Seg::Scroll {
+                rows: u32::from(carried),
+            });
+            caret = (rows, 1);
+        }
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        // The rows that leave the top are compared as they go, which is the
+        // only moment they can be; the rows under them are declared erased,
+        // and at the end every cell is held to the seed displaced by exactly
+        // the declared scroll. A `3J` anywhere in this vector is refused by the
+        // metadata check: no declaration in this crate admits one.
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Document {
+                    script: &script,
+                    caret: Some(caret),
+                    // Linefeeds and an erase: nothing about the cursor, as the
+                    // carry and the append declare.
+                    cursor_visible: None,
+                    title: self.shown_title.as_deref(),
+                },
+                check::Footprint::new(check::PlaneKind::Primary, footprint),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        self.shadow.resize(rows, geometry.cols);
+        self.target.resize(rows, geometry.cols);
+        self.painted = None;
+        self.painted_on = None;
+        self.document_bottom = None;
+        // Every row is in scrollback or erased, whatever the band believed
+        // about it before, so a band that was damaged knows its screen again.
+        self.damaged = false;
+        // The vector left the caret where its last step put it, which is not
+        // where any frame left it: the next frame owes a `CUP`.
+        self.caret = None;
+        Ok(())
+    }
+
     /// Erases the rows a band that shrank no longer owns.
     ///
     /// Nothing when the band grew or stayed where it was: growing paints over
@@ -5516,6 +5637,114 @@ mod tests {
             "the refusal did not name the scroll: {refused}"
         );
         assert_eq!(screen.writes, writes, "the extra scroll reached the screen");
+    }
+
+    /// A band painted at the bottom of a full screen with one document row
+    /// under its own writing, as a session that has filled the screen holds.
+    fn a_full_screen(screen: &mut Counted) -> Band {
+        let mut band = Band::new();
+        band.commit(screen, &band_rows(), &geometry(), (23, 2))
+            .expect("a first frame");
+        band.append_document(screen, 1, &["answered".to_string()], &geometry())
+            .expect("a document row");
+        band
+    }
+
+    #[test]
+    fn a_handoff_erases_the_band_and_carries_only_the_rows_above_it() {
+        // A document taller than the screen: the shell's count is past the
+        // screen, and the rows to carry are the ones above the band. Scrolling
+        // the whole screen would put the erased band into history as three
+        // blank rows.
+        let mut screen = Counted::default();
+        let mut band = a_full_screen(&mut screen);
+        assert_eq!(band.painted_top(), Some(22));
+        screen.written.clear();
+
+        band.hand_off(&mut screen, u32::MAX, &geometry())
+            .expect("the handoff");
+        assert_eq!(
+            String::from_utf8(screen.written).expect("utf-8"),
+            format!("\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(21))
+        );
+        // The screen is blank and the band knows it: painted nowhere, no
+        // document row to carry or recolour, and a `CUP` owed.
+        assert_eq!(band.painted_top(), None);
+        assert!(band.owes_primary_frame());
+        assert!(matches!(
+            band.retint_document(
+                &mut Counted::default(),
+                &super::super::theme::Palette {
+                    mode: super::super::theme::Mode::Light,
+                    depth: super::super::theme::Depth::Ansi256,
+                },
+                &geometry()
+            ),
+            Ok(Retint::Settled(Commit::NoChange))
+        ));
+        assert!(matches!(
+            band.carry_document(&mut Counted::default(), &geometry()),
+            Ok(0)
+        ));
+    }
+
+    #[test]
+    fn a_handoff_under_a_short_document_carries_the_document_and_no_more() {
+        // A band floating under five rows: those five go to scrollback, and
+        // the blank rows under the band are erased with it rather than carried.
+        let floated = geometry().floated(5);
+        assert_eq!(floated.band_top(), 6);
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &floated, (7, 2))
+            .expect("a floating band");
+        screen.written.clear();
+
+        band.hand_off(&mut screen, 5, &floated)
+            .expect("the handoff");
+        assert_eq!(
+            String::from_utf8(screen.written).expect("utf-8"),
+            format!("\u{1b}[6;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(5))
+        );
+    }
+
+    #[test]
+    fn a_handoff_that_erased_the_scrollback_or_scrolled_too_far_is_refused_before_the_write() {
+        // The two harms a handoff could do that no later frame repairs: the
+        // history it exists to keep, erased, and a row more than the document
+        // carried off the top. Refused before a byte goes out, with nothing
+        // recorded, so the handoff is still owed.
+        type Tamper = fn(&mut Vec<u8>);
+        let tampered: [(Tamper, &str); 3] = [
+            (|bytes| bytes.extend_from_slice(b"\x1b[3J"), "scrollback"),
+            (|bytes| bytes.extend_from_slice(b"\x1b[24;1H\n"), "scroll"),
+            (
+                |bytes| bytes.extend_from_slice(b"\x1b[?2026h"),
+                "synchronized",
+            ),
+        ];
+        for (tamper, named) in tampered {
+            let mut screen = Counted::default();
+            let mut band = a_full_screen(&mut screen);
+            let writes = screen.writes;
+            band.tamper_with(tamper);
+            let refused = band
+                .hand_off(&mut screen, u32::MAX, &geometry())
+                .expect_err("a tampered handoff");
+            assert!(
+                refused.to_string().contains(named),
+                "the refusal did not name the {named}: {refused}"
+            );
+            assert_eq!(
+                screen.writes, writes,
+                "the tampered handoff reached the screen"
+            );
+            assert_eq!(
+                band.painted_top(),
+                Some(22),
+                "a refused handoff was recorded as landed"
+            );
+        }
     }
 
     #[test]

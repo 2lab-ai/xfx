@@ -3390,9 +3390,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s closing line, `/version`'s topic, the model report,
-    // `/setup`'s usage refusal, `/new`'s sentence, `/clear`'s promise, and a
-    // name the registry does not carry. Each needle sits inside one run of
-    // colour: a notice's label and body are separate runs on the wire.
+    // `/setup`'s usage refusal, the reset's scrollback handoff for `/new`,
+    // `/clear` and `/reset` (which say nothing), and a name the registry does
+    // not carry. Each needle sits inside one run of colour: a notice's label
+    // and body are separate runs on the wire.
     session.type_bytes(b"/help\r");
     // The **closing** line of the help page rather than a summary out of the
     // middle of it: the completion menu shows the same summaries while the name
@@ -3407,12 +3408,16 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // name is answered by the session, and still costs the provider nothing.
     session.type_bytes(b"/setup\r");
     session.wait_for("/setup takes a provider to set up");
+    // A reset answers with a fresh screen: the welcome line again, once per
+    // reset, after the one the launch wrote.
     session.type_bytes(b"/new\r");
-    session.wait_for("starts a fresh conversation");
+    session.wait_for_count("Run /help for commands", 2);
     session.type_bytes(b"/notacommand\r");
     session.wait_for("Unknown command. Try /help.");
     session.type_bytes(b"/clear\r");
-    session.wait_for("the conversation is kept");
+    session.wait_for_count("Run /help for commands", 3);
+    session.type_bytes(b"/reset\r");
+    session.wait_for_count("Run /help for commands", 4);
 
     // The last one, and the reason it leaves this test rather than a Ctrl-D:
     // every canonical name is then literally pinned against the zero-request
@@ -3544,58 +3549,112 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     );
 }
 
-/// The three sequences `/clear` writes, in order (`interactive.rs:85`).
-///
-/// Spelled out rather than imported, like [`MODE_SET`]: `src/tui/shell.rs` is
-/// not visible to an integration test, and a test that read the constant it is
-/// checking would pass for any sequence the module happened to declare.
-/// Response-only -- no test types an escape sequence -- so waiting for it means
-/// the bytes are really on the wire.
-const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
+#[test]
+fn a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation() {
+    // Upstream's `/clear`, `/new` and `/reset` (`app_commands.zig:667-680`):
+    // the answer is still in the terminal's own scrollback afterwards -- it
+    // left the top of the screen as a linefeed from the bottom row, never
+    // under an erase -- the screen starts again with the welcome line on row
+    // 1, nothing says so, and the next prompt is sent in a conversation that
+    // does not carry the first one.
+    for command in [b"/clear\r".as_slice(), b"/new\r", b"/reset\r"] {
+        let gateway = FakeGateway::start(vec![
+            support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+                "MARKER-BEFORE-THE-RESET",
+            ])),
+            support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+                "MARKER-AFTER-THE-RESET",
+            ])),
+        ]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+        session.wait_for(READY);
+        session.type_bytes(b"say the marker\r");
+        session.wait_for("MARKER-BEFORE-THE-RESET");
+        let name = String::from_utf8_lossy(command).trim().to_string();
+
+        session.type_bytes(command);
+        let text = session.wait_for_count("Run /help for commands", 2);
+        assert!(
+            !text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"),
+            "{name} erased the screen or the scrollback: {text:?}"
+        );
+        let reset_at = text
+            .rfind("Run /help for commands")
+            .expect("the fresh welcome");
+        let painted = Screen::painted(&text, 24, 80).expect("a frame after the reset");
+        assert_eq!(
+            painted.find("Run /help for commands"),
+            Some(1),
+            "{name} did not put the welcome line on row 1"
+        );
+        assert_eq!(
+            painted.find("MARKER-BEFORE-THE-RESET"),
+            None,
+            "{name} left the old answer on the screen"
+        );
+        assert!(
+            !text[reset_at..].contains("MARKER-BEFORE-THE-RESET"),
+            "{name} wrote the old answer again after the reset"
+        );
+
+        session.type_bytes(b"and now\r");
+        session.wait_for("MARKER-AFTER-THE-RESET");
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+
+        assert_eq!(
+            user_messages(&gateway.requests()[1].json()),
+            vec!["and now".to_string()],
+            "{name} kept the conversation"
+        );
+    }
+}
 
 #[test]
-fn clear_erases_the_scrollback_the_answers_live_in_and_not_only_the_screen() {
-    // `3J` is the one that carries the weight here. An answer that has scrolled
-    // past the band is in the *terminal's own* scrollback and xfx never
-    // repaints it, so a `/clear` that erased the visible screen alone would
-    // leave the whole transcript one wheel-turn away -- and would mean
-    // something different on this surface than the same command means on the
-    // line-oriented one.
-    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_gateway::content_only(&["MARKER-BEFORE-THE-CLEAR"]),
-    )]);
+fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
+    // The first turn never finishes by itself: its body arrives and the
+    // connection stays open. A reset that queued behind it would wait for
+    // ever; this one cancels it and the next prompt runs at once.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING\n\n"),
+        ])]),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-AFTER-THE-RESET",
+        ])),
+    ]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
     let mut session =
         Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     session.wait_for(READY);
-    session.type_bytes(b"say the marker\r");
-    session.wait_for("MARKER-BEFORE-THE-CLEAR");
+    session.type_bytes(b"first\r");
+    session.wait_for("FIRST-TURN-RUNNING");
 
     session.type_bytes(b"/clear\r");
-    session.wait_for(CLEAR_SCREEN);
-    session.wait_for("the conversation is kept");
+    let text = session.wait_for_count("Run /help for commands", 2);
+    let reset_at = text
+        .rfind("Run /help for commands")
+        .expect("the fresh welcome");
+    session.type_bytes(b"second\r");
+    let text = session.wait_for("MARKER-AFTER-THE-RESET");
+    // No cancelled notice and no summary of the cancelled turn reached the
+    // fresh screen: upstream's reset says nothing.
+    let after = &text[reset_at..];
+    assert!(!after.contains("interrupted"), "{after:?}");
+    assert!(!after.contains("FIRST-TURN-RUNNING"), "{after:?}");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
-
-    let text = session.settled_text();
-    let erased = text
-        .find(CLEAR_SCREEN)
-        .expect("the erase reached the screen");
-    let kept = text
-        .rfind("the conversation is kept")
-        .expect("the promise reached the screen");
-    assert!(
-        erased < kept,
-        "the row that says the conversation was kept was erased by the clear \
-         it was written for: {text:?}"
-    );
     assert_eq!(
-        text.matches(CLEAR_SCREEN).count(),
-        1,
-        "the screen was erased more than once for one /clear: {text:?}"
+        user_messages(&gateway.requests()[1].json()),
+        vec!["second".to_string()],
+        "the prompt after the reset carried the cancelled conversation"
     );
 }
 

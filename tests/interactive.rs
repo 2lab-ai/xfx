@@ -466,35 +466,51 @@ fn slash_model_accepts_a_direct_selection_before_browsing_with_a_warning() {
 }
 
 #[test]
-fn slash_clear_erases_the_screen_and_keeps_the_conversation() {
-    let gateway = FakeGateway::start(vec![
-        Reply::Sse(content_only(&["before"])),
-        Reply::Sse(content_only(&["after"])),
-    ]);
-    let sandbox = Sandbox::new();
-    let pty = Pty::open();
-    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+fn slash_clear_and_slash_reset_are_slash_new_and_erase_nothing() {
+    // Upstream's three names for one operation (`app_commands.zig:667-680`):
+    // each drops the conversation, and the next prompt opens a new identity
+    // that remembers nothing. None of them erases what the shell printed --
+    // upstream hands the visible transcript to the terminal's scrollback
+    // rather than taking it away, and on a line shell that is simply leaving
+    // it where it is.
+    for command in ["/clear", "/reset"] {
+        let gateway = FakeGateway::start(vec![
+            Reply::Sse(content_only(&["before"])),
+            Reply::Sse(content_only(&["after"])),
+        ]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("remember this");
-    session.wait_for("before");
-    let ids_before = sandbox.session_ids();
+        session.type_line("remember this");
+        session.wait_for("before");
+        let ids_before = sandbox.session_ids();
+        assert_eq!(ids_before.len(), 1);
 
-    session.type_line("/clear");
-    let text = session.wait_for("\u{1b}[2J");
-    assert!(text.contains("\u{1b}[3J"), "the scrollback was not erased");
+        session.type_line(command);
+        let text = session.wait_for_count(PROMPT, 3);
+        assert!(
+            !text.contains("\u{1b}[2J") && !text.contains("\u{1b}[3J"),
+            "{command} erased the screen or the scrollback: {text:?}"
+        );
+        assert!(
+            text.contains("the next prompt starts a fresh conversation"),
+            "{command} did not say what it did: {text:?}"
+        );
 
-    session.type_line("and now");
-    session.wait_for("after");
+        session.type_line("and now");
+        session.wait_for("after");
 
-    // Same session, and the cleared turn is still in the conversation.
-    assert_eq!(sandbox.session_ids(), ids_before, "/clear changed identity");
-    assert_eq!(
-        user_messages(&request_body(&gateway, 1)),
-        vec!["remember this".to_string(), "and now".to_string()],
-        "/clear forgot the conversation"
-    );
+        let ids_after = sandbox.session_ids();
+        assert_eq!(ids_after.len(), 2, "{command} kept the old identity");
+        assert_eq!(
+            user_messages(&request_body(&gateway, 1)),
+            vec!["and now".to_string()],
+            "{command} kept the conversation"
+        );
 
-    assert_eq!(session.quit().code(), Some(0));
+        assert_eq!(session.quit().code(), Some(0));
+    }
 }
 
 #[test]

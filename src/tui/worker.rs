@@ -877,6 +877,9 @@ async fn turn_loop(
                 // there may be work waiting that nobody has started, and after
                 // an interrupt nothing may start.
                 Some(TurnControl::Cancel { through }) => Taken::Abandon(through),
+                // The same, and the conversation goes too -- at once, because
+                // nothing is running to wait for.
+                Some(TurnControl::Reset { through }) => Taken::Reset(through),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -897,6 +900,11 @@ async fn turn_loop(
                 queue.abandon(through);
                 continue;
             }
+            Taken::Reset(through) => {
+                queue.abandon(through);
+                drop_conversation(&mut state, events, through).await;
+                continue;
+            }
             Taken::Nothing => continue,
             // The UI dropped its side of the work channel without saying
             // anything, which is the same fact as a shutdown and is treated as
@@ -907,16 +915,6 @@ async fn turn_loop(
         let ended = match item {
             TurnWork::Model(name) => {
                 run_model(&mut state, &name, events).await;
-                Ended::Turn
-            }
-            // `/new`, with the line shell's own meaning: the recorder is
-            // dropped, which closes its log and releases the session's writer
-            // lock, so the next prompt opens a genuinely new identity
-            // (`interactive.rs:457-464`). The tool context goes with it,
-            // because a session grant and the read proofs that let a file be
-            // edited are sold as being about *this* conversation.
-            TurnWork::New => {
-                state.conversation = None;
                 Ended::Turn
             }
             TurnWork::Submit(prompt) => {
@@ -941,10 +939,36 @@ async fn turn_loop(
         // about a queue on a dead runtime would be a lie the `Gone` arm exists
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
-        if ended == Ended::Session {
-            return;
+        match ended {
+            Ended::Session => return,
+            // A reset reached this work while it ran: the work has said its
+            // last word, and the conversation goes before anything else is
+            // taken.
+            Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+            Ended::Turn => {}
         }
     }
+}
+
+/// `/new`, `/clear` and `/reset`, with the line shell's own meaning: the
+/// recorder is dropped, which closes its log and releases the session's writer
+/// lock, so the next prompt opens a genuinely new identity
+/// (`interactive.rs:457-464`). The tool context goes with it, because a session
+/// grant and the read proofs that let a file be edited are sold as being about
+/// *this* conversation. Upstream opens its fresh session at once
+/// (`beginFreshPersistedSession`, `app_session_runtime.zig:1619-1648`) and
+/// deletes it again on exit if nothing was said in it; xfx opens it with the
+/// first prompt, which leaves the same sessions on disk.
+///
+/// And the UI is told, after the drop and not before: everything the work
+/// ahead of it sent is already on the channel, so this is the line between the
+/// conversation the reset handed to scrollback and the one it started
+/// ([`UiEvent::Fresh`]). Through `send_terminal` because nothing but the UI
+/// going away may stop it: a fence that a cancellation could drop would leave
+/// the UI discarding the next conversation's events too.
+async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
+    state.conversation = None;
+    bridge::send_terminal(events, UiEvent::Fresh { through }).await;
 }
 
 /// What one turn of [`turn_loop`]'s wait produced.
@@ -959,6 +983,9 @@ enum Taken {
     /// The user interrupted, having submitted this many things by then.
     /// Anything waiting from among them is dropped.
     Abandon(usize),
+    /// The user reset the session: [`Self::Abandon`], and the conversation
+    /// dropped with it.
+    Reset(usize),
     /// A message that means nothing here.
     Nothing,
 }
@@ -1028,6 +1055,10 @@ impl Queue<'_> {
 enum Ended {
     /// The turn. The session goes on to the next piece of work.
     Turn,
+    /// The turn, and the conversation with it: a reset reached it while it
+    /// ran ([`TurnControl::Reset`]), quoting this count -- the latest one, if
+    /// more than one did. The session goes on, in a fresh one.
+    Reset(usize),
     /// The session. Nothing more will run on this thread.
     Session,
 }
@@ -1355,6 +1386,15 @@ async fn raced_against_control<F: Future>(
                 // whatever they had queued behind it when they pressed the key;
                 // the session does not.
                 Some(TurnControl::Cancel { through }) => stop(through),
+                // A reset: the same stop, and the conversation goes once the
+                // work has said its last word -- unless the session is ending
+                // anyway, which outranks it.
+                Some(TurnControl::Reset { through }) => {
+                    stop(through);
+                    if ended != Ended::Session {
+                        ended = Ended::Reset(through);
+                    }
+                }
                 // The UI is leaving. `Worker::shutdown` has already cancelled
                 // the session's root, so the stop below is not what ends this
                 // turn -- what this arm carries is that the loop must not go
@@ -2501,6 +2541,100 @@ mod tests {
             efforts: Vec::new(),
             max_context: None,
         }
+    }
+
+    #[test]
+    fn a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone() {
+        // The fence a reset drains to (`UiEvent::Fresh`): sent once the drop
+        // has happened, quoting the reset's count. What was submitted through
+        // that count and not yet started is dropped with its place given back;
+        // what was submitted after it is a new intention and stays.
+        let (handle, mut work_rx, _unused) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Model("dropped".into()))
+            .expect("idle");
+        let through = handle.accepted();
+        handle
+            .submit(TurnWork::Model("kept".into()))
+            .expect("one may wait");
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 0,
+        };
+        assert_eq!(queue.abandon(through), 1);
+        assert_eq!(handle.outstanding(), 1);
+        assert_eq!(
+            queue.work.try_recv(),
+            Ok(TurnWork::Model("kept".into())),
+            "a submission past the reset's count was dropped with it"
+        );
+
+        let (_home, _workspace, state) = recording();
+        assert!(state.conversation.is_some(), "nothing to drop");
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        control_tx
+            .send(TurnControl::Reset { through: 0 })
+            .expect("alive");
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+        let outstanding = AtomicUsize::new(0);
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(work_tx);
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+        assert!(
+            events_rx.try_recv().is_err(),
+            "the reset sent more than its fence"
+        );
+    }
+
+    #[test]
+    fn a_reset_reaches_work_that_is_still_running_and_names_the_last_count() {
+        // The reset's stop is a Ctrl-C's -- the turn and what waits behind it
+        // -- and what ended carries the count of the latest reset that reached
+        // it, so one fence answers both when two arrive in one turn. A
+        // shutdown outranks it.
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        control_tx
+            .send(TurnControl::Reset { through: 1 })
+            .expect("alive");
+        control_tx
+            .send(TurnControl::Reset { through: 3 })
+            .expect("alive");
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |through| stops.push(through),
+        ));
+        assert_eq!(stops, vec![1, 3]);
+        assert_eq!(ended, Ended::Reset(3));
+
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        control_tx
+            .send(TurnControl::Reset { through: 1 })
+            .expect("alive");
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |_| {},
+        ));
+        assert_eq!(ended, Ended::Session);
     }
 
     #[test]

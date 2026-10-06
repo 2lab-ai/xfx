@@ -287,22 +287,6 @@ const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are 
 /// describing a keystroke they did not make.
 const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are words now";
 
-/// What `/clear` leaves behind after it has erased the screen.
-///
-/// The line-oriented shell prints its banner and a `kept` line here
-/// (`interactive.rs:451-456`); the TUI has no banner, and the identity that
-/// banner carries belongs on the hint row. What is left is the promise the
-/// command's own summary makes -- that clearing the screen is not clearing the
-/// conversation -- said where a user who just watched their transcript vanish
-/// is looking.
-///
-/// A neutral notice under the topic `screen`.
-const CLEARED_NOTICE: &str = "cleared the screen; the conversation is kept";
-
-/// What `/new` says, in the words the line-oriented shell says them in
-/// (`interactive.rs:461-463`), as a neutral notice under the topic `session`.
-const NEW_SESSION_NOTICE: &str = "new session; the next prompt starts a fresh conversation";
-
 /// What a line that names no command -- or names one with something after it
 /// that the command does not take -- is answered with: upstream's own
 /// sentence, an error under the topic `command` (`app_commands.zig:2162-2169`).
@@ -326,16 +310,6 @@ pub(crate) const AMENDMENT_PREFIX: &str = "[you]";
 /// transcript row is not where the whole of one belongs. The model gets the
 /// text whole either way -- this is a display of it, not the record.
 const AMENDMENT_BYTES: usize = 240;
-
-/// Erases the screen, its scrollback, and puts the cursor home.
-///
-/// The same three sequences `/clear` writes on the line-oriented path
-/// (`interactive.rs:85`), and the only bytes this session writes that are not a
-/// frame or a document append. `3J` is the one that matters here: xfx's answers
-/// live in the terminal's *own* scrollback (`super::frame`), so a `/clear` that
-/// erased only the visible screen would leave the transcript one wheel-turn
-/// away and mean something different on this surface than it does on the other.
-pub(crate) const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 
 /// What a screen that changed size did to the band.
 ///
@@ -660,11 +634,25 @@ pub(crate) struct Shell {
     /// re-solved from exactly this field, so the row's presence and its text
     /// cannot disagree.
     activity_row: Option<String>,
-    /// Whether the screen owes a `/clear`.
+    /// Whether the screen owes a reset's scrollback handoff
+    /// (`super::frame::Band::hand_off`).
     ///
-    /// Taken by the loop, which owns the writer. A `bool` rather than a queued
-    /// write because two clears in one turn are one clear.
-    clearing: bool,
+    /// Asked by the loop, which owns the writer, and settled only by a handoff
+    /// that landed ([`Self::handed_off`]). A `bool` rather than a queued write
+    /// because two resets before one tick are one handoff: the second has no
+    /// document of its own to hand off.
+    handoff: bool,
+    /// Whether the work a reset cancelled is still reporting: the count the
+    /// last reset quoted, until the runtime's fence for it arrives.
+    ///
+    /// From the reset until the runtime says the conversation is gone
+    /// ([`UiEvent::Fresh`] with that count or a later one). Everything that arrives in between belongs to the
+    /// conversation the reset handed to scrollback -- the tail of an answer, a
+    /// tool row, a turn's conclusion -- and painted on the fresh screen it
+    /// would be a stray from a session the user just left. So it is dropped,
+    /// except for the state the runtime really changed and the questions a
+    /// parked turn is waiting on ([`Self::drained`]).
+    draining: Option<usize>,
     /// The answer as upstream presents it: the model's markdown rendered as it
     /// streams (`assistant_stream.zig:435-457`), its prose in the two-column
     /// gutter and its code, tables and rules as blocks of their own.
@@ -704,7 +692,8 @@ pub(crate) struct Shell {
     /// Every row an append added, less every row a growing band carried off
     /// the top: so while the screen is not full it is the document's last row,
     /// and once the screen has filled it is at least the rows above the band
-    /// and the band stays at the bottom. A `/clear` starts it again at none. A
+    /// and the band stays at the bottom. A reset's handoff starts it again at
+    /// none ([`Self::handed_off`]). A
     /// resize sets it past any screen, because where a terminal reflows the
     /// rows already on it is the terminal's own business and a band floated
     /// under a guess would be painted over them.
@@ -973,7 +962,8 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             activity_row: None,
-            clearing: false,
+            handoff: false,
+            draining: None,
             markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
                 markdown::theme::builtin(palette.mode == Mode::Light),
             )),
@@ -1404,6 +1394,11 @@ impl Shell {
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
+        // The old conversation's events, after a reset handed its screen to
+        // scrollback and before the runtime has said it is gone.
+        if self.draining.is_some() && self.drained(&event) {
+            return;
+        }
         match event {
             // A turn is running, which is what the row above the divider is
             // about. The clock is not read here: the *label* is this event's
@@ -1635,6 +1630,15 @@ impl Shell {
                 self.activity.end();
                 self.pacer.finish();
                 self.gestures.turn_ended();
+            }
+            // The conversation a reset asked to drop is gone, and nothing the
+            // runtime sends from here on is about it -- once this is the fence
+            // of the last reset sent. An earlier reset's fence ends nothing:
+            // what follows it can be a prompt the later reset dropped.
+            UiEvent::Fresh { through } => {
+                if self.draining.is_some_and(|last| through >= last) {
+                    self.draining = None;
+                }
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -2923,7 +2927,9 @@ impl Shell {
     /// what is on them. Something that damaged the screen and has not reached
     /// the band yet ([`Self::damage_untold`]) means the shadow those rows
     /// would be repainted from describes a screen that is gone, and repainting
-    /// from it is how erased history comes back.
+    /// from it is how erased history comes back. A reset whose handoff is
+    /// still owed ([`Self::handoff`]) is the same: the rows are on their way
+    /// into scrollback, which is never recoloured.
     fn retint(&mut self, mode: Mode) {
         if self.theme_locked || self.palette.mode == mode {
             return;
@@ -2934,7 +2940,7 @@ impl Shell {
         let theme = markdown::theme::builtin(mode == Mode::Light);
         self.markdown.apply_theme(&theme);
         self.markdown.activate_theme(theme);
-        if !self.damage_untold {
+        if !self.damage_untold && !self.handoff {
             self.retint_debt = true;
         }
         self.render.request(Reason::Footer);
@@ -3014,30 +3020,39 @@ impl Shell {
     /// Hands one back after [`Self::take_theme_query`] took it and the write
     /// never reached the terminal.
     ///
-    /// The pair [`Self::take_clearing`] and [`Self::restore_clearing`] make,
-    /// for the same reason: a refused write moved no byte, so what it was
-    /// offering is still owed, and nothing else ever sets this flag for a
-    /// resume that has already been adopted.
+    /// A refused write moved no byte, so what it was offering is still owed,
+    /// and nothing else ever sets this flag for a resume that has already been
+    /// adopted.
     pub(crate) fn restore_theme_query(&mut self) {
         self.theme_query = true;
     }
 
-    /// Whether the screen owes a `/clear`, taken so it is written once.
-    pub(crate) fn take_clearing(&mut self) -> bool {
-        std::mem::take(&mut self.clearing)
+    /// Whether the screen owes a reset's scrollback handoff.
+    ///
+    /// Asked rather than taken: the handoff is owed until one lands
+    /// ([`Self::handed_off`]), so a write the terminal refused leaves it owed
+    /// without a second call that would have to remember to put it back.
+    pub(crate) fn owes_handoff(&self) -> bool {
+        self.handoff
     }
 
-    /// Hands a `/clear` back after [`Self::take_clearing`] took it and the
-    /// write never reached the terminal.
+    /// Records that the handoff landed: the screen is blank, the document has
+    /// no row on it, and the band floats back to the top under the welcome
+    /// line the reset queued.
     ///
-    /// Sets the flag and nothing else -- it must not call
-    /// [`Self::clear_screen`] again: that would drop the pending appends and
-    /// pacer text a **second** time, discarding whatever arrived between the
-    /// take and this call, and repeat a notice the screen never saw the first
-    /// half of. The bytes are the only thing that failed to land; the state
-    /// `clear_screen` already changed did not un-happen.
-    pub(crate) fn restore_clearing(&mut self) {
-        self.clearing = true;
+    /// **Here and not at the reset**, because until this moment the rows the
+    /// old document holds are still on the screen. A band painted under a
+    /// document of no rows before the handoff -- the frame that gives the
+    /// plane back after a question, which paints from this geometry -- would
+    /// be painted over them, and the handoff would then erase what it was
+    /// supposed to carry into scrollback.
+    pub(crate) fn handed_off(&mut self) {
+        self.handoff = false;
+        self.document_rows = 0;
+        self.refloat();
+        // Every row of the band is gone from the screen with the document, so
+        // the frame that follows is not optional whether or not the band moved.
+        self.render.request(Reason::Transcript);
     }
 
     /// Applies decoded events in order.
@@ -3846,11 +3861,14 @@ impl Shell {
 
 /// What each canonical command does on this surface.
 ///
-/// Most are answered on the UI thread; `/new`, `/model` and `/setup` are
-/// handed to the runtime as [`TurnWork`] -- because the model and the
-/// conversation they change live there and have to change *between* turns
-/// rather than under one, and because `/setup` and a bare `/model` open a
-/// socket the thread holding the terminal must never wait on.
+/// Most are answered on the UI thread; `/model` and `/setup` are handed to the
+/// runtime as [`TurnWork`] -- because the model and the conversation they
+/// change live there and have to change *between* turns rather than under one,
+/// and because `/setup` and a bare `/model` open a socket the thread holding
+/// the terminal must never wait on. The conversation half of `/new`, `/clear`
+/// and `/reset` goes there too, as a control message rather than as work
+/// ([`TurnControl::Reset`]), because it must not wait behind the turn it
+/// stops.
 impl CommandHandlers for Shell {
     fn help(&mut self) {
         // The page the line shell prints, as one notice: its first line after
@@ -3867,35 +3885,15 @@ impl CommandHandlers for Shell {
     }
 
     fn new_session(&mut self) {
-        if let Err(rejected) = self.work.submit(TurnWork::New) {
-            self.refused(rejected);
-            return;
-        }
-        // **After the offer was taken, and not before.** The far side drops the
-        // conversation (`super::worker`'s `TurnWork::New` arm), and the meter's
-        // numerator is a measurement *of that conversation* -- so it goes with
-        // it, and a `/new` the runtime refused leaves a session whose
-        // measurement is still about the conversation on the screen.
-        //
-        // The denominator stays: it is the model's context window, and `/new`
-        // changes neither the provider nor the model. Clearing it would discard
-        // a fact that is still true and cost a socket to learn again.
-        self.context_used = None;
-        self.render.request(Reason::Footer);
-        // The session the title named is the one being dropped
-        // (`clearCachedSessionTitle`, `app_session_runtime.zig:1982`) -- and so
-        // is every prompt already waiting: the work runs in order, so each of
-        // them is answered in the conversation `/new` drops, and none of them
-        // may title the one it starts.
-        self.forget_session_title();
-        for (_, title) in &mut self.prompts {
-            *title = None;
-        }
-        self.announce(notice::Notice::neutral("session", NEW_SESSION_NOTICE));
+        self.reset_session();
     }
 
     fn clear(&mut self) {
-        self.clear_screen();
+        self.reset_session();
+    }
+
+    fn reset(&mut self) {
+        self.reset_session();
     }
 
     fn model(&mut self, argument: &str) {
@@ -4025,43 +4023,126 @@ impl Shell {
         ));
     }
 
-    /// `/clear`: the screen, its scrollback, and what the band remembers of
-    /// both.
+    /// `/clear`, `/new` and `/reset`: one operation under three names, as
+    /// upstream's are (`app_commands.zig:667-680`, all three reaching
+    /// `resetSessionWithBackgroundPolicy`, whose policy is discarded at
+    /// `app_session_runtime.zig:2001`).
     ///
-    /// Three things go together and none of them is optional. The **bytes** are
-    /// the loop's to write, because the loop owns the writer. The **transcript**
-    /// is reset, because it counts the rows it has put on the screen and every
-    /// one of them is about to stop existing -- an append measured against the
-    /// old count would place its rows around a row that is no longer there. And
-    /// the document writes already owed are **dropped** with it, because they
-    /// were owed against that same screen.
+    /// **Cancel first, and never wait in the queue.** One control message
+    /// ([`TurnControl::Reset`]): a turn that is running is cancelled exactly as
+    /// Ctrl-C cancels one, together with everything queued behind it, and the
+    /// conversation is dropped the moment that turn has unwound -- rather than
+    /// waiting for it to finish by itself, and without taking a place in the
+    /// queue a prompt typed straight afterwards needs
+    /// (`decideLiveSessionTransition`, `:137-170`). Unlike Ctrl-C it says
+    /// nothing about it: upstream's reset writes no cancelled notice, and the
+    /// screen the notice would land on is the fresh one.
     ///
-    /// One statement for both, and that is the point: the owed text lives in
-    /// the transcript, so there is no second place to forget to empty and no
-    /// order between them to get wrong.
-    fn clear_screen(&mut self) {
+    /// **The screen is handed to scrollback, not erased.** The document still
+    /// on it goes into the terminal's own history and the welcome line is
+    /// painted on row 1 of a blank screen with the band under it
+    /// (`commitVisibleTranscriptBeforeFreshSession`, then
+    /// `finishLiveSessionTransition`, `:1978`, `:2012-2018`). The bytes are the
+    /// loop's to write ([`Self::owes_handoff`]); what is dropped here is
+    /// everything owed against the old screen -- the appends not yet written
+    /// and the pacer's text, so the partial answer of a cancelled turn does
+    /// not follow it -- and what is queued is the welcome line.
+    ///
+    /// **No notice**, and the window title goes back to the workspace
+    /// (`clearCachedSessionTitle`, `:1982`). The context meter's numerator goes
+    /// with the conversation it measured; its denominator, the model's window,
+    /// is still true and stays.
+    fn reset_session(&mut self) {
+        // Everything submitted so far belongs to the conversation being
+        // dropped; a prompt typed after this is past the count and runs in the
+        // new one.
+        let through = self.work.accepted();
+        self.work.control(TurnControl::Reset { through });
+        // The prompts the cancellation drops, and the turn it stops, will
+        // title nothing: none of them belongs to the session that starts now.
+        self.prompts.clear();
+        self.forget_session_title();
+        self.tally = Tally::default();
+        self.activity.end();
+        self.gestures.turn_ended();
+        self.context_used = None;
+        // The old screen's debts: the rows not yet written, the text the pacer
+        // holds, the lines placed behind it, and the answer block a cancelled
+        // turn left open. The stream is declared arrived, so nothing later is
+        // held behind a position no emission will reach.
         self.transcript = Transcript::new(self.geometry.cols);
-        // The stream goes with them, and it is the one place this session
-        // drops text the runtime produced. The rows it was going to be written
-        // on are being erased *and* taken out of the terminal's scrollback at
-        // the user's request; letting the rest of that answer dribble onto the
-        // blank screen afterwards would be the surprise, not the loss. The
-        // marks go with it because their places do -- and the stream is
-        // declared arrived, so nothing later is held behind a position no
-        // emission will ever reach.
         self.pacer.forget();
         self.marks.clear();
         self.emitted = self.enqueued;
-        self.clearing = true;
-        // The band starts again under nothing, as it did at launch.
-        self.document_rows = 0;
-        self.refloat();
-        // Every row of the band is gone from the screen too, so the next frame
-        // is a repaint of the whole thing rather than an optional one -- and
-        // the document's rows are gone with it, which is what takes any
-        // visible recolour owed against them down ([`Self::external_damage`]).
-        self.external_damage();
-        self.announce(notice::Notice::neutral("screen", CLEARED_NOTICE));
+        self.markdown.reset();
+        self.answer = Answer::default();
+        // A recolour owed against the old rows is owed against rows on their
+        // way into scrollback, which is never recoloured ([`Self::retint`]).
+        self.retint_debt = false;
+        self.handoff = true;
+        self.welcome();
+        // What the runtime still sends about the old conversation is dropped
+        // until it says the conversation is gone.
+        self.draining = Some(through);
+        self.render.request(Reason::Footer);
+    }
+
+    /// What a draining session does with one event from the work a reset
+    /// cancelled, or `false` when the event is to be shown as usual.
+    ///
+    /// Exhaustive on purpose, for the reason [`Self::apply`] is.
+    fn drained(&mut self, event: &UiEvent) -> bool {
+        match event {
+            // The old conversation's words and numbers, on a screen that is no
+            // longer about it.
+            UiEvent::TurnStarted
+            | UiEvent::Delta(_)
+            | UiEvent::ToolStart { .. }
+            | UiEvent::ToolResult { .. }
+            | UiEvent::ToolFeedback { .. }
+            | UiEvent::Notice(_)
+            | UiEvent::Usage { .. } => true,
+            // A question the cancelled turn asked before it heard about the
+            // cancellation. **Refused on the user's behalf rather than
+            // dropped**: the prompter parks on the session's root and the
+            // control channel (`super::approval`), and the cancellation it
+            // would otherwise wake on may already have been consumed by the
+            // turn -- so a question nobody answered could hold the runtime, and
+            // the drop behind it, for good.
+            UiEvent::Approval(asked) => {
+                self.work.control(TurnControl::Answer {
+                    id: asked.id,
+                    answer: ApprovalAnswer::Deny,
+                    feedback: None,
+                });
+                true
+            }
+            UiEvent::Question(request) => {
+                self.work
+                    .control(TurnControl::QuestionCancelled { id: request.id });
+                true
+            }
+            // The cancelled work is over. What a conclusion does to the band
+            // still happens -- the activity row is about a turn that has ended
+            // -- and nothing is written: no summary and no failure for a turn
+            // the user reset.
+            UiEvent::TurnEnded { .. } => {
+                self.tally = Tally::default();
+                self.turn_title = None;
+                self.activity.end();
+                self.pacer.finish();
+                self.gestures.turn_ended();
+                true
+            }
+            // The fence itself, the runtime's own state, and a runtime that is
+            // gone: shown as usual. A provider switch or a model change that
+            // completed before the cancellation reached it really did happen.
+            UiEvent::Fresh { .. }
+            | UiEvent::ProviderSelected { .. }
+            | UiEvent::ModelAnswered { .. }
+            | UiEvent::CatalogLoaded { .. }
+            | UiEvent::Fatal(_) => false,
+        }
     }
 
     /// The window title the session wants, when the band has not been told it
@@ -7077,32 +7158,31 @@ mod tests {
 
     #[test]
     fn a_command_the_runtime_runs_after_a_turn_is_not_the_model_thinking() {
-        // `/new` and `/model` travel on the work channel like a prompt, so the
-        // runtime has work in hand for one -- but nothing is being answered.
-        // A session that started a clock because a turn ended with something
-        // still queued would say `Thinking` about a command it had already
-        // answered on its own thread.
-        for command in [b"/new\r".as_slice(), b"/model other\r".as_slice()] {
-            let mut shell = shell(24, 80);
-            let started = turn_running(&mut shell, b"ask something\r");
-            shell.route_bytes(command);
-            let _ = shell.document();
-            assert!(
-                shell.work.outstanding() > 1,
-                "the command did not reach the runtime, so this proves nothing"
-            );
+        // `/model` travels on the work channel like a prompt, so the runtime
+        // has work in hand for one -- but nothing is being answered. A session
+        // that started a clock because a turn ended with something still
+        // queued would say `Thinking` about a command it had already answered
+        // on its own thread. (`/new` used to travel the same way; a reset is a
+        // control message now, and takes no place in the queue.)
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.route_bytes(b"/model other\r");
+        let _ = shell.document();
+        assert!(
+            shell.work.outstanding() > 1,
+            "the command did not reach the runtime, so this proves nothing"
+        );
 
-            shell.apply(UiEvent::TurnEnded { failure: None });
-            let _ = shell.document();
-            shell.settle_band(started + Duration::from_millis(50));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.document();
+        shell.settle_band(started + Duration::from_millis(50));
 
-            let rows = shell.band_rows();
-            assert_eq!(
-                shell.geometry.activity, None,
-                "a queued command put a turn's row on the band: {rows:?}"
-            );
-            assert!(!rows.iter().any(|row| row.contains("Thinking")), "{rows:?}");
-        }
+        let rows = shell.band_rows();
+        assert_eq!(
+            shell.geometry.activity, None,
+            "a queued command put a turn's row on the band: {rows:?}"
+        );
+        assert!(!rows.iter().any(|row| row.contains("Thinking")), "{rows:?}");
     }
 
     #[test]
@@ -9135,9 +9215,20 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row; every other one says something, as a notice.
+            // a row, and the reset's three names answer with a fresh screen and
+            // say nothing (`fx-sessions-40x120-new.txt`); every other one says
+            // something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
+            } else if ["/clear", "/new", "/reset"].contains(name) {
+                assert!(
+                    document
+                        .first()
+                        .is_some_and(|row| row.contains("Run /help for commands")),
+                    "{name} did not start a fresh screen: {document:?}"
+                );
+                assert!(shell.owes_handoff(), "{name} owed the screen nothing");
+                assert!(!shell.leaving(), "{name} ended the session");
             } else {
                 // A bare `/setup` is a usage error and every other one a
                 // neutral answer; either way a notice, glyph first.
@@ -9371,15 +9462,14 @@ mod tests {
 
         shell.route_bytes(b"/new\r");
         assert_eq!(shell.take_title(), Some(fallback.clone()));
-        let _ = shell.picks_up();
 
-        // A prompt that was waiting when `/new` was taken is answered in the
-        // conversation `/new` drops, so its turn titles nothing.
+        // A prompt that was waiting when `/new` was taken belongs to the
+        // conversation `/new` drops, so its turn -- if it started before the
+        // reset reached it -- titles nothing.
         let mut queued = shell_with(24, 80, PALETTE, false);
         let _ = queued.take_title();
         queued.route_bytes(b"asked before the new session\r");
         queued.route_bytes(b"/new\r");
-        let _ = queued.picks_up();
         let _ = queued.picks_up();
         queued.apply(UiEvent::TurnStarted);
         queued.apply(UiEvent::TurnEnded { failure: None });
@@ -9610,78 +9700,324 @@ mod tests {
         }
     }
 
-    #[test]
-    fn new_reaches_the_runtime_because_the_conversation_lives_there() {
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"/new\r");
-        assert_eq!(shell.picks_up(), TurnWork::New);
+    // -----------------------------------------------------------------------
+    // `/clear`, `/new` and `/reset`
+    // -----------------------------------------------------------------------
+
+    /// The three names of the one reset, as typed.
+    const RESETS: [&[u8]; 3] = [b"/clear\r", b"/new\r", b"/reset\r"];
+
+    /// What a reset leaves owed to the document: the welcome line and the
+    /// blank row under it, exactly as a session that has just started owes
+    /// them -- and nothing else, because upstream's reset writes no notice.
+    fn welcomed() -> Vec<Append> {
+        let mut fresh = shell(24, 80);
+        fresh.welcome();
+        fresh.take_pending()
     }
 
     #[test]
-    fn clear_forgets_the_rows_it_is_about_to_erase_and_owes_the_erase_itself() {
-        // Three things, and none of them is optional: the bytes, the
-        // transcript's memory of what is on the screen, and the appends already
-        // owed against a screen that is about to stop existing.
+    fn every_name_of_the_reset_reaches_the_runtime_because_the_conversation_lives_there() {
+        for command in RESETS {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(command);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Reset { through: 0 }),
+                "{}",
+                String::from_utf8_lossy(command)
+            );
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "a reset took a place in the queue: {}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
+    fn a_reset_forgets_what_it_owed_the_old_screen_and_owes_the_handoff() {
+        // The rows the old screen was still owed and the text the pacer holds
+        // belong to a document that is about to be handed to scrollback; written
+        // after it they would land on the fresh screen under the welcome line.
+        for command in RESETS {
+            let mut shell = shell(24, 80);
+            shell.apply(UiEvent::Delta(
+                "an answer that goes to scrollback".to_string(),
+            ));
+            shell.shell.flush_paced();
+            assert!(
+                shell.shell.owes_document(),
+                "nothing was owed to begin with"
+            );
+            shell.apply(UiEvent::Delta("and one still being released".to_string()));
+
+            shell.route_bytes(command);
+            assert_eq!(
+                shell.shell.paced_backlog(),
+                0,
+                "the stream survived the screen it was measured against"
+            );
+            assert!(shell.owes_handoff(), "the screen was never handed off");
+            // No notice: upstream's reset says nothing (`fx-sessions-…-new.txt`).
+            assert_eq!(
+                shell.take_pending(),
+                welcomed(),
+                "a row owed to the old screen survived, or the reset said something"
+            );
+            // The old document's rows are still on the screen until the handoff
+            // lands, so the band is still placed under them.
+            assert_eq!(shell.document_rows(), u32::MAX);
+            assert!(shell.owes_handoff(), "asking took the handoff");
+
+            shell.handed_off();
+            assert!(!shell.owes_handoff());
+            assert_eq!(
+                shell.document_rows(),
+                0,
+                "the band was not floated back to the top of the blank screen"
+            );
+
+            // After the runtime has said the conversation is gone, the next
+            // answer opens a row of its own under the welcome line rather than
+            // continuing the line a cancelled answer left open.
+            shell.apply(UiEvent::Fresh { through: 0 });
+            shell.apply(UiEvent::Delta("the next answer".to_string()));
+            shell.shell.flush_paced();
+            assert_eq!(
+                shell.take_pending(),
+                vec![
+                    Append {
+                        scroll: 1,
+                        rows: vec!["  the next answer".to_string()]
+                    },
+                    Append {
+                        scroll: 1,
+                        rows: vec![String::new()]
+                    },
+                ],
+                "{}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
+    fn a_reset_mid_turn_cancels_the_turn_and_does_not_wait_behind_it() {
+        // Upstream cancels and applies once the worker is idle
+        // (`decideLiveSessionTransition`, `app_session_runtime.zig:137-170`);
+        // a reset queued behind the turn would let the answer finish first.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta(
-            "an answer nobody will see again".to_string(),
-        ));
-        shell.shell.flush_paced();
-        assert!(
-            shell.shell.owes_document(),
-            "nothing was owed to begin with"
-        );
-        // And a second answer still in the pacer, which is the fourth thing a
-        // clear has to forget: text released onto the blank screen afterwards
-        // would be the tail of an answer the user asked to have erased, landing
-        // under a notice that says the screen was cleared.
-        shell.apply(UiEvent::Delta("and one still being released".to_string()));
+        let _ = shell.take_title();
+        let started = turn_running(&mut shell, b"ask something\r");
+        let _turn = shell.picks_up();
+        shell.apply(UiEvent::Delta("the start of an answer".to_string()));
 
         shell.route_bytes(b"/clear\r");
         assert_eq!(
-            shell.shell.paced_backlog(),
-            0,
-            "the stream survived the screen it was measured against"
+            shell.controlled(),
+            Some(TurnControl::Reset { through: 1 }),
+            "the running turn was not reached, or the reset reached past it"
         );
-
-        assert!(shell.take_clearing(), "the screen was never asked to clear");
         assert!(
-            !shell.take_clearing(),
-            "the clear was owed twice, so it would be written twice"
+            shell.sent.try_recv().is_err(),
+            "the reset was queued behind the turn"
         );
-        let document = shell.document();
-        // A notice at the top of a blank screen: no blank row above it -- a
-        // fresh transcript has nothing to put one under -- and its own below.
+        assert_eq!(shell.shell.notice, None, "the reset was refused");
+        // No cancelled notice and no partial answer: the welcome alone.
+        assert_eq!(shell.take_pending(), welcomed());
+        shell.settle_band(started + Duration::from_millis(50));
         assert_eq!(
-            document,
-            said(notice::Notice::neutral("screen", CLEARED_NOTICE)),
-            "a row measured against the erased screen survived the clear"
+            shell.geometry.activity, None,
+            "the activity row outlived the reset"
         );
 
-        // And the transcript's own memory: the line it had open is gone, so the
-        // next delta opens a **new** row on a blank screen -- an append that
-        // still believed the old row was up there would rewrite it in place and
-        // put the next answer on the end of one nobody can see.
-        shell.apply(UiEvent::Delta("the next answer".to_string()));
+        // A prompt typed straight away is taken -- the reset costs it no place
+        // -- and goes out past the reset's count, into the new conversation.
+        shell.route_bytes(b"straight away\r");
+        assert_eq!(
+            shell.shell.notice, None,
+            "the prompt after a reset was refused"
+        );
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("straight away".to_string())
+        );
+        // Its card is on the fresh screen, under the welcome line.
+        assert_eq!(shell.document(), card("straight away"));
+
+        // What the cancelled turn still sends belongs to the conversation the
+        // reset handed to scrollback.
+        shell.apply(UiEvent::Delta("the rest of it".to_string()));
+        shell.apply(UiEvent::ToolStart {
+            call_id: "call_1".to_string(),
+            tool: "read_file".to_string(),
+        });
+        shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
+        shell.apply(UiEvent::Usage {
+            input: Some(9_000),
+            output: Some(40),
+        });
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: interrupted".to_string()),
+        });
+        shell.shell.flush_paced();
+        shell.settle_band(started + Duration::from_millis(100));
+        assert!(
+            shell.take_pending().is_empty(),
+            "the cancelled turn wrote onto the fresh screen"
+        );
+        assert_eq!(shell.shell.context_used, None);
+        assert_eq!(
+            shell.take_title(),
+            None,
+            "the cancelled turn's conclusion titled the fresh session"
+        );
+        assert_eq!(shell.geometry.activity, None);
+
+        // The fence, and what follows it is the new conversation's: the turn
+        // the prompt typed straight away started.
+        shell.apply(UiEvent::Fresh { through: 1 });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("a fresh answer".to_string()));
         shell.shell.flush_paced();
         assert_eq!(
-            shell.take_pending(),
-            vec![
-                Append {
-                    scroll: 1,
-                    // The answer as it is handed over, spelled out: this case
-                    // reads the rows as they are handed over rather than
-                    // through [`Fixture::document`] -- in its two-column
-                    // gutter, with no palette colour of xfx's on it.
-                    rows: vec!["  the next answer".to_string()]
-                },
-                // and the blank row its block ends on
-                Append {
-                    scroll: 1,
-                    rows: vec![String::new()]
-                },
-            ],
-            "the first delta after a clear was written onto a row the clear erased"
+            shell.document(),
+            vec!["  a fresh answer".to_string(), String::new()]
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(
+            shell.take_title().as_deref(),
+            Some("straight away"),
+            "the first turn of the fresh session did not title it"
+        );
+    }
+
+    #[test]
+    fn clear_new_and_reset_leave_exactly_the_same_session() {
+        // One operation under three names (`app_commands.zig:667-680`): from
+        // the same session, each sends the same messages, owes the same
+        // screen and leaves the same band.
+        let after = |command: &[u8]| {
+            let mut shell = shell(24, 80);
+            let _ = shell.take_title();
+            turn_running(&mut shell, b"ask something\r");
+            let _turn = shell.picks_up();
+            shell.apply(UiEvent::Usage {
+                input: Some(1_234),
+                output: None,
+            });
+            shell.apply(UiEvent::Delta("half an answer".to_string()));
+            shell.route_bytes(command);
+            let controls: Vec<_> = std::iter::from_fn(|| shell.controlled()).collect();
+            let sent: Vec<_> = std::iter::from_fn(|| shell.sent.try_recv().ok()).collect();
+            (
+                controls,
+                sent,
+                shell.take_pending(),
+                shell.owes_handoff(),
+                shell.take_title(),
+                shell.shell.context_used,
+                shell.band_rows(),
+                shell.shell.notice,
+            )
+        };
+        let clear = after(b"/clear\r");
+        assert_eq!(after(b"/new\r"), clear, "/new is not /clear");
+        assert_eq!(after(b"/reset\r"), clear, "/reset is not /clear");
+        assert_eq!(clear.0, vec![TurnControl::Reset { through: 1 }]);
+        assert!(clear.1.is_empty(), "{:?}", clear.1);
+        assert!(clear.3, "no handoff was owed");
+    }
+
+    #[test]
+    fn a_reset_with_a_prompt_waiting_drops_it_and_is_never_refused() {
+        // A turn in flight and a prompt behind it are everything the queue
+        // holds (`super::worker::WORK_LIMIT`). The reset takes no place in it,
+        // so it is not refused the way a third prompt is, and the count it
+        // quotes covers the waiting prompt too: that prompt belonged to the
+        // conversation being dropped.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        let _ = shell.document();
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Reset { through: 2 }),
+            "the waiting prompt was not dropped with the turn"
+        );
+        assert_eq!(
+            shell.shell.notice, None,
+            "a reset was refused like a prompt"
+        );
+        assert_eq!(shell.take_pending(), welcomed());
+    }
+
+    #[test]
+    fn a_question_the_cancelled_turn_asks_after_a_reset_is_refused_for_the_user() {
+        // The prompter parks on the control channel (`super::approval`), and
+        // the reset it would wake on may already have been consumed by the
+        // turn. Dropped silently, the question could hold the runtime -- and
+        // the fence the session is draining to -- for good.
+        let mut shell = shell(24, 80);
+        turn_running(&mut shell, b"edit the notes\r");
+        let _turn = shell.picks_up();
+        shell.route_bytes(b"/reset\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 1 }));
+
+        shell.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
+        );
+        shell.apply(UiEvent::Question(a_batch()));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::QuestionCancelled { id: QuestionId(1) })
+        );
+        assert_eq!(shell.geometry.panel, 0, "a question took the band");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert_eq!(shell.take_pending(), welcomed());
+    }
+
+    #[test]
+    fn only_the_last_resets_fence_ends_the_draining() {
+        // Two resets with a prompt between them: the second drops that prompt,
+        // so its turn -- if it started before the second reset reached it --
+        // reports after the first fence and belongs to a screen the second
+        // reset handed to scrollback.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 0 }));
+        shell.route_bytes(b"in between\r");
+        let _taken = shell.picks_up();
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 1 }));
+        let _ = shell.document();
+
+        shell.apply(UiEvent::Fresh { through: 0 });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("dropped by the second reset".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        assert!(
+            shell.take_pending().is_empty(),
+            "the first fence let the dropped prompt's turn onto the screen"
+        );
+
+        shell.apply(UiEvent::Fresh { through: 1 });
+        shell.apply(UiEvent::Delta("an answer".to_string()));
+        shell.shell.flush_paced();
+        assert_eq!(
+            shell.document(),
+            vec!["  an answer".to_string(), String::new()]
         );
     }
 
@@ -10463,8 +10799,8 @@ mod tests {
             "the menu outlived the submission"
         );
         assert_eq!(
-            partial.picks_up(),
-            TurnWork::New,
+            partial.controlled(),
+            Some(TurnControl::Reset { through: 0 }),
             "Enter ran the typed word instead of the marked command"
         );
         assert!(partial.editor.is_empty());
@@ -10476,8 +10812,8 @@ mod tests {
         moved.route_bytes(&[0x0d]);
         assert_eq!(moved.geometry.panel, 0);
         assert_eq!(
-            moved.picks_up(),
-            TurnWork::New,
+            moved.controlled(),
+            Some(TurnControl::Reset { through: 0 }),
             "Enter did not take the row"
         );
         assert!(moved.editor.is_empty());
@@ -11041,8 +11377,8 @@ mod tests {
 
         shell.route_bytes(b"/new\r");
         assert_eq!(
-            shell.picks_up(),
-            TurnWork::New,
+            shell.controlled(),
+            Some(TurnControl::Reset { through: 0 }),
             "the conversation drop never reached the thread that owns it"
         );
 
@@ -11059,49 +11395,14 @@ mod tests {
         );
         // Both halves again, and the row is a meter again -- which is what
         // proves the denominator really was kept rather than merely unread.
+        // After the runtime has said the conversation is gone: a measurement
+        // arriving before that is the old conversation's.
+        shell.shell.apply(UiEvent::Fresh { through: 0 });
         shell.shell.apply(UiEvent::Usage {
             input: Some(7),
             output: None,
         });
         assert_eq!(shell.shell.context_meter(), Some((7, 200_000)));
-    }
-
-    #[test]
-    fn a_new_session_the_runtime_refused_keeps_the_conversation_and_its_meter() {
-        // The other side of the same ordering `send` has: nothing is thrown
-        // away for a submission the runtime would not take. A refused `/new`
-        // means the conversation is still there, so its measurement is still
-        // about the session on the screen and clearing it would be a lie in the
-        // opposite direction.
-        let mut shell = shell(24, 80);
-        shell.shell.model = "fable".to_string();
-        shell.shell.apply(UiEvent::CatalogLoaded {
-            provider: ProviderId::Llmux,
-            entries: vec![entry("fable", Some(200_000), &[])],
-        });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(12_345),
-            output: None,
-        });
-
-        // Fill the queue: one in flight and one waiting is everything the
-        // session holds (`super::worker::WORK_LIMIT`).
-        shell.route_bytes(b"first\r");
-        let _first = shell.picks_up();
-        shell.route_bytes(b"second\r");
-        let _ = shell.document();
-
-        shell.route_bytes(b"/new\r");
-        assert_eq!(
-            shell.shell.notice,
-            Some(QUEUE_REJECTED),
-            "the refused /new did not say so on the hint row"
-        );
-        assert_eq!(
-            shell.shell.context_meter(),
-            Some((12_345, 200_000)),
-            "a /new the runtime refused cleared the meter of a conversation that is still there"
-        );
     }
 
     // -----------------------------------------------------------------------
@@ -12244,7 +12545,12 @@ mod tests {
         // gone -- but the band is only *told* when the next frame is built,
         // which is after the recolour would have been paid. So the arming
         // asks, and a report that arrives behind either owes nothing at all.
-        for damage in [b"/clear\r".to_vec(), vec![0x0c]] {
+        let ctrl_l: fn(&mut Fixture) = |shell| shell.damage_told();
+        let handed_off: fn(&mut Fixture) = |shell| shell.handed_off();
+        // A reset is the same question from the other side: the rows are
+        // still on the screen, but on their way into scrollback, which is
+        // never recoloured -- and the shadow the handoff leaves holds none.
+        for (damage, told) in [(vec![0x0c], ctrl_l), (b"/clear\r".to_vec(), handed_off)] {
             let mut shell = shell(24, 80);
             shell.route_bytes(&damage);
             shell.route_bytes(WENT_LIGHT);
@@ -12255,7 +12561,7 @@ mod tests {
             );
             // And once the band has been told, the next report is ordinary
             // again: what it would repaint is what the band really knows.
-            shell.damage_told();
+            told(&mut shell);
             shell.route_bytes(WENT_DARK);
             assert!(
                 shell.owes_retint(),

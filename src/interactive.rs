@@ -56,6 +56,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/help",
     "/clear",
     "/new",
+    "/reset",
     "/setup",
     "/model",
     "/version",
@@ -113,13 +114,14 @@ pub struct SlashSpec {
 /// **Upstream's order, upstream's categories, and upstream's words where the
 /// command is upstream's command** (`vercel-labs/fx@c1db9191
 /// src/builtins/commands.zig:463-499`), because the menu shows all three. The
-/// rows xfx does not have are absent rather than stubbed. Three summaries stay
+/// rows xfx does not have are absent rather than stubbed. Two summaries stay
 /// xfx's own, each because upstream's sentence describes something this
-/// command does not do: `/clear` (upstream starts a fresh conversation,
-/// `:464`; this one clears the screen and keeps it), `/setup` (upstream's
-/// `/provider` picker, `:472`, which also chooses how a provider signs in; this
-/// one takes the provider as an argument and signs nothing in), and `/model`
-/// (upstream chooses a reasoning effort as well, `:478`; xfx sends none).
+/// command does not do: `/setup` (upstream's `/provider` picker, `:472`, which
+/// also chooses how a provider signs in; this one takes the provider as an
+/// argument and signs nothing in) and `/model` (upstream chooses a reasoning
+/// effort as well, `:478`; xfx sends none). `/clear`, `/new` and `/reset` are
+/// one operation, as upstream's are (`app_commands.zig:667-680`), and carry
+/// upstream's three sentences (`:464-466`).
 #[rustfmt::skip]
 pub const SLASH_REGISTRY: &[SlashSpec] = &[
     SlashSpec {
@@ -134,7 +136,7 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         command: Slash::Clear,
         name: "/clear",
         aliases: &[],
-        summary: "clear the screen; the conversation and its session are kept",
+        summary: "start a fresh conversation while keeping managed processes",
         category: "General",
         has_args: false,
     },
@@ -143,6 +145,14 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         name: "/new",
         aliases: &[],
         summary: "start a fresh session",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Reset,
+        name: "/reset",
+        aliases: &[],
+        summary: "reset the current session context",
         category: "Session",
         has_args: false,
     },
@@ -255,13 +265,6 @@ const INTERRUPTED_EXIT_CODE: i32 = 130;
 /// refusal worth reading is the guidance at the end of the line.
 const MAX_QUOTED_COMMAND_BYTES: usize = 60;
 
-/// Erase the screen, the scrollback, and put the cursor home.
-///
-/// The only control sequence the shell emits. `2J` clears what is visible and
-/// `3J` clears the scrollback, which is what a user asking to clear a transcript
-/// means -- the shell never does it on its own initiative.
-const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
-
 // ---------------------------------------------------------------------------
 // what a submitted line is
 // ---------------------------------------------------------------------------
@@ -272,6 +275,12 @@ pub enum Slash {
     Help,
     New,
     Clear,
+    /// The same operation as [`Slash::New`] and [`Slash::Clear`] under
+    /// upstream's third name for it (`commandResetSession`,
+    /// `app_commands.zig:672-675`): the policy upstream passes it is thrown
+    /// away before anything reads it (`app_session_runtime.zig:2001`), so it
+    /// opens a new session exactly as the other two do.
+    Reset,
     Model,
     /// Switch the provider a turn talks to, and record the choice.
     ///
@@ -660,13 +669,12 @@ pub async fn run(
                         )
                         .await?;
                     }
-                    Slash::Clear => {
-                        let mut stdout = io::stdout();
-                        write!(stdout, "{CLEAR_SCREEN}")?;
-                        write!(stdout, "{}", banner(&config, &model))?;
-                        writeln!(stdout, "{}", kept_line(conversation.as_ref()))?;
-                    }
-                    Slash::New => {
+                    // One operation under three names, as upstream's are
+                    // (`app_commands.zig:667-680`): `/clear` no longer erases
+                    // anything -- what the shell printed stays where the user
+                    // can scroll back to it, which is upstream's scrollback
+                    // handoff on a surface that has no screen of its own.
+                    Slash::Clear | Slash::New | Slash::Reset => {
                         // Dropping the recorder closes the log and releases the
                         // session's writer lock, so the next prompt is free to
                         // create a genuinely new identity.
@@ -1061,18 +1069,6 @@ async fn apply_model(
     }
 }
 
-/// What `/clear` says about the conversation it did not touch.
-fn kept_line(conversation: Option<&Conversation>) -> String {
-    match conversation {
-        Some(conversation) => format!(
-            "[shell] cleared the screen; session={} keeps {} turn(s)",
-            conversation.recorder.id(),
-            conversation.recorder.state().turns.len()
-        ),
-        None => "[shell] cleared the screen; no conversation has started yet".to_string(),
-    }
-}
-
 /// The version line `/version` prints.
 ///
 /// Visible to the crate because the TUI answers the same commands from the
@@ -1123,12 +1119,13 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_seven_commands() {
+    fn the_shell_advertises_exactly_eight_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        // Seven since `/setup`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 7);
+        // Seven since `/setup`, eight since `/reset` -- upstream's third name
+        // for the one reset; `/models` and `/provider` stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 8);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1284,21 +1281,11 @@ mod tests {
             "/stats",
             "/usage",
             "/image",
-            "/reset",
             "/rename",
             "/background",
         ] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
         }
-    }
-
-    #[test]
-    fn the_clear_sequence_erases_the_screen_and_the_scrollback() {
-        assert!(CLEAR_SCREEN.contains("\u{1b}[2J"));
-        assert!(CLEAR_SCREEN.contains("\u{1b}[3J"));
-        // Never the alternate screen: the scrollback above the shell is the
-        // user's, and a shell that borrowed it would have to give it back.
-        assert!(!CLEAR_SCREEN.contains("1049"));
     }
 
     #[test]

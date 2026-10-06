@@ -220,6 +220,25 @@ pub(crate) enum UiEvent {
     },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
+    /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
+    /// on, and the next prompt opens a new session.
+    ///
+    /// **The fence a reset waits on**, and the only reason it is sent. The work
+    /// a reset cancelled can still be reporting -- the tail of an answer, a tool
+    /// row, the turn's conclusion -- and those events belong to the
+    /// conversation the reset handed to scrollback, not to the fresh screen.
+    /// The runtime takes work in order and this is sent only once everything
+    /// before the drop has been sent, so on the UI's side everything that
+    /// arrives ahead of it is the old conversation's and everything after it is
+    /// the new one's (`super::shell`'s `draining`). Not terminal: no turn ends
+    /// here, and the drain at exit does not wait for it.
+    ///
+    /// `through` is the reset's own count, so that two resets in a row -- with
+    /// a prompt submitted between them, which the second one drops -- are told
+    /// apart: the UI drains until the fence of the **last** reset it sent.
+    /// Two resets that reached the same turn are answered by one fence, the
+    /// later count's.
+    Fresh { through: usize },
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -348,6 +367,8 @@ impl UiEvent {
             },
             // Two numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input, output } => Self::Usage { input, output },
+            // A count. There is nothing here a terminal can be made to obey.
+            Self::Fresh { through } => Self::Fresh { through },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -470,6 +491,23 @@ pub(crate) enum TurnControl {
     /// stop, which is the one they most certainly meant. Work submitted through
     /// this count is dropped; anything past it is a new intention and runs.
     Cancel { through: usize },
+    /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
+    /// then the conversation is dropped -- the recorder closed, the tool
+    /// context's grants and read proofs with it -- so the next prompt opens a
+    /// new session. The runtime says so with [`UiEvent::Fresh`].
+    ///
+    /// **A control message rather than work**, which is upstream's "cancel
+    /// first, then apply once the worker is idle"
+    /// (`decideLiveSessionTransition`, `app_session_runtime.zig:137-170`) in
+    /// this channel's terms. As work it would take a place in the queue, so a
+    /// reset typed behind a turn and a waiting prompt would have nowhere to go
+    /// -- and a prompt typed straight after one would be refused while the
+    /// cancelled turn was still unwinding. Here it is never refused and costs
+    /// no place: the turn it reaches is stopped, the drop is made the moment
+    /// that turn has sent its conclusion and before anything else is taken,
+    /// and a prompt submitted after it -- past `through` -- runs in the new
+    /// conversation.
+    Reset { through: usize },
     /// Stop this turn and end the session.
     Shutdown,
 }
@@ -494,7 +532,7 @@ pub(crate) enum TurnWork {
     Model(String),
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
-    /// A piece of *work* for the same reason `Model` and `New` are, and more
+    /// A piece of *work* for the same reason `Model` is, and more
     /// so: it performs network I/O, it writes a file, and it replaces the
     /// configuration, the bundle and the conversation together. None of that may
     /// happen under a running turn, and none of it may happen on the thread
@@ -506,14 +544,6 @@ pub(crate) enum TurnWork {
     /// thread sits in `pselect(2)` holding the terminal and may not wait for a
     /// daemon that is not answering.
     Catalog,
-    /// Drop the conversation, with the shell's own `/new` meaning: the next
-    /// prompt opens a fresh session.
-    ///
-    /// A piece of *work* rather than a control message, and for the reason the
-    /// other two are: the conversation belongs to the runtime thread, and `/new`
-    /// has to take effect between turns rather than in the middle of the one
-    /// that is writing into it.
-    New,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport
