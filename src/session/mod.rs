@@ -27,6 +27,7 @@
 
 pub mod checkpoint;
 pub mod event;
+pub mod prompt_history;
 pub mod store;
 
 pub use event::{

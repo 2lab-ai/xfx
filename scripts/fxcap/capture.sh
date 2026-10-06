@@ -58,7 +58,7 @@
 #                          <bin>-<scenario>-<size>-<label>-<n>.md, oldest
 #                          first, the run's directory written as <scratch>,
 #                          and prints the mode each was written with
-#   relaunch <args>...     starts the binary again in the same pane, with the
+#   relaunch [<args>...]   starts the binary again in the same pane, with the
 #                          same HOME and environment and these arguments --
 #                          after `keep` and an exit, so a second launch sees
 #                          what the first one saved (`fx: relaunch
@@ -214,6 +214,9 @@ $xfx_model $extra_env $bin"
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
+    # A verb with nothing after it has no rest: `relaunch` alone starts the
+    # binary again with no arguments, rather than with the word `relaunch`.
+    [[ $line == *' '* ]] || rest=''
     case $verb in
       ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead) ;;
       wait) sleep "$rest" ;;

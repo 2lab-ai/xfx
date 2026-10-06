@@ -2,9 +2,9 @@
 //! committed, newest last, each with what was there before it.
 //!
 //! Upstream's `ChangeTracker` (`vercel-labs/fx@c1db9191
-//! src/core/workspace/change_tracker.zig:30-82`), kept the same way: a stack in
+//! src/core/workspace/change_tracker.zig:30-99`), kept the same way: a stack in
 //! memory, pushed by every committed `write_file` and `edit_file`
-//! (`publishCommittedTracker`, `app_callbacks.zig:1124-1170`) and by nothing
+//! (`publishCommittedTracker`, `app_callbacks.zig:1125-1170`) and by nothing
 //! else, at most a hundred deep with the oldest dropped first, and popped by
 //! `/undo` whether or not the change could be taken back.
 //!
@@ -34,11 +34,12 @@
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::permission::ContentHash;
 
 /// How many changes `/undo` can reach back through
-/// (`change_tracker.zig:35`, `max_stack_size`).
+/// (`change_tracker.zig:33`, `max_stack_size`).
 pub const MAX_TRACKED_CHANGES: usize = 100;
 
 /// How many bytes of preimage the journal holds at most, oldest dropped first.
@@ -54,11 +55,11 @@ pub const MAX_TRACKED_CHANGES: usize = 100;
 pub const MAX_TRACKED_BYTES: usize = 64 * 1024 * 1024;
 
 /// What every `/undo` notice is filed under (`commandUndoLast`,
-/// `app_commands.zig:1285-1289`).
+/// `app_commands.zig:1286-1290`).
 pub const TOPIC: &str = "undo";
 
 /// What `/undo` says when there is nothing to take back
-/// (`app_commands.zig:1278`).
+/// (`app_commands.zig:1277`).
 pub const NOTHING_TO_UNDO: &str = "Nothing to undo.";
 
 /// One committed change, as `/undo` needs it.
@@ -79,10 +80,62 @@ impl TrackedChange {
     }
 }
 
+/// Where the journal stood at one moment: every change tracked up to then,
+/// and none tracked after.
+///
+/// What pins an `/undo` to the moment it was typed. Upstream undoes at the
+/// keystroke (`commandUndoLast` runs from the command handler,
+/// `app_commands.zig:366-392`), so the change it takes back is the newest one
+/// **then**. The TUI does the undo later -- once the work that is running has
+/// said its last word, never between one call's commit and the next call's
+/// read (`crate::tui`'s `bridge::TurnControl::Undo`) -- and a change the turn
+/// commits in between is newer than the keystroke. The UI reads a mark when
+/// the key is pressed and the runtime takes back the newest change at or
+/// before it ([`ChangeJournal::take_through`]).
+///
+/// **Process-wide**, like an authority's nonce
+/// (`crate::permission::Nonce`): a change is numbered when it is tracked, from
+/// one counter for the whole process, so a mark read on the UI thread is
+/// comparable with a change tracked on the runtime thread without either
+/// thread asking the other, and a mark from a conversation a reset has since
+/// dropped precedes every change of the one that replaced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Mark(u64);
+
+/// The number of the last change tracked anywhere in this process.
+static TRACKED: AtomicU64 = AtomicU64::new(0);
+
+impl Mark {
+    /// Every change tracked so far, and nothing tracked after this call.
+    pub fn now() -> Self {
+        Self(TRACKED.load(Ordering::Acquire))
+    }
+
+    /// Every change, whenever it is tracked: what a caller means that has
+    /// nothing running beside it -- the line shell, a test.
+    pub const LATEST: Self = Self(u64::MAX);
+
+    /// The next change's number, taken once per change.
+    fn next() -> Self {
+        Self(TRACKED.fetch_add(1, Ordering::AcqRel) + 1)
+    }
+}
+
+/// One change [`ChangeJournal::take_through`] took off the journal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Taken {
+    pub change: TrackedChange,
+    /// Whether a change still on the journal and newer than this one touched
+    /// the same file -- one the turn made after the `/undo` was typed. Putting
+    /// this one's preimage back would discard that change, so it is not
+    /// taken back at all.
+    pub superseded: bool,
+}
+
 /// The changes a conversation's tools committed, oldest first.
 #[derive(Debug, Default)]
 pub struct ChangeJournal {
-    changes: VecDeque<TrackedChange>,
+    changes: VecDeque<(Mark, TrackedChange)>,
     /// The bytes of preimage held, kept rather than summed at each push.
     held: usize,
 }
@@ -96,22 +149,43 @@ impl ChangeJournal {
     /// [`MAX_TRACKED_CHANGES`] or [`MAX_TRACKED_BYTES`].
     pub fn push(&mut self, change: TrackedChange) {
         self.held += change.cost();
-        self.changes.push_back(change);
+        self.changes.push_back((Mark::next(), change));
         while self.changes.len() > MAX_TRACKED_CHANGES
             || (self.held > MAX_TRACKED_BYTES && self.changes.len() > 1)
         {
-            if let Some(dropped) = self.changes.pop_front() {
+            if let Some((_, dropped)) = self.changes.pop_front() {
                 self.held -= dropped.cost();
             }
         }
     }
 
-    /// The newest change, taken off the journal: whatever `/undo` then makes
-    /// of it, it is not offered again (`undoLast`, `change_tracker.zig:53-57`).
-    pub fn pop(&mut self) -> Option<TrackedChange> {
-        let change = self.changes.pop_back()?;
+    /// The newest change tracked at or before `mark`, taken off the journal:
+    /// whatever `/undo` then makes of it, it is not offered again (`undoLast`,
+    /// `change_tracker.zig:53-57`). Changes tracked after `mark` stay where
+    /// they are.
+    ///
+    /// Two marks read before anything new was tracked take back the newest
+    /// change and then the one before it, as two keystrokes upstream do.
+    pub fn take_through(&mut self, mark: Mark) -> Option<Taken> {
+        let at = self
+            .changes
+            .iter()
+            .rposition(|(tracked, _)| *tracked <= mark)?;
+        let (_, change) = self.changes.remove(at)?;
         self.held -= change.cost();
-        Some(change)
+        // Everything from `at` on is newer than the change just taken.
+        let superseded = self
+            .changes
+            .iter()
+            .skip(at)
+            .any(|(_, later)| later.path == change.path);
+        Some(Taken { change, superseded })
+    }
+
+    /// The newest change, taken off the journal ([`Self::take_through`] with
+    /// no bound).
+    pub fn pop(&mut self) -> Option<TrackedChange> {
+        self.take_through(Mark::LATEST).map(|taken| taken.change)
     }
 
     pub fn len(&self) -> usize {
@@ -129,11 +203,11 @@ impl ChangeJournal {
 
     /// The changes held, oldest first.
     pub fn iter(&self) -> impl Iterator<Item = &TrackedChange> {
-        self.changes.iter()
+        self.changes.iter().map(|(_, change)| change)
     }
 }
 
-/// What one `/undo` did (`UndoResult`, `change_tracker.zig:21-29`).
+/// What one `/undo` did (`UndoResult`, `change_tracker.zig:20-28`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Undone {
     /// The file holds what it held before the change again.
@@ -170,7 +244,7 @@ impl Undone {
 /// out (`encodeTerminalSafe`, `text_utils.zig:343-626`).
 ///
 /// Spelled out rather than blanked, as upstream does for a path it quotes
-/// (its hostile-path undo test, `tests/e2e/tui-permissions.test.ts:1949-1980`,
+/// (its hostile-path undo test, `tests/e2e/tui-permissions.test.ts:1941-1982`,
 /// reads `name\x1b]2;FX_PWN\x07\x0afile.txt` back as text): a name with a
 /// character silently replaced is the name of a different file. The bytes
 /// rather than a lossy string, because a byte that is not UTF-8 is spelled
@@ -235,9 +309,57 @@ mod tests {
     }
 
     #[test]
+    fn a_mark_reaches_the_changes_tracked_before_it_and_none_after() {
+        // An `/undo` typed mid-turn takes back what was newest at the
+        // keystroke; the turn's later changes stay on the journal for the next
+        // one, and two undos pinned to one mark walk back from it.
+        let mut journal = ChangeJournal::new();
+        journal.push(change("a", None));
+        journal.push(change("b", Some(b"before b")));
+        let typed = Mark::now();
+        journal.push(change("c", Some(b"before c")));
+        assert!(Mark::now() > typed);
+
+        let first = journal.take_through(typed).expect("b");
+        assert_eq!(first.change, change("b", Some(b"before b")));
+        assert!(!first.superseded, "c is another file");
+        let second = journal.take_through(typed).expect("a");
+        assert_eq!(second.change, change("a", None));
+        assert_eq!(journal.take_through(typed), None, "c is past the mark");
+        assert_eq!(journal.pop(), Some(change("c", Some(b"before c"))));
+        assert_eq!(journal.held_bytes(), 0);
+    }
+
+    #[test]
+    fn a_change_whose_file_a_later_change_touched_is_superseded() {
+        let mut journal = ChangeJournal::new();
+        journal.push(change("a", None));
+        let typed = Mark::now();
+        journal.push(TrackedChange {
+            before: Some(b"what the first change left".to_vec()),
+            ..change("a", None)
+        });
+        let taken = journal.take_through(typed).expect("the first change");
+        assert!(taken.superseded, "a later change touched the same file");
+        assert_eq!(journal.len(), 1, "the later change was taken too");
+        // The later one is the newest, and nothing newer touched its file.
+        let later = journal.take_through(Mark::LATEST).expect("the later one");
+        assert!(!later.superseded);
+    }
+
+    #[test]
+    fn a_mark_from_before_any_change_reaches_none() {
+        let typed = Mark::now();
+        let mut journal = ChangeJournal::new();
+        journal.push(change("a", None));
+        assert_eq!(journal.take_through(typed), None);
+        assert_eq!(journal.len(), 1);
+    }
+
+    #[test]
     fn past_a_hundred_changes_the_oldest_goes_and_the_order_holds() {
         // `pushOperation evicts the oldest operation with stable ordering`
-        // (`change_tracker.zig:241-260`): file-0 is dropped, file-1 is the
+        // (`change_tracker.zig:247-264`): file-0 is dropped, file-1 is the
         // oldest kept, file-100 the newest.
         let mut journal = ChangeJournal::new();
         for i in 0..=MAX_TRACKED_CHANGES {
@@ -303,7 +425,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_hostile_name_is_spelled_out_as_upstream_spells_it() {
-        // `tests/e2e/tui-permissions.test.ts:1949-1980`: the window title
+        // `tests/e2e/tui-permissions.test.ts:1941-1982`: the window title
         // sequence and the line feed in the name come back as text.
         let path = PathBuf::from("/w/name\u{1b}]2;FX_PWN\u{7}\nfile.txt");
         assert_eq!(

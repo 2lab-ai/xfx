@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
+
+┃ look
+
+● 2 tool calls · 2 read
+├ Read a.txt
+└ Read b.txt
+
+  Read both.
+
+  0s (↑1 ↓40)
+
+* collapse tool calls: saved to user settings (scope=user)
+
+┃ again
+
+● 1 tool call · 1 read
+
+  Again.
+
+  0s (↑2 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
