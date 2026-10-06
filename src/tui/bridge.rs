@@ -211,16 +211,22 @@ pub(crate) enum UiEvent {
     /// line shell's is its own (`crate::interactive`'s `apply_model`).
     ModelAnswered {
         model: String,
+        /// The session's reasoning effort afterwards: the one the change chose,
+        /// or the one it left standing.
+        effort: crate::provider::effort::Effort,
         outcome: ModelAnswer,
         /// Whether a turn was running when the change was asked for, so it
         /// takes effect from the turn after it: upstream's `Next turn will use`
         /// rather than `Switched to` (`announceModelSelection`,
         /// `session_commands.zig:1266-1279`). Decided where the request was
         /// made -- the UI knows whether a turn was running; the runtime only
-        /// ever applies a change between turns -- and carried back, so a
-        /// request an interrupt dropped cannot leave a stale answer for the
-        /// next one.
+        /// ever applies a change between turns -- and carried back, so the
+        /// answer is worded for the moment it was asked in.
         next_turn: bool,
+        /// Whether the band already said so ([`ModelChange::announced`]), in
+        /// which case this answer moves the band's own record of the model and
+        /// says nothing more about a change that was accepted.
+        announced: bool,
     },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
@@ -233,10 +239,14 @@ pub(crate) enum UiEvent {
     /// The provider's catalog could not be read.
     ///
     /// No reason rides with it: what `/model`'s menu says is upstream's
-    /// `Unable to load models.`, and the selector remembers the failure, so a
-    /// `/model <id>` still applies the id as typed.
+    /// `Unable to load models.` -- or, for a failure asking again could
+    /// change, its `retry /model.` sentence, which `retry` names
+    /// (`crate::provider::model::CatalogRetry`). The selector remembers the
+    /// failure, so a `/model <id>` still applies the id as typed, and the next
+    /// `/model` asks again.
     CatalogUnread {
         provider: crate::provider::ProviderId,
+        retry: Option<crate::provider::model::CatalogRetry>,
     },
     /// What a **completed** turn spent.
     ///
@@ -384,11 +394,24 @@ impl UiEvent {
             // decided by xfx's own selector.
             Self::ModelAnswered {
                 model,
+                effort,
                 outcome,
                 next_turn,
+                announced,
             } => Self::ModelAnswered {
                 next_turn,
+                announced,
                 model: inert_owned(model),
+                // A level's name is limited to a word upstream would parse
+                // when it is read, but it comes off a settings file or a
+                // catalog all the same, and the rule here is about the
+                // channel rather than about whoever built the value.
+                effort: match effort {
+                    crate::provider::effort::Effort::Named(name) => {
+                        crate::provider::effort::Effort::Named(inert_owned(name))
+                    }
+                    auto => auto,
+                },
                 outcome: match outcome {
                     ModelAnswer::Applied { unverified } => ModelAnswer::Applied {
                         unverified: unverified.map(inert_owned),
@@ -420,8 +443,8 @@ impl UiEvent {
                     })
                     .collect(),
             },
-            // A provider tag. Nothing here is text.
-            Self::CatalogUnread { provider } => Self::CatalogUnread { provider },
+            // A provider tag and a category. Nothing here is text.
+            Self::CatalogUnread { provider, retry } => Self::CatalogUnread { provider, retry },
             // Two numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input, output } => Self::Usage { input, output },
             // A count. There is nothing here a terminal can be made to obey.
@@ -562,6 +585,21 @@ pub(crate) enum TurnControl {
     /// stop, which is the one they most certainly meant. Work submitted through
     /// this count is dropped; anything past it is a new intention and runs.
     Cancel { through: usize },
+    /// `/model`'s change of model or effort ([`ModelChange`]).
+    ///
+    /// **A control message rather than work**, for the reason [`Self::Reset`]
+    /// is one: as work it took a place in the queue, so a model chosen while a
+    /// turn ran and a prompt waited was refused as busy -- and upstream
+    /// applies it at once (`setResolvedModel`, `session_commands.zig:1168-1190`)
+    /// and says `Next turn will use` while a turn is still streaming. Here it
+    /// costs no place and is never refused: between turns it is applied when
+    /// it is read, and while work runs it is put aside -- by the turn loop, or
+    /// by a prompter parked on a question, which **does not** answer the
+    /// question with it (`super::approval::ControlChannel::defer`) -- and
+    /// applied the moment that work has said its last word, before anything
+    /// queued behind it is taken. An interrupt does not drop it: it is not a
+    /// piece of work, and the turn after the interrupt is the one it was for.
+    Model(ModelChange),
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -583,6 +621,35 @@ pub(crate) enum TurnControl {
     Shutdown,
 }
 
+/// One `/model` change, as the band asks for it ([`TurnControl::Model`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModelChange {
+    /// The model: the id itself when [`Self::announced`] is set -- a row the
+    /// picker or the menu named, an id the explicit form spelled, a query the
+    /// band resolved against the rows it holds
+    /// (`crate::provider::model::resolve_in_order`) -- and otherwise the query
+    /// as typed, which the selector resolves against the catalog it holds or
+    /// loads (`super::worker`'s `change_model`).
+    pub(crate) name: String,
+    /// The reasoning effort chosen with it, by the effort column or the
+    /// explicit form, for a model the catalog lists levels for. `None` leaves
+    /// the session's effort as it is -- upstream's router form changes only
+    /// the model (`setResolvedModel`), and a model with no levels takes none
+    /// (`selectModelFromPicker`, `session_commands.zig:886-915`).
+    pub(crate) effort: Option<crate::provider::effort::Effort>,
+    /// Chosen in a picker -- the column, the menu or the explicit form --
+    /// rather than typed as a query: what upstream's settings line names the
+    /// change (`model picker` against `model`, `session_commands.zig:914`, `:1187`).
+    pub(crate) picker: bool,
+    /// The band has already said `Switched to` or `Next turn will use` for
+    /// it, because it knew the id. Upstream says so the moment the change is
+    /// made; a change the band could not resolve is announced by the runtime's
+    /// answer instead.
+    pub(crate) announced: bool,
+    /// A turn was running, or waiting to, when it was asked for.
+    pub(crate) next_turn: bool,
+}
+
 /// What the UI asks the runtime to do next.
 ///
 /// Capacity [`super::worker::WORK_LIMIT`] -- two -- because that is what the
@@ -599,16 +666,10 @@ pub(crate) enum TurnControl {
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
     Submit(String),
-    /// Change the model, with the shell's own `/model` meaning: `name` is the
-    /// query as typed, or the id a menu row named.
-    ///
-    /// `next_turn` says a turn was running when it was asked for, which is
-    /// what the answer is worded by ([`UiEvent::ModelAnswered`]).
-    Model { name: String, next_turn: bool },
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
-    /// A piece of *work* for the same reason `Model` is, and more
-    /// so: it performs network I/O, it writes a file, and it replaces the
+    /// A piece of *work* rather than a control message like `/model`'s
+    /// ([`TurnControl::Model`]): it performs network I/O, it writes a file, and it replaces the
     /// configuration, the bundle and the conversation together. None of that may
     /// happen under a running turn, and none of it may happen on the thread
     /// holding the terminal.
@@ -1879,21 +1940,27 @@ mod tests {
         let hostile = "model\u{1b}[2J".to_string();
         let UiEvent::ModelAnswered {
             model,
+            effort,
             outcome,
             next_turn,
+            announced,
         } = (UiEvent::ModelAnswered {
             model: hostile.clone(),
+            effort: crate::provider::effort::Effort::Named(hostile.clone()),
             outcome: ModelAnswer::Applied {
                 unverified: Some(hostile.clone()),
             },
             next_turn: true,
+            announced: true,
         })
         .made_inert()
         else {
             panic!("the variant changed");
         };
         assert!(!model.contains('\u{1b}'), "{model:?}");
+        assert!(!effort.display().contains('\u{1b}'), "{effort:?}");
         assert!(next_turn, "a fact, not text, and carried through");
+        assert!(announced, "a fact, not text, and carried through");
         let ModelAnswer::Applied { unverified } = outcome else {
             panic!("the answer changed");
         };
@@ -1903,10 +1970,12 @@ mod tests {
         // And the refusal, which is the arm that quotes the id back by name.
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
+            effort: crate::provider::effort::Effort::Auto,
             outcome: ModelAnswer::Refused {
                 reason: hostile.clone(),
             },
             next_turn: false,
+            announced: false,
         })
         .made_inert() else {
             panic!("the variant changed");
@@ -1919,8 +1988,10 @@ mod tests {
         // The answer with nothing to say is carried through unchanged.
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
+            effort: crate::provider::effort::Effort::Auto,
             outcome: ModelAnswer::Unchanged,
             next_turn: false,
+            announced: false,
         })
         .made_inert() else {
             panic!("the variant changed");
@@ -1934,8 +2005,10 @@ mod tests {
         // one would end while the worker was still publishing.
         assert!(!UiEvent::ModelAnswered {
             model: "m-1".to_string(),
+            effort: crate::provider::effort::Effort::Auto,
             outcome: ModelAnswer::Unchanged,
             next_turn: false,
+            announced: false,
         }
         .is_terminal());
     }
@@ -1957,6 +2030,7 @@ mod tests {
         .is_terminal());
         assert!(!UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
+            retry: None,
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

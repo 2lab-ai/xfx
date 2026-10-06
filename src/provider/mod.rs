@@ -12,6 +12,7 @@
 //! provider a profile can select, and selecting one with no transport behind it
 //! would be a promise the binary cannot keep.
 
+pub mod effort;
 pub mod model;
 pub mod profile;
 pub mod setup;

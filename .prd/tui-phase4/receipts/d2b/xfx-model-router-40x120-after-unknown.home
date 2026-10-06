@@ -1,0 +1,8 @@
+== ./.xfx/settings.json
+{
+  "models": {
+    "gateway": "nonexistent-xyz"
+  },
+  "provider": "gateway"
+}
+

@@ -48,8 +48,10 @@
 //! (`settings_catalog.zig:58-60`; `/statusline`, `super::statusline`). This
 //! module draws whichever of them it is handed and decides none of that: a
 //! `None` here is an item that is off or has nothing to say yet. The
-//! reasoning-effort and fast-mode markers (`render.zig:430-435`) belong to
-//! model capabilities xfx does not model.
+//! reasoning effort follows the model, as upstream's does (`render.zig:390-393`):
+//! the caller decides whether the model takes it and hands it over only then.
+//! The fast-mode marker (`render.zig:394-402`) belongs to a speed xfx does not
+//! send yet.
 
 use crate::config::PermissionMode;
 
@@ -90,6 +92,11 @@ pub(crate) struct Hint<'a> {
     /// The model a turn will talk to, as configured -- provider prefix and all.
     /// [`compact_model`] is what shortens it.
     pub(crate) model: &'a str,
+    /// The reasoning effort a turn will ask that model for, as shown --
+    /// `None` for the default, and for a model the catalog says takes no such
+    /// level (`appendSessionStatusSegments`, `render.zig:381-393`: shown only
+    /// when the model supports effort and it is not the default).
+    pub(crate) effort: Option<&'a str>,
     /// The session's title, when the title segment is on and the session has
     /// one ([`super::statusline::session_label`] is what makes it safe to
     /// paint).
@@ -101,8 +108,9 @@ pub(crate) struct Hint<'a> {
     /// `input_tokens` ([`super::bridge::UiEvent::Usage`]) and the denominator
     /// is the catalog's `max_context` for the model in force
     /// (`provider::model::CatalogEntry::max_context`), and the denominator can
-    /// legitimately be absent -- the Gateway publishes no catalog to hold a
-    /// window at all. Upstream says the numerator alone then (`12k`,
+    /// legitimately be absent -- no catalog has been read yet, the provider has
+    /// none to read, or the row for the model publishes no window (a Gateway
+    /// row without `context_window`). Upstream says the numerator alone then (`12k`,
     /// `render.zig:441-452`), which reports exactly the measurement that was
     /// taken; a row that invented the missing window as a zero would report one
     /// nobody took. `super::shell`'s `context_meter` is where the two are put
@@ -276,6 +284,9 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
         }
     }
     push(&mut segments, model);
+    if let Some(effort) = hint.effort {
+        push(&mut segments, effort.to_string());
+    }
     if let Some(title) = hint.session_title {
         push(&mut segments, title.to_string());
     }
@@ -355,6 +366,7 @@ mod tests {
             queued: 0,
             mode: PermissionMode::Ask,
             model: "anthropic/claude-opus-4-7",
+            effort: None,
             session_title: None,
             context_used: None,
             workspace: None,
@@ -701,6 +713,13 @@ mod tests {
         );
         // Each is its own: none of them on is the row it always was.
         assert_eq!(row(&self::hint(), 120), "ask \u{b7} opus 4-7");
+        // The effort right after the model, before them all
+        // (`appendSessionStatusSegments`, `render.zig:390-393`;
+        // `fx-model-40x120-speed-enter`: `auto · gpt-6-astra · low · ⚡︎`).
+        let mut effort = self::hint();
+        effort.effort = Some("low");
+        effort.session_title = Some("t");
+        assert_eq!(row(&effort, 120), "ask \u{b7} opus 4-7 \u{b7} low \u{b7} t");
         let mut only = self::hint();
         only.workspace = Some(("/w", None));
         assert_eq!(row(&only, 120), "ask \u{b7} opus 4-7 \u{b7} /w");
@@ -708,8 +727,8 @@ mod tests {
 
     #[test]
     fn a_window_nobody_published_leaves_the_numerator_on_its_own() {
-        // `render.zig:448-451`: `{used}k` when the window is unknown -- the
-        // Gateway's case, which publishes no catalog -- and no percentage of a
+        // `render.zig:448-451`: `{used}k` when the window is unknown -- no
+        // catalog read, or a row that publishes none -- and no percentage of a
         // window nobody stated.
         let mut hint = hint();
         hint.context_used = Some((12_345, None));

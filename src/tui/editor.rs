@@ -153,6 +153,13 @@ impl Editor {
         &self.text[..self.cursor]
     }
 
+    /// Whether the caret is after the last character: a yes or a no, which is
+    /// all `/model`'s inline column asks (`super::model_column`), and nothing a
+    /// caller could do arithmetic on.
+    pub(crate) fn caret_at_end(&self) -> bool {
+        self.cursor == self.text.len()
+    }
+
     /// Inserts `text` at the caret, or refuses it whole.
     ///
     /// `None` is the byte budget: the composer keeps exactly the text it had,

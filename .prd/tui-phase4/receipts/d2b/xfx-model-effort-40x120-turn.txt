@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-dc0c137 [debug] · Run /help for commands
+
+* Switched to zai/glm-5.2 (effort: low, speed: normal)
+
+┃ say something
+
+  MARKER-EFFORT-TURN
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · glm-5.2 · low
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

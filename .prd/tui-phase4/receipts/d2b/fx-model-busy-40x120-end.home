@@ -1,0 +1,6 @@
+== ./.fx/backups/settings.json.backup.1791316928225-0000000000000001-a72d811a04f11c0499979256527384ce
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+== ./.fx/settings.json
+{"models":{"gateway":"xai/grok-4.7"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+

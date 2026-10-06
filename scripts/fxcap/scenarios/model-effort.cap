@@ -1,0 +1,50 @@
+# The effort column making the change, for a model with levels and no Fast --
+# the one shape fx commits from that column -- and the turn it is sent with;
+# the explicit form, applied and refused; and a typed `/model <id> <more>`,
+# whose space is the column's (the change, then the rest as a prompt).
+models models-effort.json
+gateway effort-turns.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Space
+wait 0.8
+type glm
+key Enter
+wait 0.4
+snap glm-enter
+key Down
+wait 0.3
+snap glm-down
+key Enter
+wait 1.2
+snap commit
+home after-commit
+type say something
+key Enter
+wait 2.5
+snap turn
+paste /model zai/glm-5.2 high
+wait 0.6
+key Enter
+wait 1.2
+snap explicit-ok
+home after-explicit
+paste /model fake/model-a high
+wait 0.6
+key Enter
+wait 1.2
+snap explicit-bad
+key C-u
+wait 0.3
+type /model fake/model-a
+key Space
+wait 0.6
+type high
+key Enter
+wait 2.5
+snap trap
+home end
+gwlog

@@ -15,8 +15,12 @@
 //!    a previously operator-chosen endpoint and never a compiled default.
 //!
 //! **Atomicity scope:** File replacement is atomic (stage + rename), so a reader
-//! never sees a half-written file. However, the read-modify-write transaction is
-//! NOT atomic: concurrent `xfx setup` invocations are last-writer-wins and may
+//! never sees a half-written file. A **preference** write
+//! ([`write_preferences`]) is also a serialized transaction: its read, change
+//! and rename happen under an in-process mutex and upstream's cross-process
+//! `settings.lock`, so two writers of different keys both survive. `xfx
+//! setup`'s transaction (read in `prepare`, written in `commit`) does not take
+//! that lock: concurrent `xfx setup` invocations are last-writer-wins and may
 //! lose the other setup's `models{}` or `llmux_url` updates. Recovery is simple:
 //! re-run `xfx setup` to overwrite with the intended configuration.
 
@@ -156,34 +160,152 @@ pub fn document_for(existing: Map<String, Value>, selection: &Selection<'_>) -> 
 /// xfx cannot parse is an error rather than an empty object that would be
 /// written over it, and the replacement is the profile's own staged, owner-only
 /// rename. The bytes are pretty JSON and a newline, the same serializer
-/// [`document_for`] uses.
+/// [`document_for`] uses. The whole of it is one transaction under
+/// [`SettingsLock`] -- and this process's own writers queue for it -- so a key
+/// another writer set in between is never lost; a lock another process holds
+/// past two seconds is a failure (`WouldBlock`) rather than a write.
 ///
 /// An empty `key_path` names no key and is refused before anything is read.
 pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
-    let Some((last, parents)) = key_path.split_last() else {
+    write_preferences(path, &[(key_path, value)])
+}
+
+/// [`write_preference`] for several keys, as **one** read and one rename.
+///
+/// What a change that is one decision but two keys needs -- `/model`'s effort
+/// column sets the model and the effort together -- so that a reader never sees
+/// one without the other, and so the two cost one transaction rather than two.
+/// Every key path is checked before anything is read.
+pub fn write_preferences(path: &Path, preferences: &[(&[&str], Value)]) -> io::Result<()> {
+    write_preferences_within(path, preferences, SETTINGS_LOCK_DEADLINE)
+}
+
+/// [`write_preferences`], waiting at most `deadline` for another process's
+/// `settings.lock`.
+fn write_preferences_within(
+    path: &Path,
+    preferences: &[(&[&str], Value)],
+    deadline: std::time::Duration,
+) -> io::Result<()> {
+    if preferences.iter().any(|(key_path, _)| key_path.is_empty()) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "a preference needs a key",
         ));
-    };
-    let mut document = read_existing(path)?;
-    let mut object = &mut document;
-    for key in parents {
-        let slot = object
-            .entry((*key).to_string())
-            .or_insert_with(|| Value::Object(Map::new()));
-        if !slot.is_object() {
-            *slot = Value::Object(Map::new());
-        }
-        object = slot
-            .as_object_mut()
-            .expect("the slot was made an object above");
     }
-    object.insert((*last).to_string(), value);
+    // The whole transaction, read to rename, under both locks: this process's
+    // first, so two threads here queue on a mutex rather than spinning on a
+    // file lock, and then the one every other process honours.
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, deadline)?;
+    let mut document = read_existing(path)?;
+    for (key_path, value) in preferences {
+        let (last, parents) = key_path
+            .split_last()
+            .expect("every key path was checked above");
+        let mut object = &mut document;
+        for key in parents {
+            let slot = object
+                .entry((*key).to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if !slot.is_object() {
+                *slot = Value::Object(Map::new());
+            }
+            object = slot
+                .as_object_mut()
+                .expect("the slot was made an object above");
+        }
+        object.insert((*last).to_string(), value.clone());
+    }
     let mut body = serde_json::to_string_pretty(&Value::Object(document))
         .expect("a settings object is always serializable");
     body.push('\n');
     write_document(path, body.as_bytes())
+}
+
+/// How long a settings write waits for another process's `settings.lock`
+/// before it gives up: upstream's two seconds (`settings_store.zig:19`).
+const SETTINGS_LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// How long a write sleeps between two looks at a held `settings.lock`
+/// (`acquireTimedAdvisoryLockControlled`, `io.zig:872-896`: ten milliseconds).
+#[cfg(unix)]
+const SETTINGS_LOCK_RETRY: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// The name of the lock beside the settings file, upstream's
+/// (`settings_store.zig:491`).
+const SETTINGS_LOCK_FILE: &str = "settings.lock";
+
+/// One preference writer at a time **in this process**.
+///
+/// The TUI has two: `/statusline` on the thread holding the terminal and
+/// `/model` on the runtime thread, and each is a read, a change and a rename.
+/// Interleaved, the later rename puts back a document read before the earlier
+/// one landed and the earlier key is lost. The file lock below would serialize
+/// them too -- `flock` is per open file description -- but a mutex makes the
+/// second thread wait its turn instead of polling the file every ten
+/// milliseconds.
+static WRITERS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `settings.lock`, held for one read-modify-write of the settings file
+/// against **other processes**: a second xfx, or upstream on a home they share
+/// the shape of.
+///
+/// Upstream's discipline (`acquireTimedAdvisoryLock`, `io.zig:780-896`): a
+/// private file beside the settings, never followed through a link, locked
+/// exclusively and without blocking, retried every ten milliseconds until a
+/// deadline, and a failure -- not a wait for ever -- after it. Released by the
+/// kernel when the file closes, so a write that panics or a process that dies
+/// cannot leave it held. It is advisory: it stops writers that ask, which is
+/// every writer of this file this module knows of.
+struct SettingsLock {
+    #[cfg(unix)]
+    _file: fs::File,
+}
+
+impl SettingsLock {
+    #[cfg(unix)]
+    fn acquire(dir: &Path, deadline: std::time::Duration) -> io::Result<Self> {
+        use rustix::fs::{flock, FlockOperation};
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(PRIVATE_MODE)
+            // A link planted where the lock goes is refused rather than
+            // followed to a file somebody else chose.
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(dir.join(SETTINGS_LOCK_FILE))?;
+        let started = std::time::Instant::now();
+        loop {
+            match flock(&file, FlockOperation::NonBlockingLockExclusive) {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(rustix::io::Errno::WOULDBLOCK) if started.elapsed() < deadline => {
+                    std::thread::sleep(SETTINGS_LOCK_RETRY.min(deadline));
+                }
+                Err(rustix::io::Errno::WOULDBLOCK) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "another process is writing the settings file (settings.lock is held)",
+                    ));
+                }
+                Err(err) => return Err(io::Error::from(err)),
+            }
+        }
+    }
+
+    /// No `flock` to take: the in-process mutex is all there is.
+    #[cfg(not(unix))]
+    fn acquire(dir: &Path, deadline: std::time::Duration) -> io::Result<Self> {
+        let _ = (dir, deadline);
+        Ok(Self {})
+    }
 }
 
 /// Writes `document` to `path` with the profile's own discipline.
@@ -849,6 +971,129 @@ mod tests {
             fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn two_writers_of_different_keys_at_once_both_survive() {
+        // The TUI has two settings writers on two threads -- `/statusline` on
+        // the one holding the terminal, `/model` on the runtime -- and each is
+        // a read, a change and a rename. Unserialized, the second rename
+        // replaces a document read before the first one landed, and the first
+        // key is gone. Many rounds, because a lost update is a race and one
+        // round can be lucky.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+        let writers: Vec<_> = (0..8)
+            .map(|writer| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for round in 0..25 {
+                        let key = format!("writer{writer}");
+                        write_preference(&path, &[&key, &format!("round{round}")], json!(round))
+                            .expect("write");
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().expect("a writer panicked");
+        }
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        for writer in 0..8 {
+            for round in 0..25 {
+                assert_eq!(
+                    written[format!("writer{writer}")][format!("round{round}")],
+                    json!(round),
+                    "writer {writer} lost round {round}: {written}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_waits_for_another_process_holding_the_settings_lock() {
+        // Upstream's `settings.lock` beside the file (`settings_store.zig:491`,
+        // `acquireTimedAdvisoryLock`): what keeps a second xfx -- or upstream
+        // itself, on a shared home -- from writing between this one's read and
+        // its rename. `flock` is per open file description, so a second open in
+        // this process stands in for another process exactly.
+        use rustix::fs::{flock, FlockOperation};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{}\n").expect("seed");
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.path().join("settings.lock"))
+            .expect("open the lock");
+        flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold the lock");
+
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || write_preference(&path, &["effort"], json!("low")))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{}\n",
+            "the write went through a lock another process holds"
+        );
+        drop(held);
+        writer.join().expect("the writer panicked").expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written, json!({"effort": "low"}));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_held_past_the_deadline_is_a_failure_rather_than_a_wait_for_ever() {
+        use rustix::fs::{flock, FlockOperation};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.path().join("settings.lock"))
+            .expect("open the lock");
+        flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold the lock");
+        let err = write_preferences_within(
+            &path,
+            &[(&["effort"], json!("low"))],
+            std::time::Duration::from_millis(50),
+        )
+        .expect_err("a held lock is not waited out for ever");
+        assert_eq!(err.kind(), io::ErrorKind::WouldBlock, "{err}");
+        assert!(!path.exists(), "the write happened anyway");
+    }
+
+    #[test]
+    fn several_preferences_are_one_write() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{\"theme\":\"dark\"}").expect("seed");
+        write_preferences(
+            &path,
+            &[
+                (&["models", "gateway"], json!("openai/gpt-6-astra")),
+                (&["effort"], json!("low")),
+            ],
+        )
+        .expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"theme": "dark", "models": {"gateway": "openai/gpt-6-astra"}, "effort": "low"})
+        );
+        let err = write_preferences(&path, &[(&[], json!(true))]).expect_err("no key");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]

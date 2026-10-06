@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-dc0c137 [debug] · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)
+
+* Switched to nonexistent-xyz (effort: default, speed: normal)
+
+┃
+
+auto · nonexistent-xyz
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

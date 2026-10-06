@@ -34,8 +34,14 @@ use protocol::{Completion, CompletionRequest, ProtocolError};
 use sse::{SseError, SseReader};
 
 /// The Vercel AI Gateway completion endpoint
-/// (`vercel-labs/fx@580a0c5d src/builtins/gateway.zig:41`).
-pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v3/ai/language-model";
+/// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:47`).
+///
+/// **The v4 route, not v3**: upstream moved there in `09ec38c2` ("so reasoning
+/// effort settings are applied instead of dropped by the v3 route"), and the
+/// request and its stream are otherwise the same shape -- the commit changes
+/// the URL and nothing it sends or reads. xfx already announced specification
+/// version 4 in its headers ([`GatewayProvider`]'s `headers`).
+pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v4/ai/language-model";
 
 /// The environment variable that overrides the endpoint.
 ///
@@ -648,6 +654,16 @@ pub trait Provider {
         request: &CompletionRequest,
         deltas: &mut dyn DeltaSink,
     ) -> Result<Completion, ProviderError>;
+
+    /// What every request from now on asks for beside its prompt
+    /// ([`protocol::RequestOptions`]), until it is set again.
+    ///
+    /// Defaulted to ignoring them, which is the honest answer for a provider
+    /// with no way to send one: a scripted test provider, or a wire that has no
+    /// field for it. The two real wires each override it.
+    fn set_options(&self, options: protocol::RequestOptions) {
+        let _ = options;
+    }
 }
 
 /// Streams completions from the Vercel AI Gateway over HTTPS.
@@ -656,6 +672,11 @@ pub struct GatewayProvider {
     endpoint: Endpoint,
     credential: Credential,
     cancel: CancelToken,
+    /// What the session asks of every request ([`Provider::set_options`]).
+    /// A lock rather than a cell because the bundle is built on one thread and
+    /// may be driven from another; it is held for a clone and never across an
+    /// `await`.
+    options: std::sync::Mutex<protocol::RequestOptions>,
 }
 
 impl GatewayProvider {
@@ -669,7 +690,17 @@ impl GatewayProvider {
             endpoint,
             credential,
             cancel,
+            options: std::sync::Mutex::new(protocol::RequestOptions::default()),
         })
+    }
+
+    /// The options in force, taken past a poisoned lock: the value is a plain
+    /// copy that no panic can leave half-written.
+    fn options(&self) -> protocol::RequestOptions {
+        self.options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// The fixed headers every completion request carries.
@@ -738,10 +769,12 @@ impl Provider for GatewayProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = request.body().map_err(|source| ProviderError::Request {
-            subject: GATEWAY_SUBJECT,
-            source,
-        })?;
+        let body = request
+            .body_with(&self.options())
+            .map_err(|source| ProviderError::Request {
+                subject: GATEWAY_SUBJECT,
+                source,
+            })?;
         let headers = self.headers(&request.model)?;
 
         let response = self
@@ -802,6 +835,13 @@ impl Provider for GatewayProvider {
             }
         }
         Ok(reader.finish()?)
+    }
+
+    fn set_options(&self, options: protocol::RequestOptions) {
+        *self
+            .options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = options;
     }
 }
 

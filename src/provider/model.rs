@@ -88,7 +88,46 @@ pub enum CatalogError {
     /// Its own variant because the three above send the operator to a local
     /// daemon and `xfx setup llmux`, which is the wrong place to look when the
     /// catalog is a remote endpoint behind a key.
-    Gateway { detail: String },
+    ///
+    /// `retry` says whether asking again could answer differently, and what
+    /// `/model`'s menu then says ([`CatalogRetry`]); `None` is a failure a
+    /// retry would only repeat -- a refused key, a body that is not a catalog.
+    Gateway {
+        detail: String,
+        retry: Option<CatalogRetry>,
+    },
+}
+
+/// A catalog failure worth asking again about, by upstream's categories
+/// (`failureForHttpStatus`, `model_catalog.zig:72-92`, and the transport rows
+/// of its table at `:736`, `c1db919`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogRetry {
+    /// HTTP 429.
+    RateLimited,
+    /// Nothing answered, or the Gateway answered 500, 502, 503 or 504.
+    Unreachable,
+}
+
+impl CatalogRetry {
+    /// What `/model`'s menu says in place of `Unable to load models.`
+    /// (`retryableFailureText`, `model_menu_presentation.zig:435-443`).
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::RateLimited => "AI Gateway rate limited model discovery; retry /model.",
+            Self::Unreachable => "Could not reach AI Gateway; retry /model.",
+        }
+    }
+
+    /// The category of an HTTP status the catalog answered with, when asking
+    /// again could change it.
+    pub fn for_status(status: u16) -> Option<Self> {
+        match status {
+            429 => Some(Self::RateLimited),
+            500 | 502 | 503 | 504 => Some(Self::Unreachable),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for CatalogError {
@@ -112,7 +151,7 @@ impl fmt::Display for CatalogError {
                     detail
                 )
             }
-            Self::Gateway { detail } => {
+            Self::Gateway { detail, .. } => {
                 write!(f, "the Gateway's model catalog is unavailable: {detail}")
             }
         }
@@ -720,6 +759,31 @@ pub fn resolve_model_query<'a>(
     best.map(|(id, _)| id)
 }
 
+/// What `query` names among `ordered`, a catalog already in [`picker_order`]:
+/// the whole of `/model <query>`'s rule (`resolveModelQuery`,
+/// `session_commands.zig:1147-1166`) once a catalog is in hand.
+///
+/// An alias spelled exactly is kept as typed, because the provider resolves its
+/// own short names; otherwise the id the query names ignoring case, else the
+/// best fuzzy match ([`resolve_model_query`]), else the query itself.
+///
+/// Public because **two threads ask it**: the selector, which owns the
+/// catalog, and the TUI's band, which holds the rows the runtime sent it and
+/// has to say at once which model the next turn will use
+/// (`crate::tui::shell`). One rule, so the band cannot announce one id while
+/// the runtime applies another.
+pub fn resolve_in_order(ordered: &[CatalogEntry], query: &str) -> String {
+    if ordered
+        .iter()
+        .any(|entry| entry.aliases.iter().any(|alias| alias == query))
+    {
+        return query.to_string();
+    }
+    resolve_model_query(ordered.iter().map(|entry| entry.id.as_str()), query)
+        .unwrap_or(query)
+        .to_string()
+}
+
 /// Fetches a bounded response from a loopback URL with short timeouts and no proxy/redirects.
 ///
 /// Used by both catalog fetching and setup probing. The timeouts are the point:
@@ -858,7 +922,10 @@ impl ModelCatalog for GatewayCatalog {
     /// host the key is replayed to. The system proxy is honoured, as it is for
     /// a turn: reaching a remote endpoint may need one.
     async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
-        let failed = |detail: String| CatalogError::Gateway { detail };
+        let failed = |detail: String| CatalogError::Gateway {
+            detail,
+            retry: None,
+        };
         let client = reqwest::Client::builder()
             .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
             .timeout(GATEWAY_CATALOG_TIMEOUT)
@@ -876,10 +943,18 @@ impl ModelCatalog for GatewayCatalog {
             .header(reqwest::header::AUTHORIZATION, authorization)
             .send()
             .await
-            .map_err(|err| failed(err.to_string()))?;
+            // Nothing answered: upstream's `transport`, which it asks again
+            // about.
+            .map_err(|err| CatalogError::Gateway {
+                detail: err.to_string(),
+                retry: Some(CatalogRetry::Unreachable),
+            })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(failed(format!("HTTP {}", status.as_u16())));
+            return Err(CatalogError::Gateway {
+                detail: format!("HTTP {}", status.as_u16()),
+                retry: CatalogRetry::for_status(status.as_u16()),
+            });
         }
         let body = read_bounded(response, MAX_CATALOG_BODY_BYTES).await;
         // An empty list is an answer, not a failure: upstream's menu says
@@ -996,6 +1071,13 @@ pub enum ModelRequest<'a> {
     Report,
     /// `/model <id>`.
     Select(&'a str),
+    /// This id, exactly as written: a row a picker named, an id the explicit
+    /// form spelled, or a query a front end already resolved by
+    /// [`resolve_in_order`]. Never resolved again -- upstream's
+    /// `selectModelFromPicker` takes the literal id (`session_commands.zig:
+    /// 886-915`), and a second resolution could fuzzy-match an id nothing
+    /// lists to one that is listed, which is not the model anybody named.
+    Exact(&'a str),
 }
 
 /// The most catalog rows a caller renders in one go, matching `list_files`'
@@ -1035,6 +1117,9 @@ pub struct ModelSelector {
     source: SettingSource,
     catalog_fetcher: Option<Box<dyn ModelCatalog>>,
     catalog_state: CatalogState,
+    /// Whether the failure [`CatalogState::Failed`] holds is one asking again
+    /// could change, and how the menu says so. `None` beside any other state.
+    failure_retry: Option<CatalogRetry>,
 }
 
 impl ModelSelector {
@@ -1054,6 +1139,7 @@ impl ModelSelector {
             source: config.sources.model,
             catalog_fetcher,
             catalog_state,
+            failure_retry: None,
         }
     }
 
@@ -1090,10 +1176,50 @@ impl ModelSelector {
         match fetcher.fetch().await {
             Ok(entries) => self.catalog_state = CatalogState::Loaded(entries),
             Err(err) => {
+                self.failure_retry = match &err {
+                    CatalogError::Gateway { retry, .. } => *retry,
+                    _ => None,
+                };
                 self.catalog_state = CatalogState::Failed(err.to_string());
             }
         }
         &self.catalog_state
+    }
+
+    /// Lets the next [`ensure_catalog`](Self::ensure_catalog) ask again after
+    /// a load that failed.
+    ///
+    /// **Only `/model` calls this** -- opening its menu or its column, or
+    /// resolving a query typed with no catalog in hand -- because that is the
+    /// gesture upstream's failure text names (`retry /model.`): an operator who
+    /// was told the catalog could not be read and asks for it again. Nothing
+    /// else retries: a turn that wants the catalog for its effort takes the
+    /// failure as it stands rather than spending a request on every prompt
+    /// against a Gateway that is down.
+    pub fn retry_after_failure(&mut self) {
+        if matches!(self.catalog_state, CatalogState::Failed(_)) {
+            self.catalog_state = CatalogState::NotLoaded;
+            self.failure_retry = None;
+        }
+    }
+
+    /// Whether the failure the catalog is in is worth asking again about
+    /// ([`CatalogRetry`]); `None` for any other state.
+    pub fn failure_retry(&self) -> Option<CatalogRetry> {
+        if matches!(self.catalog_state, CatalogState::Failed(_)) {
+            self.failure_retry
+        } else {
+            None
+        }
+    }
+
+    /// The loaded catalog's row for `model`, if it lists one: by id, or by an
+    /// alias, which a llmux model is often selected by.
+    pub fn entry(&self, model: &str) -> Option<&CatalogEntry> {
+        let CatalogState::Loaded(entries) = &self.catalog_state else {
+            return None;
+        };
+        entries.iter().find(|entry| entry.matches(model))
     }
 
     /// Applies one `/model` request and returns what the caller must render.
@@ -1105,14 +1231,17 @@ impl ModelSelector {
                 model: self.model.clone(),
                 source: self.source,
             },
-            ModelRequest::Select(query) => {
+            ModelRequest::Select(query) | ModelRequest::Exact(query) => {
                 // Validate the id before doing anything else.
                 if let Some(problem) = model_id_problem(query) {
                     return ModelOutcome::Refused {
                         reason: problem.to_string(),
                     };
                 }
-                let id = self.resolve(query);
+                let id = match request {
+                    ModelRequest::Exact(id) => id.to_string(),
+                    _ => self.resolve(query),
+                };
 
                 // If already the current model, say so.
                 if id == self.model {
@@ -1160,16 +1289,7 @@ impl ModelSelector {
         let CatalogState::Loaded(entries) = &self.catalog_state else {
             return query.to_string();
         };
-        if entries
-            .iter()
-            .any(|entry| entry.aliases.iter().any(|alias| alias == query))
-        {
-            return query.to_string();
-        }
-        let ordered = picker_order(entries);
-        resolve_model_query(ordered.iter().map(|entry| entry.id.as_str()), query)
-            .unwrap_or(query)
-            .to_string()
+        resolve_in_order(&picker_order(entries), query)
     }
 
     #[cfg(test)]
@@ -1180,6 +1300,7 @@ impl ModelSelector {
             source,
             catalog_fetcher: None,
             catalog_state: CatalogState::Unavailable,
+            failure_retry: None,
         }
     }
 
@@ -1194,6 +1315,17 @@ impl ModelSelector {
     #[cfg(test)]
     pub(crate) fn set_catalog_for_test(&mut self, state: CatalogState) {
         self.catalog_state = state;
+    }
+
+    /// A catalog this selector *asks* -- one a test wrote -- in place of the
+    /// provider's, with nothing loaded yet. For the worker's tests of what a
+    /// load that fails or succeeds is told to the UI as; `#[cfg(test)]` like
+    /// [`Self::set_catalog_for_test`], so no binary can reach it.
+    #[cfg(test)]
+    pub(crate) fn set_fetcher_for_test(&mut self, fetcher: Box<dyn ModelCatalog>) {
+        self.catalog_fetcher = Some(fetcher);
+        self.catalog_state = CatalogState::NotLoaded;
+        self.failure_retry = None;
     }
 }
 
@@ -1272,8 +1404,9 @@ mod tests {
                     CatalogError::Malformed { detail } => CatalogError::Malformed {
                         detail: detail.clone(),
                     },
-                    CatalogError::Gateway { detail } => CatalogError::Gateway {
+                    CatalogError::Gateway { detail, retry } => CatalogError::Gateway {
                         detail: detail.clone(),
+                        retry: *retry,
                     },
                 }),
             }
@@ -1641,9 +1774,132 @@ mod tests {
         assert_eq!(count_after_second, count_after_first);
     }
 
+    #[test]
+    fn an_exact_request_is_applied_as_written_and_never_resolved_again() {
+        // The explicit form's literal id (`fx-model3-40x120-paste-short-id`
+        // refuses `claude-opus-5` rather than resolving it), and an id a
+        // front end already resolved, are not queries: resolved again, an id
+        // nothing lists would be fuzzy-matched to one that is listed.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Loaded(vec![entry(
+            "anthropic/claude-opus-5",
+            &[],
+        )]));
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("claude-opus")),
+            ModelOutcome::Selected { model, .. } if model == "anthropic/claude-opus-5"
+        ));
+        assert!(matches!(
+            selector.apply(ModelRequest::Exact("claude-opus")),
+            ModelOutcome::Selected { model, .. } if model == "claude-opus"
+        ));
+        assert!(matches!(
+            selector.apply(ModelRequest::Exact("bad id")),
+            ModelOutcome::Refused { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_gateway_failure_says_whether_asking_again_could_help() {
+        // `failureForHttpStatus` (`model_catalog.zig:72-92`): a rate limit and
+        // the four transient 5xx are retryable; a refused key, any other
+        // status and a 5xx upstream does not retry are not.
+        for (status, retry) in [
+            (429, Some(CatalogRetry::RateLimited)),
+            (500, Some(CatalogRetry::Unreachable)),
+            (502, Some(CatalogRetry::Unreachable)),
+            (503, Some(CatalogRetry::Unreachable)),
+            (504, Some(CatalogRetry::Unreachable)),
+            (501, None),
+            (401, None),
+            (403, None),
+            (400, None),
+        ] {
+            assert_eq!(CatalogRetry::for_status(status), retry, "HTTP {status}");
+        }
+        let (url, server) = one_exchange(
+            "HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                .to_string(),
+        );
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&url)).expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        assert!(matches!(
+            catalog.fetch().await,
+            Err(CatalogError::Gateway {
+                retry: Some(CatalogRetry::Unreachable),
+                ..
+            })
+        ));
+        server.join().expect("the server");
+        // Nothing listening is upstream's `transport`, which it retries.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = closed.local_addr().expect("addr").port();
+        drop(closed);
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&format!(
+                "http://127.0.0.1:{port}/v4/ai/language-model"
+            )))
+            .expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        assert!(matches!(
+            catalog.fetch().await,
+            Err(CatalogError::Gateway {
+                retry: Some(CatalogRetry::Unreachable),
+                ..
+            })
+        ));
+        // Upstream's sentences (`model_menu_presentation.zig:435-443`).
+        assert_eq!(
+            CatalogRetry::Unreachable.text(),
+            "Could not reach AI Gateway; retry /model."
+        );
+        assert_eq!(
+            CatalogRetry::RateLimited.text(),
+            "AI Gateway rate limited model discovery; retry /model."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failure_is_asked_again_only_when_model_asks_for_it() {
+        // `retry /model.` is what upstream tells an operator whose catalog
+        // could not be read, so `/model` is the gesture that asks again --
+        // and nothing else does: a turn that wanted the catalog for its effort
+        // does not spend a request per prompt on a Gateway that is down.
+        let catalog = CountingCatalog::new(Err(CatalogError::Gateway {
+            detail: "HTTP 503".to_string(),
+            retry: Some(CatalogRetry::Unreachable),
+        }));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_state = CatalogState::NotLoaded;
+        selector.ensure_catalog().await;
+        assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
+        let after_first = catalog.count();
+        // `ensure_catalog` alone still asks once.
+        selector.ensure_catalog().await;
+        assert_eq!(catalog.count(), after_first);
+        // `/model` asks again.
+        selector.retry_after_failure();
+        assert!(matches!(selector.catalog(), CatalogState::NotLoaded));
+        assert_eq!(selector.failure_retry(), None);
+        selector.ensure_catalog().await;
+        assert_eq!(catalog.count(), after_first + 1);
+        // And a loaded catalog is not thrown away by it.
+        selector.catalog_state = CatalogState::Loaded(Vec::new());
+        selector.retry_after_failure();
+        assert!(matches!(selector.catalog(), CatalogState::Loaded(_)));
+    }
+
     #[tokio::test]
     async fn ensure_catalog_does_not_retry_after_failure() {
-        // A failed load is not retried within the same process.
+        // A failed load is not retried by `ensure_catalog` within the same
+        // process: only `/model` asks again
+        // (`a_failure_is_asked_again_only_when_model_asks_for_it`).
         let catalog = CountingCatalog::new(Err(CatalogError::Empty));
         let initial_count = catalog.count();
 
@@ -2042,7 +2298,11 @@ mod tests {
             credential_for_test("fake-key-not-real"),
         );
         match catalog.fetch().await {
-            Err(CatalogError::Gateway { detail }) => assert_eq!(detail, "HTTP 307"),
+            // A redirect is not a failure asking again would change.
+            Err(CatalogError::Gateway {
+                detail,
+                retry: None,
+            }) => assert_eq!(detail, "HTTP 307"),
             other => panic!("expected a refusal to follow, got {other:?}"),
         }
         server.join().expect("the server");

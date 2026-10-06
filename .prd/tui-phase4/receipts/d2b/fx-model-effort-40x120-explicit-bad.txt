@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* Switched to zai/glm-5.2 (effort: low, speed: normal)
+
+┃ say something
+
+  MARKER-EFFORT-TURN
+
+  0s (↑4 ↓40)
+
+* Switched to zai/glm-5.2 (effort: high, speed: normal)
+
+✗ usage: /model <id> <effort> [normal|fast|ultrafast]
+
+┃ /model fake/model-a high
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+         no matching models
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · glm-5.2 · high
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

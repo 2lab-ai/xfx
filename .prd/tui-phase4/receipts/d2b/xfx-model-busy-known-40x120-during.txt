@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-dc0c137 [debug] · Run /help for commands
+
+┃ say something
+
+  MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15
+  word16
+
+* Next turn will use xai/grok-4.7 (effort: default, speed: normal)
+
+  Generating (2s) (↑4 ↓53)
+
+┃
+
+auto · grok-4.7
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

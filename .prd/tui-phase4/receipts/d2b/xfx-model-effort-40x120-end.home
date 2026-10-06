@@ -1,0 +1,9 @@
+== ./.xfx/settings.json
+{
+  "effort": "high",
+  "models": {
+    "gateway": "fake/model-a"
+  },
+  "provider": "gateway"
+}
+

@@ -29,7 +29,7 @@ pub mod sse;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
-use crate::gateway::protocol::{Completion, CompletionRequest};
+use crate::gateway::protocol::{Completion, CompletionRequest, RequestOptions};
 use crate::gateway::{
     build_loopback_client, is_retryable_status, parse_retry_after, read_bounded, transport_failure,
     CancelToken, DeltaSink, Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError,
@@ -91,6 +91,9 @@ pub struct LlmuxProvider {
     /// The daemon's base URL, without a trailing slash.
     base: String,
     cancel: CancelToken,
+    /// What the session asks of every request ([`Provider::set_options`]),
+    /// held as the Gateway's provider holds it.
+    options: std::sync::Mutex<RequestOptions>,
 }
 
 impl LlmuxProvider {
@@ -99,6 +102,7 @@ impl LlmuxProvider {
             client: build_loopback_client(SUBJECT)?,
             base: trim_base(endpoint.url()),
             cancel,
+            options: std::sync::Mutex::new(RequestOptions::default()),
         })
     }
 
@@ -149,10 +153,16 @@ impl Provider for LlmuxProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = protocol::body(request).map_err(|source| ProviderError::Request {
-            subject: SUBJECT,
-            source,
-        })?;
+        let options = self
+            .options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let body =
+            protocol::body_with(request, &options).map_err(|source| ProviderError::Request {
+                subject: SUBJECT,
+                source,
+            })?;
 
         let response = self
             .client
@@ -209,6 +219,13 @@ impl Provider for LlmuxProvider {
             }
         }
         Ok(reader.finish()?)
+    }
+
+    fn set_options(&self, options: RequestOptions) {
+        *self
+            .options
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = options;
     }
 }
 
