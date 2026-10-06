@@ -34,7 +34,7 @@
     [38;5;245m2[39m  Apply + allow future writes to this file for this session
     [38;5;245m3[39m  Don't apply
   [38;5;245m2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later[39m
-  [38;5;245m`xfx ask --resume-id 1791312514901-b42f09203773ed63` of this saved session[39m
+  [38;5;245m`xfx ask --resume-id 1791315580159-cd07388fc4a00721` of this saved session[39m
 
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [39m  [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m

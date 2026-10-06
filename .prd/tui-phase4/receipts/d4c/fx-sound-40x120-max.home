@@ -1,6 +1,0 @@
-== ./.fx/backups/settings.json.backup.1791312484568-0000000000000001-2b1f5feec950327f955c966cd55a4a66
-{"notifications":{"turn_end":true,"attention_required":true,"max":false}}
-
-== ./.fx/settings.json
-{"notifications":{"turn_end":true,"attention_required":true,"max":true}}
-

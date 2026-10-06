@@ -17,18 +17,21 @@ turn, then a turn that asks to write `c.txt` (answered `1`), then `/sound off`
 and a last turn. `scenarios/sound-default.cap` starts both with nothing setting
 the level and types one `/sound`.
 
-The xfx binary is `target/debug/xfx`, built from this branch after
-`plan/tui-phase4` (fbfaf4c) was merged into it; its banner shows `4b7264f`,
-the commit before that merge. The captures were retaken on the merged tree,
-with plan's `home` verb for the settings dumps; an earlier set taken before
-the merge, with a `files` verb of this unit's own, said the same thing row for
-row and bell for bell.
+The xfx binary is `target/debug/xfx`, built from this branch with
+`plan/tui-phase4` (f7d6118) merged into it; its banner shows `7527225`, that
+merge. Every capture here was retaken on that tree. Two earlier sets were taken
+before the merges, one with a `files` verb of this unit's own and one with
+plan's `home` at fbfaf4c. Both said the same thing as this one, row for row and
+bell for bell, apart from the banner and the session id in the approval's scope
+sentence.
 
 ## What was added to capture.sh
 
-- The settings file after each write is read with plan's `home <label>` verb
-  (`<bin>-<scenario>-<size>-<label>.home`: each binary's settings file, and
-  fx's backups of it).
+- The settings file after each write is read with plan's `home <label>` verb.
+  On this tree it writes `<bin>-<scenario>-<size>-<label>.files`: every file
+  under HOME, with its path, its size and its bytes, and the run's directory
+  written as `<scratch>`. plan's capture.sh has two `home)` arms, and bash
+  takes the first; the second, which wrote `.home`, cannot be reached.
 - `bells <label>`: the number of terminal bells the pane has rung so far, and
   the number of tmux clients attached, to `<bin>-<scenario>-<size>-<label>.bells`.
   The count comes from a tmux `alert-bell` hook that capture.sh now sets on
@@ -36,7 +39,13 @@ row and bell for bell.
   was probed on tmux 3.7b with a pane that printed a bare `BEL`, a window title
   (`ESC ] 2 ; title BEL`), and a second bare `BEL`. The hook counted 2, so a
   title's terminator is not counted. The probe also showed `bell-action any`,
-  `monitor-bell on` and no clients attached.
+  `monitor-bell on` and no clients attached. The hook is set on a server
+  started for it, before the session that runs the binary
+  (`start-server ; set-hook ; new-session` in one tmux command). fx rings its
+  start-up cue as soon as it is up, and in one run, with the hook set after
+  `new-session`, that bell came before the hook existed and was not counted.
+  The same probe, with a pane that rang at once, counted 2 of 2 with the hook
+  set first.
 - A header paragraph about fx's player. fx plays its cues through
   `/usr/bin/afplay` by absolute path, so the PATH shim for `afplay` does not
   intercept it. Both scenarios set `fx: env TMPDIR=/var/empty`, a directory fx
@@ -53,9 +62,10 @@ attached: `clients=0` in every `.bells` file here. A bell also changes no cell,
 so the screens are the same either way. Each scenario sets the start level
 itself where it matters (`xfx: env XFX_SOUND=off` in `sound.cap`).
 
-Sanitized: no scratch path appears in any `.txt`, `.ansi`, `.bells` or `.home`
-file (checked with `grep` for `/private/`, `/var/folders` and `fxcap.`), so
-nothing was replaced.
+Sanitized: the `home` verb writes the run directory as `<scratch>` in the
+`.files` dumps. No scratch path appears in any `.txt`, `.ansi`, `.bells` or
+`.files` file (checked with `grep` for `/private/`, `/var/folders` and
+`fxcap.`).
 
 ## Per snap: the notices
 
@@ -79,10 +89,10 @@ the statusline `ask · model-a` are all identical.
 | after | fx `~/.fx/settings.json` | xfx `~/.xfx/settings.json` |
 |---|---|---|
 | `start` | none | none |
-| `bare` | `{"notifications":{"turn_end":true,"attention_required":true,"max":false}}` | `{"notifications": {"attention_required": true, "turn_end": true}}` (pretty, 2-space, trailing line break) |
+| `bare` | `{"notifications":{"turn_end":true,"attention_required":true,"max":false}}` (74 bytes) | `{"notifications": {"attention_required": true, "turn_end": true}}` (pretty, 2-space, trailing line break: 82 bytes) |
 | `on` | unchanged | unchanged values (rewritten) |
-| `max` | `{…"turn_end":true,"attention_required":true,"max":true}` | unchanged (usage, nothing written) |
-| `off` | `{…"turn_end":false,"attention_required":false,"max":false}` | `{"notifications": {"attention_required": false, "turn_end": false}}` |
+| `max` | `{…"turn_end":true,"attention_required":true,"max":true}` (73 bytes) | unchanged (usage, nothing written) |
+| `off` | `{…"turn_end":false,"attention_required":false,"max":false}` (76 bytes) | `{"notifications": {"attention_required": false, "turn_end": false}}` (84 bytes) |
 | `bare2` | `{…true,true,"max":false}` | `{…true, true}` |
 | `bogus` | unchanged | unchanged |
 | `off2` | `{…false,false,"max":false}` | `{…false, false}` |
@@ -94,13 +104,14 @@ four ways:
 - **`max` is not written by xfx.** xfx does not read it, so it does not claim
   it. A `max` already in the file is kept, because the writer sets one key at a
   time (`src/sound.rs` `a_save_writes_both_switches_and_keeps_the_rest_of_the_file`).
-- **Layout.** fx writes compact JSON. xfx writes pretty JSON with a trailing
+- **Layout.** fx writes compact JSON with no trailing line break (the sizes
+  above are the JSON's own length). xfx writes pretty JSON with a trailing
   line break, which is the document discipline `setup` already uses
   (`provider::profile::write_preference`). xfx's keys come out sorted,
   `attention_required` before `turn_end`, because `serde_json` here is built
   without `preserve_order`.
 - **Backups.** fx keeps every prior version as
-  `~/.fx/backups/settings.json.backup.<ms>-<seq>-<hash>`, as the `.home`
+  `~/.fx/backups/settings.json.backup.<ms>-<seq>-<hash>`, as the `.files`
   dumps show. xfx keeps none: its writer is a staged `0600` file and a rename.
 - **Number of writes.** xfx saves the level as two preference writes,
   `turn_end` then `attention_required`. fx writes one patch. fx also skipped

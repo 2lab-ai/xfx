@@ -164,11 +164,13 @@ $fx_model $extra_env $bin"
     launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
 $xfx_model $extra_env $bin"
   fi
-  tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
-    "cd $run/work && exec $launch"
-  # Every bell the pane rings, one line each. Set after the session starts and
-  # before any keystroke: nothing in either binary rings before it is typed at.
-  tmux -f /dev/null -S "$sock" set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'"
+  # Every bell the pane rings, one line each, for `bells`. The hook is set on a
+  # server started for it, **before** the session that runs the binary: fx
+  # rings its start-up cue as soon as it is up (`app_entry_runtime.zig:327`),
+  # and a hook set after `new-session` returned can be set after that bell.
+  tmux -f /dev/null -S "$sock" start-server \; \
+    set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
+    new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")

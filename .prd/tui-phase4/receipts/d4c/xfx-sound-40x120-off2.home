@@ -1,8 +1,0 @@
-== ./.xfx/settings.json
-{
-  "notifications": {
-    "attention_required": false,
-    "turn_end": false
-  }
-}
-
