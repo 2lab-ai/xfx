@@ -3601,7 +3601,16 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.type_bytes(b"/version\r");
     session.wait_for("version:");
     session.type_bytes(b"/model\r");
-    session.wait_for("provider=gateway");
+    // `/model`'s menu, which only it opens: its key help says `tab provider`.
+    // This fake publishes no catalog, so the menu says the load failed -- and
+    // the catalog request is not a turn ([`FakeGateway::catalog_requests`]).
+    session.wait_for("tab provider");
+    session.wait_for("Unable to load models.");
+    // Escape takes it down; the hint row painted back is what says it settled,
+    // a lone ESC being the Escape key only after 50 ms of quiet.
+    let hints = session.text().matches("glm-5.2").count();
+    session.type_bytes(&[0x1b]);
+    session.wait_for_count("glm-5.2", hints + 1);
     // Bare, so it refuses without switching anything -- which still proves the
     // name is answered by the session, and still costs the provider nothing.
     session.type_bytes(b"/setup\r");
@@ -3720,8 +3729,15 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
 
     // And the completed command runs on the next Return -- one command, one
     // Return, because the menu gets out of Enter's way rather than taking it.
+    // `/model` with nothing after it is `/model`'s own menu, whose key help
+    // only it says; Escape takes it down, which the hint row painted back
+    // shows has settled.
     session.type_bytes(b"\r");
-    session.wait_for("provider=gateway");
+    session.wait_for("tab provider");
+    session.wait_for("Unable to load models.");
+    let hints = session.text().matches("glm-5.2").count();
+    session.type_bytes(&[0x1b]);
+    session.wait_for_count("glm-5.2", hints + 1);
 
     // A partial word and a Return runs the command the menu marked for it,
     // in that one Return (`input_submit_runtime.zig:1087-1089`).
@@ -6494,26 +6510,24 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
 }
 
 #[test]
-fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_write() {
-    // Scenario 19. Four claims: the rows carry the two columns a daemon
-    // publishes, a selection is written where a restart will read it, the
-    // restart really continues in it, and the report names the layer that
-    // outranks the file it just wrote.
+fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch() {
+    // Scenario 19. Four claims: the rows carry what a daemon publishes (a
+    // window, or nothing), a choice is written where a restart will read it,
+    // the restart really continues in it, and a later setup names the layer
+    // that outranks the file it just wrote.
     use support::fake_llmux::CatalogModel;
     let catalog = support::fake_llmux::described_catalog(&[
-        CatalogModel {
-            id: "claude-fable-5[1m]",
-            aliases: &["fable"],
-            efforts: &["low", "high"],
-            max_context: Some(1_000_000),
-        },
-        // The other shape a real daemon sends: no window, no efforts. It is what
-        // makes the `unknown` and `none` columns reachable at all.
         CatalogModel {
             id: "plain-model",
             aliases: &[],
             efforts: &[],
             max_context: None,
+        },
+        CatalogModel {
+            id: "claude-fable-5[1m]",
+            aliases: &["fable"],
+            efforts: &["low", "high"],
+            max_context: Some(1_000_000),
         },
     ]);
     let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
@@ -6531,28 +6545,42 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
     });
     session.wait_for(READY);
 
-    // A bare `/model` browses. The report is painted first and without waiting
-    // for the daemon; the rows arrive from the runtime thread afterwards.
+    // A bare `/model` opens the menu; the rows arrive from the runtime thread,
+    // listed by name (a llmux id has no vendor in front), the window where the
+    // daemon published one and nothing where it did not.
     session.type_bytes(b"/model\r");
-    session.wait_for("catalog:");
-    session.wait_for("fable context=1000000 efforts=low,high");
-    // Both shapes, so the columns are proven to render a fact and its absence
-    // rather than only the happy one.
-    session.wait_for("plain-model context=unknown efforts=none");
+    session.wait_for("tab provider");
+    session.wait_for("claude-fable-5[1m]");
+    session.wait_for("1M context");
+    session.wait_for("plain-model");
 
-    // Select one of them, and leave.
-    session.type_bytes(b"/model plain-model\r");
-    session.wait_for("Switched to plain-model");
+    // Down to the second row and Enter: that model, applied at once.
+    session.type_bytes(b"\x1b[B");
+    session.type_bytes(b"\r");
+    session.wait_for("Switched to plain-model (effort: default, speed: normal)");
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
-    // A `/model` selection is a session preference rather than a profile write:
-    // the profile still names what `setup` put there, which is the honest
-    // division and the reason the next assertion uses `/setup` for persistence.
+    // Written for this provider, beside what setup recorded.
     assert_eq!(
         sandbox.settings().expect("a profile")["models"]["llmux"],
-        "m-1"
+        "plain-model"
     );
+
+    // And read back: a fresh launch is in it, on the hint row. The plain
+    // command, because `command_with_llmux` writes a profile of its own.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command();
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    again.wait_for(READY);
+    again.wait_for("plain-model");
+    again.type_bytes(&[0x04]);
+    assert_eq!(again.wait_exit().code(), Some(0));
 
     // The restart, with a layer above the profile in force. `XFX_MODEL`
     // outranks the file, so the report has to *say so* -- a setup that wrote a
@@ -6582,13 +6610,12 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
 }
 
 #[test]
-fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_keeps_the_old_one() {
+fn a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_it() {
     // Scenario 19's other half, and the one a screen alone cannot settle: the
-    // **wire** says which model the session is really in. A front end that
-    // accepted an id the daemon does not publish would put it on the hint row,
-    // report it to the next bare `/model`, write it into the session log, and
-    // send it as the `model` field of the next request -- where it comes back
-    // as a provider error about a model nobody has.
+    // **wire** says which model the session is really in. It used to refuse an
+    // id the daemon does not list; upstream applies it
+    // (`fx-model-fuzzy-40x120-unknown`), so the next request carries it -- and
+    // a query that names a listed model is resolved to that model's id.
     use support::fake_llmux::CatalogModel;
     let catalog = support::fake_llmux::described_catalog(&[CatalogModel {
         id: "m-1",
@@ -6597,7 +6624,7 @@ fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_kee
         max_context: None,
     }]);
     let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_llmux::anthropic_answer(&["MARKER-A-CATALOG-REFUSAL-ANSWERED"]),
+        support::fake_llmux::anthropic_answer(&["MARKER-A-UNLISTED-ANSWERED"]),
     )])
     .with_catalog(catalog);
     let sandbox = Sandbox::new();
@@ -6611,125 +6638,127 @@ fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_kee
     });
     session.wait_for(READY);
 
-    // The catalog has to be **loaded** for the membership rule to have anything
-    // to decide against, and a bare `/model` is what loads it -- the same order
-    // the line shell's `/model` uses.
-    session.type_bytes(b"/model\r");
-    session.wait_for("catalog:");
-    session.wait_for("fable context=unknown efforts=none");
-
-    session.type_bytes(b"/model not-in-the-catalog\r");
-    session.wait_for("does not publish not-in-the-catalog in its catalog");
-
-    // Asked again, because a refusal is a claim about **what the session is in**
-    // and the report is the only place this surface says it: a band that had
-    // taken the id would answer the second browse with it.
-    session.type_bytes(b"/model\r");
-    // And the next turn is held in the model that was in force all along.
+    // No bare `/model` first: the runtime loads the catalog itself to resolve
+    // against, as upstream fetches the ids it does not hold.
+    session.type_bytes(b"/model unlisted-xyz\r");
+    session.wait_for("Switched to unlisted-xyz (effort: default, speed: normal)");
     session.type_bytes(b"say something\r");
-    session.wait_for("MARKER-A-CATALOG-REFUSAL-ANSWERED");
+    session.wait_for("MARKER-A-UNLISTED-ANSWERED");
+    session.type_bytes(b"/model m\r");
+    session.wait_for("Switched to m-1 (effort: default, speed: normal)");
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let request = daemon.only_message_request().json();
     assert_eq!(
-        request["model"], "m-1",
-        "the refused id was sent as the model of the next turn: {request}"
+        request["model"], "unlisted-xyz",
+        "the applied id was not the model of the next turn: {request}"
     );
-
-    let text = session.settled_text();
-    // Counted rather than searched for: the first browse said it too, so a
-    // report that came back with the refused id would still leave one of these
-    // in the stream.
-    // The report is `* model: m-1 provider=llmux`; its body is one run.
+    // The catalog was read once, for both selections.
     assert_eq!(
-        text.matches(" m-1 provider=").count(),
-        2,
-        "a browse after the refusal did not report the model in force: {text:?}"
+        daemon
+            .paths()
+            .iter()
+            .filter(|path| path.as_str() == "/models")
+            .count(),
+        1,
+        "{:?}",
+        daemon.paths()
     );
+    let text = session.settled_text();
     assert!(
-        !text.contains("not-in-the-catalog provider="),
-        "the band reported a model the daemon does not publish: {text:?}"
-    );
-    assert!(
-        !text.contains("Switched to not-in-the-catalog"),
-        "the band reported a model the daemon does not publish: {text:?}"
-    );
-    // **A refusal is not a caveat.** An id the catalog does not publish is
-    // refused; the "accepted but not checked" sentence belongs to a catalog
-    // that could not be read, and a session that said it here would have
-    // applied the id and merely apologized for it.
-    assert!(
-        !text.contains("not checked against the provider's catalog"),
-        "a refused id was reported as an unverified selection: {text:?}"
+        !text.contains("does not publish") && !text.contains("not checked"),
+        "an applied id was refused or caveated: {text:?}"
     );
 }
 
 #[test]
-fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
-    // The default machine: the Gateway, which publishes no catalog endpoint
-    // this port has evidence for. `/model` there has nothing to browse, and
-    // that is a fact about the provider rather than something that went wrong
-    // -- so the band must say it in the line shell's own words and **must not**
-    // dress it as a failed turn. Reported as one, every Gateway user's first
-    // `/model` reads as a broken session.
+fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
+    // The Gateway used to advertise no catalog here. It publishes one at
+    // `GET {origin}/coding-agent/v1/models` (`gateway.zig:2820-2940`), asked
+    // with the bearer a turn sends, on the runtime thread; the menu lists it in
+    // upstream's featured order with the facts the catalog published, and
+    // says where it came from (`fx-model-40x120-open`).
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_gateway::content_only(&["MARKER-A-MODEL-BROWSE-ASKED"]),
-    )]);
+        support::fake_gateway::content_only(&["MARKER-A-MODEL-MENU-ANSWERED"]),
+    )])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "fake/model-a", "type": "language", "owned_by": "fake",
+         "released": 1_700_000_000, "tags": ["tool-use"]},
+        {"id": "openai/gpt-6-astra", "type": "language", "owned_by": "openai",
+         "released": 1_780_000_000, "tags": ["tool-use"], "context_window": 400_000,
+         "max_tokens": 128_000,
+         "pricing": {"input_cache_read": "0.0000002", "service_tiers": {
+             "priority": {"input": "0.000004", "output": "0.00002"},
+             "ultrafast": {"input": "0.00006", "output": "0.0003",
+                           "input_cache_read": "0.000006"}}}},
+        {"id": "anthropic/claude-opus-5", "type": "language", "owned_by": "anthropic",
+         "released": 1_775_000_000, "tags": ["tool-use"], "context_window": 1_000_000,
+         "max_tokens": 64_000, "fast_options": [{"type": "toggle"}]},
+        {"id": "xai/grok-4.7", "type": "language", "owned_by": "xai",
+         "released": 1_770_000_000, "tags": ["tool-use"]},
+        {"id": "openai/text-embedding-9", "type": "embedding", "owned_by": "openai"}
+    ]}));
     let sandbox = Sandbox::new();
     let pty = Pty::open();
-    pty.resize(24, 80);
+    pty.resize(40, 120);
     let mut session =
         Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     session.wait_for(READY);
 
     session.type_bytes(b"/model\r");
-    session.wait_for("provider=gateway");
-    // The words `xfx`'s line shell prints for the same fact, from the one
-    // declaration both surfaces read, in a neutral notice's shape: the key it
-    // reports is the topic and the value is the body.
-    session.wait_for("catalog:");
-    session.wait_for(" unavailable (this provider advertises none)");
+    session.wait_for("Models 4");
+    session.wait_for("openai/gpt-6-astra");
+    session.wait_for("400K context \u{b7} 128K output \u{b7} Fast \u{b7} Ultra");
+    session.wait_for("1M context \u{b7} 64K output \u{b7} Fast");
+    session.wait_for("Note: Gateway catalog is authenticated with an API key");
+    assert!(
+        !session.text().contains("text-embedding"),
+        "a row that is not a language model was listed"
+    );
 
+    // Down to opus, Enter: applied, saved, and the footer follows it.
+    session.type_bytes(b"\x1b[B");
+    session.type_bytes(b"\r");
+    session.wait_for("Switched to anthropic/claude-opus-5 (effort: default, speed: normal)");
+    session.wait_for("opus 5");
+    // The router form, over the same catalog without asking for it again.
+    session.type_bytes(b"/model grok\r");
+    session.wait_for("Switched to xai/grok-4.7 (effort: default, speed: normal)");
+    session.type_bytes(b"/model nonexistent-xyz\r");
+    session.wait_for("Switched to nonexistent-xyz (effort: default, speed: normal)");
+    // Two words is upstream's usage line, and the text stays in the composer.
+    session.type_bytes(b"/model fake/model-a high\r");
+    session.wait_for("usage: /model <id> <effort> [normal|fast|ultrafast]");
+    session.type_bytes(&[0x15]);
+    session.type_bytes(b"/model opus\r");
+    session.wait_for_count("Switched to anthropic/claude-opus-5", 2);
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-MODEL-MENU-ANSWERED");
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
-    let text = session.settled_text();
-    // **The line stands on its own.** A turn that went wrong is an error
-    // notice -- `✗ system:` -- so the test is not "the words appear somewhere":
-    // a failure carrying the same words would satisfy that and is exactly the
-    // regression being guarded. Every line that mentions the catalog must be
-    // free of the error's glyph, its topic, and the line shell's old prefix.
-    let mentions: Vec<&str> = text
-        .lines()
-        .filter(|line| line.contains("catalog=") || line.contains("catalog"))
-        .collect();
-    assert!(
-        !mentions.is_empty(),
-        "the browse said nothing about the catalog at all: {text:?}"
-    );
-    for line in &mentions {
-        assert!(
-            !line.contains("xfx:") && !line.contains('\u{2717}') && !line.contains("system:"),
-            "a provider with no catalog was reported as a turn failure: {line:?}"
-        );
-    }
-    assert!(
-        !text.contains("advertises no model catalog"),
-        "the failure-shaped wording reached the screen: {text:?}"
-    );
-    // And browsing a catalog that does not exist costs no request at all.
+    let asked = gateway.catalog_requests();
+    assert_eq!(asked.len(), 1, "the catalog is read once: {asked:?}");
+    assert_eq!(asked[0].method, "GET");
+    assert_eq!(asked[0].path, support::fake_gateway::MODELS_PATH);
     assert_eq!(
-        gateway.request_count(),
-        0,
-        "a bare /model reached the provider"
+        asked[0].header("authorization"),
+        Some(format!("Bearer {}", support::sandbox::TEST_KEY).as_str()),
+        "the catalog was not asked with the turn's key"
     );
+    // The turn after it was held in the model the last `/model` resolved.
+    assert_eq!(
+        gateway.only_request().header("ai-language-model-id"),
+        Some("anthropic/claude-opus-5")
+    );
+    assert_eq!(
+        sandbox.settings().expect("a profile")["models"]["gateway"],
+        "anthropic/claude-opus-5"
+    );
+    // The key went only where the turn's goes, and never to the screen.
+    assert!(!session.settled_text().contains(support::sandbox::TEST_KEY));
 }
-
-// ---------------------------------------------------------------------------
-// /copy
-// ---------------------------------------------------------------------------
-
 #[test]
 fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
     // Upstream's three answers (`app_commands.zig:1974-2001`) through the real

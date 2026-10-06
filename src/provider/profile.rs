@@ -153,6 +153,51 @@ pub fn write_document(path: &Path, document: &[u8]) -> io::Result<()> {
     replace_private_file(dir, path, document)
 }
 
+/// Records one preference: `value` at `key_path` in the settings file, every
+/// other key kept as it was.
+///
+/// What a command the operator ran to change one thing writes -- `/model`'s
+/// `models.<provider>`, for one -- so it goes through the same three steps a
+/// setup does and no others: [`read_existing`], which refuses a file it could
+/// not parse rather than treating it as empty; the change; and
+/// [`write_document`], staged and renamed `0600`. The objects on the way to the
+/// key are created when they are missing, and **replaced when something that is
+/// not an object is in the way**: a `models` that is a string cannot hold a
+/// provider's entry, and the key the operator just asked for is the newer
+/// intention.
+///
+/// Not a transaction across processes, as [`write`] is not: two writers at once
+/// are last-writer-wins (the module header).
+pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
+    let Some((last, parents)) = key_path.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a preference needs a key to be written under",
+        ));
+    };
+    let mut document = read_existing(path)?;
+    let mut object = &mut document;
+    for key in parents {
+        let slot = object
+            .entry((*key).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        object = slot.as_object_mut().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a settings key is not an object",
+            )
+        })?;
+    }
+    object.insert((*last).to_string(), value);
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
 /// The settings file as it stood before a transaction touched it.
 ///
 /// Two states rather than one, and the difference is the whole point:
@@ -734,5 +779,56 @@ mod tests {
             ProviderId::Gateway.legacy_backend(),
         );
         assert_eq!(merged["llmux_url"], "http://127.0.0.1:3456");
+    }
+
+    #[test]
+    fn a_preference_is_written_under_its_key_and_everything_else_is_kept() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(".xfx").join("settings.json");
+        // No file yet: the profile home and the objects on the way are made.
+        write_preference(&path, &["models", "gateway"], json!("acme/one")).expect("write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"models\": {\n    \"gateway\": \"acme/one\"\n  }\n}\n",
+            "pretty JSON with a trailing newline"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).expect("stat").permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "owner-only, as every profile write");
+        }
+
+        // Another provider's entry and every unrelated key survive a rewrite.
+        fs::write(
+            &path,
+            r#"{"provider":"gateway","models":{"llmux":"fable","gateway":"old"},"permission_mode":"ask"}"#,
+        )
+        .expect("seed");
+        write_preference(&path, &["models", "gateway"], json!("acme/two")).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"provider": "gateway", "permission_mode": "ask",
+                   "models": {"llmux": "fable", "gateway": "acme/two"}})
+        );
+
+        // A non-object in the way is replaced by the object the key needs.
+        fs::write(&path, r#"{"models":"flat"}"#).expect("seed");
+        write_preference(&path, &["models", "gateway"], json!("acme/three")).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written, json!({"models": {"gateway": "acme/three"}}));
+    }
+
+    #[test]
+    fn a_preference_is_never_written_over_a_file_that_could_not_be_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{ not json").expect("seed");
+        assert!(write_preference(&path, &["models", "gateway"], json!("x")).is_err());
+        assert_eq!(fs::read_to_string(&path).expect("read"), "{ not json");
+        assert!(write_preference(&path, &[], json!("x")).is_err(), "no key");
     }
 }

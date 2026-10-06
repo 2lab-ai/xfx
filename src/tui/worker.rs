@@ -1075,16 +1075,14 @@ impl Runtime {
         from_state(self.selector.ensure_catalog().await)
     }
 
-    /// What `/model <id>` means, with the line shell's own meaning.
+    /// What `/model <query>` means, with the line shell's own meaning.
     ///
     /// **The decision is [`ModelSelector::apply`]'s and is not remade here.**
-    /// That is where the whole catalog is, and the catalog is what decides: an
-    /// id the provider publishes is applied, an id it does not is refused by
-    /// name rather than sent, and an id nothing could be checked against is
-    /// applied carrying the reason it was not. A front end that judged
-    /// membership for itself would be a second reading of a list only one of
-    /// the two holds -- which is exactly how this surface came to accept ids
-    /// the line shell refuses.
+    /// That is where the whole catalog is, and the catalog is what a query is
+    /// resolved against -- an id or an alias spelled exactly, else upstream's
+    /// fuzzy score over the ids, else the query as typed, which is applied
+    /// as upstream applies it. A front end that resolved for itself would be a
+    /// second reading of a list only one of the two holds.
     ///
     /// What is this function's own is the **durable** half: a selection is
     /// recorded so that a resumed session continues in the model the
@@ -1110,6 +1108,51 @@ impl Runtime {
         }
         outcome
     }
+
+    /// Records `model` as the configured provider's in the profile
+    /// (`models.<provider>`), and says what is worth saying about it.
+    ///
+    /// Through [`crate::provider::profile::write_preference`], the one writer
+    /// every command that changes one preference shares, and **on this
+    /// thread**: a settings write is a read, a staged file and a rename, none
+    /// of which the thread holding the terminal may wait on. Read back at the
+    /// next launch by [`RuntimeConfig::load_with`], which ranks it as upstream
+    /// does: the environment over the profile over the compiled default.
+    ///
+    /// `None` -- nothing to say -- is the ordinary case, as upstream's benign
+    /// `saved to user settings` line is dropped when the caller has announced
+    /// the change (`reportUserSettingsCommit`, `session_commands.zig:27-85`).
+    /// Said: that a layer above the profile will still decide what a fresh
+    /// session uses (upstream's words), or that the write failed and the model
+    /// holds for this process only. A session with no home has no profile to
+    /// write and says nothing about one.
+    fn save_model(&self, model: &str) -> Option<super::notice::Notice> {
+        let path = self.config.user_settings_path.as_ref()?;
+        let key = [crate::config::MODELS_KEY, self.config.provider.label()];
+        match crate::provider::profile::write_preference(
+            path,
+            &key,
+            serde_json::Value::String(model.to_string()),
+        ) {
+            Ok(()) => {
+                let source = self.config.sources.model;
+                (source > crate::config::SettingSource::UserGlobal).then(|| {
+                    super::notice::Notice::neutral(
+                        "model",
+                        format!(
+                            "saved to user settings (scope=user); fresh sessions here use \
+                             higher-precedence model={}",
+                            source.label()
+                        ),
+                    )
+                })
+            }
+            Err(err) => Some(super::notice::Notice::error(
+                "model",
+                format!("active for this process but not saved to user settings ({err})"),
+            )),
+        }
+    }
 }
 
 /// What a provider switch produced, once the reload has said so.
@@ -1127,11 +1170,10 @@ struct Selected {
 ///
 /// **Three answers, not two**, and the third is the whole point: "there is
 /// nothing to browse" and "xfx could not ask" are different claims about
-/// different things. The first is a property of the provider -- the Gateway
-/// publishes no catalog endpoint this port has evidence for
-/// (`crate::provider::model::catalog_for`) -- and reporting it as a turn
-/// failure made every Gateway user's first `/model` read as a broken session.
-/// The second really is a failure and stays one.
+/// different things. The first is a property of the session -- a Gateway with
+/// no credential to ask its catalog with, a llmux with no daemon URL
+/// (`crate::provider::model::catalog_for`) -- and the menu says the list is
+/// empty. The second really is a failure, and the menu says so.
 #[derive(Debug, PartialEq, Eq)]
 enum CatalogAnswer {
     /// The provider's rows, bounded to what the UI will render.
@@ -1164,7 +1206,12 @@ fn from_state(state: &CatalogState) -> CatalogAnswer {
 /// frame at a time. A named function rather than a `take` inline so that "the
 /// browser is bounded" is a claim a test can make without a daemon.
 fn bounded(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
-    entries.iter().take(MAX_RENDERED_MODELS).cloned().collect()
+    // Ordered first, so the rows the bound keeps are the ones the menu would
+    // have put on top.
+    crate::provider::model::picker_order(entries)
+        .into_iter()
+        .take(MAX_RENDERED_MODELS)
+        .collect()
 }
 
 /// Runs work until the UI says to stop, or until it is gone, and says which
@@ -1227,9 +1274,11 @@ async fn turn_loop(
             Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
-            TurnWork::Model(name) => {
-                run_model(&mut state, &name, events).await;
-                Ended::Turn
+            TurnWork::Model { name, next_turn } => {
+                run_model(
+                    &mut state, &name, next_turn, events, &cancel, &control, &mut queue,
+                )
+                .await
             }
             // `/new`, with the line shell's own meaning: the recorder is
             // dropped, which closes its log and releases the session's writer
@@ -1547,31 +1596,68 @@ async fn run_setup(
     }
 }
 
-/// Applies one `/model <id>` and tells the UI what the selector made of it.
+/// Applies one `/model <query>` and tells the UI what the selector made of it.
 ///
-/// **No I/O and no cancellation arm**, unlike its two neighbours: the decision
-/// is a pure function of a catalog this thread already holds, so there is
-/// nothing here for a Ctrl-C to interrupt and nothing to race a control message
-/// against. The load that fills that catalog is `run_catalog`'s, and a bare
-/// `/model` is what asks for it.
+/// **The catalog first, when none is loaded yet**: upstream resolves a query
+/// against the catalog it holds and fetches it when it holds none
+/// (`resolveModelQuery`, `session_commands.zig:1147-1166`), so `/model opus`
+/// typed before the menu was ever opened still finds `anthropic/claude-opus-5`.
+/// The load is the selector's once-per-provider one -- a second `/model` asks
+/// no socket -- and it is raced against the control channel like
+/// `run_catalog`'s, because it is the one piece of this that waits on a
+/// network. A Ctrl-C while it waits stops the selection with everything queued
+/// behind it, and nothing is applied: the user stopped this piece of work.
+///
+/// Then the selection, and **the profile write, here on the runtime thread**
+/// ([`Runtime::save_model`]): `/setup`'s file discipline, off the thread that
+/// holds the terminal.
 ///
 /// The answer goes through [`bridge::send_terminal`] rather than `send_ui`, for
 /// the reason a provider switch's does: by the time it is sent the change has
 /// been made and written into the session log, and a cancellation that dropped
 /// the one event saying so would leave the band showing a model the session is
 /// no longer in.
-async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
+async fn run_model(
+    state: &mut Runtime,
+    name: &str,
+    next_turn: bool,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let ((), ended) = raced_against_control(
+        async {
+            state.selector.ensure_catalog().await;
+        },
+        control,
+        |through| {
+            turn.cancel();
+            queue.abandon(through);
+        },
+    )
+    .await;
+    if turn.token.is_cancelled() {
+        return ended;
+    }
     let outcome = state.use_model(name);
     state.publish();
-    let answered = match outcome {
-        ModelOutcome::Selected { unverified, .. } => ModelAnswer::Applied { unverified },
-        ModelOutcome::Unchanged { .. } => ModelAnswer::Unchanged,
-        ModelOutcome::Refused { reason } => ModelAnswer::Refused { reason },
+    let (answered, chosen) = match outcome {
+        ModelOutcome::Selected {
+            unverified, model, ..
+        } => (ModelAnswer::Applied { unverified }, Some(model)),
+        ModelOutcome::Unchanged { model } => (ModelAnswer::Unchanged, Some(model)),
+        ModelOutcome::Refused { reason } => (ModelAnswer::Refused { reason }, None),
         // A select request cannot produce a report. Answered rather than
         // asserted away: a `/model` that took the session down because an enum
         // grew an arm would be a worse failure than one that says nothing.
-        ModelOutcome::Reported { .. } => return,
+        ModelOutcome::Reported { .. } => return ended,
     };
+    // Written for an unchanged model too, as upstream writes it
+    // (`setResolvedModel` persists whatever it resolved): the operator named
+    // this model, and the profile is where a later launch reads that.
+    let saved = chosen.and_then(|model| state.save_model(&model));
     bridge::send_terminal(
         events,
         UiEvent::ModelAnswered {
@@ -1580,12 +1666,25 @@ async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
             // standing model, and it is the one the band must show.
             model: state.model().to_string(),
             outcome: answered,
+            next_turn,
         },
     )
     .await;
+    // After the switch it is about, as upstream's commit line follows the
+    // announcement.
+    if let Some(notice) = saved {
+        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
+    }
+    ended
 }
 
 /// Loads the catalog once and sends **exactly one** terminal event for it.
+///
+/// What the UI is told is what `/model`'s menu shows: the rows, in the order
+/// the menu lists them ([`crate::provider::model::picker_order`]); no rows at
+/// all when the provider has no catalog (`No models available.`); or that the
+/// load failed (`Unable to load models.`). None of the three is written into
+/// the document -- the menu is where the answer is, as upstream's is.
 async fn run_catalog(
     state: &mut Runtime,
     events: &Sender<UiEvent>,
@@ -1600,52 +1699,22 @@ async fn run_catalog(
         queue.abandon(through);
     })
     .await;
-    match loaded {
-        CatalogAnswer::Rows(entries) => {
-            // Through `send_ui`: a catalog whose turn was cancelled is a list
-            // nobody is waiting for any more, and the conclusion below still
-            // closes the item either way.
-            let _ = bridge::send_ui(
-                events,
-                &turn.token,
-                UiEvent::CatalogLoaded { provider, entries },
-            )
-            .await;
-            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-        }
-        // A **notice**, and a turn that ended without a failure. The provider
-        // has no catalog; nothing went wrong. The words are the line shell's
-        // own (`crate::provider::model::NO_CATALOG_NOTICE`), so `/model` says
-        // the same thing on both surfaces rather than reading as a broken
-        // session on one of them.
-        CatalogAnswer::NoneAdvertised => {
-            let _ =
-                bridge::send_ui(events, &turn.token, UiEvent::Notice(no_catalog_notice())).await;
-            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-        }
-        // This one really is a failure: there is a catalog and xfx could not
-        // read it, which is a fact about the daemon the operator has to act on.
-        CatalogAnswer::Unread(reason) => {
-            bridge::send_terminal(
-                events,
-                UiEvent::TurnEnded {
-                    failure: Some(format!("xfx: {reason}")),
-                },
-            )
-            .await;
-        }
-    }
+    // Through `send_ui`: a catalog whose turn was cancelled is a list nobody
+    // is waiting for any more, and the conclusion below still closes the item
+    // either way.
+    let answer = match loaded {
+        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+        // The provider has no catalog; nothing went wrong, and the menu says
+        // there is nothing in it.
+        CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+            provider,
+            entries: Vec::new(),
+        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread { provider },
+    };
+    let _ = bridge::send_ui(events, &turn.token, answer).await;
+    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
     ended
-}
-
-/// What a bare `/model` says when the provider advertises no catalog: the line
-/// shell's sentence (`crate::provider::model::NO_CATALOG_NOTICE`,
-/// `[shell] catalog=unavailable (…)`) in a notice's shape -- the topic is the
-/// key it reported and the body the value, so both surfaces say the same words.
-fn no_catalog_notice() -> super::notice::Notice {
-    let line = crate::provider::model::NO_CATALOG_NOTICE;
-    let said = line.strip_prefix("[shell] catalog=").unwrap_or(line);
-    super::notice::Notice::neutral("catalog", said)
 }
 
 /// Runs `body` while still listening to the UI, and says what ended.
@@ -2657,9 +2726,9 @@ mod tests {
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
-        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(run_model(&mut state, "second-model", &events_tx));
+        let _said = ran_model(&mut state, "second-model", false);
         assert_eq!(board.read().model, "second-model");
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
         assert_ne!(
             state.config.model, "second-model",
             "the case proves nothing"
@@ -3294,6 +3363,7 @@ mod tests {
             name: None,
             efforts: Vec::new(),
             max_context: None,
+            facts: Default::default(),
         }
     }
 
@@ -3369,37 +3439,26 @@ mod tests {
     }
 
     #[test]
-    fn a_model_a_loaded_catalog_does_not_publish_is_refused_and_the_session_keeps_its_own() {
-        // The rule lives in `ModelSelector::apply`, beside the whole catalog,
-        // and the runtime thread is where the TUI's `/model` reaches it: a
-        // front end that applied an id the provider does not publish would
-        // write that id into the session log and send it as a header on the
-        // next turn, and the failure would arrive as a provider error about a
-        // model nobody has.
+    fn a_model_a_loaded_catalog_does_not_list_is_applied_and_recorded_as_typed() {
+        // Used to be refused here. Upstream applies it
+        // (`fx-model-fuzzy-40x120-unknown`): a catalog is what a provider
+        // lists, and the provider is the one place that can say no. So the id
+        // becomes the model the next turn talks to and is written into the log
+        // a resume reads, as any selection is.
         let (_home, _workspace, mut state) = recording();
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(vec![published("published-model")]));
-        let standing = state.model().to_string();
-        let before = state
-            .conversation
-            .as_ref()
-            .expect("open")
-            .recorder
-            .state()
-            .last_event_seq;
 
-        let refused = state.use_model("not-published");
+        // Nothing of it scores against the one id listed, so it is the id.
+        let applied = state.use_model("unlisted-xyz");
 
         assert!(
-            matches!(&refused, ModelOutcome::Refused { reason } if reason.contains("not-published")),
-            "{refused:?}"
+            matches!(&applied, ModelOutcome::Selected { model, unverified: None, .. }
+                if model == "unlisted-xyz"),
+            "{applied:?}"
         );
-        assert_eq!(
-            state.model(),
-            standing,
-            "an id the catalog does not publish became the model the next turn talks to"
-        );
+        assert_eq!(state.model(), "unlisted-xyz");
         assert_eq!(
             state
                 .conversation
@@ -3407,19 +3466,214 @@ mod tests {
                 .expect("open")
                 .recorder
                 .state()
-                .last_event_seq,
-            before,
-            "a refused id was written into the log a later resume reads"
+                .model,
+            "unlisted-xyz"
+        );
+        // And a query the catalog does answer is resolved to its id.
+        assert!(matches!(
+            state.use_model("published"),
+            ModelOutcome::Selected { model, .. } if model == "published-model"
+        ));
+    }
+
+    /// Runs one `/model` the way the loop runs it, and hands back what it told
+    /// the UI.
+    fn ran_model(state: &mut Runtime, name: &str, next_turn: bool) -> Vec<UiEvent> {
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let ended = on_a_runtime(run_model(
+            state, name, next_turn, &events_tx, &cancel, &control, &mut queue,
+        ));
+        assert_eq!(ended, Ended::Turn);
+        let mut said = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            said.push(event);
+        }
+        said
+    }
+
+    fn settings(home: &std::path::Path) -> serde_json::Value {
+        let path = home.join(".xfx").join("settings.json");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("a profile")).expect("json")
+    }
+
+    #[test]
+    fn a_model_is_saved_for_its_provider_and_the_next_launch_reads_it_back() {
+        let (home, workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"permission_mode":"ask","models":{"llmux":"fable"}}"#,
+        )
+        .expect("seed");
+
+        let said = ran_model(&mut state, "acme/one", false);
+
+        assert_eq!(
+            said,
+            [UiEvent::ModelAnswered {
+                model: "acme/one".to_string(),
+                outcome: ModelAnswer::Applied { unverified: None },
+                next_turn: false,
+            }],
+            "a write nothing outranks says nothing of its own"
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"permission_mode": "ask",
+                               "models": {"llmux": "fable", "gateway": "acme/one"}})
+        );
+        // Round trip: the next launch reads it, from the profile.
+        let reloaded = config(home.path(), workspace.path());
+        assert_eq!(reloaded.model, "acme/one");
+        assert_eq!(
+            reloaded.sources.model,
+            crate::config::SettingSource::UserGlobal
         );
 
-        // And the same catalog admits the id it does publish, so the refusal
-        // above is the membership rule rather than a selector that refuses
-        // everything.
-        assert!(matches!(
-            state.use_model("published-model"),
-            ModelOutcome::Selected { .. }
-        ));
-        assert_eq!(state.model(), "published-model");
+        // The model already in force is announced and saved again, as
+        // upstream's is, and the answer carries the wording's fact through.
+        std::fs::write(home.path().join(".xfx").join("settings.json"), "{}").expect("reset");
+        let said = ran_model(&mut state, "acme/one", true);
+        assert_eq!(
+            said,
+            [UiEvent::ModelAnswered {
+                model: "acme/one".to_string(),
+                outcome: ModelAnswer::Unchanged,
+                next_turn: true,
+            }]
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "acme/one"}})
+        );
+    }
+
+    #[test]
+    fn a_save_a_higher_layer_outranks_or_that_fails_says_so_after_the_switch() {
+        // `XFX_MODEL` decides a fresh session's model over the profile, so the
+        // write is upstream's `saved ... fresh sessions here use
+        // higher-precedence model=process_override`.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_MODEL".to_string(), "pinned/model".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let said = ran_model(&mut state, "acme/two", false);
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(
+            said[1],
+            UiEvent::Notice(super::super::notice::Notice::neutral(
+                "model",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override"
+            ))
+        );
+        assert_eq!(settings(home.path())["models"]["gateway"], "acme/two");
+
+        // A profile xfx could not read is never written over: the model holds
+        // for this process, and the session says the save did not happen.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(home.path().join(".xfx").join("settings.json"), "{ not json").expect("seed");
+        let said = ran_model(&mut state, "acme/three", false);
+        assert_eq!(state.model(), "acme/three");
+        let UiEvent::Notice(notice) = &said[1] else {
+            panic!("no notice for a failed save: {said:?}");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Error);
+        assert!(
+            notice
+                .body
+                .starts_with("active for this process but not saved to user settings ("),
+            "{notice:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".xfx").join("settings.json")).expect("read"),
+            "{ not json"
+        );
+    }
+
+    #[test]
+    fn a_catalog_load_answers_the_menu_and_never_the_document() {
+        // Each of the three answers the menu has, from the one item that
+        // asked; none of them is a notice or a failed turn.
+        let (_home, _workspace, mut state) = recording();
+        let catalog = |state: &mut Runtime| {
+            let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+            let (_control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            let cancel = Cancellation::new(CancelToken::new());
+            let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+            let outstanding = AtomicUsize::new(1);
+            let mut queue = Queue {
+                work: &mut work_rx,
+                outstanding: &outstanding,
+                taken: 0,
+            };
+            on_a_runtime(run_catalog(
+                state, &events_tx, &cancel, &control, &mut queue,
+            ));
+            let mut said = Vec::new();
+            while let Ok(event) = events_rx.try_recv() {
+                said.push(event);
+            }
+            said
+        };
+        let provider = state.config.provider;
+        // No catalog at all: an empty list.
+        assert_eq!(
+            catalog(&mut state),
+            [
+                UiEvent::CatalogLoaded {
+                    provider,
+                    entries: Vec::new()
+                },
+                UiEvent::TurnEnded { failure: None }
+            ]
+        );
+        // Unread: the menu's failure, and no failed turn.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+        assert_eq!(
+            catalog(&mut state),
+            [
+                UiEvent::CatalogUnread { provider },
+                UiEvent::TurnEnded { failure: None }
+            ]
+        );
+        // Rows: in the order the menu lists them.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![
+                published("zeta/one"),
+                published("alpha/two"),
+            ]));
+        let said = catalog(&mut state);
+        let UiEvent::CatalogLoaded { entries, .. } = &said[0] else {
+            panic!("{said:?}");
+        };
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha/two", "zeta/one"]
+        );
     }
 
     #[test]
@@ -3620,6 +3874,7 @@ mod tests {
                 name: None,
                 efforts: Vec::new(),
                 max_context: None,
+                facts: Default::default(),
             })
             .collect();
         let shown = bounded(&many);
@@ -3632,8 +3887,8 @@ mod tests {
 
     #[test]
     fn a_provider_with_no_catalog_is_informational_rather_than_a_failed_turn() {
-        // The Gateway advertises no catalog, and that is a **fact about the
-        // provider**, not something that went wrong. The line shell says so in
+        // A provider with no catalog to ask is a **fact about the session**,
+        // not something that went wrong. The line shell says so in
         // as many words (`interactive`'s `print_catalog`); a bare `/model` in
         // the band must not turn the same fact into a turn failure, or every
         // Gateway user's first `/model` reads as a broken session.
@@ -3674,6 +3929,7 @@ mod tests {
             name: None,
             efforts: Vec::new(),
             max_context: Some(1),
+            facts: Default::default(),
         }];
         assert_eq!(
             from_state(&CatalogState::Loaded(entries.clone())),
@@ -4359,20 +4615,5 @@ mod tests {
             "the call behind the refused one ran after the user stopped the turn"
         );
         assert_eq!(provider.requests(), 1);
-    }
-
-    #[test]
-    fn a_provider_with_no_catalog_is_said_in_the_line_shells_words() {
-        // `[shell] catalog=unavailable (this provider advertises none)` on the
-        // line shell; `* catalog: unavailable (…)` here. If the line shell's
-        // sentence stopped having the key this strips, the notice would carry
-        // it whole -- and this would say so.
-        assert_eq!(
-            no_catalog_notice(),
-            super::super::notice::Notice::neutral(
-                "catalog",
-                "unavailable (this provider advertises none)"
-            )
-        );
     }
 }

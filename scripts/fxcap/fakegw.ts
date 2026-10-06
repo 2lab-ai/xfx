@@ -1,5 +1,5 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: bun fakegw.ts <port> <script.json> [bodies-dir]
+// Usage: [FAKEGW_MODELS=<catalog.json>] bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
 //    status?: number, hangMs?: number}
@@ -31,7 +31,14 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     if (req.method === "GET") {
-      if (url.pathname.endsWith("/models")) return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
+      // The model catalog: FAKEGW_MODELS names a scenario file to serve
+      // (`capture.sh`'s `models` verb), so both binaries list the same one.
+      // Logged with whether a bearer came with it -- never the bearer.
+      if (url.pathname.endsWith("/models")) {
+        log(`GET ${url.pathname} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}`);
+        if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
+        return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
+      }
       return new Response("not found", { status: 404 });
     }
     const body = await req.text();
