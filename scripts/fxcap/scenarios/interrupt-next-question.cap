@@ -1,0 +1,15 @@
+# What the model is told after a question the user cancelled: Ctrl-C at the
+# model's question (as in interrupt-question), then a new prompt -- the
+# request it sends is the receipt (gwlog).
+gateway interrupt-question.json
+wait 3
+type ask me
+key Enter
+wait 2.5
+key C-c
+wait 1.5
+type next
+key Enter
+wait 2.5
+snap next
+gwlog

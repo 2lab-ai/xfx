@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+
+┃ stream lines
+
+  line 0 of the streamed answer
+  line 1 of the streamed answer
+  line 2 of the streamed answer
+  line 3 of the streamed answer
+  line 4 of the streamed answer
+  line 5 of the streamed answer
+  line 6 of the streamed answer
+  line 7 of the streamed answer
+  line 8 of the streamed answer
+  line 9 of the streamed answer
+  line 10 of the streamed answer
+  Generating (2s) (↑4 ↓96)
+
+┃
+
+auto · model-a                                                                                    esc again to interrupt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

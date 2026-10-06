@@ -1,0 +1,80 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;245m  2026-10-06 21:02:59.457 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250msystem prompt: ready · 5900 bytes[39m
+  [38;5;250mtools: 15 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +7
+[39m  [38;5;250mmore)[39m
+  [38;5;250mskills: loading[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-10-06 21:03:01.522 UTC · Notice[39m
+[38;5;252m! network:[38;5;250m provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfailed: server_error[39m
+
+[38;5;245m  2026-10-06 21:03:01.523 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 1/10 · diagnostic: HTTP 500 · server_error: upstream[39m
+  [38;5;250mexploded[39m
+
+[38;5;245m  2026-10-06 21:03:01.784 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 2/10 · diagnostic: HTTP 500 · server_error: upstream[39m
+  [38;5;250mexploded[39m
+
+[38;5;245m  2026-10-06 21:03:01.798 UTC · Notice[39m
+[38;5;252m! network:[38;5;250m provider: gateway · model: fake/model-a · 17ms[39m
+  [38;5;250mfailed: server_error[39m
+
+[38;5;245m  2026-10-06 21:03:01.798 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request in 1s[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 2/10 · retry delay: 1s · diagnostic: HTTP 500 ·[39m
+  [38;5;250mserver_error: upstream exploded[39m
+
+[38;5;245m  2026-10-06 21:03:03.041 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request in 1s[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 3/10 · retry delay: 1s · diagnostic: HTTP 500 ·[39m
+  [38;5;250mserver_error: upstream exploded[39m
+
+[38;5;245m  2026-10-06 21:03:03.396 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 514ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-06 21:03:03.396 UTC · Notice[39m
+[38;5;252m✓ recovery:[38;5;250m ✓ recovered · succeeded on attempt 3[39m
+  [38;5;250mkind: auto_recovered · attempt: 3/10[39m
+
+[38;5;245m  2026-10-06 21:03:01.497 UTC · Prompt[39m
+[38;5;255m┃[39m [1mtry it[0m
+
+[38;5;245m  2026-10-06 21:03:03.396 UTC · Response[39m
+  Recovered answer.
+
+[38;5;245m  2026-10-06 21:03:03.388 UTC · Usage[39m
+[38;5;245m  1s (↑2 ↓40)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

@@ -200,6 +200,29 @@ pub(crate) fn solve_band(
         .or_else(|| solve_padded(rows, cols, input_rows, Some(0), panel))
 }
 
+/// The same, with a waiting prompt's `banner` rows -- and the blank row that
+/// keeps them from the composer -- under the activity row's own blank row
+/// (`steering_composer_gap_rows`, `render_input.zig:490-491`; capture
+/// `fx-steer-40x120-steer-tool`: the activity row, a blank, `┋ change tone`, a
+/// blank, the composer). `None` when the screen cannot hold them, and the
+/// caller then asks for the band without them: a waiting prompt is also said
+/// on the hint row, so the rows are a view of it rather than its only sign.
+pub(crate) fn solve_band_with_banner(
+    rows: u16,
+    cols: u16,
+    input_rows: u16,
+    panel: u16,
+    banner: u16,
+) -> Option<Geometry> {
+    solve_padded(
+        rows,
+        cols,
+        input_rows,
+        Some(ACTIVITY_PADDING + banner + 1),
+        panel,
+    )
+}
+
 /// The derivation, with the activity row's padding decided by the caller.
 fn solve_padded(
     rows: u16,
