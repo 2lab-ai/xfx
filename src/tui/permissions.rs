@@ -8,7 +8,8 @@
 //! topic and a tone (`writeDomainNotice`), and the one-time warning on the hint
 //! row (`app_permission_runtime.zig:20-67`). Where they happen is
 //! `super::shell`'s (the notices, the key, the hint row) and `super::worker`'s
-//! (the change itself, applied between turns, and the settings write).
+//! (the live authority every decision reads, and the record of each change:
+//! the session log and the settings write).
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -30,20 +31,23 @@ pub(crate) const WARNING_COMPACT: &str = "Full access";
 /// (`yolo_warning_visible_ms`, `app_permission_runtime.zig:21`).
 pub(crate) const WARNING_VISIBLE: Duration = Duration::from_millis(4000);
 
-/// A change to the session's authority, for the runtime thread to apply.
+/// A change to the session's authority.
 ///
-/// **Applied between turns and never under one**, which is the runtime's rule
-/// rather than this type's: the thread that owns the conversation takes these
-/// only at the top of its loop (`super::worker`'s `turn_loop`), so a turn in
-/// flight finishes under the authority it started with, and anything queued
-/// behind it starts under the new one.
+/// **In force the moment it is made**, including for the next tool call of a
+/// turn that is already running, as upstream's are
+/// (`yolo-permission-mode.test.ts:373-450`): the handle that sends it writes
+/// the live authority first (`super::worker`'s `WorkHandle::change_permissions`).
+/// What the runtime does with the message, between pieces of work where the
+/// session log is not held by a turn, is **write it down** -- configuration,
+/// log, profile -- in the order the person made the changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Change {
-    /// `/permissions <mode>` or Shift-Tab: this mode from the next turn on,
-    /// and recorded as the profile's `permission_mode`.
+    /// `/permissions <mode>` or Shift-Tab: this mode from the next decision
+    /// on, and recorded as the profile's `permission_mode`.
     Mode(PermissionMode),
-    /// `/permissions reset`: `ask`, recorded, and the conversation's grants
-    /// forgotten.
+    /// `/permissions reset`: `ask`, every grant given so far out of force at
+    /// once, and the forgetting recorded in the session log so a resume does
+    /// not bring them back.
     Reset,
     /// The full-access warning has been on the screen: record
     /// `yolo_acknowledged`, so it is shown once per person and not once per
@@ -98,17 +102,23 @@ pub(crate) fn not_saved(label: &str, reason: &str) -> Notice {
 /// grants live on the runtime thread, and the UI may not wait for a thread that
 /// can be a minute into a turn. Mid-turn the list is the one the turn before
 /// left.
+///
+/// Stamped with the reset count it was made under, so a reader that knows of
+/// a later reset (`crate::permission::LiveAuthority`) can tell the list is out
+/// of force without waiting for the runtime to say so again.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Grants(Arc<Mutex<Vec<String>>>);
+pub(crate) struct Grants(Arc<Mutex<(u64, Vec<String>)>>);
 
 impl Grants {
-    /// Replaces what the next bare `/permissions` lists.
-    pub(crate) fn publish(&self, lines: Vec<String>) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = lines;
+    /// Replaces what the next bare `/permissions` lists, as of reset count
+    /// `resets`.
+    pub(crate) fn publish(&self, resets: u64, lines: Vec<String>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = (resets, lines);
     }
 
-    /// The list the runtime last published.
-    pub(crate) fn read(&self) -> Vec<String> {
+    /// The list the runtime last published, and the reset count it was made
+    /// under.
+    pub(crate) fn read(&self) -> (u64, Vec<String>) {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -267,12 +277,12 @@ mod tests {
     #[test]
     fn the_board_hands_back_what_was_published_last() {
         let board = Grants::default();
-        assert!(board.read().is_empty());
-        board.publish(vec![" - write_file -> a".to_string()]);
+        assert_eq!(board.read(), (0, Vec::new()));
+        board.publish(0, vec![" - write_file -> a".to_string()]);
         let reader = board.clone();
-        assert_eq!(reader.read(), vec![" - write_file -> a".to_string()]);
-        board.publish(Vec::new());
-        assert!(reader.read().is_empty());
+        assert_eq!(reader.read(), (0, vec![" - write_file -> a".to_string()]));
+        board.publish(3, Vec::new());
+        assert_eq!(reader.read(), (3, Vec::new()));
     }
 
     #[test]

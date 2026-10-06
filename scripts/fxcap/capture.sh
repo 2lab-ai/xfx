@@ -175,7 +175,7 @@ FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
 $fx_model $extra_env $bin"
   else
-    launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
+    launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
 $xfx_model $extra_env $bin"
   fi
   # Every bell the pane rings, one line each, for `bells`. The hook is set on a
@@ -227,7 +227,13 @@ $xfx_model $extra_env $bin"
             echo "=== ~/${f#./} ($(wc -c < "$f" | tr -d ' ') bytes)"
             case $f in
               *.lock|*.log|*.sqlite*) ;;
-              *) head -c 4000 "$f" | sed "s#$run#<scratch>#g"; echo ;;
+              # A binary file (an image fx copied) is named, not printed:
+              # sed under a UTF-8 locale stops on it, and so did the run.
+              *) if LC_ALL=C grep -Iq . "$f" 2>/dev/null || [[ ! -s $f ]]; then
+                   head -c 4000 "$f" | LC_ALL=C sed "s#$run#<scratch>#g"; echo
+                 else
+                   echo "(binary)"
+                 fi ;;
             esac
           done
         ) > "$name"
@@ -272,10 +278,13 @@ $xfx_model $extra_env $bin"
     esac
   done < "$file"
   if [[ $which == fx ]]; then
+    # The chime names only: fx writes other files here too (`/trace`'s
+    # fx-trace-*.md), and those are not sound.
     local chime
-    for chime in "$run"/fxtmp/fx-*; do
-      [[ -d $chime ]] || { echo "SOUND GUARD BREACHED: fx wrote $chime" >&2; exit 3; }
+    for chime in success error bloom press release toggle; do
+      [[ -d $run/fxtmp/fx-$chime.m4a ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-$chime.m4a" >&2; exit 3; }
     done
+    [[ -d $run/fxtmp/fx-click.caf ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-click.caf" >&2; exit 3; }
   fi
 }
 

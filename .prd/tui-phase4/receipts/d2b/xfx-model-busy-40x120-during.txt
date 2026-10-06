@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3c32971 [debug] · Run /help for commands
+
+┃ say something
+
+  Generating (2s) (↑4 ↓59)
+
+┃
+
+queued 1 · auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

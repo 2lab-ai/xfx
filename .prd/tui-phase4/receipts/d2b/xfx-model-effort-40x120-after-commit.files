@@ -1,0 +1,10 @@
+=== ~/.xfx/settings.json (95 bytes)
+{
+  "effort": "low",
+  "models": {
+    "gateway": "zai/glm-5.2"
+  },
+  "provider": "gateway"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

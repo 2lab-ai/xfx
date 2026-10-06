@@ -1958,6 +1958,9 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                 state.grants.push(grant);
             }
         }
+        // Every approval recorded so far is withdrawn; one recorded after
+        // this is a new answer and stands.
+        SessionEvent::PermissionGrantsCleared => state.grants.clear(),
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
@@ -2684,6 +2687,31 @@ mod tests {
         .expect("reduces");
         assert_eq!(state.total_input_tokens, 3);
         assert_eq!(state.total_output_tokens, 5);
+    }
+
+    #[test]
+    fn a_reset_withdraws_every_grant_before_it_and_none_after_it() {
+        let grant = |tool: &str, target: &str| SessionEvent::PermissionGrantRecorded {
+            tool: tool.to_string(),
+            target: target.to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            grant("edit_file", "/w/a.txt"),
+            grant("terminal", "ls in /w"),
+            SessionEvent::PermissionGrantsCleared,
+            grant("edit_file", "/w/a.txt"),
+        ])
+        .expect("reduces");
+        assert_eq!(state.grants, vec![Grant::new("edit_file", "/w/a.txt")]);
+
+        let cleared = reduce(vec![
+            started(),
+            grant("edit_file", "/w/a.txt"),
+            SessionEvent::PermissionGrantsCleared,
+        ])
+        .expect("reduces");
+        assert!(cleared.grants.is_empty());
     }
 
     #[test]
