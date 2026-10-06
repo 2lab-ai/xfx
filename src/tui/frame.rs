@@ -2250,8 +2250,7 @@ mod tests {
     /// The same band with the rows a running turn puts above the composer.
     fn running_rows() -> Vec<String> {
         vec![
-            String::new(),
-            "\u{2022} Thinking  0s".to_string(),
+            "\u{2022} Thinking (0s)".to_string(),
             String::new(),
             "> ".to_string(),
             "--".to_string(),
@@ -2498,8 +2497,7 @@ mod tests {
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         let rows = vec![
-            String::new(),
-            "\u{2022} Thinking  9s".to_string(),
+            "\u{2022} Thinking (9s)".to_string(),
             String::new(),
             "> ".to_string(),
             "--".to_string(),
@@ -2509,10 +2507,10 @@ mod tests {
         let erase = text.find(ERASE_BELOW).expect("the erase");
         assert_eq!(
             &text[..erase],
-            format!("{BEGIN_FRAME}\u{1b}[19;1H"),
+            format!("{BEGIN_FRAME}\u{1b}[20;1H"),
             "the erase did not start at the band's own top row: {text:?}"
         );
-        for (line, row) in (19u16..).zip(&rows) {
+        for (line, row) in (20u16..).zip(&rows) {
             assert!(
                 text.contains(&format!("\u{1b}[{line};1H{row}")),
                 "{row:?} was not painted on row {line}: {text:?}"
@@ -2522,7 +2520,7 @@ mod tests {
 
     #[test]
     fn an_append_leaves_the_row_the_turn_is_using_alone() {
-        // The document is one row shorter while a turn runs, and an append that
+        // The document is two rows shorter while a turn runs, and an append that
         // measured it against the divider would aim its topmost row at the row
         // above the screen -- and paint over the activity row on the way.
         let mut band = Band::new();
@@ -2535,7 +2533,7 @@ mod tests {
             "the append aimed a row at the row above the screen: {text:?}"
         );
         assert!(
-            text.contains("\u{1b}[1;1Hrow 22"),
+            text.contains("\u{1b}[1;1Hrow 21"),
             "the document's first row is not on the screen's first row: {text:?}"
         );
         assert!(
@@ -2558,7 +2556,7 @@ mod tests {
         )
         .expect("utf-8");
         assert!(
-            text.contains("\u{1b}[18;1Hfresh"),
+            text.contains("\u{1b}[19;1Hfresh"),
             "the new row is not on the bottom row of the document: {text:?}"
         );
         assert!(
@@ -3822,7 +3820,7 @@ mod tests {
         let mut screen = Counted::default();
         band.commit(&mut screen, &running_rows(), &running, (22, 2))
             .expect("a frame while a turn runs");
-        assert_eq!(band.painted_top(), Some(19));
+        assert_eq!(band.painted_top(), Some(20));
 
         screen.written.clear();
         let (commit, rows) = crate::tui::grid::rows_compared(|| {
@@ -3830,8 +3828,8 @@ mod tests {
         });
         commit.expect("the frame that ends the turn");
         assert_eq!(
-            rows, 6,
-            "the frame did not read exactly the three rows it gave back and the band's own three"
+            rows, 5,
+            "the frame did not read exactly the two rows it gave back and the band's own three"
         );
         assert!(
             String::from_utf8(screen.written)
@@ -3861,8 +3859,8 @@ mod tests {
         });
         commit.expect("the frame that starts the turn");
         assert_eq!(
-            rows, 6,
-            "the frame did not read exactly the three rows it took and the band's own three"
+            rows, 5,
+            "the frame did not read exactly the two rows it took and the band's own three"
         );
         assert!(
             String::from_utf8(screen.written)
@@ -4017,8 +4015,8 @@ mod tests {
         let ended = crate::tui::layout::solve_with(12, 40, 1, false).expect("the turn over");
         assert_eq!(
             ended.band_top() - running.band_top(),
-            3,
-            "the activity row and its two blank rows are what the band gives back here"
+            2,
+            "the activity row and the blank row under it are what the band gives back here"
         );
 
         let mut band = Band::new();
@@ -4625,7 +4623,7 @@ mod tests {
         let running =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         assert_eq!(
-            running.band_top() + 3,
+            running.band_top() + 2,
             idle.band_top(),
             "the turn's rows did not grow the band, so this case proves nothing"
         );

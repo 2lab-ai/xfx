@@ -5343,7 +5343,7 @@ mod tests {
         shell.settle_band(now);
         let running_top = shell.geometry.band_top();
         assert_eq!(
-            running_top + 3,
+            running_top + 2,
             idle_top,
             "the turn's rows did not grow the band, so this case proves nothing"
         );

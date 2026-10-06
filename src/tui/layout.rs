@@ -313,9 +313,9 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_puts_its_row_above_the_composer_between_two_blank_rows() {
+    fn a_turn_puts_its_row_above_the_composer_with_a_blank_row_under_it() {
         // The composer, the rule and the hint row do not move when a turn
-        // starts -- the caret must not jump -- and the three rows it costs come
+        // starts -- the caret must not jump -- and the two rows it costs come
         // off the bottom of the document.
         let idle = solve(24, 80, 1).expect("a band");
         let working = solve_with(24, 80, 1, true).expect("a band with a turn in it");
@@ -325,12 +325,16 @@ mod tests {
             Some(20),
             "a blank row under it, then the composer"
         );
-        assert_eq!(working.band_top(), 19, "a blank row above it");
+        assert_eq!(
+            working.band_top(),
+            20,
+            "the row itself is the band's top: the gap above it is the document's"
+        );
         assert_eq!(working.divider, idle.divider);
         assert_eq!(working.input_first, idle.input_first);
         assert_eq!(working.hint, idle.hint);
-        assert_eq!(working.content_bottom, idle.content_bottom - 3);
-        assert_eq!(working.band_rows(), idle.band_rows() + 3);
+        assert_eq!(working.content_bottom, idle.content_bottom - 2);
+        assert_eq!(working.band_rows(), idle.band_rows() + 2);
     }
 
     #[test]
@@ -346,15 +350,18 @@ mod tests {
     }
 
     #[test]
-    fn a_short_screen_keeps_the_activity_row_and_drops_its_blank_rows() {
-        let roomy = solve_with(9, 20, 2, true).expect("room for the padding");
+    fn a_short_screen_keeps_the_activity_row_and_drops_its_blank_row() {
+        // A three-row composer: with a shorter one the one blank row fits on
+        // every screen a band does.
+        let roomy = solve_with(8, 20, 3, true).expect("room for the padding");
         assert_eq!(roomy.activity_padding, 1);
-        assert_eq!(roomy.content_bottom, 2);
-        let tight = solve_with(7, 20, 2, true).expect("the row without its padding");
+        assert_eq!(roomy.activity, Some(roomy.input_first - 2));
+        assert_eq!(roomy.content_bottom, 1);
+        let tight = solve_with(7, 20, 3, true).expect("the row without its padding");
         assert_eq!(tight.activity_padding, 0);
         assert_eq!(tight.activity, Some(tight.input_first - 1));
         assert_eq!(tight.band_top(), tight.activity.expect("a turn"));
-        assert_eq!(tight.content_bottom, 2);
+        assert_eq!(tight.content_bottom, 1);
         assert!(
             solve_with(7, 20, 4, true).is_none(),
             "no row at all is left"
@@ -403,10 +410,10 @@ mod tests {
 
     #[test]
     fn a_screen_with_no_room_for_the_panel_is_refused_rather_than_squeezed() {
-        // A turn's three rows, the composer, two rules, the panel and the hint
+        // A turn's two rows, the composer, two rules, the panel and the hint
         // row, and one row of document.
         // On a short screen the turn's row keeps its place and drops the blank
-        // rows around it before a question is refused.
+        // row under it before a question is refused.
         assert!(fits_panel(24, 80, 8));
         assert!(fits_panel(12, 80, 6));
         assert!(!fits_panel(11, 80, 6));
@@ -479,8 +486,8 @@ mod tests {
             .expect("a turn fits")
             .floated(4);
         assert_eq!(working.band_top(), 5);
-        assert_eq!(working.activity, Some(6));
-        assert_eq!((working.input_first, working.hint), (8, 10));
+        assert_eq!(working.activity, Some(5));
+        assert_eq!((working.input_first, working.hint), (7, 9));
         let menu = solve_band(24, 80, 1, false, 6)
             .expect("a menu fits")
             .floated(4);
