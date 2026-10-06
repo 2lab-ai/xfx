@@ -28,7 +28,10 @@ unchanged.
 
 The xfx binary is `target/debug/xfx` built from this branch's merge commit; its
 banner says `b9c5591` because `build.rs` recorded the revision the worktree was
-created at. Sanitized: the only run path in any file is the workspace root in
+created at. After `plan/tui-phase4` was merged again (D4b `/statusline`, F3),
+both xfx scenarios were retaken on `c904947`: every `.txt`, `.ansi` and
+`.files` is byte-identical to the ones here apart from the welcome line's
+revision. Sanitized: the only run path in any file is the workspace root in
 fx's `history.jsonl` and `session.json`, already `<scratch>/work`; no capture
 names a scratch directory.
 
