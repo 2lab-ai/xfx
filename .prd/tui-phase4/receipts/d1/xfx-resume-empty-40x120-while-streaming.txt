@@ -1,17 +1,17 @@
-x𝒇x v0.1.0-1482ec6 [debug] · Run /help for commands
+x𝒇x v0.1.0-a4d7861 [debug] · Run /help for commands
 
 ┃ stream one
 
-  MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15
-  word16 word17 word18 word19 word20 word21 word22
-
 * session: resume is unavailable until the response finishes
 
-  Generating (3s) (↑3 ↓69)
+• Generating (3s) (↑3 ↓65)
 
 ┃
 
 auto · model-a
+
+
+
 
 
 

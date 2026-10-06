@@ -25,10 +25,11 @@ so what the first launch left on the screen is not above the second one in
 either binary's `relaunched`/`resumed` snaps; the history keeps the rows that
 had scrolled off before it.
 
-The xfx binary is `target/debug/xfx`, built at `1482ec6` -- this branch with
-`plan/tui-phase4` (`e50a8f0`) merged into it -- and its banner shows that
-revision. The receipt was first taken on the branch before the merge; retaken
-here, every comparison below came out the same. Sanitized: no scratch path appears in any
+The xfx binary is `target/debug/xfx`, built at `a4d7861` -- this branch with
+`plan/tui-phase4` (`0204be9`) merged into it -- and its banner shows that
+revision. The receipt was first taken on the branch before either merge and
+again at `1482ec6` (`e50a8f0` merged); every comparison below came out the
+same each time but the streaming one, which T2 changed (see below). Sanitized: no scratch path appears in any
 capture; the host name tmux restores as the window title after xfx's exit is
 written `<host>`. `.ansi` files are tmux's re-serialization of cell attributes
 (`capture-pane -e`), not the programs' wire bytes.
@@ -36,7 +37,7 @@ written `<host>`. `.ansi` files are tmux's re-serialization of cell attributes
 ## What matches
 
 Every pair below is identical row for row, SGR included, **except row 1 where
-row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-1482ec6
+row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-a4d7861
 [debug]`). Where row 1 is the resume notice the whole `.ansi` file is
 identical.
 
@@ -68,14 +69,14 @@ identical.
 
 ## What differs, and why
 
-- **`resume-empty/while-streaming`.** The notice is the same on both, text and
-  SGR: `* session: resume is unavailable until the response finishes`, and no
-  picker. Where it lands differs: upstream holds a streaming answer in its live
-  region and commits it when the turn ends, so the notice is under the card;
-  xfx writes an answer's lines as the presenter completes them, so it is under
-  the lines that had arrived (the C2 receipt records the same difference).
-  `• Generating` against `  Generating` is the activity row's blink phase at
-  the moment of the snap.
+- **`resume-empty/while-streaming`.** Rows 2-6 and 8-40 are identical: the
+  card, then `* session: resume is unavailable until the response finishes`
+  with upstream's SGR, and no picker. Row 7, the activity row, differs in two
+  things the clock decides -- `• Generating` against ` Generating` is the
+  blink phase at the moment of the snap, and `↓65` against `↓71` is how much
+  had streamed by then. (Before T2 merged, the notice landed under the
+  answer's wrapped rows rather than under the card; T2 holds the unfinished
+  line whole, as upstream does.)
 - **The window title after exit.** `<host>` against empty, as C5's receipt and
   `ssot.md` §Tensions say.
 - **`quit` rows.** The product name and the id, as C5's receipt says.
