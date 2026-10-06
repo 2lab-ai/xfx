@@ -341,6 +341,17 @@ pub(crate) enum UiEvent {
         title: String,
         unsaved: Option<String>,
     },
+    /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
+    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1285-1289`).
+    ///
+    /// **Not a [`Self::Notice`]**, and the one difference is the reason: a
+    /// notice the old conversation's work sends after a reset is dropped
+    /// (`super::shell`'s `drained`), and this one is never dropped, because a
+    /// file has changed -- or was refused -- by the time it is sent. An undo
+    /// typed before a `/new` that the runtime got to after it is still an undo
+    /// that happened, and one nobody was told of is a file that changed
+    /// invisibly.
+    Undone(super::notice::Notice),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -425,6 +436,15 @@ impl UiEvent {
             // that exempted one field would be a rule about which field a
             // future sender puts foreign text in.
             Self::Notice(notice) => Self::Notice(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
+            // The body quotes a path, which is a file's name and therefore
+            // anybody's; it arrives spelled out already
+            // (`crate::tools::undo::display_path`), and the rule here is about
+            // the channel rather than about whoever built the value.
+            Self::Undone(notice) => Self::Undone(super::notice::Notice {
                 tone: notice.tone,
                 topic: inert_owned(notice.topic),
                 body: inert_owned(notice.body),
@@ -778,6 +798,23 @@ pub(crate) enum TurnControl {
     /// queued behind it is taken. An interrupt does not drop it: it is not a
     /// piece of work, and the turn after the interrupt is the one it was for.
     Model(ModelChange),
+    /// `/undo` ([`crate::tools::mutate::undo_last`]), answered with
+    /// [`UiEvent::Undone`].
+    ///
+    /// **A control message rather than work**, for the reason [`Self::Model`]
+    /// is one: as work it would take a place in the queue and be refused as
+    /// busy behind a waiting prompt, and upstream never refuses it
+    /// (`commandUndoLast`, `app_commands.zig:1242-1290`, runs from the
+    /// command handler whatever the worker is doing). Between turns it is done
+    /// when it is read. While work runs it is put aside and done the moment
+    /// that work has said its last word (`super::approval::ControlChannel::defer_undo`)
+    /// -- **not at once, as upstream's is**: the files a running turn is
+    /// changing are the runtime thread's to change, and an undo there,
+    /// between one call's commit and the next call's read, is exactly the
+    /// interleaving a single thread exists to rule out. The cost is that an
+    /// undo typed mid-turn takes back the newest change when the turn is over,
+    /// which may be one the turn made after it was typed.
+    Undo,
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a

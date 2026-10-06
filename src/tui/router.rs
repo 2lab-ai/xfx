@@ -54,6 +54,9 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/undo`: the newest file change the conversation's tools made, taken
+    /// back. It takes nothing: `/undo now` never reaches it ([`classify`]).
+    fn undo(&mut self);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
@@ -163,6 +166,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
+        Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
@@ -229,6 +233,9 @@ mod tests {
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
         }
+        fn undo(&mut self) {
+            self.calls.push("undo".to_string());
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
@@ -280,6 +287,7 @@ mod tests {
             ("/quit", "quit"),
             ("/provider", "setup "),
             ("/permissions", "permissions "),
+            ("/undo", "undo"),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -408,6 +416,8 @@ mod tests {
             "  /version",
             "/exit  ",
             "/copy ",
+            "/undo ",
+            "/undo\t",
             "/stats ",
             "/status\t",
         ] {
@@ -426,6 +436,11 @@ mod tests {
             "/exit now",
             "/copy now",
             "/copy\tall",
+            // `commands.zig:481` gives `/undo` no `accepts_payload` either:
+            // there is no "undo that one".
+            "/undo now",
+            "/undo 2",
+            "/undo\nall",
             // `fx-stats-40x120-extra.txt`: `/stats extra` is an unknown
             // command, and `/status` takes nothing either (`commands.zig:473,475`
             // gives neither row `accepts_payload`).
