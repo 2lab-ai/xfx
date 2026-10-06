@@ -533,10 +533,13 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 /// * `48 ; 5 ; <n>`, `48 ; 2 ; <r> ; <g> ; <b>` and `49` -- the one
 ///   background the band paints, the `@` file picker's marked row
 ///   (`approval_button_inactive_style`, `super::theme::Palette::selected`),
-///   and its close.
+///   and its close;
+/// * `7` -- reverse video, which is how the composer shows a selection
+///   (`appendLayoutUnit`, `input_presentation.zig:995-1021`;
+///   `super::theme::Palette::reverse`), closed by the reset after it.
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
-/// invisible, `blink` makes it move, `reverse` repaints the whole width of it.
+/// invisible and `blink` makes it move.
 /// None of them is in upstream's assistant or footer text, and an allowlist
 /// wider than what is emitted is untested surface. A background would repaint
 /// the width an `EL` erases, which is why `super::grid` closes every attribute
@@ -556,7 +559,7 @@ fn is_palette_sgr(text: &str) -> bool {
     let mut params = params.split(';');
     while let Some(group) = params.next() {
         match group {
-            "0" | "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" | "39" | "49" => {}
+            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "29" | "39" | "49" => {}
             "38" | "48" => {
                 // The number of parameters each colour shape carries after its
                 // selector. Each one a terminal reads as a number, and nothing
@@ -1353,6 +1356,8 @@ mod tests {
             "\u{1b}[9m",
             "\u{1b}[29m",
             "\u{1b}[39m",
+            // A selection in the composer.
+            "\u{1b}[7m",
             // The file picker's marked row: its background, in both
             // notations, and the background's close.
             "\u{1b}[48;5;239m",
@@ -1372,13 +1377,12 @@ mod tests {
         // otherwise admitted group.
         for refused in [
             "\u{1b}[5m",
-            "\u{1b}[7m",
             "\u{1b}[8m",
             "\u{1b}[41m",
             "\u{1b}[48;5m",
             "\u{1b}[48;2;1;2m",
             "\u{1b}[31m",
-            "\u{1b}[1;7m",
+            "\u{1b}[1;8m",
             "\u{1b}[38;5m",
             "\u{1b}[38;5;m",
             "\u{1b}[38;2;1;2m",

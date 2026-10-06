@@ -219,6 +219,15 @@ pub(crate) enum Action {
     ToggleTranscript,
     /// Insert what was last killed. `C-y` (`0x19`, `shortcuts.zig:84-85`).
     Yank,
+    /// Select the whole draft: Super+A on a terminal that reports Super
+    /// (`select_all`, `escape_parser.zig` at `c1db919`, :223-225).
+    SelectAll,
+    /// Put the selection on the clipboard: Super+C (`copy_selection`,
+    /// :226-228).
+    CopySelection,
+    /// Put the selection on the clipboard and take it out of the draft:
+    /// Super+X (`cut_selection`, :229-231).
+    CutSelection,
     Escape,
     Cancel,
     Eof,
@@ -1078,11 +1087,13 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   included -- upstream's `composerMove` to a page (:171), whose selection
 ///   extension this composer does not have;
 /// * `toggle_full_transcript` -- Ctrl+O and nothing else held (:111-114,
-///   :252) -- is [`Action::ToggleTranscript`].
+///   :252) -- is [`Action::ToggleTranscript`], and `select_all`,
+///   `copy_selection` and `cut_selection` (:223-231) are
+///   [`Action::SelectAll`], [`Action::CopySelection`] and
+///   [`Action::CutSelection`].
 ///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
-/// `select_all` (:223-225), `copy_selection` (:226-228), `cut_selection`
-/// (:229-231), every `composerMove` that extends a selection (:238-241, :244,
+/// every `composerMove` that extends a selection (:238-241, :244,
 /// :248), an `o` under any other modifiers (:111-114) and
 /// `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
 /// [`Action::BackTab`], the key it is spelled with. Upstream's
@@ -1146,9 +1157,16 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
     let ascii = u8::try_from(code).ok().filter(u8::is_ascii);
     let is = |wanted: u8| ascii.is_some_and(|byte| byte.to_ascii_lowercase() == wanted);
     if mods & SUPER != 0 {
-        // `select_all`, `copy_selection`, `cut_selection` (:223-231).
-        if is(b'a') || is(b'c') || is(b'x') {
-            return ignore;
+        // `select_all`, `copy_selection`, `cut_selection` (:223-231), with
+        // whatever else is held.
+        if is(b'a') {
+            return Input::Action(Action::SelectAll);
+        }
+        if is(b'c') {
+            return Input::Action(Action::CopySelection);
+        }
+        if is(b'x') {
+            return Input::Action(Action::CutSelection);
         }
         if is(b'z') {
             return Input::Action(if mods & SHIFT == 0 {
@@ -1416,14 +1434,13 @@ mod tests {
         // `kittyUnicodeKeyAction` (`escape_parser.zig` at `c1db919`,
         // :185-266): `2` is shift alone and `3` alt alone, neither of which
         // makes `c` anything; `13` is ctrl *and* super, which upstream reads
-        // as `copy_selection` before Ctrl is consulted (:226-228) -- a key
-        // this session does not have.
+        // as `copy_selection` before Ctrl is consulted (:226-228).
         assert_eq!(csi(b"27;2;99", b'~'), Action::Ignore, "shift is not ctrl");
         assert_eq!(csi(b"27;3;99", b'~'), Action::Ignore, "alt is not ctrl");
         assert_eq!(
             csi(b"27;13;99", b'~'),
-            Action::Ignore,
-            "ctrl+super+c is copy_selection, which xfx has no key for"
+            Action::CopySelection,
+            "ctrl+super+c is copy_selection, ahead of Ctrl"
         );
         assert_eq!(csi(b"27;1;99", b'~'), Action::Ignore, "no modifier at all");
 
@@ -1733,10 +1750,10 @@ mod tests {
         // `c1db919`) with no action in this session's vocabulary, and none is
         // invented for it.
         for (bytes, upstream) in [
-            (&b"\x1b[97;9u"[..], "select_all :223-225"),
-            (b"\x1b[99;9u", "copy_selection :226-228"),
-            (b"\x1b[120;9u", "cut_selection :229-231"),
-            (b"\x1b[97;6u", "composerMove line_start + selection :238"),
+            (
+                &b"\x1b[97;6u"[..],
+                "composerMove line_start + selection :238",
+            ),
             (
                 b"\x1b[98;6u",
                 "composerMove character_left + selection :239",
@@ -1824,6 +1841,22 @@ mod tests {
         // Upper case is not the binding, as upstream reads it.
         assert_eq!(decode(b"\x1bB"), vec![Input::Action(Action::Ignore)]);
         assert_eq!(decode(b"\x1bD"), vec![Input::Action(Action::Ignore)]);
+    }
+
+    #[test]
+    fn super_a_c_and_x_are_the_composers_selection_keys() {
+        // `escape_parser.zig` at `c1db919`, :223-231: Super with `a`, `c` or
+        // `x` in either case, whatever else is held, in both report spellings.
+        for (bytes, action) in [
+            (&b"\x1b[97;9u"[..], Action::SelectAll),
+            (b"\x1b[65;10u", Action::SelectAll),
+            (b"\x1b[99;9u", Action::CopySelection),
+            (b"\x1b[99;13u", Action::CopySelection),
+            (b"\x1b[120;9u", Action::CutSelection),
+            (b"\x1b[27;9;120~", Action::CutSelection),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
     }
 
     #[test]

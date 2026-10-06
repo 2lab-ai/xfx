@@ -2233,9 +2233,10 @@ fn operating_system_command(
 /// and agreeing.
 ///
 /// The vocabulary is [`super::pacer`]'s allowlist: groups of a reset or the
-/// foreground default (`0`, `39`), a text attribute (`1 2 3 4 9 22 23 24 29`,
+/// foreground default (`0`, `39`), a text attribute (`1 2 3 4 7 9 22 23 24 29`,
 /// which this model does not carry because no cell comparison is made about
-/// it), one foreground colour (`38;5;n`, `38;2;r;g;b`), or the file picker's
+/// it -- nor reverse video `7`, a composer selection's), one foreground colour
+/// (`38;5;n`, `38;2;r;g;b`), or the file picker's
 /// background and its close (`48;5;n`, `48;2;r;g;b`, `49`) -- read whole and
 /// range-checked like a foreground, and carried no further than the text
 /// attributes are, because the comparison is about the pen's foreground.
@@ -2250,7 +2251,7 @@ fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
     while let Some(part) = parts.next() {
         match part {
             "0" | "39" => pen = Some(Color::Default),
-            "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" | "49" => {}
+            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "29" | "49" => {}
             "48" => {
                 let wanted = match parts.next() {
                     Some("5") => 1,
@@ -2524,13 +2525,15 @@ mod tests {
         );
         assert_eq!(wire_color("49", 0).ok(), Some(None));
         assert!(
-            wire_color("7", 0).is_err(),
-            "reverse is not in the vocabulary"
+            wire_color("8", 0).is_err(),
+            "conceal is not in the vocabulary"
         );
         assert!(
-            wire_color("1;7", 0).is_err(),
+            wire_color("1;8", 0).is_err(),
             "nor hidden behind an admitted group"
         );
+        // Reverse video is: a composer selection is painted in it.
+        assert_eq!(wire_color("7", 0).ok(), Some(None));
         assert_eq!(wire_color("1", 0).expect("an attribute"), None);
         assert_eq!(wire_color("22", 0).expect("its close"), None);
         assert_eq!(

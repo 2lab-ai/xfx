@@ -92,6 +92,14 @@ pub(crate) struct Editor {
     /// set of spans kept anywhere else would be a set that had to be told about
     /// each of them by a caller that could forget (`super::entity`).
     entities: Entities,
+    /// The other end of a selection, while there is one: the selection is the
+    /// text between this and the caret (`selection_anchor`,
+    /// `editor_state.zig:33`, `:87-94`).
+    ///
+    /// Only Super-A makes one here ([`Self::select_all`]); every move, every
+    /// edit and every whole-draft replacement ends it, as upstream's
+    /// `setCursor` and its insertions do (`:121-139`, `:163-176`).
+    anchor: Option<usize>,
 }
 
 impl Editor {
@@ -101,7 +109,35 @@ impl Editor {
             cursor: 0,
             sticky: None,
             entities: Entities::new(),
+            anchor: None,
         }
+    }
+
+    /// The selected range, while there is one (`selectionRange`,
+    /// `editor_state.zig:87-94`).
+    pub(crate) fn selection(&self) -> Option<std::ops::Range<usize>> {
+        let anchor = self.anchor?;
+        (anchor != self.cursor).then(|| anchor.min(self.cursor)..anchor.max(self.cursor))
+    }
+
+    /// The selected text, as the draft holds it -- a collapsed paste's summary
+    /// and all (`selectedText`, `editor_state.zig:96-99`).
+    pub(crate) fn selected_text(&self) -> Option<&str> {
+        self.selection().map(|range| &self.text[range])
+    }
+
+    /// Selects the whole draft, the caret at its end, and says whether that
+    /// changed anything (`selectAll`, `editor_state.zig:140-146`). An empty
+    /// draft has nothing to select and ends any selection instead.
+    pub(crate) fn select_all(&mut self) -> bool {
+        if self.text.is_empty() {
+            return self.anchor.take().is_some();
+        }
+        let changed = self.anchor != Some(0) || self.cursor != self.text.len();
+        self.anchor = Some(0);
+        self.cursor = self.text.len();
+        self.sticky = None;
+        changed
     }
 
     /// The collapsed pastes the text stands on.
@@ -185,9 +221,31 @@ impl Editor {
         if text.is_empty() {
             return None;
         }
-        if self.text.len().saturating_add(text.len()) > MAX_COMPOSER_BYTES {
+        // What is selected is replaced by what is inserted, in the same edit
+        // (`insertComposerSliceBounded` at `selection.start`,
+        // `app_input_runtime.zig:1628-1660`) -- a block in it whole.
+        let selected = self.selection().map(|range| {
+            let held: Vec<Span> = self.entities.spans().to_vec();
+            (range, held)
+        });
+        let freed = selected.as_ref().map_or(0, |(range, _)| range.len());
+        if (self.text.len() - freed).saturating_add(text.len()) > MAX_COMPOSER_BYTES {
             return None;
         }
+        let caret_before = self.cursor;
+        let mut removed = String::new();
+        let mut lost: Vec<Span> = Vec::new();
+        if let Some((range, held)) = selected {
+            let taken = self.entities.delete_touching(range);
+            removed = self.text[taken.clone()].to_string();
+            lost = held
+                .into_iter()
+                .filter(|span| span.start < taken.end && taken.start < span.end)
+                .collect();
+            self.text.replace_range(taken.clone(), "");
+            self.cursor = taken.start;
+        }
+        self.anchor = None;
         let at = self.cursor;
         self.text.insert_str(at, text);
         // The blocks after the insertion are that many bytes further along, and
@@ -217,11 +275,11 @@ impl Editor {
         }
         Some(Delta::new(
             at,
-            String::new(),
+            removed,
             text.to_string(),
-            Vec::new(),
+            lost,
             placed,
-            at,
+            caret_before,
             self.cursor,
             DeltaKind::Ordinary,
         ))
@@ -240,7 +298,9 @@ impl Editor {
     /// instead of two: a paste is one recorded transaction, and the entity in it
     /// is the one that was really registered.
     pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Delta> {
-        let at = self.cursor;
+        // Where the summary goes: the caret, or the start of what it replaces
+        // -- whose ends are carets, so never inside a block.
+        let at = self.selection().map_or(self.cursor, |range| range.start);
         let span = Span {
             start: 0,
             end: summary.len(),
@@ -250,9 +310,9 @@ impl Editor {
         debug_assert_eq!(delta.at(), at);
         Some(Delta::new(
             delta.at(),
-            String::new(),
+            delta.removed().to_string(),
             delta.inserted().to_string(),
-            Vec::new(),
+            delta.removed_entities().to_vec(),
             delta.inserted_entities().to_vec(),
             delta.caret_before(),
             delta.caret_after(),
@@ -295,6 +355,7 @@ impl Editor {
         // (`super::shell::Shell::recall`).
         self.entities = entities;
         self.cursor = self.text.len();
+        self.anchor = None;
         // The text under the caret is a different text, so a column remembered
         // from a run of vertical motion over the old one would aim the next
         // `Up` at a place nobody chose.
@@ -314,6 +375,38 @@ impl Editor {
     /// A `None` records nothing, which is what keeps a keystroke that changed
     /// nothing from clearing the redo stack.
     pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Option<Delta> {
+        // A selection first: a deletion takes it (`deleteSelection`,
+        // `composer_deletion.zig:30-35`), a kill kills it
+        // (`composer_kill_ring.zig:123-137`), and a left or right move
+        // collapses it to that edge and goes no further
+        // (`moveCharacterLeft`/`Right`, `moveWordLeft`/`Right`,
+        // `horizontal_navigation.zig:53-141`). Everything else moves the caret
+        // from where it is and ends it on the way ([`Self::move_to`]).
+        if let Some(range) = self.selection() {
+            match action {
+                Action::Backspace
+                | Action::Delete
+                | Action::DeleteWordBackward
+                | Action::DeleteWordRight => {
+                    return self.delete(range.start, range.end, DeltaKind::Ordinary);
+                }
+                Action::DeleteWordLeft
+                | Action::KillToEnd
+                | Action::KillToStart
+                | Action::ControlK => {
+                    return self.delete(range.start, range.end, DeltaKind::Kill);
+                }
+                Action::Left | Action::WordLeft => {
+                    self.move_to(range.start);
+                    return None;
+                }
+                Action::Right | Action::WordRight => {
+                    self.move_to(range.end);
+                    return None;
+                }
+                _ => {}
+            }
+        }
         match action {
             Action::Left => {
                 self.move_to(self.left());
@@ -436,6 +529,9 @@ impl Editor {
             | Action::ToggleTranscript
             | Action::PageUp
             | Action::PageDown
+            | Action::SelectAll
+            | Action::CopySelection
+            | Action::CutSelection
             | Action::Ignore => None,
         }
     }
@@ -457,6 +553,7 @@ impl Editor {
         );
         self.cursor = delta.caret_before();
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Does `delta` again, after a [`Self::revert`] took it back.
@@ -469,6 +566,7 @@ impl Editor {
         );
         self.cursor = delta.caret_after();
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Replaces `remove` bytes at `at` with `insert`, and puts `entities` back
@@ -511,6 +609,7 @@ impl Editor {
         };
         self.cursor = 0;
         self.sticky = None;
+        self.anchor = None;
         lent
     }
 
@@ -521,12 +620,14 @@ impl Editor {
         self.entities = lent.entities;
         self.cursor = lent.caret.min(self.text.len());
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Takes the composer's text, leaving it empty.
     pub(crate) fn take(&mut self) -> String {
         self.cursor = 0;
         self.sticky = None;
+        self.anchor = None;
         // The blocks die with the draft they were pasted into. One that
         // outlived it would be a span into a buffer that has been emptied.
         self.entities.clear();
@@ -554,6 +655,37 @@ impl Editor {
             .collect()
     }
 
+    /// The same rows with the selection marked: `open` before each run of
+    /// selected text on a row and `close` after it (`appendLayoutUnit`,
+    /// `input_presentation.zig:995-1021`, which wraps selected units in
+    /// reverse video and a reset). Exactly [`Self::rows`] with no selection.
+    pub(crate) fn painted_rows(&self, cols: u16, open: &str, close: &str) -> Vec<String> {
+        let Some(selected) = self.selection() else {
+            return self.rows(cols);
+        };
+        wrap::wrap(&self.text, cols.max(1))
+            .into_iter()
+            .map(|row| {
+                let body = body(&self.text[row.start..row.end]);
+                let mut out = String::with_capacity(body.len() + open.len() + close.len());
+                let mut inside = false;
+                for (offset, cluster) in body.grapheme_indices(true) {
+                    let at = row.start + offset;
+                    let wanted = selected.contains(&at);
+                    if wanted != inside {
+                        out.push_str(if wanted { open } else { close });
+                        inside = wanted;
+                    }
+                    out.push_str(&wrap::expand_tabs(cluster));
+                }
+                if inside {
+                    out.push_str(close);
+                }
+                out
+            })
+            .collect()
+    }
+
     /// Where the caret is: the row of [`rows`](Self::rows) it is on, and the
     /// cells to the left of it there.
     ///
@@ -575,6 +707,7 @@ impl Editor {
     fn move_to(&mut self, offset: usize) {
         self.cursor = offset;
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Removes `start..end`, and puts the caret where the text used to be.
@@ -606,6 +739,7 @@ impl Editor {
         self.text.replace_range(taken.clone(), "");
         self.cursor = taken.start;
         self.sticky = None;
+        self.anchor = None;
         Some(Delta::new(
             taken.start,
             removed,
@@ -690,6 +824,7 @@ impl Editor {
         let last = wanted + 1 == rows.len();
         let landed = self.offset_on(&rows[wanted], last, target);
         self.cursor = self.beside(landed);
+        self.anchor = None;
     }
 
     /// `count` rows up or down at once, stopping at the first or the last row:
@@ -715,6 +850,7 @@ impl Editor {
         let last = wanted + 1 == rows.len();
         let landed = self.offset_on(&rows[wanted], last, target);
         self.cursor = self.beside(landed);
+        self.anchor = None;
         true
     }
 
@@ -780,6 +916,7 @@ impl Editor {
         self.splice(start, end - start, text, &[]);
         self.cursor = boundary_at_or_after(&self.text, caret.min(self.text.len()));
         self.sticky = None;
+        self.anchor = None;
         Some(Delta::new(
             start,
             removed,
@@ -1337,6 +1474,32 @@ mod tests {
         // At the end there is nothing to do, and nothing is recorded.
         let mut end = editor("x");
         assert!(end.apply(Action::DeleteWordRight, 80).is_none());
+    }
+
+    #[test]
+    fn a_selection_is_painted_where_it_is_and_replaced_whole_with_its_blocks() {
+        // `editor_state.zig:87-146`: select all, then an insertion replaces
+        // the selection -- a block in it included -- as one edit.
+        let (mut draft, _span) = with_block("a\tb ", "x\ny", " c");
+        assert!(draft.select_all());
+        assert!(!draft.select_all(), "selecting all twice changed something");
+        let rows = draft.painted_rows(80, "<", ">");
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].starts_with("<a    b "), "{rows:?}");
+        assert!(rows[0].ends_with(" c>"), "{rows:?}");
+        let delta = draft.insert("z").expect("an edit");
+        assert_eq!(draft.text(), "z");
+        assert!(draft.entities().is_empty());
+        draft.revert(&delta);
+        assert_eq!(draft.entities().len(), 1, "the undo lost the block");
+        assert_eq!(draft.selection(), None);
+        // With nothing selected the painted rows are the rows.
+        assert_eq!(draft.painted_rows(80, "<", ">"), draft.rows(80));
+        // A selection on part of a wrapped draft is marked on each row it
+        // reaches.
+        let mut wrapped = editor("abcdefgh");
+        wrapped.select_all();
+        assert_eq!(wrapped.painted_rows(4, "<", ">"), ["<abcd>", "<efgh>"]);
     }
 
     #[test]

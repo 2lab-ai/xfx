@@ -706,6 +706,14 @@ pub(crate) struct Shell {
     /// (`history_slash_recall_until_edit`, `picker_state.zig:451-466`) -- so
     /// the next `Up` goes on walking rather than moving a menu's mark.
     recalled_slash: bool,
+    /// A Super+X whose clipboard write has not answered yet: its number and
+    /// the draft and selection it was made against. The text leaves the draft
+    /// only once the clipboard has it, and only if the draft is still what it
+    /// was (`cutSelection`, `input_selection_runtime.zig:32-42`: copy, then
+    /// delete, and a failed copy keeps both the selection and the text).
+    pending_cut: Option<(u64, String, std::ops::Range<usize>)>,
+    /// The number the next cut is given.
+    cuts: u64,
     /// The space the last file completion put after its path, while the caret
     /// is still right after it: a space typed then is that one rather than a
     /// second (`markFileCompletionSeparator`, `input_completion_runtime.zig:940-946`;
@@ -1315,6 +1323,8 @@ impl Shell {
             separator: None,
             model_draft: None,
             recalled_slash: false,
+            pending_cut: None,
+            cuts: 0,
             help_menu: None,
             model_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
@@ -1389,7 +1399,13 @@ impl Shell {
         // model's own batch: the question replaces the composer, as upstream's
         // replaces its footer ([`layout::fits_approval`]), and the draft waits
         // in the editor, unpainted, for the answer to give the band back.
-        let composer = self.editor.rows(self.text_cols());
+        // A selection is painted in reverse video and closed by the reset
+        // (`appendLayoutUnit`, `input_presentation.zig:995-1021`).
+        let composer = self.editor.painted_rows(
+            self.text_cols(),
+            self.palette.reverse(),
+            self.palette.reset(),
+        );
         let window = if self.geometry.input_rows() == 0 {
             0..0
         } else {
@@ -4531,6 +4547,25 @@ impl Shell {
     /// ([`super::copy`]), so its outcome is a fact that arrives rather than one
     /// this thread waits for.
     fn settle_copies(&mut self) {
+        // A selection's copy says nothing either way (`copy_selection`,
+        // `app_input_runtime.zig:356-370`); a cut whose copy landed takes its
+        // text out of the draft, if the draft is still the one it was cut from.
+        while let Some((purpose, copied)) = self.copies.selection_finished() {
+            let super::copy::Selection::Cut(id) = purpose else {
+                continue;
+            };
+            let Some((pending, draft, range)) = self.pending_cut.take() else {
+                continue;
+            };
+            if pending != id {
+                self.pending_cut = Some((pending, draft, range));
+                continue;
+            }
+            if copied && self.editor.text() == draft && self.editor.selection() == Some(range) {
+                let delta = self.editor.apply(Action::Delete, self.text_cols());
+                self.amended(delta);
+            }
+        }
         while let Some(copied) = self.copies.finished() {
             self.announce(if copied {
                 notice::Notice::neutral(clipboard::TOPIC, clipboard::COPIED)
@@ -5176,6 +5211,34 @@ impl Shell {
             }
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
+            // Super+A, Super+C, Super+X (`select_all`, `copy_selection`,
+            // `cut_selection`, `app_input_runtime.zig:350-385`).
+            Action::SelectAll => {
+                if self.editor.select_all() {
+                    self.moved();
+                }
+            }
+            Action::CopySelection => {
+                if let Some(text) = self.editor.selected_text() {
+                    let _ = self
+                        .copies
+                        .start_selection(std::sync::Arc::from(text), super::copy::Selection::Copy);
+                }
+            }
+            Action::CutSelection => {
+                let Some(range) = self.editor.selection() else {
+                    return;
+                };
+                self.cuts += 1;
+                let text: std::sync::Arc<str> =
+                    std::sync::Arc::from(&self.editor.text()[range.clone()]);
+                if self
+                    .copies
+                    .start_selection(text, super::copy::Selection::Cut(self.cuts))
+                {
+                    self.pending_cut = Some((self.cuts, self.editor.text().to_string(), range));
+                }
+            }
             Action::Tab | Action::BackTab | Action::Ignore => {}
         }
     }
@@ -15546,6 +15609,103 @@ mod tests {
         // Alt-Backspace is a deletion, so `C-y` yanks what `C-w` killed.
         shell.route_bytes(&[0x19]);
         assert_eq!(shell.editor.text(), "see foo.");
+    }
+
+    /// Turns of the loop until the selection copies have answered.
+    fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            shell.settle_band(Instant::now());
+            if done(shell) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("the clipboard never answered");
+    }
+
+    #[test]
+    fn super_a_selects_the_draft_and_paints_it_in_reverse_video() {
+        // `select_all` (`editor_state.zig:140-146`) and its painting
+        // (`appendLayoutUnit`, `input_presentation.zig:995-1021`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"alpha beta");
+        shell.route_bytes(b"\x1b[97;9u");
+        assert_eq!(shell.editor.selection(), Some(0..10));
+        assert_eq!(
+            shell.band_rows()[0],
+            composer_row(&format!("\u{1b}[7malpha beta{}", PALETTE.reset()))
+        );
+        // A move ends it: Left collapses to the start and goes no further.
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.selection(), None);
+        assert_eq!(shell.editor.caret(), 0);
+        assert_eq!(shell.band_rows()[0], composer_row("alpha beta"));
+        // Typing replaces it, as one edit.
+        shell.route_bytes(b"\x1b[97;9u");
+        shell.route_bytes(b"z");
+        assert_eq!(shell.editor.text(), "z");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "alpha beta");
+        // A deletion takes it; a kill takes it into the slot.
+        shell.route_bytes(b"\x1b[97;9u");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "alpha beta");
+        // An empty draft has nothing to select.
+        let mut empty = super::tests::shell(24, 80);
+        empty.route_bytes(b"\x1b[97;9u");
+        assert_eq!(empty.editor.selection(), None);
+    }
+
+    #[test]
+    fn super_c_copies_the_selection_and_says_nothing() {
+        // `copy_selection` (`app_input_runtime.zig:356-370`): through the
+        // clipboard `/copy` uses, and no notice either way.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"alpha beta");
+        shell.route_bytes(b"\x1b[99;9u");
+        assert_eq!(tool.copied(), None, "Super+C without a selection copied");
+        shell.route_bytes(b"\x1b[97;9u\x1b[99;9u");
+        copies_settled(&mut shell, |_| {
+            tool.copied().as_deref() == Some(&b"alpha beta"[..])
+        });
+        assert_eq!(tool.copied().as_deref(), Some(&b"alpha beta"[..]));
+        assert_eq!(shell.editor.text(), "alpha beta");
+        assert!(shell.document().is_empty(), "the copy said something");
+    }
+
+    #[test]
+    fn super_x_takes_the_text_out_only_once_the_clipboard_has_it() {
+        // `cutSelection` (`input_selection_runtime.zig:32-42`): copy first,
+        // then delete -- and a copy that failed keeps the selection and the
+        // text.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"alpha beta");
+        shell.route_bytes(b"\x1b[97;9u\x1b[120;9u");
+        copies_settled(&mut shell, |shell| shell.editor.is_empty());
+        assert_eq!(tool.copied().as_deref(), Some(&b"alpha beta"[..]));
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(
+            shell.editor.text(),
+            "alpha beta",
+            "the cut was not one edit"
+        );
+
+        let failing = crate::clipboard::fake::FakeTool::keeping();
+        failing.fail();
+        let mut kept = super::tests::shell(24, 80);
+        kept.copies = Copies::new(failing.clipboard());
+        kept.route_bytes(b"alpha beta");
+        kept.route_bytes(b"\x1b[97;9u\x1b[120;9u");
+        copies_settled(&mut kept, |shell| shell.pending_cut.is_none());
+        assert_eq!(kept.editor.text(), "alpha beta");
+        assert_eq!(kept.editor.selection(), Some(0..10));
     }
 
     // -----------------------------------------------------------------------

@@ -390,6 +390,15 @@ impl Palette {
         self.subtitle()
     }
 
+    /// Reverse video and nothing else: a selection in the composer
+    /// (`appendLayoutUnit`, `input_presentation.zig:995-1021`, which writes
+    /// `ESC[7m` before a selected unit and the reset after it). The same in
+    /// every mode and at every depth, because it names no colour -- it swaps
+    /// the two the terminal already has.
+    pub(crate) fn reverse(&self) -> &'static str {
+        "\u{1b}[7m"
+    }
+
     /// Bold and nothing else: a question's title and the path it is about
     /// (`bold_style`). The same in every mode and at every depth, because it
     /// names no colour.
