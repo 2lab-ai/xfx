@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ first question
+
+  First answer, sound off.
+
+  0s (↑4 ↓40)
+
+* sound: on
+
+* sound: on
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
