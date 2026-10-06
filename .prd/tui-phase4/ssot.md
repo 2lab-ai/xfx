@@ -41,6 +41,9 @@ Recorded so the weekly review sees them; "그대로" authorizes each.
 4. The 7-row slash list → fx's filterable menu.
 5. `/help` as transcript text → fx's help menu.
 6. `/clear` as "clear the screen, keep the conversation" → fx's "start a fresh conversation while keeping managed processes" (`app_commands.zig:667`).
+7. Approval keys: xfx's Esc = deny / Ctrl-C = interrupt the turn → fx's Esc = cancel the turn / Ctrl-C = deny this call (`app_input_runtime.zig:3139-3143`, `src/ui/input/runtime.zig:61`, pinned by fx `tests/e2e/tui-permissions.test.ts:1099`).
+8. Ctrl-P: xfx's history-previous → fx's model catalog (`escape_parser.zig:271`); history stays on Up/Down as in fx.
+9. Slash lines are not echoed into the transcript, commands with no argument match exactly, and anything else is `✗ command: Unknown command. Try /help.` (fx `input_submit_runtime.zig:707-717`, `command_router.zig:121-133`).
 
 ## Requirement universe
 
@@ -112,3 +115,4 @@ Done when every row above carries a status in `loop.md`'s gap matrix; every P an
 - `UPSTREAM.md` pins `580a0c5`; this workstream cites `c1db919` for every UI claim. The pin advances to `c1db919` for the UI ledger in this workstream rather than leaving two revisions implicit.
 - **Resize.** fx re-solves and repaints the frame it owns after a resize (`resize_runtime.zig`, `frame_layout.solveWithPreservedRowRelease`). xfx pins its band to the bottom of the resized screen instead of floating it (`Shell::resize` sets the document past any screen): the rows above the band are the terminal's own document after a reflow, and xfx has no way to know where a terminal put them, so a band floated under a guess would paint over them. Floating resumes after the next `/clear`. Captures at a fixed size match; a resize capture differs by where the band sits until the screen has filled.
 - **Partial lines while streaming.** fx shows an answer's line once the markdown presenter has its end (captured mid-stream: only the activity row is visible). xfx does the same since 3efe232; xfx's earlier per-character pacing of partial lines is gone with it.
+- **Tool backend is not UI.** xfx's `edit_file` refuses a file the session has not read (`src/tools/mutate.rs:547`); fx edits directly. That is a safety rule of xfx's tool layer, not a screen, so this workstream keeps it; paired captures of an edit without a prior read diverge for that reason and the receipts say so.

@@ -77,6 +77,11 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 | 3 | D3 `/provider` picker rows (sign-in columns gated #88) | A9 | C1 |
 | 3 | D4 `/settings`, `/statusline`, `/sound` (bell), `/permissions` | A16, A25, A31, A32 | C1 |
 | 3 | E `@` file picker, composer contracts | F3, F4 | WU-B |
-| 3 | F tool lines/groups, approvals, full transcript, resize, interrupt, native clear | F5–F11 | C0 |
+| 3 | F1 tool group block: `● N tool calls · k read · …` header, `├`/`└` rows per call spanning steps until assistant text; outcomes (`Exited 3`, `Failed x: reason`, `Denied …`, `Cancelled …`); live `└ Running <cmd>` row; activity row hidden under a modal (research `surfaces.md` §1) | F5 | C0 |
+| 3 | F2 approvals: file review (diff, `Review change`, `Edit · +1 -1`, `Apply once / Apply + allow … / Don't apply`), command approval (`Would you like to run…`, `$ # shell.run …`), keys per divergence 7 | F6 | C0 |
+| 3 | F3 ask_user_question presentation (`1) label  desc`, `Question i of n`, freeform Other, summary rows) | F6 | F2 |
+| 3 | F4 interrupt: `■ Cancelled · What can xfx do differently?`, Esc-Esc interrupts, Ctrl-C clears a draft first, exit hint; retry countdown row `⚠ Provider unavailable · HTTP n · … · retrying request in Ns` | F10 | C0 |
+| 3 | F5 full-transcript screen (Ctrl-O): timestamps, args, outputs, diffs, notices; PgUp/PgDn/Esc | F7 | F1 |
+| 3 | F6 composer keys (§5.2 of `surfaces.md`: Alt-b/f/d, `\`-Enter, PgUp/PgDn, Shift-Tab mode cycle, Ctrl-O, Ctrl-V, Ctrl-P = model catalog) and steer-while-busy (`┋` queued steer, Up retracts) | F3, F10 | D2 for Ctrl-P |
 | 4 | G backends: `/usage`, `/credits`, `/undo`, `/workspace`, `/allowlist`, `/compact`, `/fast`, `/ultrafast`, `/image(s)`, `/paste`, `/trace`, `/mcp`, `/skills` | B rows | per row |
 | — | X/G shown as nothing: `/feedback` (Vercel form), `/alias` (fx placeholder; a stub breaks `check-no-stubs`), `/shell` (fx login-shell snapshot), `/login` `/logout` (#88) | — | — |
