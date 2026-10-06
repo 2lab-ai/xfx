@@ -1,0 +1,10 @@
+# A notice that wraps at a narrow width: `✗ command: Unknown command. Try
+# /help.` is 38 cells, so at 36 columns fx's notice wrap breaks after the `/`
+# of `/help` (scanNoticeLine), where a prose wrap would move `/help.` down
+# whole. Typed, so nothing reaches a model.
+wait 2
+type /nosuch
+wait 0.5
+key Enter
+wait 1
+snap unknown
