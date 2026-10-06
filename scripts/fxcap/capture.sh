@@ -13,12 +13,14 @@
 #
 #   gateway <turns.json>   turns for the fake gateway (default: none)
 #   env <K=V>...           extra environment for the binary
-#   seed <settings.json>   copied to the binary's own profile before launch:
-#                          ~/.fx/settings.json for fx, ~/.xfx/settings.json
-#                          for xfx (owner-only, as xfx requires)
-#   nomodel                launches without FX_MODEL / XFX_MODEL, so the
-#                          profile's model is the one in force and a settings
-#                          write is not shadowed by a process override
+#   seed <settings.json>   copied to the binary's own profile before launch,
+#                          owner-only: ~/.fx/settings.json for fx,
+#                          ~/.xfx/settings.json for xfx
+#   models <catalog.json>  what the fake gateway answers for
+#                          GET /coding-agent/v1/models (default: one model)
+#   nomodel                launch without FX_MODEL / XFX_MODEL, so the model
+#                          comes from the profile and no process override
+#                          shadows what a command saves there
 #   work <dir>             a directory under scenarios/ copied into the
 #                          workspace before launch
 #   githead <branch>       makes the workspace a checkout on <branch>: a
@@ -29,8 +31,6 @@
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
-#   home <label>           every file under HOME, then each JSON/JSONL file's
-#                          contents, to <bin>-<scenario>-<size>-home-<label>.txt
 #   title <label>          writes the pane's window title (OSC 2) to
 #                          <bin>-<scenario>-<size>-<label>.title
 #   keep                   keeps the pane after the program exits, so a title
@@ -85,17 +85,16 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]' extra_env='' nomodel=''
-  local profile=.fx
-  [[ $which == xfx ]] && profile=.xfx
+  local turns='[]' extra_env='' models='' nomodel=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
     [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
-    # Owner-only, as each binary creates its own: xfx refuses a profile
-    # directory the group or others can reach.
-    [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/$profile"; install -m 600 "$here/scenarios/${line#seed }" "$run/home/$profile/settings.json"; }
+    # Owner-only, as each product keeps its own profile: xfx refuses to read
+    # a profile directory anyone else can reach.
+    [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/.$which"; cp "$here/scenarios/${line#seed }" "$run/home/.$which/settings.json"; chmod 600 "$run/home/.$which/settings.json"; }
+    [[ $line == models\ * ]] && models=$here/scenarios/${line#models }
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
@@ -103,7 +102,7 @@ main() {
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_MODELS=$models bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -135,16 +134,17 @@ main() {
   : | "$run/shim/pbcopy"
   rm -f "$run/clipboard"
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
-  local launch
+  local launch fx_model=FX_MODEL=fake/model-a xfx_model=XFX_MODEL=fake/model-a
+  [[ -n $nomodel ]] && { fx_model=''; xfx_model=''; }
   if [[ $which == fx ]]; then
     launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 \
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
-$([[ -n $nomodel ]] || echo FX_MODEL=fake/model-a) $extra_env $bin"
+$fx_model $extra_env $bin"
   else
     launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
-$([[ -n $nomodel ]] || echo XFX_MODEL=fake/model-a) $extra_env $bin"
+$xfx_model $extra_env $bin"
   fi
   tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
     "cd $run/work && exec $launch"
@@ -153,7 +153,7 @@ $([[ -n $nomodel ]] || echo XFX_MODEL=fake/model-a) $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work|nomodel|githead) ;;
+      ''|'#'*|gateway|env|seed|work|models|nomodel|githead) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -178,19 +178,6 @@ $([[ -n $nomodel ]] || echo XFX_MODEL=fake/model-a) $extra_env $bin"
         (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
           echo "== $f"; head -c 2000 "$f"; echo
         done) > "$out/$which-$scenario-$size-work-$rest.txt"
-        ;;
-      home)
-        local name=$out/$which-$scenario-$size-home-$rest.txt
-        (
-          cd "$run/home"
-          find . -type f | sort
-          find . -type f \( -name '*.json' -o -name '*.jsonl' \) | sort | while IFS= read -r f; do
-            echo "== $f"
-            head -c 4000 "$f"
-            echo
-          done
-        ) > "$name"
-        echo "$name"
         ;;
       title)
         local name=$out/$which-$scenario-$size-$rest

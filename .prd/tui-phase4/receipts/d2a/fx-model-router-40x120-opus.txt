@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)
+
+┃
+
+auto · opus 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

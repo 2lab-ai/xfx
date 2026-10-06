@@ -1,0 +1,8 @@
+== ./.xfx/settings.json
+{
+  "models": {
+    "gateway": "anthropic/claude-opus-5"
+  },
+  "provider": "gateway"
+}
+

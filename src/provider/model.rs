@@ -31,6 +31,33 @@ pub struct CatalogEntry {
     pub efforts: Vec<String>,
     /// Context window in tokens, or `None` when the provider did not publish one.
     pub max_context: Option<u64>,
+    /// What else the catalog said about the model. Empty for a llmux row,
+    /// whose document carries none of it.
+    pub facts: ModelFacts,
+}
+
+/// What a catalog row says about a model beyond its name and window: the
+/// facts `/model`'s menu prints beside it and the ones its order is decided by.
+///
+/// Upstream's catalog entry, reduced to what xfx reads
+/// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:2820-2940`). Every field
+/// defaults to "the catalog did not say", because a fact nobody published is
+/// not one the menu may print.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelFacts {
+    /// The vendor the catalog names (`owned_by`).
+    pub owned_by: Option<String>,
+    /// When the model was released, in seconds since the epoch; `0` when the
+    /// catalog did not say.
+    pub released: i64,
+    /// Whether the row is tagged `tool-use`.
+    pub tool_use: bool,
+    /// The most tokens one answer may carry (`max_tokens`).
+    pub max_output: Option<u64>,
+    /// Whether the catalog offers Fast mode for it (`supportsFastMode`).
+    pub fast: bool,
+    /// Whether the catalog offers Ultra mode for it (`supportsUltrafastMode`).
+    pub ultrafast: bool,
 }
 
 impl CatalogEntry {
@@ -56,6 +83,12 @@ pub enum CatalogError {
     Empty,
     /// The body is not a catalog document at all.
     Malformed { detail: String },
+    /// The Gateway's catalog could not be read, for the reason given.
+    ///
+    /// Its own variant because the three above send the operator to a local
+    /// daemon and `xfx setup llmux`, which is the wrong place to look when the
+    /// catalog is a remote endpoint behind a key.
+    Gateway { detail: String },
 }
 
 impl fmt::Display for CatalogError {
@@ -78,6 +111,9 @@ impl fmt::Display for CatalogError {
                     "catalog is malformed: {}; check the daemon is an llmux version compatible with xfx, or rerun `xfx setup llmux`",
                     detail
                 )
+            }
+            Self::Gateway { detail } => {
+                write!(f, "the Gateway's model catalog is unavailable: {detail}")
             }
         }
     }
@@ -160,10 +196,528 @@ pub fn parse_llmux_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
                     name,
                     efforts,
                     max_context,
+                    facts: ModelFacts::default(),
                 })
             })
             .collect(),
     )
+}
+
+/// Parses the Gateway's model catalog (`GET /coding-agent/v1/models`).
+///
+/// Upstream's reading of the same document (`parseModelCatalogEntry`,
+/// `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:2820-2880`): the `data`
+/// array, a row only when its `type` is absent or `language`, and from each
+/// row the id, the vendor, the release time, the `tool-use` tag, the effort
+/// values, the context window, the output ceiling, and whether the row is
+/// priced for Fast or Ultra mode. A row without a usable id is skipped, as a
+/// llmux row is.
+///
+/// `None` when the body is not that document at all.
+pub fn parse_gateway_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
+    let Ok(Value::Object(document)) = serde_json::from_str::<Value>(body) else {
+        return None;
+    };
+    let Some(Value::Array(models)) = document.get("data") else {
+        return None;
+    };
+    Some(
+        models
+            .iter()
+            .filter_map(|model| {
+                let object = model.as_object()?;
+                if let Some(Value::String(kind)) = object.get("type") {
+                    if !kind.eq_ignore_ascii_case("language") {
+                        return None;
+                    }
+                }
+                let id = object.get("id")?.as_str()?;
+                if id.is_empty() {
+                    return None;
+                }
+                let owned_by = object
+                    .get("owned_by")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let facts = ModelFacts {
+                    released: object.get("released").and_then(Value::as_i64).unwrap_or(0),
+                    tool_use: tagged(object.get("tags"), "tool-use"),
+                    max_output: positive(object.get("max_tokens")),
+                    fast: supports_fast(object, owned_by.as_deref()),
+                    ultrafast: supports_ultrafast(object, owned_by.as_deref()),
+                    owned_by,
+                };
+                Some(CatalogEntry {
+                    id: id.to_string(),
+                    aliases: Vec::new(),
+                    name: None,
+                    efforts: gateway_efforts(object.get("reasoning_options")),
+                    max_context: positive(object.get("context_window")),
+                    facts,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Whether a `tags` array carries `tag`, in any case (`tagListContains`).
+fn tagged(tags: Option<&Value>, tag: &str) -> bool {
+    tags.and_then(Value::as_array).is_some_and(|tags| {
+        tags.iter()
+            .filter_map(Value::as_str)
+            .any(|candidate| candidate.eq_ignore_ascii_case(tag))
+    })
+}
+
+/// A token count the catalog published, or `None` for one it did not
+/// (`optionalUnsignedU32`: absent, zero, negative and oversized all read as
+/// nothing, and upstream's capabilities treat a zero as no window at all).
+fn positive(value: Option<&Value>) -> Option<u64> {
+    value
+        .and_then(Value::as_u64)
+        .filter(|tokens| *tokens > 0 && *tokens <= u64::from(u32::MAX))
+}
+
+/// The effort values of the first `{type: "effort"}` option
+/// (`parseReasoningEfforts`, `gateway.zig:2882-2906`): at most sixteen, each a
+/// name upstream would parse, and never the default -- `auto`, `adaptive` or
+/// `default` -- which is the row a picker adds on its own.
+fn gateway_efforts(options: Option<&Value>) -> Vec<String> {
+    let Some(options) = options.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(values) = options
+        .iter()
+        .filter_map(Value::as_object)
+        .find(|option| option.get("type").and_then(Value::as_str) == Some("effort"))
+        .and_then(|option| option.get("values"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|effort| {
+            !effort.is_empty()
+                && effort.len() <= 64
+                && effort
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+                && !["auto", "adaptive", "default"]
+                    .iter()
+                    .any(|default| effort.eq_ignore_ascii_case(default))
+        })
+        .take(16)
+        .map(str::to_string)
+        .collect()
+}
+
+/// `supportsFastMode` (`gateway.zig:2918-2927`): a `{type: "toggle"}` fast
+/// option, or a `fast` price, or an OpenAI row with a `priority` service tier.
+/// A `fast` tag alone does not count.
+fn supports_fast(object: &serde_json::Map<String, Value>, owned_by: Option<&str>) -> bool {
+    let toggle = object
+        .get("fast_options")
+        .and_then(Value::as_array)
+        .is_some_and(|options| {
+            options
+                .iter()
+                .any(|option| option.get("type").and_then(Value::as_str) == Some("toggle"))
+        });
+    let pricing = object.get("pricing").and_then(Value::as_object);
+    let priced = pricing.is_some_and(|pricing| pricing.contains_key("fast"));
+    let priority = owned_by.is_some_and(|owner| owner.eq_ignore_ascii_case("openai"))
+        && pricing
+            .and_then(|pricing| pricing.get("service_tiers"))
+            .and_then(Value::as_object)
+            .is_some_and(|tiers| tiers.contains_key("priority"));
+    toggle || priced || priority
+}
+
+/// `supportsUltrafastMode` (`gateway.zig:2929-2937`): an OpenAI row whose
+/// `ultrafast` service tier prices both input and output above zero -- and its
+/// cached input too, when the row prices cached input at all. Names and tags
+/// do not count.
+fn supports_ultrafast(object: &serde_json::Map<String, Value>, owned_by: Option<&str>) -> bool {
+    if !owned_by.is_some_and(|owner| owner.eq_ignore_ascii_case("openai")) {
+        return false;
+    }
+    let Some(pricing) = object.get("pricing").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(tier) = pricing
+        .get("service_tiers")
+        .and_then(Value::as_object)
+        .and_then(|tiers| tiers.get("ultrafast"))
+        .and_then(Value::as_object)
+    else {
+        return false;
+    };
+    let priced = |key: &str| tier.get(key).is_some_and(positive_price);
+    priced("input")
+        && priced("output")
+        && (!pricing.contains_key("input_cache_read") || priced("input_cache_read"))
+}
+
+/// A price above zero, written as a number or as a decimal string
+/// (`positivePrice`).
+fn positive_price(value: &Value) -> bool {
+    let price = match value {
+        Value::String(text) => text.parse::<f64>().ok(),
+        Value::Number(number) => number.as_f64(),
+        _ => None,
+    };
+    price.is_some_and(|price| price.is_finite() && price > 0.0)
+}
+
+/// The order `/model` lists a catalog in, and the order a query is resolved
+/// over: upstream's featured projection (`projectPickerModelCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/gateway/model_catalog.zig:443-503`) over
+/// its catalog sort (`compareModelCatalogEntries`, `:398-441`).
+///
+/// One model from each featured family first, newest first; then every
+/// vendor in alphabetical order, two models each and three for Anthropic and
+/// OpenAI; then everything else, so any model is still selectable. The
+/// families are product preferences; which model fills each slot is always the
+/// catalog's.
+///
+/// Applied to a llmux catalog too, whose ids have no vendor in front: each id
+/// is then its own vendor, so the projection lists them by name. The catalog
+/// itself keeps the order the provider published -- `xfx setup llmux` takes
+/// its first entry, and that is the daemon's choice, not this one.
+pub fn picker_order(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
+    let mut candidates = entries.to_vec();
+    candidates.sort_by(catalog_order);
+    let mut selected: Vec<CatalogEntry> = Vec::with_capacity(candidates.len());
+    for (family, count) in FEATURED_FAMILIES {
+        for _ in 0..*count {
+            let newest = candidates
+                .iter()
+                .filter(|candidate| picker_candidate(&candidate.id))
+                .filter(|candidate| picker_family(&candidate.id) == *family)
+                .filter(|candidate| !contains_id(&selected, &candidate.id))
+                .reduce(|newest, candidate| {
+                    if featured_newer(family, candidate, newest) {
+                        candidate
+                    } else {
+                        newest
+                    }
+                });
+            match newest {
+                Some(entry) => selected.push(entry.clone()),
+                None => break,
+            }
+        }
+    }
+    let mut vendors: Vec<&str> = Vec::new();
+    for candidate in &candidates {
+        let vendor = picker_vendor(&candidate.id);
+        if picker_candidate(&candidate.id) && !vendors.contains(&vendor) {
+            vendors.push(vendor);
+        }
+    }
+    vendors.sort_unstable();
+    for vendor in vendors {
+        while selected
+            .iter()
+            .filter(|entry| picker_vendor(&entry.id) == vendor)
+            .count()
+            < vendor_limit(vendor)
+        {
+            let newest = candidates
+                .iter()
+                .filter(|candidate| picker_candidate(&candidate.id))
+                .filter(|candidate| picker_vendor(&candidate.id) == vendor)
+                .filter(|candidate| vendor_candidate(vendor, candidate, &candidates))
+                .filter(|candidate| !contains_id(&selected, &candidate.id))
+                .reduce(|newest, candidate| {
+                    if newer(candidate, newest) {
+                        candidate
+                    } else {
+                        newest
+                    }
+                });
+            match newest {
+                Some(entry) => selected.push(entry.clone()),
+                None => break,
+            }
+        }
+    }
+    for candidate in candidates {
+        if !contains_id(&selected, &candidate.id) {
+            selected.push(candidate);
+        }
+    }
+    selected
+}
+
+/// Upstream's featured families and how many of each lead the list
+/// (`featured_picker_families`, `model_catalog.zig:451-459`).
+const FEATURED_FAMILIES: &[(&str, usize)] = &[
+    ("anthropic/claude-fable", 1),
+    ("openai/gpt", 1),
+    ("xai/grok-build", 1),
+    ("anthropic/claude-opus", 1),
+    ("zai/glm", 1),
+    ("deepseek/deepseek", 1),
+    ("minimax/minimax", 1),
+];
+
+/// `compareModelCatalogEntries`: tool use first, then the tier, then the
+/// vendor's rank, then newest, then the id.
+fn catalog_order(a: &CatalogEntry, b: &CatalogEntry) -> std::cmp::Ordering {
+    b.facts
+        .tool_use
+        .cmp(&a.facts.tool_use)
+        .then_with(|| tier_rank(&a.id).cmp(&tier_rank(&b.id)))
+        .then_with(|| vendor_rank(&a.id).cmp(&vendor_rank(&b.id)))
+        .then_with(|| b.facts.released.cmp(&a.facts.released))
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+/// `modelProviderRank` (`model_catalog.zig:413-423`).
+fn vendor_rank(id: &str) -> u8 {
+    const RANKED: [&str; 8] = [
+        "anthropic/",
+        "openai/",
+        "google/",
+        "xai/",
+        "deepseek/",
+        "meta/",
+        "mistral/",
+        "alibaba/",
+    ];
+    RANKED
+        .iter()
+        .position(|prefix| id.starts_with(prefix))
+        .map_or(8, |rank| rank as u8)
+}
+
+/// `modelTierRank` (`model_catalog.zig:425-441`).
+fn tier_rank(id: &str) -> u8 {
+    let has = |word: &str| contains_ignore_case(id, word);
+    if has("preview") || has("beta") {
+        4
+    } else if has("haiku") || has("mini") || has("lite") {
+        3
+    } else if has("flash") {
+        2
+    } else if ["opus", "sonnet", "gpt-5", "o1", "o3", "o4", "pro", "grok-4"]
+        .iter()
+        .any(|word| has(word))
+    {
+        0
+    } else {
+        1
+    }
+}
+
+/// `isPickerCandidate` (`model_catalog.zig:530-541`): the variants the
+/// featured and per-vendor passes leave for the rest.
+fn picker_candidate(id: &str) -> bool {
+    if contains_ignore_case(id, "claude-sonnet") {
+        return false;
+    }
+    if id.starts_with("zai/glm-") && id.ends_with("-fast") {
+        return false;
+    }
+    !["-mini", "-nano", "-oss", "-safeguard"]
+        .iter()
+        .any(|variant| contains_ignore_case(id, variant))
+}
+
+/// `modelPickerFamily` (`model_catalog.zig:562-579`): the id up to the first
+/// `-` that is followed by a digit, after the vendor.
+fn picker_family(id: &str) -> &str {
+    if id.starts_with("openai/gpt-") && contains_ignore_case(id, "-codex") {
+        return "openai/gpt-codex";
+    }
+    if id.starts_with("deepseek/deepseek-") {
+        return "deepseek/deepseek";
+    }
+    if id.starts_with("minimax/minimax-") {
+        return "minimax/minimax";
+    }
+    let Some(slash) = id.find('/') else {
+        return id;
+    };
+    let bytes = id.as_bytes();
+    (slash + 1..bytes.len().saturating_sub(1))
+        .find(|&index| bytes[index] == b'-' && bytes[index + 1].is_ascii_digit())
+        .map_or(id, |index| &id[..index])
+}
+
+/// `modelPickerProvider`: what is before the first `/`, or the whole id.
+fn picker_vendor(id: &str) -> &str {
+    id.split_once('/').map_or(id, |(vendor, _)| vendor)
+}
+
+/// `pickerProviderLimit`.
+fn vendor_limit(vendor: &str) -> usize {
+    if vendor == "anthropic" || vendor == "openai" {
+        3
+    } else {
+        2
+    }
+}
+
+/// `isPickerProviderCandidate` (`model_catalog.zig:600-612`).
+fn vendor_candidate(vendor: &str, candidate: &CatalogEntry, all: &[CatalogEntry]) -> bool {
+    let family = picker_family(&candidate.id);
+    match vendor {
+        "anthropic" => family == "anthropic/claude-opus" && within_family_limit(candidate, all),
+        "openai" => {
+            (family == "openai/gpt" || family == "openai/gpt-codex")
+                && within_family_limit(candidate, all)
+        }
+        _ => true,
+    }
+}
+
+/// `isWithinPickerFamilyLimit` (`model_catalog.zig:546-560`).
+fn within_family_limit(candidate: &CatalogEntry, all: &[CatalogEntry]) -> bool {
+    if !picker_candidate(&candidate.id) {
+        return false;
+    }
+    let family = picker_family(&candidate.id);
+    let limit = match family {
+        "openai/gpt" => 2,
+        "openai/gpt-codex" => 1,
+        _ => 3,
+    };
+    all.iter()
+        .filter(|other| picker_candidate(&other.id))
+        .filter(|other| picker_family(&other.id) == family)
+        .filter(|other| newer(other, candidate))
+        .count()
+        < limit
+}
+
+/// `pickerModelIsNewer`: released later, then the shorter id, then the id.
+fn newer(a: &CatalogEntry, b: &CatalogEntry) -> bool {
+    if a.facts.released != b.facts.released {
+        return a.facts.released > b.facts.released;
+    }
+    if a.id.len() != b.id.len() {
+        return a.id.len() < b.id.len();
+    }
+    a.id < b.id
+}
+
+/// `featuredPickerModelIsNewer`: DeepSeek's slot prefers its best variant
+/// among models released together.
+fn featured_newer(family: &str, a: &CatalogEntry, b: &CatalogEntry) -> bool {
+    if a.facts.released != b.facts.released {
+        return a.facts.released > b.facts.released;
+    }
+    if family == "deepseek/deepseek" {
+        let quality = |id: &str| {
+            if id.ends_with("-pro") {
+                0
+            } else if contains_ignore_case(id, "-thinking")
+                || contains_ignore_case(id, "-reasoning")
+            {
+                1
+            } else if contains_ignore_case(id, "-flash") {
+                3
+            } else {
+                2
+            }
+        };
+        let (left, right) = (quality(&a.id), quality(&b.id));
+        if left != right {
+            return left < right;
+        }
+    }
+    newer(a, b)
+}
+
+fn contains_id(entries: &[CatalogEntry], id: &str) -> bool {
+    entries.iter().any(|entry| entry.id == id)
+}
+
+/// Whether `needle` occurs in `haystack`, ignoring ASCII case
+/// (`text_utils.containsIgnoreCase`).
+fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
+    let (haystack, needle) = (haystack.as_bytes(), needle.as_bytes());
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// How well `id` answers `query`; `0` is no answer at all
+/// (`fuzzyModelScore`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_commands.zig:1617-1670`).
+///
+/// A substring scores highest -- a prefix, or the part after the vendor,
+/// higher still -- then every word of the query somewhere in the id, then the
+/// query's letters in order, then any one word.
+pub fn fuzzy_model_score(id: &str, query: &str) -> i32 {
+    if query.is_empty() || id.is_empty() {
+        return 0;
+    }
+    if contains_ignore_case(id, query) {
+        let bonus = i32::try_from(query.len().min(50)).unwrap_or(50);
+        let (bytes, wanted) = (id.as_bytes(), query.as_bytes());
+        let after_vendor = bytes.len() > wanted.len()
+            && bytes[bytes.len() - wanted.len() - 1] == b'/'
+            && bytes[bytes.len() - wanted.len()..].eq_ignore_ascii_case(wanted);
+        if id.starts_with(query) || after_vendor {
+            return 120 + bonus;
+        }
+        return 100 + bonus;
+    }
+    let words = query_words(query);
+    if words.len() > 1 && words.iter().all(|word| contains_ignore_case(id, word)) {
+        return 80 + i32::try_from(words.len()).unwrap_or(16) * 5;
+    }
+    let wanted = query.as_bytes();
+    let mut next = 0;
+    for byte in id.bytes() {
+        if next < wanted.len() && byte.eq_ignore_ascii_case(&wanted[next]) {
+            next += 1;
+        }
+    }
+    if next == wanted.len() {
+        return 40 + i32::try_from(next.min(20)).unwrap_or(20);
+    }
+    if words.iter().any(|word| contains_ignore_case(id, word)) {
+        return 20;
+    }
+    0
+}
+
+/// The words of a query, split at a space, `-`, `/` or `_`, at most sixteen
+/// (`splitQueryTokens`).
+fn query_words(query: &str) -> Vec<&str> {
+    query
+        .split([' ', '-', '/', '_'])
+        .filter(|word| !word.is_empty())
+        .take(16)
+        .collect()
+}
+
+/// What `/model <query>` selects from `ids`, listed in [`picker_order`]
+/// (`resolveModelQueryFromIds`, `session_commands.zig:1282-1305`): the id the
+/// query names exactly, ignoring case; otherwise the best-scoring id, the first
+/// of equals; otherwise nothing, and the caller uses the query as it is.
+pub fn resolve_model_query<'a>(
+    ids: impl Iterator<Item = &'a str> + Clone,
+    query: &str,
+) -> Option<&'a str> {
+    if let Some(exact) = ids.clone().find(|id| id.eq_ignore_ascii_case(query)) {
+        return Some(exact);
+    }
+    let mut best: Option<(&str, i32)> = None;
+    for id in ids {
+        let score = fuzzy_model_score(id, query);
+        if score > best.map_or(0, |(_, best)| best) {
+            best = Some((id, score));
+        }
+    }
+    best.map(|(id, _)| id)
 }
 
 /// Fetches a bounded response from a loopback URL with short timeouts and no proxy/redirects.
@@ -251,15 +805,105 @@ impl ModelCatalog for LlmuxCatalog {
     }
 }
 
+/// Where the Gateway publishes its model catalog, under the origin it is
+/// reached at (`models_path`, `vercel-labs/fx@c1db9191
+/// src/builtins/gateway.zig:48`).
+pub const GATEWAY_MODELS_PATH: &str = "/coding-agent/v1/models";
+
+/// How long the Gateway's catalog may take to connect, and to answer.
+///
+/// Longer than a loopback daemon's, because this one is on the internet; still
+/// bounded, because the thread that waits for it is the one a turn runs on.
+const GATEWAY_CATALOG_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const GATEWAY_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The catalog URL for a completion endpoint: its scheme and authority, and
+/// [`GATEWAY_MODELS_PATH`].
+///
+/// Derived rather than configured, so the catalog is asked of exactly the host
+/// a turn already sends the same credential to -- the default endpoint's
+/// origin is upstream's default catalog base (`ai-gateway.vercel.sh`), and a
+/// loopback `XFX_GATEWAY_URL` puts both on the same fake. No new place is
+/// trusted with the key.
+pub fn gateway_models_url(endpoint: &Endpoint) -> String {
+    let url = endpoint.url();
+    let authority = url.find("://").map_or(0, |at| at + 3);
+    let end = url[authority..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |at| authority + at);
+    format!("{}{GATEWAY_MODELS_PATH}", &url[..end])
+}
+
+/// The Gateway's catalog, asked with the credential a turn sends.
+pub struct GatewayCatalog {
+    url: String,
+    credential: crate::config::Credential,
+}
+
+impl GatewayCatalog {
+    pub fn new(endpoint: &Endpoint, credential: crate::config::Credential) -> Self {
+        Self {
+            url: gateway_models_url(endpoint),
+            credential,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl ModelCatalog for GatewayCatalog {
+    /// One authenticated `GET`, bounded while it reads.
+    ///
+    /// **No redirect is followed**: the URL was judged by the bearer rule and
+    /// the key goes to it alone, so a `3xx` is a failure rather than a second
+    /// host the key is replayed to. The system proxy is honoured, as it is for
+    /// a turn: reaching a remote endpoint may need one.
+    async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+        let failed = |detail: String| CatalogError::Gateway { detail };
+        let client = reqwest::Client::builder()
+            .connect_timeout(GATEWAY_CATALOG_CONNECT_TIMEOUT)
+            .timeout(GATEWAY_CATALOG_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(USER_AGENT)
+            .build()
+            .map_err(|err| failed(format!("could not build HTTP client: {err}")))?;
+        let mut authorization =
+            reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.credential.secret()))
+                .map_err(|_| failed("the credential is not a valid header value".to_string()))?;
+        // Keeps the credential out of reqwest's own diagnostics.
+        authorization.set_sensitive(true);
+        let response = client
+            .get(&self.url)
+            .header(reqwest::header::AUTHORIZATION, authorization)
+            .send()
+            .await
+            .map_err(|err| failed(err.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(failed(format!("HTTP {}", status.as_u16())));
+        }
+        let body = read_bounded(response, MAX_CATALOG_BODY_BYTES).await;
+        // An empty list is an answer, not a failure: upstream's menu says
+        // `No models available.` for it, and so does this one.
+        parse_gateway_catalog(&body)
+            .ok_or_else(|| failed("the answer is not a model catalog".to_string()))
+    }
+}
+
 /// The catalog for the configured provider, when it advertises one.
 ///
-/// `None` is a fact about the provider, not a missing feature: the Vercel
-/// Gateway publishes no catalog endpoint this port has evidence for, and xfx
-/// does not invent a URL to ask. `/model` on that provider therefore reports the
-/// model and its source and says there is nothing to browse.
+/// The Gateway's is `GET {origin}/coding-agent/v1/models` with the bearer a
+/// turn sends ([`GatewayCatalog`]) -- and **only with one**. Upstream falls
+/// back to the public catalog when there is no credential; xfx does not
+/// contact a remote host on its own initiative, and a Gateway with no
+/// credential cannot run a turn either, so `/model` there says there is
+/// nothing to browse. A llmux daemon's is its `GET /models`.
 pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
     match config.provider {
-        ProviderId::Gateway => None,
+        ProviderId::Gateway => {
+            let credential = config.credential.clone()?;
+            let endpoint = Endpoint::from_process().ok()?;
+            Some(Box::new(GatewayCatalog::new(&endpoint, credential)))
+        }
         ProviderId::Llmux => {
             let url = config.llmux_url.as_deref()?;
             // Re-checked rather than trusted: the rule that decides what may
@@ -268,6 +912,37 @@ pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
             let endpoint = crate::llmux::endpoint(url, crate::llmux::URL_KEY).ok()?;
             Some(Box::new(LlmuxCatalog::new(endpoint)))
         }
+    }
+}
+
+/// What `/model`'s menu says under its list about where the catalog came from,
+/// or nothing (`loadedCatalogStatusText`, `vercel-labs/fx@c1db9191
+/// src/ui/footer/model_menu_presentation.zig:403-433`).
+///
+/// Upstream's sentences for the two credentials xfx can hold. A llmux daemon's
+/// catalog is keyless and local, and upstream has no sentence for that, so it
+/// gets none.
+pub fn catalog_note(config: &RuntimeConfig) -> Option<&'static str> {
+    match config.provider {
+        ProviderId::Gateway => gateway_catalog_note(config.credential.as_ref()),
+        ProviderId::Llmux => None,
+    }
+}
+
+/// [`catalog_note`] for the Gateway, asked of the credential alone: the one a
+/// TUI session holds from launch, which a provider switch does not change.
+pub fn gateway_catalog_note(
+    credential: Option<&crate::config::Credential>,
+) -> Option<&'static str> {
+    use crate::config::CredentialSource;
+    match credential?.source() {
+        CredentialSource::AiGatewayApiKey => {
+            Some("Note: Gateway catalog is authenticated with an API key")
+        }
+        CredentialSource::VercelOidcToken => {
+            Some("Gateway catalog: authenticated with the Vercel session.")
+        }
+        CredentialSource::LlmuxLoopback => None,
     }
 }
 
@@ -327,15 +1002,14 @@ pub enum ModelRequest<'a> {
 /// ceiling; a caller that hits it says how many were left out.
 pub const MAX_RENDERED_MODELS: usize = 100;
 
-/// What a provider that advertises no catalog is reported as, on **both**
-/// surfaces.
+/// What a provider that advertises no catalog is reported as, on the line
+/// shell.
 ///
-/// One string rather than two, because the two front ends must not disagree
-/// about a fact neither of them discovered: "there is nothing to browse" is a
-/// property of the provider (`catalog_for` answers `None` for the Gateway,
-/// which publishes no catalog endpoint this port has evidence for), and it is
-/// emphatically **not** a failure. Reported as one it would make every Gateway
-/// user's first `/model` read as a broken session.
+/// "There is nothing to browse" is a property of the session (`catalog_for`
+/// answers `None` for a Gateway with no credential, and for a llmux with no
+/// daemon URL), and it is emphatically **not** a failure. Reported as one it
+/// would make the first `/model` of such a session read as a broken one. The
+/// TUI says the same fact in its menu, as upstream's `No models available.`.
 pub const NO_CATALOG_NOTICE: &str = "[shell] catalog=unavailable (this provider advertises none)";
 
 /// What a surface says about a selection nothing could confirm.
@@ -431,13 +1105,14 @@ impl ModelSelector {
                 model: self.model.clone(),
                 source: self.source,
             },
-            ModelRequest::Select(id) => {
+            ModelRequest::Select(query) => {
                 // Validate the id before doing anything else.
-                if let Some(problem) = model_id_problem(id) {
+                if let Some(problem) = model_id_problem(query) {
                     return ModelOutcome::Refused {
                         reason: problem.to_string(),
                     };
                 }
+                let id = self.resolve(query);
 
                 // If already the current model, say so.
                 if id == self.model {
@@ -446,20 +1121,15 @@ impl ModelSelector {
                     };
                 }
 
-                // Check the catalog state to decide whether to refuse or accept unverified.
-                if let CatalogState::Loaded(entries) = &self.catalog_state {
-                    // Catalog is loaded: refuse if the id is not in it.
-                    if !entries.iter().any(|e| e.matches(id)) {
-                        return ModelOutcome::Refused {
-                            reason: format!(
-                                "{} does not publish {} in its catalog",
-                                self.provider_name(),
-                                id
-                            ),
-                        };
-                    }
-                }
-
+                // **An id the catalog does not list is applied, not refused**,
+                // as upstream applies it (`resolveModelQuery` falls back to the
+                // literal query, `session_commands.zig:1147-1166`, and
+                // `fx-model-fuzzy-40x120-unknown` shows `nonexistent-xyz`
+                // accepted and saved). A catalog is what a provider lists, not
+                // everything it will run -- a team-private model, or one
+                // published after the catalog was read, is a model the
+                // provider answers for -- and the provider is the one place
+                // that can say no.
                 let previous = self.model.clone();
                 let unverified = match &self.catalog_state {
                     CatalogState::Unavailable => None,
@@ -470,7 +1140,7 @@ impl ModelSelector {
                     CatalogState::Failed(reason) => Some(reason.clone()),
                 };
 
-                self.model = id.to_string();
+                self.model = id;
                 ModelOutcome::Selected {
                     provider: self.provider,
                     model: self.model.clone(),
@@ -481,11 +1151,25 @@ impl ModelSelector {
         }
     }
 
-    fn provider_name(&self) -> &'static str {
-        match self.provider {
-            ProviderId::Gateway => "gateway",
-            ProviderId::Llmux => "llmux",
+    /// What `query` names in the loaded catalog (`resolveModelQuery`,
+    /// `session_commands.zig:1147-1166`): an id or an alias spelled exactly
+    /// -- an alias kept as typed, because the provider resolves its own short
+    /// names -- else the best fuzzy match over the ids in the order `/model`
+    /// lists them ([`resolve_model_query`]), else the query itself.
+    fn resolve(&self, query: &str) -> String {
+        let CatalogState::Loaded(entries) = &self.catalog_state else {
+            return query.to_string();
+        };
+        if entries
+            .iter()
+            .any(|entry| entry.aliases.iter().any(|alias| alias == query))
+        {
+            return query.to_string();
         }
+        let ordered = picker_order(entries);
+        resolve_model_query(ordered.iter().map(|entry| entry.id.as_str()), query)
+            .unwrap_or(query)
+            .to_string()
     }
 
     #[cfg(test)]
@@ -550,6 +1234,7 @@ mod tests {
             name: None,
             efforts: Vec::new(),
             max_context: None,
+            facts: ModelFacts::default(),
         }
     }
 
@@ -587,6 +1272,9 @@ mod tests {
                     CatalogError::Malformed { detail } => CatalogError::Malformed {
                         detail: detail.clone(),
                     },
+                    CatalogError::Gateway { detail } => CatalogError::Gateway {
+                        detail: detail.clone(),
+                    },
                 }),
             }
         }
@@ -612,20 +1300,73 @@ mod tests {
     }
 
     #[test]
-    fn a_selection_the_loaded_catalog_does_not_have_is_refused_by_name() {
-        // The provider published what it can run. An id it did not publish is a
-        // turn that fails at the provider, and failing here says why.
+    fn an_id_the_loaded_catalog_does_not_list_is_applied_as_typed() {
+        // Upstream's rule (`fx-model-fuzzy-40x120-unknown`: `nonexistent-xyz`
+        // is switched to and saved). It used to be refused here; a catalog is
+        // what a provider lists, not everything it will run, and nothing in the
+        // query scores against `m-1`, so the query is the id.
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
         selector.set_catalog_for_test(CatalogState::Loaded(vec![entry("m-1", &["fable"])]));
         match selector.apply(ModelRequest::Select("not-published")) {
-            ModelOutcome::Refused { reason } => {
-                assert!(reason.contains("not-published"), "{reason}");
-                assert!(reason.contains("llmux"), "{reason}");
+            ModelOutcome::Selected {
+                model,
+                previous,
+                unverified,
+                ..
+            } => {
+                assert_eq!(model, "not-published");
+                assert_eq!(previous, "fable");
+                assert_eq!(unverified, None, "the catalog was read; nothing to caveat");
             }
-            other => panic!("expected a refusal, got {other:?}"),
+            other => panic!("expected a selection, got {other:?}"),
         }
-        assert_eq!(selector.model(), "fable", "a refusal changes nothing");
+        assert_eq!(selector.model(), "not-published");
+    }
+
+    #[test]
+    fn a_query_resolves_to_the_catalog_id_it_names_best() {
+        // `fx-model-fuzzy-40x120-opus`: `/model opus` switched to
+        // `anthropic/claude-opus-5` over the catalog in `models.json`.
+        let catalog = parse_gateway_catalog(MODELS_JSON).expect("a catalog");
+        let mut selector = ModelSelector::for_test(
+            ProviderId::Gateway,
+            "fake/model-a",
+            SettingSource::UserGlobal,
+        );
+        selector.set_catalog_for_test(CatalogState::Loaded(catalog));
+        for (query, resolved) in [
+            ("opus", "anthropic/claude-opus-5"),
+            ("astra", "openai/gpt-6-astra"),
+            // Exact wins, whatever its case, in the catalog's spelling.
+            ("XAI/GROK-4.7", "xai/grok-4.7"),
+            // The letters in order.
+            ("gpt6", "openai/gpt-6-astra"),
+            // Nothing scores: the literal query.
+            ("nonexistent-xyz", "nonexistent-xyz"),
+        ] {
+            match selector.apply(ModelRequest::Select(query)) {
+                ModelOutcome::Selected { model, .. } => assert_eq!(model, resolved, "{query}"),
+                other => panic!("{query}: expected a selection, got {other:?}"),
+            }
+        }
+        // And a query that resolves to the model in force changes nothing.
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("nonexistent-xyz")),
+            ModelOutcome::Unchanged { .. }
+        ));
+    }
+
+    #[test]
+    fn without_a_loaded_catalog_the_query_is_the_id() {
+        // Nothing to resolve against: upstream's fallback when the fetch fails.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Failed("down".to_string()));
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("opus")),
+            ModelOutcome::Selected { model, .. } if model == "opus"
+        ));
     }
 
     #[test]
@@ -770,6 +1511,7 @@ mod tests {
                 name: None,
                 efforts: vec![],
                 max_context: None,
+                facts: ModelFacts::default(),
             });
         }
         selector.set_catalog_for_test(CatalogState::Loaded(entries));
@@ -930,8 +1672,8 @@ mod tests {
     #[tokio::test]
     async fn a_provider_with_no_catalog_opens_no_socket_at_all() {
         // `Unavailable` is a fact about the provider rather than a failure to
-        // load: the Gateway publishes no catalog endpoint this port has evidence
-        // for, and xfx does not invent a URL to ask.
+        // load: a Gateway session with no credential, or a llmux one with no
+        // daemon URL, has no catalog xfx may ask for.
         let mut selector = ModelSelector::for_test(
             ProviderId::Gateway,
             "zai/glm-5.2",
@@ -941,5 +1683,394 @@ mod tests {
             selector.ensure_catalog().await,
             CatalogState::Unavailable
         ));
+    }
+
+    /// The research harness's catalog (`account-model/scenarios/models.json`),
+    /// which both binaries were captured over.
+    const MODELS_JSON: &str = r#"{"object":"list","data":[
+ {"id":"fake/model-a","type":"language","owned_by":"fake","released":1700000000,"tags":["tool-use"]},
+ {"id":"openai/gpt-6-astra","type":"language","owned_by":"openai","released":1780000000,"tags":["tool-use","reasoning"],"context_window":400000,"max_tokens":128000,"reasoning_options":[{"type":"effort","values":["low","medium","high","xhigh"]}],"pricing":{"input":"0.000002","output":"0.00001","input_cache_read":"0.0000002","service_tiers":{"priority":{"input":"0.000004","output":"0.00002"},"ultrafast":{"input":"0.00006","output":"0.0003","input_cache_read":"0.000006"}}}},
+ {"id":"anthropic/claude-opus-5","type":"language","owned_by":"anthropic","released":1775000000,"tags":["tool-use","reasoning"],"context_window":1000000,"max_tokens":64000,"reasoning_options":[{"type":"effort","values":["low","medium","high","max"]}],"fast_options":[{"type":"toggle"}],"pricing":{"input":"0.000005","output":"0.000025"}},
+ {"id":"xai/grok-4.7","type":"language","owned_by":"xai","released":1770000000,"tags":["tool-use"],"pricing":{"input":"0.000003","output":"0.000015"}},
+ {"id":"openai/text-embedding-9","type":"embedding","owned_by":"openai"}
+]}"#;
+
+    fn ids(entries: &[CatalogEntry]) -> Vec<&str> {
+        entries.iter().map(|entry| entry.id.as_str()).collect()
+    }
+
+    fn gateway_entry(id: &str, released: i64) -> CatalogEntry {
+        CatalogEntry {
+            facts: ModelFacts {
+                released,
+                tool_use: true,
+                ..ModelFacts::default()
+            },
+            ..entry(id, &[])
+        }
+    }
+
+    #[test]
+    fn a_gateway_row_carries_the_facts_upstream_reads_and_nothing_else() {
+        let entries = parse_gateway_catalog(MODELS_JSON).expect("a catalog document");
+        // The embedding row is not a language model.
+        assert_eq!(
+            ids(&entries),
+            [
+                "fake/model-a",
+                "openai/gpt-6-astra",
+                "anthropic/claude-opus-5",
+                "xai/grok-4.7"
+            ]
+        );
+        let astra = &entries[1];
+        assert_eq!(astra.max_context, Some(400_000));
+        assert_eq!(astra.efforts, ["low", "medium", "high", "xhigh"]);
+        assert_eq!(
+            astra.facts,
+            ModelFacts {
+                owned_by: Some("openai".to_string()),
+                released: 1_780_000_000,
+                tool_use: true,
+                max_output: Some(128_000),
+                // A `priority` tier on an OpenAI row is Fast; a priced
+                // `ultrafast` tier, cached input included, is Ultra.
+                fast: true,
+                ultrafast: true,
+            }
+        );
+        let opus = &entries[2];
+        assert_eq!(opus.max_context, Some(1_000_000));
+        assert_eq!(opus.facts.max_output, Some(64_000));
+        assert!(opus.facts.fast, "a toggle fast option is Fast");
+        assert!(!opus.facts.ultrafast, "Ultra is OpenAI's alone");
+        let model_a = &entries[0];
+        assert_eq!(model_a.max_context, None, "no window was published");
+        assert_eq!(model_a.facts.max_output, None);
+        assert!(!model_a.facts.fast && !model_a.facts.ultrafast);
+        assert!(model_a.efforts.is_empty());
+        let grok = &entries[3];
+        assert!(!grok.facts.fast, "a price is not a fast price");
+    }
+
+    #[test]
+    fn ultra_wants_priced_openai_metadata_rather_than_a_name_or_a_tag() {
+        // Upstream's own case (`gateway.zig:2950-2970`).
+        let entries = parse_gateway_catalog(
+            r#"{"data":[
+            {"id":"openai/gpt-6-astra","type":"language","owned_by":"openai","pricing":{"input_cache_read":"0.000001","service_tiers":{"ultrafast":{"input":"0.00006","output":"0.0003","input_cache_read":"0.000006"}}}},
+            {"id":"openai/gpt-5.6-sol","type":"language","owned_by":"openai","tags":["ultrafast"],"pricing":{"service_tiers":{"priority":{"input":"0.1","output":"0.2"}}}},
+            {"id":"openai/incomplete","type":"language","owned_by":"openai","pricing":{"service_tiers":{"ultrafast":{"input":"0.1"}}}},
+            {"id":"openai/uncached","type":"language","owned_by":"openai","pricing":{"input_cache_read":"0.1","service_tiers":{"ultrafast":{"input":"0.1","output":"0.2"}}}},
+            {"id":"provider/model","type":"language","owned_by":"provider","pricing":{"service_tiers":{"ultrafast":{"input":"0.1","output":"0.2"}}}},
+            {"id":"fast/priced","owned_by":"fast","pricing":{"fast":{"input":"1"}}},
+            {"id":"fast/tagged","owned_by":"fast","tags":["fast"]}
+        ]}"#,
+        )
+        .expect("a catalog document");
+        let ultra: Vec<bool> = entries.iter().map(|entry| entry.facts.ultrafast).collect();
+        assert_eq!(ultra, [true, false, false, false, false, false, false]);
+        let fast: Vec<bool> = entries.iter().map(|entry| entry.facts.fast).collect();
+        assert_eq!(fast, [false, true, false, false, false, true, false]);
+        // A row with no `type` is read, as upstream reads it.
+        assert_eq!(entries[5].id, "fast/priced");
+    }
+
+    #[test]
+    fn effort_values_skip_the_default_and_what_upstream_would_not_parse() {
+        let entries = parse_gateway_catalog(
+            r#"{"data":[{"id":"a/b","reasoning_options":[
+            {"type":"toggle"},
+            {"type":"effort","values":["auto","low","Default","x y","",7,"max"]},
+            {"type":"effort","values":["second"]}]}]}"#,
+        )
+        .expect("a catalog document");
+        assert_eq!(entries[0].efforts, ["low", "max"]);
+    }
+
+    #[test]
+    fn a_document_without_a_data_array_is_not_a_gateway_catalog() {
+        for body in ["", "[]", r#"{"models":[]}"#, r#"{"data":{}}"#] {
+            assert!(parse_gateway_catalog(body).is_none(), "for {body:?}");
+        }
+        let entries = parse_gateway_catalog(r#"{"data":[{"id":""},{"type":"language"},7]}"#)
+            .expect("a document with no usable row");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn the_menu_order_is_upstreams_featured_projection() {
+        // `fx-model-40x120-open`: astra (the `openai/gpt` slot), opus (the
+        // `anthropic/claude-opus` slot), then the vendors alphabetically --
+        // `fake`, then `xai` -- over a catalog published in another order.
+        let entries = parse_gateway_catalog(MODELS_JSON).expect("a catalog");
+        assert_eq!(
+            ids(&picker_order(&entries)),
+            [
+                "openai/gpt-6-astra",
+                "anthropic/claude-opus-5",
+                "fake/model-a",
+                "xai/grok-4.7"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_projection_caps_each_vendor_and_keeps_every_model_selectable() {
+        let entries = [
+            gateway_entry("anthropic/claude-opus-4", 10),
+            gateway_entry("anthropic/claude-opus-5", 30),
+            gateway_entry("anthropic/claude-sonnet-5", 40),
+            gateway_entry("anthropic/claude-haiku-5", 41),
+            gateway_entry("openai/gpt-6", 50),
+            gateway_entry("openai/gpt-5", 20),
+            gateway_entry("openai/gpt-4", 5),
+            gateway_entry("openai/gpt-6-mini", 60),
+            gateway_entry("zai/glm-5", 7),
+            gateway_entry("zai/glm-5-fast", 8),
+            gateway_entry("acme/one", 1),
+            gateway_entry("acme/two", 2),
+            gateway_entry("acme/three", 3),
+        ];
+        assert_eq!(
+            ids(&picker_order(&entries)),
+            [
+                // Featured: the newest `openai/gpt`, the newest opus, GLM.
+                "openai/gpt-6",
+                "anthropic/claude-opus-5",
+                "zai/glm-5",
+                // Vendors alphabetically: two of acme, newest first.
+                "acme/three",
+                "acme/two",
+                // Anthropic lists only opus, within its family's three.
+                "anthropic/claude-opus-4",
+                // OpenAI: `openai/gpt` is capped at two in the family.
+                "openai/gpt-5",
+                // The rest, in catalog order: tool use, tier, vendor, newest.
+                "anthropic/claude-sonnet-5",
+                "openai/gpt-4",
+                "zai/glm-5-fast",
+                "acme/one",
+                "anthropic/claude-haiku-5",
+                "openai/gpt-6-mini",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_llmux_catalog_without_vendors_is_listed_by_name() {
+        let entries = [
+            entry("grok-4.5", &["grok"]),
+            entry("claude-fable-5[1m]", &["fable"]),
+            entry("gpt-5.6-sol", &[]),
+        ];
+        assert_eq!(
+            ids(&picker_order(&entries)),
+            ["claude-fable-5[1m]", "gpt-5.6-sol", "grok-4.5"]
+        );
+    }
+
+    #[test]
+    fn fuzzy_scores_rank_as_upstreams_do() {
+        // Upstream's own cases (`session_commands.zig:3334-3368`).
+        assert!(fuzzy_model_score("anthropic/claude-sonnet-4-20250514", "claude-sonnet") >= 100);
+        assert!(
+            fuzzy_model_score("openai/gpt-4o", "openai/gpt-4o")
+                > fuzzy_model_score("openai/gpt-4o-mini", "gpt-4o")
+        );
+        assert!(fuzzy_model_score("anthropic/claude-sonnet-4-20250514", "claude sonnet") >= 80);
+        assert!(fuzzy_model_score("anthropic/claude-sonnet-4-20250514", "anth son") > 0);
+        assert_eq!(fuzzy_model_score("openai/gpt-4o", "zzzzz"), 0);
+        assert_eq!(fuzzy_model_score("openai/gpt-4o", ""), 0);
+        // And the arithmetic of each band.
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "openai"),
+            126,
+            "a prefix"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "GPT-4O"),
+            126,
+            "after the vendor"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "gpt"),
+            103,
+            "a substring"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "4o gpt"),
+            90,
+            "every word"
+        );
+        assert_eq!(
+            fuzzy_model_score("openai/gpt-4o", "og4"),
+            43,
+            "the letters in order"
+        );
+        assert_eq!(fuzzy_model_score("openai/gpt-4o", "gpt zz"), 20, "one word");
+        assert_eq!(
+            query_words("claude-sonnet/fast"),
+            ["claude", "sonnet", "fast"]
+        );
+    }
+
+    #[test]
+    fn the_first_of_equal_scores_wins_in_listed_order() {
+        let ids = ["acme/alpha-x", "acme/beta-x"];
+        assert_eq!(
+            resolve_model_query(ids.iter().copied(), "x"),
+            Some("acme/alpha-x")
+        );
+        assert_eq!(resolve_model_query(ids.iter().copied(), "zzz"), None);
+    }
+
+    #[test]
+    fn the_gateway_catalog_is_asked_of_the_endpoints_own_origin() {
+        for (endpoint, models) in [
+            (
+                "https://ai-gateway.vercel.sh/v3/ai/language-model",
+                "https://ai-gateway.vercel.sh/coding-agent/v1/models",
+            ),
+            (
+                "http://127.0.0.1:4100/v3/ai/language-model",
+                "http://127.0.0.1:4100/coding-agent/v1/models",
+            ),
+            (
+                "https://gateway.example.com?team=x",
+                "https://gateway.example.com/coding-agent/v1/models",
+            ),
+        ] {
+            let endpoint = Endpoint::resolve(Some(endpoint)).expect("an endpoint");
+            assert_eq!(gateway_models_url(&endpoint), models);
+        }
+    }
+
+    #[test]
+    fn the_note_names_the_credential_the_catalog_was_asked_with() {
+        use crate::config::Environment;
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let load = |vars: &[(&str, &str)]| {
+            let vars = vars
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect();
+            RuntimeConfig::load_with(&Environment::new(None, vars), workspace.path())
+                .expect("a configuration")
+        };
+        assert_eq!(
+            catalog_note(&load(&[("AI_GATEWAY_API_KEY", "fake-key")])),
+            Some("Note: Gateway catalog is authenticated with an API key")
+        );
+        assert_eq!(
+            catalog_note(&load(&[("VERCEL_OIDC_TOKEN", "fake-token")])),
+            Some("Gateway catalog: authenticated with the Vercel session.")
+        );
+        assert_eq!(catalog_note(&load(&[])), None);
+    }
+
+    #[test]
+    fn a_gateway_with_no_credential_has_no_catalog_to_ask() {
+        // Upstream falls back to a public catalog; xfx sends nothing to a
+        // remote host it was given no key for.
+        use crate::config::Environment;
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(None, Default::default()),
+            workspace.path(),
+        )
+        .expect("a configuration");
+        assert_eq!(config.provider, ProviderId::Gateway);
+        assert!(catalog_for(&config).is_none());
+    }
+
+    /// One HTTP exchange on a loopback port: the request it read, and the
+    /// answer it gave.
+    fn one_exchange(answer: String) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let url = format!(
+            "http://127.0.0.1:{}/v3/ai/language-model",
+            listener.local_addr().expect("an address").port()
+        );
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("a connection");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).expect("a read");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            stream.write_all(answer.as_bytes()).expect("a write");
+            String::from_utf8_lossy(&request).into_owned()
+        });
+        (url, server)
+    }
+
+    #[tokio::test]
+    async fn the_gateway_catalog_is_one_get_with_the_bearer_and_no_redirect_followed() {
+        let body = r#"{"data":[{"id":"acme/one","type":"language"}]}"#;
+        let (url, server) = one_exchange(format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        ));
+        let credential = credential_for_test("fake-key-not-real");
+        let catalog = GatewayCatalog::new(&Endpoint::resolve(Some(&url)).expect("ok"), credential);
+        let entries = catalog.fetch().await.expect("a catalog");
+        assert_eq!(ids(&entries), ["acme/one"]);
+        let request = server.join().expect("the server");
+        assert!(
+            request.starts_with("GET /coding-agent/v1/models HTTP/1.1\r\n"),
+            "{request}"
+        );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer fake-key-not-real\r\n"),
+            "{request}"
+        );
+
+        let (url, server) = one_exchange(
+            "HTTP/1.1 307 Temporary Redirect\r\nlocation: http://127.0.0.1:1/elsewhere\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                .to_string(),
+        );
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&url)).expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        match catalog.fetch().await {
+            Err(CatalogError::Gateway { detail }) => assert_eq!(detail, "HTTP 307"),
+            other => panic!("expected a refusal to follow, got {other:?}"),
+        }
+        server.join().expect("the server");
+
+        // A catalog with no language model in it is an answer -- the menu's
+        // `No models available.` -- and not a failed load.
+        let body = r#"{"data":[{"id":"openai/text-embedding-9","type":"embedding"}]}"#;
+        let (url, server) = one_exchange(format!(
+            "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        ));
+        let catalog = GatewayCatalog::new(
+            &Endpoint::resolve(Some(&url)).expect("ok"),
+            credential_for_test("fake-key-not-real"),
+        );
+        assert_eq!(catalog.fetch().await.expect("an empty catalog"), Vec::new());
+        server.join().expect("the server");
+    }
+
+    fn credential_for_test(secret: &str) -> crate::config::Credential {
+        use crate::config::Environment;
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let vars = [("AI_GATEWAY_API_KEY".to_string(), secret.to_string())]
+            .into_iter()
+            .collect();
+        RuntimeConfig::load_with(&Environment::new(None, vars), workspace.path())
+            .expect("a configuration")
+            .credential
+            .expect("a credential")
     }
 }

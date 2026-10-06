@@ -108,7 +108,16 @@ impl Reply {
 struct State {
     requests: Mutex<Vec<CapturedRequest>>,
     script: Mutex<VecDeque<Reply>>,
+    /// What `GET /coding-agent/v1/models` answers: a status and a body, `404`
+    /// until a test names a catalog ([`FakeGateway::with_catalog`]).
+    catalog: Mutex<Option<(u16, String)>>,
+    /// Every catalog request, kept apart from [`Self::requests`].
+    catalog_requests: Mutex<Vec<CapturedRequest>>,
 }
+
+/// Where the real Gateway publishes its model catalog
+/// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:48`).
+pub const MODELS_PATH: &str = "/coding-agent/v1/models";
 
 /// A scripted Gateway listening on a loopback port.
 ///
@@ -136,6 +145,7 @@ impl FakeGateway {
         let state = Arc::new(State {
             requests: Mutex::new(Vec::new()),
             script: Mutex::new(script.into()),
+            ..State::default()
         });
         let shutdown = Arc::new(AtomicBool::new(false));
 
@@ -185,6 +195,26 @@ impl FakeGateway {
         self.state.requests.lock().expect("requests lock").clone()
     }
 
+    /// Answers `GET /coding-agent/v1/models` with this document.
+    ///
+    /// A catalog request is **not** a turn: it is answered from here, never
+    /// from the script, and recorded apart from [`Self::requests`] -- so a
+    /// case that counts the requests a turn made counts the same whether or
+    /// not `/model` asked for the catalog first.
+    pub fn with_catalog(self, catalog: Value) -> Self {
+        *self.state.catalog.lock().expect("catalog lock") = Some((200, catalog.to_string()));
+        self
+    }
+
+    /// Every catalog request received so far, in arrival order.
+    pub fn catalog_requests(&self) -> Vec<CapturedRequest> {
+        self.state
+            .catalog_requests
+            .lock()
+            .expect("catalog lock")
+            .clone()
+    }
+
     pub fn request_count(&self) -> usize {
         self.state.requests.lock().expect("requests lock").len()
     }
@@ -229,6 +259,19 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
     let Some(request) = read_request(&mut reader) else {
         return;
     };
+    if request.method == "GET" && request.path == MODELS_PATH {
+        state
+            .catalog_requests
+            .lock()
+            .expect("catalog lock")
+            .push(request);
+        let answer = state.catalog.lock().expect("catalog lock").clone();
+        let (status, body) = answer.unwrap_or((404, "not found".to_string()));
+        let mut writer = stream;
+        write_status(&mut writer, status, &[], &body);
+        close_cleanly(&mut writer);
+        return;
+    }
     state
         .requests
         .lock()
