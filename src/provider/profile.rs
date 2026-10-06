@@ -142,6 +142,50 @@ pub fn document_for(existing: Map<String, Value>, selection: &Selection<'_>) -> 
     body.into_bytes()
 }
 
+/// Sets one preference in the settings file at `path` and writes it back.
+///
+/// `key_path` names a key inside nested objects -- `["statusLine", "context"]`
+/// is `statusLine.context` -- and `value` replaces whatever was there. Every
+/// object on the way is created when it is missing, and a value on the way
+/// that is not an object is **replaced** by one rather than refused: the
+/// operator asked for this key to hold this value, and upstream's partial
+/// merge does the same (`attemptUserPreferences`). Nothing else in the file is
+/// touched, so a key this build does not know survives the write.
+///
+/// The read is [`read_existing`] and the write is [`write_document`], so a file
+/// xfx cannot parse is an error rather than an empty object that would be
+/// written over it, and the replacement is the profile's own staged, owner-only
+/// rename. The bytes are pretty JSON and a newline, the same serializer
+/// [`document_for`] uses.
+///
+/// An empty `key_path` names no key and is refused before anything is read.
+pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
+    let Some((last, parents)) = key_path.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a preference needs a key",
+        ));
+    };
+    let mut document = read_existing(path)?;
+    let mut object = &mut document;
+    for key in parents {
+        let slot = object
+            .entry((*key).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        object = slot
+            .as_object_mut()
+            .expect("the slot was made an object above");
+    }
+    object.insert((*last).to_string(), value);
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
 /// Writes `document` to `path` with the profile's own discipline.
 ///
 /// Everything `write` used to do after it had decided the bytes: the profile
@@ -719,6 +763,91 @@ mod tests {
         assert!(
             document.ends_with(b"\n"),
             "pretty JSON with a trailing newline"
+        );
+    }
+
+    #[test]
+    fn a_preference_is_one_nested_key_and_the_rest_of_the_file_survives() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+
+        // No file, and no profile home either: both are created, and the file
+        // holds the one key and nothing else (upstream's partial merge,
+        // `cap/fx-statusline-40x120-files.files`).
+        write_preference(&path, &["statusLine", "session"], json!(true)).expect("write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"statusLine\": {\n    \"session\": true\n  }\n}\n"
+        );
+
+        // A sibling under the same object, a key this build does not know and
+        // a key at the top are all kept.
+        fs::write(
+            &path,
+            "{\"permission_mode\":\"auto\",\"statusLine\":{\"session\":true,\"sandbox\":false}}",
+        )
+        .expect("seed");
+        write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({
+                "permission_mode": "auto",
+                "statusLine": {"session": true, "sandbox": false, "context": true}
+            })
+        );
+
+        // The same key again replaces its value rather than adding a second.
+        write_preference(&path, &["statusLine", "session"], json!(false)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written["statusLine"]["session"], json!(false));
+        assert_eq!(written["statusLine"]["context"], json!(true));
+    }
+
+    #[test]
+    fn a_value_in_the_way_of_a_preference_is_replaced_by_an_object() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{\"statusLine\":7,\"model\":\"m\"}\n").expect("seed");
+        write_preference(&path, &["statusLine", "workspace"], json!(true)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"statusLine": {"workspace": true}, "model": "m"})
+        );
+    }
+
+    #[test]
+    fn a_preference_is_never_written_over_a_file_xfx_cannot_read() {
+        // "xfx could not parse this" is not "this is empty": the operator's file
+        // stays exactly as it was, and the write says why it did not happen.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        for original in ["{not json", "[1, 2]"] {
+            fs::write(&path, original).expect("seed");
+            let err = write_preference(&path, &["statusLine", "context"], json!(true))
+                .expect_err("an unreadable file is refused");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData, "{err}");
+            assert_eq!(fs::read_to_string(&path).expect("read"), original);
+        }
+        // And a preference with no key names nothing to write.
+        let err = write_preference(&path, &[], json!(true)).expect_err("no key");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preference_written_into_a_new_profile_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
+        assert_eq!(
+            fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+            0o600
         );
     }
 

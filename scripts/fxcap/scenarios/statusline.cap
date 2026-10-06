@@ -1,0 +1,35 @@
+wait 2
+type /statusline
+key Enter
+wait 1
+snap bare
+key Down
+wait 0.3
+snap down1
+key Enter
+wait 0.5
+snap enter
+home enter
+key Escape
+wait 0.5
+snap esc
+type /statusline context
+key Enter
+wait 1
+snap context
+home context
+type /statusline session
+key Enter
+wait 1
+snap session
+home session
+type /statusline workspace
+key Enter
+wait 1
+snap workspace
+home workspace
+type /statusline bogus
+key Enter
+wait 1
+snap bogus
+home bogus

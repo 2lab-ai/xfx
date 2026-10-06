@@ -98,12 +98,13 @@ use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigge
 use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
+use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::clipboard::{self, Clipboard};
-use crate::config::{PermissionMode, RuntimeConfig};
+use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
 use crate::output::safe_one_line;
@@ -696,6 +697,24 @@ pub(crate) struct Shell {
     /// catalog is back when it has been answered, as upstream's is
     /// (`surface_frame.zig:401`, `!modal_active`).
     help_menu: Option<HelpMenu>,
+    /// Which of the footer's optional segments are shown: the profile's
+    /// `statusLine` at launch, and every `/statusline` change since.
+    statusline: StatusLine,
+    /// The `/statusline` picker, while it is up ([`super::statusline::Menu`]).
+    ///
+    /// The fourth occupant of the band's elastic slot, and unlike the catalog
+    /// and the completion menu **a focus rather than a view**: the composer
+    /// row is not shown while it is up and every keystroke is the picker's
+    /// (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`). A
+    /// question outranks it in [`Self::slot`] and takes the keys while it is
+    /// up; the picker is back when it has been answered.
+    statusline_menu: Option<statusline::Menu>,
+    /// The workspace's path and the Git branch its `HEAD` was last read on,
+    /// for the workspace segment ([`super::statusline::Workspace`]).
+    workspace_identity: statusline::Workspace,
+    /// Where a `/statusline` change is kept: `~/.xfx/settings.json`, or `None`
+    /// for a session with no home to keep it in.
+    settings_path: Option<std::path::PathBuf>,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -1108,6 +1127,8 @@ enum Slot<'a> {
     /// **not** the same thing: it grants nothing and its answer is text
     /// ([`super::question`]).
     Ask(&'a QuestionPanel),
+    /// The `/statusline` picker. It owns the focus and the composer's rows.
+    Statusline(&'a statusline::Menu),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1211,6 +1232,18 @@ impl Shell {
             ),
             separator: None,
             help_menu: None,
+            statusline: config.statusline,
+            statusline_menu: None,
+            workspace_identity: {
+                // Read now only when it is on: a session that never shows the
+                // branch has no reason to open a file for it.
+                let mut identity = statusline::Workspace::new(&config.workspace_root);
+                if config.statusline.workspace {
+                    identity.refresh();
+                }
+                identity
+            },
+            settings_path: config.user_settings_path.clone(),
             activity_row: None,
             handoff: None,
             tail_unknown: false,
@@ -1319,6 +1352,13 @@ impl Shell {
                 Some(Slot::Catalog(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // In the rows the geometry gave it, with the values in force.
+                Some(Slot::Statusline(menu)) => menu.rows(
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    self.statusline,
+                    self.palette,
+                ),
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
@@ -1380,6 +1420,12 @@ impl Shell {
                 self.palette.dim(),
                 help_menu::key_help(self.geometry.cols).to_string(),
             ),
+            // And the `/statusline` picker's, in the same grey
+            // (`composeCompactCommandMenuHintRow`, `input_presentation.zig:766-790`).
+            Some(Slot::Statusline(_)) => self.painted(
+                self.palette.dim(),
+                statusline::key_help(self.geometry.cols).to_string(),
+            ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
     }
@@ -1440,6 +1486,11 @@ impl Shell {
     /// ([`super::wrap::width`], which is what the budget is measured with) and
     /// a cut that left nothing for it to apply to leaves nothing to look at.
     fn hint_row(&self) -> String {
+        let session_title = self
+            .session_title
+            .as_deref()
+            .map(statusline::session_label)
+            .filter(|title| !title.is_empty());
         let notice = self.notice.map(|text| Notice {
             text,
             style: self.palette.notice(),
@@ -1451,7 +1502,24 @@ impl Shell {
                 queued: self.queued,
                 mode: self.mode,
                 model: &self.model,
-                context_used: self.context_meter(),
+                // The three optional segments, each only while it is on
+                // (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
+                session_title: self
+                    .statusline
+                    .session
+                    .then_some(session_title.as_deref())
+                    .flatten(),
+                context_used: self
+                    .statusline
+                    .context
+                    .then(|| self.context_meter())
+                    .flatten(),
+                workspace: self.statusline.workspace.then(|| {
+                    (
+                        self.workspace_identity.label(),
+                        self.workspace_identity.branch(),
+                    )
+                }),
                 notice,
                 // The armed half of the double-Escape gesture goes to the
                 // right-hand slot: it is a warning about what the *next*
@@ -1465,19 +1533,27 @@ impl Shell {
         )
     }
 
-    /// The two numbers of the context meter, or nothing at all.
+    /// The context meter's numerator and, when there is one, its denominator.
     ///
-    /// **Both or neither**, and that is the whole rule. The numerator is a
-    /// completed turn's `input_tokens` and the denominator is the catalog's
-    /// `max_context` for the model in force; either can legitimately be absent
-    /// -- a provider need not publish usage, and the Gateway publishes no
-    /// catalog to hold a window at all -- and a row that filled in a missing
-    /// half with a zero would report a measurement nobody took. So a missing
-    /// half removes the segment rather than defaulting it, which is the same
+    /// **No numerator, no meter.** The numerator is a completed turn's
+    /// `input_tokens`, and a provider need not publish usage: a missing one
+    /// removes the segment rather than defaulting it, because a row that
+    /// filled it in with a zero would report a measurement nobody took -- the
     /// rule the activity row's token count follows
-    /// ([`super::activity::Activity::tokens`]).
-    fn context_meter(&self) -> Option<(u64, u64)> {
-        let used = self.context_used?;
+    /// ([`super::activity::Activity::tokens`]). The denominator is the
+    /// catalog's `max_context` for the model in force, and the Gateway
+    /// publishes no catalog to hold a window at all; then the numerator stands
+    /// alone, as upstream's does (`12k`, `render.zig:448-451`), which says
+    /// exactly what was measured and nothing that was not.
+    ///
+    /// Whether the meter is **shown** is not this method's question: it is
+    /// off until `/statusline context` turns it on ([`Self::hint_row`]).
+    fn context_meter(&self) -> Option<(u64, Option<u64>)> {
+        // Nothing until a turn has measured something, and nothing for a
+        // measurement of nought either (`app_render_runtime.zig:889-892`
+        // hands the row upstream's total; `render.zig:441` draws it only past
+        // zero).
+        let used = self.context_used.filter(|used| *used > 0)?;
         // Matched by id **or alias**, because the model in force is whatever the
         // operator or the profile spelled and the catalog publishes both
         // ([`CatalogEntry::matches`]).
@@ -1485,7 +1561,7 @@ impl Shell {
             .catalog
             .iter()
             .find(|entry| entry.matches(&self.model))
-            .and_then(|entry| entry.max_context)?;
+            .and_then(|entry| entry.max_context);
         Some((used, total))
     }
 
@@ -1521,6 +1597,9 @@ impl Shell {
         }
         if let Some(ask) = self.ask.as_ref() {
             return Some(Slot::Ask(ask));
+        }
+        if let Some(menu) = self.statusline_menu.as_ref() {
+            return Some(Slot::Statusline(menu));
         }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
@@ -1564,6 +1643,13 @@ impl Shell {
                     .caret(cols, rows)
                     .unwrap_or_else(|| (ask.caret_row(cols, rows), 0));
                 return (self.geometry.panel_first().saturating_add(row), column);
+            }
+            // The `/statusline` picker has the focus too, and no composer row
+            // to leave a caret in: it goes to the start of the marked row,
+            // which is what Enter and the arrows act on.
+            if let Some(menu) = self.statusline_menu.as_ref() {
+                let row = menu.marked_row(self.geometry.panel);
+                return (self.geometry.panel_first().saturating_add(row), 0);
             }
         }
         let (row, column) = self.editor.point(self.text_cols());
@@ -2001,6 +2087,13 @@ impl Shell {
                 self.activity.end();
                 self.pacer.finish();
                 self.gestures.turn_ended();
+                // A turn is what moves a branch under a session -- a tool
+                // that ran `git checkout` -- so the end of one is when the
+                // workspace segment reads `HEAD` again.
+                if self.statusline.workspace {
+                    self.workspace_identity.refresh();
+                    self.render.request(Reason::Footer);
+                }
             }
             // The conversation a reset asked to drop is gone, and nothing the
             // runtime sends from here on is about it -- once this is the fence
@@ -2563,6 +2656,87 @@ impl Shell {
             return;
         };
         if files.settle(self.files.lookup(&lookup)) {
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// One keystroke, while the `/statusline` picker has the focus.
+    ///
+    /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Enter, Left and
+    /// Right flip the marked item **silently** -- the row is the answer, and
+    /// nothing reaches the document unless the write failed
+    /// (`submitCompactCommandMenuSelection` and
+    /// `routeCompactCommandMenuEscapeAction`, `app_input_runtime.zig:2553-2690`,
+    /// both into `applyStatuslineItem(.silent)`); Escape closes it.
+    fn offer_to_statusline(&mut self, event: Input) {
+        let Input::Action(action) = event else {
+            return;
+        };
+        let Some(request) = StatuslineAction::of(action) else {
+            return;
+        };
+        let Some(menu) = self.statusline_menu.as_mut() else {
+            return;
+        };
+        match request {
+            StatuslineAction::Up | StatuslineAction::Down => {
+                menu.step(request == StatuslineAction::Down);
+                self.render.request(Reason::Modal);
+            }
+            StatuslineAction::Flip => {
+                let item = menu.selected();
+                self.set_statusline(item, !self.statusline.get(item), false);
+            }
+            StatuslineAction::Close => {
+                self.statusline_menu = None;
+                // The composer's row comes back with the picker's going.
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+    }
+
+    /// Turns one footer segment on or off, keeps it in the profile, and --
+    /// when `announce` -- says both (`applyStatuslineItem`,
+    /// `app_commands.zig:3905-3929`).
+    ///
+    /// **The write is made here, on this thread**, and that is a decision: the
+    /// profile is a local file of at most 64 KiB
+    /// ([`crate::config::MAX_SETTINGS_BYTES`]) read once and replaced by one
+    /// staged rename ([`crate::provider::profile::write_preference`]), and
+    /// upstream persists from its command handler the same way. The
+    /// alternative, the runtime's work queue, runs behind the turn in flight
+    /// and refuses outright when a prompt is already waiting
+    /// ([`Rejected::Busy`]) -- so a segment flipped mid-turn would neither be
+    /// kept nor said until the turn was over, or at all.
+    ///
+    /// The change is in force for this process whether or not it was kept;
+    /// a write that failed says so, in error, whichever path asked for it.
+    fn set_statusline(&mut self, item: StatusLineItem, on: bool, announce: bool) {
+        self.statusline.set(item, on);
+        if item == StatusLineItem::Workspace && on {
+            self.workspace_identity.refresh();
+        }
+        match interactive::save_statusline(self.settings_path.as_deref(), item, on) {
+            Ok(()) if announce => self.announce(notice::Notice::neutral(
+                interactive::STATUSLINE_TOPIC,
+                interactive::STATUSLINE_SAVED,
+            )),
+            Ok(()) => {}
+            Err(reason) => self.announce(notice::Notice::error(
+                interactive::STATUSLINE_TOPIC,
+                interactive::statusline_not_saved(&reason),
+            )),
+        }
+        if announce {
+            self.announce(notice::Notice::neutral(
+                interactive::STATUSLINE_TOPIC,
+                interactive::statusline_state(item, on),
+            ));
+        }
+        // The hint row changed, and so has the picker's row when it is up.
+        self.render.request(Reason::Footer);
+        if self.statusline_menu.is_some() {
             self.render.request(Reason::Modal);
         }
     }
@@ -4032,6 +4206,15 @@ impl Shell {
                 self.decide(event, now);
                 continue;
             }
+            // The `/statusline` picker has the focus whenever no question
+            // does: everything is its, and what it does not bind it swallows
+            // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
+            // do (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`).
+            // Escape is the way out, and then the keys mean what they mean.
+            if self.statusline_menu.is_some() {
+                self.offer_to_statusline(event);
+                continue;
+            }
             // And the catalog or the completion menu -- never both -- takes
             // the keys it binds, before the editor and before the gestures see
             // them. Everything else falls through with it still up, because
@@ -4953,6 +5136,30 @@ impl CommandHandlers for Shell {
         self.use_provider(argument);
     }
 
+    /// Upstream's `commandHandleStatusline` (`app_commands.zig:2094-2107`):
+    /// bare, the picker opens on its first row in place of the composer, and
+    /// the menus that share its slot close; with an item, that item flips and
+    /// both notices are said ([`Self::set_statusline`]); with anything else,
+    /// upstream's usage line as an error with no topic.
+    fn statusline(&mut self, argument: &str) {
+        if argument.is_empty() {
+            self.picker = None;
+            self.file_picker = None;
+            self.help_menu = None;
+            self.statusline_menu = Some(statusline::Menu::open());
+            // [`Self::run_command`] re-solved the band before routing here,
+            // for a band with a composer in it.
+            self.refit();
+            self.render.request(Reason::Modal);
+            return;
+        }
+        let Some(item) = StatusLineItem::parse(argument) else {
+            self.write_notice(&notice::Notice::error("", interactive::STATUSLINE_USAGE));
+            return;
+        };
+        self.set_statusline(item, !self.statusline.get(item), true);
+    }
+
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
     /// conversation's last reply onto the clipboard, raw.
     ///
@@ -5489,6 +5696,7 @@ impl Shell {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
+            Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
             Some(Slot::Catalog(_)) | Some(Slot::Files(_)) | None => 0,
         };
         let panel = |input_rows: u16| match slot {
@@ -5525,6 +5733,18 @@ impl Shell {
         // `fx-question-40x120-q1`), so the band is solved with none.
         if self.panel.is_some() || self.ask.is_some() {
             return layout::solve_band(rows, cols, 0, activity, fixed)
+                .map(|geometry| geometry.floated(self.document_rows));
+        }
+        // **So does the `/statusline` picker** (`input_visible` is false under
+        // a compact menu, `surface_frame.zig:384-393`), and it is the one
+        // occupant that gives up rows of its own rather than refuse: on a
+        // screen too short for all five -- with a turn's row above it, say --
+        // it shows the marked item and as much around it as fits
+        // ([`statusline::Menu::rows`]), down to the one row every band has.
+        if matches!(slot, Some(Slot::Statusline(_))) {
+            return (1..=fixed)
+                .rev()
+                .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
                 .map(|geometry| geometry.floated(self.document_rows));
         }
         (1..=wanted)
@@ -5614,6 +5834,12 @@ impl Shell {
         };
         self.geometry = geometry;
         self.transcript.resize_unfinished(cols);
+        // A frame of every row is owed anyway, so the workspace segment reads
+        // `HEAD` again on it, as upstream's does on every render
+        // (`tui-startup.test.ts:175-240` moves the branch and resizes).
+        if self.statusline.workspace {
+            self.workspace_identity.refresh();
+        }
         // Every row of the band is somewhere else, and so is every column.
         self.render.request(Reason::Resize);
         // And every document row the terminal has re-wrapped by rules this
@@ -10726,10 +10952,10 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, `/help` the one whose answer is the catalog in the band,
-            // and the reset's three names answer with a fresh screen and say
-            // nothing (`fx-sessions-40x120-new.txt`); every other one says
-            // something, as a notice.
+            // a row, `/help` and a bare `/statusline` the ones whose answer is
+            // a menu in the band, and the reset's three names answer with a
+            // fresh screen and say nothing (`fx-sessions-40x120-new.txt`);
+            // every other one says something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
             } else if *name == "/help" {
@@ -10737,6 +10963,16 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/help wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/statusline" {
+                assert!(
+                    shell.statusline_menu.is_some(),
+                    "/statusline opened no picker"
+                );
+                assert!(
+                    document.is_empty(),
+                    "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
@@ -14235,7 +14471,7 @@ mod tests {
         assert_eq!(
             rows[2],
             format!(
-                "  {bright}/help{reset}       {bright}show available slash commands{reset}",
+                "  {bright}/help{reset}          {bright}show available slash commands{reset}",
                 bright = PALETTE.subtitle(),
                 reset = PALETTE.reset()
             )
@@ -14360,7 +14596,7 @@ mod tests {
         let rows = menu(&shell);
         let last = rows.len() - 1;
         assert!(
-            rows[last].starts_with(&format!("  {}/model", PALETTE.subtitle())),
+            rows[last].starts_with(&format!("  {}/statusline", PALETTE.subtitle())),
             "Up from the first row is the last: {rows:?}"
         );
         shell.route_bytes(b"\x1b[B");
@@ -14581,10 +14817,18 @@ mod tests {
 
     #[test]
     fn usage_and_max_context_drive_one_context_meter() {
-        // Both halves or no meter. Absent is not zero: a provider that publishes
-        // no usage, and a provider that publishes no window, each leave the
-        // segment off the row rather than putting a nought on it.
+        // The numerator decides whether there is a meter and the denominator
+        // decides its form. Absent is not zero: a provider that publishes no
+        // usage leaves the segment off the row rather than putting a nought on
+        // it, and a provider that publishes no window gets the numerator alone
+        // -- upstream's `12k` (`render.zig:448-451`), which is the Gateway's
+        // case -- rather than a percentage of a window nobody stated.
+        //
+        // **Restated for `/statusline`**: this used to say a numerator with no
+        // denominator is no meter at all. The segment is shown here because
+        // the user turned it on; it is off by default ([`Shell::hint_row`]).
         let mut shell = shell(24, 80);
+        shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
 
         assert_eq!(shell.shell.context_meter(), None, "nothing measured yet");
@@ -14597,25 +14841,35 @@ mod tests {
         assert_eq!(shell.shell.context_meter(), None);
         assert!(!shell.hint().contains('%'), "{}", shell.hint());
 
-        // A numerator with no denominator is not a meter either.
+        // A numerator with no denominator is the numerator, and no percentage.
         let mut bare = fixture_with_no_catalog();
+        bare.shell.statusline.context = true;
         bare.shell.model = "fable".to_string();
         bare.shell.apply(UiEvent::Usage {
             input: Some(12_345),
             output: Some(9),
         });
-        assert_eq!(bare.shell.context_meter(), None);
-        assert!(!bare.hint().contains('%'), "{}", bare.hint());
+        assert_eq!(bare.shell.context_meter(), Some((12_345, None)));
+        let row = bare.hint();
+        assert!(row.ends_with(" \u{b7} 12k"), "{row}");
+        assert!(!row.contains('%'), "{row}");
 
         // Both, and exactly one segment.
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
             output: Some(9),
         });
-        assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
+        assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         let row = shell.hint();
         assert!(row.contains("12k/200k 6%"), "{row}");
         assert_eq!(row.matches('%').count(), 1, "{row}");
+
+        // A measurement of nought is no meter either (`render.zig:441`).
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(0),
+            output: None,
+        });
+        assert_eq!(shell.shell.context_meter(), None);
     }
 
     #[test]
@@ -14627,6 +14881,7 @@ mod tests {
         // output would count this turn's answer twice -- once as output now, and
         // again inside the input of the turn after it.
         let mut shell = shell(24, 80);
+        shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
             provider: ProviderId::Llmux,
@@ -14638,7 +14893,7 @@ mod tests {
         });
         assert_eq!(
             shell.shell.context_meter(),
-            Some((30_000, 100_000)),
+            Some((30_000, Some(100_000))),
             "the meter added the output tokens to the input ones"
         );
         assert!(shell.hint().contains("30k/100k"), "{}", shell.hint());
@@ -14678,17 +14933,17 @@ mod tests {
             output: None,
         });
         shell.shell.model = "small".to_string();
-        assert_eq!(shell.shell.context_meter(), Some((4_000, 8_000)));
+        assert_eq!(shell.shell.context_meter(), Some((4_000, Some(8_000))));
         shell.shell.model = "vendor/large".to_string();
         assert_eq!(
             shell.shell.context_meter(),
-            Some((4_000, 900_000)),
+            Some((4_000, Some(900_000))),
             "the id spelling did not select the same row its alias does"
         );
         shell.shell.model = "absent-from-this-catalog".to_string();
         assert_eq!(
             shell.shell.context_meter(),
-            None,
+            Some((4_000, None)),
             "a model the catalog does not publish was given a window anyway"
         );
     }
@@ -14705,6 +14960,7 @@ mod tests {
         // `/new` changes neither the provider nor the model: clearing it would
         // throw away a fact that is still true and cost a socket to learn again.
         let mut shell = shell(24, 80);
+        shell.shell.statusline.context = true;
         shell.shell.model = "fable".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
             provider: ProviderId::Llmux,
@@ -14714,7 +14970,7 @@ mod tests {
             input: Some(12_345),
             output: Some(9),
         });
-        assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
+        assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         assert!(shell.hint().contains("12k/200k"), "{}", shell.hint());
 
         shell.route_bytes(b"/new\r");
@@ -14744,7 +15000,407 @@ mod tests {
             input: Some(7),
             output: None,
         });
-        assert_eq!(shell.shell.context_meter(), Some((7, 200_000)));
+        assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
+    }
+
+    // -----------------------------------------------------------------------
+    // `/statusline`: the picker, the argument form, and the segments
+    // -----------------------------------------------------------------------
+
+    /// A shell whose home and workspace outlive it, for the cases that write
+    /// the profile.
+    ///
+    /// Not [`shell`]: that fixture's home is a directory deleted before the
+    /// case runs, and a profile write into it would create it again, outside
+    /// any test's cleanup.
+    fn shell_at_home(root: &std::path::Path, rows: u16, cols: u16) -> Fixture {
+        let home = root.join("home");
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&home).expect("a home");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let (work, sent, control) = WorkHandle::detached();
+        Fixture {
+            shell: Shell::new(
+                &config(&home, &workspace),
+                crate::tui::layout::solve(rows, cols, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        }
+    }
+
+    /// The profile a [`shell_at_home`] under `root` writes, or `""` while it
+    /// has written none.
+    fn profile_at(root: &std::path::Path) -> String {
+        std::fs::read_to_string(root.join("home").join(".xfx").join("settings.json"))
+            .unwrap_or_default()
+    }
+
+    /// The picker's five rows as the band paints them, with `marked` the
+    /// marked item's index (`cap/fx-statusline-40x120-bare.ansi`, rows 4-8).
+    fn statusline_rows(line: StatusLine, marked: usize) -> Vec<String> {
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        let item = |label: &str, on: bool, index: usize| {
+            let style = if index == marked { bright } else { dim };
+            let (off, on) = if on { (dim, bright) } else { (bright, dim) };
+            format!(
+                "  {style}{label}{reset}{}{off}off{reset}  {on}on{reset}",
+                " ".repeat(13 - label.len())
+            )
+        };
+        vec![
+            format!("{bright}Status line{reset}"),
+            String::new(),
+            item("Context", line.context, 0),
+            item("Session", line.session, 1),
+            item("Workspace", line.workspace, 2),
+        ]
+    }
+
+    /// The picker's key help on a screen `cols` wide, painted.
+    fn statusline_keys(cols: u16) -> String {
+        format!(
+            "{}{}{}",
+            PALETTE.dim(),
+            statusline::key_help(cols),
+            PALETTE.reset()
+        )
+    }
+
+    /// Escape, once the decoder has waited long enough to know it is one.
+    fn escape(shell: &mut Fixture) {
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+    }
+
+    fn line(context: bool, session: bool, workspace: bool) -> StatusLine {
+        StatusLine {
+            context,
+            session,
+            workspace,
+        }
+    }
+
+    /// The two notices the argument form says about `item` being `on`.
+    fn flipped(item: &str, on: bool) -> Vec<String> {
+        [
+            said(notice::Notice::neutral(
+                "statusline",
+                interactive::STATUSLINE_SAVED,
+            )),
+            said(notice::Notice::neutral(
+                "statusline",
+                format!("{item}: {}", if on { "on" } else { "off" }),
+            )),
+        ]
+        .concat()
+    }
+
+    #[test]
+    fn a_bare_statusline_opens_upstreams_picker_in_place_of_the_composer() {
+        // `cap/fx-statusline-40x120-bare`: a rule where the composer was, the
+        // title, a blank, three items with the first marked, a rule and the
+        // key help -- and nothing written anywhere.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/statusline\r");
+        assert!(shell.document().is_empty(), "the picker wrote a notice");
+        assert!(shell.statusline_menu.is_some());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.panel, 5);
+        let mut expected = vec![divider(120)];
+        expected.extend(statusline_rows(StatusLine::default(), 0));
+        expected.push(divider(120));
+        expected.push(statusline_keys(120));
+        assert_eq!(shell.band_rows(), expected);
+        // The caret is on the marked row, at its start.
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 2, 0));
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/statusline reached the runtime"
+        );
+    }
+
+    #[test]
+    fn the_pickers_keys_move_the_mark_flip_silently_and_close() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/statusline\r");
+        let panel = |shell: &Fixture| shell.band_rows()[1..6].to_vec();
+
+        // Down: the mark moves (`cap/fx-statusline-40x120-down1`).
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(panel(&shell), statusline_rows(line(false, false, false), 1));
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 3, 0));
+
+        // Enter: the marked item flips, the row says so, and **nothing** is
+        // said in the document (`cap/fx-statusline-40x120-enter`,
+        // `tui-slash-menu.test.ts:1816`). It is kept at once, partially.
+        shell.route_bytes(b"\r");
+        assert!(shell.statusline.session);
+        assert_eq!(panel(&shell), statusline_rows(line(false, true, false), 1));
+        assert!(
+            shell.document().is_empty(),
+            "the picker's flip said something"
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"statusLine\": {\n    \"session\": true\n  }\n}\n"
+        );
+
+        // Right and Left flip it too: two values, so either way is a flip.
+        shell.route_bytes(b"\x1b[C");
+        assert!(!shell.statusline.session);
+        shell.route_bytes(b"\x1b[D");
+        assert!(shell.statusline.session);
+        assert!(shell.document().is_empty());
+        assert!(profile_at(root.path()).contains("\"session\": true"));
+
+        // Ctrl-K and Up go up, Ctrl-J and Down go down, wrapping both ways.
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(panel(&shell), statusline_rows(line(false, true, false), 0));
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(panel(&shell), statusline_rows(line(false, true, false), 2));
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(panel(&shell), statusline_rows(line(false, true, false), 0));
+
+        // Everything else is swallowed: no letter reaches the hidden composer,
+        // Ctrl-D does not leave, Ctrl-C does not reach the runtime, and Tab and
+        // Backspace do nothing (`routeActiveModalInput`).
+        shell.route_bytes(b"abc\t\x7f\x04\x03");
+        assert!(shell.editor.is_empty(), "{:?}", shell.editor.text());
+        assert!(!shell.leaving(), "Ctrl-D left from behind the picker");
+        assert_eq!(shell.controlled(), None);
+        assert!(shell.statusline_menu.is_some());
+        assert!(shell.document().is_empty());
+
+        // Escape: the picker is gone, the composer is back, and the clear
+        // gesture was not armed by it (`cap/fx-statusline-40x120-esc`).
+        escape(&mut shell);
+        assert!(shell.statusline_menu.is_none());
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn the_argument_form_flips_one_item_and_says_both_notices() {
+        // `cap/fx-statusline-40x120-context`: the saved line, a blank, the
+        // item's new value -- and the footer unchanged until a turn has
+        // measured something.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/statusline context\r");
+        assert_eq!(shell.document(), flipped("context", true));
+        assert!(shell.statusline.context);
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"statusLine\": {\n    \"context\": true\n  }\n}\n"
+        );
+        assert_eq!(shell.hint(), IDLE_HINT, "a meter before a measurement");
+        // The Gateway publishes no window, so the numerator stands alone
+        // (`fx-statusline-turn-40x120-after-turn`: `· 1k ·`).
+        shell.apply(UiEvent::Usage {
+            input: Some(1_200),
+            output: None,
+        });
+        assert_eq!(shell.hint(), format!("{IDLE_HINT} \u{b7} 1k"));
+
+        // Again, and it is off, kept off, and gone from the row.
+        shell.route_bytes(b"/statusline context\r");
+        assert_eq!(shell.document(), flipped("context", false));
+        assert!(!shell.statusline.context);
+        assert!(profile_at(root.path()).contains("\"context\": false"));
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(
+            shell.statusline_menu.is_none(),
+            "the argument form opened it"
+        );
+    }
+
+    #[test]
+    fn an_argument_that_names_no_item_is_upstreams_usage_error() {
+        // `cap/fx-statusline-40x120-bogus`, and the match is exact and
+        // case-sensitive (`parseStatuslineItem`).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in ["bogus", "Context", "context please", "sandbox"] {
+            shell.route_bytes(format!("/statusline {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /statusline [context|session|workspace]"
+                )),
+                "{argument:?}"
+            );
+        }
+        assert_eq!(shell.statusline, StatusLine::default());
+        assert_eq!(profile_at(root.path()), "", "a refusal wrote the profile");
+    }
+
+    #[test]
+    fn the_segments_follow_the_model_in_upstreams_order_and_only_when_on() {
+        // `buildHintLine` (`render.zig:440-470`), and
+        // `fx-statusline-turn-40x120-after-turn`: `auto · model-a · say the
+        // marker · 1k · <workspace>`. Off, none of them is there whatever the
+        // session knows.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 160);
+        shell.session_title = Some("say the marker".to_string());
+        shell.apply(UiEvent::Usage {
+            input: Some(1_200),
+            output: None,
+        });
+        assert_eq!(shell.hint(), IDLE_HINT, "a segment was on by default");
+
+        let workspace = shell.workspace.to_string_lossy().into_owned();
+        shell.route_bytes(b"/statusline session\r");
+        assert_eq!(shell.hint(), format!("{IDLE_HINT} \u{b7} say the marker"));
+        shell.route_bytes(b"/statusline workspace\r");
+        assert_eq!(
+            shell.hint(),
+            format!("{IDLE_HINT} \u{b7} say the marker \u{b7} {workspace}")
+        );
+        shell.route_bytes(b"/statusline context\r");
+        assert_eq!(
+            shell.hint(),
+            format!("{IDLE_HINT} \u{b7} say the marker \u{b7} 1k \u{b7} {workspace}")
+        );
+        // A title is the first line of a prompt: what a terminal would obey
+        // in it is not painted.
+        shell.session_title = Some("say \u{1b}[31mred".to_string());
+        assert!(
+            shell.hint().contains(" \u{b7} say [31mred \u{b7} "),
+            "{}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn the_branch_is_read_at_launch_and_again_at_the_end_of_a_turn() {
+        // `tui-startup.test.ts:175-240`: the nearest `HEAD`, read again when
+        // something can have moved it -- here a turn, which is what runs `git
+        // checkout` under a session -- and not on every frame.
+        let root = tempfile::tempdir().expect("a root");
+        let git = root.path().join("work").join(".git");
+        std::fs::create_dir_all(&git).expect(".git");
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/first\n").expect("HEAD");
+        std::fs::create_dir_all(root.path().join("home").join(".xfx")).expect("profile home");
+        std::fs::write(
+            root.path().join("home").join(".xfx").join("settings.json"),
+            "{\"statusLine\":{\"workspace\":true}}\n",
+        )
+        .expect("a profile");
+        let mut shell = shell_at_home(root.path(), 40, 160);
+        let workspace = shell.workspace.to_string_lossy().into_owned();
+        assert_eq!(
+            shell.hint(),
+            format!("{IDLE_HINT} \u{b7} {workspace} (first)"),
+            "the profile's segment was not on at launch, or its branch unread"
+        );
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/second\n").expect("HEAD");
+        assert!(shell.hint().ends_with("(first)"), "read on a frame");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(
+            shell.hint(),
+            format!("{IDLE_HINT} \u{b7} {workspace} (second)")
+        );
+    }
+
+    #[test]
+    fn what_the_picker_and_the_argument_write_is_what_the_next_launch_reads() {
+        // The round trip, through the real loader in the same home: the three
+        // writes land in one object, and a session started from it shows all
+        // three on -- in its footer and in its picker.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/statusline context\r");
+        shell.route_bytes(b"/statusline workspace\r");
+        shell.route_bytes(b"/statusline\r");
+        shell.route_bytes(b"\x1b[B\r");
+        escape(&mut shell);
+        let written: serde_json::Value =
+            serde_json::from_str(&profile_at(root.path())).expect("the profile is JSON");
+        assert_eq!(
+            written,
+            serde_json::json!({"statusLine": {"context": true, "session": true, "workspace": true}})
+        );
+
+        let reloaded = config(&root.path().join("home"), &root.path().join("work"));
+        assert_eq!(reloaded.statusline, line(true, true, true));
+        assert!(
+            reloaded.diagnostics.is_empty(),
+            "{:?}",
+            reloaded.diagnostics
+        );
+        let mut next = shell_at_home(root.path(), 40, 120);
+        assert_eq!(next.statusline, line(true, true, true));
+        next.route_bytes(b"/statusline\r");
+        assert_eq!(
+            next.band_rows()[1..6].to_vec(),
+            statusline_rows(line(true, true, true), 0)
+        );
+    }
+
+    #[test]
+    fn a_write_that_fails_keeps_the_change_for_this_process_and_says_so() {
+        // `reportUserSettingsFailure` (`session_commands.zig:110-133`): the
+        // segment is on for this session either way, and the failure is said
+        // on both paths -- the picker is silent only about success.
+        let root = tempfile::tempdir().expect("a root");
+        let settings = root.path().join("home").join(".xfx").join("settings.json");
+        std::fs::create_dir_all(settings.parent().expect("a parent")).expect("profile home");
+        std::fs::write(&settings, "{not json").expect("an unreadable profile");
+        let mut shell = shell_at_home(root.path(), 40, 200);
+        let not_saved = |document: &[String]| {
+            document.first().is_some_and(|row| {
+                row.starts_with(
+                    "\u{2717} statusline: active for this process but not saved to user \
+                     settings (it is not valid JSON",
+                )
+            })
+        };
+
+        shell.route_bytes(b"/statusline context\r");
+        let document = shell.document();
+        assert!(not_saved(&document), "{document:?}");
+        assert_eq!(document[2], "* statusline: context: on", "{document:?}");
+        assert!(shell.statusline.context);
+
+        shell.route_bytes(b"/statusline\r");
+        shell.route_bytes(b"\r");
+        let document = shell.document();
+        assert!(not_saved(&document), "{document:?}");
+        assert_eq!(document.len(), 2, "the picker said more than the failure");
+        assert!(!shell.statusline.context, "the flip was not in force");
+        assert_eq!(
+            std::fs::read_to_string(&settings).expect("read"),
+            "{not json",
+            "the operator's file was written over"
+        );
+    }
+
+    #[test]
+    fn a_short_screen_gives_the_picker_fewer_rows_rather_than_refusing_it() {
+        // Seven rows hold the hint, two rules, one row of document and three
+        // of the picker: the title, the blank and the marked item.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 7, 80);
+        shell.route_bytes(b"/statusline\r");
+        assert_eq!(shell.geometry.panel, 3);
+        let rows = uncoloured_rows(&shell.band_rows());
+        assert_eq!(rows[1..4], ["Status line", "", "  Context      off  on"]);
+        shell.route_bytes(b"\x1b[B");
+        let rows = uncoloured_rows(&shell.band_rows());
+        assert_eq!(rows[3], "  Session      off  on");
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 2, 0));
     }
 
     // -----------------------------------------------------------------------
