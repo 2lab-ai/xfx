@@ -3430,9 +3430,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     // plan:224 -- the menu is a view of the composer, not a second focus. Three
     // claims, and the last two are what make it a menu rather than a panel: it
-    // is **above** the divider in the rows a question would take, the caret
-    // stays in the text being typed, and Return runs the line rather than
-    // taking the marked row.
+    // is **below** the rule under the composer, in the rows a question would
+    // take and in upstream's shape (a header, a blank row, the commands, the
+    // key help where the hint was); the caret stays in the text being typed;
+    // and Tab and Return each take one keystroke.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["MARKER-THE-MENU-ASKED-A-MODEL"]),
     )]);
@@ -3466,6 +3467,22 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
         "the menu offers a summary without the name it belongs to: {:?}",
         screen.row_text(offered)
     );
+    // Upstream's popup: the count under the rule, a blank row, then the row,
+    // its category against the right of the screen; the hint row says the
+    // menu's keys.
+    assert_eq!(screen.row_text(rule + 1), "Commands 1");
+    assert_eq!(screen.row_text(rule + 2), "");
+    assert_eq!(offered, rule + 3, "the command is not under the header");
+    assert!(
+        screen.row_text(offered).starts_with("  /model   ")
+            && screen.row_text(offered).ends_with(" Model"),
+        "{:?}",
+        screen.row_text(offered)
+    );
+    assert_eq!(
+        screen.row_text(screen.hint_row()),
+        "\u{2191}\u{2193} navigate     enter use     esc close"
+    );
     assert_eq!(
         screen.row_text(rule - 1),
         "\u{2503} /mod",
@@ -3497,6 +3514,11 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     // Return, because the menu gets out of Enter's way rather than taking it.
     session.type_bytes(b"\r");
     session.wait_for("[shell] model=");
+
+    // A partial word and a Return runs the command the menu marked for it,
+    // in that one Return (`input_submit_runtime.zig:1087-1089`).
+    session.type_bytes(b"/vers\r");
+    session.wait_for(&format!("xfx {}", env!("CARGO_PKG_VERSION")));
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));

@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mCommands 36[0m  [1m[38;5;255m[All][0m  [38;5;245mGeneral[39m  [38;5;245mSession[39m  [38;5;245mAccount[39m  [38;5;245mModel[39m  [38;5;245mAppearance[39m  [38;5;245mSecurity[39m  [38;5;245mWorkspace[39m  [38;5;245mMedia[39m  [38;5;245mAgents[39m  [38;5;245mExtensions[39m  [38;5;245m…[39m
+
+  [1m[38;5;255m/help[0m           [1m[38;5;255mshow available slash commands[0m
+  [38;5;245m/clear[39m          [38;5;245mstart a fresh conversation while keeping managed processes[39m
+  [38;5;245m/status[39m         [38;5;245mshow runtime configuration[39m
+  [38;5;245m/version[39m        [38;5;245mshow the fx version[39m
+  [38;5;245m/quit[39m           [38;5;245mexit the interactive shell[39m
+  [38;5;245m/new[39m            [38;5;245mstart a fresh session[39m
+  [38;5;245m/reset[39m          [38;5;245mreset the current session context[39m
+  [38;5;245m/resume[39m         [38;5;245mresume a saved session[39m
+  [38;5;245m/rename[39m         [38;5;245mrename the current session[39m
+  [38;5;245m/undo[39m           [38;5;245mundo the latest tracked file operation[39m
+  [38;5;245m/copy[39m           [38;5;245mcopy the last assistant response[39m
+  [38;5;245m/compact[39m        [38;5;245msummarize context into a fresh window[39m
+  [38;5;245m/login[39m          [38;5;245mchoose the model provider and how it signs in[39m
+  [38;5;245m/logout[39m         [38;5;245msign out of a provider session[39m
+  [38;5;245m/provider[39m       [38;5;245mchoose the model provider and how it signs in[39m
+  [38;5;245m/stats[39m          [38;5;245mshow token and turn statistics[39m
+  [38;5;245m/usage[39m          [38;5;245mshow local fx tokens, models, and spend[39m
+  [38;5;245m/credits[39m        [38;5;245mshow gateway credits balance[39m
+  [38;5;245m/model[39m          [38;5;245mchoose what model and reasoning effort to use[39m
+  [38;5;245m/fast[39m           [38;5;245mtoggle Fast mode when supported[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     tab category     enter open     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+

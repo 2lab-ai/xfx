@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 36 · type to filter                                                                                        3–8
+
+  /new      start a fresh session                                                                               Session
+  /reset    reset the current session context                                                                   Session
+  /resume   resume a saved session                                                                              Session
+  /rename   rename the current session                                                                          Session
+  /login    choose the model provider and how it signs in                                                       Account
+  /logout   sign out of a provider session                                                                      Account
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

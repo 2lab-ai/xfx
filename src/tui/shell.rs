@@ -1005,7 +1005,9 @@ impl Shell {
             let mut panel = match self.slot() {
                 Some(Slot::Question(panel)) => panel.rows(self.geometry.cols, self.geometry.rows),
                 Some(Slot::Ask(ask)) => ask.rows(self.geometry.cols, self.geometry.rows),
-                Some(Slot::Menu(picker)) => picker.rows(self.geometry.cols, self.geometry.rows),
+                Some(Slot::Menu(picker)) => {
+                    picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
+                }
                 None => Vec::new(),
             };
             // Exactly the panel's rows: one that answered with fewer is padded
@@ -1017,9 +1019,27 @@ impl Shell {
             rows.push(String::new());
         }
         // The hint row: what a turn will be run with, in upstream's order and
-        // budgeted to the screen ([`super::hint`]).
-        rows.push(self.painted(self.palette.statusline(), self.hint_row()));
+        // budgeted to the screen ([`super::hint`]) -- or, while the menu is
+        // up, the keys it binds.
+        rows.push(self.hint_or_key_help());
         rows
+    }
+
+    /// The band's last row, painted.
+    ///
+    /// **Replaced, not annotated, while the menu is up**: upstream paints the
+    /// slash menu's key help in that row instead of the hint, in the dim grey
+    /// rather than the statusline's (`paint_plan.zig:970-971`), and with no
+    /// notice or armed gesture beside it. A question does not get this row --
+    /// the slot is the question's then ([`Self::slot`]), and so is the hint.
+    fn hint_or_key_help(&self) -> String {
+        match self.slot() {
+            Some(Slot::Menu(_)) => self.painted(
+                self.palette.dim(),
+                picker::key_help(self.geometry.cols).to_string(),
+            ),
+            _ => self.painted(self.palette.statusline(), self.hint_row()),
+        }
     }
 
     /// A rule across the whole screen, in the divider's colour.
@@ -1851,11 +1871,13 @@ impl Shell {
     /// mark rather than the caret, and an Escape closes the menu rather than
     /// arming the gesture that clears the composer.
     ///
-    /// Enter is the one that is answered `false` on purpose. It closes the menu
-    /// -- the line is being run, and a menu about a draft that is on its way to
-    /// the runtime is about nothing -- and then goes on to mean what it means
-    /// everywhere else. A menu that swallowed it would make every command take
-    /// two Returns.
+    /// Enter is the one that is answered `false` on purpose. It puts the marked
+    /// command in the composer in place of the word being typed, closes the
+    /// menu, and then goes on to mean what it means everywhere else -- so `/he`
+    /// and a Return runs `/help`, and so does a Down to a row and a Return
+    /// (upstream resolves the submission to the marked row,
+    /// `input_submit_runtime.zig:1087-1089`). A menu that swallowed it would
+    /// make every command take two Returns.
     fn offer_to_picker(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
             return false;
@@ -1877,9 +1899,17 @@ impl Shell {
                 self.complete(name);
                 true
             }
+            PickerOutcome::Run(name) => {
+                // Closed before the word is replaced, so the name written in
+                // its place does not open a menu of its own on the way to
+                // being submitted.
+                self.dismissed.dismiss(Trigger::Slash);
+                self.replace_word(name);
+                false
+            }
             PickerOutcome::Dismiss => {
                 self.dismiss_picker();
-                matches!(request, PickerAction::Escape)
+                true
             }
         }
     }
@@ -1891,17 +1921,28 @@ impl Shell {
     /// is a replacement rather than a splice -- and it goes through
     /// [`Self::take_draft`] like every other thing that empties the composer,
     /// so the paste bookkeeping cannot be left describing text that is gone.
+    ///
+    /// **The menu is not dismissed by it**, which is upstream's choice: the
+    /// replacement starts a new menu episode (`composer_text_replacement.zig:88`,
+    /// `resetInlinePickerEpisode`), so a completed name that is still a slash
+    /// word -- `/vers` completed to `/version` -- shows a menu of that one
+    /// command, with the mark on it, for Enter to run or Escape to close. A
+    /// name completed with the space its argument needs has stopped being a
+    /// slash word, and has no menu.
     fn complete(&mut self, name: &'static str) {
+        self.replace_word(&picker::completed(name));
+    }
+
+    /// Puts `text` in the composer in place of the slash word.
+    ///
+    /// What Tab and Enter share: Tab leaves the composer holding the
+    /// completion, Enter goes on to submit it.
+    fn replace_word(&mut self, text: &str) {
         self.take_draft();
         // Refused only by the byte budget, and a command name is nine bytes at
         // its longest against a cap of eight mebibytes ([`editor::Editor`]) --
         // into a composer this call has just emptied.
-        let _ = self.editor.insert(&picker::completed(name));
-        // The menu has done what it was for. Dismissed rather than closed,
-        // because the text it just wrote is still a slash word: a menu that
-        // re-opened on its own completion would be one the user cannot leave by
-        // taking something from it.
-        self.dismissed.dismiss(Trigger::Slash);
+        let _ = self.editor.insert(text);
         // **`None`, and that is the whole contract.** The draft this replaced
         // was the query, and it died at [`Self::take_draft`] above along with
         // every delta that named its offsets. Recording the insert alone would
@@ -4021,7 +4062,7 @@ impl Shell {
         let panel = match self.slot() {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
-            Some(Slot::Menu(picker)) => picker.height(cols, rows),
+            Some(Slot::Menu(picker)) => picker.height(rows),
             None => 0,
         };
         // **The composer gives way to the question, one row at a time.** A
@@ -9688,22 +9729,37 @@ mod tests {
         // against the **whole** menu rather than against whatever the last
         // keystroke happened to leave: a band re-solved before the menu was
         // reconciled would be one keystroke behind, and on this query that is
-        // the difference between a full menu and none.
+        // the difference between a full menu and none. Upstream's budget on
+        // this screen: a header, its blank row and six commands, and a
+        // narrower query keeps the same height (`/he` above).
         let mut bare = shell(24, 80);
         bare.route_bytes(b"/");
-        assert_eq!(
-            usize::from(bare.geometry.panel),
-            crate::interactive::SLASH_COMMANDS.len(),
-            "a bare slash did not offer every command: {:?}",
-            menu(&bare)
-        );
+        assert_eq!(bare.geometry.panel, 8, "{:?}", menu(&bare));
         assert_eq!(usize::from(bare.geometry.panel), menu(&bare).len());
+        assert_eq!(narrowed.geometry.panel, bare.geometry.panel);
+        let header = menu(&bare)[0].clone();
+        assert!(
+            header.starts_with(&format!(
+                "{}Commands {} \u{b7} type to filter",
+                PALETTE.dim(),
+                crate::interactive::SLASH_COMMANDS.len()
+            )),
+            "{header:?}"
+        );
+        assert!(header.ends_with(&format!("1\u{2013}6{}", PALETTE.reset())));
+        assert_eq!(menu(&bare)[1], "", "the blank row under the header");
         assert!(
             rows.iter().any(|row| row.contains("/help")),
             "the menu does not offer the command the draft names: {rows:?}"
         );
+        assert_eq!(
+            rows[0],
+            format!("{}Commands 1{}", PALETTE.dim(), PALETTE.reset())
+        );
+        // The first match is the marked one, and the mark is brightness: bold
+        // hint grey, no caret glyph.
         assert!(
-            rows[0].starts_with("> "),
+            rows[2].starts_with(&format!("{}  /help", PALETTE.subtitle())),
             "the first match is not the marked one: {rows:?}"
         );
     }
@@ -9767,7 +9823,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_completes_the_marked_command_and_closes_the_menu() {
+    fn tab_completes_the_marked_command_and_the_menu_follows_the_word() {
         let mut with_argument = shell(24, 80);
         with_argument.route_bytes(b"/mod");
         assert!(with_argument.geometry.panel > 0);
@@ -9780,38 +9836,62 @@ mod tests {
         );
         assert_eq!(
             with_argument.geometry.panel, 0,
-            "the menu outlived the completion"
+            "the menu outlived the word it was completing"
         );
 
-        // A command that takes no argument is completed exactly, so the next
-        // Return runs it.
+        // A command that takes no argument is completed exactly, and the word
+        // is still a slash word, so upstream's menu follows it: one command,
+        // marked, for the next Return to run (`resetInlinePickerEpisode`).
         let mut exact = shell(24, 80);
         exact.route_bytes(b"/vers");
         exact.route_bytes(b"\t");
         assert_eq!(exact.editor.text(), "/version");
-        assert_eq!(exact.geometry.panel, 0);
+        let rows = menu(&exact);
+        assert_eq!(
+            rows[0],
+            format!("{}Commands 1{}", PALETTE.dim(), PALETTE.reset())
+        );
+        assert!(rows[2].starts_with(&format!("{}  /version", PALETTE.subtitle())));
         exact.route_bytes(&[0x0d]);
+        assert_eq!(exact.geometry.panel, 0, "the menu outlived the submission");
         let document = exact.document();
         assert!(document.starts_with(&card("/version")), "{document:?}");
         assert!(document.len() > card("/version").len(), "{document:?}");
     }
 
     #[test]
-    fn enter_runs_the_line_rather_than_taking_the_marked_row() {
-        // The menu is open on an exact name, and the marked row is a different
-        // command: Enter must still run what was typed.
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"/new");
-        assert!(shell.geometry.panel > 0);
-        shell.route_bytes(&[0x0d]);
-
-        assert_eq!(shell.geometry.panel, 0, "the menu outlived the submission");
+    fn enter_runs_the_marked_row_in_one_return() {
+        // Upstream resolves the submission to the marked row
+        // (`input_submit_runtime.zig:1087-1089`): a partial word runs the
+        // command the menu marked for it, and a row moved to runs that row --
+        // one Return either way, with the menu gone.
+        let mut partial = shell(24, 80);
+        partial.route_bytes(b"/ne");
+        assert!(partial.geometry.panel > 0);
+        partial.route_bytes(&[0x0d]);
         assert_eq!(
-            shell.picks_up(),
-            TurnWork::New,
-            "Enter took the menu's row instead of running the line"
+            partial.geometry.panel, 0,
+            "the menu outlived the submission"
         );
-        assert!(shell.editor.is_empty());
+        assert_eq!(
+            partial.picks_up(),
+            TurnWork::New,
+            "Enter ran the typed word instead of the marked command"
+        );
+        assert!(partial.editor.is_empty());
+
+        // `/help`, `/clear`, `/new`: two Downs from a bare slash.
+        let mut moved = shell(24, 80);
+        moved.route_bytes(b"/");
+        moved.route_bytes(b"\x1b[B\x1b[B");
+        moved.route_bytes(&[0x0d]);
+        assert_eq!(moved.geometry.panel, 0);
+        assert_eq!(
+            moved.picks_up(),
+            TurnWork::New,
+            "Enter did not take the row"
+        );
+        assert!(moved.editor.is_empty());
     }
 
     #[test]
@@ -9841,7 +9921,9 @@ mod tests {
             "the question did not take the slot: {rows:?}"
         );
         assert!(
-            !rows.iter().any(|row| row.contains("list these commands")),
+            !rows
+                .iter()
+                .any(|row| row.contains("show available slash commands")),
             "the menu and the question were painted together: {rows:?}"
         );
         assert_eq!(
@@ -9933,7 +10015,7 @@ mod tests {
         shell.route_bytes(b"\t");
         assert_eq!(
             shell.editor.text(),
-            "/new",
+            "/clear",
             "the mark was reset by a keystroke that changed no letter"
         );
     }
@@ -9962,16 +10044,22 @@ mod tests {
         shell.route_bytes(b"/");
         shell.settle_band(started);
 
-        // Every command matches a bare slash, and one row is what this screen
-        // has for them: the window bounds the menu rather than the band
-        // refusing it.
+        // Every command matches a bare slash, and one row is what upstream's
+        // budget gives this screen (`inlinePickerRowBudget`: seven rows less
+        // ten is less than one, and a budget is never less than one) -- too
+        // few for the header, so the row is the marked command: the window
+        // bounds the menu rather than the band refusing it.
         assert_eq!(
             shell.geometry.panel, 1,
             "a seven-row screen with a turn on it did not get its one menu row: {:?}",
             shell.geometry
         );
         assert_eq!(menu(&shell).len(), 1, "{:?}", menu(&shell));
-        assert!(menu(&shell)[0].starts_with("> /help"), "{:?}", menu(&shell));
+        assert!(
+            menu(&shell)[0].starts_with(&format!("{}  /help", PALETTE.subtitle())),
+            "{:?}",
+            menu(&shell)
+        );
 
         // And the band really is the band this screen and this state solve to,
         // rather than the one the previous keystroke left standing. This is the
@@ -10022,12 +10110,61 @@ mod tests {
         );
         let rows = menu(&shell);
         assert_eq!(rows.len(), 1, "{rows:?}");
-        assert!(rows[0].starts_with("> /help"), "{rows:?}");
+        assert!(
+            rows[0].starts_with(&format!("{}  /help", PALETTE.subtitle())),
+            "{rows:?}"
+        );
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
         assert_eq!(
             shell.cursor(),
             (shell.geometry.input_first, PROMPT_CELLS + 1)
         );
+    }
+
+    #[test]
+    fn the_hint_row_is_the_menus_key_help_while_it_is_up() {
+        // Upstream replaces the hint row while the slash menu is up
+        // (`paint_plan.zig:970-971`): the menu's keys, in the dim grey, and
+        // nothing of the hint beside them. Escape gives the row back.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        let rows = shell.band_rows();
+        assert_eq!(
+            rows.last().expect("a hint row"),
+            &format!(
+                "{}\u{2191}\u{2193} navigate     enter use     esc close{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.hint(), IDLE_HINT, "Escape did not give the hint back");
+
+        // The dim grey is its own role: a light session paints the key help
+        // in the light dim grey, not in the statusline grey the hint uses.
+        let mut light = shell_with(24, 80, LIGHT, true);
+        light.route_bytes(b"/");
+        let rows = light.band_rows();
+        let last = rows.last().expect("a hint row");
+        assert!(last.starts_with(LIGHT.dim()), "{last:?}");
+        assert_ne!(LIGHT.dim(), LIGHT.statusline());
+    }
+
+    #[test]
+    fn a_draft_that_opens_a_menu_is_one_composer_row_on_the_narrowest_screen() {
+        // The menu's budget assumes it (`Picker::layout`: upstream's
+        // `input_extra` is zero here), so it is driven rather than argued:
+        // every name and alias in full, which is the longest a query that
+        // matches anything can be, on the narrowest screen a band fits on.
+        for spec in crate::interactive::SLASH_REGISTRY {
+            for name in std::iter::once(&spec.name).chain(spec.aliases) {
+                let mut shell = shell(24, layout::MIN_COLS);
+                shell.route_bytes(name.as_bytes());
+                assert!(shell.geometry.panel > 0, "{name} opened no menu");
+                assert_eq!(shell.geometry.input_rows(), 1, "{name}");
+            }
+        }
     }
     // -----------------------------------------------------------------------
     // provider switching, the catalog browser and the context meter

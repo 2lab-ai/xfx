@@ -1,0 +1,12 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────
+  /help    show available slash commands            General
+  /clear   start a fresh conversation while keep…   General
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
