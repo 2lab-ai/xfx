@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run cmd
+
+● 1 tool call · 1 command
+└ Running sleep 30
+
+• Running (2s) (↑2 ↓40)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,19 @@
+# Ctrl-C while a command runs. Each product's own shell tool and its own
+# no-questions mode, so the command really starts: fx's `shell` under
+# `yolo` ("full access"), xfx's `terminal` under `yolo`.
+fx: gateway interrupt-cmd-fx.json
+xfx: gateway interrupt-cmd-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 2
+type run cmd
+key Enter
+wait 2.5
+snap cmd-running
+key C-c
+wait 0.4
+snap cmd-cc
+wait 1.5
+snap cmd-cc-2
+snapfull end
+gwlog

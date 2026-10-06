@@ -218,6 +218,17 @@ pub(crate) enum UiEvent {
         input: Option<u64>,
         output: Option<u64>,
     },
+    /// A request failed in a way the turn replays, and the next attempt goes
+    /// after `delay` (`crate::output::EventSink::retrying`).
+    ///
+    /// Already shaped for the row that says so ([`super::retry`]): the cause is
+    /// this crate's own word, and the diagnostic is what the server said --
+    /// which is why it is made inert like every other foreign string here.
+    Retrying {
+        cause: &'static str,
+        diagnostic: String,
+        delay: std::time::Duration,
+    },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
     /// The runtime cannot continue. **Terminal.**
@@ -422,6 +433,16 @@ impl UiEvent {
                     })
                     .collect(),
             }),
+            // The cause is this crate's word; the diagnostic quotes a server.
+            Self::Retrying {
+                cause,
+                diagnostic,
+                delay,
+            } => Self::Retrying {
+                cause,
+                diagnostic: inert_owned(diagnostic),
+                delay,
+            },
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
@@ -939,6 +960,26 @@ impl EventSink for UiEventSink {
             }
             event => self.send(event),
         }
+    }
+
+    /// The row that counts down to the next attempt, told as the event it is
+    /// drawn from.
+    ///
+    /// Through the same permit every other event waits for, and its failure
+    /// dropped: a turn that was cancelled or a UI that is gone is told so by
+    /// the wait and the next emit, and this hook changes nothing about either
+    /// ([`EventSink::retrying`]).
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        _attempt: u32,
+        delay: std::time::Duration,
+    ) {
+        let _ = self.send(UiEvent::Retrying {
+            cause: super::retry::cause(error),
+            diagnostic: super::retry::diagnostic(error),
+            delay,
+        });
     }
 }
 

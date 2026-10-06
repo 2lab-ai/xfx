@@ -221,8 +221,17 @@ const RESET: &str = "\u{1b}[0m";
 /// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
 /// none. Band and review-plane rows only -- never the document -- so a theme
 /// report has nothing of it to retint ([`Palette::document_retint`]).
-const DARK: [u8; 9] = [240, 255, 250, 252, 255, 245, 245, 252, 252];
-const LIGHT: [u8; 9] = [250, 235, 241, 238, 235, 241, 247, 238, 238];
+///
+/// The tenth is upstream's `warning_style` (`theme.zig:86` dark, `:129`
+/// light): the `■` of a cancelled turn's line in the document
+/// (`lifecycleMarker`, `transcript/runtime.zig:619`) and the whole of the
+/// retry row a failed request leaves on the band (`worker_status.zig:41-49`,
+/// tone warning). The same number as [`LABEL`] and [`ACTIVITY`] and not the
+/// same decision -- a cancelled turn is neither an outcome notice nor a turn
+/// that is running -- and it reaches the document, so a theme report retints
+/// it.
+const DARK: [u8; 10] = [240, 255, 250, 252, 255, 245, 245, 252, 252, 252];
+const LIGHT: [u8; 10] = [250, 235, 241, 238, 235, 241, 247, 238, 238, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -234,6 +243,7 @@ const STATUSLINE: usize = 5;
 const DIM: usize = 6;
 const LABEL: usize = 7;
 const DIFF: usize = 8;
+const WARNING: usize = 9;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -301,6 +311,12 @@ impl Palette {
         self.paint(DIFF)
     }
 
+    /// Something that went wrong and is being dealt with: a cancelled turn's
+    /// marker, and the row that counts down to a retry ([`WARNING`]).
+    pub(crate) fn warning(&self) -> &'static str {
+        self.paint(WARNING)
+    }
+
     /// What a permission question emphasises: the marked choice and the
     /// command it would run (`tag_style`). Upstream's `tag_style` and
     /// `subtitle_style` are one sequence in both themes, so this is
@@ -356,13 +372,15 @@ impl Palette {
         // xfx's own colours in the document: its notices, the card's rail
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
-        // label (`DIM`) -- and the label of a notice that reports an outcome
-        // (`LABEL`), bold or not.
-        let role = [NOTICE, BODY, DIM, LABEL].into_iter().find(|&role| {
-            [Mode::Dark, Mode::Light]
-                .into_iter()
-                .any(|mode| self.shade(role, mode) == Some(colour))
-        })?;
+        // label (`DIM`) -- the label of a notice that reports an outcome
+        // (`LABEL`), bold or not, and a cancelled turn's marker (`WARNING`).
+        let role = [NOTICE, BODY, DIM, LABEL, WARNING]
+            .into_iter()
+            .find(|&role| {
+                [Mode::Dark, Mode::Light]
+                    .into_iter()
+                    .any(|mode| self.shade(role, mode) == Some(colour))
+            })?;
         if self.shade(role, self.mode) == Some(colour) {
             return None;
         }
@@ -717,6 +735,9 @@ mod tests {
             // `theme.zig:86-88` / `:129-131`: an outcome notice's label.
             (Mode::Dark, LABEL, 252, 208),
             (Mode::Light, LABEL, 238, 68),
+            // `theme.zig:86` / `:129`: `warning_style`.
+            (Mode::Dark, WARNING, 252, 208),
+            (Mode::Light, WARNING, 238, 68),
         ] {
             assert_eq!(
                 level,

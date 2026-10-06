@@ -1072,6 +1072,26 @@ pub trait EventSink {
     /// Writes one event. Implementations flush whatever a consumer needs to see
     /// the event now, because a stream that arrives after the turn is useless.
     fn emit(&mut self, event: &Event) -> io::Result<()>;
+
+    /// A model step's transport attempt failed in a way the turn will replay,
+    /// and the turn is about to wait `delay` before attempt `attempt + 1`.
+    ///
+    /// **A hook, not an [`Event`]**, and that is the whole of why it is a
+    /// method with a body: the event set is a published wire (`xfx ask --json`
+    /// writes every one of them), and a retry the turn recovered from is not
+    /// part of what the turn produced. The full-screen session is the one
+    /// consumer that shows it -- as the row that counts down to the next
+    /// attempt (`crate::tui::retry`) -- and every other sink says nothing, as
+    /// they always have. What it reports changes nothing: the turn decided to
+    /// retry before it called this, and waits the same whatever this returns.
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        attempt: u32,
+        delay: std::time::Duration,
+    ) {
+        let _ = (error, attempt, delay);
+    }
 }
 
 /// Emits one newline-terminated JSON object per event.

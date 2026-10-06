@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ stream please
+
+■ Cancelled · What can fx do differently?
+
+┃ next
+
+  After interrupt answer.
+
+  0s (↑1 ↓40)
+
+┃ stream again
+
+  Generating (2s) (↑4 ↓45)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

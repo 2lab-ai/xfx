@@ -795,6 +795,11 @@ impl TurnMachine {
                     }
                     // The failure survived every "do not replay" test, so this
                     // is the one place a retry is allowed -- and it waits first.
+                    // Said before the wait, to whoever is showing the turn: the
+                    // decision is already made, and the delay is the one
+                    // `wait_for_retry` is about to spend (`retry_delay` is a
+                    // function of exactly these two values).
+                    events.retrying(&err, attempt, retry_delay(attempt, err.retry_after()));
                     self.wait_for_retry(&err, attempt).await?;
                 }
             }

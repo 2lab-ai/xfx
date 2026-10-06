@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+
+┃ run cmd
+
+[tool] terminal running
+
+■ Cancelled · What can xfx do differently?
+
+┃
+
+press ctrl+c again to exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
