@@ -193,7 +193,8 @@ The shell is the same pipeline with a loop around it.
   is the one surface that does take the terminal, and it is therefore the one
   that has to give it back on every exit path.
 - The first prompt lazily creates the session and the tool authority bound to
-  it. `/new` drops both; `/clear` erases the screen and keeps both.
+  it. `/new`, `/clear` and `/reset` drop both, as upstream's three names for
+  one reset do.
 - Each prompt runs one `TurnMachine` through the same provider, registry,
   permission session, and recorder. History comes from the recorder's durable
   state, so the shell has no second memory that could drift from the log.

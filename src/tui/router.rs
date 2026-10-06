@@ -38,6 +38,11 @@ pub(crate) trait CommandHandlers {
     fn help(&mut self);
     fn new_session(&mut self);
     fn clear(&mut self);
+    /// `/reset`. The same operation as [`Self::new_session`] and
+    /// [`Self::clear`] on this surface, as upstream's three are
+    /// (`app_commands.zig:667-680`); a method of its own because the trait is
+    /// named after what the user asked for.
+    fn reset(&mut self);
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
@@ -48,6 +53,11 @@ pub(crate) trait CommandHandlers {
     /// `/status`: the configuration a turn would run under, and the live
     /// conversation's counts.
     fn status(&mut self);
+    /// `/statusline`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the picker; anything else names the
+    /// item to flip, and what an item may be called is
+    /// `crate::config::StatusLineItem::parse`'s to say.
+    fn statusline(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
     /// `/setup`, with the rest of the line -- already trimmed, and empty when
@@ -132,11 +142,13 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Help => handlers.help(),
         Slash::New => handlers.new_session(),
         Slash::Clear => handlers.clear(),
+        Slash::Reset => handlers.reset(),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Copy => handlers.copy(),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
+        Slash::Statusline => handlers.statusline(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -183,6 +195,9 @@ mod tests {
         fn clear(&mut self) {
             self.calls.push("clear".to_string());
         }
+        fn reset(&mut self) {
+            self.calls.push("reset".to_string());
+        }
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
         }
@@ -194,6 +209,9 @@ mod tests {
         }
         fn status(&mut self) {
             self.calls.push("status".to_string());
+        }
+        fn statusline(&mut self, argument: &str) {
+            self.calls.push(format!("statusline {argument}"));
         }
         fn version(&mut self) {
             self.calls.push("version".to_string());
@@ -218,10 +236,12 @@ mod tests {
             ("/help", "help"),
             ("/new", "new"),
             ("/clear", "clear"),
+            ("/reset", "reset"),
             ("/model", "model "),
             ("/copy", "copy"),
             ("/stats", "stats"),
             ("/status", "status"),
+            ("/statusline", "statusline "),
             ("/version", "version"),
             ("/quit", "quit"),
             ("/setup", "setup "),
@@ -252,6 +272,19 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Upstream's `accepts_payload` (`commands.zig:494`): the argument is
+        // the item, and whether it names one is the handler's question.
+        assert_eq!(
+            routed("/statusline context"),
+            vec!["statusline context".to_string()]
+        );
+        assert_eq!(
+            super::classify("/statusline  bogus words "),
+            Submitted::Command {
+                command: Slash::Statusline,
+                argument: "bogus words".to_string()
+            }
+        );
     }
 
     /// Advertising without a handler is what this module exists to make

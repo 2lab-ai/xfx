@@ -403,6 +403,14 @@ impl WorkHandle {
     pub(crate) fn publish_status(&self, snapshot: StatusSnapshot) {
         self.status.publish(snapshot);
     }
+
+    /// Stands in for the runtime giving one place back -- a piece of work
+    /// concluded, or dropped by a cancellation -- for the cases that are about
+    /// what the UI does once it has.
+    #[cfg(test)]
+    pub(crate) fn give_back(&self) {
+        self.outstanding.fetch_sub(1, Ordering::Release);
+    }
 }
 
 /// The conversation's last reply, kept where the UI can read it without
@@ -1199,6 +1207,9 @@ async fn turn_loop(
                 // there may be work waiting that nobody has started, and after
                 // an interrupt nothing may start.
                 Some(TurnControl::Cancel { through }) => Taken::Abandon(through),
+                // The same, and the conversation goes too -- at once, because
+                // nothing is running to wait for.
+                Some(TurnControl::Reset { through }) => Taken::Reset(through),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -1219,6 +1230,11 @@ async fn turn_loop(
                 queue.abandon(through);
                 continue;
             }
+            Taken::Reset(through) => {
+                queue.abandon(through);
+                drop_conversation(&mut state, events, through).await;
+                continue;
+            }
             Taken::Nothing => continue,
             // The UI dropped its side of the work channel without saying
             // anything, which is the same fact as a shutdown and is treated as
@@ -1229,17 +1245,6 @@ async fn turn_loop(
         let ended = match item {
             TurnWork::Model(name) => {
                 run_model(&mut state, &name, events).await;
-                Ended::Turn
-            }
-            // `/new`, with the line shell's own meaning: the recorder is
-            // dropped, which closes its log and releases the session's writer
-            // lock, so the next prompt opens a genuinely new identity
-            // (`interactive.rs:457-464`). The tool context goes with it,
-            // because a session grant and the read proofs that let a file be
-            // edited are sold as being about *this* conversation.
-            TurnWork::New => {
-                state.conversation = None;
-                state.publish();
                 Ended::Turn
             }
             TurnWork::Submit(prompt) => {
@@ -1257,9 +1262,10 @@ async fn turn_loop(
             }
         };
         // After **every** piece of work rather than in the arms that change
-        // the conversation: `/new` drops it, a provider switch replaces it, and
-        // a piece of work added later that does either is covered without
-        // remembering to be.
+        // the conversation: a provider switch replaces it, and a piece of work
+        // added later that does either is covered without remembering to be.
+        // A reset drops it outside these arms and republishes there
+        // ([`drop_conversation`]).
         state.publish_reply();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
@@ -1269,10 +1275,44 @@ async fn turn_loop(
         // about a queue on a dead runtime would be a lie the `Gone` arm exists
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
-        if ended == Ended::Session {
-            return state.resumable();
+        match ended {
+            Ended::Session => return state.resumable(),
+            // A reset reached this work while it ran: the work has said its
+            // last word, and the conversation goes before anything else is
+            // taken.
+            Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+            Ended::Turn => {}
         }
     }
+}
+
+/// `/new`, `/clear` and `/reset`, with the line shell's own meaning: the
+/// recorder is dropped, which closes its log and releases the session's writer
+/// lock, so the next prompt opens a genuinely new identity
+/// (`interactive.rs:457-464`). The tool context goes with it, because a session
+/// grant and the read proofs that let a file be edited are sold as being about
+/// *this* conversation. Upstream opens its fresh session at once
+/// (`beginFreshPersistedSession`, `app_session_runtime.zig:1619-1648`) and
+/// deletes it again on exit if nothing was said in it; xfx opens it with the
+/// first prompt, which leaves the same sessions on disk.
+///
+/// And the UI is told, after the drop and not before: everything the work
+/// ahead of it sent is already on the channel, so this is the line between the
+/// conversation the reset handed to scrollback and the one it started
+/// ([`UiEvent::Fresh`]). Through `send_terminal` because nothing but the UI
+/// going away may stop it: a fence that a cancellation could drop would leave
+/// the UI discarding the next conversation's events too.
+///
+/// `/copy`'s slot and `/status`'s board are republished with it, before the
+/// fence: this drop happens outside the work arms that `turn_loop` republishes
+/// after, and a `/copy` or a `/status` typed once the fresh screen is up must
+/// find no reply to copy and no turns in the conversation, as upstream's do
+/// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
+async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
+    state.conversation = None;
+    state.publish_reply();
+    state.publish();
+    bridge::send_terminal(events, UiEvent::Fresh { through }).await;
 }
 
 /// What one turn of [`turn_loop`]'s wait produced.
@@ -1287,6 +1327,9 @@ enum Taken {
     /// The user interrupted, having submitted this many things by then.
     /// Anything waiting from among them is dropped.
     Abandon(usize),
+    /// The user reset the session: [`Self::Abandon`], and the conversation
+    /// dropped with it.
+    Reset(usize),
     /// A message that means nothing here.
     Nothing,
 }
@@ -1356,6 +1399,10 @@ impl Queue<'_> {
 enum Ended {
     /// The turn. The session goes on to the next piece of work.
     Turn,
+    /// The turn, and the conversation with it: a reset reached it while it
+    /// ran ([`TurnControl::Reset`]), quoting this count -- the latest one, if
+    /// more than one did. The session goes on, in a fresh one.
+    Reset(usize),
     /// The session. Nothing more will run on this thread.
     Session,
 }
@@ -1693,6 +1740,15 @@ async fn raced_against_control<F: Future>(
                 // whatever they had queued behind it when they pressed the key;
                 // the session does not.
                 Some(TurnControl::Cancel { through }) => stop(through),
+                // A reset: the same stop, and the conversation goes once the
+                // work has said its last word -- unless the session is ending
+                // anyway, which outranks it.
+                Some(TurnControl::Reset { through }) => {
+                    stop(through);
+                    if ended != Ended::Session {
+                        ended = Ended::Reset(through);
+                    }
+                }
                 // The UI is leaving. `Worker::shutdown` has already cancelled
                 // the session's root, so the stop below is not what ends this
                 // turn -- what this arm carries is that the loop must not go
@@ -2665,12 +2721,14 @@ mod tests {
             "the case proves nothing"
         );
 
-        // `/new`, through the loop that answers it: the conversation goes, and
-        // with it both counts.
+        // A reset (`/new`, `/clear`, `/reset`), through the loop that answers
+        // it: the conversation goes, and with it both counts.
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
         let (control_tx, control_rx) = mpsc::unbounded_channel();
-        let outstanding = AtomicUsize::new(1);
-        work_tx.try_send(TurnWork::New).expect("room for one");
+        let outstanding = AtomicUsize::new(0);
+        control_tx
+            .send(TurnControl::Reset { through: 0 })
+            .expect("alive");
         drop(work_tx);
         on_a_runtime(turn_loop(
             state,
@@ -2934,33 +2992,51 @@ mod tests {
     }
 
     #[test]
-    fn work_that_drops_the_conversation_takes_its_reply_with_it() {
-        // `/new` drops the conversation (the `TurnWork::New` arm), and the
-        // publish after every piece of work is what tells `/copy` so -- the
-        // arm itself says nothing about replies.
-        let (_home, _workspace, mut state) = recording();
-        let reply = LastReply::default();
-        state.reply = reply.clone();
-        answered(&mut state, "an answer");
-        state.publish_reply();
-        assert_eq!(reply.get().as_deref(), Some("an answer"));
+    fn a_reset_that_drops_the_conversation_takes_its_reply_with_it() {
+        // A reset drops the conversation outside the work arms the loop
+        // republishes after, so the drop republishes for itself -- and before
+        // the fence, so a `/copy` typed on the fresh screen finds nothing.
+        // Both ways a reset reaches the drop: between turns, and as the way a
+        // piece of work ended.
+        for between_turns in [true, false] {
+            let (_home, _workspace, mut state) = recording();
+            let reply = LastReply::default();
+            state.reply = reply.clone();
+            answered(&mut state, "an answer");
+            state.publish_reply();
+            assert_eq!(reply.get().as_deref(), Some("an answer"));
 
-        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
-        work_tx.try_send(TurnWork::New).expect("room for the work");
-        // Closed behind it, which ends the loop once `/new` is done.
-        drop(work_tx);
-        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
-        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
-        let outstanding = AtomicUsize::new(1);
-        on_a_runtime(turn_loop(
-            state,
-            &events,
-            &mut work_rx,
-            ControlChannel::new(control_rx),
-            Cancellation::new(CancelToken::new()),
-            &outstanding,
-        ));
-        assert_eq!(reply.get(), None, "/new left the old conversation's reply");
+            let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+            let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+            let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+            let outstanding = AtomicUsize::new(0);
+            if between_turns {
+                control_tx
+                    .send(TurnControl::Reset { through: 0 })
+                    .expect("alive");
+                control_tx.send(TurnControl::Shutdown).expect("alive");
+                on_a_runtime(turn_loop(
+                    state,
+                    &events,
+                    &mut work_rx,
+                    ControlChannel::new(control_rx),
+                    Cancellation::new(CancelToken::new()),
+                    &outstanding,
+                ));
+            } else {
+                on_a_runtime(async {
+                    drop_conversation(&mut state, &events, 4).await;
+                });
+            }
+            drop(work_tx);
+            assert_eq!(
+                reply.get(),
+                None,
+                "a reset left the old conversation's reply"
+            );
+            let through = if between_turns { 0 } else { 4 };
+            assert_eq!(seen.try_recv(), Ok(UiEvent::Fresh { through }));
+        }
     }
 
     #[test]
@@ -3071,8 +3147,8 @@ mod tests {
         let id = conversation.recorder.id().clone();
         assert_eq!(state.resumable(), Some(id.clone()));
         assert_eq!(sessions_in(home.path()), vec![id.to_string()]);
-        // A conversation `/new` dropped (`turn_loop`'s `TurnWork::New` arm) is
-        // not the one the next prompt goes to, so it is not named.
+        // A conversation a reset dropped (`turn_loop`'s `drop_conversation`)
+        // is not the one the next prompt goes to, so it is not named.
         state.conversation = None;
         assert_eq!(state.resumable(), None);
     }
@@ -3295,6 +3371,100 @@ mod tests {
             efforts: Vec::new(),
             max_context: None,
         }
+    }
+
+    #[test]
+    fn a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone() {
+        // The fence a reset drains to (`UiEvent::Fresh`): sent once the drop
+        // has happened, quoting the reset's count. What was submitted through
+        // that count and not yet started is dropped with its place given back;
+        // what was submitted after it is a new intention and stays.
+        let (handle, mut work_rx, _unused) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Model("dropped".into()))
+            .expect("idle");
+        let through = handle.accepted();
+        handle
+            .submit(TurnWork::Model("kept".into()))
+            .expect("one may wait");
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 0,
+        };
+        assert_eq!(queue.abandon(through), 1);
+        assert_eq!(handle.outstanding(), 1);
+        assert_eq!(
+            queue.work.try_recv(),
+            Ok(TurnWork::Model("kept".into())),
+            "a submission past the reset's count was dropped with it"
+        );
+
+        let (_home, _workspace, state) = recording();
+        assert!(state.conversation.is_some(), "nothing to drop");
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        control_tx
+            .send(TurnControl::Reset { through: 0 })
+            .expect("alive");
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+        let outstanding = AtomicUsize::new(0);
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(work_tx);
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+        assert!(
+            events_rx.try_recv().is_err(),
+            "the reset sent more than its fence"
+        );
+    }
+
+    #[test]
+    fn a_reset_reaches_work_that_is_still_running_and_names_the_last_count() {
+        // The reset's stop is a Ctrl-C's -- the turn and what waits behind it
+        // -- and what ended carries the count of the latest reset that reached
+        // it, so one fence answers both when two arrive in one turn. A
+        // shutdown outranks it.
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        control_tx
+            .send(TurnControl::Reset { through: 1 })
+            .expect("alive");
+        control_tx
+            .send(TurnControl::Reset { through: 3 })
+            .expect("alive");
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |through| stops.push(through),
+        ));
+        assert_eq!(stops, vec![1, 3]);
+        assert_eq!(ended, Ended::Reset(3));
+
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        control_tx
+            .send(TurnControl::Reset { through: 1 })
+            .expect("alive");
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |_| {},
+        ));
+        assert_eq!(ended, Ended::Session);
     }
 
     #[test]
@@ -4112,6 +4282,7 @@ mod tests {
                     tool,
                     ok,
                     detail,
+                    ..
                 } = event
                 {
                     if call_id == "call-1" && tool == "ask_user_question" {
@@ -4358,6 +4529,45 @@ mod tests {
             !session.written().exists(),
             "the call behind the refused one ran after the user stopped the turn"
         );
+        assert_eq!(provider.requests(), 1);
+    }
+
+    #[test]
+    fn a_reset_at_an_approval_stops_the_turn_and_ends_it_as_a_reset() {
+        // `/clear`, `/new` or `/reset` reaching a turn parked at an approval:
+        // the prompter refuses the question and hands the message back to the
+        // loop (`super::super::approval`'s catch-all), which stops the turn
+        // exactly as a Ctrl-C does -- and says the conversation goes with it.
+        let mut session = AskingSession::new(PermissionMode::Ask);
+        let provider = ScriptedProvider::new(vec![
+            calls(vec![
+                call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "asked-about.txt", "content": "first\n"}),
+                ),
+                call(
+                    "call-2",
+                    "write_file",
+                    serde_json::json!({"path": AFTER_THE_INTERRUPT, "content": "second\n"}),
+                ),
+            ]),
+            answers("a second request the reset turn must not have made"),
+        ]);
+
+        let ran = session.turn_while_typing(&provider, an_approval, |_none| {
+            vec![TurnControl::Reset { through: 0 }]
+        });
+
+        assert!(ran.stopped, "the reset never reached the loop");
+        assert_eq!(ran.ended, Ended::Reset(0));
+        assert!(
+            matches!(ran.outcome, Err(crate::agent::TurnError::Cancelled)),
+            "{:?}",
+            ran.outcome
+        );
+        assert!(!session.workspace.path().join("asked-about.txt").exists());
+        assert!(!session.written().exists());
         assert_eq!(provider.requests(), 1);
     }
 

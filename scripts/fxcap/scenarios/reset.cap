@@ -1,0 +1,41 @@
+# /clear, /new and /reset: each hands the screen to scrollback and starts a
+# fresh conversation. A prompt with an answer, then /clear; a second prompt,
+# then /new; then /reset on the fresh screen it left. `snapfull` keeps the
+# history above the screen, which is where the handed-off rows went.
+gateway reset-turns.json
+wait 2
+title launch
+type first question alpha
+key Enter
+wait 3
+snap turn1
+title turn1
+type /clear
+wait 0.5
+key Enter
+wait 2
+snap clear
+snapfull clear
+title clear
+type second question beta
+key Enter
+wait 3
+snap turn2
+type /new
+wait 0.5
+key Enter
+wait 2
+snap new
+snapfull new
+title new
+type /reset
+wait 0.5
+key Enter
+wait 2
+snap reset
+snapfull reset
+type third question gamma
+key Enter
+wait 3
+snap turn3
+snapfull turn3

@@ -8,8 +8,8 @@ use std::fmt::Write as _;
 use serde_json::{Map, Value};
 
 use super::spec::{
-    ArraySpec, InputSchema, PermissionKind, Property, PropertyKind, ToolContext, ToolInput,
-    ToolResult, ToolSpec,
+    Activity, ArraySpec, InputSchema, PermissionKind, Presentation, Property, PropertyKind,
+    ToolContext, ToolInput, ToolResult, ToolSpec,
 };
 
 pub const CANCEL_SENTINEL: &str = "(user cancelled the question)";
@@ -399,6 +399,7 @@ pub const ASK_USER_QUESTION: ToolSpec = ToolSpec::new(
     "ask_user_question",
     DESCRIPTION,
     PermissionKind::Interaction,
+    Presentation::new(Activity::Ask, "Asking", "Asked", ""),
     INPUT_SCHEMA,
     decode,
     validate,

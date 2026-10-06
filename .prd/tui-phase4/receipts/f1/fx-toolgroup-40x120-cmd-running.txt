@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ look at the files and fix them
+
+  I will look at the files first.
+
+● 5 tool calls · 3 read · 1 list · 1 command
+├ Read a.txt
+├ Read b.txt
+├ Matched **/*.rs
+├ Searched alpha
+└ Running sleep 3; echo hello from shell; ls
+
+• Running (2s) (↑8 ↓120)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

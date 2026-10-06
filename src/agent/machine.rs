@@ -568,10 +568,18 @@ impl TurnMachine {
                 }
             }
 
+            // Checked above like the execution below it, and mapped rather than
+            // unwrapped for the same reason.
+            let Some(spec) = registry.spec(&call.name) else {
+                return Err(TurnError::ToolCallUnsupported {
+                    tool: call.name.clone(),
+                });
+            };
             events
                 .emit(&Event::ToolStart {
                     call_id: call.id.clone(),
                     tool: call.name.clone(),
+                    shown: spec.shown(&call.input),
                 })
                 .map_err(TurnError::Sink)?;
 
@@ -588,6 +596,8 @@ impl TurnMachine {
                     tool: call.name.clone(),
                     ok: result.ok,
                     detail: result.detail.clone(),
+                    outcome: result.outcome,
+                    changes: result.changes,
                 })
                 .map_err(TurnError::Sink)?;
 
