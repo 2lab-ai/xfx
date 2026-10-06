@@ -15468,7 +15468,7 @@ mod tests {
                 "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
                  upstream exploded \u{b7} retrying request in 1s",
                 "  kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
-                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: ",
+                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error:",
                 "  upstream exploded",
             ],
             "{screen:#?}"
@@ -16171,8 +16171,12 @@ mod tests {
 
     /// Turns the loop until a `/copy` or a `/trace` that is running on its own
     /// thread has said how it went, and hands back what the document gained.
+    ///
+    /// A minute, because the fake tools are fresh scripts and macOS assesses
+    /// one the first time it runs -- 8 to 12 s on a machine at load 35 -- and
+    /// no case here is about how fast a tool starts.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         loop {
             shell.settle_band(Instant::now());
             let document = shell.document();
@@ -16445,6 +16449,32 @@ mod tests {
             traced(&path)
         };
         assert_eq!(document, expected);
+    }
+
+    #[test]
+    fn a_notice_naming_a_path_wraps_where_upstreams_does() {
+        // `fx-trace-40x120-copy-fail.txt` rows 15-16, the path as fx's run
+        // had it: the notice breaks after `fxtmp/` and drops nothing but the
+        // space it would otherwise have hung (`scanNoticeLine`,
+        // `transcript_blocks.zig:1651-1702`).
+        let mut shell = shell(40, 120);
+        shell.announce(notice::Notice::error(
+            "",
+            crate::trace::Disposition::CopyFailed(std::path::PathBuf::from(
+                "/private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                 fx-trace-2026-10-06-213606-c51761bbc7ce.md",
+            ))
+            .sentence(),
+        ));
+        assert_eq!(
+            shell.document(),
+            [
+                "\u{2717} Clipboard copy failed. Trace saved at \
+                 /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                "  fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
+                "",
+            ]
+        );
     }
 
     #[test]
@@ -17853,9 +17883,12 @@ mod tests {
                 "* status: model=a",
                 "  history_turns=0",
                 "",
-                "\u{2717} command: Unknown ",
-                "  command. Try ",
-                "  /help.",
+                // `scanNoticeLine` (`transcript_blocks.zig:1674-1702`): the
+                // space a row breaks at is on neither row, and `/help` breaks
+                // after its `/`.
+                "\u{2717} command: Unknown",
+                "  command. Try /",
+                "  help.",
                 "",
             ]
         );
@@ -22642,8 +22675,12 @@ mod tests {
     }
 
     /// Turns of the loop until the selection copies have answered.
+    ///
+    /// A minute, as `copy_settled` waits: the fake tool is a fresh script,
+    /// which macOS assesses on its first run -- past ten seconds at load 60,
+    /// where this failed in a fault-injection run.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -25805,7 +25842,7 @@ mod tests {
             screen[at + 1..at + 4],
             [
                 format!(
-                    "  tools: {} advertised ({}, +1 ",
+                    "  tools: {} advertised ({}, +1",
                     crate::tools::ADVERTISED_TOOLS.len(),
                     crate::tools::ADVERTISED_TOOLS[..8].join(", ")
                 ),
@@ -26577,8 +26614,10 @@ mod tests {
 
     /// Settles the band until the clipboard read has answered: the document
     /// rows it wrote, or none when it put a badge in the draft instead.
+    ///
+    /// A minute, for the reason `copies_settled` gives.
     fn read_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         let before = shell.editor.text().to_string();
         loop {
             shell.settle_band(Instant::now());
