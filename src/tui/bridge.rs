@@ -367,6 +367,11 @@ pub(crate) enum UiEvent {
         notice: super::notice::Notice,
         access: Option<crate::workspace::access::WorkspaceAccess>,
     },
+    /// Where a compaction is: begun, sending its notes request, or over
+    /// ([`super::compaction`]). The band's row only -- upstream writes
+    /// nothing of a compaction into the transcript. Not terminal: an
+    /// automatic one ends inside a turn, and a manual one ends no turn.
+    Compaction(super::compaction::Update),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -735,6 +740,8 @@ impl UiEvent {
                 },
                 access,
             },
+            // No text: phases and outcomes this crate names.
+            Self::Compaction(update) => Self::Compaction(update),
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
     }
@@ -1001,6 +1008,10 @@ pub(crate) enum TurnWork {
     /// queue is what orders the two. It writes the profile, which the thread
     /// holding the terminal does not wait on.
     Workspace(crate::workspace::access::Action),
+    /// `/compact`: compact the conversation, between turns. Work because it
+    /// asks the model for notes and writes the session's log; answered with
+    /// [`UiEvent::Compaction`] updates and nothing in the transcript.
+    Compact,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

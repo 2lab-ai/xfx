@@ -92,11 +92,20 @@ impl Job {
 }
 
 /// The reports this session has started, and how each of them went.
+///
+/// A session that ends with one still in hand joins its thread
+/// ([`super::copy::Errands`]): the report is written whole -- the build and the
+/// write are not stopped, and are bounded by the disk -- and the file copy, the
+/// one wait that is not, is given a moment and then given up. So a `/trace`
+/// followed at once by a quit leaves its whole report, and no thread of xfx's
+/// outlives the terminal's restore.
 #[derive(Debug)]
 pub(crate) struct Traces {
     clipboard: Clipboard,
     /// Where each report is written.
     dir: PathBuf,
+    /// The threads the reports run on.
+    errands: super::copy::Errands,
     /// Cloned into each report's thread, which sends one outcome and ends.
     done: Sender<Disposition>,
     outcomes: Receiver<Disposition>,
@@ -108,6 +117,7 @@ impl Traces {
         Self {
             clipboard,
             dir,
+            errands: super::copy::Errands::default(),
             done,
             outcomes,
         }
@@ -121,16 +131,13 @@ impl Traces {
         let clipboard = self.clipboard.clone();
         let dir = self.dir.clone();
         let done = self.done.clone();
-        std::thread::Builder::new()
-            .name(THREAD_NAME.to_string())
-            .spawn(move || {
-                let now = crate::session::event::system_now_ms();
-                let report = job.render(now);
-                // Nobody left to tell is a session that has ended, and the
-                // report was written for it all the same.
-                let _ = done.send(crate::trace::deliver(&report, &dir, &clipboard, now));
-            })
-            .is_ok()
+        self.errands.spawn(THREAD_NAME, move |stop| {
+            let now = crate::session::event::system_now_ms();
+            let report = job.render(now);
+            // Nobody left to tell is a session that has ended, and the
+            // report was written for it all the same.
+            let _ = done.send(crate::trace::deliver(&report, &dir, &clipboard, now, stop));
+        })
     }
 
     /// How one report that has finished went, or `None` when none has
@@ -170,7 +177,7 @@ mod tests {
     }
 
     fn outcome(traces: &Traces) -> Disposition {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             if let Some(done) = traces.finished() {
                 return done;
@@ -287,6 +294,41 @@ mod tests {
             report.contains("- session log could not be read: "),
             "{report}"
         );
+    }
+
+    #[test]
+    fn an_ending_session_joins_a_report_whole_and_gives_its_copy_up() {
+        // Quit at once after `/trace`, with a clipboard tool that never
+        // answers: the shell's drop joins the report's thread, the report is
+        // on disk whole, and the tool is killed rather than waited for.
+        let tool = FakeTool::keeping();
+        tool.hang();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        assert!(traces.start(job(TraceFacts::default())));
+        let ending = Instant::now();
+        drop(traces);
+        let took = ending.elapsed();
+        assert!(
+            took < super::super::copy::GRACE + Duration::from_secs(10),
+            "the end waited on the tool: {took:?}"
+        );
+        let written: Vec<PathBuf> = std::fs::read_dir(dir.path())
+            .expect("the directory")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        assert_eq!(written.len(), 1, "{written:?}");
+        let report = std::fs::read_to_string(&written[0]).expect("the report");
+        assert!(report.starts_with("# xfx trace\n"), "{report}");
+        assert!(
+            report.ends_with("\n## Transcript Timeline\n(empty)\n"),
+            "not the whole report: {report}"
+        );
+        // A tool that got as far as saying who it is was killed; one the
+        // stop reached sooner never got that far.
+        if let Some(pid) = tool.hung() {
+            assert!(!FakeTool::alive(pid), "the tool outlived the session");
+        }
     }
 
     #[test]

@@ -79,6 +79,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/undo",
     "/copy",
     "/trace",
+    "/compact",
     "/settings",
     "/credits",
     "/paste",
@@ -320,6 +321,15 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Compact,
+        name: "/compact",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:487`).
+        summary: "summarize context into a fresh window",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Settings,
         name: "/settings",
         aliases: &[],
@@ -506,6 +516,17 @@ pub const PROMPT: &str = "> ";
 /// says where the numbers are instead.
 pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
      draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/compact` says on this surface.
+///
+/// Upstream's compaction is a piece of the full-screen shell's work: it
+/// shows on the band's activity row and nowhere else, waits behind a running
+/// turn, and is stopped by the keys that stop one
+/// (`compactionProjection`, `activity_status.zig:16-41`). This shell has no
+/// row to show it on, so it says where it is rather than compacting a
+/// conversation the user cannot watch being compacted.
+pub const COMPACT_ON_THE_LINE_SHELL: &str = "xfx: /compact runs in the full-screen shell, which \
+     shows its progress; without XFX_TUI=0, xfx opens the full-screen one";
 
 /// What `/usage` says on this surface.
 ///
@@ -711,6 +732,10 @@ pub enum Slash {
     /// Write a private diagnostic report about this session and put the file
     /// on the clipboard ([`crate::trace`]).
     Trace,
+    /// Replace the older turns of the conversation with a compacted form the
+    /// model reads in their place (`commandCompactHistory`,
+    /// `app_commands.zig:2010-2020`; [`crate::agent::compact`]).
+    Compact,
     /// Upstream's sound switch, which here is the terminal bell
     /// ([`crate::sound`]).
     Sound,
@@ -1387,6 +1412,9 @@ pub async fn run(
                         &mut io::stdout(),
                         &mut io::stderr(),
                     )?,
+                    Slash::Compact => {
+                        writeln!(io::stderr(), "{COMPACT_ON_THE_LINE_SHELL}")?;
+                    }
                     Slash::Permissions => {
                         apply_permissions(
                             &argument,
@@ -1841,8 +1869,9 @@ fn apply_permissions(
             .map(std::path::Path::to_path_buf)
     });
     let managed = slash::manage(&request, rules_path.as_deref(), false, |tool, arguments| {
-        let scope =
-            AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
+        // The session's own scope, added directories and all, as upstream
+        // prepares a rule (`tool_admission.zig:2270-2289`).
+        let scope = conversation_scope(config)?;
         let context = ToolContext::new(scope).with_permissions(
             // `ask`, whatever the session's mode, as upstream prepares a rule
             // (`.permission_mode = .ask`, `tool_admission.zig:2286`): in full
@@ -2241,7 +2270,13 @@ fn trace_on_the_line(
         screen: None,
     }
     .render();
-    let disposition = crate::trace::deliver(&report, &target.dir, &target.clipboard, now);
+    let disposition = crate::trace::deliver(
+        &report,
+        &target.dir,
+        &target.clipboard,
+        now,
+        &crate::clipboard::Stop::default(),
+    );
     if disposition.failed() {
         writeln!(err, "xfx: {}", disposition.sentence())
     } else {
@@ -2360,10 +2395,10 @@ mod tests {
         // since `/usage` and `/credits`, twenty since `/trace`, twenty-one
         // since `/settings`, twenty-four since `/image`, `/images` and
         // `/paste`, twenty-five since `/allowlist`, and twenty-six since
-        // `/workspace`; `/provider` took
+        // `/workspace`, and twenty-seven since `/compact`; `/provider` took
         // `/setup`'s place rather than adding one, and `/models` stays
         // deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 26);
+        assert_eq!(SLASH_COMMANDS.len(), 27);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();

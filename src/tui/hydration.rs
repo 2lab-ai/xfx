@@ -214,6 +214,7 @@ mod tests {
                 steps: 1,
             }),
             timing,
+            seqs: crate::session::TurnSeqs::default(),
         }
     }
 
@@ -254,6 +255,7 @@ mod tests {
             last_event_seq: 0,
             renamed: None,
             usage: crate::session::RecordedUsage::default(),
+            checkpoint: None,
         };
         let replay = Hydration::of(&state, None);
         // `#9` names no image of the turn: those are the user's own words.
