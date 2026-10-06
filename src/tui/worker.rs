@@ -3303,6 +3303,7 @@ mod tests {
                     tool,
                     ok,
                     detail,
+                    ..
                 } = event
                 {
                     if call_id == "call-1" && tool == "ask_user_question" {

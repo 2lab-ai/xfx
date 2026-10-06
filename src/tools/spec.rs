@@ -174,6 +174,207 @@ pub enum ToolInput {
     AskUserQuestion(AskUserQuestionInput),
 }
 
+impl ToolInput {
+    /// The one argument a person watching the call is shown: the path, the
+    /// pattern or the command (upstream's `label_arg_kind`,
+    /// `vercel-labs/fx@c1db9191 src/builtins/tools.zig`).
+    ///
+    /// Exhaustive, so a tool added later has to say what its row names.
+    /// `None` is an answer and not an omission: a `list_files` with no path
+    /// lists the workspace root, and a question has no argument a row could
+    /// carry -- its row is never drawn ([`Activity::Ask`]).
+    pub fn target(&self) -> Option<&str> {
+        match self {
+            Self::ListFiles(input) => input.path.as_deref(),
+            Self::GlobFiles(input) => Some(&input.pattern),
+            Self::GrepFiles(input) => Some(&input.pattern),
+            Self::ReadFile(input) => Some(&input.path),
+            Self::WriteFile(input) => Some(&input.path),
+            Self::EditFile(input) => Some(&input.path),
+            Self::CreateFolder(input) => Some(&input.path),
+            Self::Terminal(input) => Some(&input.command),
+            Self::AskUserQuestion(_) => None,
+        }
+    }
+}
+
+/// What kind of work a call is, as a person watching the turn counts it
+/// (upstream's `ToolActivityKind`, `vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig`).
+///
+/// Not [`PermissionKind`], and the difference is the point: a grep and a read
+/// are both `ReadOnly` and both count as a read, but a write and an edit are
+/// both `MutateFile` and are counted apart (`tool_group_projection.zig:140-150`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    Read,
+    List,
+    Write,
+    Edit,
+    Command,
+    /// A question to the user. Upstream draws no tool row for it at all
+    /// (`tool_presentation.zig` `startToolVisibleLifecycle` returns before the
+    /// lifecycle starts), and the surface that answers it is its own.
+    Ask,
+}
+
+/// What a person watching a turn is told about a call to one tool, before and
+/// after it runs.
+///
+/// The four facts upstream declares on every tool spec
+/// (`vercel-labs/fx@c1db9191 src/builtins/tools.zig`: `activity_kind`,
+/// `action_label`, `completed_action_label`, `label_arg_default`) and builds
+/// the transcript's tool rows from (`tool_group_projection.zig`). Declared on
+/// the spec for the reason the schema is: the tool that runs and the row that
+/// names it are one object and cannot drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Presentation {
+    pub activity: Activity,
+    /// The verb while the call runs: `Reading`, `Running`.
+    pub running: &'static str,
+    /// The verb once it has: `Read`, `Ran`.
+    pub done: &'static str,
+    /// What the row names when the call's own argument cannot be shown --
+    /// it did not decode, or (for a file change) it never got as far as
+    /// naming a file the user approved.
+    pub default_target: &'static str,
+}
+
+impl Presentation {
+    pub const fn new(
+        activity: Activity,
+        running: &'static str,
+        done: &'static str,
+        default_target: &'static str,
+    ) -> Self {
+        Self {
+            activity,
+            running,
+            done,
+            default_target,
+        }
+    }
+}
+
+/// One call, as a person watching the turn is shown it before it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shown {
+    pub presentation: Presentation,
+    /// The call's own argument ([`ToolInput::target`]), or `None` when it had
+    /// none or did not decode.
+    pub target: Option<String>,
+}
+
+/// How a call ended, for the person watching it -- beside [`ToolResult::ok`],
+/// which is the same question answered for the model.
+///
+/// The two differ exactly where a row has to say more than "it worked": a
+/// command that ran and exited 3 answered the model's question (`ok`) and is
+/// still a failure on the screen (upstream's `commandOutcomeDecision`,
+/// `tool_presentation.zig`), and a refusal the user gave is a denial rather
+/// than the tool's own failure. Nothing here changes what the model is told.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Outcome {
+    /// Whatever `ok` says: the call did what it was asked, or it refused on
+    /// its own.
+    #[default]
+    Finished,
+    /// A permission decision refused it, so it never ran.
+    Denied,
+    /// A command ran to its end with this status.
+    Exited(i32),
+    /// A command a signal stopped.
+    Signalled(i32),
+    /// A command xfx stopped for running past its ceiling.
+    TimedOut,
+    /// A command xfx stopped because the turn was cancelled.
+    Cancelled,
+}
+
+/// How many lines a file change added and removed, counted the way upstream's
+/// review diff counts them (`vercel-labs/fx@c1db9191
+/// src/core/output/diff.zig:794-860`, `countStats`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LineChanges {
+    pub added: usize,
+    pub removed: usize,
+}
+
+/// How many cells of the longest-common-subsequence table
+/// [`LineChanges::between`] fills before it stops being exact.
+///
+/// The table is upstream's algorithm (`diff.zig:794-860`), and its cost is the
+/// product of the two sides' changed lines. A change confined to a few lines
+/// costs next to nothing -- the common head and tail are trimmed first -- but a
+/// rewrite of a large file would spend seconds of the turn on a number for a
+/// row; past this the count is the changed region's two sizes, which is an
+/// upper bound on what a real diff would say rather than a guess.
+const MAX_DIFF_CELLS: usize = 1 << 22;
+
+impl LineChanges {
+    /// The lines `after` added to `before` and the lines it took away.
+    pub fn between(before: &str, after: &str) -> Self {
+        let mut old: Vec<&str> = lines(before);
+        let mut new: Vec<&str> = lines(after);
+        // A file that gained or lost its final newline changed one line's
+        // worth, and upstream counts it as one (`appendTrailingNewlineMarker`).
+        // The marker cannot equal a real line: no line holds a NUL and a break.
+        if !before.is_empty() && !after.is_empty() {
+            match (before.ends_with('\n'), after.ends_with('\n')) {
+                (true, false) => old.push("\u{0}\n"),
+                (false, true) => new.push("\u{0}\n"),
+                _ => {}
+            }
+        }
+        let head = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let tail = old[head..]
+            .iter()
+            .rev()
+            .zip(new[head..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let old = &old[head..old.len() - tail];
+        let new = &new[head..new.len() - tail];
+        let common = if old.len().saturating_mul(new.len()) <= MAX_DIFF_CELLS {
+            common_lines(old, new)
+        } else {
+            0
+        };
+        Self {
+            added: new.len() - common,
+            removed: old.len() - common,
+        }
+    }
+}
+
+/// `text`'s lines without their breaks, and no empty line after a final one
+/// (`diff.zig` `appendLines`).
+fn lines(text: &str) -> Vec<&str> {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if text.is_empty() || text.ends_with('\n') {
+        lines.pop();
+    }
+    lines
+}
+
+/// The length of the longest common subsequence of two line lists, one table
+/// row at a time.
+fn common_lines(old: &[&str], new: &[&str]) -> usize {
+    let mut above = vec![0usize; new.len() + 1];
+    let mut row = vec![0usize; new.len() + 1];
+    for line in old {
+        for (index, other) in new.iter().enumerate() {
+            row[index + 1] = if line == other {
+                above[index] + 1
+            } else {
+                row[index].max(above[index + 1])
+            };
+        }
+        std::mem::swap(&mut above, &mut row);
+    }
+    above[new.len()]
+}
+
 /// Turns raw model JSON into a typed input, or says why it cannot.
 pub type ToolDecoder = fn(&Value) -> Result<ToolInput, String>;
 
@@ -210,6 +411,11 @@ pub struct ToolResult {
     /// tool's own report of what it did. It is context, not authority -- the
     /// call that ran is the one that was judged, whatever this says.
     pub feedback: Option<String>,
+    /// How the call ended, for the person watching rather than for the model
+    /// ([`Outcome`]). Never part of [`Self::output`].
+    pub outcome: Outcome,
+    /// The lines a file change added and removed, when it made one.
+    pub changes: Option<LineChanges>,
 }
 
 impl ToolResult {
@@ -222,7 +428,21 @@ impl ToolResult {
             detail: summarize(&detail.into()),
             fatal: false,
             feedback: None,
+            outcome: Outcome::Finished,
+            changes: None,
         }
+    }
+
+    /// The same result, ending as `outcome` for the person watching.
+    pub fn ending(mut self, outcome: Outcome) -> Self {
+        self.outcome = outcome;
+        self
+    }
+
+    /// The same result, carrying the lines its change added and removed.
+    pub fn with_changes(mut self, changes: Option<LineChanges>) -> Self {
+        self.changes = changes;
+        self
     }
 
     /// A refusal. The summary is the first line of the explanation, bounded, so
@@ -236,6 +456,8 @@ impl ToolResult {
             detail,
             fatal: false,
             feedback: None,
+            outcome: Outcome::Finished,
+            changes: None,
         }
     }
 
@@ -525,6 +747,7 @@ pub struct ToolSpec {
     name: &'static str,
     description: &'static str,
     permission: PermissionKind,
+    presentation: Presentation,
     input_schema: InputSchema,
     decode: ToolDecoder,
     validate: ToolValidator,
@@ -534,10 +757,17 @@ pub struct ToolSpec {
 impl ToolSpec {
     /// Builds a spec. `const` so the registry is a static table rather than
     /// something assembled -- and therefore mutable -- at startup.
+    ///
+    /// Eight arguments, deliberately rather than a builder: every one of them
+    /// is part of what the tool *is*, and a builder would let a spec leave one
+    /// out and inherit a default nobody chose -- a row with no verb, or a tool
+    /// with no validator.
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         name: &'static str,
         description: &'static str,
         permission: PermissionKind,
+        presentation: Presentation,
         input_schema: InputSchema,
         decode: ToolDecoder,
         validate: ToolValidator,
@@ -547,6 +777,7 @@ impl ToolSpec {
             name,
             description,
             permission,
+            presentation,
             input_schema,
             decode,
             validate,
@@ -564,6 +795,28 @@ impl ToolSpec {
 
     pub fn permission(&self) -> PermissionKind {
         self.permission
+    }
+
+    pub fn presentation(&self) -> Presentation {
+        self.presentation
+    }
+
+    /// What a person watching is shown about a call with these arguments,
+    /// before it runs.
+    ///
+    /// Decoded here rather than read off the raw JSON, so the row names the
+    /// argument the executor will act on and not a field of the same name the
+    /// decoder would refuse. A decoder touches nothing (see the module
+    /// documentation), so decoding twice costs a parse and nothing else; an
+    /// input that does not decode is shown by the tool's default, and its
+    /// refusal follows in the result.
+    pub fn shown(&self, input: &Value) -> Shown {
+        Shown {
+            presentation: self.presentation,
+            target: (self.decode)(input)
+                .ok()
+                .and_then(|decoded| decoded.target().map(str::to_string)),
+        }
     }
 
     pub fn input_schema(&self) -> InputSchema {
@@ -865,5 +1118,66 @@ mod tests {
         let long = ToolResult::failure("e".repeat(400));
         assert!(long.detail.len() <= 164, "{}", long.detail.len());
         assert!(long.detail.ends_with("..."));
+    }
+
+    fn changes(before: &str, after: &str) -> (usize, usize) {
+        let counted = LineChanges::between(before, after);
+        (counted.added, counted.removed)
+    }
+
+    #[test]
+    fn a_new_file_adds_every_line_it_has_and_removes_none() {
+        // Upstream's capture of the same write: `Wrote c.txt +2`.
+        assert_eq!(changes("", "new file\nsecond line\n"), (2, 0));
+        assert_eq!(changes("", ""), (0, 0));
+    }
+
+    #[test]
+    fn a_line_replaced_in_place_is_one_added_and_one_removed() {
+        // `Edited a.txt +1 / -1` for upstream's `alpha line 2` edit.
+        assert_eq!(
+            changes(
+                "alpha line 1\nalpha line 2\nalpha line 3\n",
+                "alpha line 1\nALPHA LINE TWO\nalpha line 3\n"
+            ),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn lines_that_moved_are_counted_by_the_longest_common_run_not_by_position() {
+        // Neither the head nor the tail is common here, so only the table can
+        // see that `b` and `c` survived.
+        assert_eq!(changes("a\nb\nc\n", "b\nc\nd\n"), (1, 1));
+        assert_eq!(changes("a\nb\nc\nd\n", "a\nc\nb\nd\n"), (1, 1));
+    }
+
+    #[test]
+    fn a_final_newline_gained_or_lost_is_one_line_of_change() {
+        // `diff.zig` `appendTrailingNewlineMarker`: the marker line is the change.
+        assert_eq!(changes("a\nb", "a\nb\n"), (1, 0));
+        assert_eq!(changes("a\nb\n", "a\nb"), (0, 1));
+        assert_eq!(changes("a\nb\n", "a\nb\n"), (0, 0));
+    }
+
+    #[test]
+    fn a_change_too_large_to_tabulate_is_counted_by_its_changed_region() {
+        // Past the table's budget the answer is the two sizes of what differs,
+        // which no real diff can exceed -- an upper bound, never a guess.
+        let before: String = (0..3000).map(|i| format!("old {i}\n")).collect();
+        let after: String = (0..2000).map(|i| format!("new {i}\n")).collect();
+        assert_eq!(changes(&before, &after), (2000, 3000));
+    }
+
+    #[test]
+    fn a_row_names_the_argument_the_executor_acts_on_or_nothing() {
+        let shown = super::super::read::READ_FILE.shown(&json!({"path": "a.txt"}));
+        assert_eq!(shown.target.as_deref(), Some("a.txt"));
+        assert_eq!(shown.presentation.done, "Read");
+        // A field of the wrong type is a refusal the result will carry, so the
+        // row falls back to the tool's own word rather than quoting the model.
+        let refused = super::super::read::READ_FILE.shown(&json!({"path": 7}));
+        assert_eq!(refused.target, None);
+        assert_eq!(refused.presentation.default_target, "file");
     }
 }

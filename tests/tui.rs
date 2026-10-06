@@ -3741,11 +3741,13 @@ fn a_refusal_in_the_band_leaves_the_file_alone() {
         "alpha\n"
     );
     // The refusal reached the user as well, on a row of its own: a denial
-    // nobody can see is the same as no denial at all.
+    // nobody can see is the same as no denial at all. Said as upstream's tool
+    // group says it -- the call's row and the header's count
+    // (`fx-approvals-cc-40x120-after-cc`: `└ Denied file`, `· 1 denied`).
+    let text = session.wait_for("Denied file");
     assert!(
-        session.text().contains("edit_file refused"),
-        "the turn was told no and the user was not: {:?}",
-        session.text()
+        text.contains("1 denied"),
+        "the turn was told no and the header did not count it: {text:?}"
     );
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -3789,7 +3791,13 @@ fn an_answer_lands_even_with_a_prompt_already_queued() {
 
 #[test]
 fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
-    // What that interval measures is the person, not the model.
+    // What that interval measures is the person, not the model -- so the row
+    // that reports it is off the band while the panel is up, as upstream's is
+    // (`render_input.zig:705`), and its clock is stopped underneath. The number
+    // it comes back with is pinned by the shell's own cases
+    // (`the_turns_clock_stops_while_the_question_is_up_and_starts_again_after_it`);
+    // what a real terminal is shown here is that no frame paints a turn row
+    // beside the question, however long it waits.
     let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
     let sandbox = Sandbox::new();
     let _notes = support::sandbox::with_notes(&sandbox);
@@ -3800,26 +3808,27 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
-    session.wait_for(PERMISSION_TITLE);
-
-    let before = elapsed_on_activity_row(&session.text()).expect("an elapsed time");
-    let frames_before = session.text().matches(FRAME_END).count();
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    let text = session.text();
-    let after = elapsed_on_activity_row(&text).expect("an elapsed time");
-    // **The band kept painting**, and this is what keeps the assertion below
-    // from being vacuous: the marker blinks every 500 ms whether or not the
-    // clock is running, so a session that had simply stopped drawing would
-    // trivially report the same number. Frames arrived; the number in them did
-    // not move.
+    let shown = session.wait_for(PERMISSION_TITLE);
     assert!(
-        text.matches(FRAME_END).count() > frames_before,
-        "the band stopped painting, so the frozen clock proves nothing"
+        elapsed_on_activity_row(&shown).is_some(),
+        "the turn never had a row, so its absence below proves nothing"
     );
-    assert_eq!(
-        before, after,
-        "the clock ran while xfx was waiting for the user"
-    );
+    let asked = shown.rfind(PERMISSION_TITLE).expect("the panel");
+
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    // **The band is still painting**, which keeps the assertion below from
+    // being vacuous: a key the panel answers by moving its marker is a frame,
+    // and it arrives.
+    let frames = session.text().matches(FRAME_END).count();
+    session.type_bytes(b"\x1b[B");
+    let text = session.wait_for_count(FRAME_END, frames + 1);
+    let beside = &text[asked..];
+    for label in ["Thinking", "Running", "Generating"] {
+        assert!(
+            !beside.contains(label),
+            "a turn row was painted beside the question: {beside:?}"
+        );
+    }
 
     session.type_bytes(b"3");
     session.wait_for("the edit is done");

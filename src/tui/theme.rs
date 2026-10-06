@@ -204,8 +204,14 @@ const RESET: &str = "\u{1b}[0m";
 /// written in, with the permission mode lifted out of it in the activity
 /// row's grey (`permission_auto_style`), and the grey the welcome line's
 /// version and the transcript's turn summary are written in.
-const DARK: [u8; 7] = [240, 255, 250, 252, 255, 245, 245];
-const LIGHT: [u8; 7] = [250, 235, 241, 238, 235, 241, 247];
+///
+/// The eighth is upstream's `warning_style` (`core/shared/theme.zig:86,129`,
+/// `c1db919`): the `■` a cancelled tool call is marked with in the
+/// transcript. The same grey as the activity row's in both modes, and a role
+/// of its own for the reason the fifth is one -- the two are the same colour
+/// and not the same decision.
+const DARK: [u8; 8] = [240, 255, 250, 252, 255, 245, 245, 252];
+const LIGHT: [u8; 8] = [250, 235, 241, 238, 235, 241, 247, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -215,6 +221,7 @@ const ACTIVITY: usize = 3;
 const BODY: usize = 4;
 const STATUSLINE: usize = 5;
 const DIM: usize = 6;
+const WARNING: usize = 7;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -251,6 +258,11 @@ impl Palette {
     /// Secondary text: the welcome line's version, a turn's summary.
     pub(crate) fn dim(&self) -> &'static str {
         self.paint(DIM)
+    }
+
+    /// What marks something the user stopped: a cancelled tool call's `■`.
+    pub(crate) fn warning(&self) -> &'static str {
+        self.paint(WARNING)
     }
 
     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).

@@ -1,0 +1,55 @@
+# The tool group (`.prd/tui-phase4` F1): one group across steps, a running
+# command under it while its approval is up and while it runs, each outcome
+# form (Ran, Edited +A / -D, Denied, Failed, Exited n), the text that closes
+# it, a call stopped at its approval, and a stop while a command runs.
+# Both binaries in `ask` mode, so every change and command is decided by key.
+fx: gateway toolgroup-fx.json
+xfx: gateway toolgroup-xfx.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type look at the files and fix them
+key Enter
+wait 2.5
+snap cmd-ask
+key 1
+wait 1.5
+snap cmd-running
+wait 3.5
+snap edit-ask
+key 1
+wait 2
+snap write-ask
+key 3
+wait 2.5
+snap exit-ask
+key 1
+wait 2.5
+snap end
+type and once more
+key Enter
+wait 2.5
+snap again-ask
+# Stopping the turn at its approval is Escape on fx and Ctrl-C on xfx: the two
+# keys are swapped between them (`.prd/tui-phase4/ssot.md` divergence 7, F2's).
+fx: key Escape
+xfx: key C-c
+wait 1.5
+snap again-stopped
+type run the long one
+key Enter
+wait 2.5
+snap long-ask
+key 1
+wait 1.5
+snap long-running
+key C-c
+wait 1
+snap long-stopped
+wait 5
+snap long-later
+snapfull end
+gwlog
+workls end

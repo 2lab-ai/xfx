@@ -94,6 +94,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::{Mode, Palette};
+use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
@@ -104,6 +105,7 @@ use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::model::model_id_problem;
 use crate::provider::model::CatalogEntry;
 use crate::provider::ProviderId;
+use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
 
 /// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
 ///
@@ -650,6 +652,23 @@ pub(crate) struct Shell {
     markdown: MarkdownProcessor,
     /// Where the answer being written stands ([`Answer`]).
     answer: Answer,
+    /// The tool calls the transcript is showing as one group, and whether its
+    /// block is the document's open tail ([`super::toolgroup`]).
+    ///
+    /// Moved only where the stream reaches the call -- by the marks the tool
+    /// events leave ([`Mark::ToolStart`], [`Mark::ToolResult`]) -- so the group
+    /// lands where the answer had got to when the call happened, as every other
+    /// line of xfx's does.
+    group: ToolGroup,
+    /// The calls this turn settled as cancelled while they were still running.
+    ///
+    /// A stop is shown when the user asks for it ([`Self::interrupt`]), and the
+    /// runtime may already have sent the result of a call that finished in the
+    /// same moment. That result is about a row the screen has already settled
+    /// the other way, so it is dropped rather than drawn as a second answer to
+    /// one call. Emptied when the turn is over ([`Mark::TurnOver`]): the
+    /// runtime sends a turn's conclusion after everything else of it.
+    abandoned: Vec<String>,
     /// What the summary under the turn's answer will say ([`Tally`]).
     tally: Tally,
     /// The token estimate of every prompt that was sent and whose turn has
@@ -735,6 +754,19 @@ enum Mark {
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
+    /// A tool call started: a row in the open group, or a group of its own.
+    ToolStart { id: String, shown: Shown },
+    /// A tool call finished: its row settled, and the header recounted.
+    ToolResult {
+        id: String,
+        ok: bool,
+        detail: String,
+        outcome: CallOutcome,
+        changes: Option<LineChanges>,
+    },
+    /// The turn is over: whatever of its group is still running was stopped
+    /// with it, and the group is closed.
+    TurnOver,
 }
 
 /// The answer being written: whether its prose block is open, and the line
@@ -933,6 +965,8 @@ impl Shell {
                 markdown::theme::builtin(palette.mode == Mode::Light),
             )),
             answer: Answer::default(),
+            group: ToolGroup::default(),
+            abandoned: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
             document_rows: 0,
@@ -1258,6 +1292,7 @@ impl Shell {
     // The composer's submit is the first caller -- it echoes the line the user
     // sent so the loop is visibly closed -- and Task 12's deltas are the next.
     fn write_transcript_as(&mut self, text: &str, role: Role) {
+        self.close_group();
         if self.transcript.queue_push(text, role) {
             self.owed();
         }
@@ -1276,6 +1311,11 @@ impl Shell {
     // The composer's submit is the first caller, and Task 12's end-of-turn is
     // the next: a turn ends whether or not the last delta carried a newline.
     pub(crate) fn end_transcript_line(&mut self) {
+        // An open group's block ends as a line, and its blank last row is the
+        // break this would have made.
+        if self.close_group() {
+            return;
+        }
         if self.transcript.queue_end_line() {
             self.owed();
         }
@@ -1350,34 +1390,41 @@ impl Shell {
             // document, so a provider that sends a kilobyte in one frame and
             // nothing in the next is still read at one speed.
             UiEvent::Delta(text) => self.stream(&text),
-            // The same two sentences `xfx ask --tool-notices` puts on the
-            // diagnostic stream (`output.rs:1154-1174`), so a tool means the
-            // same thing on both surfaces.
-            UiEvent::ToolStart { tool, .. } => {
+            // A row in the transcript's tool group (`super::toolgroup`),
+            // behind whatever of the answer the pacer still holds -- the call
+            // happened after that text, so its row goes under it.
+            UiEvent::ToolStart {
+                call_id,
+                tool,
+                shown,
+            } => {
                 // And on the band, where the activity row stops saying
                 // `Thinking` and says `Running`, as upstream's phase does: a
                 // turn that has gone quiet because a tool is taking a minute
                 // looks exactly like a turn that has gone quiet, unless it says
                 // so.
-                self.activity.set(Work::Tool { name: tool.clone() });
-                self.say(format!("[tool] {tool} running"));
+                self.activity.set(Work::Tool { name: tool });
+                self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
-                tool, ok, detail, ..
+                call_id,
+                ok,
+                detail,
+                outcome,
+                changes,
+                ..
             } => {
-                let line = if ok {
-                    format!("[tool] {tool} ok")
-                } else {
-                    format!(
-                        "[tool] {tool} refused: {}",
-                        safe_one_line(&detail, TOOL_DETAIL_BYTES)
-                    )
-                };
                 // The tool is over, so the model has the turn again. The
                 // clock is not restarted with it: what the row measures is the
                 // turn, and a tool call is part of one.
                 self.activity.set(Work::Thinking);
-                self.say(line);
+                self.mark(Mark::ToolResult {
+                    id: call_id,
+                    ok,
+                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    outcome,
+                    changes,
+                });
             }
             // What the user said about a decision, once the runtime has
             // really delivered it (`crate::agent::machine`'s
@@ -1500,7 +1547,9 @@ impl Shell {
             UiEvent::TurnEnded { failure } => {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
-                // in the middle of the answer.
+                // in the middle of the answer. The group goes first, because
+                // it is part of the turn and the conclusion is under it.
+                self.mark(Mark::TurnOver);
                 match failure {
                     Some(failure) => self.say(failure),
                     None => self.mark(Mark::Summary(self.tally.line(Instant::now()))),
@@ -2172,7 +2221,18 @@ impl Shell {
             // **One message still**, and it carries no sentence: the drafts
             // were dropped above, so an interrupt at a filled draft says
             // nothing on either channel.
-            approval::Action::Cancel => self.interrupt(now),
+            // **The call this panel was asking about is stopped by this key**:
+            // the prompter answers the stop by refusing it and handing the
+            // interrupt on, so the call never runs (`super::approval`'s
+            // `TuiPrompter`). The group says so now, above the sentence that
+            // answers the key, as upstream's does the moment it is pressed
+            // (`fx-approvals-cc-40x120-after-esc`); the refusal the runtime
+            // reports for it next is the same stop in the tool's words, and is
+            // dropped ([`Self::abandoned`]).
+            approval::Action::Cancel => {
+                self.settle_group();
+                self.interrupt(now);
+            }
             // Esc and the rest are an answer about *this call* and nothing
             // more: the turn goes on, and is told no -- with whatever the user
             // said about it, which is context and never authority.
@@ -2487,7 +2547,91 @@ impl Shell {
             }
             Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::EndOfLine => self.finish_document_line(),
+            Mark::ToolStart { id, shown } => {
+                self.group.start(id, shown);
+                self.redraw_group();
+            }
+            Mark::ToolResult {
+                id,
+                ok,
+                detail,
+                outcome,
+                changes,
+            } => {
+                if !self.abandoned.contains(&id)
+                    && self.group.finish(&id, ok, &detail, outcome, changes)
+                {
+                    self.redraw_group();
+                }
+            }
+            Mark::TurnOver => {
+                self.settle_group();
+                self.abandoned.clear();
+            }
         }
+    }
+
+    /// Hands the transcript the group's block as it now stands, when it
+    /// changed.
+    ///
+    /// A group that has no block yet starts one on a row of its own
+    /// ([`Transcript::queue_block`] ends an open line first); one that has is
+    /// rewritten where it is, because it is still the document's last thing --
+    /// every other write closes it first ([`Self::close_group`]).
+    fn redraw_group(&mut self) {
+        let Some(rows) = self.group.redraw(self.palette) else {
+            return;
+        };
+        if self.transcript.queue_block(rows) {
+            self.owed();
+        }
+    }
+
+    /// Closes the group's block, so that what comes next is written under it,
+    /// and says whether there was one to close.
+    ///
+    /// Called by every write that is not the group's own -- the answer's text,
+    /// a line of xfx's, a card -- through the two places they all pass
+    /// ([`Self::finish_document_line`], [`Self::write_transcript_as`]). That
+    /// is upstream's rule, said in terms of the one thing this transcript can
+    /// do: a group is broken by the next thing shown that is not one of its
+    /// calls (`tool_group_projection.zig:1280-1375`), and a block that is not
+    /// the document's last thing can no longer be rewritten.
+    ///
+    /// A call still running when its block closes keeps its row as the block
+    /// left it, and is drawn again -- under whatever closed it -- when its
+    /// result arrives ([`ToolGroup::unsettled`]).
+    fn close_group(&mut self) -> bool {
+        if !self.group.drawn() {
+            return false;
+        }
+        self.group = std::mem::take(&mut self.group).unsettled();
+        // Straight to the transcript: the block ends as a line does, and its
+        // last row is already the blank one that separates it from what
+        // follows.
+        if self.transcript.queue_end_line() {
+            self.owed();
+        }
+        true
+    }
+
+    /// Stops what the group still has running, shows it stopped, and closes
+    /// the group -- for a turn that is over, whichever way it ended.
+    ///
+    /// A call with no result when its turn ends did not finish: the runtime
+    /// sends a result for every call that returned, and what ends a turn
+    /// between a call's start and its result is a stop -- once the runtime
+    /// has read one, its stream goes silent (`super::bridge`'s `send_ui`). So
+    /// it is shown as upstream shows a call the user stopped: `Cancelled`,
+    /// counted, with its own line under the group.
+    fn settle_group(&mut self) {
+        let stopped = self.group.cancel_running();
+        if !stopped.is_empty() {
+            self.redraw_group();
+        }
+        self.abandoned.extend(stopped);
+        self.close_group();
+        self.group = ToolGroup::default();
     }
 
     /// How much answer text is waiting to be released.
@@ -2531,6 +2675,9 @@ impl Shell {
     /// answer there would say "no line is open" about an answer that has one,
     /// and put the notice on the end of its sentence.
     fn finish_document_line(&mut self) {
+        if self.close_group() {
+            return;
+        }
         if self.transcript.open_line() {
             self.end_transcript_line();
         }
@@ -2673,13 +2820,23 @@ impl Shell {
             dim: self.palette.dim(),
             reset: self.palette.reset(),
         };
-        let row = self.activity.row(
-            now,
-            self.phase,
-            self.geometry.cols,
-            (self.tally.input, output),
-            colours,
-        );
+        // **No row at all while a question is up**, as upstream's footer has
+        // none (`render_input.zig:705`, `frameOwnedActivityProjection`): the
+        // band is the question's then, and a clock that is not running beside
+        // it would be a row reporting on a turn that is waiting for the person
+        // reading it. The clock stopped above; the row comes back, at the
+        // elapsed time it stopped at, when the question goes.
+        let row = if self.modal() {
+            None
+        } else {
+            self.activity.row(
+                now,
+                self.phase,
+                self.geometry.cols,
+                (self.tally.input, output),
+                colours,
+            )
+        };
         if row == self.activity_row {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
@@ -3244,6 +3401,20 @@ impl Shell {
                 self.work.control(TurnControl::Cancel {
                     through: self.work.accepted(),
                 });
+                // A call that is already running is **not** settled by this
+                // keystroke, and that is the difference from upstream's
+                // `fx-interrupt-40x120-cmd-cc`, where the command is killed at
+                // once. Here a running executor holds the runtime's thread
+                // until it returns, so the stop is read only after the command
+                // has finished (`super::worker`'s `raced_against_control`
+                // polls the control channel beside the turn, not inside a
+                // tool). A `Cancelled` row now would be the screen claiming a
+                // stop the command never had; the call's real result settles
+                // it, and a turn that ends without one settles it as stopped
+                // ([`Mark::TurnOver`]). A call parked at an approval is the
+                // other case, and is settled where that key is read
+                // ([`approval::Action::Cancel`]).
+                //
                 // The same sentence the line-oriented shell writes for the same
                 // keystroke (`app::INTERRUPT_NOTICE`), so that the request is
                 // something the user watched land rather than something they
@@ -3796,6 +3967,9 @@ impl Shell {
     /// order between them to get wrong.
     fn clear_screen(&mut self) {
         self.transcript = Transcript::new(self.geometry.cols);
+        // Its block went with the screen; a call still running is drawn again
+        // on the cleared one when its result arrives.
+        self.group = std::mem::take(&mut self.group).unsettled();
         // The stream goes with them, and it is the one place this session
         // drops text the runtime produced. The rows it was going to be written
         // on are being erased *and* taken out of the terminal's scrollback at
@@ -6792,25 +6966,21 @@ mod tests {
         // A turn that has gone quiet because a tool is taking a minute looks
         // exactly like a turn that has gone quiet, unless the band says which:
         // `Running` while the tool runs (`activity_status.zig:105-111`); which
-        // tool it is, the document's `[tool] ... running` line says.
+        // tool it is, the tool group's `└ Running ...` row says.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"ask something\r");
 
-        shell.apply(UiEvent::ToolStart {
-            call_id: "1".to_string(),
-            tool: "read_file".to_string(),
-        });
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
         shell.settle_band(started + Duration::from_millis(50));
         let rows = shell.band_rows();
         assert!(rows[0].contains("Running"), "{rows:?}");
         assert!(!rows[0].contains("Thinking"), "{rows:?}");
 
-        shell.apply(UiEvent::ToolResult {
-            call_id: "1".to_string(),
-            tool: "read_file".to_string(),
-            ok: true,
-            detail: String::new(),
-        });
+        shell.apply(tool_result("1", "read_file", true, ""));
         shell.settle_band(started + Duration::from_millis(100));
         let rows = shell.band_rows();
         assert!(rows[0].contains("Thinking"), "{rows:?}");
@@ -6987,6 +7157,76 @@ mod tests {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// `row` with every SGR sequence taken out.
+    fn colourless(row: &str) -> String {
+        let mut out = String::with_capacity(row.len());
+        let mut rest = row;
+        while let Some(at) = rest.find('\u{1b}') {
+            out.push_str(&rest[..at]);
+            let tail = &rest[at..];
+            let end = super::super::pacer::colour_at(tail).unwrap_or(1);
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A tool call starting, as the runtime announces it: with the row its
+    /// own spec gives it (`crate::tools::ToolSpec::shown`).
+    fn tool_start(id: &str, tool: &str, input: serde_json::Value) -> UiEvent {
+        let spec = crate::tools::Registry::builtin()
+            .spec(tool)
+            .expect("a tool the registry has");
+        UiEvent::ToolStart {
+            call_id: id.to_string(),
+            tool: tool.to_string(),
+            shown: spec.shown(&input),
+        }
+    }
+
+    /// A tool call finishing with nothing more to say than `ok`.
+    fn tool_result(id: &str, tool: &str, ok: bool, detail: &str) -> UiEvent {
+        tool_ended(id, tool, ok, detail, CallOutcome::Finished)
+    }
+
+    /// A tool call finishing as `outcome`.
+    fn tool_ended(id: &str, tool: &str, ok: bool, detail: &str, outcome: CallOutcome) -> UiEvent {
+        UiEvent::ToolResult {
+            call_id: id.to_string(),
+            tool: tool.to_string(),
+            ok,
+            detail: detail.to_string(),
+            outcome,
+            changes: None,
+        }
+    }
+
+    impl Fixture {
+        /// The document as a terminal holds it once everything owed has
+        /// landed, with the colours taken off.
+        ///
+        /// Not [`Self::document`], which lists every row of every append: an
+        /// open tool group is **rewritten** where it stands (`Append`'s
+        /// settled rows), so its rows appear in that list once per rewrite.
+        /// This replays the appends the way the screen takes them -- the
+        /// settled rows of each replace the last ones written -- which is the
+        /// view the group's cases are about.
+        ///
+        /// **Every** colour is taken off, not [`unpainted`]'s closed list: a
+        /// command's words are coloured by the shell highlighter inside the
+        /// row, and what these cases pin is the rows' words. The colours have
+        /// cases of their own (`super::super::toolgroup`).
+        fn written(&mut self) -> Vec<String> {
+            let mut document: Vec<String> = Vec::new();
+            for append in self.take_pending() {
+                let settled = append.rows.len() - append.scroll.min(append.rows.len());
+                document.truncate(document.len().saturating_sub(settled));
+                document.extend(append.rows.iter().map(|row| colourless(row)));
+            }
+            document
+        }
     }
 
     /// The frame that really disclosed the standing question, written and then
@@ -7622,14 +7862,16 @@ mod tests {
         assert!(before.contains("2s"), "{before:?}");
 
         // The question arrives, and the next tick of the loop is what stops the
-        // clock -- the same seam every other timed row is settled on.
+        // clock -- the same seam every other timed row is settled on. The row
+        // itself is off the band while the question is up, as upstream's is
+        // (`render_input.zig:705`): what proves the clock stopped is the
+        // number it comes back with.
         shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started + Duration::from_secs(2));
         shell.settle_band(started + Duration::from_secs(30));
         assert_eq!(
-            shell.activity_row.as_deref(),
-            Some(before.as_str()),
-            "the clock ran while xfx was waiting for the user"
+            shell.activity_row, None,
+            "the turn's row was painted beside the question"
         );
         delivered(&mut shell);
 
@@ -8420,10 +8662,11 @@ mod tests {
         fixture.apply(UiEvent::Question(a_batch()));
         fixture.settle_band(started + Duration::from_secs(2));
         fixture.settle_band(started + Duration::from_secs(30));
+        // Off the band while the question is up (`render_input.zig:705`); the
+        // number it comes back with is the proof the clock stopped.
         assert_eq!(
-            fixture.activity_row.as_deref(),
-            Some(before.as_str()),
-            "the clock ran while xfx was waiting for the user"
+            fixture.activity_row, None,
+            "the turn's row was painted beside the question"
         );
 
         fixture.route_bytes(b"1");
@@ -9235,26 +9478,356 @@ mod tests {
     fn a_tool_that_refused_says_so_where_the_user_can_read_it() {
         // A denial nobody can see is the same as no denial at all, whatever
         // the reason for it: a rule in the configuration, a screen too small to
-        // ask on, or a `3` typed at the panel.
+        // ask on, or a `3` typed at the panel. Said as upstream's tool group
+        // says it -- a row and a count (`fx-approvals-cc-40x120-after-cc`) --
+        // and a refusal the tool made on its own as a `Failed` row with its
+        // reason.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::ToolStart {
-            call_id: "c1".to_string(),
-            tool: "write_file".to_string(),
-        });
-        shell.apply(UiEvent::ToolResult {
-            call_id: "c1".to_string(),
-            tool: "write_file".to_string(),
-            ok: false,
-            detail: "no approval channel".to_string(),
-        });
+        shell.apply(tool_start(
+            "c1",
+            "write_file",
+            serde_json::json!({"path": "c.txt", "content": "x"}),
+        ));
+        shell.apply(tool_ended(
+            "c1",
+            "write_file",
+            false,
+            "write_file was not permitted: no approval channel",
+            CallOutcome::Denied,
+        ));
+        shell.apply(tool_start(
+            "c2",
+            "read_file",
+            serde_json::json!({"path": "gone.txt"}),
+        ));
+        shell.apply(tool_result(
+            "c2",
+            "read_file",
+            false,
+            "no such path: `gone.txt`",
+        ));
 
         assert_eq!(
-            shell.document(),
+            shell.written(),
             vec![
-                "[tool] write_file running".to_string(),
-                "[tool] write_file refused: no approval channel".to_string(),
+                "\u{25cf} 2 tool calls \u{b7} 1 read \u{b7} 1 write \u{b7} 1 failed \u{b7} 1 denied"
+                    .to_string(),
+                "\u{251c} Denied file".to_string(),
+                "\u{2514} Failed gone.txt: no such path: `gone.txt`".to_string(),
+                String::new(),
             ]
         );
+    }
+
+    #[test]
+    fn a_tool_group_spans_the_turns_steps_and_is_closed_by_its_text() {
+        // Upstream's `tools-auto` shape: a sentence, calls across two steps in
+        // one group, then the answer (`fx-tools-auto-40x120-t10`). The group
+        // is not broken by the step boundary -- only by text.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta(
+            "I will look at the files first.\n".to_string(),
+        ));
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        shell.apply(tool_result("1", "read_file", true, ""));
+        shell.apply(tool_start(
+            "2",
+            "glob_files",
+            serde_json::json!({"pattern": "**/*.rs"}),
+        ));
+        shell.apply(tool_result("2", "glob_files", true, ""));
+        shell.apply(tool_start(
+            "3",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "ls"}),
+        ));
+        shell.apply(tool_ended(
+            "3",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::Delta("All done.".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+
+        let written = shell.written();
+        assert_eq!(
+            written[..8],
+            [
+                "  I will look at the files first.",
+                "",
+                "\u{25cf} 3 tool calls \u{b7} 1 read \u{b7} 1 list \u{b7} 1 command",
+                "\u{251c} Read a.txt",
+                "\u{251c} Matched **/*.rs",
+                "\u{2514} Ran ls",
+                "",
+                "  All done.",
+            ],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_running_command_is_the_groups_last_row_until_its_result_rewrites_it() {
+        // `└ Running <command>` under the group while it runs
+        // (`fx-tools-single-40x120-s1`), and the same row -- not a new one --
+        // once it has: the block is rewritten where it stands.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Running sleep 4",
+                ""
+            ]
+        );
+
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(3),
+        ));
+        let appends = shell.take_pending();
+        assert_eq!(appends.len(), 1, "{appends:?}");
+        assert_eq!(
+            appends[0].scroll, 0,
+            "the settled row was added rather than rewritten"
+        );
+        assert_eq!(
+            appends[0]
+                .rows
+                .iter()
+                .map(|row| colourless(row))
+                .collect::<Vec<_>>(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 failed",
+                "\u{2514} Exited 3 sleep 4",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_change_has_no_row_while_its_approval_is_pending() {
+        // `fx-approvals-40x120-write-ask`: the change being reviewed is not in
+        // the group until it is decided, and then it is, with what it changed.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "edit_file",
+            serde_json::json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+        ));
+        assert!(shell.written().is_empty(), "a pending change was drawn");
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "edit_file".to_string(),
+            ok: true,
+            detail: "Edited a.txt".to_string(),
+            outcome: CallOutcome::Finished,
+            changes: Some(LineChanges {
+                added: 1,
+                removed: 1,
+            }),
+        });
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 edit",
+                "\u{2514} Edited a.txt +1 / -1",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about() {
+        // `fx-approvals-cc-40x120-after-esc`: the call the panel was asking
+        // about never runs, so the row says `Cancelled`, the header counts it,
+        // and the call gets its own line under the group -- at the keystroke,
+        // above the sentence that answers it.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(tool_start(
+            "1",
+            "edit_file",
+            serde_json::json!({"path": "notes.txt", "old_string": "a", "new_string": "b"}),
+        ));
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        let written = shell.written();
+        assert_eq!(
+            written[..5],
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 edit \u{b7} 1 cancelled",
+                "\u{2514} Cancelled file",
+                "",
+                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "",
+            ],
+            "{written:#?}"
+        );
+        assert!(
+            written[5..]
+                .iter()
+                .any(|row| row == crate::app::INTERRUPT_NOTICE),
+            "{written:#?}"
+        );
+
+        // The panel answers the stop by refusing the call, and the runtime
+        // reports that refusal next: the same stop in the tool's words, about
+        // a row the screen has already settled, so it is not drawn again.
+        shell.apply(tool_ended(
+            "1",
+            "edit_file",
+            false,
+            "edit_file was not permitted: the user declined",
+            CallOutcome::Denied,
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let after = shell.written();
+        assert!(
+            !after.iter().any(|row| row.contains("Denied")),
+            "{after:#?}"
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
+        // A running executor holds the runtime's thread until it returns, so
+        // the stop is read after the command has finished: a `Cancelled` row at
+        // the keystroke would claim a stop the command never had. The block
+        // keeps saying `Running` above the sentence that answers the key, and
+        // the command's real result is drawn under it when it comes.
+        let mut shell = shell(24, 80);
+        let _ = turn_running(&mut shell, b"run it\r");
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+        ));
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let written = shell.written();
+        assert!(
+            !written.iter().any(|row| row.contains("Cancelled")),
+            "a stop the command never had was drawn: {written:#?}"
+        );
+        let notice = written
+            .iter()
+            .position(|row| row == crate::app::INTERRUPT_NOTICE)
+            .expect("the interrupt notice");
+        assert_eq!(
+            written[notice + 1..notice + 4],
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Ran sleep 30",
+                ""
+            ],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_call_its_turn_ended_under_is_shown_cancelled() {
+        // The runtime sends a result for every call that ran to its end; a
+        // turn that concludes without one stopped it.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "write_file",
+            serde_json::json!({"path": "c.txt", "content": "x"}),
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let written = shell.written();
+        assert_eq!(
+            written,
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 write \u{b7} 1 cancelled",
+                "\u{2514} Cancelled file",
+                "",
+                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "",
+                "the turn was cancelled",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_written_while_a_call_runs_closes_the_group_and_its_result_draws_it_again() {
+        // The document is append-only past its last block: a row written
+        // under a running call's group leaves that block as it stood, and the
+        // call's result is drawn under the row rather than above it.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "make"}),
+        ));
+        shell.apply(UiEvent::Notice("something worth saying".to_string()));
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Running make",
+                "",
+                "something worth saying",
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Ran make",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_question_the_model_asked_leaves_no_row_in_the_group() {
+        // `statusNamesAsk`: the question surface answers it, not a tool row.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "q",
+            "ask_user_question",
+            serde_json::json!({"questions": []}),
+        ));
+        shell.apply(tool_result("q", "ask_user_question", true, "answered"));
+        assert!(shell.written().is_empty());
     }
 
     #[test]
@@ -11288,12 +11861,12 @@ mod tests {
         // is still holding.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"draft the plan\r");
-        shell.apply(UiEvent::ToolResult {
-            call_id: "c1".to_string(),
-            tool: "write_file".to_string(),
-            ok: true,
-            detail: "wrote plan.md".to_string(),
-        });
+        shell.apply(tool_start(
+            "c1",
+            "write_file",
+            serde_json::json!({"path": "plan.md", "content": "x"}),
+        ));
+        shell.apply(tool_result("c1", "write_file", true, "wrote plan.md"));
         shell.apply(UiEvent::ToolFeedback {
             call_id: "c1".to_string(),
             text: "keep the header comment".to_string(),
@@ -11312,7 +11885,7 @@ mod tests {
             "the sentence is not labelled as the user's: {said:?}"
         );
         assert!(
-            !said.contains("[tool] write_file ok keep the header"),
+            !said.contains("Wrote plan.md keep the header"),
             "the sentence was folded into the tool's own row: {said:?}"
         );
     }

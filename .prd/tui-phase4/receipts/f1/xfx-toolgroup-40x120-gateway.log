@@ -1,0 +1,12 @@
+[fakegw] listening 64337
+[fakegw] completion /v3/ai/language-model -> tool read_file,read_file
+[fakegw] completion /v3/ai/language-model -> tool glob_files,grep_files
+[fakegw] completion /v3/ai/language-model -> tool terminal
+[fakegw] completion /v3/ai/language-model -> tool edit_file
+[fakegw] completion /v3/ai/language-model -> tool write_file
+[fakegw] completion /v3/ai/language-model -> tool read_file
+[fakegw] completion /v3/ai/language-model -> tool terminal
+[fakegw] completion /v3/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed
+[fakegw] completion /v3/ai/language-model -> tool write_file
+[fakegw] completion /v3/ai/language-model -> tool terminal

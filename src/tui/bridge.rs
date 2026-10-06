@@ -67,6 +67,7 @@ use tokio_util::sync::CancellationToken;
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
 use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest};
+use crate::tools::{LineChanges, Outcome, Shown};
 
 /// The most answer text one `UiEvent` may carry.
 ///
@@ -123,14 +124,23 @@ pub(crate) enum UiEvent {
     TurnStarted,
     /// A fragment of the answer, in arrival order.
     Delta(String),
-    /// A tool call was admitted and is about to run.
-    ToolStart { call_id: String, tool: String },
-    /// A tool call finished, correlated to its start by `call_id`.
+    /// A tool call was admitted and is about to run, and what the transcript
+    /// names it by.
+    ToolStart {
+        call_id: String,
+        tool: String,
+        shown: Shown,
+    },
+    /// A tool call finished, correlated to its start by `call_id`, and how it
+    /// ended for the person watching ([`Outcome`]) beside how it ended for the
+    /// model (`ok`).
     ToolResult {
         call_id: String,
         tool: String,
         ok: bool,
         detail: String,
+        outcome: Outcome,
+        changes: Option<LineChanges>,
     },
     /// Something the session wants said that is not part of an answer.
     Notice(String),
@@ -266,20 +276,36 @@ impl UiEvent {
             Self::Delta(text) => Self::Delta(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
             // the provider's half is exactly why they are not exempt.
-            Self::ToolStart { call_id, tool } => Self::ToolStart {
+            // The target is the model's own argument -- a path, a pattern, a
+            // command -- and is about to be painted into a row, so it is the
+            // least exempt string here. The verbs are this crate's `'static`
+            // words and carry nothing to make inert.
+            Self::ToolStart {
+                call_id,
+                tool,
+                shown,
+            } => Self::ToolStart {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
+                shown: Shown {
+                    presentation: shown.presentation,
+                    target: shown.target.map(inert_owned),
+                },
             },
             Self::ToolResult {
                 call_id,
                 tool,
                 ok,
                 detail,
+                outcome,
+                changes,
             } => Self::ToolResult {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
                 ok,
                 detail: inert_owned(detail),
+                outcome,
+                changes,
             },
             Self::Notice(text) => Self::Notice(inert_owned(text)),
             // **The most foreign text on this channel.** It is typed at a
@@ -839,20 +865,29 @@ fn translate(event: &Event) -> Option<UiEvent> {
         // An empty delta is a permit and a frame spent on nothing.
         Event::AssistantDelta { text } if text.is_empty() => None,
         Event::AssistantDelta { text } => Some(UiEvent::Delta(text.clone())),
-        Event::ToolStart { call_id, tool } => Some(UiEvent::ToolStart {
+        Event::ToolStart {
+            call_id,
+            tool,
+            shown,
+        } => Some(UiEvent::ToolStart {
             call_id: call_id.clone(),
             tool: tool.clone(),
+            shown: shown.clone(),
         }),
         Event::ToolResult {
             call_id,
             tool,
             ok,
             detail,
+            outcome,
+            changes,
         } => Some(UiEvent::ToolResult {
             call_id: call_id.clone(),
             tool: tool.clone(),
             ok: *ok,
             detail: detail.clone(),
+            outcome: *outcome,
+            changes: *changes,
         }),
         // Carried through, unlike `Final` and `Error`: nothing else on this
         // channel says it, and the worker's `TurnEnded` is about the turn
@@ -1301,12 +1336,15 @@ mod tests {
             UiEvent::ToolStart {
                 call_id: "1".into(),
                 tool: "read".into(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             UiEvent::ToolResult {
                 call_id: "1".into(),
                 tool: "read".into(),
                 ok: true,
                 detail: "done".into(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             UiEvent::Notice("n".into()),
             // A turn beginning is the *opposite* of one ending, and a drain
@@ -1438,12 +1476,17 @@ mod tests {
             UiEvent::ToolStart {
                 call_id: "\x1b[2Jc".into(),
                 tool: "\x1b[2Jt".into(),
+                // The model's own argument, which is what the row will quote.
+                shown: crate::tools::terminal::TERMINAL
+                    .shown(&serde_json::json!({"action": "exec", "command": "\x1b[2Jls"})),
             },
             UiEvent::ToolResult {
                 call_id: "\x1b[2Jc".into(),
                 tool: "\x1b[2Jt".into(),
                 ok: false,
                 detail: "\x1b[2Jd".into(),
+                outcome: Outcome::Denied,
+                changes: None,
             },
             UiEvent::Notice("\x1b]0;retitled\x07".into()),
             UiEvent::Approval(super::super::approval::ApprovalAsked {
@@ -1474,6 +1517,10 @@ mod tests {
             Some(UiEvent::ToolStart {
                 call_id: " [2Jc".into(),
                 tool: " [2Jt".into(),
+                shown: Shown {
+                    presentation: crate::tools::terminal::TERMINAL.presentation(),
+                    target: Some(" [2Jls".into()),
+                },
             })
         );
         assert_eq!(
@@ -1483,6 +1530,8 @@ mod tests {
                 tool: " [2Jt".into(),
                 ok: false,
                 detail: " [2Jd".into(),
+                outcome: Outcome::Denied,
+                changes: None,
             })
         );
         assert_eq!(

@@ -1,0 +1,40 @@
+├ Read b.txt
+├ Matched **/*.rs
+├ Searched alpha
+├ Ran sleep 3; echo hello from shell; ls
+├ Edited a.txt +1 / -1
+├ Denied file
+├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`
+└ Exited 3 echo boom; echo err >&2; exit 3
+
+  All done. The files were updated.
+
+  13s (↑8 ↓40)
+
+┃ and once more
+
+● 1 tool call · 1 write · 1 cancelled
+└ Cancelled file
+
+■ Cancelled file · What can xfx do differently?
+
+xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+the turn was cancelled
+┃ run the long one
+
+● 1 tool call · 1 command
+└ Running sleep 4
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Permission needed
+
+  run `sleep 4` in .
+
+> 1. Yes
+  2. Yes, and don't ask again for this exact command
+  3. No (esc)
+  2 = allow every future run of exactly `sleep 4` in . for the rest of this session, and in every later `xfx ask
+  --resume-id 1791302088534-06a54488a6620beb` of this saved session
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ask · model-a

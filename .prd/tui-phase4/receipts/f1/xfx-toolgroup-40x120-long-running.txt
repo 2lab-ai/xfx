@@ -1,0 +1,40 @@
+├ Read b.txt
+├ Matched **/*.rs
+├ Searched alpha
+├ Ran sleep 3; echo hello from shell; ls
+├ Edited a.txt +1 / -1
+├ Denied file
+├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`
+└ Exited 3 echo boom; echo err >&2; exit 3
+
+  All done. The files were updated.
+
+  13s (↑8 ↓40)
+
+┃ and once more
+
+● 1 tool call · 1 write · 1 cancelled
+└ Cancelled file
+
+■ Cancelled file · What can xfx do differently?
+
+xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+the turn was cancelled
+┃ run the long one
+
+● 1 tool call · 1 command
+└ Running sleep 4
+
+
+
+
+  Running (1s) (↑4 ↓0)
+
+┃
+
+ask · model-a
+
+
+
+
+
