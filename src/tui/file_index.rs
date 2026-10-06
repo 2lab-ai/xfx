@@ -30,14 +30,19 @@
 //!
 //! **The walk never runs on the thread that paints** ([`Files`]): a
 //! `git ls-files` on a large tree or a slow disk would freeze the band. The
-//! index is built on a worker thread and adopted whole when it lands; until a
-//! first one has, the picker says it is indexing, and once one has, a refresh
-//! searches the previous index while the next one is built -- upstream's
-//! "keeps the completed result visible through rapid large-index refreshes"
-//! (`tests/e2e/tui-file-picker.test.ts:471`). A directory listing for a path
-//! the user typed (`@src/`, `@~/`, `@../`) is read on a worker thread too
-//! (`directory_completion_job.zig`), once per directory, and the query is
-//! ranked against it here.
+//! index is built on a worker thread, which discovers every entry and then
+//! publishes them a prefix at a time, in their final order (`loadGeneration`
+//! and `fillProgressive`, `file_index.zig:790-842` and `:172-230`). The first
+//! index is searched as it grows -- rows fill in while it is published, and a
+//! query nothing published yet matches says the picker is indexing (`count > 0`
+//! or else the source's state, `input_completion_runtime.zig:838-842`). Once an
+//! index has landed, a refresh stays private until it is whole, and the
+//! previous one is searched meanwhile (`searchableGeneration`,
+//! `file_index.zig:643-650`) -- upstream's "keeps the completed result visible
+//! through rapid large-index refreshes" (`tests/e2e/tui-file-picker.test.ts:471`).
+//! A directory listing for a path the user typed (`@src/`, `@~/`, `@../`) is
+//! read on a worker thread too (`directory_completion_job.zig`), once per
+//! directory, and the query is ranked against it here.
 
 use std::cmp::Ordering;
 use std::io::Read;
@@ -763,10 +768,53 @@ fn rank_listing(entries: &[(String, Kind)], explicit: &Explicit<'_>) -> Vec<Foun
 // the worker
 // ---------------------------------------------------------------------------
 
-/// A walk in flight.
+/// How many entries one publication carries. Upstream publishes each entry as
+/// it is stored (`ready_count`, `file_index.zig:225`); a message per entry
+/// would be a hundred thousand of them for a large tree, and a run of entries
+/// is a prefix all the same.
+const PUBLISHED_AT_ONCE: usize = 512;
+
+/// What a walk's worker says.
+#[derive(Debug)]
+pub(crate) enum Published {
+    /// The next entries, in the index's order, after those already published.
+    More(Vec<Candidate>),
+    /// Every entry has been published.
+    Ready,
+    /// The index could not be built, or the walk was stopped.
+    Failed,
+}
+
+/// A walk in flight, and the prefix of its index published so far.
 struct Walk {
-    rx: Receiver<Result<Vec<Candidate>, ()>>,
+    rx: Receiver<Published>,
     stop: Arc<AtomicBool>,
+    published: Vec<Candidate>,
+}
+
+/// The worker's whole job: discovery, then publication a prefix at a time
+/// (`loadGeneration`, `file_index.zig:790-842`). A stop is looked at between
+/// publications as upstream looks at it between entries (`file_index.zig:189`).
+fn load(root: &Path, git: Option<&Path>, stop: &AtomicBool, tx: &mpsc::Sender<Published>) {
+    let Ok(entries) = discover(root, git, stop) else {
+        let _ = tx.send(Published::Failed);
+        return;
+    };
+    let mut entries = entries.into_iter();
+    loop {
+        if stop.load(Atomic::Relaxed) {
+            let _ = tx.send(Published::Failed);
+            return;
+        }
+        let run: Vec<Candidate> = entries.by_ref().take(PUBLISHED_AT_ONCE).collect();
+        if run.is_empty() {
+            break;
+        }
+        if tx.send(Published::More(run)).is_err() {
+            return;
+        }
+    }
+    let _ = tx.send(Published::Ready);
 }
 
 /// The last directory listed, and what it held -- or `Err` when it could not
@@ -791,8 +839,8 @@ pub(crate) struct Files {
     root: PathBuf,
     home: Option<PathBuf>,
     git: Option<PathBuf>,
-    /// The last index a walk finished, shared so a refresh can be searched
-    /// while the next one is built.
+    /// The last index a walk finished. A walk in flight searches its own
+    /// published prefix only while this is `None`.
     index: Option<Arc<Vec<Candidate>>>,
     /// Whether the last walk failed and there is no index to fall back on.
     failed: bool,
@@ -838,11 +886,13 @@ impl Files {
         let flag = Arc::clone(&stop);
         let spawned = std::thread::Builder::new()
             .name("xfx-file-index".to_string())
-            .spawn(move || {
-                let _ = tx.send(discover(&root, git.as_deref(), &flag));
-            });
+            .spawn(move || load(&root, git.as_deref(), &flag, &tx));
         if spawned.is_ok() {
-            self.walk = Some(Walk { rx, stop });
+            self.walk = Some(Walk {
+                rx,
+                stop,
+                published: Vec::new(),
+            });
         } else if self.index.is_none() {
             self.failed = true;
         }
@@ -852,22 +902,34 @@ impl Files {
     /// what a lookup would answer.
     pub(crate) fn poll(&mut self) -> bool {
         let mut changed = false;
-        if let Some(walk) = &self.walk {
+        // Everything published so far, not one publication a turn: a reader
+        // takes the whole prefix there is (`ready_count.load(.acquire)`,
+        // `file_index.zig:153`).
+        while let Some(walk) = &mut self.walk {
             match walk.rx.try_recv() {
-                Ok(Ok(entries)) => {
+                Ok(Published::More(run)) => {
+                    walk.published.extend(run);
+                    // A refresh is private until it is whole, so only a first
+                    // index growing changes what a lookup answers.
+                    changed |= self.index.is_none();
+                }
+                Ok(Published::Ready) => {
+                    let entries = std::mem::take(&mut walk.published);
                     self.index = Some(Arc::new(entries));
                     self.failed = false;
                     self.walk = None;
                     changed = true;
                 }
-                Ok(Err(())) | Err(TryRecvError::Disconnected) => {
+                Ok(Published::Failed) | Err(TryRecvError::Disconnected) => {
                     // A failed refresh keeps the index it had: what was true a
-                    // moment ago is a better answer than none.
+                    // moment ago is a better answer than none. A first index
+                    // that fails drops what it had published, as upstream stops
+                    // searching a failed generation (`file_index.zig:647-649`).
                     self.failed = self.index.is_none();
                     self.walk = None;
                     changed = true;
                 }
-                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Empty) => break,
             }
         }
         if let Some(listing) = &self.listing {
@@ -900,10 +962,17 @@ impl Files {
             return Lookup::Unavailable;
         }
         let Some(explicit) = explicit(query) else {
-            return match &self.index {
-                Some(index) => Lookup::Rows(search(index, query)),
-                None if self.failed => Lookup::Unavailable,
-                None => Lookup::Loading,
+            return match (&self.index, &self.walk) {
+                (Some(index), _) => Lookup::Rows(search(index, query)),
+                // The first index while it is published: what it has matched
+                // so far, or -- nothing matched yet -- that it is still loading
+                // (`input_completion_runtime.zig:838-842`).
+                (None, Some(walk)) => match search(&walk.published, query) {
+                    rows if rows.is_empty() => Lookup::Loading,
+                    rows => Lookup::Rows(rows),
+                },
+                (None, None) if self.failed => Lookup::Unavailable,
+                (None, None) => Lookup::Loading,
             };
         };
         let Some(directory) = resolve(&self.root, self.home.as_deref(), explicit.parent) else {
@@ -997,7 +1066,7 @@ pub(crate) mod tests {
             .collect()
     }
 
-    fn candidates(paths: &[&str]) -> Vec<Candidate> {
+    pub(crate) fn candidates(paths: &[&str]) -> Vec<Candidate> {
         paths
             .iter()
             .map(|path| match path.strip_suffix('/') {
@@ -1354,6 +1423,157 @@ pub(crate) mod tests {
         // A refresh searches the index it has while the next one is built.
         files.begin_episode();
         assert!(matches!(files.lookup("sch"), Lookup::Rows(_)));
+    }
+
+    /// A walk this test drives by hand: what the worker would publish is
+    /// sent on the returned sender, so a prefix can be held as long as a
+    /// test likes.
+    pub(crate) fn driven(files: &mut Files) -> mpsc::Sender<Published> {
+        let (tx, rx) = mpsc::channel();
+        files.walk = Some(Walk {
+            rx,
+            stop: Arc::new(AtomicBool::new(false)),
+            published: Vec::new(),
+        });
+        tx
+    }
+
+    fn found_paths(lookup: Lookup) -> Vec<String> {
+        match lookup {
+            Lookup::Rows(found) => found.into_iter().map(|found| found.path).collect(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // Upstream's `search returns partial results while ready_count is below
+    // total` (`file_index.zig:2425-2453`).
+    #[test]
+    fn the_first_index_is_searched_while_it_is_published() {
+        let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
+        let tx = driven(&mut files);
+        assert_eq!(files.lookup("main"), Lookup::Loading, "nothing published");
+        assert!(!files.poll(), "nothing arrived, nothing changed");
+
+        tx.send(Published::More(candidates(&[
+            "src/main.zig",
+            "src/wasm_term_main.zig",
+        ])))
+        .expect("the walk listens");
+        assert!(files.poll(), "a first index growing is a change");
+        assert_eq!(
+            found_paths(files.lookup("main")),
+            ["src/main.zig", "src/wasm_term_main.zig"]
+        );
+        assert_eq!(
+            files.lookup("README"),
+            Lookup::Loading,
+            "what the prefix does not match yet is still loading, not missing"
+        );
+
+        tx.send(Published::More(candidates(&[
+            "README.md",
+            "src/core/shared/io.zig",
+        ])))
+        .expect("the walk listens");
+        assert!(files.poll());
+        assert_eq!(found_paths(files.lookup("README")), ["README.md"]);
+        assert!(files.busy(), "published is not finished");
+
+        tx.send(Published::Ready).expect("the walk listens");
+        assert!(files.poll());
+        assert!(!files.busy());
+        assert_eq!(
+            files.lookup("nothing-like-it"),
+            Lookup::Rows(Vec::new()),
+            "a whole index that matches nothing has no matching files"
+        );
+    }
+
+    // Upstream's `active generation remains exclusive while replacement loads
+    // and is adopted once` (`file_index.zig:3213-3246`).
+    #[test]
+    fn a_refresh_is_private_until_it_is_whole() {
+        let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
+        files.index = Some(Arc::new(candidates(&["old-one.txt", "old-two.txt"])));
+        let tx = driven(&mut files);
+        tx.send(Published::More(candidates(&["new-one.txt"])))
+            .expect("the walk listens");
+        assert!(!files.poll(), "a refresh growing changes nothing shown");
+        assert_eq!(
+            found_paths(files.lookup("")),
+            ["old-one.txt", "old-two.txt"]
+        );
+
+        tx.send(Published::More(candidates(&["new-two.txt"])))
+            .expect("the walk listens");
+        tx.send(Published::Ready).expect("the walk listens");
+        assert!(files.poll(), "both arrive in one poll, and the last adopts");
+        assert_eq!(
+            found_paths(files.lookup("")),
+            ["new-one.txt", "new-two.txt"]
+        );
+    }
+
+    #[test]
+    fn a_first_index_that_fails_drops_what_it_published() {
+        let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
+        let tx = driven(&mut files);
+        tx.send(Published::More(candidates(&["src/main.rs"])))
+            .expect("the walk listens");
+        tx.send(Published::Failed).expect("the walk listens");
+        assert!(files.poll());
+        assert_eq!(files.lookup("main"), Lookup::Unavailable);
+
+        // A refresh that fails keeps the index there was.
+        let mut files = Files::new(PathBuf::from("/nonexistent-root"), None);
+        files.index = Some(Arc::new(candidates(&["src/lib.rs"])));
+        let tx = driven(&mut files);
+        drop(tx);
+        assert!(files.poll(), "a worker that vanished is a failed walk");
+        assert_eq!(found_paths(files.lookup("lib")), ["src/lib.rs"]);
+    }
+
+    #[test]
+    fn the_worker_publishes_the_index_in_order_a_run_at_a_time() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        for number in 0..(PUBLISHED_AT_ONCE * 2 + 10) {
+            write(dir.path(), &format!("f{number:05}.txt"));
+        }
+        let stop = AtomicBool::new(false);
+        let whole = discover(dir.path(), None, &stop).expect("a walk");
+        let (tx, rx) = mpsc::channel();
+        load(dir.path(), None, &stop, &tx);
+        drop(tx);
+        let mut runs = Vec::new();
+        let mut published = Vec::new();
+        let mut ended = None;
+        for message in rx {
+            match message {
+                Published::More(run) => {
+                    assert!(ended.is_none(), "nothing is published after the end");
+                    runs.push(run.len());
+                    published.extend(run);
+                }
+                other => ended = Some(other),
+            }
+        }
+        assert_eq!(
+            runs,
+            [PUBLISHED_AT_ONCE, PUBLISHED_AT_ONCE, 10],
+            "every run but the last is full"
+        );
+        assert_eq!(published, whole, "the runs are the index, in its order");
+        assert!(matches!(ended, Some(Published::Ready)));
+
+        // A stop that arrives first publishes nothing.
+        let stop = AtomicBool::new(true);
+        let (tx, rx) = mpsc::channel();
+        load(dir.path(), None, &stop, &tx);
+        drop(tx);
+        assert!(matches!(
+            rx.iter().collect::<Vec<_>>().as_slice(),
+            [Published::Failed]
+        ));
     }
 
     #[test]

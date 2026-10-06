@@ -15109,6 +15109,50 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_fill_in_while_the_first_index_is_published() {
+        use super::super::file_index::tests::{candidates, driven};
+        use super::super::file_index::Published;
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        // A walk held by hand, so the prefix can be looked at between runs.
+        let walk = driven(&mut shell.files);
+        shell.route_bytes(b"@");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!("  {}indexing files...{}", PALETTE.dim(), PALETTE.reset())
+        );
+        walk.send(Published::More(candidates(&["Cargo.toml", "README.md"])))
+            .expect("the shell holds the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_rows(&shell)[..2],
+            [
+                file_row(2, "Cargo.toml", true),
+                file_row(2, "README.md", false),
+            ],
+            "the published prefix is listed before the index is whole"
+        );
+        // The mark is kept on its path as the list grows under it.
+        shell.route_bytes(b"\x1b[B");
+        walk.send(Published::More(candidates(&["docs/", "docs/guide.md"])))
+            .expect("the shell holds the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_rows(&shell)[..4],
+            [
+                file_row(2, "Cargo.toml", false),
+                file_row(2, "README.md", true),
+                file_row(2, "docs/", false),
+                file_row(2, "docs/guide.md", false),
+            ]
+        );
+        walk.send(Published::Ready)
+            .expect("the shell holds the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(listed_rows(&shell)[1], file_row(2, "README.md", true));
+    }
+
+    #[test]
     fn a_query_narrows_the_list_and_bolds_what_it_matched() {
         let (_workspace, mut shell) = in_ws2(40, 120);
         shell.route_bytes(b"@sch");
