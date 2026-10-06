@@ -1954,7 +1954,11 @@ mod tests {
         // and drains this in a few hundred turns. The bound is a property of
         // the arithmetic and not of the tick length, and running it at the
         // real 8 ms would spend seven minutes proving the same thing.
-        let answer = "word ".repeat(70_000);
+        // In lines: the presenter writes a line once it has its end, so an
+        // answer with no break in it would reach the document only when the
+        // turn closed, and "nothing was ever released" below would be true of
+        // a correct session.
+        let answer = format!("{}\n", "word ".repeat(14)).repeat(5_000);
         let one_frame: Vec<String> = bridge::slices(&answer)
             .into_iter()
             .map(str::to_string)
@@ -3654,11 +3658,8 @@ mod tests {
     const WENT_LIGHT: &[u8] = b"\x1b[?997;2n";
     const WENT_DARK: &[u8] = b"\x1b[?997;1n";
 
-    /// The answer text's own grey, dark (`theme::DARK`'s `255`) and light
-    /// (`theme::LIGHT`'s `235`).
-    const BODY_DARK: &str = "\u{1b}[38;5;255m";
-    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
-    /// What xfx's own lines are painted in, in both modes.
+    /// What xfx's own lines are painted in, in both modes -- the rows a
+    /// recolour has to find: the answer carries no palette colour of its own.
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
     const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
 
@@ -3696,7 +3697,8 @@ mod tests {
         shell.flush_paced();
         let landed = tick(shell, band, out, failures, now);
         for wanted in [
-            format!("{BODY_DARK}a streamed answer"),
+            // In the answer's two-column gutter, and in no grey of xfx's.
+            "  a streamed answer".to_string(),
             format!("{NOTICE_DARK}[tool] read_file ok"),
         ] {
             assert!(
@@ -3709,12 +3711,14 @@ mod tests {
     #[test]
     fn a_theme_report_recolours_the_document_rows_that_are_still_on_the_screen() {
         // The whole of what U-B is for. A background that went light leaves
-        // every answer row already on the screen painted in the dark palette's
-        // near-white -- on white -- and this phase repaints no document row, so
-        // without this they stay that way for as long as the session lasts.
+        // every one of xfx's own rows already on the screen painted in the dark
+        // palette's pale grey -- on white -- and this phase repaints no
+        // document row, so without this they stay that way for as long as the
+        // session lasts.
         //
         // What may move is the colour around a row and nothing inside one: the
-        // text, its place and the user's own echo are what they were.
+        // text, its place, the answer and the user's own echo are what they
+        // were.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -3726,13 +3730,13 @@ mod tests {
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
 
         assert!(
-            written.contains(&format!("{BODY_LIGHT}a streamed answer")),
-            "the answer on the screen was not repainted for the terminal the \
-             user has now: {written:?}"
-        );
-        assert!(
             written.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
             "xfx's own line kept the palette the session started in: {written:?}"
+        );
+        assert!(
+            !written.contains("a streamed answer"),
+            "the recolour rewrote the answer, which carries no grey of xfx's \
+             to recolour: {written:?}"
         );
         assert!(
             !written.contains('\n'),
@@ -3771,7 +3775,7 @@ mod tests {
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
 
         assert!(
-            !written.contains("an answer") && !written.contains("[tool] ran"),
+            !written.contains("a streamed answer") && !written.contains("[tool] read_file ok"),
             "a report that changed nothing in the end still rewrote the \
              document: {written:?}"
         );
@@ -3807,7 +3811,7 @@ mod tests {
 
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            written.contains(&format!("{BODY_LIGHT}a streamed answer")),
+            written.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
             "the recolour the screen refused was never offered again: {written:?}"
         );
         assert!(!shell.owes_retint());
@@ -3822,7 +3826,7 @@ mod tests {
         shell.route_bytes(WENT_LIGHT);
         let converged = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !converged.contains(&format!("{BODY_DARK}a streamed answer")),
+            !converged.contains(&format!("{NOTICE_DARK}[tool] read_file ok")),
             "the retry wrote the palette of the report that was refused rather \
              than the one the terminal has now: {converged:?}"
         );
@@ -3888,7 +3892,7 @@ mod tests {
         shell.route_bytes(WENT_LIGHT);
         let borrowed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !borrowed.contains("an answer"),
+            !borrowed.contains("[tool] read_file ok"),
             "the document was repainted onto the buffer the question borrowed: \
              {borrowed:?}"
         );
@@ -3903,7 +3907,7 @@ mod tests {
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            back.contains(&format!("{BODY_LIGHT}a streamed answer")),
+            back.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
             "the recolour never landed after the plane came back: {back:?}"
         );
     }
@@ -3934,7 +3938,8 @@ mod tests {
             for tick_number in 0..2 {
                 let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
                 assert!(
-                    !written.contains("an answer") && !written.contains("[tool] ran"),
+                    !written.contains("a streamed answer")
+                        && !written.contains("[tool] read_file ok"),
                     "tick {tick_number} with the report {} the clear brought \
                      erased history back: {written:?}",
                     if report_first { "before" } else { "after" }
@@ -3967,7 +3972,8 @@ mod tests {
             for tick_number in 0..2 {
                 let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
                 assert!(
-                    !written.contains("an answer") && !written.contains("[tool] ran"),
+                    !written.contains("a streamed answer")
+                        && !written.contains("[tool] read_file ok"),
                     "tick {tick_number} with the report {} the resize repainted \
                      a screen that no longer exists: {written:?}",
                     if report_first { "before" } else { "after" }
@@ -4062,7 +4068,7 @@ mod tests {
         );
         let repairing = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !repairing.contains("a streamed answer"),
+            !repairing.contains("[tool] read_file ok"),
             "a deferred recolour was paid out of a shadow that is not this \
              screen's: {repairing:?}"
         );
@@ -4093,12 +4099,14 @@ mod tests {
 
     #[test]
     fn a_report_in_the_middle_of_a_stream_leaves_nothing_in_the_old_palette() {
-        // The unfinished line is on the screen like any other document row, so
-        // it is recoloured like one -- and what the pacer releases behind the
-        // report is written in the palette that is in force when it lands
-        // (U-A's `Transcript::emit_front`). The two halves must not disagree:
-        // a session that recoloured only the finished rows would leave the row
-        // the answer is still growing on in the greys of the terminal that was.
+        // The row already on the screen is recoloured like any other document
+        // row -- and what the pacer releases behind the report is written in
+        // the palette that is in force when it lands (U-A's
+        // `Transcript::emit_front`). The two halves must not disagree: a
+        // session that recoloured only the rows on the screen, or painted only
+        // what came after, would leave one of them in the greys of the
+        // terminal that was. The answer carries no palette colour of its own,
+        // so the rows on either side of the report are xfx's own lines.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -4106,11 +4114,12 @@ mod tests {
         let now = Instant::now();
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         shell.apply(UiEvent::Delta("half an answer".to_string()));
+        shell.apply(UiEvent::Notice("[tool] read".to_string()));
         shell.flush_paced();
         let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            dark.contains(&format!("{BODY_DARK}half an answer")),
-            "the unfinished line never reached the screen: {dark:?}"
+            dark.contains(&format!("{NOTICE_DARK}[tool] read")),
+            "the line before the report never reached the screen: {dark:?}"
         );
 
         shell.route_bytes(WENT_LIGHT);
@@ -4120,22 +4129,25 @@ mod tests {
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
 
         assert!(
-            written.contains(&format!("{BODY_LIGHT}half an answer")),
-            "the row the answer is still growing on kept the old palette: \
-             {written:?}"
+            written.contains(&format!("{NOTICE_LIGHT}[tool] read")),
+            "the row on the screen kept the old palette: {written:?}"
         );
         assert!(
-            written.contains(NOTICE_LIGHT) && written.contains("[tool] ran"),
+            written.contains(&format!("{NOTICE_LIGHT}[tool] ran")),
             "the notice that arrived with the report is not in the palette it \
              landed in: {written:?}"
         );
         assert!(
-            // The notice is named rather than its grey alone: the light
+            // The notices are named rather than their grey alone: the light
             // palette paints the **divider** in the same 250 that a dark
             // notice is, and the divider is the band's own row.
-            !written.contains(BODY_DARK) && !written.contains(&format!("{NOTICE_DARK}[tool] ran")),
+            !written.contains(&format!("{NOTICE_DARK}[tool] ")),
             "a row went to the screen in the palette the session has left: \
              {written:?}"
+        );
+        assert!(
+            written.contains("  and the rest"),
+            "the answer behind the report never landed: {written:?}"
         );
     }
 
@@ -5275,8 +5287,8 @@ mod tests {
         // between two things the loop does not order:
         //
         //   * a submitted line is echoed into the document **immediately**
-        //     (`Shell::say` -> `Mark::Line`), and an append places the document's
-        //     newest row at `band_top - 1`;
+        //     (`Shell::echo` -> `Mark::Card`), and an append places the
+        //     document's newest row at `band_top - 1`;
         //   * the turn it started is announced by the **runtime** a moment later
         //     (`UiEvent::TurnStarted`), and the activity row that appears grows
         //     the band by one -- so `band_top` becomes the row that echo is on.
@@ -5317,8 +5329,12 @@ mod tests {
         )
         .expect("the frame that appends the echo");
         let echoed = String::from_utf8_lossy(&out.written).into_owned();
+        // The card's row: the rail in the hint grey, and the text in bold.
         assert!(
-            echoed.contains(&format!("\u{1b}[{};1Hsay hello", idle_top - 1)),
+            echoed.contains(&format!(
+                "\u{1b}[{};1H\u{1b}[38;5;255m\u{2503}\u{1b}[0m \u{1b}[1msay hello",
+                idle_top - 1
+            )),
             "the echo was not appended to the bottom document row: {echoed:?}"
         );
 
