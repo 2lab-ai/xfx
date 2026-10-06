@@ -4274,6 +4274,45 @@ mod tests {
     }
 
     #[test]
+    fn a_reset_at_an_approval_stops_the_turn_and_ends_it_as_a_reset() {
+        // `/clear`, `/new` or `/reset` reaching a turn parked at an approval:
+        // the prompter refuses the question and hands the message back to the
+        // loop (`super::super::approval`'s catch-all), which stops the turn
+        // exactly as a Ctrl-C does -- and says the conversation goes with it.
+        let mut session = AskingSession::new(PermissionMode::Ask);
+        let provider = ScriptedProvider::new(vec![
+            calls(vec![
+                call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "asked-about.txt", "content": "first\n"}),
+                ),
+                call(
+                    "call-2",
+                    "write_file",
+                    serde_json::json!({"path": AFTER_THE_INTERRUPT, "content": "second\n"}),
+                ),
+            ]),
+            answers("a second request the reset turn must not have made"),
+        ]);
+
+        let ran = session.turn_while_typing(&provider, an_approval, |_none| {
+            vec![TurnControl::Reset { through: 0 }]
+        });
+
+        assert!(ran.stopped, "the reset never reached the loop");
+        assert_eq!(ran.ended, Ended::Reset(0));
+        assert!(
+            matches!(ran.outcome, Err(crate::agent::TurnError::Cancelled)),
+            "{:?}",
+            ran.outcome
+        );
+        assert!(!session.workspace.path().join("asked-about.txt").exists());
+        assert!(!session.written().exists());
+        assert_eq!(provider.requests(), 1);
+    }
+
+    #[test]
     fn a_provider_with_no_catalog_is_said_in_the_line_shells_words() {
         // `[shell] catalog=unavailable (this provider advertises none)` on the
         // line shell; `* catalog: unavailable (…)` here. If the line shell's

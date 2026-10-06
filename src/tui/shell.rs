@@ -700,7 +700,8 @@ pub(crate) struct Shell {
     /// somebody else had the terminal above all. Cleared only by a handoff,
     /// which leaves a screen this session wrote every row of. While it is up a
     /// reset carries the blank row a document ends on into scrollback rather
-    /// than guess that it is there ([`Self::handoff`]).
+    /// than guess that it is there ([`Self::handoff`]) -- and so does a reset
+    /// already owed when it is raised.
     tail_unknown: bool,
     /// Whether the work a reset cancelled is still reporting: the count the
     /// last reset quoted, until the runtime's fence for it arrives.
@@ -3244,6 +3245,9 @@ impl Shell {
     /// else's in between (`super::event_loop`'s `adopt_resume`).
     pub(crate) fn external_damage(&mut self) {
         self.tail_unknown = true;
+        // A handoff still owed was measured against rows this damage may have
+        // changed; it carries the blank tail it was going to leave out.
+        self.handoff = self.handoff.map(|_| 0);
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
         self.damage_untold = true;
@@ -4818,6 +4822,10 @@ impl Shell {
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
         self.tail_unknown = true;
+        // And a handoff still owed -- deferred behind a question or a screen
+        // no band fits on -- was measured against the rows the terminal has
+        // just reflowed.
+        self.handoff = self.handoff.map(|_| 0);
         let Some(geometry) = self.fit(rows, cols) else {
             return Resize::TooSmall;
         };
@@ -10670,6 +10678,28 @@ mod tests {
             0,
             "a tail the terminal reflowed was taken as known"
         );
+        // The same when the reflow comes after the reset, while its handoff
+        // is still owed: the spacing was measured against rows that moved.
+        let mut deferred = shell(24, 80);
+        ends_blank(&mut deferred);
+        let _ = deferred.take_pending();
+        deferred.route_bytes(b"/clear\r");
+        assert_eq!(deferred.handoff_spacing(), 1);
+        assert!(matches!(deferred.resize(30, 100), Resize::Repaint(_)));
+        assert_eq!(
+            deferred.handoff_spacing(),
+            0,
+            "a reflow under an owed handoff kept its spacing"
+        );
+        assert!(deferred.owes_handoff(), "the reflow dropped the handoff");
+        let mut damaged = shell(24, 80);
+        ends_blank(&mut damaged);
+        let _ = damaged.take_pending();
+        damaged.route_bytes(b"/new\r");
+        damaged.external_damage();
+        assert_eq!(damaged.handoff_spacing(), 0);
+        assert!(damaged.owes_handoff());
+
         // A handoff leaves a screen this session wrote every row of.
         reflowed.handed_off();
         ends_blank(&mut reflowed);
