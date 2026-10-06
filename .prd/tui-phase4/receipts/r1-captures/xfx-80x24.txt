@@ -1,0 +1,24 @@
+
+
+
+
+
+
+
+/help
+
+xfx shell commands
+  /help     list these commands
+  /new      start a new session; the next prompt begins a fresh conversation
+  /clear    clear the screen; the conversation and its session are kept
+  /model    show the model, or `/model <id>` to use another one from now on
+  /setup    `/setup <gateway|llmux>` to switch provider and record the choice
+  /version  show the version this shell was built from
+  /quit     leave the shell (also /exit)
+Anything else is a prompt. Ctrl-C stops a running turn; Ctrl-D leaves.
+/status
+
+xfx: `/status` is not an xfx command; /help lists its 7 commands
+────────────────────────────────────────────────────────────────────────────────
+>
+auto · glm-5.2
