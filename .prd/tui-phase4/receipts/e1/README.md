@@ -50,4 +50,31 @@ The three scenarios are added in this unit. `filepicker` and `filepicker-keys` w
 - **The request text.** fx sends `"text":"@docs/guide.md "` (`fx-filepicker-40x120-bodies/002-completion.json`), xfx `"text":"@docs/guide.md"` (`xfx-…-bodies/001-completion.json`). The mention itself is the same plain text in both, no attachment; the trailing space is trimmed because xfx trims every prompt it sends (`src/interactive.rs:436-441`, `classify`) -- not this unit's surface, and not visible on the screen.
 - **fx's title request.** fx asks its gateway for a session title first (`001-title.json`); xfx does not. Unrelated to the picker.
 - **Not captured, unit-tested instead:** the `indexing files...` row (both binaries index nine files faster than a capture can see), `no matching files` (`shell.rs` `an_unmatched_mention_is_sent_by_enter`), `Directory unavailable. tab to retry; esc to dismiss.` and the git work-tree listing (`file_index.rs` `a_work_tree_is_listed_by_git_and_its_ignore_rules_hold`).
-- **Keys this unit leaves alone:** Shift-Tab (the `/permissions` unit binds it to the runtime mode switch), Ctrl-P (stays history-previous until D2's model catalog exists, ssot divergence 8), Ctrl-V (fx attaches a clipboard *image*, `app_input_runtime.zig:1562-1568` → `image_commands.zig:86-103`; xfx's request has no image attachment, so it is class B and stays unbound).
+- **Keys this unit leaves alone:** Shift-Tab (the `/permissions` unit binds it to the runtime mode switch), Ctrl-V (fx attaches a clipboard *image*, `app_input_runtime.zig:1562-1568` → `image_commands.zig:86-103`; xfx's request has no image attachment, so it waits for `/image`). Ctrl-P was left here in round 1 and is the model catalog since round 2 (below).
+
+## Round 2: C-p, Alt-Backspace, the catalog's page keys, Super+A/C/X
+
+Captured on 2026-10-07 on `067e401` (this branch with `plan/tui-phase4` at `41eb61c` merged), the banner reading `v0.1.0-067e401`:
+
+```
+scripts/fxcap/capture.sh {fx,xfx} composer-keys 40x120 <dir>
+scripts/fxcap/capture.sh {fx,xfx} composer-keys 24x80  <dir>
+```
+
+`composer-keys` is added in this round. It loads D2a's catalog (`models models.json`, the same seeds as `model.cap`), works in `filepicker-ws`, and types Super+A/C/X as kitty `CSI <key> ; 9 u` bytes -- tmux hands them to the pane as they are, and both binaries decode that report whether or not they pushed the kitty mode. xfx waits three seconds longer before the first keystroke: a debug build at load average ~25 took the terminal after fx's two and a half, and a first attempt lost `draft words` and `C-p` to the terminal's own echo. Sanitized as round 1; the scenario sends no turn, so there are no request bodies.
+
+| Snap | What it shows | 40x120 | 24x80 |
+|---|---|---|---|
+| `cp-open` | `draft words`, then C-p: the composer empty, `Models 4  [All]  Anthropic  OpenAI  xAI  Others`, four rows, the API-key note, `↑↓ navigate     tab provider     enter use     esc close` (`openModelPickerShortcut`, `app_input_runtime.zig:2356-2375`) | 12/12 | 12/12 |
+| `cp-esc` | Escape: the menu closes and `draft words` is back in the composer (`restoreModelPickerDraft`, `:2377-2386`) | 3/3 | 3/3 |
+| `alt-bs` | `foo.bar`, Alt-Backspace (`M-BSpace`, `ESC DEL`): `foo.` -- the word characters only (`wordLeftRange`, `composer_deletion.zig:103-136`) | 3/3 | 3/3 |
+| `help` / `help-pgdn` / `help-pgup` | `/help`, PgDn, PgUp | see below | see below |
+| `super-a` | `select me`, Super+A: the draft in reverse video, `ESC[7mselect meESC[0m` (`input_presentation.zig:995-1021`) | 3/3 | 3/3 |
+| `super-c` | Super+C: the screen unchanged, nothing said, `select me` on the clipboard (`.clip`, both binaries) | 3/3 | 3/3 |
+| `super-x` | Super+X: the composer empty, `select me` on the clipboard (`cutSelection`, `input_selection_runtime.zig:32-42`) | 3/3 | 3/3 |
+
+Every snap but the three `/help` ones is byte-identical beyond row 1 at both sizes. **The `/help` snaps differ in what the catalog lists, not in how it pages**: fx's registry has 36 commands and xfx's 16 (`Commands 36` against `Commands 16`, and rows such as `/undo`, `/compact`, `/fast` that xfx does not have). The paging is the same rule on both: at 24x80 a page is eleven rows in both -- PgDn moves the mark from the first row to the twelfth, the last one visible (fx's `/compact`, xfx's `/stats`), the window still starting at `/help`, and PgUp brings it back -- and at 40x120 a page is nineteen (`inputRowLimit`, `input_presentation.zig:246-249`): fx's 36 rows take the mark to row 20 (`/fast`), while xfx's 16 are fewer than a page, so the mark goes past the end and wraps to the first, and PgUp from there wraps to the last (`/permissions`) -- fx's own `HelpMenu.move` rule (`command_specs.zig:232-247`, past the end to the first, before the start to the last). The rows that are in both lists are byte-identical, the marked one included.
+
+**Re-run of round 1 on the same tree (`067e401`):** `filepicker` at both sizes, `filepicker-keys` at 40x120 and `filepicker-narrow` at both sizes -- the 33 snaps, every band row identical, and this time nothing differs beyond row 1 at all.
+
+**Not captured, unit-tested instead:** the published prefix of a first index (`file_index.rs` `the_first_index_is_searched_while_it_is_published`, `shell.rs` `the_rows_fill_in_while_the_first_index_is_published`) -- nine files publish in one run, faster than a capture can see -- and the `/resume` picker's page keys and `C-k`/`C-j` (`shell.rs` `the_page_keys_and_ctrl_j_k_move_the_resume_pickers_mark_and_stop_at_the_ends`), which need saved sessions the capture home does not have.

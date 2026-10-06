@@ -1,0 +1,49 @@
+# E1 round 2: C-p opens the model catalog with the draft lent out and Escape
+# gives it back; Alt-Backspace deletes by word characters; the /help catalog
+# pages; Super+A/C/X select, copy and cut the draft (kitty CSI u, typed as
+# literal bytes -- tmux passes them to the pane as they are).
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+work filepicker-ws
+wait 2.5
+# A debug xfx under load takes the terminal later than fx does.
+xfx: wait 3
+type draft words
+key C-p
+wait 1.5
+snap cp-open
+key Escape
+wait 0.7
+snap cp-esc
+key C-u
+type foo.bar
+key M-BSpace
+wait 0.4
+snap alt-bs
+key C-u
+type /help
+key Enter
+wait 1.2
+snap help
+key NPage
+wait 0.5
+snap help-pgdn
+key PPage
+wait 0.5
+snap help-pgup
+key Escape
+wait 0.7
+type select me
+type [97;9u
+wait 0.5
+snap super-a
+type [99;9u
+wait 0.8
+snap super-c
+clip super-c
+type [120;9u
+wait 1.0
+snap super-x
+clip super-x
