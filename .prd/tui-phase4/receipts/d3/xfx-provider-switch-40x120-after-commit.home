@@ -1,0 +1,12 @@
+== ./.xfx/settings.json
+{
+  "backend": "gateway",
+  "llmux_url": "http://127.0.0.1:9",
+  "model": "fake/model-a",
+  "models": {
+    "gateway": "fake/model-a",
+    "llmux": "fake/model-a"
+  },
+  "provider": "gateway"
+}
+

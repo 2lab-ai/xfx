@@ -825,20 +825,16 @@ mod tests {
             "{:?}",
             ranks(&live)
         );
-        // Deterministic within a rank: registry order, which is `/help`'s.
-        assert_eq!(
-            labels(&live)[1..],
-            [
-                "/help",
-                "/clear",
-                "/new",
-                "/reset",
-                "/setup",
-                "/model",
-                "/statusline",
-                "/version"
-            ]
-        );
+        // Deterministic within a rank: registry order, which is `/help`'s --
+        // every other name with an `e` after its slash, read off the registry
+        // so a command added with one is a row here rather than a failure.
+        let substrings: Vec<&str> = crate::interactive::SLASH_REGISTRY
+            .iter()
+            .map(|spec| spec.name)
+            .filter(|name| name != &"/quit" && name[1..].contains('e'))
+            .collect();
+        assert_eq!(labels(&live)[1..], substrings[..]);
+        assert!(substrings.contains(&"/help") && substrings.contains(&"/version"));
         // The slash is not a letter of any name: a second one finds nothing.
         assert!(Picker::open("//").is_none());
     }
@@ -920,25 +916,28 @@ mod tests {
             )
         );
         assert_eq!(rows[1], "", "the blank row under the header");
-        // The names in view are padded to the widest of them -- six cells,
-        // `/clear`, `/reset`, `/setup` and `/stats` alike -- plus the
-        // three-column gap; the categories share one column that ends a cell
-        // short of the edge, each written from its left.
+        // The names in view are padded to `/provider`, the widest of them,
+        // plus the three-column gap; the categories share one column that
+        // ends a cell short of the edge, each written from its left.
         let body: Vec<String> = rows[2..].iter().map(|row| plain(row)).collect();
         let expected = [
             ("/help", "show available slash commands", "General"),
             ("/clear", SLASH_REGISTRY[1].summary, "General"),
             ("/new", "start a fresh session", "Session"),
             ("/reset", "reset the current session context", "Session"),
-            ("/setup", SLASH_REGISTRY[4].summary, "Account"),
+            (
+                "/provider",
+                "choose the model provider and how it signs in",
+                "Account",
+            ),
             ("/stats", "show token and turn statistics", "Account"),
         ];
         for (row, (name, summary, category)) in body.iter().zip(expected) {
             assert_eq!(
                 *row,
                 format!(
-                    "  {name:<9}{summary}{}{category}",
-                    " ".repeat(112 - 11 - summary.len())
+                    "  {name:<12}{summary}{}{category}",
+                    " ".repeat(112 - 14 - summary.len())
                 ),
                 "{row:?}"
             );
@@ -957,8 +956,8 @@ mod tests {
             rows[4],
             format!(
                 "{MARKED}  /new{}{DIM}{summary}{}{DIM}Session{RESET}",
-                " ".repeat(11 - 6),
-                " ".repeat(112 - 11 - summary.len()),
+                " ".repeat(14 - 6),
+                " ".repeat(112 - 14 - summary.len()),
             )
         );
         // Every other row is dim from its first cell to its last.

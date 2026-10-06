@@ -258,6 +258,54 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn slash_permissions_says_the_mode_changes_it_and_records_it() {
+    // The line shell's half of `/permissions`: upstream's `[permissions] …`
+    // text lines, the same words as the TUI's notices, and the same profile
+    // key written.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/permissions");
+    let text = session.wait_for("[permissions] usage:");
+    for row in [
+        "[permissions] mode=auto",
+        "[permissions] configured rules: (none)",
+        "[permissions] session grants: (none)",
+        "[permissions] saved-session permission rules: none",
+        "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+    ] {
+        assert!(text.contains(row), "{row} missing: {text}");
+    }
+    assert!(!text.contains("remember"), "{text}");
+
+    session.type_line("/permissions Full-Access");
+    let text = session.wait_for("mode set to full access");
+    assert!(
+        text.contains("[permissions] mode set to full access"),
+        "{text}"
+    );
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "yolo"}));
+
+    session.type_line("/permissions");
+    session.wait_for("[permissions] mode=full access");
+
+    session.type_line("/permissions reset");
+    session.wait_for("[permissions] permissions reset to ask, session grants cleared");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "ask"}));
+
+    session.type_line("/permissions bogus");
+    session.wait_for("xfx: usage: /permissions [ask|auto|full-access|reset]");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_help_lists_exactly_the_canonical_commands() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
@@ -273,24 +321,17 @@ fn slash_help_lists_exactly_the_canonical_commands() {
         assert!(text.contains(command), "help omits {command}: {text}");
     }
     assert!(
-        text.contains("/setup"),
-        "the seventh canonical command is not advertised: {text}"
+        text.contains("/provider") && text.contains("(also /setup)"),
+        "the provider command and its alias are not advertised: {text}"
     );
     // Advertisement is a promise here too: no deferred upstream slash command
     // may appear. `/setup` left this list when it stopped being deferred, and
-    // `/stats` and `/status` after it; `/models` and `/provider` did not,
-    // because the catalog browser is reached by a bare `/model` rather than by
-    // a command of its own.
+    // `/stats`, `/status` and `/permissions` after it, and `/provider` when it
+    // became the canonical name of the same command with `/setup` as its
+    // alias; `/models` did not, because the catalog browser is reached by a
+    // bare `/model` rather than by a command of its own.
     for absent in [
-        "/resume",
-        "/login",
-        "/permissions",
-        "/models",
-        "/provider",
-        "/mcp",
-        "/undo",
-        "/usage",
-        "/image",
+        "/resume", "/login", "/models", "/mcp", "/undo", "/usage", "/image",
     ] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
@@ -347,6 +388,35 @@ fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
     let text = session.wait_for("draws none");
     assert!(!text.contains("ansi_bytes="), "{text}");
 
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
+    // The same switch, saved to the same file the full-screen shell reads; and
+    // the line that says so, because this shell's question is the shared stdin
+    // prompter's and rings nothing.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command();
+    command.env("XFX_SOUND", "off");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/sound");
+    let text = session.wait_for("rings none");
+    assert!(text.contains("[shell] sound: on;"), "{text}");
+    assert_eq!(
+        sandbox.settings(),
+        Some(json!({"notifications": {"turn_end": true, "attention_required": true}}))
+    );
+    session.type_line("/sound max");
+    session.wait_for("usage: /sound [on|off]");
+    session.type_line("/sound off");
+    session.wait_for("[shell] sound: off;");
+    assert_eq!(
+        sandbox.settings(),
+        Some(json!({"notifications": {"turn_end": false, "attention_required": false}}))
+    );
     assert_eq!(session.quit().code(), Some(0));
 }
 

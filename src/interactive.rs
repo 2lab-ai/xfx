@@ -63,12 +63,14 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/clear",
     "/new",
     "/reset",
-    "/setup",
+    "/provider",
     "/stats",
     "/status",
     "/model",
+    "/permissions",
     "/copy",
     "/statusline",
+    "/sound",
     "/version",
     "/quit",
 ];
@@ -126,15 +128,18 @@ pub struct SlashSpec {
 /// **Upstream's order, upstream's categories, and upstream's words where the
 /// command is upstream's command** (`vercel-labs/fx@c1db9191
 /// src/builtins/commands.zig:463-499`), because the menu shows all three. The
-/// rows xfx does not have are absent rather than stubbed. Two summaries stay
-/// xfx's own, each because upstream's sentence describes something this
-/// command does not do: `/setup` (upstream's `/provider` picker, `:472`, which
-/// also chooses how a provider signs in; this one takes the provider as an
-/// argument and signs nothing in) and `/model` (upstream chooses a reasoning
-/// effort as well, `:478`; xfx sends none). `/clear`, `/new` and `/reset` are
-/// one operation, as upstream's are (`app_commands.zig:667-680`), and carry
-/// upstream's three sentences (`:464-466`).
-/// `/stats` keeps upstream's sentence although what it prints is the
+/// rows xfx does not have are absent rather than stubbed. One summary stays
+/// xfx's own, because upstream's sentence describes something this command
+/// does not do: `/model` (upstream chooses a reasoning effort as well,
+/// `:478`; xfx sends none). `/clear`, `/new` and `/reset` are one operation, as
+/// upstream's are (`app_commands.zig:667-680`), and carry upstream's three
+/// sentences (`:464-466`). `/provider` is upstream's row whole -- name, `/setup`
+/// alias, sentence and category (`:472`) -- and is the one whose sentence
+/// promises more than xfx's picker shows: the provider column is there, the
+/// sign-in columns after it are gated (zbrain open-loop #88) and absent, as
+/// `docs/parity.md` says.
+/// `/permissions` is upstream's sentence with this product's name in it
+/// (`:479`). `/stats` keeps upstream's sentence although what it prints is the
 /// terminal writer's counters rather than tokens: so does upstream's
 /// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
 /// the one the menu shows beside the name.
@@ -174,9 +179,12 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
     },
     SlashSpec {
         command: Slash::Setup,
-        name: "/setup",
-        aliases: &[],
-        summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
+        name: "/provider",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:472`), and the
+        // name this command had before it was upstream's row.
+        aliases: &["/setup"],
+        summary: "choose the model provider and how it signs in",
         category: "Account",
         has_args: true,
     },
@@ -205,6 +213,14 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: true,
     },
     SlashSpec {
+        command: Slash::Permissions,
+        name: "/permissions",
+        aliases: &[],
+        summary: "choose what xfx is allowed to do",
+        category: "Security",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Copy,
         name: "/copy",
         aliases: &[],
@@ -219,6 +235,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         // Upstream's words (`commands.zig:494`); the grammar is
         // `STATUSLINE_USAGE`, which the refusal prints.
         summary: "toggle status line segments",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Sound,
+        name: "/sound",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:495`). The bell is the one sound
+        // xfx makes, and it is a sound: what the terminal does with it -- a
+        // beep, a flash, a mark on a multiplexer's tab -- is the terminal's.
+        summary: "toggle sounds and terminal bells",
         category: "Appearance",
         has_args: true,
     },
@@ -435,10 +462,22 @@ pub enum Slash {
     /// and the only one that reaches the network, which is why it is a command
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
+    ///
+    /// `/provider`, with `/setup` as its alias. The variant keeps the name the
+    /// command had when `/setup` was canonical: it names what the command does
+    /// (`provider::setup`), and every surface reaches it by parsing the
+    /// registry rather than by spelling it.
     Setup,
+    /// What the session may do without asking, and the way to change it:
+    /// `ask`, `auto`, `full-access` or `reset`
+    /// ([`crate::permission::slash`]).
+    Permissions,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// Upstream's sound switch, which here is the terminal bell
+    /// ([`crate::sound`]).
+    Sound,
     /// What the terminal writer has done this session: upstream's five render
     /// counters.
     Stats,
@@ -692,6 +731,49 @@ impl Conversation {
             permission_grants: self.tools.permissions().grants().len() as u64,
         }
     }
+
+    /// Puts this conversation's authority in `mode`, forgetting every
+    /// "always" it holds when `clear_grants` -- `/permissions <mode>` and
+    /// `/permissions reset`, on either surface.
+    ///
+    /// **Here, and not by building a new authority**, because the authority is
+    /// built once per conversation and holds what an "always" answer is worth
+    /// for the rest of it: a fresh one would forget the grants a mode change
+    /// must keep. A mode that differs from the one the log last recorded is
+    /// written down, as a resume does (`crate::tui`'s worker, `app::run_ask`),
+    /// so a later resume reads what this session really ran under.
+    ///
+    /// Grants already recorded in the log stay there: `reset` forgets them for
+    /// this process, as upstream's does (`permission_engine.clear`), and the log
+    /// has no event that revokes one.
+    pub(crate) fn set_permission_mode(&mut self, mode: PermissionMode, clear_grants: bool) {
+        {
+            let mut authority = self.tools.permissions();
+            authority.set_mode(mode);
+            if clear_grants {
+                authority.clear_grants();
+            }
+        }
+        if self.recorder.state().permission_mode != mode {
+            self.recorder.commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: Some(mode.label().to_string()),
+            });
+        }
+    }
+
+    /// This conversation's grants, one ` - <tool> -> <target>` row each
+    /// ([`crate::permission::slash::grant_line`]), not yet made safe to print.
+    pub(crate) fn grant_lines(&self, workspace_root: &std::path::Path) -> Vec<String> {
+        self.tools
+            .permissions()
+            .grants()
+            .iter()
+            .map(|grant| {
+                crate::permission::slash::grant_line(&grant.tool, &grant.target, workspace_root)
+            })
+            .collect()
+    }
 }
 
 /// What `/status` reports on either surface: the configuration a turn here
@@ -831,8 +913,7 @@ pub async fn run(
         }
     };
 
-    let mode = config.permission_mode;
-    if mode == PermissionMode::Yolo {
+    if config.permission_mode == PermissionMode::Yolo {
         writeln!(diagnostics, "{YOLO_WARNING}")?;
     }
 
@@ -852,6 +933,10 @@ pub async fn run(
     let mut selector = ModelSelector::new(&config);
     let mut model = selector.model().to_string();
     let mut conversation: Option<Conversation> = None;
+    // Where `/sound` stands. Read once and then moved only by `/sound`: a
+    // `/setup` re-reads the configuration, and a provider switch is not a
+    // reason for the sound to change under the user.
+    let mut sound = config.notifications;
     // Built on first use: a shell must open on a machine with no credential --
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
@@ -927,12 +1012,19 @@ pub async fn run(
                         )?;
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Permissions => {
+                        apply_permissions(&argument, &mut config, conversation.as_mut())?;
+                    }
                     Slash::Statusline => statusline_on_the_line(
                         &argument,
                         &mut config,
                         &mut io::stdout(),
                         &mut io::stderr(),
                     )?,
+                    Slash::Sound => {
+                        sound =
+                            apply_sound(&argument, sound, config.user_settings_path.as_deref())?;
+                    }
                 }
                 io::stdout().flush()?;
             }
@@ -950,7 +1042,10 @@ pub async fn run(
                         &store,
                         &config,
                         &model,
-                        crate::app::permission_session(mode),
+                        // The configuration's mode rather than the launch's:
+                        // `/permissions` moves it, and a conversation opened
+                        // after that is opened in the mode the user chose.
+                        crate::app::permission_session(config.permission_mode),
                         // fx's interactive shell is xfx's TUI, not this line
                         // shell: this loop reads one line at a time from
                         // standard input and has nowhere to render a question
@@ -1318,6 +1413,83 @@ async fn apply_model(
     }
 }
 
+/// Applies `/permissions`, with the TUI's meaning in this shell's lines.
+///
+/// The words are [`crate::permission::slash`]'s, so the two surfaces say the
+/// same thing; the shape is this shell's: fx's own line format for its
+/// `permissions` command (`[permissions] mode=…`, `renderText`,
+/// `output_contracts.zig:705-722`) on stdout, and the usage line and a failed
+/// write on stderr. Every command here runs between turns -- the loop runs one
+/// thing at a time -- so a change is applied at once, to the configuration a
+/// later conversation is opened from and to the conversation in hand, and
+/// recorded in the profile the next launch reads.
+fn apply_permissions(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    conversation: Option<&mut Conversation>,
+) -> io::Result<()> {
+    use crate::permission::slash::{self, Request};
+    let (mode, reset) = match Request::parse(argument) {
+        Request::Show => {
+            let grants = conversation
+                .map(|conversation| conversation.grant_lines(&config.workspace_root))
+                .unwrap_or_default();
+            let mut stdout = io::stdout();
+            // fx's own rows: the facts behind the prefix and each grant under
+            // them as ` - <tool> -> <target>`, flattened to one line because a
+            // command a model wrote is not text this shell hands a terminal.
+            for row in slash::status_rows(config.permission_mode, &grants).lines() {
+                match row.strip_prefix(" - ") {
+                    Some(grant) => writeln!(stdout, " - {}", safe_one_line(grant, usize::MAX))?,
+                    None => writeln!(stdout, "[permissions] {row}")?,
+                }
+            }
+            writeln!(stdout, "[permissions] {}", slash::SAVED_RULES)?;
+            writeln!(stdout, "[permissions] {}", slash::USAGE)?;
+            return Ok(());
+        }
+        Request::Usage => {
+            writeln!(io::stderr(), "xfx: {}", slash::USAGE)?;
+            return Ok(());
+        }
+        Request::Select(mode) => (mode, false),
+        Request::Reset => (PermissionMode::Ask, true),
+    };
+    config.permission_mode = mode;
+    if let Some(conversation) = conversation {
+        conversation.set_permission_mode(mode, reset);
+    }
+    // Recorded before it is announced, as upstream's `selectMode` persists
+    // before `handlePermissions` writes its notice: a line saying the mode
+    // changed is a line a reader may act on, the file included.
+    let written = match config.user_settings_path.as_ref() {
+        Some(path) => crate::provider::profile::write_preference(
+            path,
+            &["permission_mode"],
+            serde_json::Value::String(mode.label().to_string()),
+        )
+        .map_err(|err| err.to_string()),
+        None => Err("no home directory".to_string()),
+    };
+    let said = if reset {
+        slash::RESET.to_string()
+    } else {
+        slash::selected(mode)
+    };
+    writeln!(io::stdout(), "[permissions] {said}")?;
+    if mode == PermissionMode::Yolo {
+        writeln!(io::stderr(), "{YOLO_WARNING}")?;
+    }
+    if let Err(reason) = written {
+        writeln!(
+            io::stderr(),
+            "xfx: permission-mode: {}",
+            slash::not_saved(&reason)
+        )?;
+    }
+    Ok(())
+}
+
 /// `/statusline` on this shell.
 ///
 /// There is no footer here to draw the segments in and no band to put a picker
@@ -1372,6 +1544,56 @@ fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -
         Some(reply) if clipboard.copy(reply) => writeln!(io::stdout(), "[shell] {COPIED}"),
         Some(_) => writeln!(io::stderr(), "xfx: {COPY_FAILED}"),
     }
+}
+
+/// What this shell adds to `/sound`'s answer: that the switch it just moved is
+/// the full-screen shell's to ring.
+///
+/// The bell is a byte the TUI writes through its checked frame writer, at a
+/// turn's end and when it stops to ask -- and this shell's question is asked by
+/// the prompter `xfx ask` shares, which rings nothing. So the command saves the
+/// same switch to the same file and says so, the way `/stats` here says where
+/// its counters are rather than printing zeros.
+pub const SOUND_ON_THE_LINE_SHELL: &str =
+    "the full-screen shell rings the terminal bell, and this line-oriented one rings none";
+
+/// `/sound` on this shell: the switch moved, saved, and said.
+///
+/// Saved inline, because everything this loop does is inline -- it waits on
+/// `/setup`'s socket the same way -- and in upstream's order: a save that
+/// failed is said first, on the diagnostic stream, and the level after it.
+fn apply_sound(
+    argument: &str,
+    current: crate::config::Notifications,
+    settings: Option<&std::path::Path>,
+) -> io::Result<crate::config::Notifications> {
+    let Some(request) = crate::sound::Request::parse(argument) else {
+        writeln!(io::stderr(), "xfx: {}", crate::sound::USAGE)?;
+        return Ok(current);
+    };
+    let level = request.level(current);
+    let next = level.notifications();
+    let saved = match settings {
+        Some(path) => crate::sound::save(path, level).map_err(|err| err.to_string()),
+        // Not reachable from `run`, which refuses to open without a home; said
+        // rather than assumed all the same.
+        None => Err("no home directory is set".to_string()),
+    };
+    if let Err(reason) = saved {
+        writeln!(
+            io::stderr(),
+            "xfx: {}: {}",
+            crate::sound::TOPIC,
+            crate::sound::not_saved(next != current, &reason)
+        )?;
+    }
+    writeln!(
+        io::stdout(),
+        "[shell] {}: {}; {SOUND_ON_THE_LINE_SHELL}",
+        crate::sound::TOPIC,
+        level.label()
+    )?;
+    Ok(next)
 }
 
 /// The version line `/version` prints.
@@ -1429,9 +1651,11 @@ mod tests {
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
-        // upstream's third name for the one reset -- and twelve since
-        // `/statusline`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 12);
+        // upstream's third name for the one reset -- thirteen since
+        // `/permissions` and `/statusline`, and fourteen since `/sound`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 14);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1578,9 +1802,7 @@ mod tests {
             "/resume",
             "/login",
             "/logout",
-            "/permissions",
             "/models",
-            "/provider",
             "/mcp",
             "/undo",
             "/usage",
@@ -1720,27 +1942,59 @@ mod tests {
 
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
-        // The three that mean something by the rest of the line: `/model <id>`
-        // picks among what a provider offers, `/setup <provider>` picks the
-        // provider, `/statusline <item>` flips a footer segment. Every other
-        // name is the whole command.
+        // The five that mean something by the rest of the line: `/model <id>`
+        // picks among what a provider offers, `/provider <provider>` (or
+        // `/setup <provider>`) picks the provider -- upstream's row has args
+        // too, which is what puts the space after it when it is completed
+        // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
+        // authority, `/statusline <item>` flips a footer segment, and
+        // `/sound [on|off]` sets the switch a bare `/sound` toggles. Every
+        // other name is the whole command.
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup" | "/statusline");
+            let takes_one = matches!(
+                spec.name,
+                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound"
+            );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }
 
     #[test]
-    fn setup_is_the_seventh_canonical_command() {
-        // Task 4's one new name. It is canonical rather than an alias: it takes
-        // an argument, it has a handler of its own on both surfaces, and it is
-        // the only command in the palette that can change which provider a turn
-        // talks to.
-        assert!(SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+    fn provider_is_canonical_and_setup_is_its_alias() {
+        // Upstream's row (`commands.zig:472`): `/provider`, with `/setup` as
+        // the alias. `/setup` was canonical here before; it is still answered,
+        // by the same command, and the count of canonical names did not move.
+        assert!(SLASH_COMMANDS.contains(&"/provider"), "{SLASH_COMMANDS:?}");
+        assert!(!SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+        assert_eq!(Slash::parse("/provider"), Some(Slash::Setup));
         assert_eq!(Slash::parse("/setup"), Some(Slash::Setup));
-        assert_eq!(Slash::Setup.name(), "/setup");
-        assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
-        assert!(help_text().contains("/setup"), "{}", help_text());
+        assert_eq!(Slash::Setup.name(), "/provider");
+        let spec = slash_spec(Slash::Setup);
+        assert_eq!(
+            (spec.aliases, spec.summary, spec.category, spec.has_args),
+            (
+                &["/setup"][..],
+                "choose the model provider and how it signs in",
+                "Account",
+                true
+            )
+        );
+        assert_eq!(
+            classify("/setup llmux"),
+            Submitted::Command {
+                command: Slash::Setup,
+                argument: "llmux".to_string()
+            }
+        );
+        // `/help` says the alias on the command's own line.
+        assert!(
+            help_text()
+                .lines()
+                .any(|line| line.trim_start().starts_with("/provider")
+                    && line.ends_with("(also /setup)")),
+            "{}",
+            help_text()
+        );
     }
 
     #[test]
@@ -1763,11 +2017,11 @@ mod tests {
             ),
             ("/status", "show runtime configuration", "General", false)
         );
-        // Upstream's order: `/provider` (xfx's `/setup`), `/stats`, `/usage`,
-        // `/status`, then `/model` (`commands.zig:472-478`).
+        // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
+        // `/model` (`commands.zig:472-478`).
         let order: Vec<&str> = SLASH_COMMANDS.to_vec();
         let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
-        assert!(at("/setup") < at("/stats") && at("/stats") < at("/status"));
+        assert!(at("/provider") < at("/stats") && at("/stats") < at("/status"));
         assert!(at("/status") < at("/model"));
         assert!(help_text().contains("/status"), "{}", help_text());
     }
@@ -1812,17 +2066,67 @@ mod tests {
     }
 
     #[test]
-    fn the_standalone_catalog_commands_are_still_deferred() {
-        // `/setup` is the *only* name this task adds. `/models` and `/provider`
-        // are upstream commands xfx does not answer, and the catalog browser
-        // this task builds is reached by bare `/model` rather than by either of
-        // them -- so advertising one would be advertising a surface that is not
-        // there.
-        for absent in ["/models", "/provider"] {
-            assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
-            assert_eq!(Slash::parse(absent), None, "{absent} parses");
-            assert!(!help_text().contains(absent), "help advertises {absent}");
-        }
+    fn sound_is_upstreams_appearance_row_and_takes_its_level() {
+        // `commands.zig:495`: the description the menu shows and the category
+        // it is filed under, and `accepts_payload` -- `/sound on` is the
+        // command with an argument, not an unknown one.
+        let sound = slash_spec(Slash::Sound);
+        assert_eq!(
+            (sound.name, sound.summary, sound.category, sound.has_args),
+            (
+                "/sound",
+                "toggle sounds and terminal bells",
+                "Appearance",
+                true
+            )
+        );
+        // Upstream's order puts it after `/copy` and before `/version`
+        // (`commands.zig:484-498`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/copy") < at("/sound") && at("/sound") < at("/version"));
+        assert_eq!(
+            classify("/sound on"),
+            Submitted::Command {
+                command: Slash::Sound,
+                argument: "on".to_string()
+            }
+        );
+        assert!(help_text().contains("/sound"), "{}", help_text());
+    }
+
+    #[test]
+    fn sound_on_the_line_shell_saves_the_switch_and_says_whose_bell_it_is() {
+        let dir = tempfile::tempdir().expect("home");
+        let path = dir.path().join(".xfx").join("settings.json");
+        let on = apply_sound("", crate::config::Notifications::both(false), Some(&path))
+            .expect("toggle");
+        assert_eq!(on, crate::config::Notifications::both(true));
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("saved")).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}})
+        );
+        let off = apply_sound("off", on, Some(&path)).expect("set");
+        assert_eq!(off, crate::config::Notifications::both(false));
+        // The usage line changes nothing and writes nothing.
+        let before = std::fs::read(&path).expect("read");
+        assert_eq!(apply_sound("max", off, Some(&path)).expect("usage"), off);
+        assert_eq!(std::fs::read(&path).expect("read"), before);
+        assert!(SOUND_ON_THE_LINE_SHELL.contains("rings none"));
+    }
+
+    #[test]
+    fn the_standalone_catalog_command_is_still_deferred() {
+        // `/models` is an upstream command xfx does not answer: the catalog
+        // browser is reached by a bare `/model`, so advertising it would be
+        // advertising a surface that is not there. (`/provider` used to be
+        // listed here; it is answered now, as upstream's row with `/setup` as
+        // its alias -- `provider_is_canonical_and_setup_is_its_alias`.)
+        let absent = "/models";
+        assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
+        assert_eq!(Slash::parse(absent), None, "{absent} parses");
+        assert!(!help_text().contains(absent), "help advertises {absent}");
     }
 
     #[test]

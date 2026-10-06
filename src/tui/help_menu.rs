@@ -36,9 +36,8 @@
 //! composer split at whitespace, and every word a case-insensitive substring of
 //! the name, an alias, the summary or the category. Upstream also searches a
 //! `help_entry` (`/model <id-or-query>`); xfx's registry has no such field and
-//! its summaries already carry the argument grammar (`/setup <gateway|llmux>`,
-//! `/model <id>`), so the words that would have found a command there find it
-//! here too.
+//! its summaries carry what argument grammar it has (`/model <id>`), so the
+//! words that would have found a command there mostly find it here too.
 
 use crate::interactive::{SlashSpec, SLASH_CATEGORIES, SLASH_REGISTRY};
 
@@ -650,6 +649,15 @@ mod tests {
             .collect()
     }
 
+    /// The widest canonical name, which the summary column is measured from.
+    fn widest() -> usize {
+        SLASH_REGISTRY
+            .iter()
+            .map(|spec| spec.name.len())
+            .max()
+            .expect("a registry")
+    }
+
     /// `All`: every category's names, in the categories' order.
     fn by_category() -> Vec<&'static str> {
         SLASH_CATEGORIES
@@ -759,7 +767,10 @@ mod tests {
         // Every word must be found, each anywhere.
         assert_eq!(found("session fresh"), ["/new"]);
         assert_eq!(found("  fresh \t session "), ["/new"]);
-        assert_eq!(found("llmux"), ["/setup"]);
+        // `/provider`'s alias finds it as `/exit` finds `/quit`; its summary
+        // is upstream's now and names no provider of xfx's.
+        assert_eq!(found("setup"), ["/provider"]);
+        assert_eq!(found("provider"), ["/provider"]);
         assert!(found("sessionzz").is_empty());
         // Nothing typed lists everything.
         assert_eq!(found("").len(), SLASH_REGISTRY.len());
@@ -779,26 +790,29 @@ mod tests {
         assert_eq!(rows.len(), 2 + count);
         assert_eq!(rows[1], "", "the blank row under the header");
         // The marked row: name and summary bright, each closed, the spaces
-        // between them uncoloured; the summary at 2 + `/statusline` + 4.
+        // between them uncoloured; the summary at 2 + the widest name + 4 --
+        // `/permissions` since it was added, so read off the registry rather
+        // than spelled.
+        let column = 2 + widest() + 4;
         assert_eq!(
             rows[2],
             format!(
                 "  {BRIGHT}/help{RESET}{}{BRIGHT}show available slash commands{RESET}",
-                " ".repeat(17 - 7)
+                " ".repeat(column - 7)
             )
         );
         assert_eq!(
             rows[3],
             format!(
                 "  {DIM}/clear{RESET}{}{DIM}{}{RESET}",
-                " ".repeat(17 - 8),
+                " ".repeat(column - 8),
                 SLASH_REGISTRY[1].summary
             )
         );
         assert_eq!(shown(&rows), by_category());
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
-            assert_eq!(summary_column(row), 17, "{row:?}");
+            assert_eq!(summary_column(row), column, "{row:?}");
         }
     }
 
@@ -847,11 +861,14 @@ mod tests {
         let rows = menu.rows(120, 5, PALETTE);
         assert_eq!(shown(&rows), ["/c01", "/c02", "/c03"]);
         assert!(rows[3].starts_with(&format!("  {BRIGHT}")), "{rows:?}");
-        // The live registry wraps the same way.
+        // The live registry wraps the same way: up from the first is the last
+        // in the catalog's order.
         let mut live = HelpMenu::open("");
         assert!(live.step(false, 20));
-        // The last by category: `/statusline` is the one Appearance command.
-        assert_eq!(live.selected().map(|spec| spec.name), Some("/statusline"));
+        assert_eq!(
+            live.selected().map(|spec| spec.name),
+            by_category().last().copied()
+        );
         assert!(live.step(true, 20));
         assert_eq!(live.selected().map(|spec| spec.name), Some("/help"));
     }
