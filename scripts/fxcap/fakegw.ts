@@ -2,10 +2,12 @@
 // Usage: [FAKEGW_MODELS=<catalog.json>] bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
-//    status?: number, body?: string, hangMs?: number}
+//    status?: number, body?: string, hangMs?: number, serviceTier?: string}
 // `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
 // step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
-// the stream open that long before its last event (for interrupt captures).
+// the stream open that long before its last event (for interrupt captures). `serviceTier` is the
+// tier the finish event confirms in `providerMetadata.gateway.serviceTier` (fx's
+// `parseSseServiceTier`, gateway/client.zig:3451-3463); absent, nothing is confirmed.
 // Every POST to a language-model path consumes the next turn; title calls get a finish-only stream,
 // and fx's permission classifier gets a `permission_decision` tool call that clears the action
 // (the shape fx's own e2e harness answers with, tests/e2e/tmux-helpers.ts:173-183).
@@ -16,8 +18,10 @@ const bodies = process.argv[4];
 let seq = 0;
 const log = (m: string) => console.log(`[fakegw] ${m}`);
 
-function finish(reason = "stop") {
-  return { type: "finish", finishReason: { unified: reason, raw: reason }, usage: { inputTokens: { total: 1200 }, outputTokens: { total: 40 } } };
+function finish(reason = "stop", serviceTier?: string) {
+  const event: any = { type: "finish", finishReason: { unified: reason, raw: reason }, usage: { inputTokens: { total: 1200 }, outputTokens: { total: 40 } } };
+  if (serviceTier) event.providerMetadata = { gateway: { serviceTier } };
+  return event;
 }
 
 async function keep(kind: string, body: string) {
@@ -66,7 +70,7 @@ const server = Bun.serve({
     for (const c of turn.chunks ?? []) events.push({ type: "text-delta", id: "answer_1", delta: c });
     const tools = turn.tools ?? (turn.tool ? [turn.tool] : []);
     tools.forEach((t: any, i: number) => events.push({ type: "tool-call", toolCallId: t.id ?? `call_${seq}_${i}`, toolName: t.name, input: t.input }));
-    events.push(finish(tools.length ? "tool-calls" : "stop"));
+    events.push(finish(tools.length ? "tool-calls" : "stop", turn.serviceTier));
     return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
   },
 });

@@ -460,6 +460,10 @@ fn hold(
     band.invalidate(geometry.rows, geometry.cols);
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
+    shell.set_ultra_marker(theme::ultra_marker(
+        colorterm.as_deref(),
+        term_program.as_deref(),
+    ));
     // A resumed launch writes no welcome line, as upstream's does not
     // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
     // are the document, on the screen the launch's push left.

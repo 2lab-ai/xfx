@@ -723,6 +723,10 @@ pub(crate) struct Shell {
     /// given while another is held waits behind it, so two `/fast` are still
     /// a toggle on and a toggle off.
     held_speed: Vec<SpeedCommand>,
+    /// The colour Ultra's `⚡︎` is said in ([`super::theme::ultra_marker`]):
+    /// upstream's truecolor answer until the launch says otherwise
+    /// ([`Self::set_ultra_marker`]).
+    ultra: &'static str,
     /// `/model`'s inline column picker ([`super::model_column`]): which column
     /// is open over the composer's `/model ` line, which model is pending and
     /// which row is marked. A view of the composer like the completion menu,
@@ -1635,6 +1639,7 @@ impl Shell {
             },
             fast_bound: config.fast_mode_model_bound,
             held_speed: Vec::new(),
+            ultra: super::theme::ULTRA_TRUECOLOR,
             column: Column::default(),
             column_seen: String::new(),
             column_edit: ColumnEdit::Other,
@@ -2127,7 +2132,7 @@ impl Shell {
             let offers =
                 |speed: Speed| entry.is_some_and(|entry| Speed::options(entry).contains(&speed));
             let speed = if preview.speed == Speed::Ultrafast && offers(Speed::Ultrafast) {
-                Some(self.palette.ultra())
+                Some(self.ultra)
             } else if intrinsic_fast(&preview.model)
                 || (preview.speed == Speed::Fast && offers(Speed::Fast))
             {
@@ -2152,7 +2157,7 @@ impl Shell {
         let effort =
             (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone());
         let speed = if self.settings.ultrafast {
-            Some(self.palette.ultra())
+            Some(self.ultra)
         } else if intrinsic_fast(&self.model) || (self.settings.fast && self.fast_bound) {
             Some("")
         } else {
@@ -3990,12 +3995,20 @@ impl Shell {
     }
 
     /// The screen column under the composer's byte `offset`: past the prompt,
-    /// the cells to its left on the composer row it is on
-    /// (`projectedAnchorColumn`, `input_presentation.zig:377-380`).
+    /// the cells to its left on the composer row it is on -- **when that is the
+    /// caret's row**, and the start of the caret's row otherwise, so a column
+    /// over a composer the caret has left the argument's row of hangs under the
+    /// row the eye is on (`projectedAnchorColumn`, `visual_layout.zig:704-712`;
+    /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
+    /// break after it).
     fn column_anchor(&self, offset: usize) -> u16 {
         let text = self.editor.text();
         let rows = super::wrap::wrap(text, self.text_cols());
-        let (_, cells) = super::wrap::cursor_point(text, &rows, offset);
+        let (row, cells) = super::wrap::cursor_point(text, &rows, offset);
+        let (caret_row, _) = super::wrap::cursor_point(text, &rows, self.editor.caret());
+        if row != caret_row {
+            return PROMPT_CELLS;
+        }
         PROMPT_CELLS.saturating_add(cells)
     }
 
@@ -8108,6 +8121,12 @@ impl Shell {
             topic,
             provider: self.provider,
         }));
+    }
+
+    /// The colour Ultra's `⚡︎` is said in, as the launch read the terminal
+    /// ([`super::theme::ultra_marker`]).
+    pub(crate) fn set_ultra_marker(&mut self, colour: &'static str) {
+        self.ultra = colour;
     }
 
     /// The catalog's row for `model` -- its id or one of its aliases, as the
@@ -18124,7 +18143,7 @@ mod tests {
     fn ultra_marker() -> String {
         format!(
             "{}{}{}",
-            PALETTE.ultra(),
+            super::super::theme::ULTRA_TRUECOLOR,
             hint::SPEED_MARKER,
             PALETTE.statusline()
         )
@@ -18446,6 +18465,19 @@ mod tests {
             "{}",
             shell.hint()
         );
+    }
+
+    #[test]
+    fn a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start() {
+        // `fx-fast-astra-40x120-model-change-clears`: an Alt-Enter after
+        // `/model xai/grok-4.7` leaves the caret on a second row, and fx draws
+        // the column from that row's start (`projectedAnchorColumn`).
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/model xai/grok-4.7");
+        assert_eq!(column(&shell)[0], format!("{}xai/grok-4.7", " ".repeat(9)));
+        shell.route_bytes(b"\x1b\r");
+        assert_eq!(shell.editor.text(), "/model xai/grok-4.7\n");
+        assert_eq!(column(&shell)[0], "  no matching models");
     }
 
     #[test]

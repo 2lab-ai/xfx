@@ -456,16 +456,6 @@ impl Palette {
         }
     }
 
-    /// The hint row's `⚡︎` while Ultra mode is on: one yellow on either
-    /// screen, at the depth the terminal has (`appendSessionStatusSegments`,
-    /// `render.zig:396-400`, `c1db919`).
-    pub(crate) fn ultra(&self) -> &'static str {
-        match self.depth {
-            Depth::Ansi256 => "\u{1b}[38;5;220m",
-            Depth::TrueColor => "\u{1b}[38;2;255;204;0m",
-        }
-    }
-
     /// What ends a run, in either mode and at either depth.
     pub(crate) fn reset(&self) -> &'static str {
         RESET
@@ -794,9 +784,50 @@ pub(crate) fn depth_from_env(colorterm: Option<&str>, term_program: Option<&str>
     }
 }
 
+/// The colour the hint row's `⚡︎` is said in while Ultra mode is on: one
+/// yellow on either screen (`appendSessionStatusSegments`, `render.zig:396-400`,
+/// `c1db919`), `38;2;255;204;0` where upstream believes in truecolor and
+/// `38;5;220` where it does not.
+///
+/// **Upstream's own rule, not [`depth_from_env`]'s** (`truecolorSupportedForValues`,
+/// `theme_protocol.zig:83-92`): a `COLORTERM` claim, else anything but Apple
+/// Terminal -- so a terminal that claims nothing gets the 24-bit yellow, as
+/// upstream's capture shows beside its 256-colour greys
+/// (`fx-fast-astra-40x120-uf-on`). The greys stay on the conservative depth
+/// for the reason that function gives: they are the same greys in two
+/// notations, and a wrong guess there costs every row. This is one sign, in
+/// the colour upstream paints it.
+pub(crate) fn ultra_marker(colorterm: Option<&str>, term_program: Option<&str>) -> &'static str {
+    let claimed =
+        colorterm.is_some_and(|value| value.contains("truecolor") || value.contains("24bit"));
+    if claimed || term_program != Some("Apple_Terminal") {
+        ULTRA_TRUECOLOR
+    } else {
+        "\u{1b}[38;5;220m"
+    }
+}
+
+/// [`ultra_marker`]'s answer for a terminal that claims nothing.
+pub(crate) const ULTRA_TRUECOLOR: &str = "\u{1b}[38;2;255;204;0m";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ultra_marker_follows_upstreams_truecolor_rule() {
+        // `theme_protocol.zig:95-106`.
+        assert_eq!(ultra_marker(None, None), ULTRA_TRUECOLOR);
+        assert_eq!(ultra_marker(None, Some("ghostty")), ULTRA_TRUECOLOR);
+        assert_eq!(
+            ultra_marker(Some("truecolor"), Some("Apple_Terminal")),
+            ULTRA_TRUECOLOR
+        );
+        assert_eq!(
+            ultra_marker(None, Some("Apple_Terminal")),
+            "\u{1b}[38;5;220m"
+        );
+    }
 
     #[test]
     fn an_osc_eleven_reply_is_light_above_half_luminance() {
