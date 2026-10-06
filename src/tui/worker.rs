@@ -1913,7 +1913,10 @@ async fn turn_loop(
                 // aside like one read during a turn.
                 match apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await
                 {
-                    Ended::Session => return settled(state, changes),
+                    Ended::Session => {
+                        write_renamed_before_leaving(&mut state, events, &cancel).await;
+                        return settled(state, changes);
+                    }
                     Ended::Reset(through) => {
                         drop_conversation(&mut state, events, through).await;
                         write_renamed_after_reset(&mut state, events, &cancel).await;
@@ -2005,7 +2008,10 @@ async fn turn_loop(
         // would ([`TurnControl::Model`]).
         let ended = apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await;
         match ended {
-            Ended::Session => return settled(state, changes),
+            Ended::Session => {
+                write_renamed_before_leaving(&mut state, events, &cancel).await;
+                return settled(state, changes);
+            }
             // A reset reached this work while it ran: the work has said its
             // last word, and the conversation goes before anything else is
             // taken -- the titles typed for it already written
@@ -2621,6 +2627,24 @@ async fn write_rename(
     if let Some(problem) = unsaved {
         bridge::send_terminal(events, UiEvent::RenameUnsaved(problem)).await;
     }
+}
+
+/// The session is ending under a reset a shutdown outranked
+/// ([`raced_against_control`]): a title typed after that reset still names
+/// the session it would have started, and the shell has already said so.
+/// That session is opened for it and titled, as a `/rename` before any
+/// prompt opens one -- upstream's `/new` had created it, and keeps a titled
+/// one on disk. Nothing to do when no such title is waiting.
+async fn write_renamed_before_leaving(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+) {
+    if state.renamed_after_reset.is_empty() {
+        return;
+    }
+    state.conversation = None;
+    write_renamed_after_reset(state, events, cancel).await;
 }
 
 /// Writes the titles typed after a reset the work they waited for ended
@@ -5665,6 +5689,34 @@ mod tests {
         ));
         assert_eq!(ended, Ended::Session);
         assert!(session_log(home.path(), after.as_str()).contains("Then Quit"));
+
+        // A `/new`, a `/rename` and a `/quit` in one turn: the shutdown
+        // outranks the reset, and the title still names the session the
+        // reset would have started -- opened for it, not the one it left.
+        control.defer_rename("New Then Quit".to_string(), true);
+        on_a_runtime(async {
+            let ended = apply_deferred(
+                &mut state,
+                Ended::Session,
+                &events_tx,
+                &cancel,
+                &control,
+                &mut queue,
+            )
+            .await;
+            assert_eq!(ended, Ended::Session);
+            write_renamed_before_leaving(&mut state, &events_tx, &cancel).await;
+        });
+        assert!(!session_log(home.path(), after.as_str()).contains("New Then Quit"));
+        let last = state
+            .conversation
+            .as_ref()
+            .expect("opened for the title")
+            .recorder
+            .id()
+            .clone();
+        assert!(last != after && last != before);
+        assert!(session_log(home.path(), last.as_str()).contains("New Then Quit"));
     }
 
     #[test]
