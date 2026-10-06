@@ -958,6 +958,11 @@ enum Mark {
     /// One of xfx's own notices, with a blank row above and below it
     /// ([`Shell::write_notice`]).
     Notice(notice::Notice),
+    /// Rows laid out already -- wrapped at the screen they were composed for
+    /// and painted in the palette's own colours -- as one block of the
+    /// document, with a blank row above and below it ([`Shell::write_block`]).
+    /// What a question batch leaves behind ([`super::question`]).
+    Block(Vec<String>),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -1230,10 +1235,10 @@ impl Shell {
         // on the first row shown when rows above it are scrolled out of view
         // (`input_presentation.zig:977-992`).
         //
-        // **None while a permission question is up**: the question replaces
-        // the composer, as upstream's replaces its footer
-        // ([`layout::fits_approval`]), and the draft waits in the editor,
-        // unpainted, for the answer to give the band back.
+        // **None while a question is up** -- a permission question or the
+        // model's own batch: the question replaces the composer, as upstream's
+        // replaces its footer ([`layout::fits_approval`]), and the draft waits
+        // in the editor, unpainted, for the answer to give the band back.
         let composer = self.editor.rows(self.text_cols());
         let window = if self.geometry.input_rows() == 0 {
             0..0
@@ -1277,7 +1282,9 @@ impl Shell {
                 Some(Slot::Question(panel)) => {
                     panel.painted(self.geometry.cols, self.geometry.rows, &self.palette)
                 }
-                Some(Slot::Ask(ask)) => ask.rows(self.geometry.cols, self.geometry.rows),
+                Some(Slot::Ask(ask)) => {
+                    ask.painted(self.geometry.cols, self.geometry.rows, &self.palette)
+                }
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for: one layout answers both
                 // (`composeHelpMenuRow` is handed `menuRowCount`'s answer).
@@ -1319,6 +1326,13 @@ impl Shell {
         match self.slot() {
             Some(Slot::Question(panel)) if self.notice.is_none() => {
                 panel.hint(self.geometry.cols, &self.palette)
+            }
+            // The model's question batch owns the row the same way: its keys,
+            // which question of the batch this is, and -- while an Escape at
+            // its draft has armed the clear -- the warning that says so
+            // (`questionInteractionHint`, `input_presentation.zig:192-249`).
+            Some(Slot::Ask(ask)) if self.notice.is_none() => {
+                ask.hint(self.geometry.cols, self.escape_armed, &self.palette)
             }
             Some(Slot::Menu(_)) => self.painted(
                 self.palette.dim(),
@@ -2855,6 +2869,21 @@ impl Shell {
     /// read the interrupt. One key, one message, and the turn's own stop is the
     /// one the machine's boundary can see (`crate::agent::machine`'s
     /// `execute_tool_calls`).
+    ///
+    /// **Whichever way the batch ends, the document keeps a record of it**,
+    /// as upstream's does (`finalizeQuestionTranscript`,
+    /// `input_question_runtime.zig:120-136`): every question with its answer
+    /// hung under it, or `■ Cancelled` ([`super::question`]'s
+    /// `answered_rows`, `cancelled_row`). Behind the stream rather than at
+    /// once ([`Self::mark`]), because a question can be answered while the
+    /// text the model wrote before asking it is still being released, and the
+    /// record belongs after that text.
+    ///
+    /// **Escape at a draft with text in it arms rather than cancels**, as it
+    /// does at the composer (`app_input_runtime.zig:3120-3135`): a second
+    /// inside the window empties the draft, and only an Escape at an empty
+    /// one cancels -- so a sentence half typed is not thrown away, with the
+    /// batch, by one key.
     fn answer(&mut self, event: Input, now: Instant) {
         let act = match event {
             Input::Text(character) => question::Act::Text(character),
@@ -2887,6 +2916,16 @@ impl Shell {
             return;
         };
         let id = ask.id();
+        if act == question::Act::Escape && ask.holds_draft() {
+            // The composer's own window and its own warning on the hint row
+            // ([`super::gesture`], [`ESCAPE_ARMED`]): one gesture, wherever
+            // the draft it clears is.
+            if self.gestures.escape(now) == Escape::Clear && ask.clear_draft() {
+                self.settled_question();
+            }
+            self.settle_band(now);
+            return;
+        }
         match ask.apply(act, cols, rows) {
             // A keystroke that changed nothing must not repaint the whole band.
             question::Answered::Nothing => {}
@@ -2898,17 +2937,22 @@ impl Shell {
             // the divider.
             question::Answered::Redraw => self.settled_question(),
             question::Answered::Submitted(answers) => {
+                // Composed from the panel before it goes: the questions are
+                // its, and the rows are wrapped at the screen they will land on.
+                let record = ask.answered_rows(&answers, cols, &self.palette);
                 // **The panel goes before anything is sent**, so the band's next
                 // paint has no question in it whatever the runtime does next --
                 // including asking a second batch straight away. The order
                 // [`Self::decide`] uses, for the same reason.
                 self.ask = None;
+                self.mark(Mark::Block(record));
                 self.work
                     .control(TurnControl::QuestionAnswer { id, answers });
                 self.settled_question();
             }
             question::Answered::Cancelled => {
                 self.ask = None;
+                self.mark(Mark::Block(vec![question::cancelled_row(&self.palette)]));
                 if matches!(act, question::Act::Cancel) {
                     // The turn's own stop, and **only** it: the requester reads
                     // this as its question being over and gives it back for the
@@ -3104,6 +3148,7 @@ impl Shell {
             }
             Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::Notice(notice) => self.write_notice(&notice),
+            Mark::Block(rows) => self.write_block(&rows),
             Mark::EndOfLine => self.finish_document_line(),
             Mark::ToolStart { id, shown } => {
                 self.group.start(id, shown);
@@ -3306,6 +3351,32 @@ impl Shell {
             .is_some()
         {}
         rows
+    }
+
+    /// Puts rows that are already laid out into the document as one block:
+    /// a blank row above it unless the document already ends on one, each row
+    /// on a row of its own, and a blank row under it -- the spacing a notice
+    /// gets ([`Self::write_notice`]), and the one upstream's question summary
+    /// sits in (`fx-question2-40x120-answered`: the card, the summary, a blank
+    /// row, the answer).
+    ///
+    /// The rows are written as they are, with no gutter: their indents are
+    /// part of them, because an answer's hangs five columns in, under the
+    /// question's text, and the document has no gutter that wide.
+    fn write_block(&mut self, rows: &[String]) {
+        self.close_answer();
+        self.finish_document_line();
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
+        }
+        if !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        for row in rows {
+            self.write_transcript_as(row, Role::Plain);
+            self.end_transcript_line();
+        }
+        self.end_transcript_line();
     }
 
     /// Ends the document's current line, if there is one open.
@@ -5157,13 +5228,14 @@ impl Shell {
         // around it ([`editor::window`]), while a panel with its choices below
         // the last row of the screen is a question with no visible answers. The
         // search is bounded by the cap and always finds an answer for a panel
-        // that [`layout::fits_panel`] admitted, because that is the same
-        // question asked of a one-row composer.
+        // a one-row composer has room for ([`layout::solve_band`]), because
+        // that is the last height it tries.
         //
-        // **A permission question takes them all**: upstream's question
-        // replaces the composer rather than sitting under it
-        // ([`layout::fits_approval`]), so the band is solved with none.
-        if self.panel.is_some() {
+        // **A question takes them all** -- a permission question and the
+        // model's own batch alike: upstream's question replaces the composer
+        // rather than sitting under it ([`layout::fits_approval`];
+        // `fx-question-40x120-q1`), so the band is solved with none.
+        if self.panel.is_some() || self.ask.is_some() {
             return layout::solve_band(rows, cols, 0, activity, fixed)
                 .map(|geometry| geometry.floated(self.document_rows));
         }
@@ -5507,10 +5579,11 @@ mod tests {
                     .0
                     .saturating_sub(self.shell.geometry.band_top()),
             );
-            // A permission question's rows carry upstream's sequences, and
-            // what a question case reads is the words; every other row is
-            // compared colour and all, as it always was.
-            let painted = self.shell.panel.is_some();
+            // A question's rows carry upstream's sequences -- a permission
+            // question's and the model's batch's alike -- and what a question
+            // case reads is the words; every other row is compared colour and
+            // all, as it always was.
+            let painted = self.shell.panel.is_some() || self.shell.ask.is_some();
             self.shell
                 .band_rows()
                 .get(offset)
@@ -9503,7 +9576,7 @@ mod tests {
         assert!(fixture
             .band_rows()
             .iter()
-            .any(|row| row.contains("1. Thorough")));
+            .any(|row| row.contains("1) Thorough")));
         fixture.route_bytes(b"1");
         assert!(
             fixture.editor.is_empty(),
@@ -9528,7 +9601,7 @@ mod tests {
             fixture
                 .band_rows()
                 .iter()
-                .all(|row| !row.contains("1. Thorough")),
+                .all(|row| !row.contains("1) Thorough")),
             "the panel came down before the answer went out"
         );
     }
@@ -9547,11 +9620,188 @@ mod tests {
             None,
             "the first answer went out on its own"
         );
+        // The panel's own title: an 80-column hint row has no room for the
+        // batch's counter beside its keys (`input_presentation.zig:241`).
         assert!(
-            fixture.band_rows().iter().any(|row| row.contains("2 of 2")),
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("Ship it?"))
+                && !fixture
+                    .band_rows()
+                    .iter()
+                    .any(|row| row.contains("Which depth?")),
             "the batch did not move to its second question: {:?}",
             fixture.band_rows()
         );
+    }
+
+    #[test]
+    fn a_model_question_takes_the_composers_rows_and_gives_them_back() {
+        // Upstream's question replaces the footer -- composer, blank and
+        // statusline -- with its own rules, rows and hint
+        // (`fx-question-40x120-q1`), as a permission question does; the draft
+        // waits, unpainted, in the editor.
+        let mut fixture = shell(40, 120);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        fixture.route_bytes(b"half a thought");
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started);
+        assert_eq!(fixture.geometry.input_rows(), 0, "the composer kept rows");
+        let rows = fixture.band_rows();
+        assert!(
+            !rows.iter().any(|row| row.contains(RAIL)),
+            "the composer is painted behind the question: {rows:?}"
+        );
+        assert_eq!(
+            rows.len(),
+            usize::from(fixture.geometry.band_rows()),
+            "the band painted a different number of rows than it solved for"
+        );
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"1");
+        fixture.settle_band(started);
+        assert_eq!(
+            fixture.geometry.input_rows(),
+            1,
+            "the composer did not come back"
+        );
+        assert_eq!(fixture.editor.text(), "half a thought");
+    }
+
+    #[test]
+    fn the_hint_row_under_a_model_question_is_the_questions_own() {
+        // `fx-question-40x120-q1` row 14: the keys, and the batch's progress at
+        // the right edge -- not the statusline.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let hint = fixture.band_rows().last().cloned().expect("a hint row");
+        assert_eq!(
+            hint,
+            format!(
+                "{}1–3 choose now    ↑↓ options    tab questions    enter answer    esc cancel{}Question 1 of 2{}",
+                PALETTE.dim(),
+                " ".repeat(30),
+                PALETTE.reset()
+            )
+        );
+        fixture.route_bytes(b"\t");
+        assert!(fixture
+            .band_rows()
+            .last()
+            .expect("a hint row")
+            .contains("Question 2 of 2"));
+    }
+
+    #[test]
+    fn an_answered_batch_leaves_each_question_and_its_answer_in_the_document() {
+        // `fx-question-40x120-q2-num` rows 5-9: under the card, each question
+        // under its ordinal with the answer hung beneath it, and a blank row
+        // before whatever the turn says next.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let _ = fixture.document();
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.document(),
+            Vec::<String>::new(),
+            "half a batch is no record"
+        );
+        fixture.route_bytes(b"2");
+        assert_eq!(
+            fixture.document(),
+            vec![
+                "  1) Which depth?",
+                "     Thorough",
+                "  2) Ship it?",
+                "     No",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn the_answer_rows_are_in_the_answer_grey_with_their_indent() {
+        // `ESC[38;5;245m     SQLite` -- the hang painted with the answer, as
+        // upstream writes the field (`question_ui.zig:478-496`).
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let _ = fixture.document();
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"2");
+        let rows: Vec<String> = fixture
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect();
+        assert!(
+            rows.contains(&format!(
+                "{}     Thorough{}",
+                PALETTE.answer(),
+                PALETTE.reset()
+            )),
+            "{rows:?}"
+        );
+        assert!(rows.contains(&"  1) Which depth?".to_string()), "{rows:?}");
+    }
+
+    #[test]
+    fn escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document() {
+        // `fx-question2-40x120-q2-esc` row 14, for either key: one row, and the
+        // questions are not repeated (`writeCancelledResolution`). What the
+        // two keys tell the runtime is unchanged and asserted on its own
+        // (`escape_at_a_question_cancels_the_batch_and_arms_nothing_else`,
+        // `ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else`).
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let _ = fixture.document();
+        fixture.route_bytes(&[0x1b]);
+        fixture.settle_input(Instant::now() + Duration::from_millis(100));
+        assert_eq!(fixture.document(), vec!["■ Cancelled", ""]);
+
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let _ = fixture.document();
+        fixture.route_bytes(&[0x03]);
+        let document = fixture.document();
+        assert_eq!(document[..2], ["■ Cancelled", ""], "{document:?}");
+    }
+
+    #[test]
+    fn escape_at_a_draft_with_text_arms_a_clear_and_only_an_empty_one_cancels() {
+        // Upstream's composer contract, at the question's own draft
+        // (`app_input_runtime.zig:3120-3135`): the first Escape arms and says
+        // so on the hint row, the second inside the window empties the draft
+        // and leaves the slot marked, and an Escape at the empty draft is the
+        // cancel.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"MariaDB");
+        let now = Instant::now();
+        fixture.route_bytes(&[0x1b]);
+        fixture.settle_input(now + Duration::from_millis(60));
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "one Escape threw the draft away"
+        );
+        let hint = fixture.band_rows().last().cloned().expect("a hint row");
+        assert!(hint.contains("esc again to clear"), "{hint:?}");
+        assert!(fixture.marked().contains("3) MariaDB"));
+
+        fixture.route_bytes(&[0x1b]);
+        fixture.settle_input(now + Duration::from_millis(120));
+        assert_eq!(fixture.controlled(), None, "the second Escape cancelled");
+        assert_eq!(fixture.marked(), "    3) ", "the draft was not emptied");
+
+        // Past the window, at an empty draft: the batch is refused.
+        fixture.route_bytes(&[0x1b]);
+        fixture.settle_input(now + Duration::from_secs(5));
+        assert!(matches!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionCancelled { id: QuestionId(1) })
+        ));
     }
 
     #[test]
@@ -9652,11 +9902,12 @@ mod tests {
         }
         assert!(matches!(fixture.resize(12, 60), Resize::Repaint(_)));
         fixture.settle_band(started);
+        // The marked slot is its open field: the ordinal and the draft.
         assert!(
             fixture
                 .band_rows()
                 .iter()
-                .any(|row| row.contains("7. Other")),
+                .any(|row| row.contains("    7) ")),
             "the marked choice survived the shrink: {:?}",
             fixture.band_rows()
         );
@@ -9756,9 +10007,13 @@ mod tests {
         // one; in the draft, that a digit is a character.
         let mut fixture = shell(24, 80);
         asking_question(&mut fixture, a_batch());
-        assert_eq!(fixture.marked(), "> 1. Thorough - reads every file");
+        // Upstream's rows: no marker glyph, the description in its column.
+        assert_eq!(
+            fixture.marked(),
+            "    1) Thorough                      reads every file"
+        );
         fixture.route_bytes(&[0x1b, 0x5b, 0x42]); // Down
-        assert_eq!(fixture.marked(), "> 2. Quick");
+        assert_eq!(fixture.marked(), "    2) Quick");
         assert_eq!(fixture.controlled(), None, "moving the marker answered");
 
         fixture.route_bytes(b"\t"); // Tab is the *batch's* cycle, not the choices'
@@ -9771,10 +10026,12 @@ mod tests {
         fixture.route_bytes(b"\t"); // back to the first question, marker kept
         fixture.route_bytes(b"3"); // the freeform slot
         let (row, column) = fixture.cursor();
+        // The slot's own row, over the blank row above the bottom rule, and
+        // just past its `    3) `.
         assert_eq!(
-            row,
-            fixture.geometry.divider - 1,
-            "the caret is not on the draft row"
+            (row, column),
+            (fixture.geometry.divider - 2, 7),
+            "the caret is not in the slot's field"
         );
         fixture.route_bytes("ab".as_bytes());
         assert_eq!(
@@ -14950,11 +15207,11 @@ mod tests {
             None,
             "the report answered the question on the user's behalf"
         );
+        // The question's own hint row, in the dim grey upstream writes it in
+        // (`input_presentation.zig:552`) -- the light one now.
         let rows = shell.band_rows();
         assert!(
-            rows.last()
-                .expect("a hint row")
-                .starts_with(LIGHT.statusline()),
+            rows.last().expect("a hint row").starts_with(LIGHT.dim()),
             "the question's band was not repainted in the new palette: {rows:?}"
         );
         assert!(
