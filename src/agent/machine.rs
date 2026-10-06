@@ -273,6 +273,20 @@ pub async fn run_turn_saved(
         .await
 }
 
+/// The turn's user message: its text, then its images, each with the copy
+/// the log saved of it in `saved` when it saved one.
+fn user_message(request: &TurnRequest, saved: Option<&std::path::Path>) -> Message {
+    if request.images.is_empty() {
+        return Message::user(request.prompt.clone());
+    }
+    Message::user_with_images(
+        request.prompt.clone(),
+        request.images.iter().map(|image| {
+            image.part(saved.map(|dir| std::sync::Arc::from(dir.join(image.snapshot_name()))))
+        }),
+    )
+}
+
 /// One turn's conversation and bounds.
 #[derive(Debug)]
 pub struct TurnMachine {
@@ -319,17 +333,7 @@ pub struct TurnMachine {
 impl TurnMachine {
     pub fn new(request: TurnRequest) -> Self {
         let history = request.history.clone();
-        let user = if request.images.is_empty() {
-            Message::user(request.prompt.clone())
-        } else {
-            Message::user_with_images(
-                request.prompt.clone(),
-                request
-                    .images
-                    .iter()
-                    .map(|image| (image.media_type, &image.bytes)),
-            )
-        };
+        let user = user_message(&request, None);
         Self {
             request,
             context: ProjectContext::none(),
@@ -406,7 +410,11 @@ impl TurnMachine {
         journal.record(SessionEvent::UserMessage {
             text: self.request.prompt.clone(),
         });
-        journal.attach_images(&self.request.images);
+        // Where the log saved them, for the note a request that cannot carry
+        // one says in its place ([`crate::image::withhold`]).
+        if let Some(saved) = journal.attach_images(&self.request.images) {
+            self.user = user_message(&self.request, Some(&saved));
+        }
 
         let result = self.drive(provider, events, journal).await;
 
@@ -998,7 +1006,10 @@ impl TurnMachine {
     fn completion_request(&self) -> CompletionRequest {
         CompletionRequest {
             model: self.request.model.clone(),
-            messages: self.messages(),
+            // Every image too large for this request taken out and named in
+            // the text in its place, as upstream projects each request
+            // (`withholdOversizedAttachments`, `orchestrator.zig:7215-7226`).
+            messages: crate::image::withhold(self.messages()),
             // The registry verbatim, every step. Re-advertising is not
             // redundant: the Gateway is stateless, so a schema omitted from
             // step two is a tool the model no longer has.

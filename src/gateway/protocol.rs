@@ -98,8 +98,14 @@ pub enum ContentPart {
     /// request that carries it -- this turn's and each later one that re-sends
     /// the history -- carries the same bytes.
     Image {
+        /// The number the text's `[Image #N]` names it by.
+        id: u32,
         media_type: crate::image::MediaType,
         data: std::sync::Arc<[u8]>,
+        /// Where the session keeps its copy, when it keeps one: what the note
+        /// a request that cannot carry it says in its place
+        /// ([`crate::image::withhold`]). Never on the wire.
+        saved: Option<std::sync::Arc<std::path::Path>>,
     },
 }
 
@@ -154,20 +160,14 @@ impl Message {
 
     /// A user message and the images it names, the text first and the images
     /// after it in the order they were attached -- upstream's order
-    /// (`vercel_protocol.zig:778-817`).
-    pub fn user_with_images<'a>(
+    /// (`vercel_protocol.zig:778-817`). Each item is a [`ContentPart::Image`]
+    /// ([`crate::image::Image::part`]).
+    pub fn user_with_images(
         text: impl Into<String>,
-        images: impl IntoIterator<Item = (crate::image::MediaType, &'a std::sync::Arc<[u8]>)>,
+        images: impl IntoIterator<Item = ContentPart>,
     ) -> Self {
         let mut message = Self::user(text);
-        message.content.extend(
-            images
-                .into_iter()
-                .map(|(media_type, data)| ContentPart::Image {
-                    media_type,
-                    data: std::sync::Arc::clone(data),
-                }),
-        );
+        message.content.extend(images);
         message
     }
 
@@ -581,7 +581,9 @@ impl Serialize for WireParts<'_> {
                 // The v4 file part (`writeVerifiedImageFilePartJsonWithBudget`,
                 // `image_attachments.zig:1685-1705`): `mediaType`, then the
                 // bytes as standard base64 under `data.data`.
-                ContentPart::Image { media_type, data } => seq.serialize_element(&FilePart {
+                ContentPart::Image {
+                    media_type, data, ..
+                } => seq.serialize_element(&FilePart {
                     r#type: "file",
                     media_type: media_type.label(),
                     data: FileData {
@@ -867,8 +869,18 @@ mod tests {
             messages: vec![Message::user_with_images(
                 "[Image #3][Image #4] what is in this image?",
                 [
-                    (crate::image::MediaType::Png, &shot),
-                    (crate::image::MediaType::Gif, &gif),
+                    ContentPart::Image {
+                        id: 3,
+                        media_type: crate::image::MediaType::Png,
+                        data: std::sync::Arc::clone(&shot),
+                        saved: None,
+                    },
+                    ContentPart::Image {
+                        id: 4,
+                        media_type: crate::image::MediaType::Gif,
+                        data: std::sync::Arc::clone(&gif),
+                        saved: None,
+                    },
                 ],
             )],
             tools: Vec::new(),
@@ -892,16 +904,21 @@ mod tests {
         // `002-completion.json`: the second request carries the first turn's
         // two images and the second turn's one.
         let shot: std::sync::Arc<[u8]> = std::sync::Arc::from(crate::image::fixture::SHOT_PNG);
-        let png = crate::image::MediaType::Png;
+        let part = |id: u32, data: &std::sync::Arc<[u8]>| ContentPart::Image {
+            id,
+            media_type: crate::image::MediaType::Png,
+            data: std::sync::Arc::clone(data),
+            saved: None,
+        };
         let request = CompletionRequest {
             model: "m".to_string(),
             messages: vec![
                 Message::user_with_images(
                     "[Image #3][Image #4] what?",
-                    [(png, &shot), (png, &shot)],
+                    [part(3, &shot), part(4, &shot)],
                 ),
                 Message::assistant(Some("It is a small red square."), Vec::new()),
-                Message::user_with_images("[Image #5] describe this too", [(png, &shot)]),
+                Message::user_with_images("[Image #5] describe this too", [part(5, &shot)]),
             ],
             tools: Vec::new(),
             tool_choice: ToolChoice::Auto,
@@ -914,8 +931,10 @@ mod tests {
     fn an_image_is_refused_on_any_message_but_a_users() {
         let shot: std::sync::Arc<[u8]> = std::sync::Arc::from(crate::image::fixture::SHOT_PNG);
         let image = ContentPart::Image {
+            id: 1,
             media_type: crate::image::MediaType::Png,
             data: shot,
+            saved: None,
         };
         assert!(image.allowed_on(Role::User));
         for role in [Role::System, Role::Assistant, Role::Tool] {

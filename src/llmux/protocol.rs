@@ -313,7 +313,9 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
             // [`crate::image`] attaches -- and never a `url` source. Whether the
             // model behind the daemon reads images is the daemon's to say; its
             // catalog has no field for it, so a refusal arrives as its 400.
-            ContentPart::Image { media_type, data } => wire.blocks.push(json_block([
+            ContentPart::Image {
+                media_type, data, ..
+            } => wire.blocks.push(json_block([
                 ("type", Value::from("image")),
                 (
                     "source",
@@ -518,7 +520,12 @@ mod tests {
             messages: vec![
                 crate::gateway::protocol::Message::user_with_images(
                     "[Image #1] what?",
-                    [(crate::image::MediaType::Png, &shot)],
+                    [ContentPart::Image {
+                        id: 1,
+                        media_type: crate::image::MediaType::Png,
+                        data: std::sync::Arc::clone(&shot),
+                        saved: None,
+                    }],
                 ),
                 crate::gateway::protocol::Message::assistant(Some("red"), Vec::new()),
                 crate::gateway::protocol::Message::user("and now?"),

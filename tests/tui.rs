@@ -8160,6 +8160,84 @@ fn an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_ev
     );
 }
 
+/// A PNG signature and an `IHDR` declaring `width` x `height`: upstream's
+/// `testPngHeader` (`image_data.zig:370-379`).
+fn png_header(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+    bytes.extend_from_slice(&width.to_be_bytes());
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request() {
+    // `withholdOversizedAttachments` (`image_attachments.zig:882-920`): the
+    // image stays out of the request, the text says why in front of it, and
+    // the history keeps it -- so the next request withholds it again, where
+    // the Gateway used to be sent it and refuse the whole turn.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SEEN"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-AGAIN"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("wide.png"), png_header(9000, 10)).expect("wide.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image wide.png\r");
+    session.wait_for("attached image: wide.png");
+    session.type_bytes(b" describe\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-AGAIN");
+    wait_for_conclusions(&sandbox, 2);
+    // The transcript is the history: the badge and the words, no note.
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] describe"],
+        &["not sent"],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1);
+    let dir = sandbox.sessions_dir().join(&ids[0]);
+    let copies: Vec<_> = std::fs::read_dir(dir.join("images"))
+        .expect("an images directory")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    let note = format!(
+        "[Image #1 not sent: image/png is 9000x10 pixels. This request permits at most 8000 per \
+         side and 5 MiB encoded per image. The original is saved at {}. Use an available image \
+         tool to save a smaller copy to a new file ending in .png, then read_file the copy. If no \
+         image tool is available, ask the user before installing one.]\n",
+        copies[0].display()
+    );
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        let body = request.json();
+        assert_eq!(file_parts(&body), [], "an image was sent");
+        assert_eq!(
+            user_messages(&body)[0],
+            format!("{note}[Image #1] describe")
+        );
+    }
+    assert_eq!(user_messages(&requests[1].json())[1], "and now?");
+    // The log keeps the turn as it was typed.
+    let log = std::fs::read_to_string(dir.join("events.jsonl")).expect("the log");
+    assert!(log.contains("\"text\":\"[Image #1] describe\""), "{log}");
+    assert!(!log.contains("not sent"), "{log}");
+}
+
 #[test]
 fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
     // `fx-image-unknown-40x120-sent.ansi`: a model the catalog does not list

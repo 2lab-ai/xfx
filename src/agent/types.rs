@@ -74,7 +74,12 @@ pub trait TurnJournal {
     /// things in one order: their bytes saved beside the log, then the record
     /// that names them ([`crate::session::SessionRecorder::attach_images`]). A
     /// journal that keeps no log keeps no images either.
-    fn attach_images(&mut self, _images: &[crate::image::Image]) {}
+    ///
+    /// Answers the directory their copies were saved in -- each under
+    /// [`crate::image::Image::snapshot_name`] -- or `None` when none was.
+    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// A journal that keeps nothing.

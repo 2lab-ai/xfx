@@ -452,8 +452,9 @@ pub enum Snapshot {
     /// Not read: a listing reads the log and not the images beside it.
     #[default]
     Unread,
-    /// Read, and the digest it was recorded with: what a later request sends.
-    Loaded(Arc<[u8]>),
+    /// Read, and the digest it was recorded with: what a later request sends,
+    /// and the file it was read from.
+    Loaded { bytes: Arc<[u8]>, path: Arc<Path> },
     /// Could not be used, for this reason: it is not sent, and the user is
     /// told so ([`DurableState::history_messages`]).
     Unusable(String),
@@ -614,7 +615,14 @@ impl DurableState {
             for image in &turn.images {
                 let label = crate::image::MediaType::parse(&image.recorded.media_type);
                 match (&image.snapshot, label) {
-                    (Snapshot::Loaded(bytes), Some(media_type)) => images.push((media_type, bytes)),
+                    (Snapshot::Loaded { bytes, path }, Some(media_type)) => {
+                        images.push(crate::gateway::protocol::ContentPart::Image {
+                            id: image.recorded.id,
+                            media_type,
+                            data: Arc::clone(bytes),
+                            saved: Some(Arc::clone(path)),
+                        });
+                    }
                     (Snapshot::Unusable(reason), _) => notices.push(format!(
                         "xfx: image #{} of this session could not be read back ({reason}), \
                          so it was not sent again",
@@ -2182,14 +2190,15 @@ impl SessionRecorder {
     /// (`session_store.zig:102-118`, mode 0600). A copy that cannot be written
     /// is this recorder's failure, reported after the turn like any other --
     /// the turn still sends the images, which it holds in memory.
-    pub fn attach_images(&mut self, images: &[crate::image::Image]) {
+    pub fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<PathBuf> {
         if images.is_empty() || self.failure.is_some() {
-            return;
+            return None;
         }
         if let Err(err) = save_snapshots(self.session.dir(), images) {
             self.failure = Some(format!("cannot save the attached images: {err}"));
-            return;
+            return None;
         }
+        let folder = self.session.dir().join(IMAGES_DIR);
         self.commit(SessionEvent::ImagesAttached {
             images: images
                 .iter()
@@ -2203,15 +2212,19 @@ impl SessionRecorder {
                 .collect(),
         });
         if self.failure.is_some() {
-            return;
+            return None;
         }
         // The bytes are the ones just saved, so the state that re-sends them
         // holds them without reading them back.
         if let Some(turn) = self.session.state.turns.last_mut() {
             for (kept, image) in turn.images.iter_mut().zip(images) {
-                kept.snapshot = Snapshot::Loaded(Arc::clone(&image.bytes));
+                kept.snapshot = Snapshot::Loaded {
+                    bytes: Arc::clone(&image.bytes),
+                    path: Arc::from(folder.join(image.snapshot_name())),
+                };
             }
         }
+        Some(folder)
     }
 }
 
@@ -2220,8 +2233,8 @@ impl TurnJournal for SessionRecorder {
         self.commit(event);
     }
 
-    fn attach_images(&mut self, images: &[crate::image::Image]) {
-        SessionRecorder::attach_images(self, images);
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<PathBuf> {
+        SessionRecorder::attach_images(self, images)
     }
 }
 
@@ -2277,7 +2290,10 @@ fn read_snapshots(dir: &Path, state: &mut DurableState) {
             ));
             image.snapshot =
                 match read_snapshot(&path, &image.recorded.sha256, image.recorded.bytes) {
-                    Ok(bytes) => Snapshot::Loaded(bytes),
+                    Ok(bytes) => Snapshot::Loaded {
+                        bytes,
+                        path: Arc::from(path.as_path()),
+                    },
                     Err(reason) => Snapshot::Unusable(reason),
                 };
         }
@@ -3880,6 +3896,19 @@ mod tests {
             .count()
     }
 
+    fn saved_paths(message: &Message) -> Vec<PathBuf> {
+        message
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                crate::gateway::protocol::ContentPart::Image {
+                    saved: Some(path), ..
+                } => Some(path.to_path_buf()),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn a_turns_images_are_saved_beside_the_log_and_sent_again_after_a_resume() {
         let root = tempfile::TempDir::new().expect("a root");
@@ -3887,7 +3916,7 @@ mod tests {
         recorder.commit(SessionEvent::UserMessage {
             text: "[Image #3][Image #4] what is in this image?".to_string(),
         });
-        recorder.attach_images(&[shot(3), shot(4)]);
+        let saved = recorder.attach_images(&[shot(3), shot(4)]);
         recorder.commit(SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Final {
                 finish_reason: "stop".to_string(),
@@ -3904,8 +3933,11 @@ mod tests {
         // Each copy is owner-only, in an owner-only directory, under the name
         // the digest gives it, and byte for byte what was attached.
         let folder = store.session_dir(&id).join(IMAGES_DIR);
+        assert_eq!(saved.as_deref(), Some(folder.as_path()));
         let name = shot(3).snapshot_name();
         let copy = folder.join(&name);
+        // An image withheld at send is named by this copy.
+        assert_eq!(saved_paths(&live.messages[0])[0], copy);
         assert_eq!(
             std::fs::read(&copy).expect("a copy"),
             crate::image::fixture::SHOT_PNG
@@ -3935,6 +3967,7 @@ mod tests {
         let replay = state.history_messages(Wire::AnthropicMessages);
         assert_eq!(images_of(&replay.messages[0]), 2, "{:?}", replay.messages);
         assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+        assert_eq!(saved_paths(&replay.messages[0])[0], copy);
     }
 
     #[test]

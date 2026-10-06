@@ -649,8 +649,8 @@ impl TurnJournal for Teed<'_> {
     }
 
     /// The log's alone: a prompt's images are on its card already.
-    fn attach_images(&mut self, images: &[crate::image::Image]) {
-        self.journal.attach_images(images);
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        self.journal.attach_images(images)
     }
 }
 
