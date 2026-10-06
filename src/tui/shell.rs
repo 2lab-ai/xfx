@@ -13408,12 +13408,9 @@ mod tests {
             retryable: true,
             retry_after: None,
         };
-        shell.apply(UiEvent::FullDetail(crate::tui::retry::record(
-            &error,
-            1,
-            3,
-            Duration::from_secs(1),
-        )));
+        shell.apply(UiEvent::FullDetail(
+            crate::tui::retry::Retried::of(&error, Duration::from_secs(1)).record(1, 3),
+        ));
         assert_eq!(shell.written(), before, "the document was given the record");
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);

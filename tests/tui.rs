@@ -4908,9 +4908,10 @@ fn a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_trans
     // records each retry it shows (`recordRouteRecoveryNotice`,
     // `vercel-labs/fx@c1db9191 src/core/app/app_worker_runtime.zig:92-133`)
     // as a warning, `! recovery:`, the label as it read when the retry was
-    // decided, then the facts. xfx's first backoff is 250 ms, under a second,
-    // so there is no `in Ns` and no `retry delay:` (`orchestrator.zig:5017`
-    // rounds down).
+    // decided, then the facts -- and again as the next attempt starts, and a
+    // `✓ recovery:` once one gets through. xfx's first backoff is 250 ms,
+    // under a second, so there is no `in Ns` and no `retry delay:`
+    // (`orchestrator.zig:5017` rounds down).
     use support::fake_gateway::{content_only, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Status(
@@ -4930,9 +4931,10 @@ fn a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_trans
     assert_eq!(gateway.request_count(), 2, "the turn did not retry");
 
     session.type_bytes(&[0x0f]);
-    let text = session.wait_until("the recovery record on the full transcript", |text| {
-        last_hidden_frame(text)
-            .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains("kind: auto_retry"))
+    let text = session.wait_until("the recovery records on the full transcript", |text| {
+        last_hidden_frame(text).is_some_and(|frame| {
+            frame.contains(FULL_FOOTER) && frame.contains("kind: auto_recovered")
+        })
     });
     let frame =
         without_colour(last_hidden_frame(&text).expect("the wait returns on a complete frame"));
@@ -4943,13 +4945,18 @@ fn a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_trans
         ),
         "{frame:?}"
     );
-    assert!(
-        frame.contains(
-            "kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
-             diagnostic: HTTP 500 \u{b7} server_error: upstream exploded"
-        ),
-        "{frame:?}"
-    );
+    // Upstream's sequence: the retry, the next attempt as it starts, and the
+    // recovery.
+    for record in [
+        "kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+         diagnostic: HTTP 500 \u{b7} server_error: upstream exploded",
+        "kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 2/3 \u{b7} \
+         diagnostic: HTTP 500 \u{b7} server_error: upstream exploded",
+        "\u{2713} recovery: \u{2713} recovered \u{b7} succeeded on attempt 2",
+        "kind: auto_recovered \u{b7} attempt: 2/3",
+    ] {
+        assert!(frame.contains(record), "{record:?} in {frame:?}");
+    }
     // Closed before the next keys, so they reach the composer as keys rather
     // than an Escape that prefixes them.
     session.type_bytes(&[0x0f]);

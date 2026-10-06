@@ -1193,11 +1193,18 @@ pub(crate) struct UiEventSink {
     /// This turn's token, not the session's: a cancelled turn stops streaming
     /// into a session that is still alive.
     cancel: CancellationToken,
+    /// The retry the next attempt is answering, for the records of that
+    /// attempt and of the recovery ([`super::retry::Retried`]).
+    retried: Option<super::retry::Retried>,
 }
 
 impl UiEventSink {
     pub(crate) fn new(events: Sender<UiEvent>, cancel: CancellationToken) -> Self {
-        Self { events, cancel }
+        Self {
+            events,
+            cancel,
+            retried: None,
+        }
     }
 }
 
@@ -1319,9 +1326,25 @@ impl EventSink for UiEventSink {
             diagnostic: super::retry::diagnostic(error),
             delay,
         });
-        let _ = self.send(UiEvent::FullDetail(super::retry::record(
-            error, attempt, limit, delay,
-        )));
+        let retried = super::retry::Retried::of(error, delay);
+        let _ = self.send(UiEvent::FullDetail(retried.record(attempt, limit)));
+        self.retried = Some(retried);
+    }
+
+    /// The record of the attempt the retry above was waiting for, as it
+    /// starts: upstream's second `! recovery:` for the same retry.
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        if let Some(retried) = &self.retried {
+            let record = retried.record(attempt, limit);
+            let _ = self.send(UiEvent::FullDetail(record));
+        }
+    }
+
+    /// The `✓ recovery:` record of an attempt that got through after a retry.
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        if self.retried.take().is_some() {
+            let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
+        }
     }
 }
 
@@ -1439,6 +1462,48 @@ mod tests {
              retry delay: 1s \u{b7} diagnostic: HTTP 503"
         );
         assert_eq!(rx.blocking_recv(), None);
+    }
+
+    #[test]
+    fn the_attempt_after_a_retry_and_its_recovery_are_recorded_too() {
+        // Upstream's sequence (`fx-interrupt-recovery-80x120-full`): the
+        // retry's record, the next attempt's as it starts -- same cause, delay
+        // and diagnostic, its own number -- then `✓ recovery:`. A turn that
+        // never retried records neither.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(UI_EVENTS);
+        let mut sink = UiEventSink::new(tx, CancellationToken::new());
+        sink.retry_started(2, 3);
+        sink.recovered(2, 3);
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 500,
+            body: String::new(),
+            retryable: true,
+            retry_after: None,
+        };
+        sink.retrying(&error, 1, 3, Duration::from_millis(250));
+        sink.retry_started(2, 3);
+        sink.recovered(2, 3);
+        drop(sink);
+        let mut records = Vec::new();
+        while let Some(event) = rx.blocking_recv() {
+            if let UiEvent::FullDetail(record) = event {
+                records.push(record.body);
+            }
+        }
+        assert_eq!(
+            records,
+            [
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request\n\
+                 kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+                 diagnostic: HTTP 500",
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request\n\
+                 kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 2/3 \u{b7} \
+                 diagnostic: HTTP 500",
+                "\u{2713} recovered \u{b7} succeeded on attempt 2\nkind: auto_recovered \u{b7} \
+                 attempt: 2/3",
+            ]
+        );
     }
 
     #[test]

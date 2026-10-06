@@ -1114,6 +1114,19 @@ pub trait EventSink {
     ) {
         let _ = (error, attempt, limit, delay);
     }
+
+    /// Attempt `attempt` of at most `limit` is starting, after the wait
+    /// [`Self::retrying`] announced. A hook for the same reason, and with the
+    /// same promise: what it reports changes nothing.
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        let _ = (attempt, limit);
+    }
+
+    /// Attempt `attempt` of at most `limit` got through after at least one
+    /// retry. A hook for the same reason, and with the same promise.
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        let _ = (attempt, limit);
+    }
 }
 
 /// Emits one newline-terminated JSON object per event.

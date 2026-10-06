@@ -811,6 +811,9 @@ impl TurnMachine {
                 });
             }
             attempt += 1;
+            if attempt > 1 {
+                events.retry_started(attempt, self.request.max_attempts);
+            }
 
             let mut deltas = StepDeltas {
                 events: &mut *events,
@@ -833,6 +836,9 @@ impl TurnMachine {
             match outcome {
                 Ok(completion) => {
                     self.partial.clear();
+                    if attempt > 1 {
+                        events.recovered(attempt, self.request.max_attempts);
+                    }
                     return Ok(completion);
                 }
                 Err(err) => {

@@ -93,39 +93,75 @@ fn cause_name(error: &ProviderError) -> &'static str {
     }
 }
 
-/// The full transcript's record of one retry: a `* recovery:` warning whose
-/// body is the row as it read when the retry was decided, then the facts the
-/// row cannot carry (`writeRouteRecoveryBody`, `app_worker_runtime.zig:
-/// 115-133`) --
+/// One retry the turn decided on, kept for the full transcript's records of
+/// it (`writeRouteRecoveryBody`, `app_worker_runtime.zig:115-133`).
 ///
-/// `kind: auto_retry · cause: provider_unavailable · attempt: 1/3 · retry
-/// delay: 2s · diagnostic: HTTP 500 · …`
-///
-/// `attempt` is the attempt that failed and `limit` the turn's own budget
-/// (`attempt: {failed}/{limit}`), xfx's three rather than upstream's ten. The
-/// delay is in whole seconds **rounded down**, as upstream's status is built
-/// (`decision.delay_ns / std.time.ns_per_s`, `orchestrator.zig:5017`), so a
-/// wait under a second has no `in Ns` and no `retry delay:` -- unlike the row,
-/// whose count is of the time left and rounds up.
-pub(crate) fn record(error: &ProviderError, attempt: u32, limit: u32, delay: Duration) -> Notice {
-    let diagnostic = diagnostic(error);
-    let seconds = delay.as_secs();
-    let mut body = label(cause(error), &diagnostic, seconds);
-    body.push_str(&format!(
-        "\nkind: auto_retry \u{b7} cause: {}",
-        cause_name(error)
-    ));
+/// Upstream writes a `! recovery:` warning **twice** for each retry -- when
+/// the retry is decided, about the attempt that failed, and when the next
+/// attempt starts, about that one (`pending_auto_retry_status`,
+/// `orchestrator.zig:7826-7836`, pushed as its stream opens, `:5033-5036`) --
+/// with the same cause, delay and diagnostic, and then a `✓ recovery:` record
+/// when an attempt gets through ([`recovered`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Retried {
+    cause: &'static str,
+    cause_name: &'static str,
+    diagnostic: String,
+    /// The delay in whole seconds **rounded down**, as upstream's status is
+    /// built (`decision.delay_ns / std.time.ns_per_s`, `orchestrator.zig:
+    /// 5017`), so a wait under a second has no `in Ns` and no `retry delay:`
+    /// -- unlike the row, whose count is of the time left and rounds up.
+    seconds: u64,
+}
+
+impl Retried {
+    pub(crate) fn of(error: &ProviderError, delay: Duration) -> Self {
+        Self {
+            cause: cause(error),
+            cause_name: cause_name(error),
+            diagnostic: diagnostic(error),
+            seconds: delay.as_secs(),
+        }
+    }
+
+    /// The record for `attempt` of at most `limit` --
+    ///
+    /// `⚠ Provider unavailable · HTTP 500 · … · retrying request in 2s`
+    /// `kind: auto_retry · cause: provider_unavailable · attempt: 1/3 · retry
+    /// delay: 2s · diagnostic: HTTP 500 · …`
+    ///
+    /// -- the label, then the facts it cannot carry. The budget is xfx's own,
+    /// three attempts rather than upstream's ten.
+    pub(crate) fn record(&self, attempt: u32, limit: u32) -> Notice {
+        let mut body = label(self.cause, &self.diagnostic, self.seconds);
+        body.push_str(&format!(
+            "\nkind: auto_retry \u{b7} cause: {}",
+            self.cause_name
+        ));
+        if limit > 0 {
+            body.push_str(&format!(" \u{b7} attempt: {attempt}/{limit}"));
+        }
+        if self.seconds > 0 {
+            body.push_str(&format!(" \u{b7} retry delay: {}s", self.seconds));
+        }
+        if !self.diagnostic.is_empty() {
+            body.push_str(&format!(" \u{b7} diagnostic: {}", self.diagnostic));
+        }
+        // `routeRecoveryNoticeTone`: a retry is a warning (`:107-113`).
+        Notice::warning("recovery", body)
+    }
+}
+
+/// The record that a retried request got through on `attempt`
+/// (`pushAutoRecoveredStatus`, `orchestrator.zig:5040-5048`; its label
+/// `types.zig:478-482`): a success, with no cause, delay or diagnostic.
+pub(crate) fn recovered(attempt: u32, limit: u32) -> Notice {
+    let mut body =
+        format!("\u{2713} recovered \u{b7} succeeded on attempt {attempt}\nkind: auto_recovered");
     if limit > 0 {
         body.push_str(&format!(" \u{b7} attempt: {attempt}/{limit}"));
     }
-    if seconds > 0 {
-        body.push_str(&format!(" \u{b7} retry delay: {seconds}s"));
-    }
-    if !diagnostic.is_empty() {
-        body.push_str(&format!(" \u{b7} diagnostic: {diagnostic}"));
-    }
-    // `routeRecoveryNoticeTone`: a retry is a warning (`:107-113`).
-    Notice::warning("recovery", body)
+    Notice::new(super::notice::Tone::Success, "recovery", body)
 }
 
 /// What the server said, as upstream puts it on this row.
@@ -352,7 +388,7 @@ mod tests {
             500,
             r#"{"error":{"message":"upstream exploded","type":"server_error"}}"#,
         );
-        let record = record(&error, 1, 3, Duration::from_secs(2));
+        let record = Retried::of(&error, Duration::from_secs(2)).record(1, 3);
         assert_eq!(record.tone, super::super::notice::Tone::Warning);
         assert_eq!(record.topic, "recovery");
         assert_eq!(
@@ -368,7 +404,7 @@ mod tests {
     fn a_wait_under_a_second_is_recorded_without_a_delay_as_upstream_rounds_it_down() {
         // xfx's first backoff is 250 ms; upstream's status takes the delay in
         // whole seconds, rounded down (`orchestrator.zig:5017`).
-        let record = record(&status(429, ""), 2, 3, Duration::from_millis(250));
+        let record = Retried::of(&status(429, ""), Duration::from_millis(250)).record(2, 3);
         assert_eq!(
             record.body,
             "\u{26a0} Rate limited \u{b7} HTTP 429 \u{b7} retrying request\n\
@@ -382,8 +418,30 @@ mod tests {
         assert!(record_cause(&refused).contains("cause: connectivity_lost"));
     }
 
+    #[test]
+    fn the_next_attempt_and_the_recovery_are_recorded_as_upstream_records_them() {
+        // `fx-interrupt-recovery-80x120-full`: `attempt: 2/10` again as
+        // attempt 2 starts, with the failed one's cause, delay and
+        // diagnostic; then `✓ recovery: ✓ recovered · succeeded on attempt 3`
+        // and `kind: auto_recovered · attempt: 3/10`.
+        let retried = Retried::of(&status(500, ""), Duration::from_secs(1));
+        assert_eq!(
+            retried.record(2, 3).body,
+            "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request in 1s\n\
+             kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 2/3 \u{b7} \
+             retry delay: 1s \u{b7} diagnostic: HTTP 500"
+        );
+        let done = recovered(3, 3);
+        assert_eq!(done.tone, super::super::notice::Tone::Success);
+        assert_eq!(done.topic, "recovery");
+        assert_eq!(
+            done.body,
+            "\u{2713} recovered \u{b7} succeeded on attempt 3\nkind: auto_recovered \u{b7} attempt: 3/3"
+        );
+    }
+
     fn record_cause(error: &ProviderError) -> String {
-        record(error, 1, 3, Duration::ZERO).body
+        Retried::of(error, Duration::ZERO).record(1, 3).body
     }
 
     #[test]
