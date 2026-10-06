@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-014f57f [debug] · Run /help for commands
+
+┃ /help
+
+xfx shell commands
+  /help     show available slash commands
+  /clear    clear the screen; the conversation and its session are kept
+  /new      start a fresh session
+  /setup    `/setup <gateway|llmux>` to switch provider and record the choice
+  /model    show the model, or `/model <id>` to use another one from now on
+  /version  show the xfx version
+  /quit     exit the interactive shell (also /exit)
+Anything else is a prompt. Ctrl-C stops a running turn; Ctrl-D leaves.
+┃
+
+auto · model-a                                                                                        esc again to clear
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

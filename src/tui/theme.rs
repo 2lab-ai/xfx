@@ -205,14 +205,24 @@ const RESET: &str = "\u{1b}[0m";
 /// row's grey (`permission_auto_style`), and the grey the welcome line's
 /// version and the transcript's turn summary are written in.
 ///
-/// The eighth is upstream's `diff_added_style` / `diff_removed_style`, which a
+/// The eighth is a **notice's label** when the notice reports an outcome: the
+/// glyph and topic of a success, a warning or an error. Upstream paints those
+/// three in `green_style`, `warning_style` and `red_style`
+/// (`app_render_runtime.zig:531-533`), which are the same grey in each theme
+/// (`theme.zig:86-88` dark, `:129-131` light) -- `✗ command:` in 252 over a
+/// body in the notice grey, as `fx-basic-40x120-version-trailing-space.ansi`
+/// shows. The same number as [`ACTIVITY`] and not the same decision, for the
+/// reason [`BODY`] is not [`HINT`]: the activity row is the band's, and this
+/// one is written into the document, where a theme report has to find it.
+///
+/// The ninth is upstream's `diff_added_style` / `diff_removed_style`, which a
 /// permission question's review paints the changed lines and the `+N  -N`
 /// counts in. Both are the same grey in either theme: the diff is monochrome
 /// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
-/// none. The same number as the activity row's and not the same decision, for
-/// the reason [`BODY`] is spelled apart from [`HINT`].
-const DARK: [u8; 8] = [240, 255, 250, 252, 255, 245, 245, 252];
-const LIGHT: [u8; 8] = [250, 235, 241, 238, 235, 241, 247, 238];
+/// none. Band and review-plane rows only -- never the document -- so a theme
+/// report has nothing of it to retint ([`Palette::document_retint`]).
+const DARK: [u8; 9] = [240, 255, 250, 252, 255, 245, 245, 252, 252];
+const LIGHT: [u8; 9] = [250, 235, 241, 238, 235, 241, 247, 238, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -222,7 +232,8 @@ const ACTIVITY: usize = 3;
 const BODY: usize = 4;
 const STATUSLINE: usize = 5;
 const DIM: usize = 6;
-const DIFF: usize = 7;
+const LABEL: usize = 7;
+const DIFF: usize = 8;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -259,6 +270,29 @@ impl Palette {
     /// Secondary text: the welcome line's version, a turn's summary.
     pub(crate) fn dim(&self) -> &'static str {
         self.paint(DIM)
+    }
+
+    /// A notice's glyph and topic when it reports an outcome -- a success, a
+    /// warning, an error ([`LABEL`]).
+    pub(crate) fn notice_label(&self) -> &'static str {
+        self.paint(LABEL)
+    }
+
+    /// An informational notice's glyph and topic: the label grey, bold
+    /// (`system_notice_label_style`, `theme.zig:83` dark and `:126` light,
+    /// wired to `notice_information_style` at `app_render_runtime.zig:530`).
+    ///
+    /// Spelled per pair like [`Self::subtitle`], because a bold run is not one
+    /// of the table's sequences. The colour is [`LABEL`]'s, which is what lets
+    /// a theme report repaint it: the retint replaces the foreground and
+    /// leaves the bold where it is (`super::grid`'s `retint_document`).
+    pub(crate) fn notice_heading(&self) -> &'static str {
+        match (self.mode, self.depth) {
+            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;252m",
+            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;238m",
+            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;208;208;208m",
+            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;68;68;68m",
+        }
     }
 
     /// A changed line of a permission question's review, and the counts that
@@ -300,8 +334,9 @@ impl Palette {
     /// What this palette repaints an **already painted** document cell in, or
     /// `None` for a cell it has nothing to say about.
     ///
-    /// Two of the five roles reach the document -- the answer text
-    /// (`BODY`) and xfx's own lines ([`Self::notice`]) -- and a cell is
+    /// Four of the roles reach the document -- the answer text (`BODY`),
+    /// xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`) and an
+    /// outcome notice's label ([`Self::notice_label`]) -- and a cell is
     /// recognised by the colour it is *holding*, in **either** mode, at this
     /// palette's own depth. Both sides map onto the mode in force rather than
     /// old-to-new, and that is what makes a run of reports converge: a chained
@@ -319,9 +354,11 @@ impl Palette {
     /// (`depth_from_env`).
     pub(crate) fn document_retint(&self, colour: Color) -> Option<&'static str> {
         // xfx's own colours in the document: its notices, the card's rail
-        // (`HINT`, the same grey `BODY` names), and the quiet rows -- the
-        // welcome line's version and a turn's summary (`DIM`).
-        let role = [NOTICE, BODY, DIM].into_iter().find(|&role| {
+        // (`HINT`, the same grey `BODY` names), the quiet rows -- the
+        // welcome line's version, a turn's summary and a cancelled notice's
+        // label (`DIM`) -- and the label of a notice that reports an outcome
+        // (`LABEL`), bold or not.
+        let role = [NOTICE, BODY, DIM, LABEL].into_iter().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
                 .any(|mode| self.shade(role, mode) == Some(colour))
@@ -677,6 +714,9 @@ mod tests {
             (Mode::Light, NOTICE, 241, 98),
             (Mode::Light, ACTIVITY, 238, 68),
             (Mode::Light, BODY, 235, 38),
+            // `theme.zig:86-88` / `:129-131`: an outcome notice's label.
+            (Mode::Dark, LABEL, 252, 208),
+            (Mode::Light, LABEL, 238, 68),
         ] {
             assert_eq!(
                 level,
@@ -799,10 +839,13 @@ mod tests {
 
     #[test]
     fn the_colours_this_crate_does_not_own_in_the_document_are_left_alone() {
-        // The band's own three roles are painted by the band's own frame, and
-        // the user's echo and anything the terminal was already holding are
+        // The band's own roles are painted by the band's own frame, and the
+        // user's echo and anything the terminal was already holding are
         // nobody's to repaint here: a retint that reached them would rewrite a
-        // shell's output in xfx's greys.
+        // shell's output in xfx's greys. (The activity row's 252/238 is no
+        // longer foreign to the document: it is an outcome notice's label
+        // too, and `an_outcome_notices_label_is_retinted_like_the_rest` holds
+        // that half.)
         let light = Palette {
             mode: Mode::Light,
             depth: Depth::Ansi256,
@@ -810,8 +853,7 @@ mod tests {
         for foreign in [
             Color::Default,
             Color::Indexed(240), // the divider's
-            Color::Indexed(252), // the activity row's
-            Color::Indexed(238),
+            Color::Indexed(244),
             Color::Indexed(31),
             Color::Rgb(1, 2, 3),
         ] {
@@ -821,6 +863,54 @@ mod tests {
                 "{foreign:?} was treated as a colour this crate painted"
             );
         }
+    }
+
+    #[test]
+    fn an_outcome_notices_label_is_retinted_like_the_rest() {
+        // `✗ command:` is written in the label grey -- 252 dark, 238 light
+        // (`theme.zig:86-88`, `:129-131`) -- and a terminal that changes its
+        // background mid-session must find it, at either depth. Literals on
+        // both sides, as above.
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.notice_label(), "\u{1b}[38;5;252m");
+        assert_eq!(light.notice_label(), "\u{1b}[38;5;238m");
+        assert_eq!(
+            light.document_retint(Color::Indexed(252)),
+            Some("\u{1b}[38;5;238m")
+        );
+        assert_eq!(
+            dark.document_retint(Color::Indexed(238)),
+            Some("\u{1b}[38;5;252m")
+        );
+        assert_eq!(light.document_retint(Color::Indexed(238)), None);
+        let direct = Palette {
+            mode: Mode::Light,
+            depth: Depth::TrueColor,
+        };
+        assert_eq!(
+            direct.document_retint(Color::Rgb(208, 208, 208)),
+            Some("\u{1b}[38;2;68;68;68m")
+        );
+        // The bold heading is the same grey, so the retint above is its too;
+        // the bold is a separate attribute the retint leaves where it is.
+        assert_eq!(dark.notice_heading(), "\u{1b}[1;38;5;252m");
+        assert_eq!(light.notice_heading(), "\u{1b}[1;38;5;238m");
+        assert_eq!(
+            Palette {
+                mode: Mode::Dark,
+                depth: Depth::TrueColor,
+            }
+            .notice_heading(),
+            "\u{1b}[1;38;2;208;208;208m"
+        );
+        assert_eq!(direct.notice_heading(), "\u{1b}[1;38;2;68;68;68m");
     }
 
     #[test]

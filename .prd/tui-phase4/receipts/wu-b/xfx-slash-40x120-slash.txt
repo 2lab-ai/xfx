@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-014f57f [debug] · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 7 · type to filter                                                                                         1–6
+
+  /help      show available slash commands                                                                      General
+  /clear     clear the screen; the conversation and its session are kept                                        General
+  /new       start a fresh session                                                                              Session
+  /setup     `/setup <gateway|llmux>` to switch provider and record the choice                                  Account
+  /model     show the model, or `/model <id>` to use another one from now on                                    Model
+  /version   show the xfx version                                                                               General
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

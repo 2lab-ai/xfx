@@ -26,7 +26,7 @@
 //! before anything here runs, which is why the routing has one arm per
 //! canonical command rather than one per name the registry answers.
 
-use crate::interactive::{Slash, Submitted};
+use crate::interactive::{slash_spec, Slash, Submitted};
 
 /// What a front end has to be able to do to be routed to.
 ///
@@ -53,6 +53,64 @@ pub(crate) trait CommandHandlers {
     fn setup(&mut self, argument: &str);
 }
 
+/// What one line submitted **on this surface** is.
+///
+/// [`crate::interactive::classify`]'s answer -- the same reading of a leading
+/// `/` the line shell has, and the same registry -- with upstream's one rule
+/// about arguments on top (`command_router.zig:121-133`): a command that takes
+/// an argument matches by prefix and gets the rest of the line, and **every
+/// other command matches exactly**, trailing spaces and tabs tolerated and
+/// nothing else (`matchesCommandToken`, `registry.zig:59-68`). `/version now`
+/// is therefore not `/version`: it is a line that names no command, and it is
+/// answered as one (`fx-basic-40x120-version-trailing-space.txt`).
+///
+/// The line is left-trimmed first, as upstream's submit trims it
+/// (`input_submit_runtime.zig:707`), so leading blanks are not an argument.
+///
+/// **This surface's rule and not the line shell's.** `crate::interactive`'s
+/// read loop still ignores what follows a command that takes nothing; the TUI
+/// is the surface held to upstream's behaviour, and the two classifications
+/// differ in exactly this and in the next rule.
+///
+/// **A slash word that names nothing is a prompt when it is not a lone
+/// word.** Upstream refuses an unknown name only when it is the whole line and
+/// has no second `/` in it (`shouldRouteUnknownSlashCommand`,
+/// `input_submit_runtime.zig:926-934`); `/tmp/x is empty, why?` or
+/// `/nosuch please` goes to the model as written.
+pub(crate) fn classify(line: &str) -> Submitted {
+    let submitted = crate::interactive::classify(line);
+    if let Submitted::UnknownCommand { token } = &submitted {
+        let trimmed = line.trim();
+        if trimmed != token.as_str() || token[1..].contains('/') {
+            return Submitted::Prompt(trimmed.to_string());
+        }
+    }
+    match &submitted {
+        Submitted::Command { command, .. } if !exact(line, *command) => Submitted::UnknownCommand {
+            token: line
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+        },
+        _ => submitted,
+    }
+}
+
+/// Whether `line` names `command` the way upstream accepts it.
+fn exact(line: &str, command: Slash) -> bool {
+    if slash_spec(command).has_args {
+        return true;
+    }
+    let line = line.trim_start_matches([' ', '\t', '\r', '\n']);
+    // The name and nothing after it but spaces and tabs: anything else left
+    // once those are gone -- a word, a line break -- is an argument the command
+    // does not take.
+    !line
+        .trim_end_matches([' ', '\t'])
+        .contains(char::is_whitespace)
+}
+
 /// Calls the one handler `submitted` names, or no handler at all.
 ///
 /// **Anything that is not a command is silence here, not a default.** A blank
@@ -76,6 +134,25 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_unknown_slash_word_with_more_on_the_line_is_a_prompt() {
+        // The TUI's classifier, not the line shell's this module imports below.
+        use super::classify;
+        for line in ["/nosuch please", "/tmp/x is empty, why?", "/usr/bin"] {
+            assert!(
+                matches!(classify(line), Submitted::Prompt(ref text) if text == line),
+                "{line:?}"
+            );
+        }
+        assert!(matches!(
+            classify("/nosuch"),
+            Submitted::UnknownCommand { ref token } if token == "/nosuch"
+        ));
+        assert!(matches!(
+            classify("/version now"),
+            Submitted::UnknownCommand { .. }
+        ));
+    }
     use super::*;
 
     use crate::interactive::{classify, SLASH_COMMANDS};
@@ -181,6 +258,73 @@ mod tests {
                 assert_eq!(routed(name).len(), 1, "{name} routes to no handler");
             }
         }
+    }
+
+    #[test]
+    fn a_command_that_takes_nothing_is_matched_exactly_on_this_surface() {
+        // `super::classify` throughout: the bare name in this module is the
+        // line shell's, imported above.
+        // `fx-basic-40x120-version-trailing-space.txt`: `/version ` runs,
+        // `/version now` and `/help extra` are unknown commands
+        // (`registry.zig:59-68`).
+        for line in [
+            "/version",
+            "/version ",
+            "/version \t ",
+            "  /version",
+            "/exit  ",
+        ] {
+            assert!(
+                matches!(super::classify(line), Submitted::Command { .. }),
+                "{line:?} did not run"
+            );
+        }
+        for line in [
+            "/version now",
+            "/help extra",
+            "/version\tnow",
+            "/version\nnow",
+            "/version\n",
+            "/quit please",
+            "/exit now",
+        ] {
+            assert!(
+                matches!(super::classify(line), Submitted::UnknownCommand { .. }),
+                "{line:?} ran a command that takes nothing"
+            );
+        }
+        // And a command that takes something still gets it, trimmed.
+        assert_eq!(
+            super::classify("/model   acme/model-9  "),
+            Submitted::Command {
+                command: Slash::Model,
+                argument: "acme/model-9".to_string()
+            }
+        );
+        assert!(matches!(
+            super::classify("/setup"),
+            Submitted::Command {
+                command: Slash::Setup,
+                ..
+            }
+        ));
+        // Nothing else about the line shell's reading changes.
+        assert_eq!(super::classify("/nonesuch"), classify("/nonesuch"));
+        assert_eq!(super::classify("a/b"), classify("a/b"));
+        assert_eq!(super::classify("   "), Submitted::Blank);
+    }
+
+    #[test]
+    fn the_line_shell_keeps_its_own_reading_of_an_argument() {
+        // The TUI is the surface held to upstream here; `crate::interactive`'s
+        // own classifier, which the line shell reads, still takes the command.
+        assert!(matches!(
+            classify("/version now"),
+            Submitted::Command {
+                command: Slash::Version,
+                ..
+            }
+        ));
     }
 
     #[test]

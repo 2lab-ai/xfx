@@ -775,6 +775,14 @@ fn commit_frame(
     now: Instant,
     _reconciled: Reconciled,
 ) -> io::Result<()> {
+    // The window title the session wants now, handed to the band before any
+    // frame below is built: the band writes it with whichever frame comes
+    // next (`Band::retitle`) and only when it differs from the one the
+    // terminal was last told, so this costs nothing on a frame where it did
+    // not change.
+    if let Some(title) = shell.take_title() {
+        band.set_title(title);
+    }
     // **The theme query, above every exit below.** It carries no coordinates
     // and moves no cell, so it means the same thing on the borrowed buffer and
     // on a screen no band fits on -- and those are exactly the two states a
@@ -1783,9 +1791,14 @@ mod tests {
     fn shell() -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
+        // A workspace with the same last component in every fixture, because
+        // the window title names it (`frame::title`): two fixtures compared
+        // byte for byte must not differ by a temporary directory's name.
+        let root = workspace.path().join("work");
+        std::fs::create_dir(&root).expect("the workspace directory");
         let config = RuntimeConfig::load_with(
             &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
-            workspace.path(),
+            &root,
         )
         .expect("load a configuration");
         let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
@@ -3693,13 +3706,18 @@ mod tests {
         tick(shell, band, out, failures, now);
         shell.route_bytes(b"hello\r");
         shell.apply(UiEvent::Delta("a streamed answer\n".to_string()));
-        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        // A notice with a label and a body, so the row carries two of xfx's
+        // greys -- the label's and the body's -- and both are recoloured.
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
         shell.flush_paced();
         let landed = tick(shell, band, out, failures, now);
         for wanted in [
             // In the answer's two-column gutter, and in no grey of xfx's.
             "  a streamed answer".to_string(),
-            format!("{NOTICE_DARK}[tool] read_file ok"),
+            format!("{NOTICE_DARK} read_file ok"),
         ] {
             assert!(
                 landed.contains(&wanted),
@@ -3730,8 +3748,14 @@ mod tests {
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
 
         assert!(
-            written.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
+            written.contains(&format!("{NOTICE_LIGHT} read_file ok")),
             "xfx's own line kept the palette the session started in: {written:?}"
+        );
+        // And the notice's label -- glyph and topic, upstream's 252 on dark --
+        // in the light theme's 238 (`theme.zig:129-131`), one run of it.
+        assert!(
+            written.contains("\u{1b}[38;5;238m! tool:"),
+            "the notice's label kept the palette the session started in: {written:?}"
         );
         assert!(
             !written.contains("a streamed answer"),
@@ -3775,7 +3799,7 @@ mod tests {
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
 
         assert!(
-            !written.contains("a streamed answer") && !written.contains("[tool] read_file ok"),
+            !written.contains("a streamed answer") && !written.contains("read_file ok"),
             "a report that changed nothing in the end still rewrote the \
              document: {written:?}"
         );
@@ -3811,7 +3835,7 @@ mod tests {
 
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            written.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
+            written.contains(&format!("{NOTICE_LIGHT} read_file ok")),
             "the recolour the screen refused was never offered again: {written:?}"
         );
         assert!(!shell.owes_retint());
@@ -3826,7 +3850,7 @@ mod tests {
         shell.route_bytes(WENT_LIGHT);
         let converged = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !converged.contains(&format!("{NOTICE_DARK}[tool] read_file ok")),
+            !converged.contains(&format!("{NOTICE_DARK} read_file ok")),
             "the retry wrote the palette of the report that was refused rather \
              than the one the terminal has now: {converged:?}"
         );
@@ -3892,7 +3916,7 @@ mod tests {
         shell.route_bytes(WENT_LIGHT);
         let borrowed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !borrowed.contains("[tool] read_file ok"),
+            !borrowed.contains("read_file ok"),
             "the document was repainted onto the buffer the question borrowed: \
              {borrowed:?}"
         );
@@ -3907,7 +3931,7 @@ mod tests {
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            back.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
+            back.contains(&format!("{NOTICE_LIGHT} read_file ok")),
             "the recolour never landed after the plane came back: {back:?}"
         );
     }
@@ -3938,8 +3962,7 @@ mod tests {
             for tick_number in 0..2 {
                 let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
                 assert!(
-                    !written.contains("a streamed answer")
-                        && !written.contains("[tool] read_file ok"),
+                    !written.contains("a streamed answer") && !written.contains("read_file ok"),
                     "tick {tick_number} with the report {} the clear brought \
                      erased history back: {written:?}",
                     if report_first { "before" } else { "after" }
@@ -3972,8 +3995,7 @@ mod tests {
             for tick_number in 0..2 {
                 let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
                 assert!(
-                    !written.contains("a streamed answer")
-                        && !written.contains("[tool] read_file ok"),
+                    !written.contains("a streamed answer") && !written.contains("read_file ok"),
                     "tick {tick_number} with the report {} the resize repainted \
                      a screen that no longer exists: {written:?}",
                     if report_first { "before" } else { "after" }
@@ -4005,7 +4027,7 @@ mod tests {
         for tick_number in 0..2 {
             let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
             assert!(
-                !written.contains("a streamed answer") && !written.contains("[tool] read_file ok"),
+                !written.contains("a streamed answer") && !written.contains("read_file ok"),
                 "tick {tick_number} after a resume repainted the document out of \
                  a shadow describing a screen somebody else had: {written:?}"
             );
@@ -4034,7 +4056,7 @@ mod tests {
         );
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !written.contains("a streamed answer") && !written.contains("[tool] read_file ok"),
+            !written.contains("a streamed answer") && !written.contains("read_file ok"),
             "the tick after a resume brought the old document back: {written:?}"
         );
     }
@@ -4068,7 +4090,7 @@ mod tests {
         );
         let repairing = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            !repairing.contains("[tool] read_file ok"),
+            !repairing.contains("read_file ok"),
             "a deferred recolour was paid out of a shadow that is not this \
              screen's: {repairing:?}"
         );
@@ -4114,26 +4136,30 @@ mod tests {
         let now = Instant::now();
         tick(&mut shell, &mut band, &mut out, &mut failures, now);
         shell.apply(UiEvent::Delta("half an answer".to_string()));
-        shell.apply(UiEvent::Notice("[tool] read".to_string()));
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool", "read",
+        )));
         shell.flush_paced();
         let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(
-            dark.contains(&format!("{NOTICE_DARK}[tool] read")),
+            dark.contains(&format!("{NOTICE_DARK} read")),
             "the line before the report never reached the screen: {dark:?}"
         );
 
         shell.route_bytes(WENT_LIGHT);
-        shell.apply(UiEvent::Notice("[tool] ran".to_string()));
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "tool", "ran",
+        )));
         shell.apply(UiEvent::Delta(" and the rest".to_string()));
         shell.flush_paced();
         let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
 
         assert!(
-            written.contains(&format!("{NOTICE_LIGHT}[tool] read")),
+            written.contains(&format!("{NOTICE_LIGHT} read")),
             "the row on the screen kept the old palette: {written:?}"
         );
         assert!(
-            written.contains(&format!("{NOTICE_LIGHT}[tool] ran")),
+            written.contains(&format!("{NOTICE_LIGHT} ran")),
             "the notice that arrived with the report is not in the palette it \
              landed in: {written:?}"
         );
@@ -4141,7 +4167,8 @@ mod tests {
             // The notices are named rather than their grey alone: the light
             // palette paints the **divider** in the same 250 that a dark
             // notice is, and the divider is the band's own row.
-            !written.contains(&format!("{NOTICE_DARK}[tool] ")),
+            !written.contains(&format!("{NOTICE_DARK} read"))
+                && !written.contains(&format!("{NOTICE_DARK} ran")),
             "a row went to the screen in the palette the session has left: \
              {written:?}"
         );
@@ -6338,7 +6365,10 @@ mod tests {
         // the sentence a refusal writes -- with the defect intact.
         let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
         events
-            .try_send(UiEvent::Notice("xfx: something worth saying".to_string()))
+            .try_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "test",
+                "something worth saying",
+            )))
             .expect("the channel is empty");
         events
             .try_send(a_change_too_big_for_the_band())
@@ -6401,10 +6431,16 @@ mod tests {
         // append tests above already cover.
         let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
         events
-            .try_send(UiEvent::Notice("xfx: a row that will not land".to_string()))
+            .try_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "test",
+                "a row that will not land",
+            )))
             .expect("the channel is empty");
         events
-            .try_send(UiEvent::Notice("xfx: the row behind it".to_string()))
+            .try_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "test",
+                "the row behind it",
+            )))
             .expect("the channel has room");
         events
             .try_send(a_change_too_big_for_the_band())
@@ -6493,7 +6529,10 @@ mod tests {
         // the band, and that is a reason for a frame whatever else is pending.
         let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
         events
-            .try_send(UiEvent::Notice("xfx: a row that scrolls".to_string()))
+            .try_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "test",
+                "a row that scrolls",
+            )))
             .expect("the channel is empty");
         events
             .try_send(a_change_too_big_for_the_band())
@@ -6593,7 +6632,10 @@ mod tests {
         // repaints before it offers the terminal to the question.
         let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
         events
-            .try_send(UiEvent::Notice("xfx: a row that lands".to_string()))
+            .try_send(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "test",
+                "a row that lands",
+            )))
             .expect("the channel is empty");
         events
             .try_send(a_change_too_big_for_the_band())
@@ -6721,7 +6763,10 @@ mod tests {
             "the fixture is not on a screen it must not write"
         );
 
-        shell.apply(UiEvent::Notice("xfx: a row with nowhere to go".to_string()));
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::neutral(
+            "test",
+            "a row with nowhere to go",
+        )));
         shell.apply(a_change_too_big_for_the_band());
         assert!(
             shell.owes_document(),
@@ -9160,6 +9205,13 @@ mod tests {
                 if let Some(tail) = rest.strip_prefix('\n') {
                     self.linefeed();
                     rest = tail;
+                } else if let Some(tail) = rest.strip_prefix("\u{1b}]2;") {
+                    // The window title: a string that moves no cell, so this
+                    // screen reads past it.
+                    let end = tail
+                        .find('\u{7}')
+                        .unwrap_or_else(|| panic!("an unterminated title: {tail:?}"));
+                    rest = &tail[end + 1..];
                 } else if let Some(tail) = rest.strip_prefix('\u{1b}') {
                     let tail = tail.strip_prefix('[').unwrap_or_else(|| {
                         panic!("an escape this screen does not model: {tail:?}")

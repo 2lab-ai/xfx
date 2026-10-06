@@ -23,6 +23,10 @@
 #   snapfull <label>       the same with the whole tmux history (.full.*)
 #   gwlog                  the gateway's log and every request body it got
 #   workls <label>         the workspace's files after the run
+#   title <label>          writes the pane's window title (OSC 2) to
+#                          <bin>-<scenario>-<size>-<label>.title
+#   keep                   keeps the pane after the program exits, so a title
+#                          or a screen can still be read once it has
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` is xfx's
@@ -139,6 +143,12 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         ;;
       gwlog) cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies" ;;
       workls) (cd "$run/work" && for f in $(find . -type f | sort); do echo "== $f"; head -c 2000 "$f"; echo; done) > "$out/$which-$scenario-$size-work-$rest.txt" ;;
+      title)
+        local name=$out/$which-$scenario-$size-$rest
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
+        echo "$name.title"
+        ;;
+      keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"

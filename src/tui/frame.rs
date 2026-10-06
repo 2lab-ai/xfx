@@ -2082,20 +2082,34 @@ fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
     buffer.extend_from_slice(ERASE_LINE.as_bytes());
 }
 
-/// The window title a session asks for: `xfx` and the model a turn would run
-/// against, in upstream's separator.
+/// The window title a session asks for: the session's own title once it has
+/// one, and until then `xfx v<version> | <workspace>` -- upstream's
+/// `syncTerminalTitleWith` (`app_session_runtime.zig:3608-3629`), which falls
+/// back to the word `workspace` for a root with no last component.
 ///
-/// **The label is made inert here**, and that is the load-bearing half rather
-/// than the formatting. A model id is configuration -- a file, an environment
-/// variable, a `/model` argument -- so it is a string a user or a provider
-/// chose; an `OSC` string ends at a `BEL` or an `ESC \`, so a label carrying
-/// either would close the title early and leave the rest of it being *executed*
-/// by the terminal. Every control goes, rather than the two that terminate this
-/// particular sequence: an allowlist of terminators is a list somebody has to
-/// keep correct as sequences are added, and there is no control a window title
-/// has a use for.
-pub(crate) fn title(model: &str) -> String {
-    format!("xfx \u{b7} {}", inert_label(model))
+/// **Both labels are made inert here**, and that is the load-bearing half
+/// rather than the formatting. A session title is the first line of a prompt
+/// and a directory name is whatever the user named it, so both are strings
+/// somebody else chose; an `OSC` string ends at a `BEL` or an `ESC \`, so a
+/// label carrying either would close the title early and leave the rest of it
+/// being *executed* by the terminal. Every control goes, rather than the two
+/// that terminate this particular sequence: an allowlist of terminators is a
+/// list somebody has to keep correct as sequences are added, and there is no
+/// control a window title has a use for. Upstream drops them from its cached
+/// title for the same reason (`appendTitleWithoutControlBytes`, `:3580-3590`).
+///
+/// A session title that is nothing once its controls are gone is no title:
+/// the window says what the session is rather than going blank.
+pub(crate) fn title(session: Option<&str>, workspace: &std::path::Path) -> String {
+    if let Some(session) = session.map(inert_label).filter(|label| !label.is_empty()) {
+        return session;
+    }
+    let folder = workspace
+        .file_name()
+        .map(|name| inert_label(&name.to_string_lossy()))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "workspace".to_string());
+    format!("xfx v{} | {folder}", crate::VERSION)
 }
 
 /// `label` with nothing in it a terminal would act on.
@@ -4436,35 +4450,55 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_title_is_xfx_and_the_model_a_turn_would_run_against() {
-        assert_eq!(title("zai/glm-5.2"), "xfx \u{b7} zai/glm-5.2");
+    /// The window title for a session in `work`, with or without a title of
+    /// its own.
+    fn titled(session: Option<&str>) -> String {
+        title(session, std::path::Path::new("/tmp/somewhere/work"))
     }
 
     #[test]
-    fn a_model_label_cannot_close_the_title_it_is_carried_in() {
-        // The label is configuration -- a file, an environment variable, a
-        // `/model` argument -- so it is a string somebody else chose. An `OSC`
-        // ends at a `BEL` or an `ESC \`, so a label carrying either would close
-        // the title early and leave the rest of itself being *executed* by the
-        // terminal: `\x1b[2J` would erase the screen, `\x1b[?1049h` would take
-        // the alternate buffer this TUI promises never to touch.
+    fn a_title_is_the_sessions_own_or_xfx_its_version_and_the_workspace() {
+        // `app_session_runtime.zig:3608-3629`: `fx v0.0.13 | work` until the
+        // session has a title, then the title.
+        assert_eq!(titled(None), format!("xfx v{} | work", crate::VERSION));
+        assert_eq!(titled(Some("say the marker")), "say the marker");
+        // A root has no last component, and upstream names it `workspace`.
         assert_eq!(
-            title("evil\u{7}\u{1b}[2Jrest"),
-            "xfx \u{b7} evil[2Jrest",
+            title(None, std::path::Path::new("/")),
+            format!("xfx v{} | workspace", crate::VERSION)
+        );
+    }
+
+    #[test]
+    fn a_label_cannot_close_the_title_it_is_carried_in() {
+        // A session title is the first line of a prompt and a workspace is a
+        // directory somebody named, so both are strings somebody else chose. An
+        // `OSC` ends at a `BEL` or an `ESC \`, so a label carrying either would
+        // close the title early and leave the rest of itself being *executed*
+        // by the terminal: `\x1b[2J` would erase the screen, `\x1b[?1049h`
+        // would take the alternate buffer this TUI promises never to touch.
+        assert_eq!(
+            titled(Some("evil\u{7}\u{1b}[2Jrest")),
+            "evil[2Jrest",
             "a terminator survived the label"
         );
-        assert_eq!(
-            title("evil\u{1b}\\\u{1b}[?1049h"),
-            "xfx \u{b7} evil\\[?1049h"
-        );
+        assert_eq!(titled(Some("evil\u{1b}\\\u{1b}[?1049h")), "evil\\[?1049h");
         for label in ["a\u{7}b", "a\u{1b}b", "a\nb", "a\rb", "a\u{0}b"] {
-            let made = title(label);
-            assert!(
-                !made.chars().any(char::is_control),
-                "a control survived {label:?}: {made:?}"
-            );
+            for made in [
+                titled(Some(label)),
+                title(None, &std::path::Path::new("/tmp").join(label)),
+            ] {
+                assert!(
+                    !made.chars().any(char::is_control),
+                    "a control survived {label:?}: {made:?}"
+                );
+            }
         }
+        // A title that was nothing but controls is no title at all.
+        assert_eq!(
+            titled(Some("\u{7}\u{1b}")),
+            format!("xfx v{} | work", crate::VERSION)
+        );
     }
 
     #[test]
@@ -4474,12 +4508,12 @@ mod tests {
         // say nothing, on every keystroke.
         let mut band = Band::new();
         let mut screen = Vec::new();
-        band.set_title(title("first/model"));
+        band.set_title(titled(Some("first title")));
         band.commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("the first frame");
         let text = String::from_utf8(screen.clone()).expect("utf-8");
         assert!(
-            text.contains("\u{1b}]2;xfx \u{b7} first/model\u{7}"),
+            text.contains("\u{1b}]2;first title\u{7}"),
             "the title was never set: {text:?}"
         );
 
@@ -4495,18 +4529,19 @@ mod tests {
 
     #[test]
     fn a_title_only_change_is_still_one_synchronized_frame() {
-        // A `/model` changes the title and no cell, so a skip that consulted
-        // the grid alone would leave the window naming the model the session
-        // used to be running. It travels inside the frame rather than beside
-        // one, because this module is the terminal's only writer.
+        // A first turn's end changes the title and no cell, so a skip that
+        // consulted the grid alone would leave the window naming a session
+        // that has a title of its own by now. It travels inside the frame
+        // rather than beside one, because this module is the terminal's only
+        // writer.
         let mut band = Band::new();
         let mut screen = Vec::new();
-        band.set_title(title("first/model"));
+        band.set_title(titled(None));
         band.commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("the first frame");
 
         screen.clear();
-        band.set_title(title("second/model"));
+        band.set_title(titled(Some("second title")));
         let retitled = band
             .commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("the frame the title changed on");
@@ -4516,7 +4551,7 @@ mod tests {
         );
         assert_eq!(
             String::from_utf8(screen).expect("utf-8"),
-            format!("{BEGIN_FRAME}\u{1b}]2;xfx \u{b7} second/model\u{7}\u{1b}[23;3H{END_FRAME}"),
+            format!("{BEGIN_FRAME}\u{1b}]2;second title\u{7}\u{1b}[23;3H{END_FRAME}"),
             "a title-only change cost more than the title and the caret"
         );
     }
