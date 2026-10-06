@@ -34,7 +34,7 @@
 use super::frame::cup;
 use super::layout::Geometry;
 use super::pacer::SgrState;
-use super::theme::Palette;
+use super::theme::{DocumentRow, Palette};
 
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\u{1b}[K";
@@ -352,9 +352,11 @@ impl Grid {
     /// Three things make it narrow enough to be safe on rows nobody repaints:
     ///
     /// * **Only a [`Cell::Lead`] this crate's palette recognises.** The colour
-    ///   is asked of the cell rather than of the row it came from, and
-    ///   [`Palette::document_retint`] answers `None` for every one it did not
-    ///   paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
+    ///   is asked of the cell, within the kind of row its first cell says it is
+    ///   on -- a tool group's rows share one dark grey with a turn's summary
+    ///   and part ways on a light screen ([`DocumentRow`]) -- and
+    ///   [`Palette::document_retint_in`] answers `None` for every one it did
+    ///   not paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
     ///   echo and whatever the terminal was holding before xfx ran are all
     ///   left exactly as they are. Nothing here can *create* a cell, which is
     ///   what stops a repaint reconstructing history.
@@ -375,6 +377,16 @@ impl Grid {
             let Some(span) = self.span(line) else {
                 continue;
             };
+            // Read before any cell of it moves: what kind of row this is is
+            // said by its first cell as it was painted ([`DocumentRow`]).
+            let row = match self.cells.get(span.start) {
+                Some(Cell::Lead { grapheme, sgr, .. }) => {
+                    sgr.color().map_or(DocumentRow::Plain, |colour| {
+                        palette.document_row(grapheme, colour)
+                    })
+                }
+                _ => DocumentRow::Plain,
+            };
             for cell in &mut self.cells[span] {
                 let Cell::Lead { sgr, .. } = cell else {
                     continue;
@@ -382,7 +394,7 @@ impl Grid {
                 let Ok(colour) = sgr.color() else {
                     continue;
                 };
-                let Some(wanted) = palette.document_retint(colour) else {
+                let Some(wanted) = palette.document_retint_in(row, colour) else {
                     continue;
                 };
                 sgr.observe(wanted);
