@@ -1418,7 +1418,7 @@ fn paint_alternate(
         // surface onto it in the same frame.
         (false, ScreenOwner::Alternate) => {
             let rows = shell.screen_rows();
-            let cursor = shell.screen_cursor();
+            let cursor = shell.screen_caret();
             shell.intend_approval();
             let frame = match band.enter_alternate(&rows, &shell.geometry, cursor) {
                 Ok(frame) => frame,
@@ -1483,7 +1483,7 @@ fn paint_alternate(
                 band.force_alternate_repaint();
             }
             let rows = shell.screen_rows();
-            let cursor = shell.screen_cursor();
+            let cursor = shell.screen_caret();
             shell.intend_approval();
             let frame = match band.repaint_alternate(&rows, &shell.geometry, cursor) {
                 Ok(frame) => frame,

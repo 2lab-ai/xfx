@@ -607,6 +607,9 @@ impl TurnMachine {
                 ok: result.ok,
                 output: result.output.clone(),
             });
+            if let Some(change) = &result.change {
+                journal.change_made(&call.id, change);
+            }
             self.suffix
                 .push(Message::tool_result(&call.id, &call.name, result.output));
 

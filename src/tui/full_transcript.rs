@@ -52,9 +52,6 @@
 //!   notice at launch. xfx writes neither into its document, and this screen
 //!   shows what the document was given; inventing them here would be a second
 //!   source of truth about requests.
-//! * A change is shown as a diff only when xfx reviewed one -- an approval in
-//!   `ask` mode; otherwise the call's arguments say what it was asked to do.
-//!   Upstream keeps the diff of every change in its result store.
 //! * `Home` and `End` go to the top and the tail. Upstream binds neither on
 //!   this screen (they reach its hidden composer); everything else this screen
 //!   does not bind is swallowed here rather than typed into a composer nobody
@@ -199,6 +196,11 @@ pub(crate) enum Detail {
     /// Anything else the tool returned to the model, made readable the way
     /// upstream makes it (`tool_result_display.contentForDisplay`).
     Result(String),
+    /// The change a file call made: the part of the file it touched, before
+    /// and after, as the plan the change was judged on carries it -- upstream
+    /// keeps one per change for this screen (`diff_block` entries,
+    /// `full_transcript_screen.zig:5731-5760`).
+    Change(ApprovalDiff),
 }
 
 /// One argument of a call: `name: value`, the value as the model sent it.
@@ -233,6 +235,11 @@ impl Detail {
                 status: status.map(inert),
             },
             Detail::Result(text) => Detail::Result(inert(text)),
+            Detail::Change(change) => Detail::Change(ApprovalDiff {
+                before: inert(change.before),
+                after: inert(change.after),
+                ..change
+            }),
         }
     }
 }
@@ -430,23 +437,38 @@ impl<'a> Teed<'a> {
     }
 }
 
+impl Teed<'_> {
+    /// Hands one detail to the UI, and says whether it could.
+    ///
+    /// Through the same door every event takes ([`bridge::send_ui`]), waiting
+    /// for a permit the way the event sink does: the journal is as
+    /// synchronous a seam as that one.
+    fn hand_over(&self, call_id: String, detail: Detail) -> bool {
+        bridge::park_on(bridge::send_ui(
+            &self.events,
+            &self.cancel,
+            UiEvent::ToolDetail { call_id, detail },
+        ))
+        .is_ok()
+    }
+}
+
 impl TurnJournal for Teed<'_> {
     fn record(&mut self, event: SessionEvent) {
         let details = details(&event);
         self.journal.record(event);
         for (call_id, detail) in details {
-            // Through the same door every event takes ([`bridge::send_ui`]),
-            // waiting for a permit the way the event sink does: the journal is
-            // as synchronous a seam as that one.
-            let sent = bridge::park_on(bridge::send_ui(
-                &self.events,
-                &self.cancel,
-                UiEvent::ToolDetail { call_id, detail },
-            ));
-            if sent.is_err() {
+            if !self.hand_over(call_id, detail) {
                 return;
             }
         }
+    }
+
+    /// Nothing for the log, which never keeps one; the change goes to the
+    /// screen alone.
+    fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
+        self.journal.change_made(call_id, change);
+        self.hand_over(call_id.to_string(), Detail::Change(change.clone()));
     }
 }
 
@@ -485,7 +507,7 @@ enum Body {
     /// Rows the document was given already laid out: what a question batch
     /// leaves behind (`super::question`'s `answered_rows`).
     Block(Vec<String>),
-    /// Boxed: a call carries its arguments, its result and a reviewed change,
+    /// Boxed: a call carries its arguments, its result and the change it made,
     /// and a record of one-line notices should not be as wide as that.
     Tool(Box<Call>),
 }
@@ -502,8 +524,8 @@ struct Call {
     group: usize,
     arguments: Vec<Argument>,
     result: Option<Detail>,
-    /// The change an approval reviewed for it, when one did.
-    review: Option<ApprovalDiff>,
+    /// The change it made, when it made one ([`Detail::Change`]).
+    change: Option<ApprovalDiff>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,7 +546,7 @@ enum State {
 struct Pending {
     arguments: Option<Vec<Argument>>,
     result: Option<Detail>,
-    review: Option<ApprovalDiff>,
+    change: Option<ApprovalDiff>,
 }
 
 /// The conversation as this session recorded it, and the screen it is shown on
@@ -545,9 +567,6 @@ pub(crate) struct FullTranscript {
     /// group -- and not by a notice, which the group carries under it.
     group_open: bool,
     pending: HashMap<String, Pending>,
-    /// The call the runtime last said it started: the one an approval that
-    /// arrives now is about (a turn runs its calls one at a time).
-    started: Option<String>,
     revision: u64,
     view: Option<View>,
 }
@@ -589,8 +608,12 @@ pub(crate) enum Reply {
     Close,
     /// The rows it shows moved.
     Moved,
-    /// Nothing that shows.
-    Nothing,
+    /// A key the screen binds, that changed nothing here: an arrow past an
+    /// end, Left, Right, a redraw.
+    Held,
+    /// A key the screen does not bind. Upstream hands it on to its composer
+    /// (`app_input_runtime.zig:973-994`), and so does the shell.
+    Unbound,
 }
 
 impl Default for FullTranscript {
@@ -609,7 +632,6 @@ impl FullTranscript {
             groups: Vec::new(),
             group_open: false,
             pending: HashMap::new(),
-            started: None,
             revision: 0,
             view: None,
         }
@@ -699,7 +721,7 @@ impl FullTranscript {
             group,
             arguments: pending.arguments.unwrap_or_default(),
             result: pending.result,
-            review: pending.review,
+            change: pending.change,
         })));
         self.calls.insert(id.to_string(), self.entries.len() - 1);
         self.touch_group(group);
@@ -752,38 +774,29 @@ impl FullTranscript {
         // ran -- the rest of a step the turn abandoned -- and nothing will ask
         // for it now.
         self.pending.clear();
-        self.started = None;
     }
 
-    /// What the runtime said that the document is not told about: which call
-    /// is running, the change an approval reviews, and the journal's details.
+    /// What the runtime said that the document is not told about: the
+    /// journal's details for each call.
     pub(crate) fn observe(&mut self, event: &UiEvent) {
-        match event {
-            UiEvent::ToolStart { call_id, .. } => self.started = Some(call_id.clone()),
-            UiEvent::Approval(asked) => {
-                if let (Some(id), Some(diff)) = (self.started.clone(), asked.request.diff.clone()) {
-                    self.attach(
-                        &id,
-                        |call| call.review = Some(diff.clone()),
-                        |pending| {
-                            pending.review = Some(diff.clone());
-                        },
-                    );
-                }
-            }
-            UiEvent::ToolDetail { call_id, detail } => match detail {
+        if let UiEvent::ToolDetail { call_id, detail } = event {
+            match detail {
                 Detail::Arguments(arguments) => self.attach(
                     call_id,
                     |call| call.arguments = arguments.clone(),
                     |pending| pending.arguments = Some(arguments.clone()),
+                ),
+                Detail::Change(change) => self.attach(
+                    call_id,
+                    |call| call.change = Some(change.clone()),
+                    |pending| pending.change = Some(change.clone()),
                 ),
                 result => self.attach(
                     call_id,
                     |call| call.result = Some(result.clone()),
                     |pending| pending.result = Some(result.clone()),
                 ),
-            },
-            _ => {}
+            }
         }
     }
 
@@ -840,35 +853,46 @@ impl FullTranscript {
         self.view = None;
     }
 
-    /// What one keystroke does while the screen is up (`routeKey`,
-    /// `input_full_transcript_runtime.zig:177-198`).
+    /// What one keystroke does while the screen is up: upstream's key map
+    /// (`keyForAction`/`routeKey`, `input_full_transcript_runtime.zig:147-198`)
+    /// and nothing more -- Ctrl-O, Escape and Ctrl-C close, the page keys
+    /// page, Up and Down move three rows, Left, Right and a redraw are held.
+    /// Home, End and everything else are [`Reply::Unbound`].
     ///
     /// `rows` is the terminal's height: a page is the rows the screen shows
     /// (`fullTranscriptPageRows`, `transcript/runtime.zig:6882-6888`).
     pub(crate) fn key(&self, action: Action, cols: u16, rows: u16, palette: Palette) -> Reply {
         let Some(view) = &self.view else {
-            return Reply::Nothing;
+            return Reply::Unbound;
         };
-        let page = Layout::of(rows).viewport.max(1);
-        let total = self.total(cols, palette);
-        let furthest = total.saturating_sub(page);
-        let scroll = view.settled(cols, total).min(furthest);
-        let moved = match action {
-            Action::ToggleTranscript | Action::Escape | Action::Cancel => return Reply::Close,
-            Action::PageUp => scroll.saturating_add(page),
-            Action::PageDown => scroll.saturating_sub(page),
-            Action::Up => scroll.saturating_add(ARROW_ROWS),
-            Action::Down => scroll.saturating_sub(ARROW_ROWS),
-            Action::Home => furthest,
-            Action::End => 0,
-            _ => return Reply::Nothing,
+        // How far one key moves the screen, up (toward the head) or down.
+        let moved = |up: bool, rows_moved: Option<usize>| {
+            let page = Layout::of(rows).viewport.max(1);
+            let total = self.total(cols, palette);
+            let furthest = total.saturating_sub(page);
+            let scroll = view.settled(cols, total).min(furthest);
+            let step = rows_moved.unwrap_or(page);
+            let moved = if up {
+                scroll.saturating_add(step)
+            } else {
+                scroll.saturating_sub(step)
+            }
+            .min(furthest);
+            if moved == view.scroll.get() {
+                return Reply::Held;
+            }
+            view.scroll.set(moved);
+            Reply::Moved
+        };
+        match action {
+            Action::ToggleTranscript | Action::Escape | Action::Cancel => Reply::Close,
+            Action::PageUp => moved(true, None),
+            Action::PageDown => moved(false, None),
+            Action::Up => moved(true, Some(ARROW_ROWS)),
+            Action::Down => moved(false, Some(ARROW_ROWS)),
+            Action::Left | Action::Right | Action::Redraw => Reply::Held,
+            _ => Reply::Unbound,
         }
-        .min(furthest);
-        if moved == view.scroll.get() {
-            return Reply::Nothing;
-        }
-        view.scroll.set(moved);
-        Reply::Moved
     }
 
     /// The whole screen, top first: exactly `rows` rows, none wider than
@@ -1041,7 +1065,8 @@ impl FullTranscript {
 
     /// A call's rows: its group's header when it is the group's first, its own
     /// row as the group draws it, then what it was called with, what it
-    /// returned and the change that was reviewed for it.
+    /// returned and the change it made -- the change in place of its
+    /// arguments, which only say what the change was asked to be.
     ///
     /// Nothing at all for a call the group draws no row for -- a question,
     /// and a file change still waiting on its approval -- as upstream draws
@@ -1091,7 +1116,7 @@ impl FullTranscript {
             .unwrap_or_default();
         let plain_heading = unpainted(&heading);
         rows.push(heading);
-        if call.review.is_none() {
+        if call.change.is_none() {
             for argument in &call.arguments {
                 let shown_already =
                     argument.text && plain_heading.contains(argument.value.as_str());
@@ -1123,9 +1148,9 @@ impl FullTranscript {
             }
             _ => {}
         }
-        if let Some(diff) = &call.review {
+        if let Some(change) = &call.change {
             rows.push(String::new());
-            rows.extend(review_rows(diff, cols, palette));
+            rows.extend(diff_rows(change, cols, palette));
         }
         rows
     }
@@ -1253,11 +1278,11 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
     rows
 }
 
-/// A reviewed change as upstream's transcript shows one under its call
+/// A change as upstream's transcript shows one under its call
 /// (`appendDiffRenderLine`, `diff.zig:1063-1084`): `  │ N ± text`, the changed
 /// lines in the diff grey and the rest in the dim one -- monochrome, as
 /// upstream's markers are until a theme is pinned (`render.zig:93-105`).
-fn review_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
+fn diff_rows(diff: &ApprovalDiff, cols: u16, palette: Palette) -> Vec<String> {
     let review = Review::of_diff(diff);
     let width = review
         .lines
@@ -1467,7 +1492,6 @@ impl Prose {
 mod tests {
     use super::*;
 
-    use crate::permission::{ApprovalRequest, ApprovalSubject};
     use crate::tools::{read, terminal};
     use serde_json::json;
 
@@ -1743,31 +1767,16 @@ mod tests {
     }
 
     #[test]
-    fn a_reviewed_change_is_shown_as_upstreams_diff_block_instead_of_its_arguments() {
+    fn a_change_is_shown_as_upstreams_diff_block_instead_of_its_arguments_with_no_review() {
         // `fx-approvals-cc-40x120-full` rows 19-21: the row, a blank row, and
-        // `  │ 1 + new file` in the diff grey.
+        // `  │ 1 + new file` in the diff grey -- here for a change no approval
+        // reviewed, since the change arrives from the tool that made it.
         let input = json!({"path": "c.txt", "content": "new file\n"});
         let mut record = record();
-        record.observe(&UiEvent::ToolStart {
-            call_id: "w".into(),
-            tool: "write_file".into(),
-            shown: crate::tools::mutate::WRITE_FILE.shown(&input),
-        });
         record.observe(&UiEvent::ToolDetail {
             call_id: "w".into(),
             detail: Detail::Arguments(arguments("write_file", &input)),
         });
-        record.observe(&UiEvent::Approval(super::super::approval::ApprovalAsked {
-            id: super::super::approval_readiness::ApprovalId(1),
-            request: ApprovalRequest {
-                tool: "write_file",
-                target: "c.txt".into(),
-                summary: "write `c.txt`".into(),
-                always_scope: "allow".into(),
-                diff: Some(ApprovalDiff::of("", "new file\n")),
-                subject: ApprovalSubject::Path("c.txt".into()),
-            },
-        }));
         record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
         record.tool_finished(
             "w",
@@ -1779,6 +1788,19 @@ mod tests {
                 removed: 0,
             }),
         );
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "w".into(),
+            detail: Detail::Result("Wrote c.txt".into()),
+        });
+        let before = plain(&record.rows(120, 40, DARK, ""));
+        assert!(
+            before.iter().any(|row| row.contains("content: new file")),
+            "until the change arrives the arguments say what was asked: {before:?}"
+        );
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "w".into(),
+            detail: Detail::Change(ApprovalDiff::of("", "new file\n")),
+        });
         let rows = record.rows(120, 40, DARK, "");
         let plain = plain(&rows);
         assert_eq!(
@@ -1790,6 +1812,48 @@ mod tests {
             !plain.iter().any(|row| row.contains("content:")),
             "the arguments were listed beside the diff that covers them: {plain:?}"
         );
+    }
+
+    #[test]
+    fn a_change_that_arrives_before_its_row_waits_for_it_and_a_refused_one_keeps_its_arguments() {
+        let input = json!({"path": "a.txt", "old_string": "a", "new_string": "b"});
+        let shown = crate::tools::mutate::EDIT_FILE.shown(&input);
+        let mut record = record();
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "e".into(),
+            detail: Detail::Change(ApprovalDiff::of("a\n", "b\n")),
+        });
+        record.tool_started("e", &shown);
+        record.tool_finished(
+            "e",
+            true,
+            "",
+            Outcome::Finished,
+            Some(LineChanges {
+                added: 1,
+                removed: 1,
+            }),
+        );
+        let made = plain(&record.rows(120, 40, DARK, ""));
+        assert!(
+            made.iter().any(|row| row == "  \u{2502} 1 - a")
+                && made.iter().any(|row| row == "  \u{2502} 1 + b"),
+            "{made:?}"
+        );
+
+        let mut refused = self::record();
+        refused.observe(&UiEvent::ToolDetail {
+            call_id: "e".into(),
+            detail: Detail::Arguments(arguments("edit_file", &input)),
+        });
+        refused.tool_started("e", &shown);
+        refused.tool_finished("e", false, "denied", Outcome::Denied, None);
+        let refused = plain(&refused.rows(120, 40, DARK, ""));
+        assert!(
+            refused.iter().any(|row| row.contains("new_string: b")),
+            "a change that was not made shows what was asked: {refused:?}"
+        );
+        assert!(!refused.iter().any(|row| row.contains("\u{2502} 1 +")));
     }
 
     #[test]
@@ -1979,26 +2043,41 @@ mod tests {
         assert_eq!(record.view.as_ref().unwrap().scroll.get(), 39);
         assert_eq!(record.key(Action::Down, 120, 40, DARK), Reply::Moved);
         assert_eq!(screen(&record), page_up);
-        assert_eq!(record.key(Action::Home, 120, 40, DARK), Reply::Moved);
+        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Moved);
         assert_eq!(
             screen(&record)[0],
             "  2026-10-06 14:43:50.620 UTC \u{b7} Notice"
         );
-        // Past the head is nothing.
-        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Nothing);
-        assert_eq!(record.key(Action::End, 120, 40, DARK), Reply::Moved);
+        // Past the head is held: the key is the screen's, and it moves nothing.
+        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Held);
+        assert_eq!(record.key(Action::Up, 120, 40, DARK), Reply::Held);
+        for _ in 0..3 {
+            record.key(Action::PageDown, 120, 40, DARK);
+        }
         assert_eq!(top(&record), at_tail);
-        assert_eq!(record.key(Action::PageDown, 120, 40, DARK), Reply::Nothing);
-        // Left and Right keep the screen where it is (`navigate`); a key it
-        // does not bind is swallowed.
+        assert_eq!(record.key(Action::PageDown, 120, 40, DARK), Reply::Held);
+        // Left and Right keep the screen where it is (`navigate`), and a
+        // redraw does nothing (`.redraw => {}`).
+        for action in [Action::Left, Action::Right, Action::Redraw] {
+            assert_eq!(record.key(action, 120, 40, DARK), Reply::Held);
+        }
+        // Everything upstream's map does not name is its composer's
+        // (`input_full_transcript_runtime.zig:147-175`): Home and End too.
         for action in [
-            Action::Left,
-            Action::Right,
+            Action::Home,
+            Action::End,
             Action::Submit,
             Action::Tab,
-            Action::Redraw,
+            Action::Backspace,
+            Action::Eof,
+            Action::PasteStart,
+            Action::HistoryPrevious,
         ] {
-            assert_eq!(record.key(action, 120, 40, DARK), Reply::Nothing);
+            assert_eq!(
+                record.key(action, 120, 40, DARK),
+                Reply::Unbound,
+                "{action:?}"
+            );
         }
         for action in [Action::ToggleTranscript, Action::Escape, Action::Cancel] {
             assert_eq!(record.key(action, 120, 40, DARK), Reply::Close);
@@ -2016,7 +2095,9 @@ mod tests {
         let before = screen(&record);
         record.notice(&Notice::neutral("n", "late"));
         assert_eq!(screen(&record), before, "the screen moved under the reader");
-        record.key(Action::End, 120, 40, DARK);
+        // Back down to the tail, which the rows that arrived moved a page and
+        // three rows away.
+        while record.key(Action::PageDown, 120, 40, DARK) == Reply::Moved {}
         record.notice(&Notice::neutral("n", "later"));
         assert_eq!(screen(&record)[35], "* n: later");
     }
@@ -2030,7 +2111,7 @@ mod tests {
         assert_eq!(rows[0], "  2026-10-06 14:43:50.620 UTC \u{b7} Prompt");
         assert_eq!(rows[1], "\u{2503} hi");
         assert!(rows[2..36].iter().all(String::is_empty));
-        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Nothing);
+        assert_eq!(record.key(Action::PageUp, 120, 40, DARK), Reply::Held);
     }
 
     #[test]
@@ -2192,6 +2273,20 @@ mod tests {
         assert!(
             received.try_recv().is_err(),
             "a user message is not a detail"
+        );
+
+        // A change goes to the screen alone: the log keeps no diff.
+        let (events, mut received) = tokio::sync::mpsc::channel(8);
+        let mut kept = Kept(Vec::new());
+        Teed::new(&mut kept, events, CancellationToken::new())
+            .change_made("w", &ApprovalDiff::of("old\n", "new\u{1b}[2J\n"));
+        assert!(kept.0.is_empty(), "a change was journalled");
+        assert_eq!(
+            received.try_recv().expect("the change"),
+            UiEvent::ToolDetail {
+                call_id: "w".into(),
+                detail: Detail::Change(ApprovalDiff::of("old\n", "new\u{1b}[2J\n")).made_inert(),
+            }
         );
 
         // A cancelled turn still journals everything and hands nothing over.

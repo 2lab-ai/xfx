@@ -46,6 +46,40 @@ const BEGIN_FRAME: &str = "\x1b[?2026h\x1b[?25l";
 /// Ends one: cursor shown, synchronized output off.
 const END_FRAME: &str = "\x1b[?2026l\x1b[?25h";
 
+/// Ends one and leaves the cursor as [`BEGIN_FRAME`] left it: hidden.
+///
+/// For a plane whose screen has no caret to show -- the full transcript,
+/// which upstream paints with the cursor off (`paint_plan.zig:1047`). Only
+/// [`Band::paint_alternate`] writes it, and only for a [`Caret`] that says so;
+/// the frame that gives the plane back ends with [`END_FRAME`], so the band is
+/// handed back its caret.
+const END_FRAME_HIDDEN: &str = "\x1b[?2026l";
+
+/// Where an alternate-plane frame leaves the caret, and whether it is shown.
+///
+/// A position alone is the question's: its caret is on the marked choice or
+/// in an amendment, and shown -- which is what every `(row, column)` pair
+/// converts to. The full transcript's is hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Caret {
+    /// One-based row, zero-based column, as [`Band::enter_alternate`] takes it.
+    pub(crate) at: (u16, u16),
+    pub(crate) shown: bool,
+}
+
+impl Caret {
+    /// A caret parked at `at` with the cursor off.
+    pub(crate) fn hidden(at: (u16, u16)) -> Self {
+        Self { at, shown: false }
+    }
+}
+
+impl From<(u16, u16)> for Caret {
+    fn from(at: (u16, u16)) -> Self {
+        Self { at, shown: true }
+    }
+}
+
 /// Erase from the cursor to the end of the screen.
 ///
 /// Written by the Phase-1 painter on every frame, and by the diff on the one
@@ -185,7 +219,7 @@ pub(crate) struct Band {
     /// Advanced by [`Self::frame_landed`] out of the frame that landed, and by
     /// nothing else -- for the same reason the shadow is: a surface that was
     /// only built is on no screen.
-    alternate: Option<(Vec<String>, (u16, u16))>,
+    alternate: Option<(Vec<String>, Caret)>,
     /// The screen [`Self::painted`] is a row of: the geometry it was recorded
     /// from, kept beside it so the exit cannot measure one against the other.
     painted_on: Option<(u16, u16)>,
@@ -234,7 +268,7 @@ pub(crate) struct ScreenFrame {
     /// already holds. Adopted by [`Band::frame_landed`] and by nothing else,
     /// for the reason the shadow is: it is a claim about bytes that were
     /// delivered.
-    surface: Option<(Vec<String>, (u16, u16))>,
+    surface: Option<(Vec<String>, Caret)>,
 }
 
 impl ScreenFrame {
@@ -347,8 +381,9 @@ impl Band {
         &mut self,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) -> io::Result<ScreenFrame> {
+        let cursor = cursor.into();
         // The plane this vector is written *from*: the band is on the normal
         // buffer, and the `1049h` inside the vector is what moves it.
         let seed = self.seed(check::PlaneKind::Primary, geometry)?;
@@ -393,15 +428,16 @@ impl Band {
         &mut self,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) -> io::Result<ScreenFrame> {
+        let cursor = cursor.into();
         // The plane the band is already on, holding what its own cache says is
         // up: the skip below writes no bytes, and a vector of none is checked
         // against that surface rather than against a blank one.
         let seed = match &self.alternate {
-            Some((held, cursor)) => self.seed(check::PlaneKind::Alternate, geometry)?.holding(
+            Some((held, caret)) => self.seed(check::PlaneKind::Alternate, geometry)?.holding(
                 &Self::surface(held, geometry),
-                (cursor.0, cursor.1.saturating_add(1)),
+                (caret.at.0, caret.at.1.saturating_add(1)),
             )?,
             None => self.seed(check::PlaneKind::Alternate, geometry)?,
         };
@@ -463,7 +499,7 @@ impl Band {
         bytes: &[u8],
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: Caret,
         moves: check::PlaneMove,
     ) -> io::Result<()> {
         let surface = Self::surface(rows, geometry);
@@ -473,10 +509,16 @@ impl Band {
             &check::Declared::new(
                 check::Intent::Alternate {
                     grid: &surface,
-                    caret: (cursor.0, cursor.1.saturating_add(1)),
+                    caret: (cursor.at.0, cursor.at.1.saturating_add(1)),
                     // A repaint the screen already holds writes no bytes, and a
-                    // vector of none says nothing about the cursor.
-                    cursor_visible: if bytes.is_empty() { None } else { Some(true) },
+                    // vector of none says nothing about the cursor. A vector
+                    // that paints declares the cursor the caret asked for: shown
+                    // for a question, hidden for the full transcript.
+                    cursor_visible: if bytes.is_empty() {
+                        None
+                    } else {
+                        Some(cursor.shown)
+                    },
                 },
                 // The whole of the borrowed plane, and **no cell of the normal
                 // one** -- which is a claim about the buffer an effect landed
@@ -513,7 +555,7 @@ impl Band {
         bytes: &mut Vec<u8>,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: Caret,
     ) {
         bytes.extend_from_slice(BEGIN_FRAME.as_bytes());
         cup(bytes, 1, 1);
@@ -532,8 +574,12 @@ impl Band {
             cup(bytes, line, 1);
             bytes.extend_from_slice(row_text(row, geometry.cols).as_bytes());
         }
-        cup(bytes, cursor.0, cursor.1.saturating_add(1));
-        bytes.extend_from_slice(END_FRAME.as_bytes());
+        cup(bytes, cursor.at.0, cursor.at.1.saturating_add(1));
+        bytes.extend_from_slice(if cursor.shown {
+            END_FRAME.as_bytes()
+        } else {
+            END_FRAME_HIDDEN.as_bytes()
+        });
     }
 
     /// Builds the one frame that gives the primary plane back: the leave, the
@@ -689,8 +735,9 @@ impl Band {
         &mut self,
         frame: &ScreenFrame,
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) {
+        let cursor = cursor.into().at;
         self.showing = frame.owner();
         if matches!(frame.owner(), super::shell::ScreenOwner::Primary) {
             // The terminal takes its alternate buffer back when the plane is
@@ -1975,8 +2022,9 @@ impl Band {
         out: &mut impl Sink,
         rows: &[String],
         geometry: &Geometry,
-        cursor: (u16, u16),
+        cursor: impl Into<Caret>,
     ) -> Result<(), Emit> {
+        let cursor = cursor.into();
         if !self.on_alternate() {
             return Err(Emit::rejected(io::Error::other(
                 "recover_alternate was called while the terminal is not on the alternate plane",
@@ -3659,7 +3707,7 @@ mod tests {
         assert!(band.on_alternate(), "recovery lost the plane it was on");
         assert_eq!(
             band.alternate,
-            Some((wanted.clone(), (3, 2))),
+            Some((wanted.clone(), Caret::from((3, 2)))),
             "the rebuild that landed was not adopted as what the plane holds"
         );
         // Nothing about the buffer the terminal saved was touched by a vector
@@ -3738,7 +3786,7 @@ mod tests {
         // Nothing landed, so nothing this band believes changed either.
         assert_eq!(
             band.alternate,
-            Some((rows, (7, 0))),
+            Some((rows, Caret::from((7, 0)))),
             "a cleanup vector that never landed still changed what the plane is believed to hold"
         );
     }
@@ -5896,6 +5944,65 @@ mod tests {
             .enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0))
             .err()
             .expect("a surface that left the cursor hidden");
+        assert!(
+            refused.to_string().contains("cursor visibility"),
+            "the refusal did not name the cursor: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_hidden_caret_ends_the_plane_with_the_cursor_off_and_the_give_back_shows_it_again() {
+        // The full transcript's plane has no caret (upstream's paint plan
+        // hides it, `paint_plan.zig:1047`): its frames end on `?2026l` alone,
+        // the check holds them to a cursor that is off, and the frame that
+        // gives the plane back ends on `END_FRAME` -- the band gets its caret.
+        let (mut band, geometry) = painted_primary();
+        let caret = Caret::hidden((23, 0));
+        let frame = band
+            .enter_alternate(&screen_rows(geometry.rows), &geometry, caret)
+            .expect("a hidden caret is a declared one");
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.ends_with(&format!("\u{1b}[23;1H{END_FRAME_HIDDEN}")),
+            "{text:?}"
+        );
+        assert!(
+            !text.contains("\u{1b}[?25h"),
+            "the cursor was shown: {text:?}"
+        );
+        band.frame_landed(&frame, &geometry, caret);
+
+        // The same screen with the caret shown is a different screen.
+        let shown = band
+            .repaint_alternate(&screen_rows(geometry.rows), &geometry, (23, 0))
+            .expect("a repaint");
+        assert!(String::from_utf8_lossy(shown.bytes()).ends_with(END_FRAME));
+        // And with the caret hidden again, an unchanged one writes nothing.
+        band.frame_landed(&frame, &geometry, caret);
+        let unchanged = band
+            .repaint_alternate(&screen_rows(geometry.rows), &geometry, caret)
+            .expect("an unchanged repaint");
+        assert!(unchanged.bytes().is_empty());
+
+        let back = band
+            .restore_primary(&band_rows(), &geometry, (23, 2))
+            .expect("the give-back");
+        assert!(String::from_utf8_lossy(back.bytes()).ends_with(END_FRAME));
+    }
+
+    #[test]
+    fn a_frame_that_says_its_caret_is_hidden_and_shows_it_is_refused() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        band.tamper_with(|bytes| bytes.extend_from_slice(b"\x1b[?25h"));
+        let refused = band
+            .enter_alternate(
+                &screen_rows(geometry.rows),
+                &geometry,
+                Caret::hidden((7, 0)),
+            )
+            .err()
+            .expect("a surface that showed a cursor it declared hidden");
         assert!(
             refused.to_string().contains("cursor visibility"),
             "the refusal did not name the cursor: {refused}"

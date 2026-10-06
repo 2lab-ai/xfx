@@ -83,6 +83,7 @@ use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
+use super::frame::Caret;
 use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::help_menu::{self, HelpAction, HelpMenu};
@@ -2384,15 +2385,24 @@ impl Shell {
     }
 
     /// Where the caret goes on that plane: the marked choice, or the full
-    /// transcript's footer.
+    /// transcript's footer. The cases read it; the loop paints
+    /// [`Self::screen_caret`].
+    #[cfg(test)]
     pub(crate) fn screen_cursor(&self) -> (u16, u16) {
+        self.screen_caret().at
+    }
+
+    /// The same, and whether it is shown: a question's caret is, on the
+    /// choice or in the amendment the keys go to; the full transcript's is
+    /// not, as upstream's is not (`paint_plan.zig:1047`).
+    pub(crate) fn screen_caret(&self) -> Caret {
         if let Some(screen) = self.alternate.as_ref() {
-            return screen.caret(self.geometry.cols, self.geometry.rows);
+            return Caret::from(screen.caret(self.geometry.cols, self.geometry.rows));
         }
         if self.full.is_open() {
-            return self.full.caret(self.geometry.rows);
+            return Caret::hidden(self.full.caret(self.geometry.rows));
         }
-        (1, 0)
+        Caret::from((1, 0))
     }
 
     /// Gives the plane back without answering the question on it.
@@ -2448,18 +2458,24 @@ impl Shell {
     }
 
     /// One keystroke while the full transcript is up
-    /// (`input_full_transcript_runtime.zig:147-198`).
-    fn view_full_transcript(&mut self, event: Input) {
+    /// (`input_full_transcript_runtime.zig:147-198`), and whether the screen
+    /// took it.
+    ///
+    /// Text and pasted bytes are never the screen's: upstream's map names
+    /// none, and they reach its composer, hidden behind the screen, as they
+    /// reach this one -- the draft is there when the screen closes.
+    fn view_full_transcript(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
-            // Text and pasted bytes: there is no composer on this screen.
-            return;
+            return false;
         };
         let (cols, rows) = (self.geometry.cols, self.geometry.rows);
-        match self.full.key(action, cols, rows, self.palette) {
+        match self.full.key(*action, cols, rows, self.palette) {
             full_transcript::Reply::Close => self.close_full_transcript(),
             full_transcript::Reply::Moved => self.render.request(Reason::Modal),
-            full_transcript::Reply::Nothing => {}
+            full_transcript::Reply::Held => {}
+            full_transcript::Reply::Unbound => return false,
         }
+        true
     }
 
     /// What the full transcript keeps of an event the document is not shown,
@@ -4470,13 +4486,14 @@ impl Shell {
                 self.retint(mode);
                 continue;
             }
-            // The full transcript, while it is up, has every key: the ones it
-            // binds move it or close it, and the rest are swallowed rather
-            // than typed into a composer nobody can see. It cannot be up with
-            // a question -- a question closes it ([`Self::full_transcript_sees`])
-            // and it does not open over one ([`Self::open_full_transcript`]).
-            if self.full.is_open() {
-                self.view_full_transcript(event);
+            // The full transcript, while it is up, has the keys it binds;
+            // everything else goes where it would have gone with the screen
+            // closed -- the composer, the band's menus -- as upstream routes
+            // it (`app_input_runtime.zig:973-994`, `:1013-1044`). It cannot
+            // be up with a question: a question closes it
+            // ([`Self::full_transcript_sees`]) and it does not open over one
+            // ([`Self::open_full_transcript`]).
+            if self.full.is_open() && self.view_full_transcript(&event) {
                 continue;
             }
             // Whatever is in front of the user has the focus while it is up,
@@ -17596,7 +17613,11 @@ mod tests {
     }
 
     #[test]
-    fn the_page_and_arrow_keys_move_the_screen_and_nothing_else_reaches_the_composer() {
+    fn the_screens_keys_move_it_and_every_other_key_reaches_the_hidden_composer_as_upstreams() {
+        // Upstream's map binds the page keys, the arrows, Escape, Ctrl-C and
+        // Ctrl-O (`input_full_transcript_runtime.zig:147-198`); everything
+        // else -- Home and End included -- goes on to its composer behind the
+        // screen (`app_input_runtime.zig:973-994`), and so it does here.
         let mut shell = shell(24, 80);
         for index in 0..20 {
             shell.apply(UiEvent::Notice(notice::Notice::neutral(
@@ -17616,29 +17637,37 @@ mod tests {
         assert_eq!(full_screen(&shell), tail, "PgDn did not come back");
         shell.route_bytes(b"\x1b[A");
         assert_ne!(full_screen(&shell), tail, "Up did not move the screen");
-        shell.route_bytes(b"\x1b[F");
-        assert_eq!(full_screen(&shell), tail, "End did not go to the tail");
-        shell.route_bytes(b"\x1b[H");
-        assert!(
-            full_screen(&shell)[0].ends_with(" UTC \u{b7} Notice"),
-            "Home"
-        );
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(full_screen(&shell), tail, "Down did not come back");
 
-        // Text, Enter, Backspace and a paste: nothing of it is the draft's,
-        // and nothing is sent.
-        shell.route_bytes(b"typed\r\x7f");
-        shell.route_bytes(b"\x1b[200~pasted\x1b[201~");
+        // Home, End and text: the screen stays where it is and the composer
+        // takes them -- the caret to the start, `more ` typed there.
+        shell.route_bytes(b"\x1b[Hmore \x1b[F!");
+        assert_eq!(full_screen(&shell), tail, "a composer key moved the screen");
+        assert!(shell.full.is_open(), "a composer key closed the screen");
+        assert_eq!(shell.editor.text(), "more draft!");
+        // A paste is the composer's too.
+        shell.route_bytes(b"\x1b[200~ pasted\x1b[201~");
+        assert_eq!(shell.editor.text(), "more draft! pasted");
+        assert!(shell.sent.try_recv().is_err(), "nothing was submitted yet");
+
+        // Enter submits it, from behind the screen, and the screen shows the
+        // prompt it sent as soon as the document is given it.
+        shell.route_bytes(b"\r");
         assert!(
-            shell.sent.try_recv().is_err(),
-            "a key on the screen sent work"
+            matches!(shell.sent.try_recv(), Ok(TurnWork::Submit(_))),
+            "Enter behind the screen did not submit"
+        );
+        assert!(shell.full.is_open());
+        assert!(
+            full_screen(&shell)
+                .iter()
+                .any(|row| row == "\u{2503} more draft! pasted"),
+            "{:?}",
+            full_screen(&shell)
         );
         shell.route_bytes(b"\x0f");
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
-        assert_eq!(
-            shell.editor.text(),
-            "draft",
-            "the draft did not survive the screen"
-        );
     }
 
     #[test]
