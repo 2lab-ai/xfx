@@ -727,7 +727,7 @@ fn keyed(
 /// `Submit`, `Escape`, `Cancel` and `Tab` are absent for the opposite reason:
 /// they are the panel's own keys and mean the same thing whether or not a draft
 /// is open, so a draft that took them would change what answering a question
-/// means. `InsertNewline`, `Eof`, `HistoryPrevious`, `HistoryNext`, `Redraw`
+/// means. `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
 /// and `Ignore` are the session's or the panel's and are not a draft's at all.
 pub(crate) fn edits(action: super::input::Action) -> bool {
     use super::input::Action as Key;
@@ -742,7 +742,10 @@ pub(crate) fn edits(action: super::input::Action) -> bool {
             | Key::Backspace
             | Key::Delete
             | Key::DeleteWordLeft
+            | Key::DeleteWordBackward
+            | Key::DeleteWordRight
             | Key::KillToEnd
+            | Key::ControlK
             | Key::KillToStart
             | Key::Undo
             | Key::Redo
@@ -783,6 +786,9 @@ pub(crate) struct ControlChannel {
     /// can stop one. Consuming it without this queue would make a cancel typed
     /// at a panel a refusal *instead of* a cancel.
     put_back: Mutex<VecDeque<TurnControl>>,
+    /// Model changes read while work was running, waiting for it to end
+    /// ([`Self::defer`]).
+    deferred: Mutex<Vec<super::bridge::ModelChange>>,
 }
 
 impl ControlChannel {
@@ -791,7 +797,29 @@ impl ControlChannel {
             rx: Mutex::new(rx),
             loop_waker: Mutex::new(None),
             put_back: Mutex::new(VecDeque::new()),
+            deferred: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Puts a model change aside until the work that is running ends
+    /// ([`TurnControl::Model`]).
+    ///
+    /// Not [`Self::give_back`]: a message put back is the loop's to act on
+    /// *now*, and a model change is not -- the turn that is running keeps the
+    /// model it began with, and the change belongs to the one after it. Called
+    /// by whichever reader is holding the channel when the change arrives: the
+    /// turn loop's race, or a prompter parked on a question, which goes on
+    /// waiting for its answer -- **a model change answers no question**, and a
+    /// prompter that treated it as the stop it is not would refuse a call the
+    /// user never refused.
+    pub(crate) fn defer(&self, change: super::bridge::ModelChange) {
+        self.deferred.guarded().push(change);
+    }
+
+    /// Every change put aside, oldest first, for the turn loop to apply now
+    /// that the work it waited for is over.
+    pub(crate) fn take_deferred(&self) -> Vec<super::bridge::ModelChange> {
+        std::mem::take(&mut *self.deferred.guarded())
     }
 
     /// The turn loop's own receive.
@@ -1052,6 +1080,14 @@ impl ApprovalPrompter for TuiPrompter {
                     Some(
                         TurnControl::QuestionAnswer { .. } | TurnControl::QuestionCancelled { .. },
                     ) => continue,
+                    // `/model` typed while this question is up. It is about
+                    // the turn after this one, so it is put aside for the loop
+                    // and the question stays up: answering it would refuse a
+                    // call the user never refused.
+                    Some(TurnControl::Model(change)) => {
+                        self.control.defer(change);
+                        continue;
+                    }
                     // A cancel (Escape at the panel, or an interrupt) or a
                     // shutdown. Both refuse this call, and both go back on the
                     // channel for the loop that can act on them -- see
@@ -2079,6 +2115,49 @@ mod tests {
             );
             assert_eq!(control.waiting(), Some(stop));
         }
+    }
+
+    #[test]
+    fn a_model_change_at_a_question_is_put_aside_and_the_question_stays_up() {
+        // `/model` typed while a permission question waits is about the next
+        // turn: the prompter must not take it for the stop it is not -- that
+        // would refuse a call the user never refused -- and must not lose it
+        // either. It goes aside for the loop, and the question is answered by
+        // its own answer.
+        let (tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        let change = super::super::bridge::ModelChange {
+            name: "next/model".to_string(),
+            effort: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+        };
+        tx.send(TurnControl::Model(change.clone()))
+            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+            feedback: None,
+        })
+        .expect("the channel is open");
+        let (events, _seen) = mpsc::channel(4);
+        let mut prompter = TuiPrompter::new(
+            events,
+            Arc::clone(&control),
+            Cancellation::new(crate::gateway::CancelToken::new()),
+        );
+        assert_eq!(
+            prompter.request(&request("edit_file")).expect("an answer"),
+            ApprovalAnswer::Once,
+            "a model change answered the question"
+        );
+        assert_eq!(control.take_deferred(), vec![change]);
+        assert_eq!(
+            control.waiting(),
+            None,
+            "the change was handed on as a stop"
+        );
     }
 
     #[test]

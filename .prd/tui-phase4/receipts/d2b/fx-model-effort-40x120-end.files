@@ -1,0 +1,45 @@
+=== ~/.fx/backups/settings.json.backup.1791318386264-0000000000000001-c2718f507afe0db249299282bc241638 (59 bytes)
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+=== ~/.fx/backups/settings.json.backup.1791318390698-0000000000000002-fd29e52a0aaa4e8f83a3e4a30ec987cc (143 bytes)
+{"models":{"gateway":"zai/glm-5.2"},"provider":"gateway","effort":"low","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/backups/settings.json.backup.1791318394146-0000000000000003-8f0cfabafcf56c3a8f4e863cb111f6b3 (144 bytes)
+{"models":{"gateway":"zai/glm-5.2"},"provider":"gateway","effort":"high","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/continue/16773aaea352e5505e63fd25aca63e2db70e7c72167cf3f2754dc7b6c1c616d5 (13 bytes)
+M-JXEGFXHz2f
+
+=== ~/.fx/history.jsonl (259 bytes)
+{"schema_version":1,"timestamp_ms":1791318387560,"workspace_root":"<scratch>/work","text":"say something"}
+{"schema_version":1,"timestamp_ms":1791318394766,"workspace_root":"<scratch>/work","text":"high"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/M-JXEGFXHz2f/events.jsonl (1216 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791318387582,"event":{"user":{"text":"say something","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791318387582,"event":{"assistant":{"text":"MARKER-EFFORT-TURN","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791318387582,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791318387560,"completed_at_ms":1791318387581,"thinking_duration_ms":5,"turn_duration_ms":21,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+{"schema_version":3,"seq":4,"timestamp_ms":1791318394788,"event":{"user":{"text":"high","images":[],"work_id":null}}}
+{"schema_version":3,"seq":5,"timestamp_ms":1791318394788,"event":{"assistant":{"text":"MARKER-PROMPT-AFTER-THE-SPACE","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":6,"timestamp_ms":1791318394788,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791318394767,"completed_at_ms":1791318394784,"thinking_duration_ms":2,"turn_duration_ms":17,"token_progress":{"input_tokens":1,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/M-JXEGFXHz2f/owner.live (43 bytes)
+{"pid":69227,"opened_at_ms":1791318382190}
+
+=== ~/.fx/sessions/M-JXEGFXHz2f/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/M-JXEGFXHz2f/session.json (365 bytes)
+{"schema_version":4,"id":"M-JXEGFXHz2f","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791318382189,"updated_at_ms":1791318394147,"conversation_language":"und-Latn","provider":"gateway","model":"fake/model-a","effort":"high","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/M-JXEGFXHz2f/session.lock (0 bytes)
+=== ~/.fx/sessions/M-JXEGFXHz2f/usage-v2.json (539 bytes)
+{"schema_version":1,"session_id":"M-JXEGFXHz2f","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":3,"settled_through_sequence":2,"api_duration_ms":33,"wall_duration_ms":12595,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (145 bytes)
+{"models":{"gateway":"fake/model-a"},"provider":"gateway","effort":"high","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/settings.lock (0 bytes)
+=== ~/.fx/usage.jsonl (265 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791318387581}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791318387581,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791318394783,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

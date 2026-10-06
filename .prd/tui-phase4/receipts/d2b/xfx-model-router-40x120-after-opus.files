@@ -1,0 +1,9 @@
+=== ~/.xfx/settings.json (88 bytes)
+{
+  "models": {
+    "gateway": "anthropic/claude-opus-5"
+  },
+  "provider": "gateway"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

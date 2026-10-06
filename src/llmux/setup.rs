@@ -283,7 +283,7 @@ async fn probe(base: &str) -> Result<Vec<model::CatalogEntry>, SetupError> {
             // `fetch_catalog` reads a daemon, never the Gateway; answered
             // rather than assumed away, in the words it carries.
             model::CatalogError::Unavailable { detail }
-            | model::CatalogError::Gateway { detail } => detail,
+            | model::CatalogError::Gateway { detail, .. } => detail,
         })
     })
 }

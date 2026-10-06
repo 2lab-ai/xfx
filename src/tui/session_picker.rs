@@ -6,7 +6,7 @@
 //! `src/core/app/app_session_runtime.zig:440-560`), in the slot the `/help`
 //! catalog uses ([`super::help_menu`]) and like it a **view of the composer**:
 //! what is typed goes into the composer and is the picker's search, and only
-//! the six keys it binds ([`SessionAction::of`]) are taken out of the stream.
+//! the keys it binds ([`SessionAction::of`]) are taken out of the stream.
 //!
 //! # What it looks like
 //!
@@ -235,10 +235,15 @@ enum Load {
 /// What one keystroke means to the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionAction {
-    /// The previous session, stopping at the first. Up.
+    /// The previous session, stopping at the first. Up, and `C-k`
+    /// (`routePickerControlByte`, `app_input_runtime.zig:1220-1235`).
     Up,
-    /// The next one, stopping at the last. Down.
+    /// The next one, stopping at the last. Down, and `C-j`.
     Down,
+    /// A page down (`true`) or up, stopping at the end: PgDn and PgUp, a page
+    /// being the composer's row cap (`routeComposerVertical`,
+    /// `input_completion_runtime.zig:209-227`, into `moveVisibleItems`).
+    Page(bool),
     /// The other scope. Tab and Shift-Tab both (`app_input_runtime.zig:1178`,
     /// `:1490`): with two scopes, either direction is the other one.
     Scope,
@@ -255,8 +260,10 @@ impl SessionAction {
     pub(crate) fn of(action: super::input::Action) -> Option<Self> {
         use super::input::Action;
         match action {
-            Action::Up => Some(Self::Up),
-            Action::Down => Some(Self::Down),
+            Action::Up | Action::ControlK => Some(Self::Up),
+            Action::Down | Action::ControlJ => Some(Self::Down),
+            Action::PageUp => Some(Self::Page(false)),
+            Action::PageDown => Some(Self::Page(true)),
             Action::Tab | Action::BackTab => Some(Self::Scope),
             Action::Submit => Some(Self::Resume),
             Action::Escape => Some(Self::Close),
@@ -375,6 +382,12 @@ impl SessionPicker {
     /// last loaded session loads the next page (`maybePrefetchMoreSessions`).
     /// `false` when there is no listing to move in.
     pub(crate) fn step(&mut self, down: bool, visible: u16) -> bool {
+        self.step_by(if down { 1 } else { -1 }, visible)
+    }
+
+    /// Moves the mark `delta` rows, stopping at either end, as
+    /// [`Self::step`] does one -- and loads the next page as it does.
+    pub(crate) fn step_by(&mut self, delta: i64, visible: u16) -> bool {
         let Load::Ready(_) = &self.load else {
             return false;
         };
@@ -383,12 +396,9 @@ impl SessionPicker {
         if rows == 0 {
             return true;
         }
-        let current = self.selected.min(rows - 1);
-        self.selected = if down {
-            (current + 1).min(rows - 1)
-        } else {
-            current.saturating_sub(1)
-        };
+        let current = i64::try_from(self.selected.min(rows - 1)).unwrap_or(i64::MAX);
+        let last = i64::try_from(rows - 1).unwrap_or(i64::MAX);
+        self.selected = usize::try_from(current.saturating_add(delta).clamp(0, last)).unwrap_or(0);
         self.follow(visible);
         if self.more() && self.selected + 1 >= self.items().len() {
             self.load_more(visible);
@@ -1269,6 +1279,28 @@ mod tests {
     }
 
     #[test]
+    fn a_page_moves_the_mark_that_far_and_stops_at_the_end() {
+        // Upstream's page delta is the composer's row cap, clamped by
+        // `moveVisibleItems` as a single step is.
+        let mut picker = ready(three());
+        assert_eq!(picker.selected().as_deref(), Some("c"));
+        assert!(picker.step_by(10, 20));
+        assert_eq!(
+            picker.selected().as_deref(),
+            Some("a"),
+            "stopped at the last"
+        );
+        assert!(picker.step_by(-10, 20));
+        assert_eq!(
+            picker.selected().as_deref(),
+            Some("c"),
+            "stopped at the first"
+        );
+        assert!(picker.step_by(2, 20));
+        assert_eq!(picker.selected().as_deref(), Some("a"));
+    }
+
+    #[test]
     fn tab_shows_every_workspace_and_back_from_the_top() {
         let mut picker = ready(three());
         picker.step(true, 20);
@@ -1492,10 +1524,23 @@ mod tests {
     }
 
     #[test]
-    fn only_the_six_keys_are_the_pickers() {
+    fn only_these_keys_are_the_pickers() {
         use super::super::input::Action;
         assert_eq!(SessionAction::of(Action::Up), Some(SessionAction::Up));
         assert_eq!(SessionAction::of(Action::Down), Some(SessionAction::Down));
+        assert_eq!(SessionAction::of(Action::ControlK), Some(SessionAction::Up));
+        assert_eq!(
+            SessionAction::of(Action::ControlJ),
+            Some(SessionAction::Down)
+        );
+        assert_eq!(
+            SessionAction::of(Action::PageUp),
+            Some(SessionAction::Page(false))
+        );
+        assert_eq!(
+            SessionAction::of(Action::PageDown),
+            Some(SessionAction::Page(true))
+        );
         assert_eq!(SessionAction::of(Action::Tab), Some(SessionAction::Scope));
         assert_eq!(
             SessionAction::of(Action::BackTab),

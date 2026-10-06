@@ -1,0 +1,35 @@
+=== ~/.fx/backups/settings.json.backup.1791318473907-0000000000000001-8ab7483af410d2eee9ec5b35ed6c9866 (59 bytes)
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+=== ~/.fx/continue/7ca0a6494fc2f163b3037b77c8de9d0e054e2d18e5863336404994644b6f8f26 (13 bytes)
+gTGdPR7j0iD7
+
+=== ~/.fx/history.jsonl (266 bytes)
+{"schema_version":1,"timestamp_ms":1791318471774,"workspace_root":"<scratch>/work","text":"say something"}
+{"schema_version":1,"timestamp_ms":1791318473906,"workspace_root":"<scratch>/work","text":"/model grok"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/gTGdPR7j0iD7/events.jsonl (1024 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791318478219,"event":{"user":{"text":"say something","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791318478219,"event":{"assistant":{"text":"MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32 word33 word34 word35 word36 word37 word38 word39 word40 word41 word42 word43 word44 word45 word46 word47 word48 word49 word50 word51 word52 word53 word54 word55 word56 word57 word58 word59 MARKER-TAIL","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791318478219,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791318471774,"completed_at_ms":1791318478210,"thinking_duration_ms":2,"turn_duration_ms":6436,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/gTGdPR7j0iD7/owner.live (43 bytes)
+{"pid":30546,"opened_at_ms":1791318468026}
+
+=== ~/.fx/sessions/gTGdPR7j0iD7/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/gTGdPR7j0iD7/session.json (365 bytes)
+{"schema_version":4,"id":"gTGdPR7j0iD7","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791318468025,"updated_at_ms":1791318478219,"conversation_language":"und-Latn","provider":"gateway","model":"xai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/gTGdPR7j0iD7/session.lock (0 bytes)
+=== ~/.fx/sessions/gTGdPR7j0iD7/usage-v2.json (541 bytes)
+{"schema_version":1,"session_id":"gTGdPR7j0iD7","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":2,"settled_through_sequence":1,"api_duration_ms":6432,"wall_duration_ms":10185,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (129 bytes)
+{"models":{"gateway":"xai/grok-4.7"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/settings.lock (0 bytes)
+=== ~/.fx/usage.jsonl (167 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791318478210}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791318478209,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

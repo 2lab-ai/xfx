@@ -2730,7 +2730,7 @@ mod tests {
             Action::Backspace,
             Action::Eof,
             Action::PasteStart,
-            Action::HistoryPrevious,
+            Action::ControlP,
         ] {
             assert_eq!(
                 record.key(action, 120, 40, DARK),
