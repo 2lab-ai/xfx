@@ -3857,8 +3857,12 @@ impl Shell {
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
         self.record(&mark);
-        // Anything that is not the answer ends the answer's block.
-        self.close_answer();
+        // Anything that is not the answer ends the answer's block. A notice
+        // ends only the rows already written: the line the presenter is still
+        // holding goes on under it ([`Self::write_notice`]).
+        if !matches!(mark, Mark::Notice(_)) {
+            self.close_answer();
+        }
         match mark {
             Mark::Card(text) => self.write_card(&text),
             Mark::Summary(line) => {
@@ -4007,8 +4011,21 @@ impl Shell {
     ///   on a blank one ([`Transcript::ends_blank`]), so neither a fresh screen
     ///   nor a card -- which ends on its own blank row -- grows a second.
     ///
-    /// Like [`Self::write_document_line`], whatever the answer had open is
-    /// closed first: a notice does not land in the middle of a sentence.
+    /// The block the answer has **written** is closed first, on its blank row,
+    /// so a notice does not land in the middle of a paragraph's rows. What the
+    /// presenter is still **holding** -- a line whose end has not arrived, or a
+    /// finished one a setext underline could still make a heading -- stays
+    /// held, and is written under the notice once the presenter lets it go,
+    /// whole and wrapped as if no notice had come. That is upstream's order
+    /// and the reason for it: its presenter keeps the unfinished line in its
+    /// own buffer (`assistant_presentation.zig:207-217`) and gives it up only
+    /// at a tool's start, a restart or the stream's end
+    /// (`assistant_stream.zig:135-140`, `:300-312`), while a notice is an entry
+    /// appended to the transcript beside it (`appendSemanticNoticeAtomic`,
+    /// `store.zig:1343-1390`) that asks the presenter for nothing
+    /// (`fx-notice-midstream-40x120-end.full`). Finishing the presenter here
+    /// wrote half a line, the notice, and the rest as a second paragraph --
+    /// `word` closing one row and `111` opening the next.
     ///
     /// **Under an open tool group it is one of the group's last rows**
     /// ([`Self::trail_group`]), and the group goes on growing above it.
@@ -4018,7 +4035,7 @@ impl Shell {
             self.trail_group(Trailed::Notice(notice.clone()));
             return;
         }
-        self.close_answer();
+        self.close_prose();
         self.finish_document_line();
         if queue_notice(&mut self.transcript, notice) {
             self.owed();
@@ -14281,17 +14298,30 @@ mod tests {
     #[test]
     fn a_notice_that_lands_mid_answer_gets_a_row_of_its_own() {
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("half a sentence".to_string()));
+        shell.apply(UiEvent::Delta(
+            "a whole paragraph\n\nhalf a sentence".to_string(),
+        ));
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "tool",
             "read_file ok",
         )));
 
-        // The answer's block ends on its blank row, which is the notice's
-        // blank row above as well.
+        // The rows the answer has written end their block on its blank row,
+        // which is the notice's blank row above as well. The half sentence
+        // is not one of them: the presenter is holding it for its end, and it
+        // goes on under the notice -- upstream's order
+        // (`fx-notice-midstream-40x120-end.full`) -- rather than being cut off
+        // at the notice and finished as a paragraph of its own.
         assert_eq!(
             shell.released(),
-            vec!["  half a sentence", "", "! tool: read_file ok", ""],
+            vec![
+                "  a whole paragraph",
+                "",
+                "! tool: read_file ok",
+                "",
+                "  half a sentence",
+                ""
+            ],
             "a notice was written into the middle of the answer's row"
         );
     }
@@ -14305,7 +14335,12 @@ mod tests {
         // held at the position the stream had reached instead.
         let mut shell = shell(24, 80);
         let start = Instant::now();
-        shell.apply(UiEvent::Delta("the first half ".to_string()));
+        // A whole paragraph, so the presenter writes it as soon as the pacer
+        // has released its end: text the presenter is still holding for what
+        // comes next -- an unfinished line, or a finished one that a setext
+        // underline could still turn into a heading -- goes on under whatever
+        // notice arrives meanwhile, and could not land early.
+        shell.apply(UiEvent::Delta("the first half\n\n".to_string()));
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "tool",
             "read_file ok",
@@ -14330,7 +14365,7 @@ mod tests {
         // ends on, and nothing else.
         assert_eq!(
             rows[..notice],
-            ["  the first half ", ""],
+            ["  the first half", ""],
             "the notice landed before the text it came after: {rows:?}"
         );
         assert_eq!(
@@ -17969,12 +18004,92 @@ mod tests {
     }
 
     #[test]
+    fn a_notice_written_while_a_line_streams_lands_above_it_and_leaves_it_whole() {
+        // `fx-notice-midstream-40x120-end.full`: a refusal and a `/version`
+        // typed while the answer's second paragraph streams land after the
+        // paragraph the answer had finished and **before** the one it had
+        // not, and that one arrives whole, wrapped as it would have been with
+        // no notice at all. The presenter holds a line until its end arrives
+        // (`crate::markdown::processor`); a notice that made it give the line
+        // up wrote half a paragraph, the notice, and the rest as a second
+        // paragraph -- `word` closing one row and `111` opening the next.
+        let mut shell = shell(40, 120);
+        let start = Instant::now();
+        let words: Vec<String> = (10..=19)
+            .chain(100..=139)
+            .map(|n| format!("word{n}"))
+            .collect();
+        let paragraph = format!("MARKER-A {}", words.join(" "));
+        let (said, unsaid) = paragraph.split_at(paragraph.find("word111").expect("a word") + 4);
+        shell.apply(UiEvent::Delta(format!(
+            "Opening line of the answer.\n\n{said}"
+        )));
+        // Every append, in order, as the terminal is handed them: an append
+        // rewrites the unfinished rows of the one before it, so the document
+        // is what replaying them leaves rather than their rows end to end.
+        let mut appends = Vec::new();
+        for at in 1..=3000 / TICK_MILLIS {
+            shell.settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+            appends.extend(shell.take_pending());
+        }
+        shell.route_bytes(b"/notacommand\r");
+        shell.route_bytes(b"/version\r");
+        appends.extend(shell.take_pending());
+        shell.apply(UiEvent::Delta(format!(
+            "{unsaid}\n\nClosing line of the answer."
+        )));
+        shell.shell.flush_paced();
+        appends.extend(shell.take_pending());
+        let mut rows: Vec<String> = Vec::new();
+        for append in appends {
+            let kept = (rows.len() + append.scroll).saturating_sub(append.rows.len());
+            rows.truncate(kept);
+            rows.extend(append.rows);
+        }
+
+        // A full row: 120 cells, and the space after `word104` hung past the
+        // margin, as the wrap hangs every space it breaks on -- the painter's
+        // clip leaves it off the wire (`super::super::frame::clip`).
+        let full = format!("  MARKER-A {}", words[..15].join(" "));
+        assert_eq!(full.len(), 120, "the fixture's first row is not a full one");
+        assert_eq!(
+            rows,
+            vec![
+                "  Opening line of the answer.".to_string(),
+                String::new(),
+                format!(
+                    "{LABEL_DARK}\u{2717} {ENDED}{LABEL_DARK}command:{ENDED}\
+                     {NOTICE_DARK} Unknown command. Try /help.{ENDED}"
+                ),
+                String::new(),
+                format!(
+                    "{NOTICE_DARK}* {ENDED}{NOTICE_DARK}version:{ENDED}\
+                     {NOTICE_DARK} {}{ENDED}",
+                    crate::VERSION
+                ),
+                String::new(),
+                format!("{full} "),
+                format!("  {} ", words[15..29].join(" ")),
+                format!("  {} ", words[29..43].join(" ")),
+                format!("  {}", words[43..].join(" ")),
+                String::new(),
+                "  Closing line of the answer.".to_string(),
+                String::new(),
+            ],
+            "the notices split the line the answer was in the middle of"
+        );
+    }
+
+    #[test]
     fn a_notice_inside_an_answer_keeps_its_own_colour_and_its_own_place() {
         // Ordering and colour together: the notice belongs at the point the
         // answer had reached when it happened (`Shell::mark`), and the answer
         // that follows it is the answer again rather than more of the notice.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("before".to_string()));
+        // A whole paragraph before it: text the presenter is still holding
+        // would go on under the notice rather than above it
+        // ([`Shell::write_notice`]).
+        shell.apply(UiEvent::Delta("before\n\n".to_string()));
         shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "ran")));
         shell.apply(UiEvent::Delta("after".to_string()));
         shell.shell.flush_paced();
@@ -18005,7 +18120,9 @@ mod tests {
         // is xfx's own line held behind it: a notice waits at the place the
         // stream had reached (`Shell::mark`) with its role beside it.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("held while it was dark".to_string()));
+        // A whole paragraph, so it is written above the notice rather than
+        // held under it ([`Shell::write_notice`]).
+        shell.apply(UiEvent::Delta("held while it was dark\n\n".to_string()));
         shell.apply(UiEvent::Notice(notice::Notice::warning(
             "tool",
             "read_file ok",
