@@ -29,8 +29,9 @@ use crate::gateway::protocol::ToolCall;
 
 pub use question::QuestionRequester;
 pub use spec::{
-    InputSchema, PermissionKind, Property, PropertyKind, RaceInterlude, ToolContext, ToolDecoder,
-    ToolExecutor, ToolInput, ToolLimits, ToolResult, ToolSession, ToolSpec, ToolValidator,
+    Activity, InputSchema, LineChanges, Outcome, PermissionKind, Presentation, Property,
+    PropertyKind, RaceInterlude, Shown, ToolContext, ToolDecoder, ToolExecutor, ToolInput,
+    ToolLimits, ToolResult, ToolSession, ToolSpec, ToolValidator,
 };
 
 /// Every tool name this build advertises, in registry order.

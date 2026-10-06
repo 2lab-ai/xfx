@@ -12,35 +12,38 @@
 # scenario's turns. A scenario is a file in scenarios/, one command per line:
 #
 #   gateway <turns.json>   turns for the fake gateway (default: none)
-#   env K=V                extra environment for the binary
-#   seed <settings.json>   copied to ~/.fx/settings.json before launch
-#   work <dir>             copied into the workspace before launch
+#   env <K=V>...           extra environment for the binary
+#   seed <settings.json>   copied to ~/.fx/settings.json before launch (fx's own
+#                          settings file; xfx does not read it)
+#   work <dir>             a directory under scenarios/ copied into the
+#                          workspace before launch
 #   wait <seconds>
 #   type <text>            literal keys
-#   paste <text>           bracketed paste (printf %b escapes)
+#   paste <text>           a bracketed paste (printf %b escapes)
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
-#   snapfull <label>       the same with the whole tmux history (.full.*)
-#   gwlog                  the gateway's log and every request body it got
+#   snapfull <label>       the same, with the whole tmux history (.full.*)
+#   title <label>          writes the pane's window title (OSC 2) to
+#                          <bin>-<scenario>-<size>-<label>.title
+#   keep                   keeps the pane after the program exits, so a title
+#                          or a screen can still be read once it has
+#   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
 #   home <label>           every file under the run's HOME, as it stands now,
 #                          to <bin>-<scenario>-<size>-<label>.files: the path
 #                          relative to HOME, its size, and its bytes (locks
 #                          and logs by size only), the run's own directory
 #                          written as <scratch> -- what a settings write left
-#   title <label>          writes the pane's window title (OSC 2) to
-#                          <bin>-<scenario>-<size>-<label>.title
-#   keep                   keeps the pane after the program exits, so a title
-#                          or a screen can still be read once it has
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
-# products name their tools and settings differently (fx's `shell` is xfx's
-# `terminal`, `FX_PERMISSION_MODE` is `XFX_PERMISSION_MODE`), so one keystroke
-# script can drive both with a turns file and an environment of each's own.
+# products name their tools and settings differently (fx's `shell` with
+# `request.action: run` is xfx's `terminal` with `action: exec`,
+# `FX_PERMISSION_MODE` is `XFX_PERMISSION_MODE`), so one keystroke script can
+# drive both with a turns file and an environment of each's own.
 set -euo pipefail
 
 # The line, if it is for this binary, with its prefix taken off; nothing if it
@@ -157,7 +160,13 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         echo "$name.txt"
         ;;
       gwlog) cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies" ;;
-      workls) (cd "$run/work" && for f in $(find . -type f | sort); do echo "== $f"; head -c 2000 "$f"; echo; done) > "$out/$which-$scenario-$size-work-$rest.txt" ;;
+      # One name per line rather than a word-split `$(find)`, so a file
+      # with a space in its name is listed whole.
+      workls)
+        (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
+          echo "== $f"; head -c 2000 "$f"; echo
+        done) > "$out/$which-$scenario-$size-work-$rest.txt"
+        ;;
       home)
         local name=$out/$which-$scenario-$size-$rest.files
         (
