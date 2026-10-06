@@ -888,6 +888,13 @@ pub(crate) struct ModelChange {
     pub(crate) announced: bool,
     /// A turn was running, or waiting to, when it was asked for.
     pub(crate) next_turn: bool,
+    /// The effort alone: `/settings`' `Reasoning effort` row, which keeps the
+    /// model and leaves the runtime nothing to select, load or write
+    /// (`selectEffortFromSettings`, `session_commands.zig:882-884`) -- the band
+    /// has written `effort` itself and said so. Carried as a model change so
+    /// it waits behind a running turn exactly as one does, and keeps its place
+    /// among them.
+    pub(crate) effort_only: bool,
 }
 
 /// What the UI asks the runtime to do next.

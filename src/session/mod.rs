@@ -24,6 +24,7 @@
 //! own the offset it starts at.
 
 pub mod event;
+pub mod prompt_history;
 pub mod store;
 
 pub use event::{

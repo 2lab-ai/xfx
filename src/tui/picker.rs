@@ -384,7 +384,18 @@ impl Picker {
     /// row painted without a row of geometry to put it on -- or a row of
     /// geometry with nothing painted into it -- is not a state this can reach.
     /// The two rules round it are the band's, not the menu's.
-    pub(crate) fn rows(&self, cols: u16, terminal_rows: u16, palette: Palette) -> Vec<String> {
+    ///
+    /// `categories` is `/settings`' `Slash menu categories`: off, no row has a
+    /// category column and the summaries have the whole width
+    /// (`slashMenuRowContent`'s `include_metadata`,
+    /// `picker_presentation.zig:1242-1266`, read at `paint_plan.zig:844-881`).
+    pub(crate) fn rows(
+        &self,
+        cols: u16,
+        terminal_rows: u16,
+        palette: Palette,
+        categories: bool,
+    ) -> Vec<String> {
         let layout = self.layout(terminal_rows);
         let mut rows = Vec::with_capacity(usize::from(layout.rows));
         if layout.header {
@@ -395,13 +406,27 @@ impl Picker {
         // Measured over the window, not over every match: the name column is
         // as wide as the names **on the screen**, so it moves as the window
         // scrolls and as the query narrows it.
+        let category = |found: &Match| {
+            if categories {
+                found.spec.category
+            } else {
+                ""
+            }
+        };
         let columns = Columns {
             label: widest(in_view.iter().map(|found| found.label)),
-            category: widest(in_view.iter().map(|found| found.spec.category)),
+            category: widest(in_view.iter().map(category)),
         };
         for (offset, found) in in_view.iter().enumerate() {
             let marked = layout.window.start + offset == self.selected;
-            rows.push(item_row(found, marked, columns, cols, palette));
+            rows.push(item_row(
+                found,
+                category(found),
+                marked,
+                columns,
+                cols,
+                palette,
+            ));
         }
         // The rows the window has no command for: blank, so a query that
         // narrowed the list leaves the menu the height it was.
@@ -502,7 +527,14 @@ impl Picker {
 /// The category is the first thing a narrow screen gives up: it is shown only
 /// while the summary keeps [`MIN_SUMMARY_CELLS`] beside it, and a summary too
 /// long for its room is cut with an ellipsis rather than run into it.
-fn item_row(found: &Match, marked: bool, columns: Columns, cols: u16, palette: Palette) -> String {
+fn item_row(
+    found: &Match,
+    category: &str,
+    marked: bool,
+    columns: Columns,
+    cols: u16,
+    palette: Palette,
+) -> String {
     let style = if marked {
         // Upstream's `selected_completion_style`, which is the same bold hint
         // grey as the welcome line's brand in both modes.
@@ -524,8 +556,7 @@ fn item_row(found: &Match, marked: bool, columns: Columns, cols: u16, palette: P
 
     let summary = found.spec.summary;
     let category_start = content.saturating_sub(columns.category);
-    let category_fits =
-        !found.spec.category.is_empty() && columns.category > 0 && columns.category <= content;
+    let category_fits = !category.is_empty() && columns.category > 0 && columns.category <= content;
     let category_shown = if summary.is_empty() {
         category_fits && category_start >= summary_start + COLUMN_GAP
     } else {
@@ -543,7 +574,7 @@ fn item_row(found: &Match, marked: bool, columns: Columns, cols: u16, palette: P
     if category_shown {
         pad_to(&mut row, category_start);
         row.push_str(palette.dim());
-        row.push_str(found.spec.category);
+        row.push_str(category);
     }
     row.push_str(palette.reset());
     row
@@ -914,7 +945,7 @@ mod tests {
         for (rows, cols) in [(24_u16, 80_u16), (7, 20), (40, 200), (10, 24), (13, 30)] {
             for query in ["/", "/e", "/q", "/exit"] {
                 let picker = Picker::open(query).expect("a query that matches");
-                let painted = picker.rows(cols, rows, PALETTE);
+                let painted = picker.rows(cols, rows, PALETTE, true);
                 assert_eq!(
                     usize::from(picker.height(rows)),
                     painted.len(),
@@ -959,7 +990,7 @@ mod tests {
     #[test]
     fn a_bare_slash_has_a_header_a_blank_row_and_six_commands() {
         let picker = Picker::open("/").expect("every command");
-        let rows = picker.rows(120, 40, PALETTE);
+        let rows = picker.rows(120, 40, PALETTE, true);
         assert_eq!(rows.len(), 8);
         // The header: dim, the range in an en dash against the last column but
         // one, because the registry's commands do not fit in six rows.
@@ -1002,7 +1033,7 @@ mod tests {
     #[test]
     fn the_marked_row_is_bright_and_the_rest_are_dim() {
         let picker = walked("/", 2);
-        let rows = picker.rows(120, 40, PALETTE);
+        let rows = picker.rows(120, 40, PALETTE, true);
         // Upstream's selected row: bold hint grey for the name and its
         // padding, then only the colour switched, so the summary and the
         // category stay bold; closed by a reset.
@@ -1034,7 +1065,7 @@ mod tests {
         // One more: the window moves by one, the mark on its last row.
         let mut picker = walked("/", 6);
         assert_eq!(picker.layout(40).window, Window { start: 1, end: 7 });
-        let rows = picker.rows(120, 40, PALETTE);
+        let rows = picker.rows(120, 40, PALETTE, true);
         assert!(plain(&rows[0]).ends_with("2\u{2013}7"), "{:?}", rows[0]);
         assert!(rows[7].starts_with(MARKED), "{:?}", rows[7]);
         assert!(
@@ -1045,7 +1076,7 @@ mod tests {
         // Back up one: the mark moves and the window stays.
         assert_eq!(picker.apply(PickerAction::Up), PickerOutcome::Changed);
         assert_eq!(picker.layout(40).window, Window { start: 1, end: 7 });
-        assert!(picker.rows(120, 40, PALETTE)[6].starts_with(MARKED));
+        assert!(picker.rows(120, 40, PALETTE, true)[6].starts_with(MARKED));
         // Down to the last command, the window following it a row at a time.
         let last = SLASH_REGISTRY.len() - 1;
         while picker.selected < last {
@@ -1058,7 +1089,7 @@ mod tests {
                 end: last + 1
             }
         );
-        assert!(plain(&picker.rows(120, 40, PALETTE)[7]).starts_with("  /quit"));
+        assert!(plain(&picker.rows(120, 40, PALETTE, true)[7]).starts_with("  /quit"));
         // And past the bottom it wraps to the top, taking the window with it.
         assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         assert_eq!(picker.selected, 0);
@@ -1070,17 +1101,20 @@ mod tests {
         // `/quit` alone: the summary starts past four letters and a slash,
         // plus the gap.
         let quit = Picker::open("/q").expect("one command");
-        assert_eq!(summary_column(&quit.rows(120, 40, PALETTE)[2]), 2 + 5 + 3);
+        assert_eq!(
+            summary_column(&quit.rows(120, 40, PALETTE, true)[2]),
+            2 + 5 + 3
+        );
 
         // A list whose widest name is in view at the top and scrolls out of
         // it: the column follows the window, not the list.
         let mut picker = Picker::over(SCROLLING, "/").expect("every name");
-        let top = picker.rows(120, 40, PALETTE);
+        let top = picker.rows(120, 40, PALETTE, true);
         assert_eq!(summary_column(&top[2]), 2 + "/the-widest".len() + 3);
         for _ in 0..7 {
             assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         }
-        let scrolled = picker.rows(120, 40, PALETTE);
+        let scrolled = picker.rows(120, 40, PALETTE, true);
         assert!(plain(&scrolled[0]).ends_with("3\u{2013}8"), "{scrolled:?}");
         assert!(scrolled.iter().all(|row| !row.contains("/the-widest")));
         assert_eq!(summary_column(&scrolled[2]), 2 + 2 + 3);
@@ -1089,7 +1123,7 @@ mod tests {
     #[test]
     fn a_filtered_menu_keeps_its_height_with_blank_rows() {
         let picker = Picker::open("/q").expect("one command");
-        let rows = picker.rows(120, 40, PALETTE);
+        let rows = picker.rows(120, 40, PALETTE, true);
         assert_eq!(rows.len(), 8, "the menu shrank with the list");
         // No `type to filter` once something is typed, and no range while
         // everything fits.
@@ -1109,16 +1143,16 @@ mod tests {
     #[test]
     fn a_screen_with_two_rows_or_fewer_drops_the_header() {
         let picker = Picker::open("/").expect("every command");
-        let rows = picker.rows(80, 12, PALETTE);
+        let rows = picker.rows(80, 12, PALETTE, true);
         assert_eq!(rows.len(), 2);
         assert!(rows[0].starts_with(MARKED), "{rows:?}");
         assert!(plain(&rows[0]).starts_with("  /help"), "{rows:?}");
         assert!(plain(&rows[1]).starts_with("  /clear"), "{rows:?}");
-        let rows = picker.rows(20, 7, PALETTE);
+        let rows = picker.rows(20, 7, PALETTE, true);
         assert_eq!(rows.len(), 1);
         assert!(plain(&rows[0]).starts_with("  /help"), "{rows:?}");
         // With three rows the header is back, over one command.
-        let rows = picker.rows(80, 13, PALETTE);
+        let rows = picker.rows(80, 13, PALETTE, true);
         assert_eq!(rows.len(), 3);
         assert!(
             plain(&rows[0]).starts_with(&format!("Commands {}", SLASH_REGISTRY.len())),
@@ -1134,16 +1168,47 @@ mod tests {
         // the category goes and the summary is cut with an ellipsis
         // (`tui-slash-menu.test.ts`, "remains alive when descriptions clip").
         let picker = Picker::open("/mo").expect("one command");
-        let rows = picker.rows(42, 18, PALETTE);
+        let rows = picker.rows(42, 18, PALETTE, true);
         let row = plain(&rows[2]);
         assert!(!row.contains("Model"), "{row:?}");
         assert!(row.ends_with('\u{2026}'), "{row:?}");
         assert_eq!(row.chars().count(), 41, "{row:?}");
         // The header is cut the same way rather than run off the row.
-        let rows = Picker::open("/").expect("all").rows(20, 40, PALETTE);
+        let rows = Picker::open("/").expect("all").rows(20, 40, PALETTE, true);
         assert!(plain(&rows[0]).contains('\u{2026}'), "{:?}", rows[0]);
         assert!(plain(&rows[0]).ends_with("1\u{2013}6"), "{:?}", rows[0]);
         assert!(super::super::wrap::width(&rows[0]) < 20);
+    }
+
+    #[test]
+    fn with_categories_off_no_row_has_one_and_the_summary_takes_the_width() {
+        // `/settings`' `Slash menu categories` off
+        // (`fx-settings-cats-40x120-popup-off`: `  /help     show available
+        // slash commands` and nothing at the right).
+        let picker = Picker::open("/").expect("all");
+        let shown = picker.rows(120, 40, PALETTE, true);
+        let hidden = picker.rows(120, 40, PALETTE, false);
+        assert_eq!(shown[0], hidden[0], "the header does not change");
+        assert!(
+            plain(&shown[2]).trim_end().ends_with("General"),
+            "{:?}",
+            shown[2]
+        );
+        for row in &hidden[2..] {
+            let text = plain(row);
+            for category in crate::interactive::SLASH_CATEGORIES {
+                assert!(!text.trim_end().ends_with(category), "{text:?}");
+            }
+        }
+        assert_eq!(
+            hidden[2],
+            format!("{MARKED}  /help     {DIM}show available slash commands{RESET}")
+        );
+        // On a narrow screen the summary keeps the room a category would have
+        // taken.
+        let narrow = Picker::open("/mo").expect("one command");
+        let row = plain(&narrow.rows(42, 18, PALETTE, false)[2]);
+        assert_eq!(row.chars().count(), 41, "{row:?}");
     }
 
     #[test]

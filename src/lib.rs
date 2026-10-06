@@ -18,6 +18,7 @@
 //! - [`session`]: the durable event log, its published boundary, and resume
 //! - [`usage`]: what xfx itself has spent, added up by window for `/usage`
 //! - [`interactive`]: the line-oriented shell a bare `xfx` runs
+//! - [`trace`]: `/trace`'s private diagnostic report, for both shells
 //! - [`tui`]: the opt-in raw-mode shell `XFX_TUI=1` runs in its place
 //! - [`app`]: composition and dispatch
 //!
@@ -42,6 +43,7 @@ pub mod provider;
 pub mod session;
 pub mod sound;
 pub mod tools;
+pub mod trace;
 #[cfg(unix)]
 pub mod tui;
 pub mod usage;

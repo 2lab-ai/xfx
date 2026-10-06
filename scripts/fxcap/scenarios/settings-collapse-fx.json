@@ -1,0 +1,9 @@
+[
+ {"tools": [{"name": "read_file", "input": {"path": "a.txt"}}, {"name": "read_file", "input": {"path": "b.txt"}}]},
+ {"chunks": ["Read both."]},
+ {"tools": [{"name": "read_file", "input": {"path": "a.txt"}}]},
+ {"chunks": ["Again."]},
+ {"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "sleep 4; echo hi", "yield_time_ms": 30000}}}},
+ {"chunks": ["Ran."]},
+ {"chunks": ["spare"]}
+]
