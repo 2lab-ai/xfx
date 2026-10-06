@@ -356,13 +356,87 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     // may appear. `/setup` left this list when it stopped being deferred, and
     // `/stats`, `/status` and `/permissions` after it, `/provider` when it
     // became the canonical name of the same command with `/setup` as its
-    // alias, and `/resume` and `/rename` after those; `/models` did not,
-    // because the catalog browser is reached by a bare `/model` rather than by
-    // a command of its own.
-    for absent in ["/login", "/models", "/mcp", "/undo", "/usage", "/image"] {
+    // alias, `/resume` and `/rename` after those, `/undo` after them, and
+    // `/usage` with its dashboard; `/models` did not, because the catalog
+    // browser is reached by a bare `/model` rather than by a command of its
+    // own.
+    for absent in ["/login", "/models", "/mcp", "/image"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_usage_on_the_line_shell_says_where_the_dashboard_is() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    session.type_line("/usage");
+    session.wait_for("xfx: /usage shows its dashboard in the full-screen shell");
+    // `/cost` is the same command.
+    session.type_line("/cost");
+    session.wait_for_count("xfx: /usage shows its dashboard", 2);
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_asks_the_gateway_the_turn_would_use_with_the_turns_bearer() {
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string()),
+        Reply::Status(404, "not found".to_string()),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/credits");
+    let text = session.wait_for("[credits] plan=pro");
+    assert!(
+        text.contains("[credits] balance=42.17\r\n[credits] used=7.83\r\n[credits] plan=pro"),
+        "{text}"
+    );
+    let asked = gateway.only_request();
+    assert_eq!(
+        (asked.method.as_str(), asked.path.as_str()),
+        ("GET", "/coding-agent/v1/credits")
+    );
+    assert_eq!(
+        asked.header("authorization"),
+        Some(format!("Bearer {TEST_KEY}").as_str())
+    );
+
+    // `/balance` is the same command, and a refusal is upstream's wording.
+    session.type_line("/balance");
+    let text = session.wait_for("[credits] error: HTTP 404: not found");
+    assert_eq!(gateway.request_count(), 2);
+    assert!(
+        !text.contains(TEST_KEY),
+        "the credential reached the terminal"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_credits_with_no_credential_or_on_llmux_asks_nobody() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+    session.type_line("/credits");
+    session.wait_for(
+        "[credits] error: xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.",
+    );
+    assert_eq!(session.quit().code(), Some(0));
+
+    // llmux keeps no balance (`gateway_provider.zig:89-101`'s sentence), and
+    // the daemon is not asked for one.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+    session.type_line("/credits");
+    session.wait_for("[credits] error: Credits are unavailable for the selected provider.");
+    assert!(daemon.requests().is_empty(), "{:?}", daemon.requests());
     assert_eq!(session.quit().code(), Some(0));
 }
 
@@ -751,6 +825,38 @@ fn slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it() {
     session.wait_for("xfx: Failed to copy to clipboard.");
 
     assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_undo_puts_the_changed_file_back_and_tells_the_model_nothing() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1242-1290`: nothing to undo
+    // before anything changed, the edit taken back with upstream's sentence,
+    // and nothing left after it. The model is not told: no request follows.
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/undo");
+    session.wait_for("[shell] undo: Nothing to undo.");
+    session.type_line("edit the notes");
+    session.wait_for("the edit is done");
+    assert_eq!(fs::read_to_string(&notes).expect("read back"), "beta\n");
+
+    session.type_line("/undo");
+    let canonical = fs::canonicalize(&notes).expect("canonicalize");
+    session.wait_for(&format!("[shell] undo: Restored {}", canonical.display()));
+    assert_eq!(fs::read_to_string(&notes).expect("read back"), "alpha\n");
+    session.type_line("/undo");
+    session.wait_for_count("[shell] undo: Nothing to undo.", 2);
+
+    assert_eq!(session.quit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        3,
+        "an undo was sent to the model, or the turn did not run"
+    );
 }
 
 /// Every line xfx wrote that begins with `xfx: `, without the terminal's echo

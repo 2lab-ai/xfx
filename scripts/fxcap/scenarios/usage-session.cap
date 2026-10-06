@@ -1,0 +1,28 @@
+# The session scope after one unbilled turn: Shift-Tab straight to it, Enter
+# and Down with no model to act on, r, then Tab round to 30 days.
+models models.json
+gateway markdown-turn.json
+wait 2.5
+type explain the plan please
+key Enter
+wait 5
+type /usage
+key Enter
+wait 2.5
+key BTab
+wait 1.5
+snap session
+key Enter
+wait 0.7
+snap session-expand
+key Down
+wait 0.5
+snap session-down
+key r
+wait 1.5
+snap session-r
+key Tab
+wait 1.5
+snap wrap-30
+home end
+key Escape
