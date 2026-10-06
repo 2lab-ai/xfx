@@ -383,6 +383,13 @@ impl Palette {
         self.subtitle()
     }
 
+    /// Reverse video and nothing else: the one-cell caret upstream paints in a
+    /// draft it owns (`question_ui.zig:323-399`, `approval_ui.zig:1662`). The
+    /// same in every mode and at every depth, because it names no colour.
+    pub(crate) fn reverse(&self) -> &'static str {
+        "\u{1b}[7m"
+    }
+
     /// Bold and nothing else: a question's title and the path it is about
     /// (`bold_style`). The same in every mode and at every depth, because it
     /// names no colour.
