@@ -5,7 +5,7 @@
 # the terminal bell rather than a chime through /usr/bin/afplay (see the
 # header of capture.sh): the bell is the thing being compared.
 gateway sound-turns.json
-fx: env FX_PERMISSION_MODE=ask TMPDIR=/var/empty
+fx: env FX_PERMISSION_MODE=ask
 xfx: env XFX_PERMISSION_MODE=ask XFX_SOUND=off
 wait 3
 home start

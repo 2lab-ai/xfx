@@ -2,7 +2,7 @@
 # on for macOS, and the settings a bare toggle from there writes. fx's
 # FX_SOUND=0 is emptied, which fx reads as unset; its TMPDIR is one it cannot
 # write, so its start-up cue is a bell rather than a chime (see capture.sh).
-fx: env FX_SOUND= TMPDIR=/var/empty
+fx: env FX_SOUND=
 wait 3
 bells start
 home start
