@@ -1104,8 +1104,8 @@ fn linger(mut read: impl FnMut() -> Reading) -> Option<Stranded> {
 /// still run: a `Member::Live` that xfx did not kill and may signal
 /// (`Running`), or one it may not signal at all (`Unsignalable`, whatever the
 /// record says, since no kill of xfx's can have reached it). A `Member::Live`
-/// that xfx did kill is reported as `dying`, for `linger` to look again. The
-/// work is bounded: one listing, at most one question per member, and one more
+/// that xfx did kill is reported as `dying`, for `linger` to look again. Each
+/// look is bounded: one listing, at most one question per member, and one more
 /// question of the group if the listing is empty.
 ///
 /// A listing with nobody in it, from a group that still answers, is read by
@@ -2325,6 +2325,14 @@ mod tests {
     /// `(1 - 0.0033)^1152`, about 2%, and at the lowest rate seen in one run
     /// (2 of 1152) about 14%. Against this one, 12 of 12 runs and 0 of 13824
     /// stops. A quieter machine lowers the old rate, not the new one.
+    ///
+    /// The same load also tests the notice from the other side: a stop
+    /// reported as stranded when nothing in the group outlived the kill is a
+    /// false report, and fails this test as an escape does. Against the
+    /// `settled` that read only the group's answer, 6 of 6 runs failed, with
+    /// 5, 3, 10, 7, 6 and 9 false notices in 1152 stops (40 of 6912), both
+    /// `Running` and `Unsignalable`; reading the members (`reconsider`), 12 of
+    /// 12 runs and 0 of 13824.
     #[cfg(unix)]
     #[test]
     fn a_stopped_command_leaves_nothing_alive_in_its_process_group_on_a_loaded_machine() {
