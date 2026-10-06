@@ -9131,3 +9131,89 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
 }
+
+#[test]
+fn a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind() {
+    // The session's end joins the report's thread (`tui::copy::Errands`): the
+    // report is written whole, and a file copy whose tool never answers is
+    // given a second and then killed -- the exit does not wait out the
+    // tool's thirty seconds, nor the copy's five.
+    let gateway = FakeGateway::start(Vec::new());
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    clipboard.hang();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"/trace\r");
+    let quit = Instant::now();
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let took = quit.elapsed();
+    assert!(
+        took < std::time::Duration::from_secs(4),
+        "the exit waited on the clipboard tool: {took:?}"
+    );
+
+    let reports = clipboard.reports();
+    assert!(reports.len() <= 1, "{reports:?}");
+    if let Some(path) = reports.first() {
+        let report = std::fs::read_to_string(path).expect("the report");
+        assert!(report.starts_with("# xfx trace\n"), "{report}");
+        assert!(
+            report.contains("\n## Transcript Timeline\n") && report.ends_with('\n'),
+            "not the whole report: {report}"
+        );
+    }
+    if let Some(pid) = clipboard.hung() {
+        let alive = rustix::process::Pid::from_raw(pid)
+            .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
+        assert!(!alive, "the clipboard tool outlived the session");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// input typed before the session is up
+// ---------------------------------------------------------------------------
+
+#[test]
+fn what_was_typed_before_the_session_took_the_terminal_is_in_the_composer() {
+    // Upstream enters raw mode with `TCSANOW` (`shell_runtime.zig:128`) and
+    // pins it with "enableRawMode preserves already queued input"
+    // (`:640-678`): keys typed while the binary was still starting are the
+    // first keys the composer reads. Typed here before the binary is even
+    // spawned, so the case cannot depend on how fast it starts.
+    use std::io::Write as _;
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-TYPED-EARLY-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    (&*pty.master)
+        .write_all(b"typed early")
+        .expect("type before the session");
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    on_screen(&session, (24, 80), &["\u{2503} typed early"], &[]);
+    session.type_bytes(b" and late\r");
+    session.wait_for("MARKER-TYPED-EARLY-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(
+        requests[0]
+            .json()
+            .to_string()
+            .contains("typed early and late"),
+        "{}",
+        requests[0].json()
+    );
+}

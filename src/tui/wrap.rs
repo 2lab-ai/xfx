@@ -277,6 +277,92 @@ pub(crate) fn wrap(text: &str, cols: u16) -> Vec<Row> {
     rows
 }
 
+/// The rows a **notice**'s text occupies on a screen `cols` wide: upstream's
+/// notice wrap (`scanNoticeLine`,
+/// `vercel-labs/fx@c1db9191 src/ui/render_engine/transcript_blocks.zig:1651-1702`),
+/// which is not [`wrap`]'s.
+///
+/// Two differences, and both are upstream's:
+///
+/// * **A path breaks after a `/` or a `\`.** A notice that names a file --
+///   `Trace saved at /tmp/…/fx-trace-….md.` -- keeps as much of the path as
+///   fits on the row it began on and carries the rest down from after its last
+///   separator, rather than moving the whole path down as one word.
+/// * **A break at a space drops the space.** The spaces at a break are on
+///   neither row: the row ends before them and the next one starts after them,
+///   where [`wrap`] hangs them on the row they end. So the rows do **not**
+///   tile the text, and a caller that needs every byte placed is not a notice.
+///
+/// A word longer than a whole row breaks at the cluster that would cross the
+/// margin, as in [`wrap`]; a single cluster wider than the row is a row of its
+/// own. A hard line break ends a row and is on neither. Text with nothing in
+/// it is one empty row.
+pub(crate) fn wrap_notice(text: &str, cols: u16) -> Vec<Row> {
+    let cols = cols.max(1);
+    let mut rows = Vec::new();
+    let mut start = 0usize;
+    loop {
+        let (row, next) = notice_row(text, start, cols);
+        rows.push(row);
+        // `next > start` always, so this ends: every row takes at least one
+        // cluster, a space, or a break.
+        if next >= text.len() {
+            return rows;
+        }
+        start = next;
+    }
+}
+
+/// One notice row from `start`, and where the row after it begins
+/// (`scanNoticeLine`'s `end` and `next`).
+fn notice_row(text: &str, start: usize, cols: u16) -> (Row, usize) {
+    let row = |end: usize, width: u16| Row { start, end, width };
+    let mut used = 0u16;
+    // The last place this row may end, the place the next one would begin,
+    // and the cells the row has there.
+    let mut last_break: Option<(usize, usize, u16)> = None;
+    for painted in painting(&text[start..]) {
+        let index = start + painted.start;
+        let end = start + painted.end;
+        let cluster = painted.cluster;
+        let at = end - cluster.len();
+        if is_line_break(cluster) {
+            return (row(index, used), end);
+        }
+        if cluster == " " || cluster == "\t" {
+            let next = at
+                + text[at..]
+                    .bytes()
+                    .take_while(|byte| *byte == b' ' || *byte == b'\t')
+                    .count();
+            let cells = cluster_width(cluster);
+            if used.saturating_add(cells) > cols {
+                return (row(index, used), next);
+            }
+            last_break = Some((index, next, used));
+            used = used.saturating_add(cells);
+            continue;
+        }
+        let cells = cluster_width(cluster);
+        if used.saturating_add(cells) > cols {
+            if let Some((end, next, width)) = last_break {
+                if end > start {
+                    return (row(end, width), next);
+                }
+            }
+            if index == start {
+                return (row(end, cells), end);
+            }
+            return (row(index, used), index);
+        }
+        used = used.saturating_add(cells);
+        if cluster == "/" || cluster == "\\" {
+            last_break = Some((end, end, used));
+        }
+    }
+    (row(text.len(), used), text.len())
+}
+
 /// Which row a byte offset is on, and how many cells are to the left of it
 /// there.
 ///
@@ -382,6 +468,91 @@ mod tests {
 
     fn texts<'a>(text: &'a str, rows: &[Row]) -> Vec<&'a str> {
         rows.iter().map(|row| &text[row.start..row.end]).collect()
+    }
+
+    #[test]
+    fn a_notice_path_breaks_after_its_last_separator_that_fits() {
+        // `fx-trace-40x120-copy-fail.txt` rows 15-16: fx's notice breaks the
+        // saved path after `fxtmp/` rather than moving it down whole, at 118
+        // columns behind the glyph's two.
+        let text = "Clipboard copy failed. Trace saved at \
+                    /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                    fx-trace-2026-10-06-213606-c51761bbc7ce.md. \
+                    Review and redact it before sharing.";
+        assert_eq!(
+            texts(text, &wrap_notice(text, 118)),
+            [
+                "Clipboard copy failed. Trace saved at /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                "fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
+            ]
+        );
+        // The prose wrap moves the path down whole, and hangs the space.
+        assert_eq!(
+            texts(text, &wrap(text, 118))[0],
+            "Clipboard copy failed. Trace saved at "
+        );
+        // A backslash is a separator too.
+        assert_eq!(
+            texts(
+                "see C:\\Users\\me\\file",
+                &wrap_notice("see C:\\Users\\me\\file", 14)
+            ),
+            ["see C:\\Users\\", "me\\file"]
+        );
+    }
+
+    #[test]
+    fn a_notice_break_at_a_space_drops_the_spaces_from_both_rows() {
+        // `scanNoticeLine` (`transcript_blocks.zig:1674-1690`): the row ends
+        // before the run and the next begins after it.
+        let text = "alpha beta gamma";
+        let rows = wrap_notice(text, 7);
+        assert_eq!(texts(text, &rows), ["alpha", "beta", "gamma"]);
+        assert_eq!(
+            rows.iter().map(|row| row.width).collect::<Vec<_>>(),
+            [5, 4, 5]
+        );
+        // Upstream's own quirk, kept: each space is asked `width + 1 >
+        // max_width` in turn, so of a run of two the first, which still fits,
+        // stays on the row the second ends.
+        assert_eq!(
+            texts("alpha  beta", &wrap_notice("alpha  beta", 6)),
+            ["alpha ", "beta"]
+        );
+        // A space that would itself cross the margin ends the row there.
+        assert_eq!(
+            texts("abcdef ghi", &wrap_notice("abcdef ghi", 6)),
+            ["abcdef", "ghi"]
+        );
+    }
+
+    #[test]
+    fn a_notice_word_longer_than_a_row_breaks_where_it_crosses_and_nothing_is_lost() {
+        assert_eq!(
+            texts("abcdefghij", &wrap_notice("abcdefghij", 4)),
+            ["abcd", "efgh", "ij"]
+        );
+        // A wide glyph never straddles the margin, and one wider than the row
+        // is a row of its own.
+        assert_eq!(
+            texts("ab\u{4e2d}", &wrap_notice("ab\u{4e2d}", 3)),
+            ["ab", "\u{4e2d}"]
+        );
+        assert_eq!(
+            texts("\u{4e2d}a", &wrap_notice("\u{4e2d}a", 1)),
+            ["\u{4e2d}", "a"]
+        );
+        // Nothing is one empty row, as for prose.
+        assert_eq!(
+            wrap_notice("", 10),
+            [Row {
+                start: 0,
+                end: 0,
+                width: 0
+            }]
+        );
+        // A short text is one row, its trailing spaces kept when they fit.
+        assert_eq!(texts("ok ", &wrap_notice("ok ", 10)), ["ok "]);
     }
 
     #[test]
