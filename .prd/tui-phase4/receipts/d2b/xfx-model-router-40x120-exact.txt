@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3c32971 [debug] · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)
+
+* Switched to nonexistent-xyz (effort: default, speed: normal)
+
+✗ usage: /model <id> <effort> [normal|fast|ultrafast]
+
+* Switched to xai/grok-4.7 (effort: default, speed: normal)
+
+┃
+
+auto · grok-4.7
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

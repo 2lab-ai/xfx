@@ -61,6 +61,12 @@ pub const BACKEND_KEY: &str = "backend";
 /// shown, upstream's spelling (`config_runtime.zig:1807-1826`, `c1db919`).
 pub const STATUS_LINE_KEY: &str = "statusLine";
 
+/// The session's reasoning effort, upstream's key (`config_runtime.zig:1798-1805`,
+/// `c1db919`): `"auto"` or a level the catalog names. Profile-only, as
+/// upstream's is (`isProfileOnlySettingKey`, `:834-861`): how hard a person
+/// wants their model to think is theirs, not a repository's.
+pub const EFFORT_KEY: &str = "effort";
+
 /// The environment override for the model.
 ///
 /// Public so `xfx setup llmux` can *name* it: setup writes the profile, and an
@@ -101,6 +107,7 @@ pub const ENV_XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
 const PROFILE_ONLY_KEYS: &[&str] = &[
     "backend",
     "credential_source",
+    EFFORT_KEY,
     "llmux_url",
     "model",
     "models",
@@ -711,6 +718,11 @@ pub struct RuntimeConfig {
     pub models: BTreeMap<String, String>,
     /// Which of the footer's optional segments the profile turned on.
     pub statusline: StatusLine,
+    /// The reasoning effort a session starts in ([`EFFORT_KEY`]), the default
+    /// when the profile names none. Whether a given model *takes* it is the
+    /// catalog's question, asked per request
+    /// (`crate::provider::effort::Effort::for_request`).
+    pub effort: crate::provider::effort::Effort,
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
@@ -1021,6 +1033,7 @@ impl RuntimeConfig {
                 session: settings.statusline_session.unwrap_or(false),
                 workspace: settings.statusline_workspace.unwrap_or(false),
             },
+            effort: settings.effort.unwrap_or_default(),
             sources,
             diagnostics,
             credential: resolve_credential(env),
@@ -1076,6 +1089,8 @@ struct Settings {
     statusline_context: Option<bool>,
     statusline_session: Option<bool>,
     statusline_workspace: Option<bool>,
+    /// `effort`, when a layer wrote a readable one.
+    effort: Option<crate::provider::effort::Effort>,
 }
 
 impl Settings {
@@ -1099,6 +1114,9 @@ impl Settings {
         }
         if let Some(on) = incoming.statusline_workspace {
             self.statusline_workspace = Some(on);
+        }
+        if let Some(effort) = incoming.effort {
+            self.effort = Some(effort);
         }
         if let Some(mode) = incoming.permission_mode {
             self.permission_mode = Some(mode);
@@ -1228,6 +1246,24 @@ fn parse_layer(
         }
         if let Some(value) = object.get(STATUS_LINE_KEY) {
             parse_statusline(value, layer, &mut settings, diagnostics);
+        }
+        // Upstream's reading (`config_runtime.zig:1798-1805`): a string it can
+        // parse, or `null` for the default. Anything else is a diagnostic and
+        // the effort an earlier layer chose stands.
+        if let Some(value) = object.get(EFFORT_KEY) {
+            let effort = match value {
+                Value::Null => Some(crate::provider::effort::Effort::Auto),
+                Value::String(raw) => crate::provider::effort::Effort::parse(raw),
+                _ => None,
+            };
+            match effort {
+                Some(effort) => settings.effort = Some(effort),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    EFFORT_KEY,
+                )),
+            }
         }
         if let Some(value) = object.get(NOTIFICATIONS_KEY) {
             parse_notifications(value, &mut settings, layer, diagnostics);
@@ -1775,6 +1811,7 @@ mod tests {
             statusline_context: Some(true),
             statusline_session: None,
             statusline_workspace: None,
+            effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
         };
         let mut sources = Sources::default();
         settings.merge(
@@ -1798,6 +1835,10 @@ mod tests {
             "a layer that says nothing about the backend leaves its url alone"
         );
         assert_eq!(settings.statusline_context, Some(true));
+        assert_eq!(
+            settings.effort,
+            Some(crate::provider::effort::Effort::Named("low".to_string()))
+        );
         assert_eq!(sources.max_agent_steps, SettingSource::UserGlobal);
         assert_eq!(sources.model, SettingSource::CompiledDefault);
         assert_eq!(sources.provider, SettingSource::CompiledDefault);
@@ -2336,6 +2377,59 @@ mod tests {
                 ConfigLayer::Project,
                 DiagnosticCause::IgnoredProjectProfileSetting,
                 "statusLine"
+            )]
+        );
+    }
+
+    #[test]
+    fn the_effort_is_the_profiles_and_the_default_unless_it_names_one() {
+        use crate::provider::effort::Effort;
+        let (_root, config) = loaded_with_profile("{}");
+        assert_eq!(config.effort, Effort::Auto);
+        let (_root, config) = loaded_with_profile(r#"{"effort":"xhigh"}"#);
+        assert_eq!(config.effort, Effort::Named("xhigh".to_string()));
+        // `null` and any spelling of the default are the default
+        // (`config_runtime.zig:1798-1805`).
+        for profile in [r#"{"effort":null}"#, r#"{"effort":"auto"}"#] {
+            let (_root, config) = loaded_with_profile(profile);
+            assert_eq!(config.effort, Effort::Auto, "{profile}");
+        }
+        // A value upstream would not parse is reported and does not become an
+        // effort anybody asked for.
+        for profile in [r#"{"effort":7}"#, r#"{"effort":"very high"}"#] {
+            let (_root, config) = loaded_with_profile(profile);
+            assert_eq!(config.effort, Effort::Auto, "{profile}");
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.detail()
+                        == "user config diagnostic: invalid_value key=effort"),
+                "{profile}: {:?}",
+                config.diagnostics
+            );
+        }
+    }
+
+    #[test]
+    fn a_project_file_cannot_choose_how_hard_a_users_model_thinks() {
+        let object = serde_json::from_str::<Value>(r#"{"effort":"max"}"#).unwrap();
+        let object = object.as_object().unwrap();
+        let mut diagnostics = Vec::new();
+        report_ignored_profile_keys(object, &mut diagnostics);
+        let settings = parse_layer(
+            object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        assert_eq!(settings.effort, None);
+        assert_eq!(
+            diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::Project,
+                DiagnosticCause::IgnoredProjectProfileSetting,
+                EFFORT_KEY
             )]
         );
     }

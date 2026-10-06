@@ -1,0 +1,35 @@
+=== ~/.fx/backups/settings.json.backup.1791318446539-0000000000000001-48af42d70c2cc34cfe264475c9c2e9f8 (59 bytes)
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+=== ~/.fx/continue/48e0e01a8a3824bcdbfba854c285c2fdb573a1d37b1886fee461e5d68a4ac058 (13 bytes)
+azRsEiVDbwl0
+
+=== ~/.fx/history.jsonl (266 bytes)
+{"schema_version":1,"timestamp_ms":1791318444412,"workspace_root":"<scratch>/work","text":"say something"}
+{"schema_version":1,"timestamp_ms":1791318446538,"workspace_root":"<scratch>/work","text":"/model grok"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/azRsEiVDbwl0/events.jsonl (1024 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791318450851,"event":{"user":{"text":"say something","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791318450851,"event":{"assistant":{"text":"MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32 word33 word34 word35 word36 word37 word38 word39 word40 word41 word42 word43 word44 word45 word46 word47 word48 word49 word50 word51 word52 word53 word54 word55 word56 word57 word58 word59 MARKER-TAIL","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791318450851,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791318444413,"completed_at_ms":1791318450845,"thinking_duration_ms":2,"turn_duration_ms":6432,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/azRsEiVDbwl0/owner.live (43 bytes)
+{"pid":12751,"opened_at_ms":1791318441899}
+
+=== ~/.fx/sessions/azRsEiVDbwl0/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/azRsEiVDbwl0/session.json (365 bytes)
+{"schema_version":4,"id":"azRsEiVDbwl0","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791318441899,"updated_at_ms":1791318450851,"conversation_language":"und-Latn","provider":"gateway","model":"xai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/azRsEiVDbwl0/session.lock (0 bytes)
+=== ~/.fx/sessions/azRsEiVDbwl0/usage-v2.json (540 bytes)
+{"schema_version":1,"session_id":"azRsEiVDbwl0","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":2,"settled_through_sequence":1,"api_duration_ms":6430,"wall_duration_ms":8946,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (129 bytes)
+{"models":{"gateway":"xai/grok-4.7"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/settings.lock (0 bytes)
+=== ~/.fx/usage.jsonl (167 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791318450845}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791318450845,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

@@ -1,0 +1,9 @@
+=== ~/.xfx/settings.json (77 bytes)
+{
+  "models": {
+    "gateway": "xai/grok-4.7"
+  },
+  "provider": "gateway"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

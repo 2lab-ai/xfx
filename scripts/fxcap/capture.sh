@@ -175,7 +175,7 @@ FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
 $fx_model $extra_env $bin"
   else
-    launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
+    launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
 $xfx_model $extra_env $bin"
   fi
   # Every bell the pane rings, one line each, for `bells`. The hook is set on a

@@ -1,0 +1,27 @@
+# /model while a turn streams, in a session that has already read the catalog
+# (the menu opened and closed first): both binaries can say which model the
+# next turn will use the moment it is asked, and neither refuses it.
+models models.json
+gateway slow-line-turn.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Enter
+wait 0.8
+key Escape
+wait 0.4
+type say something
+key Enter
+wait 1.2
+type /model grok
+wait 0.5
+key Escape
+wait 0.4
+key Enter
+wait 0.8
+snap during
+wait 7
+snap after
+home end

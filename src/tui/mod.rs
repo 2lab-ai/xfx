@@ -713,6 +713,7 @@ mod history;
 mod hydration;
 mod input;
 mod layout;
+mod model_column;
 mod model_menu;
 mod notice;
 mod pacer;
