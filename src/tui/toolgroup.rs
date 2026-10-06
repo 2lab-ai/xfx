@@ -334,15 +334,40 @@ impl ToolGroup {
     /// activity row under it, and between the group and whatever closes it.
     fn rows(&self, palette: Palette) -> Vec<String> {
         let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
+        let mut rows = self.header_and_calls(palette, palette.statusline());
+        if rows.is_empty() {
+            return rows;
+        }
+        rows.push(String::new());
+        for call in shown.iter().filter(|call| call.state == State::Cancelled) {
+            rows.push(cancelled_line(call, palette));
+            rows.push(String::new());
+        }
+        rows
+    }
+
+    /// The header and one row per call that has one, as the full transcript
+    /// shows them (`super::full_transcript`): the calls in the default
+    /// foreground with only a command's words coloured, where the inline block
+    /// writes them in the statusline grey (`fx-fulltranscript-40x120-full.ansi`
+    /// against `-end.ansi`), and nothing under them -- the blank row and a
+    /// cancelled call's own line are the inline block's.
+    pub(crate) fn expanded(&self, palette: Palette) -> Vec<String> {
+        self.header_and_calls(palette, "")
+    }
+
+    /// The header, then each visible call's row with `text` around it.
+    fn header_and_calls(&self, palette: Palette, text: &str) -> Vec<String> {
+        let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
         let Some(last) = shown.len().checked_sub(1) else {
             return Vec::new();
         };
-        let text = palette.statusline();
         let reset = palette.reset();
         let mut rows = Vec::with_capacity(shown.len() + 2);
         rows.push(format!(
-            "{}\u{25cf}{reset} {text}{}{reset}",
+            "{}\u{25cf}{reset} {}{}{reset}",
             palette.hint(),
+            palette.statusline(),
             summary(&shown)
         ));
         for (index, call) in shown.iter().enumerate() {
@@ -355,11 +380,6 @@ impl ToolGroup {
                 "{text}{connector} {}{reset}",
                 call.painted(text, palette)
             ));
-        }
-        rows.push(String::new());
-        for call in shown.iter().filter(|call| call.state == State::Cancelled) {
-            rows.push(cancelled_line(call, palette));
-            rows.push(String::new());
         }
         rows
     }

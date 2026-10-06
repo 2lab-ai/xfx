@@ -1070,7 +1070,7 @@ fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
 /// makes is the row the painter puts on the screen rather than one it cuts
 /// again. A cut inside a run of colour leaves it open, so the row is closed
 /// after the ellipsis, as upstream closes it.
-fn ellipsized(row: &str, cols: u16) -> String {
+pub(crate) fn ellipsized(row: &str, cols: u16) -> String {
     if wrap::width(row) <= cols {
         return row.to_string();
     }

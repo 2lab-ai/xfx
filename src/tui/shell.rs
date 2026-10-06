@@ -83,6 +83,7 @@ use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
+use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
@@ -833,6 +834,15 @@ pub(crate) struct Shell {
     /// is the only place a byte reaching the terminal or a repaint landing is
     /// known; held here because `/stats` is answered here.
     pub(crate) metrics: Metrics,
+    /// The conversation as the document was given it, and the screen `C-o`
+    /// shows it on while that screen is up ([`super::full_transcript`]).
+    ///
+    /// Told about each write as it is made -- the card, the released answer,
+    /// a notice, a call's row, the summary ([`Self::record`]) -- so it is in
+    /// the document's order; told what the document never gets -- a call's
+    /// arguments and its whole result -- by the runtime's journal
+    /// ([`UiEvent::ToolDetail`]).
+    full: FullTranscript,
 }
 
 /// What `/stats` reports: the terminal writer's counters.
@@ -905,7 +915,15 @@ pub(crate) enum ScreenOwner {
     /// The main TUI surface never gives this up.
     #[default]
     Primary,
-    /// A question with a change too large for the band to show.
+    /// The alternate buffer: a question with a change too large for the band
+    /// to show, or the full transcript (`C-o`, [`super::full_transcript`]).
+    ///
+    /// Named for its first occupant. Both are the same plane to everything
+    /// that reads this -- the loop that takes and gives it back, the exit, the
+    /// panic hook -- and which of the two is on it is the shell's own
+    /// business ([`Shell::screen_rows`]), so the second occupant shares the
+    /// variant rather than adding a state every one of those readers would
+    /// have to be taught means the same plane.
     Approval,
 }
 
@@ -935,7 +953,7 @@ enum Trailed {
 
 /// Queues one whole line onto `transcript`, on rows of its own -- the
 /// transcript half of [`Shell::write_document_line`].
-fn queue_line(transcript: &mut Transcript, line: &str, role: Role) {
+pub(crate) fn queue_line(transcript: &mut Transcript, line: &str, role: Role) {
     if transcript.open_line() {
         transcript.queue_end_line();
     }
@@ -946,7 +964,7 @@ fn queue_line(transcript: &mut Transcript, line: &str, role: Role) {
 /// Queues one notice onto `transcript` as upstream renders one -- the
 /// transcript half of [`Shell::write_notice`], whose documentation says what
 /// the shape is -- and says whether the document is owed a frame for it.
-fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice) -> bool {
+pub(crate) fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice) -> bool {
     let mut owed = false;
     // The gutter in force is the one the row above is written with.
     owed |= transcript.queue_gutter(Gutter::None);
@@ -1262,6 +1280,7 @@ impl Shell {
             leaving: None,
             copies: Copies::new(clipboard),
             metrics: Metrics::default(),
+            full: FullTranscript::default(),
         }
     }
 
@@ -1721,6 +1740,7 @@ impl Shell {
     /// Writes upstream's welcome line as the session's first document row, with
     /// a blank row under it (`render.zig:181-193`, `c1db919`).
     pub(crate) fn welcome(&mut self) {
+        self.full.welcome();
         let line = welcome_line(self.palette);
         self.write_transcript_as(&line, Role::Plain);
         self.end_transcript_line();
@@ -1828,6 +1848,7 @@ impl Shell {
         if self.draining.is_some() && self.drained(&event) {
             return;
         }
+        self.full_transcript_sees(&event);
         match event {
             // A turn is running, which is what the row above the divider is
             // about. The clock is not read here: the *label* is this event's
@@ -1904,6 +1925,10 @@ impl Shell {
                 ));
             }
             UiEvent::Notice(notice) => self.announce(notice),
+            // The full transcript's alone, and taken above
+            // ([`Self::full_transcript_sees`]): nothing of it is written into
+            // the document.
+            UiEvent::ToolDetail { .. } => {}
             // The switch is **done** by the time this arrives: the file is
             // written, the configuration has been re-read from it, and the
             // runtime has swapped. So every field here is adopted rather than
@@ -2261,21 +2286,35 @@ impl Shell {
 
     /// The alternate plane's rows, top first: as many as the screen has.
     ///
-    /// Empty when no question owns that plane, so a caller that asked at the
-    /// wrong moment paints nothing rather than painting a screen out of a
-    /// question that has been answered.
+    /// The question's when one owns that plane, the full transcript's while it
+    /// is up ([`super::full_transcript`]) -- never both, since a question
+    /// closes the transcript -- and empty when neither does, so a caller that
+    /// asked at the wrong moment paints nothing rather than painting a screen
+    /// out of a question that has been answered.
     pub(crate) fn screen_rows(&self) -> Vec<String> {
-        self.alternate
-            .as_ref()
-            .map(|screen| screen.painted(self.geometry.cols, self.geometry.rows, &self.palette))
-            .unwrap_or_default()
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+        if let Some(screen) = self.alternate.as_ref() {
+            return screen.painted(cols, rows, &self.palette);
+        }
+        if self.full.is_open() {
+            // The hint row the band would paint, as upstream's screen keeps
+            // its statusline under the footer (`paint_plan.zig:1034-1045`).
+            let status = self.painted(self.palette.statusline(), self.hint_row());
+            return self.full.rows(cols, rows, self.palette, &status);
+        }
+        Vec::new()
     }
 
-    /// Where the caret goes on that plane: the marked choice.
+    /// Where the caret goes on that plane: the marked choice, or the full
+    /// transcript's footer.
     pub(crate) fn screen_cursor(&self) -> (u16, u16) {
-        self.alternate.as_ref().map_or((1, 0), |screen| {
-            screen.caret(self.geometry.cols, self.geometry.rows)
-        })
+        if let Some(screen) = self.alternate.as_ref() {
+            return screen.caret(self.geometry.cols, self.geometry.rows);
+        }
+        if self.full.is_open() {
+            return self.full.caret(self.geometry.rows);
+        }
+        (1, 0)
     }
 
     /// Gives the plane back without answering the question on it.
@@ -2289,7 +2328,113 @@ impl Shell {
         self.alternate = None;
         self.asked_id = None;
         self.invalidate_approval();
+        self.full.close();
         self.owner = ScreenOwner::Primary;
+    }
+
+    // -----------------------------------------------------------------------
+    // the full transcript
+    // -----------------------------------------------------------------------
+
+    /// Opens the full transcript on the alternate plane, at its tail.
+    ///
+    /// Refused while that plane is anyone else's (`transitionScreen`,
+    /// `input_full_transcript_runtime.zig:83-99`: an owned alternate screen or
+    /// an active approval). Ctrl-O at a question never reaches here anyway --
+    /// the question has the keys (`Self::consume`) -- so this is the rule
+    /// written where the next edit reads it rather than a branch a test can
+    /// drive.
+    fn open_full_transcript(&mut self) {
+        if self.owner != ScreenOwner::Primary || self.modal() {
+            return;
+        }
+        self.full.open();
+        // The alternate plane, through the machinery the large-change review
+        // uses: the loop pays what the primary plane owes, takes the plane in
+        // the same write, and gives it back whole (`super::event_loop`'s
+        // `paint_alternate`).
+        self.owner = ScreenOwner::Approval;
+        self.render.request(Reason::Modal);
+    }
+
+    /// Closes it, giving the plane back unless a question has taken it over.
+    fn close_full_transcript(&mut self) {
+        if !self.full.is_open() {
+            return;
+        }
+        self.full.close();
+        if self.alternate.is_none() {
+            self.owner = ScreenOwner::Primary;
+        }
+        self.render.request(Reason::Modal);
+    }
+
+    /// One keystroke while the full transcript is up
+    /// (`input_full_transcript_runtime.zig:147-198`).
+    fn view_full_transcript(&mut self, event: Input) {
+        let Input::Action(action) = event else {
+            // Text and pasted bytes: there is no composer on this screen.
+            return;
+        };
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+        match self.full.key(action, cols, rows, self.palette) {
+            full_transcript::Reply::Close => self.close_full_transcript(),
+            full_transcript::Reply::Moved => self.render.request(Reason::Modal),
+            full_transcript::Reply::Nothing => {}
+        }
+    }
+
+    /// What the full transcript keeps of an event the document is not shown,
+    /// before the event is applied.
+    ///
+    /// A question closes the screen first, so that [`Self::ask`] decides the
+    /// plane on its own terms: a change too large for the band takes the
+    /// alternate plane over from the transcript in one repaint, anything else
+    /// gives it back -- upstream hands off or closes the same way
+    /// (`transitionFullTranscriptForApproval`, `app_lifecycle.zig:1298-1316`).
+    fn full_transcript_sees(&mut self, event: &UiEvent) {
+        self.full.observe(event);
+        if matches!(event, UiEvent::Approval(_) | UiEvent::Question(_)) {
+            self.close_full_transcript();
+        }
+        // The screen shows what was just recorded, at the next frame.
+        if self.full.is_open() {
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Tells the full transcript what a document write is about to say, in
+    /// the document's order.
+    ///
+    /// Notices and the answer's text are told where they are written
+    /// ([`Self::write_notice`], [`Self::write_answer`]), because both reach
+    /// the document by roads other than a mark as well.
+    fn record(&mut self, mark: &Mark) {
+        match mark {
+            Mark::Card(text) => self.full.prompt(text),
+            Mark::Summary(line) => self.full.usage(line),
+            // The one line said this way is what the user said at an
+            // approval, which upstream's screen heads as a prompt.
+            Mark::Line(line, role) => {
+                let kind = if line.starts_with(AMENDMENT_PREFIX) {
+                    full_transcript::Kind::Prompt
+                } else {
+                    full_transcript::Kind::Notice
+                };
+                self.full.line(line, *role, kind);
+            }
+            Mark::Block(rows) => self.full.block(rows),
+            Mark::ToolStart { id, shown } => self.full.tool_started(id, shown),
+            Mark::ToolResult {
+                id,
+                ok,
+                detail,
+                outcome,
+                changes,
+            } => self.full.tool_finished(id, *ok, detail, *outcome, *changes),
+            Mark::TurnOver => self.full.turn_over(),
+            Mark::Notice(_) | Mark::EndOfLine => {}
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -3405,6 +3550,7 @@ impl Shell {
 
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
+        self.record(&mark);
         // Anything that is not the answer ends the answer's block.
         self.close_answer();
         match mark {
@@ -3503,6 +3649,7 @@ impl Shell {
     /// it is shown as upstream shows a call the user stopped: `Cancelled`,
     /// counted, with its own line under the group.
     fn settle_group(&mut self) {
+        self.full.settle();
         let stopped = self.group.cancel_running();
         if !stopped.is_empty() {
             self.redraw_group();
@@ -3560,6 +3707,7 @@ impl Shell {
     /// **Under an open tool group it is one of the group's last rows**
     /// ([`Self::trail_group`]), and the group goes on growing above it.
     fn write_notice(&mut self, notice: &notice::Notice) {
+        self.full.notice(notice);
         if self.group.drawn() {
             self.trail_group(Trailed::Notice(notice.clone()));
             return;
@@ -4052,6 +4200,15 @@ impl Shell {
                 self.retint(mode);
                 continue;
             }
+            // The full transcript, while it is up, has every key: the ones it
+            // binds move it or close it, and the rest are swallowed rather
+            // than typed into a composer nobody can see. It cannot be up with
+            // a question -- a question closes it ([`Self::full_transcript_sees`])
+            // and it does not open over one ([`Self::open_full_transcript`]).
+            if self.full.is_open() {
+                self.view_full_transcript(event);
+                continue;
+            }
             // Whatever is in front of the user has the focus while it is up,
             // and this is the whole of what that means: nothing below runs, so
             // a `1` cannot be typed into the composer and a Ctrl-D cannot leave
@@ -4370,7 +4527,11 @@ impl Shell {
                     self.amended(delta);
                 }
             }
-            Action::Tab | Action::BackTab | Action::Ignore => {}
+            // The full transcript (`input_full_transcript_runtime.zig:83-99`).
+            Action::ToggleTranscript => self.open_full_transcript(),
+            // The page keys are the full transcript's, and the composer has no
+            // page of its own.
+            Action::Tab | Action::BackTab | Action::PageUp | Action::PageDown | Action::Ignore => {}
         }
     }
 
@@ -4759,6 +4920,7 @@ impl Shell {
 
     /// Released answer text, through the presenter.
     fn write_answer(&mut self, text: &str) {
+        self.full.answer(text);
         for event in self.markdown.feed(text) {
             self.present(event);
         }
@@ -5232,6 +5394,12 @@ impl Shell {
             self.handoff = Some(u16::from(known && self.transcript.ends_blank()));
         }
         self.transcript = Transcript::new(self.geometry.cols);
+        // The full transcript is the document's record, and the document
+        // starts again: the old one is in scrollback, not on this screen
+        // (upstream's projection is of the session's entries, which the reset
+        // replaces). The welcome below is its first row again.
+        self.close_full_transcript();
+        self.full = FullTranscript::default();
         self.welcome();
         // What the runtime still sends about the old conversation is dropped
         // until it says the conversation is gone.
@@ -5251,6 +5419,7 @@ impl Shell {
             | UiEvent::Delta(_)
             | UiEvent::ToolStart { .. }
             | UiEvent::ToolResult { .. }
+            | UiEvent::ToolDetail { .. }
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Usage { .. } => true,
@@ -16519,5 +16688,306 @@ mod tests {
             painted_rows(&mut shell),
             vec!["  first half second half".to_string(), String::new()]
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the full transcript (`C-o`)
+    // -----------------------------------------------------------------------
+
+    /// The full transcript's screen with every colour off, top first.
+    fn full_screen(shell: &Fixture) -> Vec<String> {
+        shell
+            .screen_rows()
+            .iter()
+            .map(|row| colourless(row))
+            .collect()
+    }
+
+    /// A finished turn that ran one command, whose output only the journal
+    /// carries, and a short answer after it.
+    fn a_turn_that_ran_a_command(shell: &mut Fixture) {
+        shell.route_bytes(b"run the loop\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        let input = serde_json::json!({"action": "exec", "command": "echo boom; exit 3"});
+        shell.apply(UiEvent::ToolDetail {
+            call_id: "c1".into(),
+            detail: full_transcript::Detail::Arguments(vec![
+                full_transcript::Argument {
+                    name: "action".into(),
+                    value: "exec".into(),
+                    text: true,
+                },
+                full_transcript::Argument {
+                    name: "command".into(),
+                    value: "echo boom; exit 3".into(),
+                    text: true,
+                },
+            ]),
+        });
+        shell.apply(tool_start("c1", "terminal", input));
+        shell.apply(tool_ended(
+            "c1",
+            "terminal",
+            true,
+            "echo boom; exit 3 (exit 3)",
+            CallOutcome::Exited(3),
+        ));
+        shell.apply(UiEvent::ToolDetail {
+            call_id: "c1".into(),
+            detail: full_transcript::Detail::Command {
+                output: "boom".into(),
+                status: Some("exit code 3".into()),
+            },
+        });
+        shell.apply(UiEvent::Delta("All done.\n".into()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+    }
+
+    #[test]
+    fn ctrl_o_opens_the_full_transcript_on_the_other_plane_and_each_closing_key_gives_it_back() {
+        // `input_full_transcript_runtime.zig:177-198`: Ctrl-O toggles, and
+        // Escape and Ctrl-C close (upstream's e2e
+        // `tui-full-transcript-brutal.test.ts:791`).
+        for (close, settle) in [
+            (&b"\x0f"[..], false),
+            (b"\x1b", true),
+            (b"\x03", false),
+            (b"\x1b[111;5u", false),
+        ] {
+            let mut shell = shell(40, 120);
+            a_turn_that_ran_a_command(&mut shell);
+            let _ = shell.written();
+            shell.route_bytes(b"\x0f");
+            assert_eq!(shell.screen_owner(), ScreenOwner::Approval, "{close:?}");
+            let screen = full_screen(&shell);
+            assert_eq!(screen.len(), 40);
+            assert_eq!(screen[37], format!("\u{2503} {}", full_transcript::FOOTER));
+            // The band's own hint row, under the footer
+            // (`paint_plan.zig:1034-1045`).
+            let hint = colourless(shell.band_rows().last().expect("a hint row"));
+            assert_eq!(screen[39], hint);
+            assert_eq!(shell.screen_cursor(), (39, 0));
+
+            shell.route_bytes(close);
+            if settle {
+                shell.settle_input(Instant::now() + Duration::from_millis(100));
+            }
+            assert_eq!(
+                shell.screen_owner(),
+                ScreenOwner::Primary,
+                "{close:?} kept the screen"
+            );
+            assert!(shell.screen_rows().is_empty());
+            // A Ctrl-C that closes the screen is not an interrupt.
+            assert_eq!(shell.controlled(), None, "{close:?} reached the runtime");
+        }
+    }
+
+    #[test]
+    fn the_full_transcript_shows_what_a_command_printed_and_the_document_does_not() {
+        // `fx-tools-single-40x120-full` rows 18-24 against `full-esc`: the
+        // output is the full screen's alone (upstream's e2e
+        // `tui-command-permissions.test.ts:1118`).
+        let mut shell = shell(40, 120);
+        a_turn_that_ran_a_command(&mut shell);
+        let document = shell.written();
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("boom\u{0}") || row == "\u{2502} boom"),
+            "the inline transcript showed the command's output: {document:?}"
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let at = screen
+            .iter()
+            .position(|row| row == "\u{2514} Exited 3 echo boom; exit 3")
+            .unwrap_or_else(|| panic!("no row for the call: {screen:?}"));
+        assert!(screen[at - 1] == "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 failed");
+        assert!(screen[at - 2].ends_with(" UTC \u{b7} Tool"), "{screen:?}");
+        // The command is on the row and `exec` is the only action there is,
+        // so neither argument is listed again.
+        assert_eq!(
+            &screen[at + 1..at + 4],
+            ["\u{2502} boom", "\u{2502} exit code 3", ""]
+        );
+        let prompt = screen
+            .iter()
+            .position(|row| row == "\u{2503} run the loop")
+            .expect("the prompt");
+        assert!(screen[prompt - 1].ends_with(" UTC \u{b7} Prompt"));
+        let answer = screen
+            .iter()
+            .position(|row| row == "  All done.")
+            .expect("the answer");
+        assert!(screen[answer - 1].ends_with(" UTC \u{b7} Response"));
+        assert!(prompt < at && at < answer);
+        assert!(screen.iter().any(|row| row.ends_with(" UTC \u{b7} Usage")));
+    }
+
+    #[test]
+    fn the_full_transcripts_rows_for_a_card_a_notice_and_an_answer_are_the_documents_own() {
+        // The full transcript lays its entries out with its own transcript
+        // (`super::full_transcript`'s `card`, `notice_rows`, `answer`); this
+        // is what keeps those from drifting from what the document wrote.
+        let mut shell = shell(40, 80);
+        shell.route_bytes(b"a prompt\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Notice(notice::Notice::warning(
+            "session",
+            "two lines\nof it",
+        )));
+        shell.apply(UiEvent::Delta(
+            "Some **bold** prose.\n\n```rust\nfn main() {}\n```\n".into(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let document: Vec<String> = shell.written();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        // Every row of the record but its headers is a row the document has,
+        // in the same order.
+        let record: Vec<&String> = screen[..36]
+            .iter()
+            .filter(|row| !row.ends_with(" UTC \u{b7} Prompt"))
+            .filter(|row| !row.contains(" UTC \u{b7} "))
+            .filter(|row| !row.is_empty())
+            .collect();
+        let written: Vec<&String> = document
+            .iter()
+            .filter(|row| !row.is_empty())
+            .filter(|row| !row.starts_with("x\u{1d487}x"))
+            .collect();
+        assert_eq!(record, written);
+    }
+
+    #[test]
+    fn the_page_and_arrow_keys_move_the_screen_and_nothing_else_reaches_the_composer() {
+        let mut shell = shell(24, 80);
+        for index in 0..20 {
+            shell.apply(UiEvent::Notice(notice::Notice::neutral(
+                "n",
+                format!("{index}"),
+            )));
+        }
+        let _ = shell.written();
+        shell.route_bytes(b"draft");
+        shell.route_bytes(b"\x0f");
+        let tail = full_screen(&shell);
+        assert_eq!(tail[19], "* n: 19");
+        shell.route_bytes(b"\x1b[5~");
+        let paged = full_screen(&shell);
+        assert_ne!(paged, tail, "PgUp did not move the screen");
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(full_screen(&shell), tail, "PgDn did not come back");
+        shell.route_bytes(b"\x1b[A");
+        assert_ne!(full_screen(&shell), tail, "Up did not move the screen");
+        shell.route_bytes(b"\x1b[F");
+        assert_eq!(full_screen(&shell), tail, "End did not go to the tail");
+        shell.route_bytes(b"\x1b[H");
+        assert!(
+            full_screen(&shell)[0].ends_with(" UTC \u{b7} Notice"),
+            "Home"
+        );
+
+        // Text, Enter, Backspace and a paste: nothing of it is the draft's,
+        // and nothing is sent.
+        shell.route_bytes(b"typed\r\x7f");
+        shell.route_bytes(b"\x1b[200~pasted\x1b[201~");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a key on the screen sent work"
+        );
+        shell.route_bytes(b"\x0f");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert_eq!(
+            shell.editor.text(),
+            "draft",
+            "the draft did not survive the screen"
+        );
+    }
+
+    #[test]
+    fn a_question_closes_the_full_transcript_and_a_large_change_takes_the_plane_over() {
+        // `transitionFullTranscriptForApproval` (`app_lifecycle.zig:1298-1316`):
+        // a question that needs the screen is handed it, any other closes it.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"\x0f");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert!(
+            shell.screen_rows().join("\n").contains("Permission needed"),
+            "the plane did not go to the question"
+        );
+        assert!(!shell.full.is_open());
+
+        let mut shell = self::shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"\x0f");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(shell.band_rows().join("\n").contains("Permission needed"));
+
+        let mut shell = self::shell(24, 80);
+        let _ = turn_running(&mut shell, b"ask me\r");
+        shell.route_bytes(b"\x0f");
+        shell.apply(UiEvent::Question(a_batch()));
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(!shell.full.is_open());
+    }
+
+    #[test]
+    fn ctrl_o_at_a_question_opens_nothing() {
+        // `fx-approvals-cc-40x120-edit-ctrl-o`: the review stays as it was.
+        let mut shell = shell(24, 80);
+        let _ = asking(&mut shell);
+        let before = shell.band_rows();
+        shell.route_bytes(b"\x0f");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(!shell.full.is_open());
+        assert_eq!(shell.band_rows(), before);
+    }
+
+    #[test]
+    fn a_reset_starts_the_full_transcript_again_with_the_document() {
+        // `/clear` = `/new` = `/reset` hands the old document to scrollback and
+        // starts a fresh one under the welcome line (C2); the full transcript
+        // is that document's record, so it starts again too -- and a detail the
+        // runtime still sends about the old conversation is dropped with the
+        // rest of it.
+        for command in RESETS {
+            let mut shell = shell(40, 120);
+            a_turn_that_ran_a_command(&mut shell);
+            shell.route_bytes(command);
+            shell.apply(UiEvent::ToolDetail {
+                call_id: "c1".into(),
+                detail: full_transcript::Detail::Result("late".into()),
+            });
+            shell.route_bytes(b"\x0f");
+            let screen = full_screen(&shell);
+            assert!(screen[0].starts_with("x\u{1d487}x"), "{screen:?}");
+            assert!(
+                screen[1..36].iter().all(String::is_empty),
+                "{} kept the old conversation: {screen:?}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
+    fn the_exit_gives_back_a_plane_the_full_transcript_was_holding() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x0f");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        shell.release_screen();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(!shell.full.is_open());
     }
 }
