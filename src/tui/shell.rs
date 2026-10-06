@@ -78,7 +78,7 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::bridge::{self, ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
@@ -714,6 +714,61 @@ pub(crate) struct Shell {
     fatal: Option<String>,
     /// How the session is ending, once it is.
     leaving: Option<Leaving>,
+    /// What the terminal writer has done this session, for `/stats`.
+    ///
+    /// Counted by the loop that does the writing (`super::event_loop`), which
+    /// is the only place a byte reaching the terminal or a repaint landing is
+    /// known; held here because `/stats` is answered here.
+    pub(crate) metrics: Metrics,
+}
+
+/// What `/stats` reports: the terminal writer's counters.
+///
+/// Upstream's `Metrics` (`vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig:15-21`), less the two it never increments
+/// ([`Metrics::body`]). Each counter is one named event and nothing else, so
+/// the three cannot count the same thing twice.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Metrics {
+    /// Bytes the terminal took, as the kernel counted them
+    /// (`super::deliver::Sink::emit`): every frame, append, clear and query the
+    /// loop wrote, and the delivered prefix of one that failed part way.
+    /// Upstream counts the same thing at its frame sink
+    /// (`src/ui/transcript/io.zig:58,67`).
+    pub(crate) ansi_bytes: u64,
+    /// Whole repaints that **landed** because something other than the band
+    /// wrote on the screen -- a resume, a `/clear`, a Ctrl-L: a frame whose
+    /// attempt was damaged (`super::render_request::Attempt::damaged`) and
+    /// that the terminal took. The launch's first frame is whole too and is not
+    /// one of these, since nothing damaged it; nor is the repaint after a
+    /// resize, which is [`Self::debounced_resizes`]'s. Upstream's own counter
+    /// is reached only from its tests at `c1db919` (`.reanchor_top`,
+    /// `src/ui/resize_runtime.zig:167`), so its `/stats` prints `redraws=0`
+    /// where xfx's can print more.
+    pub(crate) redraws: u64,
+    /// Bursts of `SIGWINCH` answered with one re-solve at a size that really
+    /// changed (`super::render_request::RESIZE_DEBOUNCE`), whether or not a
+    /// band fits on it; a burst that ended where it began costs nothing and
+    /// counts nothing, as upstream's returns before counting
+    /// (`src/ui/resize_runtime.zig:275-283`).
+    pub(crate) debounced_resizes: u64,
+}
+
+impl Metrics {
+    /// The `/stats` body, in upstream's words and order
+    /// (`commandShowStats`, `src/core/app/app_commands.zig:1009-1022`).
+    ///
+    /// `footer_updates` and `stream_chunks` are written as `0` because that is
+    /// what upstream prints for them, always: nothing in it increments either
+    /// (their only assignment outside the formatter is a test fixture,
+    /// `app_input_runtime.zig:7775-7776`). Kept so the line reads the same on
+    /// both, and literal so nobody mistakes them for something xfx measures.
+    pub(crate) fn body(&self) -> String {
+        format!(
+            "ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, stream_chunks=0",
+            self.ansi_bytes, self.redraws, self.debounced_resizes
+        )
+    }
 }
 
 /// Which plane the session is composing frames for.
@@ -987,6 +1042,7 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            metrics: Metrics::default(),
         }
     }
 
@@ -3900,6 +3956,37 @@ impl CommandHandlers for Shell {
 
     fn model(&mut self, argument: &str) {
         self.use_model(argument);
+    }
+
+    /// Upstream's `* stats: ansi_bytes=…, redraws=…, debounced_resizes=…,
+    /// footer_updates=0, stream_chunks=0` (`app_commands.zig:1009-1022`): the
+    /// counters as they stand **before** this notice is written, as upstream's
+    /// are -- its own bytes are counted by the frame that delivers them.
+    fn stats(&mut self) {
+        self.announce(notice::Notice::neutral("stats", self.metrics.body()));
+    }
+
+    /// Upstream's `* status: model=…` with one `key=value` row per fact under
+    /// it (`showStatus`, `session_commands.zig:278-310`), from the snapshot
+    /// the runtime last published ([`super::worker::StatusBoard`]) -- so the
+    /// model is the one the selector holds, the configuration is the one a
+    /// provider switch reloaded, and the turn and grant counts are the live
+    /// conversation's rather than the store's last session. Read, never asked
+    /// for: the runtime may be a minute into a turn.
+    ///
+    /// xfx's own facts stay (`provider`, `provider_url`, `sandbox`); upstream's
+    /// `update_channel` and `ultrafast_requested` are about an updater and an
+    /// Ultra mode xfx does not have, so they are not printed as if it did.
+    ///
+    /// Made inert here rather than at the channel, because this text never
+    /// crosses it: the workspace path and a settings value quoted by
+    /// `provider_rejected` are not xfx's to trust on a terminal.
+    fn status(&mut self) {
+        let body = self.work.status().notice_body();
+        self.announce(notice::Notice::neutral(
+            "status",
+            bridge::inert(&body).into_owned(),
+        ));
     }
 
     /// Upstream's `* version: 0.0.13` (`app_commands.zig:2153-2160`): the
@@ -9225,6 +9312,174 @@ mod tests {
         assert!(
             shell.editor.is_empty(),
             "the refused line stayed in the composer"
+        );
+    }
+
+    /// A snapshot every field of which this file spells, so the case that
+    /// reads it back can say the whole notice literally.
+    fn a_status(history_turns: u64, grants: u64) -> crate::output::StatusSnapshot {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut snapshot = crate::output::StatusSnapshot::new(
+            &config(home.path(), workspace.path()),
+            crate::build_info(),
+            crate::output::SessionFacts::default(),
+        );
+        snapshot.model = "acme/model-9".to_string();
+        snapshot.provider = "gateway".to_string();
+        snapshot.provider_url = None;
+        snapshot.provider_rejected = None;
+        snapshot.build_channel = "debug".to_string();
+        snapshot.build_revision = Some("0123456789ab".to_string());
+        snapshot.auth = "AI_GATEWAY_API_KEY".to_string();
+        snapshot.auth_refreshable = false;
+        snapshot.auth_help = None;
+        snapshot.permission_mode = "auto".to_string();
+        snapshot.workspace = "/w/work".to_string();
+        snapshot.history_turns = history_turns;
+        snapshot.session_permission_grants = grants;
+        snapshot.agent_step_limit = 0;
+        snapshot
+    }
+
+    #[test]
+    fn status_is_one_neutral_notice_of_what_the_runtime_last_published() {
+        // `fx-basic-40x120-status.txt`: `* status: model=…` and one `k=v` row
+        // per fact under it, two columns in, no `[status]` prefix. xfx keeps
+        // its own `provider` and `sandbox` rows and has no `update_channel` or
+        // `ultrafast_requested` to print.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(2, 1));
+        shell.route_bytes(b"/status\r");
+
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* status: model=acme/model-9".to_string(),
+                "  provider=gateway".to_string(),
+                "  build_channel=debug".to_string(),
+                "  build_revision=0123456789ab".to_string(),
+                "  auth=AI_GATEWAY_API_KEY".to_string(),
+                "  auth_refreshable=false".to_string(),
+                "  permission_mode=auto".to_string(),
+                format!("  sandbox={}", crate::output::SANDBOX_LABEL),
+                "  workspace=/w/work".to_string(),
+                "  history_turns=2".to_string(),
+                "  session_permission_grants=1".to_string(),
+                "  agent_step_limit=0".to_string(),
+                String::new(),
+            ]
+        );
+        // Read, never asked for: nothing went to the runtime, so a `/status`
+        // typed mid-turn neither waits behind the turn nor shows as queued.
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/status was handed to the runtime"
+        );
+        assert_eq!(
+            shell.work.outstanding(),
+            0,
+            "/status took a place in the queue"
+        );
+    }
+
+    #[test]
+    fn status_reads_the_live_conversation_each_time_it_is_asked() {
+        // The counts are the conversation the runtime is holding, as it last
+        // said -- not the store's last session, and not what the band was told
+        // at launch.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(0, 0));
+        shell.route_bytes(b"/status\r");
+        let before = shell.document();
+        assert!(
+            before.contains(&"  history_turns=0".to_string()),
+            "{before:?}"
+        );
+
+        shell.work.publish_status(a_status(3, 2));
+        shell.route_bytes(b"/status\r");
+        let after = shell.document();
+        assert!(
+            after.contains(&"  history_turns=3".to_string()),
+            "{after:?}"
+        );
+        assert!(
+            after.contains(&"  session_permission_grants=2".to_string()),
+            "{after:?}"
+        );
+    }
+
+    #[test]
+    fn status_makes_a_quoted_path_inert_before_it_reaches_the_terminal() {
+        // The workspace is a directory name and a rejected provider quotes a
+        // settings value; neither is xfx's text, and this one never crosses
+        // the channel that would have cleaned it.
+        let mut shell = shell(40, 120);
+        let mut snapshot = a_status(0, 0);
+        snapshot.workspace = "/w/\u{1b}]2;owned\u{7}x".to_string();
+        shell.work.publish_status(snapshot);
+        shell.route_bytes(b"/status\r");
+        let document = shell.document();
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains('\u{1b}') || row.contains('\u{7}')),
+            "{document:?}"
+        );
+        assert!(
+            document.contains(&"  workspace=/w/ ]2;owned x".to_string()),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn stats_is_upstreams_five_counters_as_they_stand_before_it_is_written() {
+        // `fx-stats-40x120-after.txt`: one neutral row, upstream's five keys in
+        // upstream's order, the last two always nought.
+        let mut shell = shell(40, 120);
+        shell.metrics = Metrics {
+            ansi_bytes: 1732,
+            redraws: 2,
+            debounced_resizes: 1,
+        };
+        shell.route_bytes(b"/stats\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "stats",
+                "ansi_bytes=1732, redraws=2, debounced_resizes=1, footer_updates=0, \
+                 stream_chunks=0"
+            ))
+        );
+        assert!(shell.sent.try_recv().is_err(), "/stats reached the runtime");
+        // Reporting is not writing: the counters are the loop's to move.
+        assert_eq!(shell.metrics.ansi_bytes, 1732);
+    }
+
+    #[test]
+    fn status_and_stats_take_nothing_after_their_names() {
+        // `fx-stats-40x120-extra.txt`: `/stats extra` is an unknown command,
+        // and neither row accepts a payload upstream (`commands.zig:473,475`).
+        // A trailing space is still the command.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(0, 0));
+        shell.route_bytes(b"/stats extra\r");
+        shell.route_bytes(b"/status now\r");
+        let unknown = notice::Notice::error("command", "Unknown command. Try /help.");
+        assert_eq!(
+            shell.document(),
+            [said(unknown.clone()), said(unknown)].concat()
+        );
+        shell.route_bytes(b"/stats \r");
+        let document = shell.document();
+        assert!(
+            document[0].starts_with("* stats: ansi_bytes="),
+            "{document:?}"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refused command reached the runtime"
         );
     }
 

@@ -219,9 +219,27 @@ impl StatusSnapshot {
 
     /// One `[status] key=value` line per fact, in a fixed order.
     pub fn render_text(&self) -> String {
+        self.lines("[status] ")
+    }
+
+    /// The same facts in the same order, one bare `key=value` row each.
+    ///
+    /// The body of the TUI's `* status:` notice, which is upstream's shape for
+    /// the same report (`StatusSnapshot.renderInteractiveBody`,
+    /// `vercel-labs/fx@c1db9191 src/core/output/output_contracts.zig:554-584`):
+    /// the notice's glyph and topic say what `[status] ` says on a line of its
+    /// own, so the rows carry no prefix. One list with two readers, so the
+    /// command line and the band cannot disagree about which facts there are
+    /// or what order they come in.
+    pub fn notice_body(&self) -> String {
+        self.lines("")
+    }
+
+    /// Every fact as `<prefix>key=value`, one per line.
+    fn lines(&self, prefix: &str) -> String {
         let mut out = String::new();
         let mut line = |key: &str, value: &str| {
-            out.push_str("[status] ");
+            out.push_str(prefix);
             out.push_str(key);
             out.push('=');
             out.push_str(value);

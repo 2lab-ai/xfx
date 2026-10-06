@@ -1,0 +1,41 @@
+gateway status-turn.json
+wait 2
+type /status
+wait 0.5
+key Enter
+wait 1
+snap status
+type /version
+wait 0.5
+key Enter
+wait 1
+snap version
+type /stats
+wait 0.5
+key Enter
+wait 1
+snap stats
+type /stats extra
+wait 0.5
+key Enter
+wait 1
+snap stats-extra
+type /status now
+wait 0.5
+key Enter
+wait 1
+snap status-now
+type say the marker
+key Enter
+wait 4
+snap turn
+type /status
+wait 0.5
+key Enter
+wait 1
+snap status-after-turn
+type /stats
+wait 0.5
+key Enter
+wait 1
+snap stats-after-turn

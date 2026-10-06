@@ -276,19 +276,18 @@ fn slash_help_lists_exactly_the_canonical_commands() {
         "the seventh canonical command is not advertised: {text}"
     );
     // Advertisement is a promise here too: no deferred upstream slash command
-    // may appear. `/setup` left this list when it stopped being deferred;
-    // `/models` and `/provider` did not, because the catalog browser is reached
-    // by a bare `/model` rather than by a command of its own.
+    // may appear. `/setup` left this list when it stopped being deferred, and
+    // `/stats` and `/status` after it; `/models` and `/provider` did not,
+    // because the catalog browser is reached by a bare `/model` rather than by
+    // a command of its own.
     for absent in [
         "/resume",
-        "/status",
         "/login",
         "/permissions",
         "/models",
         "/provider",
         "/mcp",
         "/undo",
-        "/stats",
         "/usage",
         "/image",
     ] {
@@ -307,6 +306,45 @@ fn slash_version_prints_the_same_version_the_command_line_does() {
     session.type_line("/version");
     let text = session.wait_for_count(PROMPT, 2);
     assert!(text.contains(env!("CARGO_PKG_VERSION")), "{text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_status_reports_this_shells_own_model_and_conversation() {
+    // The `status` command's lines, about the model `/model` chose and the
+    // conversation this shell is holding rather than the store's last session.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/status");
+    let text = session.wait_for("agent_step_limit=");
+    assert!(text.contains("[status] history_turns=0"), "{text}");
+    assert!(text.contains("[status] model=zai/glm-5.2"), "{text}");
+
+    session.type_line("/model acme/model-9");
+    session.wait_for("model=acme/model-9");
+    session.type_line("hello");
+    session.wait_for("ok");
+    session.type_line("/status");
+    let text = session.wait_for("[status] history_turns=1");
+    assert!(text.contains("[status] model=acme/model-9"), "{text}");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/stats");
+    let text = session.wait_for("draws none");
+    assert!(!text.contains("ansi_bytes="), "{text}");
 
     assert_eq!(session.quit().code(), Some(0));
 }

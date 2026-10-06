@@ -41,6 +41,11 @@ pub(crate) trait CommandHandlers {
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
+    /// `/stats`: what this surface's terminal writer has done so far.
+    fn stats(&mut self);
+    /// `/status`: the configuration a turn would run under, and the live
+    /// conversation's counts.
+    fn status(&mut self);
     fn version(&mut self);
     fn quit(&mut self);
     /// `/setup`, with the rest of the line -- already trimmed, and empty when
@@ -127,6 +132,8 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Clear => handlers.clear(),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
+        Slash::Stats => handlers.stats(),
+        Slash::Status => handlers.status(),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -176,6 +183,12 @@ mod tests {
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
         }
+        fn stats(&mut self) {
+            self.calls.push("stats".to_string());
+        }
+        fn status(&mut self) {
+            self.calls.push("status".to_string());
+        }
         fn version(&mut self) {
             self.calls.push("version".to_string());
         }
@@ -200,6 +213,8 @@ mod tests {
             ("/new", "new"),
             ("/clear", "clear"),
             ("/model", "model "),
+            ("/stats", "stats"),
+            ("/status", "status"),
             ("/version", "version"),
             ("/quit", "quit"),
             ("/setup", "setup "),
@@ -273,6 +288,8 @@ mod tests {
             "/version \t ",
             "  /version",
             "/exit  ",
+            "/stats ",
+            "/status\t",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::Command { .. }),
@@ -287,6 +304,12 @@ mod tests {
             "/version\n",
             "/quit please",
             "/exit now",
+            // `fx-stats-40x120-extra.txt`: `/stats extra` is an unknown
+            // command, and `/status` takes nothing either (`commands.zig:473,475`
+            // gives neither row `accepts_payload`).
+            "/stats extra",
+            "/status now",
+            "/status\tall",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::UnknownCommand { .. }),
