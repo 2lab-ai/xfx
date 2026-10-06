@@ -951,14 +951,13 @@ impl Shell {
     /// by one.
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
-        // What the turn is doing, between a blank row above it and one below
-        // it, and only while the geometry says the band owns those rows: the
-        // row's presence and its text are one fact settled together
-        // ([`Self::tick_activity`]), and a band that painted rows the geometry
-        // did not give it would push its hint row off the bottom of the screen.
-        // Painted through the same clip+reset wrapper every other band row
-        // uses, so the palette's neutral, ongoing-status colour
-        // ([`Palette::activity`]) cannot leak onto the composer.
+        // What the turn is doing, with a blank row under it, and only while the
+        // geometry says the band owns those rows: the row's presence and its
+        // text are one fact settled together ([`Self::tick_activity`]), and a
+        // band that painted rows the geometry did not give it would push its
+        // hint row off the bottom of the screen. The row carries its own
+        // colours and closes them ([`super::activity::Activity::row`]), so
+        // nothing of it leaks onto the composer.
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
@@ -1355,10 +1354,11 @@ impl Shell {
             // diagnostic stream (`output.rs:1154-1174`), so a tool means the
             // same thing on both surfaces.
             UiEvent::ToolStart { tool, .. } => {
-                // And on the band, where the row above the divider stops saying
-                // `Thinking` and names what is running instead: a turn that has
-                // gone quiet because a tool is taking a minute looks exactly
-                // like a turn that has gone quiet, unless it says so.
+                // And on the band, where the activity row stops saying
+                // `Thinking` and says `Running`, as upstream's phase does: a
+                // turn that has gone quiet because a tool is taking a minute
+                // looks exactly like a turn that has gone quiet, unless it says
+                // so.
                 self.activity.set(Work::Tool { name: tool.clone() });
                 self.say(format!("[tool] {tool} running"));
             }

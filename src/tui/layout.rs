@@ -6,8 +6,9 @@
 //! or a question is up; then the menu's rows sit between a second rule, right
 //! under the composer, and that one -- below the text being typed, not above
 //! it. While a turn is running, a transient activity row sits above the
-//! composer with one blank row on either side of it (`activity_placement.zig`:
-//! `gap_above_rows`, `footer_clearance_rows`). Everything above the band stays
+//! composer with one blank row under it; the gap above it is the document's own
+//! trailing blank row (`frame_layout.zig:62-75`: `gap_above_activity`,
+//! `footer_gap_after_activity`). Everything above the band stays
 //! the terminal's own document. So a layout is a handful of row numbers, and
 //! [`solve_band`] is the one place they are derived from one another; nothing
 //! else in the TUI may compute a row from `rows - 1`.
@@ -53,13 +54,13 @@ pub(crate) struct Geometry {
     pub(crate) content_bottom: u16,
     /// The row that says what the turn is doing, while there is a turn.
     ///
-    /// Above the composer, with a blank row of the band's on either side, and
+    /// Above the composer, with a blank row of the band's under it, and
     /// `None` whenever nothing is running: the row is the evidence that
     /// something is happening, so a session with nothing in flight does not own
     /// it and the document does ([`super::activity`]).
     pub(crate) activity: Option<u16>,
-    /// The blank rows on either side of the activity row: one each, or none on
-    /// a screen too short for them.
+    /// The blank row under the activity row: one, or none on a screen too short
+    /// for it.
     pub(crate) activity_padding: u16,
     /// How many rows the menu or question occupies, and `0` when there is none.
     ///
@@ -175,8 +176,8 @@ pub(crate) fn fits_panel(rows: u16, cols: u16, panel: u16) -> bool {
 /// The order is the derivation, bottom up: the hint row is the last row of the
 /// screen, the bottom rule is the row above it, the panel -- while there is one
 /// -- takes the rows above *that* with a second rule above them, the composer
-/// sits on the rows above whichever rule is highest, the activity row and its
-/// two blank rows -- when there is work -- are above the composer, and the
+/// sits on the rows above whichever rule is highest, the activity row and the
+/// blank row under it -- when there is work -- are above the composer, and the
 /// document ends one row above the band's top. A `None` is a refusal the caller
 /// reports by name -- a band painted onto a screen that cannot hold it would
 /// write over the user's shell output and then clear it on the way out, which
