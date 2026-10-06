@@ -1,0 +1,12 @@
+=== ~/.xfx/settings.json (178 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "additional_directories": [
+        "<scratch>/extra"
+      ]
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)
