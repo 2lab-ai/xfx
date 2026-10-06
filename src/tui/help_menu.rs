@@ -650,6 +650,15 @@ mod tests {
             .collect()
     }
 
+    /// The widest canonical name, which the summary column is measured from.
+    fn widest() -> usize {
+        SLASH_REGISTRY
+            .iter()
+            .map(|spec| spec.name.len())
+            .max()
+            .expect("a registry")
+    }
+
     /// `All`: every category's names, in the categories' order.
     fn by_category() -> Vec<&'static str> {
         SLASH_CATEGORIES
@@ -777,26 +786,29 @@ mod tests {
         assert_eq!(rows.len(), 2 + count);
         assert_eq!(rows[1], "", "the blank row under the header");
         // The marked row: name and summary bright, each closed, the spaces
-        // between them uncoloured; the summary at 2 + `/version` + 4.
+        // between them uncoloured; the summary at 2 + the widest name + 4 --
+        // `/permissions` since it was added, so read off the registry rather
+        // than spelled.
+        let column = 2 + widest() + 4;
         assert_eq!(
             rows[2],
             format!(
                 "  {BRIGHT}/help{RESET}{}{BRIGHT}show available slash commands{RESET}",
-                " ".repeat(14 - 7)
+                " ".repeat(column - 7)
             )
         );
         assert_eq!(
             rows[3],
             format!(
                 "  {DIM}/clear{RESET}{}{DIM}{}{RESET}",
-                " ".repeat(14 - 8),
+                " ".repeat(column - 8),
                 SLASH_REGISTRY[1].summary
             )
         );
         assert_eq!(shown(&rows), by_category());
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
-            assert_eq!(summary_column(row), 14, "{row:?}");
+            assert_eq!(summary_column(row), column, "{row:?}");
         }
     }
 
@@ -845,10 +857,14 @@ mod tests {
         let rows = menu.rows(120, 5, PALETTE);
         assert_eq!(shown(&rows), ["/c01", "/c02", "/c03"]);
         assert!(rows[3].starts_with(&format!("  {BRIGHT}")), "{rows:?}");
-        // The live registry wraps the same way.
+        // The live registry wraps the same way: up from the first is the last
+        // in the catalog's order.
         let mut live = HelpMenu::open("");
         assert!(live.step(false, 20));
-        assert_eq!(live.selected().map(|spec| spec.name), Some("/model"));
+        assert_eq!(
+            live.selected().map(|spec| spec.name),
+            by_category().last().copied()
+        );
         assert!(live.step(true, 20));
         assert_eq!(live.selected().map(|spec| spec.name), Some("/help"));
     }

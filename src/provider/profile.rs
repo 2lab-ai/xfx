@@ -142,6 +142,49 @@ pub fn document_for(existing: Map<String, Value>, selection: &Selection<'_>) -> 
     body.into_bytes()
 }
 
+/// Sets one preference in the settings file at `path`, keeping everything else.
+///
+/// The shell's own preferences -- the permission mode a `/permissions` chose,
+/// a status-line segment, a sound level -- are one key each, and they ride
+/// the same discipline [`write`] does: the file as it stands is read
+/// ([`read_existing`], so one this build cannot parse is refused rather than
+/// overwritten), the key is set at `key_path` -- each step but the last an
+/// object, created where it is missing and **replacing** a value in the way
+/// that is not one, because there is nothing to preserve inside a string and
+/// merging into it would fail the write over someone else's typo -- and the
+/// result goes through [`write_document`] as pretty JSON with a trailing
+/// newline. Unknown keys survive, which is what lets an older or a newer
+/// binary share the file.
+///
+/// An empty `key_path` names no key and is refused rather than read as "the
+/// whole document".
+pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
+    let Some((last, parents)) = key_path.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a preference needs a key to be written under",
+        ));
+    };
+    let mut document = read_existing(path)?;
+    let mut object = &mut document;
+    for key in parents {
+        let slot = object
+            .entry((*key).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        object = slot
+            .as_object_mut()
+            .expect("the slot was made an object above");
+    }
+    object.insert((*last).to_string(), value);
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
 /// Writes `document` to `path` with the profile's own discipline.
 ///
 /// Everything `write` used to do after it had decided the bytes: the profile
@@ -720,6 +763,60 @@ mod tests {
             document.ends_with(b"\n"),
             "pretty JSON with a trailing newline"
         );
+    }
+
+    #[test]
+    fn a_preference_is_set_in_place_and_everything_else_survives() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+        // No file and no directory yet: the first preference creates both.
+        write_preference(&path, &["permission_mode"], json!("auto")).expect("first write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"permission_mode\": \"auto\"\n}\n"
+        );
+        fs::write(
+            &path,
+            "{\"provider\":\"llmux\",\"statusLine\":\"nonsense\",\"future\":{\"kept\":true}}\n",
+        )
+        .expect("seed");
+        write_preference(&path, &["permission_mode"], json!("yolo")).expect("replace");
+        write_preference(&path, &["yolo_acknowledged"], json!(true)).expect("add");
+        // A nested key creates its parents and replaces a parent that is not
+        // an object.
+        write_preference(&path, &["statusLine", "context"], json!(false)).expect("nested");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({
+                "provider": "llmux",
+                "future": {"kept": true},
+                "permission_mode": "yolo",
+                "yolo_acknowledged": true,
+                "statusLine": {"context": false},
+            })
+        );
+        assert!(fs::read(&path).expect("read").ends_with(b"}\n"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+                0o600,
+                "born owner-only, like every profile write"
+            );
+        }
+    }
+
+    #[test]
+    fn a_preference_is_never_written_over_a_file_xfx_cannot_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{ not json").expect("seed");
+        assert!(write_preference(&path, &["permission_mode"], json!("ask")).is_err());
+        assert_eq!(fs::read_to_string(&path).expect("read"), "{ not json");
+        assert!(write_preference(&path, &[], json!("ask")).is_err());
     }
 
     #[test]

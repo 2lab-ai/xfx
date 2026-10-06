@@ -825,11 +825,16 @@ mod tests {
             "{:?}",
             ranks(&live)
         );
-        // Deterministic within a rank: registry order, which is `/help`'s.
-        assert_eq!(
-            labels(&live)[1..],
-            ["/help", "/clear", "/new", "/setup", "/model", "/version"]
-        );
+        // Deterministic within a rank: registry order, which is `/help`'s --
+        // every other name with an `e` after its slash, read off the registry
+        // so a command added with one is a row here rather than a failure.
+        let substrings: Vec<&str> = crate::interactive::SLASH_REGISTRY
+            .iter()
+            .map(|spec| spec.name)
+            .filter(|name| name != &"/quit" && name[1..].contains('e'))
+            .collect();
+        assert_eq!(labels(&live)[1..], substrings[..]);
+        assert!(substrings.contains(&"/help") && substrings.contains(&"/version"));
         // The slash is not a letter of any name: a second one finds nothing.
         assert!(Picker::open("//").is_none());
     }

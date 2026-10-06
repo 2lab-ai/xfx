@@ -66,6 +66,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/stats",
     "/status",
     "/model",
+    "/permissions",
     "/copy",
     "/version",
     "/quit",
@@ -131,7 +132,8 @@ pub struct SlashSpec {
 /// `/provider` picker, `:472`, which also chooses how a provider signs in; this
 /// one takes the provider as an argument and signs nothing in), and `/model`
 /// (upstream chooses a reasoning effort as well, `:478`; xfx sends none).
-/// `/stats` keeps upstream's sentence although what it prints is the
+/// `/permissions` is upstream's sentence with this product's name in it
+/// (`:479`). `/stats` keeps upstream's sentence although what it prints is the
 /// terminal writer's counters rather than tokens: so does upstream's
 /// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
 /// the one the menu shows beside the name.
@@ -191,6 +193,14 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         aliases: &[],
         summary: "show the model, or `/model <id>` to use another one from now on",
         category: "Model",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Permissions,
+        name: "/permissions",
+        aliases: &[],
+        summary: "choose what xfx is allowed to do",
+        category: "Security",
         has_args: true,
     },
     SlashSpec {
@@ -372,6 +382,10 @@ pub enum Slash {
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
     Setup,
+    /// What the session may do without asking, and the way to change it:
+    /// `ask`, `auto`, `full-access` or `reset`
+    /// ([`crate::permission::slash`]).
+    Permissions,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
@@ -624,6 +638,49 @@ impl Conversation {
             permission_grants: self.tools.permissions().grants().len() as u64,
         }
     }
+
+    /// Puts this conversation's authority in `mode`, forgetting every
+    /// "always" it holds when `clear_grants` -- `/permissions <mode>` and
+    /// `/permissions reset`, on either surface.
+    ///
+    /// **Here, and not by building a new authority**, because the authority is
+    /// built once per conversation and holds what an "always" answer is worth
+    /// for the rest of it: a fresh one would forget the grants a mode change
+    /// must keep. A mode that differs from the one the log last recorded is
+    /// written down, as a resume does (`crate::tui`'s worker, `app::run_ask`),
+    /// so a later resume reads what this session really ran under.
+    ///
+    /// Grants already recorded in the log stay there: `reset` forgets them for
+    /// this process, as upstream's does (`permission_engine.clear`), and the log
+    /// has no event that revokes one.
+    pub(crate) fn set_permission_mode(&mut self, mode: PermissionMode, clear_grants: bool) {
+        {
+            let mut authority = self.tools.permissions();
+            authority.set_mode(mode);
+            if clear_grants {
+                authority.clear_grants();
+            }
+        }
+        if self.recorder.state().permission_mode != mode {
+            self.recorder.commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: Some(mode.label().to_string()),
+            });
+        }
+    }
+
+    /// This conversation's grants, one ` - <tool> -> <target>` row each
+    /// ([`crate::permission::slash::grant_line`]), not yet made safe to print.
+    pub(crate) fn grant_lines(&self, workspace_root: &std::path::Path) -> Vec<String> {
+        self.tools
+            .permissions()
+            .grants()
+            .iter()
+            .map(|grant| {
+                crate::permission::slash::grant_line(&grant.tool, &grant.target, workspace_root)
+            })
+            .collect()
+    }
 }
 
 /// What `/status` reports on either surface: the configuration a turn here
@@ -763,8 +820,7 @@ pub async fn run(
         }
     };
 
-    let mode = config.permission_mode;
-    if mode == PermissionMode::Yolo {
+    if config.permission_mode == PermissionMode::Yolo {
         writeln!(diagnostics, "{YOLO_WARNING}")?;
     }
 
@@ -860,6 +916,9 @@ pub async fn run(
                         )?;
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Permissions => {
+                        apply_permissions(&argument, &mut config, conversation.as_mut())?;
+                    }
                 }
                 io::stdout().flush()?;
             }
@@ -877,7 +936,10 @@ pub async fn run(
                         &store,
                         &config,
                         &model,
-                        crate::app::permission_session(mode),
+                        // The configuration's mode rather than the launch's:
+                        // `/permissions` moves it, and a conversation opened
+                        // after that is opened in the mode the user chose.
+                        crate::app::permission_session(config.permission_mode),
                         // fx's interactive shell is xfx's TUI, not this line
                         // shell: this loop reads one line at a time from
                         // standard input and has nowhere to render a question
@@ -1245,6 +1307,83 @@ async fn apply_model(
     }
 }
 
+/// Applies `/permissions`, with the TUI's meaning in this shell's lines.
+///
+/// The words are [`crate::permission::slash`]'s, so the two surfaces say the
+/// same thing; the shape is this shell's: fx's own line format for its
+/// `permissions` command (`[permissions] mode=…`, `renderText`,
+/// `output_contracts.zig:705-722`) on stdout, and the usage line and a failed
+/// write on stderr. Every command here runs between turns -- the loop runs one
+/// thing at a time -- so a change is applied at once, to the configuration a
+/// later conversation is opened from and to the conversation in hand, and
+/// recorded in the profile the next launch reads.
+fn apply_permissions(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    conversation: Option<&mut Conversation>,
+) -> io::Result<()> {
+    use crate::permission::slash::{self, Request};
+    let (mode, reset) = match Request::parse(argument) {
+        Request::Show => {
+            let grants = conversation
+                .map(|conversation| conversation.grant_lines(&config.workspace_root))
+                .unwrap_or_default();
+            let mut stdout = io::stdout();
+            // fx's own rows: the facts behind the prefix and each grant under
+            // them as ` - <tool> -> <target>`, flattened to one line because a
+            // command a model wrote is not text this shell hands a terminal.
+            for row in slash::status_rows(config.permission_mode, &grants).lines() {
+                match row.strip_prefix(" - ") {
+                    Some(grant) => writeln!(stdout, " - {}", safe_one_line(grant, usize::MAX))?,
+                    None => writeln!(stdout, "[permissions] {row}")?,
+                }
+            }
+            writeln!(stdout, "[permissions] {}", slash::SAVED_RULES)?;
+            writeln!(stdout, "[permissions] {}", slash::USAGE)?;
+            return Ok(());
+        }
+        Request::Usage => {
+            writeln!(io::stderr(), "xfx: {}", slash::USAGE)?;
+            return Ok(());
+        }
+        Request::Select(mode) => (mode, false),
+        Request::Reset => (PermissionMode::Ask, true),
+    };
+    config.permission_mode = mode;
+    if let Some(conversation) = conversation {
+        conversation.set_permission_mode(mode, reset);
+    }
+    // Recorded before it is announced, as upstream's `selectMode` persists
+    // before `handlePermissions` writes its notice: a line saying the mode
+    // changed is a line a reader may act on, the file included.
+    let written = match config.user_settings_path.as_ref() {
+        Some(path) => crate::provider::profile::write_preference(
+            path,
+            &["permission_mode"],
+            serde_json::Value::String(mode.label().to_string()),
+        )
+        .map_err(|err| err.to_string()),
+        None => Err("no home directory".to_string()),
+    };
+    let said = if reset {
+        slash::RESET.to_string()
+    } else {
+        slash::selected(mode)
+    };
+    writeln!(io::stdout(), "[permissions] {said}")?;
+    if mode == PermissionMode::Yolo {
+        writeln!(io::stderr(), "{YOLO_WARNING}")?;
+    }
+    if let Err(reason) = written {
+        writeln!(
+            io::stderr(),
+            "xfx: permission-mode: {}",
+            slash::not_saved(&reason)
+        )?;
+    }
+    Ok(())
+}
+
 /// What `/clear` says about the conversation it did not touch.
 fn kept_line(conversation: Option<&Conversation>) -> String {
     match conversation {
@@ -1326,9 +1465,9 @@ mod tests {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
-        // Ten since `/copy`, `/stats` and `/status`; `/models` and
-        // `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 10);
+        // Ten since `/copy`, `/stats` and `/status`, eleven since
+        // `/permissions`; `/models` and `/provider` stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 11);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1475,7 +1614,6 @@ mod tests {
             "/resume",
             "/login",
             "/logout",
-            "/permissions",
             "/models",
             "/provider",
             "/mcp",
@@ -1627,11 +1765,12 @@ mod tests {
 
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
-        // The two that mean something by the rest of the line: `/model <id>`
+        // The three that mean something by the rest of the line: `/model <id>`
         // picks among what a provider offers, `/setup <provider>` picks the
-        // provider. Every other name is the whole command.
+        // provider, `/permissions <mode|reset>` picks the authority. Every
+        // other name is the whole command.
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup");
+            let takes_one = matches!(spec.name, "/model" | "/setup" | "/permissions");
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }

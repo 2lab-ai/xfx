@@ -579,6 +579,28 @@ impl PermissionSession {
         self.mode
     }
 
+    /// Puts this session in `mode` from its next decision on.
+    ///
+    /// What `/permissions <mode>` and Shift-Tab change on a conversation that
+    /// already exists: the grants, the rules, the prompter and the ledger are
+    /// the conversation's and stay, as upstream's `setMode` changes only the
+    /// engine's mode (`app_permission_runtime.zig:73-85`). Called between turns
+    /// and never under one -- the caller's rule (`crate::tui`'s worker) -- so no
+    /// authority already issued was judged under a mode that has since moved.
+    pub fn set_mode(&mut self, mode: PermissionMode) {
+        self.mode = mode;
+    }
+
+    /// Forgets every "always" this session has been given, returning how many.
+    ///
+    /// `/permissions reset`'s second half (`permission_engine.clear`,
+    /// `app_permission_runtime.zig:144-159`): the in-memory grants go, so the
+    /// next action that needed one is asked about again. The configured rules
+    /// are not grants and are kept.
+    pub fn clear_grants(&mut self) -> usize {
+        std::mem::take(&mut self.grants).len()
+    }
+
     /// The approvals this session has been given, in the order they were given.
     pub fn grants(&self) -> &[Grant] {
         &self.grants
@@ -873,6 +895,40 @@ mod tests {
                 .contains("`a.txt`"),
             "the prose must keep the friendly path"
         );
+    }
+
+    #[test]
+    fn a_mode_change_and_a_cleared_grant_decide_the_next_action() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let mut session = PermissionSession::new(PermissionMode::Ask);
+        session.grant(Grant::new("write_file", "/w/a.txt"));
+        session.grant(Grant::new("terminal", "ls in /w"));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::SessionGrant
+            }
+        );
+
+        session.set_mode(PermissionMode::Yolo);
+        assert_eq!(session.mode(), PermissionMode::Yolo);
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::Yolo
+            }
+        );
+        assert_eq!(session.grants().len(), 2, "a mode change keeps the grants");
+
+        session.set_mode(PermissionMode::Ask);
+        assert_eq!(session.clear_grants(), 2);
+        assert!(session.grants().is_empty());
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt,
+            "a cleared grant is asked about again"
+        );
+        assert_eq!(session.clear_grants(), 0);
     }
 
     #[test]

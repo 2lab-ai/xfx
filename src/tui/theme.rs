@@ -221,8 +221,15 @@ const RESET: &str = "\u{1b}[0m";
 /// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
 /// none. Band and review-plane rows only -- never the document -- so a theme
 /// report has nothing of it to retint ([`Palette::document_retint`]).
-const DARK: [u8; 9] = [240, 255, 250, 252, 255, 245, 245, 252, 252];
-const LIGHT: [u8; 9] = [250, 235, 241, 238, 235, 241, 247, 238, 238];
+///
+/// The tenth is upstream's `red_style` **on the hint row**: the one-time
+/// full-access warning flush with its last column
+/// (`input_presentation.zig:565`, `cap/fx-permissions-40x120-full.ansi`). The
+/// same grey as [`LABEL`] in each theme (`theme.zig:86-88`, `:129-131`) and not
+/// the same decision: that one is written into the document, and this one is
+/// the band's alone, so a theme report has nothing of it to retint either.
+const DARK: [u8; 10] = [240, 255, 250, 252, 255, 245, 245, 252, 252, 252];
+const LIGHT: [u8; 10] = [250, 235, 241, 238, 235, 241, 247, 238, 238, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -234,6 +241,7 @@ const STATUSLINE: usize = 5;
 const DIM: usize = 6;
 const LABEL: usize = 7;
 const DIFF: usize = 8;
+const DANGER: usize = 9;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -299,6 +307,11 @@ impl Palette {
     /// sum it up (`diff_added_style`, `diff_removed_style`).
     pub(crate) fn diff(&self) -> &'static str {
         self.paint(DIFF)
+    }
+
+    /// The hint row's warning that every permission check is off ([`DANGER`]).
+    pub(crate) fn danger(&self) -> &'static str {
+        self.paint(DANGER)
     }
 
     /// What a permission question emphasises: the marked choice and the

@@ -94,6 +94,7 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "permission_mode",
     "provider",
     "workspaces",
+    "yolo_acknowledged",
 ];
 
 /// How much authority the agent has before it must ask.
@@ -115,6 +116,41 @@ impl PermissionMode {
             Self::Ask => "ask",
             Self::Auto => "auto",
             Self::Yolo => "yolo",
+        }
+    }
+
+    /// The word a person reads for this mode: upstream's
+    /// (`permissionModeDisplayLabel`, `vercel-labs/fx@c1db9191
+    /// src/core/permissions/permissions.zig`), where the mode that skips every
+    /// check is `full access` -- on the hint row, in `/permissions`, and in
+    /// the notice that sets it.
+    ///
+    /// **Not [`Self::label`]**, which stays the wire word: a session log and
+    /// the settings file record `yolo`, as upstream's own settings file does
+    /// (`"permission_mode":"yolo"`), and a reader of either must be able to
+    /// read back what an older xfx wrote.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Auto => "auto",
+            Self::Yolo => "full access",
+        }
+    }
+
+    /// A mode as a person types it: upstream's grammar
+    /// (`PermissionMode.parse`, `vercel-labs/fx@c1db9191
+    /// src/core/shared/types.zig:2396-2403`) -- `ask`, `auto`, and `full-access`,
+    /// `full access` or `yolo` for the third, in any case.
+    ///
+    /// The wire grammar is [`Self::parse`] and stays exact: a session log is
+    /// something xfx wrote, and one that says `Full Access` is not one it
+    /// wrote. This is what an argument to `/permissions` is read with, and it
+    /// ends in that same table rather than in one of its own.
+    pub fn parse_choice(raw: &str) -> Option<Self> {
+        let word = raw.trim().to_ascii_lowercase();
+        match word.as_str() {
+            "full-access" | "full access" => Some(Self::Yolo),
+            other => Self::parse(other),
         }
     }
 
@@ -505,6 +541,15 @@ pub struct RuntimeConfig {
     pub project_settings_loaded: bool,
     pub model: String,
     pub permission_mode: PermissionMode,
+    /// Whether the person at this profile has already been shown the
+    /// full-access warning once (`yolo_acknowledged`).
+    ///
+    /// Upstream shows the warning on the hint row the first time a session is
+    /// in that mode and records that it did, so it is shown once per user,
+    /// ever (`app_permission_runtime.zig:99-111`, `:168-176`). Profile-only, like
+    /// the mode it is about: a repository cannot decide that its cloner has
+    /// already been warned.
+    pub yolo_acknowledged: bool,
     pub max_agent_steps: u32,
     /// The provider a turn will talk to.
     ///
@@ -821,6 +866,7 @@ impl RuntimeConfig {
             project_settings_loaded,
             model,
             permission_mode: settings.permission_mode.unwrap_or_default(),
+            yolo_acknowledged: settings.yolo_acknowledged.unwrap_or(false),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
             provider,
             provider_rejected,
@@ -852,6 +898,7 @@ impl RuntimeConfig {
 struct Settings {
     model: Option<String>,
     permission_mode: Option<PermissionMode>,
+    yolo_acknowledged: Option<bool>,
     max_agent_steps: Option<u32>,
     backend: Option<ProviderId>,
     backend_source: Option<SettingSource>,
@@ -886,6 +933,9 @@ impl Settings {
         if let Some(mode) = incoming.permission_mode {
             self.permission_mode = Some(mode);
             sources.permission_mode = source;
+        }
+        if let Some(acknowledged) = incoming.yolo_acknowledged {
+            self.yolo_acknowledged = Some(acknowledged);
         }
         if let Some(steps) = incoming.max_agent_steps {
             self.max_agent_steps = Some(steps);
@@ -984,6 +1034,16 @@ fn parse_layer(
                     layer,
                     DiagnosticCause::InvalidValue,
                     "permission_mode",
+                )),
+            }
+        }
+        if let Some(value) = object.get("yolo_acknowledged") {
+            match value.as_bool() {
+                Some(acknowledged) => settings.yolo_acknowledged = Some(acknowledged),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    "yolo_acknowledged",
                 )),
             }
         }
@@ -1279,6 +1339,106 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_mode_reads_upstreams_words_in_any_case() {
+        // `types.zig:2396-2403`: `full-access`, `full access` and `yolo` are
+        // the third mode, case-insensitively, and so are the other two.
+        for (typed, mode) in [
+            ("ask", PermissionMode::Ask),
+            ("ASK", PermissionMode::Ask),
+            ("auto", PermissionMode::Auto),
+            ("Auto", PermissionMode::Auto),
+            ("full-access", PermissionMode::Yolo),
+            ("Full-Access", PermissionMode::Yolo),
+            ("full access", PermissionMode::Yolo),
+            ("yolo", PermissionMode::Yolo),
+            ("YOLO", PermissionMode::Yolo),
+            ("  auto ", PermissionMode::Auto),
+        ] {
+            assert_eq!(PermissionMode::parse_choice(typed), Some(mode), "{typed:?}");
+        }
+        for typed in [
+            "",
+            "reset",
+            "full",
+            "fullaccess",
+            "full  access",
+            "remember",
+        ] {
+            assert_eq!(PermissionMode::parse_choice(typed), None, "{typed:?}");
+        }
+        // The wire grammar is not widened by it: a log or a settings file
+        // that says `Full Access` is not one xfx wrote.
+        assert_eq!(PermissionMode::parse("full-access"), None);
+        assert_eq!(PermissionMode::parse("YOLO"), None);
+    }
+
+    #[test]
+    fn the_mode_that_skips_every_check_reads_full_access_and_records_yolo() {
+        assert_eq!(PermissionMode::Ask.display_label(), "ask");
+        assert_eq!(PermissionMode::Auto.display_label(), "auto");
+        assert_eq!(PermissionMode::Yolo.display_label(), "full access");
+        assert_eq!(PermissionMode::Yolo.label(), "yolo");
+    }
+
+    #[test]
+    fn the_preferences_the_shell_writes_are_read_back_from_the_profile_only() {
+        // The round trip `/permissions` depends on: what the profile writer
+        // puts down is what the next launch resolves, through the loader and
+        // not through a second reading of the file.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(fresh.permission_mode, PermissionMode::Auto);
+        assert!(!fresh.yolo_acknowledged);
+
+        let path = fresh.user_settings_path.clone().expect("a profile path");
+        crate::provider::profile::write_preference(
+            &path,
+            &["permission_mode"],
+            Value::String(PermissionMode::Yolo.label().to_string()),
+        )
+        .expect("write the mode");
+        crate::provider::profile::write_preference(
+            &path,
+            &["yolo_acknowledged"],
+            Value::Bool(true),
+        )
+        .expect("write the acknowledgement");
+        let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert_eq!(reloaded.permission_mode, PermissionMode::Yolo);
+        assert_eq!(reloaded.sources.permission_mode, SettingSource::UserGlobal);
+        assert!(reloaded.yolo_acknowledged);
+        assert!(
+            reloaded.diagnostics.is_empty(),
+            "{:?}",
+            reloaded.diagnostics
+        );
+
+        // A repository cannot say its cloner has been warned.
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"yolo_acknowledged":false}"#,
+        )
+        .expect("project file");
+        let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(shadowed.yolo_acknowledged);
+        assert!(shadowed
+            .diagnostics
+            .iter()
+            .any(|d| d.ignored_setting_key() == Some("yolo_acknowledged")));
+
+        // And a value of the wrong type is a diagnostic, not a yes.
+        std::fs::write(&path, r#"{"yolo_acknowledged":"yes"}"#).expect("rewrite");
+        let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!refused.yolo_acknowledged);
+        assert!(refused.diagnostics.iter().any(|d| {
+            d.cause == DiagnosticCause::InvalidValue
+                && d.setting_key.as_deref() == Some("yolo_acknowledged")
+        }));
+    }
+
+    #[test]
     fn permission_mode_parsing_tolerates_surrounding_whitespace() {
         assert_eq!(
             PermissionMode::parse("  yolo \n"),
@@ -1316,6 +1476,7 @@ mod tests {
         let mut settings = Settings {
             model: Some("first".to_string()),
             permission_mode: Some(PermissionMode::Ask),
+            yolo_acknowledged: Some(true),
             max_agent_steps: Some(1),
             backend: Some(ProviderId::Llmux),
             backend_source: Some(SettingSource::UserGlobal),
@@ -1341,6 +1502,7 @@ mod tests {
         );
         assert_eq!(settings.model.as_deref(), Some("first"));
         assert_eq!(settings.permission_mode, Some(PermissionMode::Ask));
+        assert_eq!(settings.yolo_acknowledged, Some(true));
         assert_eq!(settings.max_agent_steps, Some(2));
         assert_eq!(settings.backend, Some(ProviderId::Llmux));
         assert_eq!(

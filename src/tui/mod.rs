@@ -705,6 +705,7 @@ mod notice;
 mod pacer;
 mod panic;
 mod paste;
+mod permissions;
 mod picker;
 mod probe;
 mod question;
