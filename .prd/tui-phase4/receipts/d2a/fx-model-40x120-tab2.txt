@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 1  All  Anthropic  [OpenAI]  xAI  Others
+
+  openai/gpt-6-astra       400K context · 128K output · Fast · Ultra
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
