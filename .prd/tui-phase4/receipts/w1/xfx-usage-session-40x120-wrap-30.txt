@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-fccf131 [debug] · Run /help for commands
+x𝒇x v0.1.0-1c516b0 [debug] · Run /help for commands
 
 ┃ explain the plan please
 
@@ -17,7 +17,7 @@ x𝒇x v0.1.0-fccf131 [debug] · Run /help for commands
 
   Done.
 
-  2s (↑6 ↓40)
+  1s (↑6 ↓40)
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Usage  [30 days]  7 days  24 hours  Session

@@ -21,15 +21,20 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120
 | `credits-empty` | `{}`. |
 | `credits-404` | no credits file: the fake gateway's `404 not found`; `/balance`; `/credits now`. |
 
-The xfx binary is `target/debug/xfx` built at `fccf131` (this branch with
-`plan/tui-phase4` 2b5967f merged), which is what its banner says. The same
+The xfx binary is `target/debug/xfx` built at `1c516b0` (this branch with
+`plan/tui-phase4` d76c10a merged), which is what its banner says; the fx side
+was taken at `fccf131`'s run and is the same binary either way. The xfx side
+was retaken at `1c516b0` once `plan/tui-phase4` had moved under it (W6
+`/undo`); `usage` twice, because the first run after a rebuild met macOS's
+first-launch assessment and typed `/usage` into the shell before xfx was up. The same
 shims, `FX_NO_OPEN_BROWSER=1`, the fx sound guard, an isolated tmux socket and
 an empty `HOME` as every capture. No file was edited after capture; `.files`
 dumps write the run's scratch directory as `<scratch>` (the driver's own
 rule). `.ansi` files are tmux's re-serialization of cell attributes
 (`capture-pane -e`), not the programs' wire bytes (see `../c0/README.md`).
 
-**Result: 34 snap pairs, every row of every pair identical in text and in SGR
+**Result: 34 snap pairs; in 29 the only row that differs is row 1 (each
+product's banner), and every row of every pair is identical in text and in SGR
 except the ones listed below**, each for a reason named there (a row-by-row
 diff of each pair's `.txt` and of its `.ansi`; the two differ on exactly the
 same rows).
@@ -40,13 +45,13 @@ same rows).
 |---|---|---|
 | `usage-typed`, `usage-cost-typed`, `credits-ok-typed` | The completion menu: `Commands 1`, the row `  /usage   … Account` (and `/credits   show gateway credits balance … Account` byte for byte), its SGR (`ESC[1mESC[38;5;255m  /usage   ESC[38;5;245m…`), the key help. `/cost` lists under its own typed name. | Row 1 is each product's banner (every receipt). **`/usage`'s description** reads `show local xfx tokens, models, and spend` where fx's says `fx` (`commands.zig:474`): what it shows is xfx's own spend, and one column narrower padding keeps `Account` at the same column. |
 | `usage-empty` | Rows 3-7: the rule, `Usage  [30 days]  7 days  24 hours  Session` (title and shown window bold 255, others 245), `Tracking has not started` (245), the rule, the key help `tab scope     ↑↓ model     enter expand     r refresh     esc close` (245). No composer row. | Row 1 only. |
-| `usage-answered`, `usage-esc` | The answer, the composer back after Esc, the hint row. | Row 20, the turn summary's seconds (`1s` / `2s`): wall time of the fake turn, not a rule. |
-| `usage-open`, `-right1`, `-left`, `-down`, `-tab`, `-btab`, `-cost-open` | Rows 22-34: the dashboard after a turn nobody billed -- `Partial data · some usage may be missing`, `  0 tokens        $0.00 spent      0 requests`, `  0 input         0 output         Reasoning unavailable`, `  0 cache read    0 cache write`, `Models 0` (bold 252), `  Model    Tokens    Share    Spend`, `  No model usage in this scope.`, every SGR run. Right from 30 days stays put; Left lands on `[7 days]` (to its right in the header); Down with no model does nothing; Tab moves to `[24 hours]`, Shift-Tab back to `[7 days]`; `/cost` is the same dashboard. | Row 20 as above. |
-| `usage-arg` | `✗ command: Unknown command. Try /help.` for `/usage 7d`, SGR as C0's. | Row 20 as above. |
+| `usage-answered`, `usage-esc` | The answer, its summary `  1s (↑6 ↓40)`, the composer back after Esc, the hint row. | Row 1. (At `fccf131` the summary read `2s` once: wall time of the fake turn, not a rule.) |
+| `usage-open`, `-right1`, `-left`, `-down`, `-tab`, `-btab`, `-cost-open` | Rows 2-34: the dashboard after a turn nobody billed -- `Partial data · some usage may be missing`, `  0 tokens        $0.00 spent      0 requests`, `  0 input         0 output         Reasoning unavailable`, `  0 cache read    0 cache write`, `Models 0` (bold 252), `  Model    Tokens    Share    Spend`, `  No model usage in this scope.`, every SGR run. Right from 30 days stays put; Left lands on `[7 days]` (to its right in the header); Down with no model does nothing; Tab moves to `[24 hours]`, Shift-Tab back to `[7 days]`; `/cost` is the same dashboard. | Row 1. |
+| `usage-arg` | `✗ command: Unknown command. Try /help.` for `/usage 7d`, SGR as C0's. | Row 1. |
 | `usage-billed-turns` | Both answers and their summaries (`0s (↑4 ↓800)`, `0s (↑4 ↓3.1k)`). | Row 1. |
 | `usage-billed-d30`, `-d30-expand`, `-d30-down`, `-d30-down-expand`, `-wrap-30` | The whole populated dashboard: `  67.9K tokens      $0.43 spent      2 requests`, `  64K input         3.9K output      900 reasoning`, `  34K cache read    0 cache write`, `Models 2`, the column header, `❯ anthropic/claude-opus-5    55.1K     81.1%    $0.42` (name bold 252, numbers 245), `  fake/model-a               12.8K     18.9%    $0.01`, Enter's `Input 52K · Output 3.1K · Cache 30K/0 · Reasoning 900 · Requests 1 · $0.42`, Down moving the mark under the open line, Enter on the second model opening `Input 12K · Output 800 · Cache 4K/0 · Reasoning 0 · Requests 1 · $0.01` -- and, after the session and back, the mark and the open line kept on `fake/model-a` by name. | Row 1. |
-| `usage-billed-session`, `-session-r` | `Usage  30 days  7 days  24 hours  [Session]`, the overview, `Session activity` (bold 252), `Code +0 · -0`, the models with the mark and open line kept. | Row 17: `Local xfx activity` where fx's is `Local fx activity` -- the product's own name in the sentence that says whose activity this is. Row 24: `API 0s · Wall 16s` / `Wall 15s` (and 18s / 17s after `r`): the wall clock, one second apart -- each product starts its session's clock at its own launch. |
-| `usage-session-session`, `-session-expand`, `-session-down`, `-session-r`, `-wrap-30` | A session whose only turn was not billed: `Partial data · some usage may be missing`, `  0 input         0 output         0 reasoning` (the session's reasoning starts at nought where a window's is `Reasoning unavailable`), `API 1s`, `Code +0 · -0`, `No model usage in this scope.`; Enter and Down change nothing; Tab from the session wraps to `[30 days]`. | Row 20 (turn seconds), and row 31 in `-session-r`: `Wall 13s` / `12s`, as above. |
+| `usage-billed-session`, `-session-r` | `Usage  30 days  7 days  24 hours  [Session]`, the overview, `Session activity` (bold 252), `API 0s · Wall 16s` in `-session`, `Code +0 · -0`, the models with the mark and open line kept. | Row 17: `Local xfx activity` where fx's is `Local fx activity` -- the product's own name in the sentence that says whose activity this is. Row 24 of `-session-r` only: `Wall 18s` / `Wall 17s`, the wall clock a second apart after the 1 s `r` -- each product starts its session's clock at its own launch, and the two launches are not the same instant. (At `fccf131`, before the clock started at launch, xfx's read 2.5 s short: commit `4ac1509`.) |
+| `usage-session-session`, `-session-expand`, `-session-down`, `-session-r`, `-wrap-30` | A session whose only turn was not billed: `Partial data · some usage may be missing`, `  0 input         0 output         0 reasoning` (the session's reasoning starts at nought where a window's is `Reasoning unavailable`), `API 1s · Wall 10s`, `Code +0 · -0`, `No model usage in this scope.`; Enter and Down change nothing; Tab from the session wraps to `[30 days]`. | Row 1, and row 31 in `-session-r`: `Wall 13s` / `12s`, as above. |
 | `credits-ok-after`, `-balance` | `* credits: balance=42.17`, `  used=7.83`, `  plan=pro` -- one neutral run per row, `ESC[38;5;250m`, the continuation two columns in -- then the same again for `/balance`. | Row 1. |
 | `credits-partial-after` | `* credits: balance=42.17` and nothing for `total_used`. | Row 1. |
 | `credits-empty-after` | `* credits: no data returned by gateway`. | Row 1. |
