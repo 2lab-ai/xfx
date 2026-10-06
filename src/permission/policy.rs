@@ -20,9 +20,11 @@
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use crate::config::PermissionMode;
+
+use super::rules::{RuleAction, RuleSet};
 
 use super::authority::{
     issue, ApprovalDiff, AuthorityError, AuthorityLedger, CommandPlan, ExecutionAuthority,
@@ -40,31 +42,6 @@ pub const YOLO_WARNING: &str =
 // ---------------------------------------------------------------------------
 // rules and grants
 // ---------------------------------------------------------------------------
-
-/// One configured decision about one exact tool and target.
-///
-/// Exact, not glob. A pattern language is a second thing to get wrong, and the
-/// failure mode of a too-wide pattern is silent over-authorization. Upstream
-/// carries glob-shaped grants; xfx's first release does not, and `docs/parity.md`
-/// records the difference.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Rule {
-    pub tool: String,
-    pub target: String,
-}
-
-impl Rule {
-    pub fn new(tool: impl Into<String>, target: impl Into<String>) -> Self {
-        Self {
-            tool: tool.into(),
-            target: target.into(),
-        }
-    }
-
-    fn matches(&self, tool: &str, target: &str) -> bool {
-        self.tool == tool && self.target == target
-    }
-}
 
 /// One approval the user gave for the rest of this session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,17 +63,53 @@ impl Grant {
     }
 }
 
-/// The configured allow and deny lists.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PermissionRules {
-    allow: Vec<Rule>,
-    deny: Vec<Rule>,
+/// The configured table a session decides with, shared with whatever edits it.
+///
+/// `/allowlist` changes the table on the thread that holds the terminal, and
+/// upstream's change is in force for the very next tool call
+/// (`replaceEffectivePermissionRules`, `session_commands.zig:927-941`, under
+/// the authority mutex), including a call of a turn already running. A session
+/// that copied the table when it was built could not do that; one holding this
+/// reads it at every decision.
+///
+/// A whole table is swapped at once and read as one `Arc`, so a decision never
+/// sees half of an edit.
+#[derive(Debug, Clone, Default)]
+pub struct LiveRules(Arc<RwLock<Arc<RuleSet>>>);
+
+impl LiveRules {
+    /// A handle on `rules`.
+    pub fn new(rules: RuleSet) -> Self {
+        Self(Arc::new(RwLock::new(Arc::new(rules))))
+    }
+
+    /// The table in force now.
+    pub fn current(&self) -> Arc<RuleSet> {
+        Arc::clone(&self.0.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    /// Puts `rules` in force for every session holding this handle, from its
+    /// next decision on.
+    pub fn replace(&self, rules: RuleSet) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(rules);
+    }
 }
 
-impl PermissionRules {
-    pub fn new(allow: Vec<Rule>, deny: Vec<Rule>) -> Self {
-        Self { allow, deny }
-    }
+/// What a configured table makes of one prepared action, before anything else
+/// is consulted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuleVerdict {
+    /// A rule denies one of the action's targets; the first such target.
+    Denied(String),
+    /// A rule asks about a target no session grant covers.
+    Ask,
+    /// A rule allows every target (or asks about one a grant covers).
+    Allowed { by_grant: bool },
+    /// Some target no rule decides.
+    Undecided,
+    /// A table is configured and the change carries no resolved targets to
+    /// judge it against.
+    Unresolved,
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +136,107 @@ impl ProposedAction<'_> {
         }
     }
 
-    /// The exact thing being asked for, and the key a rule or a grant matches.
+    /// The category, the tool name and every candidate a configured rule is
+    /// matched against (`requestPermissionOutcomeResolved`,
+    /// `tool_admission.zig:1386-1403`; `decideFileTargetPolicy`,
+    /// `permissions.zig:803-830`).
+    ///
+    /// A command is judged by its **text alone**: upstream strips the
+    /// directory before matching (`patternForRuleMatch`, `:1501-1516`), so a
+    /// rule is about what runs, wherever it runs. A change to a file is judged
+    /// at every path it touches -- the file, its parent, every directory it
+    /// creates -- and a deny on any of them stops it.
+    ///
+    /// The first candidate is the action's own target, the one an exact
+    /// session grant is about. `None` for a change whose executor did not
+    /// resolve its targets ([`MutationPlan::rule_targets`]).
+    fn rule_subject(&self) -> (&'static str, &'static str, Option<Vec<Vec<u8>>>) {
+        match self {
+            Self::Mutation(plan) => (
+                super::rules::EDIT,
+                plan.kind().tool(),
+                plan.rule_targets().map(<[Vec<u8>]>::to_vec),
+            ),
+            Self::Command(plan) => (
+                super::rules::BASH,
+                super::rules::COMMAND_TOOL,
+                Some(vec![plan.command().as_bytes().to_vec()]),
+            ),
+        }
+    }
+
+    /// The key a saved-session rule for exactly this action is kept under
+    /// (`permissionStateKeyForCall`, `tool_admission.zig:2189-2232`, and
+    /// `permissionStateKeyForPreparedFileMutation`, `:2304-2342`), or `None`
+    /// for a change whose executor did not bind one.
+    ///
+    /// A command: its text, the directory it runs in, how and where
+    /// (`commandKeyV2`). A change: the tool, the call's typed input and the
+    /// identity of the directory it is made in (the executor's binding), the
+    /// canonical target, the kind, the preimage -- absent, or its device,
+    /// inode and digest -- the digest of what it would leave, and every path
+    /// a configured rule judges it at. Nothing in it is a pattern: a rule made
+    /// from one action matches that action and no other.
+    pub fn state_key(&self) -> Option<super::session_rules::RuleKey> {
+        use super::session_rules::{field, os_bytes, target_os, KeyKind, RuleKey};
+        match self {
+            Self::Command(plan) => RuleKey::command(plan.command(), plan.cwd(), target_os()),
+            Self::Mutation(plan) => {
+                let binding = plan.state_binding()?;
+                let targets = plan.rule_targets()?;
+                let mut canonical = Vec::new();
+                field(&mut canonical, b"xfx-permission-state-file-v1");
+                field(&mut canonical, plan.kind().tool().as_bytes());
+                field(&mut canonical, binding);
+                field(&mut canonical, &os_bytes(plan.target().as_os_str()));
+                match plan.preimage() {
+                    super::Preimage::Absent => field(&mut canonical, b"preimage-absent"),
+                    super::Preimage::Present { identity, hash } => {
+                        field(&mut canonical, b"preimage-present");
+                        field(&mut canonical, &identity.device.to_be_bytes());
+                        field(&mut canonical, &identity.inode.to_be_bytes());
+                        field(&mut canonical, hash.hex().as_bytes());
+                    }
+                }
+                field(&mut canonical, plan.after_hash().hex().as_bytes());
+                for target in targets {
+                    field(&mut canonical, target);
+                }
+                RuleKey::new(KeyKind::FileMutation, canonical)
+            }
+        }
+    }
+
+    /// How a saved-session rule for this action is shown
+    /// (`filePermissionStateDisplay`, `tool_admission.zig:2344-2369`):
+    /// `write_file a.txt preimage=absent after=2d711642b726b044`, the digests
+    /// cut to their first eight bytes as upstream's are; a command as the
+    /// band's comment names it, with where it runs.
+    pub fn state_display(&self) -> String {
+        match self {
+            Self::Command(plan) => {
+                format!("terminal.exec {} in {}", plan.command(), plan.display_cwd())
+            }
+            Self::Mutation(plan) => {
+                let after = &plan.after_hash().hex()[..16];
+                match plan.preimage() {
+                    super::Preimage::Absent => format!(
+                        "{} {} preimage=absent after={after}",
+                        plan.kind().tool(),
+                        plan.display()
+                    ),
+                    super::Preimage::Present { hash, .. } => format!(
+                        "{} {} preimage={} after={after}",
+                        plan.kind().tool(),
+                        plan.display(),
+                        &hash.hex()[..16]
+                    ),
+                }
+            }
+        }
+    }
+
+    /// The exact thing being asked for, and the key a grant matches.
     ///
     /// A command's key includes its working directory. Without it, approving
     /// `cat notes.md` in the workspace would also approve `cat notes.md` in a
@@ -289,6 +402,9 @@ pub enum AllowSource {
     ConfiguredRule,
     /// An approval the user already gave this session.
     SessionGrant,
+    /// A saved-session rule (`/permissions remember allow`) for exactly this
+    /// action.
+    SavedSessionRule,
     /// The user said yes, for this call.
     InteractiveOnce,
     /// The user said yes, for the rest of the session.
@@ -304,6 +420,9 @@ pub enum AllowSource {
 pub enum DenyCause {
     /// A configured deny rule matched.
     ConfiguredRule,
+    /// A saved-session rule (`/permissions remember deny`) for exactly this
+    /// action, or a store of them that could not be read.
+    SavedSessionRule,
     /// `ask` mode with nowhere to ask.
     NoApprovalChannel,
     /// The user said no.
@@ -603,10 +722,13 @@ impl LiveAuthority {
 /// authorities issued. Nothing outside this type can mint one.
 pub struct PermissionSession {
     mode: PermissionMode,
-    rules: PermissionRules,
+    rules: LiveRules,
     grants: Vec<Grant>,
     prompter: Option<Box<dyn ApprovalPrompter>>,
     ledger: AuthorityLedger,
+    /// The saved session's `permissions.json`, read at every decision, when
+    /// this session is recorded ([`super::session_rules`]).
+    session_rules: Option<std::path::PathBuf>,
     /// The durable session id an "always" answer will outlive this process in.
     ///
     /// `None` for a turn nothing is recording, where "always" really does mean
@@ -629,10 +751,11 @@ impl PermissionSession {
     pub fn new(mode: PermissionMode) -> Self {
         Self {
             mode,
-            rules: PermissionRules::default(),
+            rules: LiveRules::default(),
             grants: Vec::new(),
             prompter: None,
             ledger: AuthorityLedger::new(),
+            session_rules: None,
             durable_session: None,
             live: None,
             grants_epoch: 0,
@@ -658,10 +781,22 @@ impl PermissionSession {
         self
     }
 
-    /// The same session with configured rules.
-    pub fn with_rules(mut self, rules: PermissionRules) -> Self {
+    /// The same session, deciding with `rules` and nothing that edits them.
+    pub fn with_rules(mut self, rules: RuleSet) -> Self {
+        self.rules = LiveRules::new(rules);
+        self
+    }
+
+    /// The same session, deciding with whatever `rules` holds at the moment
+    /// of each decision ([`LiveRules`]).
+    pub fn with_live_rules(mut self, rules: LiveRules) -> Self {
         self.rules = rules;
         self
+    }
+
+    /// The configured table in force now.
+    pub fn rules(&self) -> Arc<RuleSet> {
+        self.rules.current()
     }
 
     /// The same session, recording its approvals into the durable session `id`.
@@ -674,6 +809,22 @@ impl PermissionSession {
     pub fn with_durable_session(mut self, id: impl Into<String>) -> Self {
         self.durable_session = Some(id.into());
         self
+    }
+
+    /// The same session, deciding with the saved-session rules at `path`
+    /// (`<session>/permissions.json`) as they stand at each decision -- read
+    /// afresh every time, as upstream's snapshot provider is
+    /// (`requestPermissionOutcome`, `tool_admission.zig:1279-1309`), so a rule
+    /// the person confirmed on another thread, or in another process, is in
+    /// force for the next call.
+    pub fn with_session_rules(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.session_rules = Some(path.into());
+        self
+    }
+
+    /// Where this session's saved-session rules are kept, when it has any.
+    pub fn session_rules_path(&self) -> Option<&std::path::Path> {
+        self.session_rules.as_deref()
     }
 
     /// What an "always" answer buys, in this session's terms.
@@ -785,6 +936,21 @@ impl PermissionSession {
     /// session grant, which outranks whatever the mode would have said -- so a
     /// user who wrote a rule is never overruled by a default.
     pub fn evaluate(&self, action: ProposedAction<'_>) -> PolicyDecision {
+        self.evaluate_with(action, None)
+    }
+
+    /// [`Self::evaluate`], with the saved-session rules `saved` holds.
+    ///
+    /// Still pure: the store is read by the caller. A saved rule is consulted
+    /// **after** a configured deny and **before** everything else, as upstream
+    /// consults its session state (`requestPermissionOutcomeResolved`,
+    /// `tool_admission.zig:1386-1428`): a remembered allow cannot beat a deny
+    /// the person configured, and a remembered deny beats any allow.
+    pub fn evaluate_with(
+        &self,
+        action: ProposedAction<'_>,
+        saved: Option<&super::session_rules::State>,
+    ) -> PolicyDecision {
         // Read once, so the two places below cannot see two different modes.
         let mode = self.mode();
         // `yolo` is documented as skipping policy, so it skips policy. Honoring
@@ -797,33 +963,77 @@ impl PermissionSession {
 
         let tool = action.tool();
         let target = action.target();
-
-        if self
-            .rules
-            .deny
-            .iter()
-            .any(|rule| rule.matches(tool, &target))
-        {
-            return PolicyDecision::Deny {
-                cause: DenyCause::ConfiguredRule,
-                reason: format!("a configured permission rule denies `{tool}` for `{target}`"),
-            };
-        }
-        if self
-            .rules
-            .allow
-            .iter()
-            .any(|rule| rule.matches(tool, &target))
-        {
-            return PolicyDecision::Allow {
-                source: AllowSource::ConfiguredRule,
-            };
-        }
-        if self
+        let granted = self
             .grants()
             .iter()
-            .any(|grant| grant.matches(tool, &target))
-        {
+            .any(|grant| grant.matches(tool, &target));
+
+        let verdict = self.rule_verdict(action, granted);
+        if let RuleVerdict::Denied(candidate) = verdict {
+            return PolicyDecision::Deny {
+                cause: DenyCause::ConfiguredRule,
+                reason: format!("a configured permission rule denies `{tool}` for `{candidate}`"),
+            };
+        }
+        if let Some(saved) = saved.filter(|saved| !saved.rules.is_empty()) {
+            use super::session_rules::Verdict;
+            // Fail closed: a store with rules in it, and an action that
+            // cannot say which of them is its, is not an action to let by.
+            let Some(key) = action.state_key() else {
+                return PolicyDecision::Deny {
+                    cause: DenyCause::SavedSessionRule,
+                    reason: format!(
+                        "`{tool}` for `{target}` cannot be matched against this session's saved permission rules"
+                    ),
+                };
+            };
+            match saved.decide(&key) {
+                Verdict::Deny => {
+                    return PolicyDecision::Deny {
+                        cause: DenyCause::SavedSessionRule,
+                        reason: format!(
+                            "a saved-session permission rule denies `{}`",
+                            action.state_display()
+                        ),
+                    }
+                }
+                Verdict::Allow => {
+                    return PolicyDecision::Allow {
+                        source: AllowSource::SavedSessionRule,
+                    }
+                }
+                Verdict::Unresolved => {}
+            }
+        }
+        match verdict {
+            RuleVerdict::Denied(_) => unreachable!("returned above"),
+            // In every mode but yolo, `auto` included: a rule that asks is the
+            // person saying they want to be asked, and no structural
+            // admission outranks that (`fileMutationTargetsContainConfiguredAsk`,
+            // `tool_admission.zig:645-661`; `configured_ask`, `:1430-1444`).
+            RuleVerdict::Ask => return PolicyDecision::Prompt,
+            RuleVerdict::Allowed { by_grant } => {
+                return PolicyDecision::Allow {
+                    source: if by_grant {
+                        AllowSource::SessionGrant
+                    } else {
+                        AllowSource::ConfiguredRule
+                    },
+                }
+            }
+            // Fail closed: a plan built without the targets its executor
+            // resolves would otherwise be judged by a spelling of them.
+            RuleVerdict::Unresolved => {
+                return PolicyDecision::Deny {
+                    cause: DenyCause::ConfiguredRule,
+                    reason: format!(
+                        "`{tool}` for `{target}` cannot be judged against the configured permission rules: its targets were not resolved"
+                    ),
+                }
+            }
+            RuleVerdict::Undecided => {}
+        }
+        if granted {
             return PolicyDecision::Allow {
                 source: AllowSource::SessionGrant,
             };
@@ -846,6 +1056,74 @@ impl PermissionSession {
         }
     }
 
+    /// What the configured table says about every target of `action`, with
+    /// `granted` -- an exact session grant for it -- covering a target a rule
+    /// asks about, as upstream's grants cover an `ask` (`:1393-1400`).
+    ///
+    /// **The grant covers the action's own target and nothing else**: an
+    /// exact "always" for `/w/a.txt` is not an answer about `.` or about a
+    /// directory the write creates, as upstream checks each target's grant
+    /// on its own (`decideFileTargetPolicy`, `permissions.zig:803-830`).
+    fn rule_verdict(&self, action: ProposedAction<'_>, granted: bool) -> RuleVerdict {
+        let rules = self.rules.current();
+        if rules.is_empty() {
+            return RuleVerdict::Undecided;
+        }
+        let (permission, rule_tool, candidates) = action.rule_subject();
+        let Some(candidates) = candidates else {
+            return RuleVerdict::Unresolved;
+        };
+        let mut ask = false;
+        let mut by_grant = false;
+        let mut decided = !candidates.is_empty();
+        for (index, candidate) in candidates.iter().enumerate() {
+            match rules.decide(permission, Some(rule_tool), candidate) {
+                Some(RuleAction::Deny) => {
+                    return RuleVerdict::Denied(String::from_utf8_lossy(candidate).into_owned())
+                }
+                Some(RuleAction::Allow) => {}
+                Some(RuleAction::Ask) if granted && index == 0 => by_grant = true,
+                Some(RuleAction::Ask) => ask = true,
+                None => decided = false,
+            }
+        }
+        if ask {
+            RuleVerdict::Ask
+        } else if decided {
+            RuleVerdict::Allowed { by_grant }
+        } else {
+            RuleVerdict::Undecided
+        }
+    }
+
+    /// Whether a read-only tool may read `candidate` -- the canonical path it
+    /// resolved, as [`super::rules::rule_path`] names it -- by the configured
+    /// table (`requestPermissionOutcomeResolved` for a tool with a permission
+    /// contract and no approval requirement, `tool_admission.zig:1386-1500`).
+    ///
+    /// Reading is free unless a rule says otherwise: a deny refuses, as
+    /// upstream's does. A rule that **asks** refuses too, with a reason that
+    /// names it, where upstream would put the question to the person: xfx has
+    /// no review for a read, and refusing is the side of that difference that
+    /// grants nothing upstream would not. `yolo` reads everything, as it
+    /// skips every other check.
+    pub fn judge_read(&self, tool: &str, candidate: &[u8]) -> Result<(), String> {
+        if self.mode() == PermissionMode::Yolo {
+            return Ok(());
+        }
+        let permission = super::rules::permission_name_for_tool(tool);
+        let shown = String::from_utf8_lossy(candidate);
+        match self.rules.current().decide(permission, Some(tool), candidate) {
+            Some(RuleAction::Deny) => Err(format!(
+                "a configured permission rule denies `{tool}` for `{shown}`"
+            )),
+            Some(RuleAction::Ask) => Err(format!(
+                "a configured permission rule asks before `{tool}` reads `{shown}`, and xfx does not ask about reads; change the rule to allow it"
+            )),
+            Some(RuleAction::Allow) | None => Ok(()),
+        }
+    }
+
     /// Evaluates `action` and, when a human is needed, asks one.
     ///
     /// Never returns [`PolicyDecision::Prompt`]: by the time this returns, the
@@ -857,7 +1135,27 @@ impl PermissionSession {
     /// no sentence to carry and says so with `feedback: None`.
     pub fn decide_with_feedback(&mut self, action: ProposedAction<'_>) -> Decided {
         self.sync_grants();
-        match self.evaluate(action) {
+        // The saved-session rules as they stand now. A store that cannot be
+        // read refuses the call, as upstream's failed snapshot fails it: a
+        // deny the person saved must not lapse because its file broke.
+        let saved = match &self.session_rules {
+            Some(path) if self.mode() != PermissionMode::Yolo => {
+                match super::session_rules::load(path) {
+                    Ok(state) => Some(state),
+                    Err(reason) => {
+                        return Decided {
+                            decision: PolicyDecision::Deny {
+                                cause: DenyCause::SavedSessionRule,
+                                reason,
+                            },
+                            feedback: None,
+                        }
+                    }
+                }
+            }
+            _ => None,
+        };
+        match self.evaluate_with(action, saved.as_ref()) {
             PolicyDecision::Prompt => self.ask(action),
             decision => Decided {
                 decision,
@@ -880,18 +1178,33 @@ impl PermissionSession {
             diff: action.diff(),
             subject: action.subject(),
         };
-        let Some(prompter) = self.prompter.as_mut() else {
-            // Nobody was asked, so nobody said anything.
+        if self.prompter.is_none() {
+            // Nobody was asked, so nobody said anything. Which question went
+            // unasked is named: a rule that asks is not `ask` mode, and
+            // `--auto` does not answer it.
+            let configured = self.mode() != PermissionMode::Ask
+                || self.rule_verdict(action, false) == RuleVerdict::Ask;
+            let reason = if configured {
+                format!(
+                    "a configured permission rule asks before `{tool}` on `{target}`, and this run has no approval channel; rerun in a terminal, or change the rule"
+                )
+            } else {
+                format!(
+                    "`ask` mode needs an interactive approval for `{tool}` on `{target}`, and this run has no approval channel; rerun in a terminal, or use --auto for bounded workspace changes"
+                )
+            };
             return Decided {
                 decision: PolicyDecision::Deny {
                     cause: DenyCause::NoApprovalChannel,
-                    reason: format!(
-                        "`ask` mode needs an interactive approval for `{tool}` on `{target}`, and this run has no approval channel; rerun in a terminal, or use --auto for bounded workspace changes"
-                    ),
+                    reason,
                 },
                 feedback: None,
             };
-        };
+        }
+        let prompter = self
+            .prompter
+            .as_mut()
+            .expect("a prompter was checked for above");
         match prompter.respond(&request) {
             Ok(ApprovalResponse { answer, feedback }) => {
                 let decision = match answer {
@@ -957,7 +1270,7 @@ impl fmt::Debug for PermissionSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PermissionSession")
             .field("mode", &self.mode())
-            .field("rules", &self.rules)
+            .field("rules", &self.rules.current())
             .field("grants", &self.grants())
             .field("has_prompter", &self.prompter.is_some())
             .field("ledger", &self.ledger)
@@ -992,6 +1305,7 @@ mod tests {
             Preimage::Absent,
             b"hello".to_vec(),
         )
+        .with_rule_targets(vec![b"a.txt".to_vec(), b".".to_vec()])
     }
 
     #[test]
@@ -1182,14 +1496,223 @@ mod tests {
         assert_eq!(session.grants().len(), 1);
     }
 
+    fn table(rules: &[(&str, &str, RuleAction)]) -> RuleSet {
+        RuleSet::new(
+            rules
+                .iter()
+                .map(|(permission, pattern, action)| {
+                    crate::permission::rules::ConfiguredRule::new(*permission, *pattern, *action)
+                })
+                .collect(),
+        )
+    }
+
+    /// A write to `display` under `/w`, judged at it and at its parent.
+    fn plan_at(display: &str) -> MutationPlan {
+        let parent = match std::path::Path::new(display).parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_string_lossy().into_owned(),
+            _ => ".".to_string(),
+        };
+        MutationPlan::new(
+            MutationKind::Write,
+            PathBuf::from("/w").join(display),
+            display.to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"hello".to_vec(),
+        )
+        .with_rule_targets(vec![display.as_bytes().to_vec(), parent.into_bytes()])
+    }
+
     #[test]
-    fn a_deny_rule_outranks_an_allow_rule_for_the_same_target() {
+    fn the_last_matching_rule_decides_between_an_allow_and_a_deny() {
+        use RuleAction::{Allow, Deny};
         let plan = write_plan(TargetScope::PrimaryWorkspace);
-        let session =
-            PermissionSession::new(PermissionMode::Auto).with_rules(PermissionRules::new(
-                vec![Rule::new("write_file", "/w/a.txt")],
-                vec![Rule::new("write_file", "/w/a.txt")],
-            ));
+        let deny_last = PermissionSession::new(PermissionMode::Auto)
+            .with_rules(table(&[("edit", "*", Allow), ("edit", "a.txt", Deny)]));
+        assert!(matches!(
+            deny_last.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Deny {
+                cause: DenyCause::ConfiguredRule,
+                ref reason,
+            } if reason == "a configured permission rule denies `write_file` for `a.txt`"
+        ));
+        let allow_last = PermissionSession::new(PermissionMode::Ask)
+            .with_rules(table(&[("edit", "a.txt", Deny), ("edit", "*", Allow)]));
+        assert_eq!(
+            allow_last.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::ConfiguredRule
+            }
+        );
+    }
+
+    #[test]
+    fn a_rule_for_a_different_tool_does_not_apply() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let session = PermissionSession::new(PermissionMode::Ask).with_rules(table(&[(
+            "edit_file",
+            "*",
+            RuleAction::Allow,
+        )]));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+    }
+
+    #[test]
+    fn a_deny_on_the_directory_a_file_is_in_stops_the_write() {
+        // Every target of the change is judged (`decideFileTargetPolicy`):
+        // a rule about `secret` is about what goes into it.
+        let plan = plan_at("secret/a.txt");
+        let session = PermissionSession::new(PermissionMode::Yolo).with_rules(table(&[(
+            "edit",
+            "secret",
+            RuleAction::Deny,
+        )]));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::Yolo
+            },
+            "yolo consults no rule"
+        );
+        let asking = PermissionSession::new(PermissionMode::Ask).with_rules(table(&[(
+            "edit",
+            "secret",
+            RuleAction::Deny,
+        )]));
+        assert!(matches!(
+            asking.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Deny { ref reason, .. } if reason.ends_with("for `secret`")
+        ));
+    }
+
+    #[test]
+    fn an_allow_that_misses_one_target_leaves_the_decision_to_the_mode() {
+        let plan = plan_at("a.txt");
+        let rules = table(&[("edit", "a.txt", RuleAction::Allow)]);
+        // The parent, `.`, is not covered: `ask` asks, `auto` admits by
+        // structure, and neither is credited to the rule.
+        assert_eq!(
+            PermissionSession::new(PermissionMode::Ask)
+                .with_rules(rules.clone())
+                .evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+        assert_eq!(
+            PermissionSession::new(PermissionMode::Auto)
+                .with_rules(rules)
+                .evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::AutoMode
+            }
+        );
+        let tree = PermissionSession::new(PermissionMode::Ask).with_rules(table(&[(
+            "edit",
+            "*",
+            RuleAction::Allow,
+        )]));
+        assert_eq!(
+            tree.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::ConfiguredRule
+            }
+        );
+    }
+
+    #[test]
+    fn a_rule_that_asks_is_asked_in_auto_mode_and_an_exact_grant_does_not_silence_it_everywhere() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let mut session = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
+            "edit",
+            "*",
+            RuleAction::Ask,
+        )]));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+        // The rule also asks about `.`, which an "always" for the file is not
+        // an answer about: the question is put again.
+        session.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+    }
+
+    #[test]
+    fn an_exact_grant_answers_an_ask_about_its_own_target_and_not_about_the_directory() {
+        // A grant for `/w/a.txt` is not an answer about `.`: upstream checks
+        // each target's grant on its own, and an exact file grant never
+        // matches the parent (`decideFileTargetPolicy`).
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let mut parent_asks = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
+            "edit",
+            ".",
+            RuleAction::Ask,
+        )]));
+        parent_asks.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(
+            parent_asks.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+        let mut file_asks = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[
+            ("edit", "a.txt", RuleAction::Ask),
+            ("edit", ".", RuleAction::Allow),
+        ]));
+        file_asks.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(
+            file_asks.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::SessionGrant
+            }
+        );
+    }
+
+    #[test]
+    fn a_change_with_no_resolved_targets_is_refused_rather_than_judged_by_its_name() {
+        let unresolved = MutationPlan::new(
+            MutationKind::Write,
+            PathBuf::from("/w/a.txt"),
+            "a.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"hello".to_vec(),
+        );
+        let ruled = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
+            "edit",
+            "*",
+            RuleAction::Allow,
+        )]));
+        assert!(matches!(
+            ruled.evaluate(ProposedAction::Mutation(&unresolved)),
+            PolicyDecision::Deny {
+                cause: DenyCause::ConfiguredRule,
+                ref reason,
+            } if reason.ends_with("its targets were not resolved")
+        ));
+        // With no table there is nothing to judge, and the mode decides.
+        assert_eq!(
+            PermissionSession::new(PermissionMode::Auto)
+                .evaluate(ProposedAction::Mutation(&unresolved)),
+            PolicyDecision::Allow {
+                source: AllowSource::AutoMode
+            }
+        );
+    }
+
+    #[test]
+    fn a_deny_rule_outranks_a_session_grant() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let mut session = PermissionSession::new(PermissionMode::Ask).with_rules(table(&[(
+            "*",
+            "*",
+            RuleAction::Deny,
+        )]));
+        session.grant(Grant::new("write_file", "/w/a.txt"));
         assert!(matches!(
             session.evaluate(ProposedAction::Mutation(&plan)),
             PolicyDecision::Deny {
@@ -1200,16 +1723,82 @@ mod tests {
     }
 
     #[test]
-    fn a_rule_for_a_different_tool_does_not_apply() {
+    fn a_rule_that_asks_with_nobody_to_ask_says_it_was_the_rule() {
         let plan = write_plan(TargetScope::PrimaryWorkspace);
-        let session = PermissionSession::new(PermissionMode::Ask).with_rules(PermissionRules::new(
-            vec![Rule::new("edit_file", "/w/a.txt")],
-            Vec::new(),
+        let mut session = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
+            "edit",
+            "*",
+            RuleAction::Ask,
+        )]));
+        let Decided { decision, .. } =
+            session.decide_with_feedback(ProposedAction::Mutation(&plan));
+        let PolicyDecision::Deny { cause, reason } = decision else {
+            panic!("an unanswerable question is a no");
+        };
+        assert_eq!(cause, DenyCause::NoApprovalChannel);
+        assert!(
+            reason.starts_with("a configured permission rule asks before `write_file`"),
+            "{reason}"
+        );
+        let mut plain = PermissionSession::new(PermissionMode::Ask);
+        let Decided { decision, .. } = plain.decide_with_feedback(ProposedAction::Mutation(&plan));
+        assert!(matches!(
+            decision,
+            PolicyDecision::Deny { ref reason, .. } if reason.starts_with("`ask` mode needs")
         ));
+    }
+
+    #[test]
+    fn a_live_table_decides_the_next_action_of_a_session_already_in_use() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let live = LiveRules::default();
+        let session = PermissionSession::new(PermissionMode::Ask).with_live_rules(live.clone());
         assert_eq!(
             session.evaluate(ProposedAction::Mutation(&plan)),
             PolicyDecision::Prompt
         );
+        live.replace(table(&[("edit", "*", RuleAction::Allow)]));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::ConfiguredRule
+            }
+        );
+        assert_eq!(session.rules().rules().len(), 1);
+        live.replace(RuleSet::default());
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+    }
+
+    #[test]
+    fn a_read_is_free_unless_a_rule_denies_or_asks_and_yolo_reads_everything() {
+        let session = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[
+            ("read", "secrets/*", RuleAction::Deny),
+            ("grep", "*", RuleAction::Ask),
+            ("read", "secrets/ok", RuleAction::Allow),
+        ]));
+        assert_eq!(session.judge_read("read_file", b"notes.md"), Ok(()));
+        assert_eq!(
+            session.judge_read("read_file", b"secrets/key"),
+            Err("a configured permission rule denies `read_file` for `secrets/key`".to_string())
+        );
+        // The last match wins for reads too.
+        assert_eq!(session.judge_read("read_file", b"secrets/ok"), Ok(()));
+        let asked = session.judge_read("grep_files", b".").unwrap_err();
+        assert!(
+            asked.contains("asks before `grep_files` reads `.`"),
+            "{asked}"
+        );
+        // A read rule is not a glob rule: `list_files` is judged as `glob`.
+        assert_eq!(session.judge_read("list_files", b"secrets"), Ok(()));
+        let yolo = PermissionSession::new(PermissionMode::Yolo).with_rules(table(&[(
+            "*",
+            "*",
+            RuleAction::Deny,
+        )]));
+        assert_eq!(yolo.judge_read("read_file", b"secrets/key"), Ok(()));
     }
 
     #[test]

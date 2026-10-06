@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mhello[0m
+
+  Hello.
+
+[38;5;245m  0s (↑2 ↓40)[39m
+
+[38;5;250m* permissions: saved-session permission rule updated[39m
+
+[38;5;250m* permissions: mode=auto[39m
+  [38;5;250mconfigured rules: (none)[39m
+  [38;5;250msession grants: (none)[39m
+  [38;5;250musage: /permissions [ask|auto|full-access|reset][39m
+  [38;5;250m       /permissions remember <allow|deny> <tool-name> <arguments-json>[39m
+  [38;5;250m       /permissions revoke <rule-id>[39m
+
+[38;5;250m* permissions: saved-session permission rules (1):[39m
+  [38;5;250m1 deny write_file b.txt preimage=absent after=a1fce4363854ff88[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

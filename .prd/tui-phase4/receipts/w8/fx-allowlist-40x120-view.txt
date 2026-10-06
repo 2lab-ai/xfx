@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* allowlist: effective persistent allow rules: (none)
+
+* allowlist: effective persistent allow rules: (none)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
