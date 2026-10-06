@@ -66,23 +66,30 @@ Each of these is pinned by a test named in the report rather than by a screen.
   `ask` too (`tools::mutate::tests::undo_asks_no_question_even_in_ask_mode`). The structural rules of
   a write hold: the target is located again from the conversation's scope, read without following a
   link, staged and renamed in its own directory with its mode kept, or unlinked there; a directory on
-  the path that has gone is not made again (fx: `change_tracker.zig:353-377`).
+  the path that has gone is not made again (fx: `change_tracker.zig:399-423`).
 - **Stricter than fx: the read-proof rule.** fx restores over whatever is at the path
-  (`change_tracker.zig:53-81`; its test replaces a symbolic link with the preimage, `:453-485`). xfx
+  (`change_tracker.zig:53-81`; its test replaces a symbolic link with the preimage, `:501-537`). xfx
   refuses, with fx's own `Could not undo <path>`, when the file is no longer what the change left there
   or what the session last read -- the rule every xfx write obeys -- and leaves the file as it is; the
   change is spent either way, as fx spends it.
 - **Mid-turn.** fx's `/undo` runs at once whatever its worker is doing. xfx's is a control message to
   the runtime thread, done at once between turns and, typed while a turn runs, the moment that turn has
-  said its last word (`tests/tui.rs` `an_undo_typed_while_a_turn_runs_is_done_when_the_turn_is_over`).
-  Never refused, never queued. One typed after a `/new` the runtime has not reached yet is answered
-  for the fresh conversation; its answer is never dropped by a reset's drain.
+  said its last word -- never between one call's commit and the next call's read. **What it takes back
+  is pinned at the keystroke**: the band sends the journal's position then (`Mark::now`), and the
+  runtime takes back the newest change at or before it, so a change the turn commits afterwards stays
+  for the next `/undo`, as it would on fx; if that later change touched the same file, the answer is
+  `Could not undo <path>` and the file is left as the later change made it (`tests/tui.rs`
+  `an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn_is_over`,
+  `a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back`,
+  `an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back`). Never refused,
+  never queued. One typed after a `/new` the runtime has not reached yet is answered for the fresh
+  conversation; its answer is never dropped by a reset's drain.
 - **Provider switch.** xfx drops the conversation on a provider switch (its history cannot be replayed
   into another wire format), and the journal with it; fx's `/provider` keeps its session and tracker.
 - **Byte bound.** fx keeps 100 entries whatever their size; xfx also drops the oldest past 64 MiB of
   preimage, always keeping the newest.
 - **Hostile names.** fx spells a control byte in the path as text (`name\x1b]2;FX_PWN\x07\x0afile.txt`,
-  `tests/e2e/tui-permissions.test.ts:1949-1980`); xfx spells it the same way, and a byte that is not
+  `tests/e2e/tui-permissions.test.ts:1941-1982`); xfx spells it the same way, and a byte that is not
   UTF-8 as `\xNN` (`terminalSafeToken`, `text_utils.zig:560-584`). Not captured (the harness writes
   through tmux), pinned by `tools::undo::tests::a_hostile_name_is_spelled_out_as_upstream_spells_it`.
 
