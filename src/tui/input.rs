@@ -146,6 +146,15 @@ pub(crate) enum Action {
     /// a tab typed at a bare prompt is a keystroke this session has no binding
     /// for rather than a character.
     Tab,
+    /// Shift-Tab: `CSI Z`, `CSI 1;<modifiers> Z`, and kitty's `CSI 9;2u`.
+    ///
+    /// Upstream decodes all three to one action, `toggle_permission_mode`
+    /// (`escape_parser.zig` at `c1db919`, :254, :569, :723-725), and lets an
+    /// open catalog have it first: the `/help` catalog's previous tab
+    /// (`app_input_runtime.zig:1175-1177`, `super::help_menu`). Named for the
+    /// key rather than for that fallback because xfx has no permission-mode
+    /// toggle -- with no catalog up it does nothing, as [`Action::Tab`] does.
+    BackTab,
     /// The line before this one, out of what the session has submitted.
     ///
     /// `C-p`, and the `Up` arrow when the caret has no row above it -- but the
@@ -767,6 +776,14 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
         }
         // Kitty's spelling of a key report.
         b'u' => report(params),
+        // Shift-Tab, bare or with a modifier (`escape_parser.zig:569`,
+        // `:723-725`): upstream reads any modifier as the same key, and a
+        // modifier field of `1` -- none at all -- is not a spelling it has.
+        b'Z' => match modifier(params) {
+            Some(1) if params.is_empty() => Input::Action(Action::BackTab),
+            Some(mask) if mask > 1 => Input::Action(Action::BackTab),
+            _ => Input::Action(Action::Ignore),
+        },
         _ => Input::Action(Action::Ignore),
     }
 }
@@ -955,8 +972,9 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 /// `select_all` (:223-225), `copy_selection` (:226-228), `cut_selection`
 /// (:229-231), every `composerMove` that extends a selection (:238-241, :244,
 /// :248), `delete_word_right` (:178, :251), `toggle_full_transcript`
-/// (:111-114, :252), `open_all_sessions` (:253), `toggle_permission_mode`
-/// (:254), and the page keys with or without a modifier (:169-173). Upstream's
+/// (:111-114, :252), `open_all_sessions` (:253), and the page keys with or
+/// without a modifier (:169-173). `toggle_permission_mode` (:254) is
+/// [`Action::BackTab`], the key it is spelled with. Upstream's
 /// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
 /// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
 /// so it is always `false` here and its branches are not carried.
@@ -1048,13 +1066,13 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         });
     }
     // `delete_word_right` (:251), `toggle_full_transcript` or nothing (:252),
-    // `open_all_sessions` (:253), `toggle_permission_mode` (:254).
-    if (is(b'd') && mods & ALT != 0)
-        || is(b'o')
-        || (is(b'r') && mods & SUPER != 0)
-        || (code == 9 && mods & SHIFT != 0)
-    {
+    // `open_all_sessions` (:253).
+    if (is(b'd') && mods & ALT != 0) || is(b'o') || (is(b'r') && mods & SUPER != 0) {
         return ignore;
+    }
+    // `toggle_permission_mode` (:254): Tab with Shift, whatever else is held.
+    if code == 9 && mods & SHIFT != 0 {
+        return Input::Action(Action::BackTab);
     }
     // Ctrl and a letter or `_` is that key's control byte (:255-259); the
     // low five bits are the arithmetic upstream spells as `- 96` and `- 64`.
@@ -1399,8 +1417,8 @@ mod tests {
         ("down", b"\x1b[B", Action::Down),
         ("left", b"\x1b[D", Action::Left),
         ("right", b"\x1b[C", Action::Right),
-        // `toggle_permission_mode` (:254), which xfx has no key for.
-        ("shift+tab", b"\x1b[9;2u", Action::Ignore),
+        // `toggle_permission_mode` (:254), which is Shift-Tab's action.
+        ("shift+tab", b"\x1b[9;2u", Action::BackTab),
         ("super+z", b"\x1b[122;9u", Action::Undo),
         ("super+shift+z", b"\x1b[122;10u", Action::Redo),
         ("ctrl+b", b"\x1b[98;5u", Action::Left),
@@ -1614,7 +1632,6 @@ mod tests {
             (b"\x1b[100;7u", "delete_word_right ahead of Ctrl-D :251"),
             (b"\x1b[111;5u", "toggle_full_transcript :252,:111-114"),
             (b"\x1b[114;9u", "open_all_sessions :253"),
-            (b"\x1b[9;2u", "toggle_permission_mode :254"),
             (b"\x1b[57421u", "page_up :169-173"),
             (b"\x1b[57422;5u", "composerMove page_down :171"),
             (b"\x1b[57426;5u", "delete_word_right :178"),
@@ -1729,6 +1746,35 @@ mod tests {
                 "{sequence:?} did not decode to one redo"
             );
         }
+    }
+
+    #[test]
+    fn shift_tab_is_one_key_in_all_three_spellings() {
+        // `escape_parser.zig` at `c1db919`: `CSI Z` (:569), `CSI 1;<m> Z` with
+        // a modifier (:723-725), and kitty's Tab with Shift (:254).
+        for bytes in [
+            &b"\x1b[Z"[..],
+            b"\x1b[1;2Z",
+            b"\x1b[1;6Z",
+            b"\x1b[9;2u",
+            b"\x1b[9;6u",
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::BackTab)],
+                "{bytes:?}"
+            );
+        }
+        // A modifier field that says "no modifier" is not a spelling upstream
+        // has, and a parameter that is not a modifier is not Shift-Tab.
+        for bytes in [&b"\x1b[1;1Z"[..], b"\x1b[2Z", b"\x1b[1;Z"] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::Ignore)],
+                "{bytes:?}"
+            );
+        }
+        assert_eq!(decode(b"\x1b[9u"), vec![Input::Action(Action::Tab)]);
     }
 
     #[test]

@@ -620,6 +620,7 @@ mod fault;
 mod frame;
 mod gesture;
 mod grid;
+mod help_menu;
 mod hint;
 mod history;
 mod input;

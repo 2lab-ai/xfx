@@ -83,6 +83,7 @@ use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
+use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
@@ -630,6 +631,18 @@ pub(crate) struct Shell {
     /// it is for is that the *next* keystroke does not re-open what Escape just
     /// closed.
     dismissed: Dismissed,
+    /// The `/help` catalog, while it is up ([`super::help_menu`]).
+    ///
+    /// The third occupant of the band's elastic slot, and like the completion
+    /// menu a view of the composer rather than a focus: what is typed goes on
+    /// going into the composer and is the catalog's search. The two are
+    /// mutually exclusive by construction -- [`Self::reconcile_picker`] opens
+    /// no completion menu while this is `Some`, and `/help` closes the menu
+    /// before it opens this. A question is not excluded: it outranks the
+    /// catalog in [`Self::slot`] and takes the keys while it is up, and the
+    /// catalog is back when it has been answered, as upstream's is
+    /// (`surface_frame.zig:401`, `!modal_active`).
+    help_menu: Option<HelpMenu>,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -844,6 +857,9 @@ enum Slot<'a> {
     /// **not** the same thing: it grants nothing and its answer is text
     /// ([`super::question`]).
     Ask(&'a QuestionPanel),
+    /// The `/help` catalog. Like the menu it owns nothing but rows, and the
+    /// composer is its search.
+    Catalog(&'a HelpMenu),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -927,6 +943,7 @@ impl Shell {
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
+            help_menu: None,
             activity_row: None,
             clearing: false,
             markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
@@ -1005,6 +1022,12 @@ impl Shell {
             let mut panel = match self.slot() {
                 Some(Slot::Question(panel)) => panel.rows(self.geometry.cols, self.geometry.rows),
                 Some(Slot::Ask(ask)) => ask.rows(self.geometry.cols, self.geometry.rows),
+                // In the rows the geometry gave it, which are the rows its own
+                // height asked for: one layout answers both
+                // (`composeHelpMenuRow` is handed `menuRowCount`'s answer).
+                Some(Slot::Catalog(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
@@ -1037,6 +1060,12 @@ impl Shell {
             Some(Slot::Menu(_)) => self.painted(
                 self.palette.dim(),
                 picker::key_help(self.geometry.cols).to_string(),
+            ),
+            // The catalog's own key help, in the same dim grey
+            // (`composeHelpMenuHintRow`, `input_presentation.zig:696-721`).
+            Some(Slot::Catalog(_)) => self.painted(
+                self.palette.dim(),
+                help_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -1179,6 +1208,9 @@ impl Shell {
         }
         if let Some(ask) = self.ask.as_ref() {
             return Some(Slot::Ask(ask));
+        }
+        if let Some(menu) = self.help_menu.as_ref() {
+            return Some(Slot::Catalog(menu));
         }
         self.picker.as_ref().map(Slot::Menu)
     }
@@ -1863,6 +1895,110 @@ impl Shell {
         }
     }
 
+    /// Offers one keystroke to the `/help` catalog, and says whether it was
+    /// taken.
+    ///
+    /// The six keys [`HelpAction::of`] names, and nothing else: a letter, a
+    /// Backspace or a C-u is an edit of the search and goes on to the composer
+    /// with the catalog still up. The arrows **wrap** here, which the resume
+    /// picker upstream does not; Tab and Shift-Tab change the tab, and with it
+    /// the catalog's height, so the band is re-solved rather than repainted.
+    fn offer_to_catalog(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = HelpAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.help_menu.as_mut() else {
+            return false;
+        };
+        match request {
+            HelpAction::Up | HelpAction::Down => {
+                // The window a move scrolls against is the one on the screen:
+                // the rows the geometry gave the catalog.
+                let visible = menu.visible_items(self.geometry.panel);
+                if menu.step(request == HelpAction::Down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+                true
+            }
+            HelpAction::NextCategory | HelpAction::PreviousCategory => {
+                menu.cycle(request == HelpAction::NextCategory);
+                self.refit();
+                self.render.request(Reason::Modal);
+                true
+            }
+            HelpAction::Close => {
+                self.close_catalog(true);
+                true
+            }
+            HelpAction::Open => self.open_from_catalog(),
+        }
+    }
+
+    /// Enter, while the catalog is up (`submitHelpMenuSelection`,
+    /// `app_input_runtime.zig:2732-2762`), and whether the keystroke was spent.
+    ///
+    /// Three answers, in upstream's order:
+    ///
+    /// * **The composer already names a command** ([`help_menu::names_exactly`]):
+    ///   the catalog closes and the Return goes on to submit the line as typed
+    ///   -- `/version` typed into the search runs `/version`, whatever row the
+    ///   search left marked.
+    /// * **The marked command takes an argument**: it goes in the composer with
+    ///   the space after it, the catalog closes, and nothing runs -- the next
+    ///   thing typed is the argument.
+    /// * **Otherwise** the marked command replaces the search and the Return
+    ///   goes on to run it, as the completion menu's does
+    ///   ([`PickerOutcome::Run`]).
+    ///
+    /// With nothing listed -- an empty tab, a search that found nothing -- the
+    /// Return is spent and nothing happens.
+    fn open_from_catalog(&mut self) -> bool {
+        if help_menu::names_exactly(self.editor.text()) {
+            self.close_catalog(false);
+            return false;
+        }
+        let Some(spec) = self.help_menu.as_ref().and_then(HelpMenu::selected) else {
+            return true;
+        };
+        self.close_catalog(false);
+        if spec.has_args {
+            // Not a slash word any more once the space is in it, so no
+            // completion menu opens for it.
+            self.replace_word(&picker::completed(spec.name));
+            return true;
+        }
+        // Dismissed before the name is written, so the name does not open a
+        // completion menu of its own on the way to being submitted.
+        self.dismissed.dismiss(Trigger::Slash);
+        self.replace_word(spec.name);
+        false
+    }
+
+    /// Takes the catalog down, and its search with it when `clear_query`
+    /// (`closeHelpMenu`, `app_input_runtime.zig:2314-2322`).
+    ///
+    /// Escape clears it: the search was the catalog's, and a composer left
+    /// holding `ses` after the catalog that used it is gone would be a draft
+    /// the user never meant to type. Enter does not, because what Enter does
+    /// next is put a command where the search was or submit it as it stands.
+    fn close_catalog(&mut self, clear_query: bool) {
+        if self.help_menu.take().is_none() {
+            return;
+        }
+        if clear_query && !self.editor.is_empty() {
+            // Through the one funnel every whole-draft disposal takes, which
+            // re-solves the band for the rows the catalog gave back.
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
     /// Offers one keystroke to the completion menu, and says whether it was
     /// taken.
     ///
@@ -1975,6 +2111,16 @@ impl Shell {
     /// no path that changes the draft without coming through here, and none
     /// that changes the menu without the draft having changed.
     fn reconcile_picker(&mut self) {
+        // **While the catalog is up the draft is its search, not a command
+        // being typed**, so no completion menu opens for it -- `/version`
+        // typed into the catalog narrows the catalog to one row
+        // (`app_input_runtime.zig:2935-2938`, `syncHelpMenu`) -- and the
+        // dismissal is left exactly as it was for when the catalog closes.
+        if let Some(menu) = self.help_menu.as_mut() {
+            menu.set_query(self.editor.text());
+            self.picker = None;
+            return;
+        }
         if !self.dismissed.admits(Trigger::of(self.editor.text())) {
             self.picker = None;
             return;
@@ -2917,10 +3063,14 @@ impl Shell {
                 self.decide(event, now);
                 continue;
             }
-            // And the completion menu takes the five keys it binds, before the
-            // editor and before the gestures see them. Everything else falls
-            // through with the menu still up, because a menu is a view of the
-            // draft and typing is what the draft is made of.
+            // And the catalog or the completion menu -- never both -- takes
+            // the keys it binds, before the editor and before the gestures see
+            // them. Everything else falls through with it still up, because
+            // each is a view of the draft and typing is what the draft is made
+            // of.
+            if self.offer_to_catalog(&event) {
+                continue;
+            }
             if self.offer_to_picker(&event) {
                 continue;
             }
@@ -3199,7 +3349,7 @@ impl Shell {
                     self.amended(delta);
                 }
             }
-            Action::Tab | Action::Ignore => {}
+            Action::Tab | Action::BackTab | Action::Ignore => {}
         }
     }
 
@@ -3676,10 +3826,22 @@ impl Shell {
 /// rather than under one, and because `/setup` and a bare `/model` open a
 /// socket the thread holding the terminal must never wait on.
 impl CommandHandlers for Shell {
+    /// Opens the catalog (`commandShowHelp`, `app_commands.zig:700-706`):
+    /// `All`, the first command marked, the composer -- emptied by the submit
+    /// that got here -- as its search.
+    ///
+    /// **Nothing is written to the document**: the catalog is the answer, and
+    /// it is in the band. The line-oriented shell keeps its page
+    /// ([`interactive::help_text`]); it has no band to put a catalog in.
     fn help(&mut self) {
-        for line in interactive::help_text().lines() {
-            self.say(line.to_string());
-        }
+        // The completion menu goes first: the two share the slot, and the
+        // catalog is what the user asked for.
+        self.picker = None;
+        self.help_menu = Some(HelpMenu::open(self.editor.text()));
+        // [`Self::run_command`] re-solved the band before routing here, for
+        // a band with no catalog in it.
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     fn new_session(&mut self) {
@@ -4059,11 +4221,21 @@ impl Shell {
         // completion menu -- is taking, asked of the screen in question because
         // a narrower one wraps the summary onto more of them and a shorter one
         // shows fewer matches.
-        let panel = match self.slot() {
+        //
+        // The catalog's is a function of the composer's height as well
+        // (`inlinePickerRowBudgetCapped`'s `input_extra`), so it is asked
+        // again for each composer height the search below tries; every other
+        // occupant's is asked once.
+        let slot = self.slot();
+        let fixed = match slot {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
-            None => 0,
+            Some(Slot::Catalog(_)) | None => 0,
+        };
+        let panel = |input_rows: u16| match slot {
+            Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            _ => fixed,
         };
         // **The composer gives way to the question, one row at a time.** A
         // panel and a tall draft together can want more rows than the screen
@@ -4076,7 +4248,9 @@ impl Shell {
         // question asked of a one-row composer.
         (1..=wanted)
             .rev()
-            .find_map(|input_rows| layout::solve_band(rows, cols, input_rows, activity, panel))
+            .find_map(|input_rows| {
+                layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+            })
             .map(|geometry| geometry.floated(self.document_rows))
     }
 
@@ -8829,9 +9003,14 @@ mod tests {
                 "{name} was not echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row; every other one says something under its card.
+            // a row, and `/help` the one whose answer is the catalog in the
+            // band; every other one says something under its card.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
+            } else if *name == "/help" {
+                assert!(shell.help_menu.is_some(), "/help opened no catalog");
+                assert_eq!(document, card(name), "/help wrote to the document");
+                assert!(!shell.leaving(), "{name} ended the session");
             } else {
                 assert!(
                     document.len() > card(name).len(),
@@ -10166,6 +10345,236 @@ mod tests {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // the /help catalog
+    // -----------------------------------------------------------------------
+
+    /// A session with the catalog up, the way a user gets one: `/help` typed,
+    /// the completion menu running it on the Return.
+    fn with_catalog(rows: u16, cols: u16) -> Fixture {
+        let mut shell = shell(rows, cols);
+        shell.route_bytes(b"/help\r");
+        let _echo = shell.document();
+        assert!(shell.help_menu.is_some(), "/help did not open the catalog");
+        shell
+    }
+
+    /// A band row's text with every sequence taken out, the bold included.
+    fn visible_text(row: &str) -> String {
+        let mut out = String::new();
+        let mut rest = row;
+        while !rest.is_empty() {
+            if let Some(len) = super::super::pacer::escape_at(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            let mut characters = rest.chars();
+            out.extend(characters.next());
+            rest = characters.as_str();
+        }
+        out
+    }
+
+    /// The catalog's key help as the hint row paints it on a 120-column screen.
+    fn catalog_key_help() -> String {
+        format!(
+            "{}\u{2191}\u{2193} navigate     tab category     enter open     esc close{}",
+            PALETTE.dim(),
+            PALETTE.reset()
+        )
+    }
+
+    #[test]
+    fn help_opens_the_catalog_in_the_band_and_writes_nothing_to_the_document() {
+        let mut shell = shell(40, 120);
+        // The handler alone: what the document gets for the submitted line is
+        // the submit's business, and `/help`'s own answer is the band.
+        shell.help();
+        assert!(shell.document().is_empty(), "/help wrote to the document");
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 2 + crate::interactive::SLASH_REGISTRY.len());
+        assert_eq!(usize::from(shell.geometry.panel), rows.len());
+        assert!(
+            visible_text(&rows[0]).starts_with("Commands 7  [All]  General  Session"),
+            "{rows:?}"
+        );
+        assert_eq!(rows[1], "", "the blank row under the header");
+        assert_eq!(
+            rows[2],
+            format!(
+                "  {bright}/help{reset}       {bright}show available slash commands{reset}",
+                bright = PALETTE.subtitle(),
+                reset = PALETTE.reset()
+            )
+        );
+        assert_eq!(
+            rows[2..]
+                .iter()
+                .map(|row| visible_text(row)
+                    .split_whitespace()
+                    .next()
+                    .map(str::to_string))
+                .collect::<Vec<_>>(),
+            ["/help", "/clear", "/version", "/quit", "/new", "/setup", "/model"]
+                .map(|name| Some(name.to_string()))
+        );
+        assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
+        // The caret stays in the composer: the catalog is a view of it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS),
+            "the catalog took the caret"
+        );
+    }
+
+    #[test]
+    fn a_slash_word_typed_into_the_catalog_is_its_search_and_opens_no_menu() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"/version");
+        assert!(
+            shell.picker.is_none(),
+            "the completion menu opened over the catalog"
+        );
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 3, "{rows:?}");
+        assert!(visible_text(&rows[0]).starts_with("Commands 1  [All]"));
+        assert_eq!(
+            visible_text(&rows[2]),
+            "  /version    show the xfx version",
+            "the summary column is the filtered list's, 2 + 8 + 4"
+        );
+        assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
+    }
+
+    #[test]
+    fn enter_on_a_command_typed_in_full_runs_it_whatever_the_list_says() {
+        // On the Session tab `/exit` finds nothing -- but it is a name, so
+        // Enter submits it as typed before it asks the list anything.
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\t\t/exit");
+        let rows = menu(&shell);
+        assert!(visible_text(&rows[0]).contains("[Session]"), "{rows:?}");
+        assert_eq!(
+            rows[2],
+            format!("{}No commands found.{}", PALETTE.dim(), PALETTE.reset())
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_none());
+        assert!(shell.leaving(), "the typed command was not run");
+    }
+
+    #[test]
+    fn enter_on_a_row_runs_its_command_in_one_return() {
+        // `/quit` is the fourth row of `All`: three Downs and a Return.
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B");
+        assert!(
+            menu(&shell)[5].starts_with(&format!("  {}/quit", PALETTE.subtitle())),
+            "{:?}",
+            menu(&shell)
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_none());
+        assert!(shell.leaving(), "the marked command was not run");
+        assert_eq!(shell.editor.text(), "");
+    }
+
+    #[test]
+    fn enter_on_a_command_that_takes_an_argument_leaves_room_for_it_and_runs_nothing() {
+        // Account's one command is `/setup`.
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\t\t\t");
+        assert!(visible_text(&menu(&shell)[2]).starts_with("  /setup"));
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_none());
+        assert_eq!(shell.editor.text(), "/setup ");
+        assert!(shell.picker.is_none(), "a word with a space opened a menu");
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.document().is_empty(), "something ran");
+        assert!(shell.sent.try_recv().is_err(), "something was sent");
+    }
+
+    #[test]
+    fn enter_on_an_empty_tab_does_nothing() {
+        let mut shell = with_catalog(40, 120);
+        // Agents, the ninth tab after `All`.
+        shell.route_bytes(b"\t\t\t\t\t\t\t\t\t");
+        let rows = menu(&shell);
+        assert!(visible_text(&rows[0]).starts_with("Commands 0"), "{rows:?}");
+        assert!(visible_text(&rows[0]).contains("[Agents]"), "{rows:?}");
+        assert_eq!(shell.geometry.panel, 3);
+        shell.route_bytes(b"\r");
+        assert!(shell.help_menu.is_some(), "an empty tab's Return closed it");
+        assert!(!shell.leaving());
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn up_and_down_wrap_and_tab_and_shift_tab_resize_the_catalog() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"\x1b[A");
+        let rows = menu(&shell);
+        assert!(
+            rows[8].starts_with(&format!("  {}/model", PALETTE.subtitle())),
+            "Up from the first row is the last: {rows:?}"
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(menu(&shell)[2].starts_with(&format!("  {}/help", PALETTE.subtitle())));
+        // General is four commands, and the band gives the rows back.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.geometry.panel, 2 + 4);
+        assert_eq!(menu(&shell).len(), 6);
+        // Shift-Tab, as a terminal spells it, is back to `All`.
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(shell.geometry.panel, 2 + 7);
+        assert!(visible_text(&menu(&shell)[0]).starts_with("Commands 7  [All]"));
+    }
+
+    #[test]
+    fn escape_closes_the_catalog_and_its_search_without_arming_the_clear() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"ses");
+        assert_eq!(menu(&shell).len(), 2 + 2, "/clear and /new");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.help_menu.is_none());
+        assert_eq!(shell.editor.text(), "", "the search outlived the catalog");
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.hint(), IDLE_HINT, "the clear gesture was armed");
+    }
+
+    #[test]
+    fn ctrl_u_empties_the_search_and_keeps_the_catalog() {
+        let mut shell = with_catalog(40, 120);
+        shell.route_bytes(b"ses");
+        shell.route_bytes(&[0x15]);
+        assert_eq!(shell.editor.text(), "");
+        assert!(shell.help_menu.is_some(), "C-u closed the catalog");
+        assert!(visible_text(&menu(&shell)[0]).starts_with("Commands 7"));
+    }
+
+    #[test]
+    fn the_catalog_fits_a_short_screen_and_scrolls_rather_than_overflowing() {
+        // 15 rows: a budget of five, so a header, its blank row and three
+        // commands -- and the mark walks the window down rather than off it.
+        let mut shell = with_catalog(15, 80);
+        assert_eq!(shell.geometry.panel, 5);
+        for _ in 0..4 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 5);
+        assert!(
+            rows[4].starts_with(&format!("  {}/new", PALETTE.subtitle())),
+            "{rows:?}"
+        );
+        assert!(visible_text(&rows[2]).starts_with("  /version"), "{rows:?}");
+        // The key help is the one that fits 80 columns.
+        assert!(visible_text(shell.band_rows().last().expect("a hint row"))
+            .starts_with("\u{2191}\u{2193} navigate     tab category"));
+    }
+
     // -----------------------------------------------------------------------
     // provider switching, the catalog browser and the context meter
     // -----------------------------------------------------------------------
