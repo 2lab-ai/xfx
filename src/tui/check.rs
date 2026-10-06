@@ -603,6 +603,10 @@ pub(crate) struct TerminalModel {
     /// `ED 3`, which no grid models further.
     scrollback_erased: bool,
     queries: Vec<QueryId>,
+    /// `BEL`s rung outside an `OSC` -- where the same byte is a terminator and
+    /// rings nothing. A bell moves no cell and no caret, so without a count of
+    /// its own it would be the one byte a frame could carry unnoticed.
+    bells: u16,
     /// What the last SGR left switched on, and therefore what the next cell is
     /// painted in.
     pen: Color,
@@ -638,6 +642,7 @@ impl TerminalModel {
             modes,
             scrollback_erased: false,
             queries: Vec::new(),
+            bells: 0,
             pen: Color::Default,
             effects: Vec::new(),
             moves: Vec::new(),
@@ -897,6 +902,14 @@ pub(crate) enum Intent<'a> {
         cursor_visible: Option<bool>,
         title: Option<&'a str>,
     },
+    /// A resume's terminal reset: a blank screen, a caret at its origin, and
+    /// the scrollback erased (`super::frame::Band::wipe`).
+    ///
+    /// **The only declaration in this crate that admits a scrollback erase**,
+    /// and it has one emitter: `/resume` replaces the conversation on the
+    /// screen with another one, as upstream's terminal reset does
+    /// (`finishLiveSessionResume`, `app_session_runtime.zig:1926-1929`).
+    Wiped,
     /// The mode set, or the exit's restore of it.
     ///
     /// `cursor_visible` is an `Option` because the mode set says nothing about
@@ -912,6 +925,10 @@ pub(crate) enum Intent<'a> {
     /// The launch queries, **in order**: the fence only works if the terminal
     /// parses them in the order they were written.
     Queries(&'a [QueryId]),
+    /// `/sound`'s terminal bells, exactly this many and nothing else: no cell,
+    /// no caret, no mode -- the byte a multiplexer marks a pane for, and the
+    /// one every other intent declares none of.
+    Bell { rings: u16 },
     /// A scroll of a screen this process did not author, checked at the caret
     /// and the count and nothing else -- there is nothing else it can honestly
     /// be checked at.
@@ -1337,6 +1354,7 @@ struct Metadata {
     scrollback_erased: bool,
     queries: Vec<QueryId>,
     saved_cursor: Option<(u16, u16)>,
+    bells: u16,
 }
 
 impl Metadata {
@@ -1351,6 +1369,7 @@ impl Metadata {
             scrollback_erased: model.scrollback_erased,
             queries: model.queries.clone(),
             saved_cursor: model.saved_cursor,
+            bells: model.bells,
         }
     }
 
@@ -1384,6 +1403,13 @@ impl Metadata {
         if self.saved_cursor != other.saved_cursor {
             return Some("a saved cursor this vector did not declare");
         }
+        if self.bells != other.bells {
+            return Some(if other.bells == 0 {
+                "a bell this vector did not declare"
+            } else {
+                "a number of bells the vector did not declare"
+            });
+        }
         None
     }
 }
@@ -1407,6 +1433,7 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
         scrollback_erased: seed.scrollback_erased,
         queries: Vec::new(),
         saved_cursor,
+        bells: 0,
     };
     match &declared.intent {
         Intent::Primary {
@@ -1423,6 +1450,10 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
             ..unchanged(*cursor_visible)
         },
         Intent::Alternate { cursor_visible, .. } => unchanged(*cursor_visible),
+        Intent::Wiped => Metadata {
+            scrollback_erased: true,
+            ..unchanged(None)
+        },
         Intent::Modes {
             modes,
             title_stack,
@@ -1449,6 +1480,10 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
         },
         Intent::ScrollOnly { .. } => unchanged(None),
         Intent::Cleanup { cursor_visible, .. } => unchanged(Some(*cursor_visible)),
+        Intent::Bell { rings } => Metadata {
+            bells: *rings,
+            ..unchanged(None)
+        },
     }
 }
 
@@ -1492,7 +1527,11 @@ fn check_cells(
         // Its cells were compared as the vector ran, row by row, including the
         // ones that had left the screen before it ended.
         Intent::Document { caret, .. } => expect_declared_caret(model, *caret, at),
-        Intent::Modes { .. } | Intent::Queries(_) => {
+        Intent::Wiped => {
+            expect_blank(model.screen_ref(), 1, at)?;
+            expect_caret(model, (1, 1), at)
+        }
+        Intent::Modes { .. } | Intent::Queries(_) | Intent::Bell { .. } => {
             if !model.effects.is_empty() {
                 return Err(Reject::new(
                     "a vector that moved a cell it did not declare",
@@ -1806,6 +1845,14 @@ fn apply(
             0x1b => at += sequence(model, bytes, at)?,
             b'\n' => {
                 linefeed(model, expected.as_deref_mut(), at)?;
+                at += 1;
+            }
+            // Counted rather than refused, and refused by the comparison
+            // instead: a bell is in the alphabet for the one intent that
+            // declares it ([`Intent::Bell`]), and every other intent declares
+            // none.
+            0x07 => {
+                model.bells = model.bells.saturating_add(1);
                 at += 1;
             }
             byte if byte < 0x20 || byte == 0x7f => {
@@ -3588,6 +3635,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_bell_is_in_the_alphabet_only_where_it_is_declared() {
+        // Counted by the decoder rather than refused by it, and refused by the
+        // comparison instead: every intent but `Bell` declares none, so a bell
+        // that slipped into a frame -- a row's text, an append -- is a
+        // disagreement with a name, not a byte nobody looked at.
+        let seed = TerminalModel::seed_modes(1, 1, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let bell =
+            |rings| Declared::new(Intent::Bell { rings }, Footprint::none(PlaneKind::Primary));
+        preflight(&seed, b"\x07", &bell(1)).expect("the declared bell");
+        assert_eq!(
+            preflight(&seed, b"\x07\x07", &bell(1))
+                .expect_err("one too many")
+                .shape(),
+            "a number of bells the vector did not declare"
+        );
+        let queries = Declared::new(
+            Intent::Queries(&[QueryId::ThemeMode]),
+            Footprint::none(PlaneKind::Primary),
+        );
+        assert_eq!(
+            preflight(&seed, b"\x1b[?996n\x07", &queries)
+                .expect_err("a query with a bell in it")
+                .shape(),
+            "a bell this vector did not declare"
+        );
+        // Inside an `OSC` the same byte is a terminator and rings nothing: a
+        // title vector carries one and declares no bell.
+        let mut model = seed.clone();
+        apply(&mut model, b"\x1b]2;a title\x07", None).expect("a title");
+        assert_eq!(model.bells, 0, "a title's terminator was counted as a bell");
     }
 
     #[test]

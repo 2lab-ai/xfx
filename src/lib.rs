@@ -35,6 +35,7 @@ pub mod output;
 pub mod permission;
 pub mod provider;
 pub mod session;
+pub mod sound;
 pub mod tools;
 #[cfg(unix)]
 pub mod tui;

@@ -1,0 +1,40 @@
+
+  First answer, sound off.
+
+  0s (↑4 ↓40)
+
+* sound: on
+
+* sound: on
+
+✗ usage: /sound [on|off]
+
+* sound: off
+
+* sound: on
+
+✗ usage: /sound [on|off]
+
+┃ second question
+
+  Second answer, sound on.
+
+  0s (↑4 ↓40)
+
+┃ write the file
+
+● 1 tool call · 1 write
+└ Wrote c.txt +1
+
+  Wrote c.txt.
+
+  3s (↑4 ↓40)
+
+* sound: off
+
+┃
+
+ask · model-a
+
+
+

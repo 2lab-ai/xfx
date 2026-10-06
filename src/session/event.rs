@@ -200,6 +200,21 @@ pub enum SessionEvent {
     },
     /// The turn ended. Exactly one per opened turn.
     TurnConcluded { outcome: TurnConclusion },
+    /// The user named the session (`/rename <title>`).
+    ///
+    /// A title the user chose outranks the one a listing derives from the
+    /// first prompt, and the last of these in a log is the one in force
+    /// (`renameConversation`, `vercel-labs/fx@c1db9191
+    /// src/core/session/session_log.zig:3298-3335`, which rewrites the title
+    /// in the session's metadata). An event rather than a field the manifest
+    /// alone carries, because the manifest is a projection of the log
+    /// ([`super::store::SessionManifest`]): a title only the projection held
+    /// would be the one fact a resume could not rebuild.
+    ///
+    /// Written under schema 1 for the reason [`Self::ToolFeedback`] is: a new
+    /// binary reads every old log, and an older one refuses a log that holds
+    /// this frame rather than half-reading it.
+    SessionRenamed { title: String },
 }
 
 impl SessionEvent {
@@ -218,6 +233,7 @@ impl SessionEvent {
             Self::PermissionGrantsCleared => "permission_grants_cleared",
             Self::UsageRecorded { .. } => "usage_recorded",
             Self::TurnConcluded { .. } => "turn_concluded",
+            Self::SessionRenamed { .. } => "session_renamed",
         }
     }
 }
@@ -541,6 +557,9 @@ mod tests {
                     reason: "cancelled".to_string(),
                 },
             },
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+            },
         ];
         for event in events {
             let kind = event.kind();
@@ -582,6 +601,26 @@ mod tests {
         let encoded = frame.encode().expect("encodes");
         assert!(encoded.starts_with("{\"schema_version\":1,"), "{encoded}");
         assert!(encoded.contains("\"call_id\":\"c1\""), "{encoded}");
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+    }
+
+    #[test]
+    fn a_rename_is_one_frame_with_the_title_and_nothing_else() {
+        // The shape `/rename` writes, byte for byte: the kind and the title.
+        let frame = envelope(
+            7,
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(r#""event":{"kind":"session_renamed","title":"My Title"}}"#),
+            "{encoded}"
+        );
         assert_eq!(
             EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
             frame
