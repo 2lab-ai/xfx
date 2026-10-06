@@ -36,9 +36,8 @@
 //! composer split at whitespace, and every word a case-insensitive substring of
 //! the name, an alias, the summary or the category. Upstream also searches a
 //! `help_entry` (`/model <id-or-query>`); xfx's registry has no such field and
-//! its summaries already carry the argument grammar (`/setup <gateway|llmux>`,
-//! `/model <id>`), so the words that would have found a command there find it
-//! here too.
+//! its summaries carry what argument grammar it has (`/model <id>`), so the
+//! words that would have found a command there mostly find it here too.
 
 use crate::interactive::{SlashSpec, SLASH_CATEGORIES, SLASH_REGISTRY};
 
@@ -768,7 +767,10 @@ mod tests {
         // Every word must be found, each anywhere.
         assert_eq!(found("session fresh"), ["/new"]);
         assert_eq!(found("  fresh \t session "), ["/new"]);
-        assert_eq!(found("llmux"), ["/setup"]);
+        // `/provider`'s alias finds it as `/exit` finds `/quit`; its summary
+        // is upstream's now and names no provider of xfx's.
+        assert_eq!(found("setup"), ["/provider"]);
+        assert_eq!(found("provider"), ["/provider"]);
         assert!(found("sessionzz").is_empty());
         // Nothing typed lists everything.
         assert_eq!(found("").len(), SLASH_REGISTRY.len());

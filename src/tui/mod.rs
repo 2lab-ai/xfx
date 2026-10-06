@@ -710,6 +710,7 @@ mod paste;
 mod permissions;
 mod picker;
 mod probe;
+mod provider_picker;
 mod question;
 mod render_request;
 mod router;

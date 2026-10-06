@@ -321,23 +321,17 @@ fn slash_help_lists_exactly_the_canonical_commands() {
         assert!(text.contains(command), "help omits {command}: {text}");
     }
     assert!(
-        text.contains("/setup"),
-        "the seventh canonical command is not advertised: {text}"
+        text.contains("/provider") && text.contains("(also /setup)"),
+        "the provider command and its alias are not advertised: {text}"
     );
     // Advertisement is a promise here too: no deferred upstream slash command
     // may appear. `/setup` left this list when it stopped being deferred, and
-    // `/stats`, `/status` and `/permissions` after it; `/models` and
-    // `/provider` did not, because the catalog browser is reached by a bare
-    // `/model` rather than by a command of its own.
+    // `/stats`, `/status` and `/permissions` after it, and `/provider` when it
+    // became the canonical name of the same command with `/setup` as its
+    // alias; `/models` did not, because the catalog browser is reached by a
+    // bare `/model` rather than by a command of its own.
     for absent in [
-        "/resume",
-        "/login",
-        "/models",
-        "/provider",
-        "/mcp",
-        "/undo",
-        "/usage",
-        "/image",
+        "/resume", "/login", "/models", "/mcp", "/undo", "/usage", "/image",
     ] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }

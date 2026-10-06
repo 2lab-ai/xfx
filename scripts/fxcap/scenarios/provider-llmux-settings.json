@@ -1,0 +1,1 @@
+{"models":{"gateway":"fake/model-a","llmux":"fake/model-a"},"provider":"llmux","llmux_url":"http://127.0.0.1:9"}

@@ -3602,7 +3602,7 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
-    // `/setup`'s usage refusal, `/stats`'s first counter, `/status`'s turn
+    // `/provider`'s column, `/stats`'s first counter, `/status`'s turn
     // count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
     // (which say nothing), and a name the registry does not carry. Each needle
     // sits inside one run of colour: a notice's label and body are separate
@@ -3634,10 +3634,14 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // a lone ESC being the Escape key only after 50 ms of quiet.
     session.type_bytes(&[0x1b]);
     on_screen(&session, (24, 80), &["glm-5.2"], &["tab provider"]);
-    // Bare, so it refuses without switching anything -- which still proves the
-    // name is answered by the session, and still costs the provider nothing.
-    session.type_bytes(b"/setup\r");
-    session.wait_for("/setup takes a provider to set up");
+    // Bare, so it opens the provider column without switching anything --
+    // which still proves the name is answered by the session, and still costs
+    // the provider nothing. The column's second row is the needle: no answer
+    // before it names llmux. C-u then empties the reseeded `/provider `, which
+    // closes the column, so the next name is typed into an empty composer.
+    session.type_bytes(b"/provider\r");
+    session.wait_for("llmux");
+    session.type_bytes(b"\x15");
     session.type_bytes(b"/stats\r");
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
@@ -6623,10 +6627,11 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
     );
 
     session.type_bytes(b"/setup llmux\r");
-    // The line the switch is *finished* on (`* provider: llmux model=…`): it is
-    // sent after the file was written and the configuration re-read from it,
-    // so waiting for it is waiting for the reload rather than for the write.
-    session.wait_for("llmux model=");
+    // The line the switch is *finished* on (`* provider: Switched to llmux
+    // with …`): it is sent after the file was written and the configuration
+    // re-read from it, so waiting for it is waiting for the reload rather than
+    // for the write.
+    session.wait_for("Switched to llmux with");
 
     // The file, read rather than believed. A band that said `llmux`
     // over a profile that still said gateway would be the exact failure the
@@ -6729,6 +6734,17 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     session.type_bytes(b"\x1b[B");
     session.type_bytes(b"\r");
     session.wait_for("Switched to plain-model (effort: default, speed: normal)");
+    // Choosing the provider already in force is no switch: upstream's
+    // `Already using …` (`app_auth_runtime.zig:1159-1167`), and the profile is
+    // not rewritten -- byte for byte -- nor the model the session holds reset.
+    let before = std::fs::read(sandbox.settings_path()).expect("a profile");
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Already using llmux.");
+    assert_eq!(
+        std::fs::read(sandbox.settings_path()).expect("a profile"),
+        before,
+        "choosing the current provider rewrote the profile"
+    );
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
@@ -6756,11 +6772,13 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     // The restart, with a layer above the profile in force. `XFX_MODEL`
     // outranks the file, so the report has to *say so* -- a setup that wrote a
     // model the environment overrides and reported success would be a receipt
-    // for a change with no effect.
+    // for a change with no effect. It starts on the Gateway, so `/setup llmux`
+    // is a real switch rather than the no-op choosing the current provider is.
+    let unasked = FakeGateway::start(Vec::new());
     let pty = Pty::open();
     pty.resize(24, 80);
     let mut restarted = Session::spawn_without_taking_the_terminal(&pty, {
-        let mut command = sandbox.command_with_llmux(&daemon);
+        let mut command = sandbox.command_with_both(&unasked, &daemon);
         command.env("XFX_TUI", "1");
         command.env("XFX_MODEL", "fable");
         command.env_remove("TMUX");
@@ -6772,7 +6790,7 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     // qualification of this switch rather than as news about the next thing.
     restarted.wait_for("XFX_MODEL");
     restarted.wait_for("outranks the profile");
-    restarted.wait_for("llmux model=");
+    restarted.wait_for("Switched to llmux with");
     restarted.type_bytes(&[0x04]);
     assert_eq!(restarted.wait_exit().code(), Some(0));
 
