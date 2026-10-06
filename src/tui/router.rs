@@ -73,6 +73,10 @@ pub(crate) trait CommandHandlers {
     /// say, and a router that pre-screened it would be a second place that
     /// decides which backend a prompt can go to.
     fn setup(&mut self, argument: &str);
+    /// `/permissions`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. What it may be is
+    /// `crate::permission::slash::Request::parse`'s to say, not the router's.
+    fn permissions(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -150,6 +154,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Reset => handlers.reset(),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
+        Slash::Permissions => handlers.permissions(argument),
         Slash::Copy => handlers.copy(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
@@ -231,6 +236,9 @@ mod tests {
         fn setup(&mut self, argument: &str) {
             self.calls.push(format!("setup {argument}"));
         }
+        fn permissions(&mut self, argument: &str) {
+            self.calls.push(format!("permissions {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -255,6 +263,7 @@ mod tests {
             ("/version", "version"),
             ("/quit", "quit"),
             ("/provider", "setup "),
+            ("/permissions", "permissions "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -283,6 +292,18 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Every argument form reaches the one handler, trimmed; what each
+        // means is the handler's question.
+        for (line, call) in [
+            ("/permissions auto", "permissions auto"),
+            ("/permissions   full-access  ", "permissions full-access"),
+            ("/permissions full access", "permissions full access"),
+            ("/permissions reset", "permissions reset"),
+            ("/permissions bogus", "permissions bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
         // Upstream's `accepts_payload` (`commands.zig:494`): the argument is
         // the item, and whether it names one is the handler's question.
         assert_eq!(
