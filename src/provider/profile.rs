@@ -186,6 +186,28 @@ pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Res
     write_document(path, body.as_bytes())
 }
 
+/// What a preference that was written says when a layer above the profile
+/// will still decide it for a fresh session, or nothing when none will.
+///
+/// Upstream's `reportUserSettingsCommit` with its caller's announcement
+/// already made (`session_commands.zig:27-85`): the benign `saved to user
+/// settings (scope=user)` is dropped, and what is kept is the suffix
+/// `appendShadowedUserSource` adds for a field whose resolved source is not
+/// the user's own file (`:225-236`) -- `fresh sessions here use
+/// higher-precedence <field>=<source>`. `source` is where the value a fresh
+/// session would be given comes from, as the loader ranked it at launch: an
+/// environment override or this workspace's entry outranks what was just
+/// written.
+pub fn saved_but_shadowed(field: &str, source: crate::config::SettingSource) -> Option<String> {
+    (source > crate::config::SettingSource::UserGlobal).then(|| {
+        format!(
+            "saved to user settings (scope=user); fresh sessions here use \
+             higher-precedence {field}={}",
+            source.label()
+        )
+    })
+}
+
 /// Writes `document` to `path` with the profile's own discipline.
 ///
 /// Everything `write` used to do after it had decided the bytes: the profile
@@ -848,6 +870,36 @@ mod tests {
         assert_eq!(
             fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
             0o600
+        );
+    }
+
+    #[test]
+    fn a_save_is_said_only_when_a_layer_above_the_profile_still_decides() {
+        use crate::config::SettingSource;
+        for source in [
+            SettingSource::CompiledDefault,
+            SettingSource::Project,
+            SettingSource::UserGlobal,
+        ] {
+            assert_eq!(
+                saved_but_shadowed("permission_mode", source),
+                None,
+                "{source:?}"
+            );
+        }
+        assert_eq!(
+            saved_but_shadowed("permission_mode", SettingSource::ProcessOverride).as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence permission_mode=process_override"
+            )
+        );
+        assert_eq!(
+            saved_but_shadowed("model", SettingSource::UserWorkspace).as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=user_workspace"
+            )
         );
     }
 

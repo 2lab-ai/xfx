@@ -89,7 +89,7 @@ use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{bind_conversation, open_conversation, status_snapshot, Conversation};
 use crate::output::StatusSnapshot;
-use crate::permission::PermissionSession;
+use crate::permission::{LiveAuthority, PermissionSession};
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
 };
@@ -203,19 +203,31 @@ pub(crate) struct WorkHandle {
     reply: LastReply,
     /// What `/status` reads, as the runtime last published it.
     status: StatusBoard,
-    /// Where a change to the session's authority goes: `/permissions` and
-    /// Shift-Tab ([`Change`]).
+    /// Where a change to the session's authority is **recorded**:
+    /// `/permissions` and Shift-Tab ([`Change`]).
     ///
-    /// **A channel of its own, not a [`TurnWork`]**, and each of the three
-    /// differences is a bug the work channel would have: a change would hold a
-    /// place in [`WORK_LIMIT`] and be refused as busy behind one waiting
-    /// prompt, it would show on the band as `queued 1`, and a Ctrl-C would drop
-    /// it with the queue ([`Queue::abandon`]) after the footer had already said
-    /// the new mode. Unbounded, like the control channel, because a keystroke
-    /// that changes the mode must never be refused for want of room. The
-    /// runtime reads it only between pieces of work (`turn_loop`), which is
-    /// what keeps a change from landing under a running turn.
+    /// The change itself is in force before this is sent -- [`Self::live`] --
+    /// and what the runtime does with the message is the durable half: the
+    /// configuration later conversations are opened from, the session log and
+    /// the profile. **A channel of its own, not a [`TurnWork`]**, and each of
+    /// the three differences is a bug the work channel would have: a change
+    /// would hold a place in [`WORK_LIMIT`] and be refused as busy behind one
+    /// waiting prompt, it would show on the band as `queued 1`, and a Ctrl-C
+    /// would drop it with the queue ([`Queue::abandon`]). Unbounded, like the
+    /// control channel, because a keystroke that changes the mode must never
+    /// be refused for want of room. The runtime reads it between pieces of
+    /// work (`turn_loop`), which is where the session log is not held by a
+    /// running turn.
     permissions: UnboundedSender<Change>,
+    /// The mode and reset count every permission session on the runtime
+    /// thread reads at each decision ([`LiveAuthority`]).
+    ///
+    /// Written here, on the UI thread, the moment the person changes it --
+    /// which is what makes a Shift-Tab to `ask` gate the *next* tool call of
+    /// the turn that is running, as upstream's does
+    /// (`yolo-permission-mode.test.ts:373-450`) -- and never by the runtime,
+    /// whose channel messages can be older than what the person chose since.
+    live: LiveAuthority,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
 }
@@ -383,19 +395,45 @@ impl WorkHandle {
         self.status.read()
     }
 
-    /// Hands the runtime a change to the session's authority, to apply before
-    /// the next piece of work it starts. Never blocks, never full.
+    /// Puts a change to the session's authority in force at once, and hands
+    /// the runtime the record of it. Never blocks, never full.
     ///
-    /// `Err` means the runtime thread is gone, which is the one thing a caller
-    /// must not paint a new mode over.
+    /// **In force before it is sent**: the mode and a reset go to
+    /// [`Self::live`], which the turn that may be running reads at its next
+    /// decision; what the runtime does with the message, between pieces of
+    /// work, is write it down. `Err` means the runtime thread is gone, which
+    /// is the one thing a caller must not paint a new mode over -- so the
+    /// check comes first and nothing moves on a refusal.
     pub(crate) fn change_permissions(&self, change: Change) -> Result<(), Rejected> {
+        if self.permissions.is_closed() {
+            return Err(Rejected::Gone);
+        }
+        match change {
+            Change::Mode(mode) => self.live.set_mode(mode),
+            Change::Reset => {
+                self.live.reset();
+            }
+            Change::Acknowledge => {}
+        }
         self.permissions.send(change).map_err(|_| Rejected::Gone)
     }
 
     /// The conversation's grants, as a bare `/permissions` lists them, from
-    /// the runtime's last publication. Never waits for the runtime.
+    /// the runtime's last publication -- or none, when a reset has happened
+    /// since it was made. Never waits for the runtime.
     pub(crate) fn grants(&self) -> Vec<String> {
-        self.grants.read()
+        let (published_at, lines) = self.grants.read();
+        if published_at < self.live.resets() {
+            Vec::new()
+        } else {
+            lines
+        }
+    }
+
+    /// Whether a reset has happened since the runtime last published, so
+    /// every grant that publication counted is out of force.
+    pub(crate) fn grants_reset_since_published(&self) -> bool {
+        self.grants.read().0 < self.live.resets()
     }
 
     /// A handle onto channels with no runtime behind them, and both receiving
@@ -444,6 +482,7 @@ impl WorkHandle {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             work_rx,
@@ -452,10 +491,18 @@ impl WorkHandle {
         )
     }
 
-    /// Stands in for the runtime's publication of the grants list.
+    /// Stands in for the runtime's publication of the grants list, as of the
+    /// reset count in force now.
     #[cfg(test)]
     pub(crate) fn publish_grants(&self, lines: Vec<String>) {
-        self.grants.publish(lines);
+        self.grants.publish(self.live.resets(), lines);
+    }
+
+    /// The live authority this handle writes, for a case that has to read
+    /// what a keystroke put in force.
+    #[cfg(test)]
+    pub(crate) fn live(&self) -> &LiveAuthority {
+        &self.live
     }
 
     /// Stands in for the runtime's own publication, for the cases that are
@@ -688,6 +735,10 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    // One live authority for the session: the handle writes it, every
+    // conversation this runtime opens reads it.
+    let live = LiveAuthority::new(config.permission_mode);
+    let loops_live = live.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -709,6 +760,7 @@ pub(crate) fn spawn(
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
             state.grants = publishes_grants;
+            state.live = loops_live;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -741,6 +793,7 @@ pub(crate) fn spawn(
                 reply,
                 status,
                 permissions: permissions_tx,
+                live,
                 grants,
             },
             resumable: None,
@@ -879,6 +932,10 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// The mode and reset count the UI writes and every conversation's
+    /// authority reads at each decision ([`WorkHandle::change_permissions`]).
+    /// **Read here, never written**: see that field.
+    live: LiveAuthority,
 }
 
 impl Runtime {
@@ -911,6 +968,7 @@ impl Runtime {
     ) -> Self {
         let selector = ModelSelector::new(&config);
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
+        let config_mode = config.permission_mode;
         Self {
             config,
             env,
@@ -923,6 +981,7 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            live: LiveAuthority::new(config_mode),
         }
     }
 
@@ -946,7 +1005,11 @@ impl Runtime {
             self.model(),
             self.conversation.as_ref(),
         ));
-        self.grants.publish(self.grant_lines());
+        // The reset count first: a reset landing between the two reads makes
+        // this publication older than it is, never newer, and an older one is
+        // read as out of force -- the safe way to be wrong.
+        let resets = self.live.resets();
+        self.grants.publish(resets, self.grant_lines());
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -962,18 +1025,23 @@ impl Runtime {
             .collect()
     }
 
-    /// Applies one change to the session's authority, **between turns**, and
-    /// records it; answers what the session has to be told, if anything.
+    /// Records one change to the session's authority, **between pieces of
+    /// work**; answers what the session has to be told, if anything.
     ///
-    /// Three places hold the mode and all three move together. The
-    /// configuration, because every conversation this runtime opens later is
-    /// built from it ([`Runtime::authority`]). The live conversation's
-    /// authority, because that is built **once per conversation** and not per
-    /// turn -- an "always" answer has to outlive the turn it was given in
-    /// (module header) -- so changing only the configuration would leave the
-    /// conversation the user is talking in at the mode it started with. And
-    /// the session log, as [`Runtime::resume`] records a mode that changed, so
-    /// a later resume reads what this session really ran under.
+    /// The change is already in force: the handle put it in the live
+    /// authority every decision reads ([`WorkHandle::change_permissions`]), so
+    /// a turn that was running when it was made judged its next call by it.
+    /// What is left is the record, and it is here because the session log is
+    /// held by a running turn and free only between pieces of work. The
+    /// configuration, because a conversation this runtime opens later is
+    /// opened from it and its log starts with that mode. The conversation's
+    /// own copy of the mode, and the session log, as [`Runtime::resume`]
+    /// records a mode that changed, so a later resume reads what this session
+    /// really ran under; for a reset, the forgetting of every grant given
+    /// before it, so a resume does not bring them back
+    /// ([`crate::interactive::Conversation::set_permission_mode`]). Never the
+    /// live authority: a message drained here can be older than what the
+    /// person has chosen since.
     ///
     /// The profile write is here, on this thread, rather than on the UI's: it
     /// stages a file, syncs it, renames it and syncs the directory, which is
@@ -998,12 +1066,17 @@ impl Runtime {
             conversation.set_permission_mode(mode, change == Change::Reset);
         }
         self.publish();
-        self.persist(
+        match self.persist(
             "permission_mode",
             serde_json::Value::String(mode.label().to_string()),
-        )
-        .err()
-        .map(|reason| permissions::not_saved("permission-mode", &reason))
+        ) {
+            Ok(()) => crate::provider::profile::saved_but_shadowed(
+                "permission_mode",
+                self.config.sources.permission_mode,
+            )
+            .map(|said| super::notice::Notice::neutral("permission-mode", said)),
+            Err(reason) => Some(permissions::not_saved("permission-mode", &reason)),
+        }
     }
 
     /// Writes one key of the profile, or says why it could not.
@@ -1083,6 +1156,9 @@ impl Runtime {
     fn authority(&self) -> PermissionSession {
         PermissionSession::new(self.config.permission_mode)
             .with_prompter(Box::new(self.prompter.clone()))
+            // Read at every decision, so a change the person makes while a
+            // turn runs governs that turn's next call (`LiveAuthority`).
+            .with_live(self.live.clone())
     }
 
     /// Makes a saved session this runtime's conversation, before any work.
@@ -1285,17 +1361,8 @@ impl Runtime {
             serde_json::Value::String(model.to_string()),
         ) {
             Ok(()) => {
-                let source = self.config.sources.model;
-                (source > crate::config::SettingSource::UserGlobal).then(|| {
-                    super::notice::Notice::neutral(
-                        "model",
-                        format!(
-                            "saved to user settings (scope=user); fresh sessions here use \
-                             higher-precedence model={}",
-                            source.label()
-                        ),
-                    )
-                })
+                crate::provider::profile::saved_but_shadowed("model", self.config.sources.model)
+                    .map(|said| super::notice::Notice::neutral("model", said))
             }
             Err(err) => Some(super::notice::Notice::error(
                 "model",
@@ -1419,11 +1486,12 @@ async fn turn_loop(
                     | TurnControl::QuestionCancelled { .. },
                 ) => Taken::Nothing,
             },
-            // **After control and before work**, and that order is the whole
-            // of "between turns": this loop is the only place a turn starts,
-            // so a change typed while one was running is applied the moment it
-            // ends and before whatever was queued behind it begins -- upstream
-            // syncs its queued prompts to a new mode the same way
+            // **After control and before work.** The change is in force
+            // already (the live authority); this is its record, and the order
+            // keeps the record ahead of whatever was queued behind it -- the
+            // configuration a conversation is opened from and the log's
+            // `preferences_changed` land before the queued prompt's turn
+            // does, as upstream syncs its queued prompts to a new mode
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
             item = queue.work.recv() => Taken::Work(item),
@@ -2341,6 +2409,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2399,6 +2468,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2436,6 +2506,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2791,6 +2862,7 @@ mod tests {
             reply: LastReply::default(),
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
+            live: LiveAuthority::new(PermissionMode::Auto),
             grants: Grants::default(),
         };
         drop(work_rx);
@@ -2937,8 +3009,25 @@ mod tests {
             profile_text(&state),
             "{\n  \"permission_mode\": \"yolo\"\n}\n"
         );
-        // A conversation opened after it is opened in it.
-        assert_eq!(state.authority().mode(), PermissionMode::Yolo);
+        // A conversation opened after it starts its log in it.
+        assert_eq!(
+            PermissionSession::new(state.config.permission_mode).mode(),
+            PermissionMode::Yolo
+        );
+        // And the record never writes the live authority: a message drained
+        // here can be older than what the person has chosen since, and the
+        // handle -- the UI -- is the one that says what is in force.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        state.live = handle.live().clone();
+        handle
+            .change_permissions(Change::Mode(PermissionMode::Ask))
+            .expect("alive");
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            None
+        );
+        assert_eq!(state.authority().mode(), PermissionMode::Ask);
+        assert_eq!(handle.live().mode(), PermissionMode::Ask);
 
         // The same mode again changes nothing the log has to record.
         let before = log_text(&state);
@@ -2965,15 +3054,245 @@ mod tests {
                 state.config.workspace_root.join("a.txt").to_string_lossy(),
             ));
         state.publish();
-        assert_eq!(grants.read(), vec![" - write_file -> a.txt".to_string()]);
+        assert_eq!(grants.read().1, vec![" - write_file -> a.txt".to_string()]);
 
         assert_eq!(state.change_permissions(Change::Reset), None);
         let conversation = state.conversation.as_ref().expect("still open");
         assert_eq!(conversation.tools.permissions().mode(), PermissionMode::Ask);
         assert!(conversation.tools.permissions().grants().is_empty());
-        assert!(grants.read().is_empty(), "the board still lists the grant");
+        assert!(
+            grants.read().1.is_empty(),
+            "the board still lists the grant"
+        );
         assert_eq!(state.config.permission_mode, PermissionMode::Ask);
         assert!(profile_text(&state).contains(r#""permission_mode": "ask""#));
+    }
+
+    #[test]
+    fn a_reset_is_written_down_so_a_resume_does_not_bring_the_grants_back() {
+        // Upstream's reset clears its session grants (`permission_engine.clear`,
+        // `app_permission_runtime.zig:144-159`) and never persisted them, so a
+        // resumed upstream session has none. xfx persists them; so the clearing
+        // is persisted too, and a grant given *after* the reset -- mid-turn,
+        // for a target the log already listed -- survives it.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = PermissionMode::Ask;
+        let store = open_store(&config).expect("a store");
+        let (events, _seen) = mpsc::channel(8);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        for id in 1..=3 {
+            control_tx
+                .send(TurnControl::Answer {
+                    id: super::super::approval_readiness::ApprovalId(id),
+                    answer: ApprovalAnswer::Always,
+                    feedback: None,
+                })
+                .expect("the channel is open");
+        }
+        let prompter = TuiPrompter::new(
+            events,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+        );
+        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        handle.live().set_mode(PermissionMode::Ask);
+        state.live = handle.live().clone();
+        let model = state.model().to_string();
+        state.conversation = Some(
+            open_conversation(
+                &state.store,
+                &state.config,
+                &model,
+                state.authority(),
+                None,
+                &CancelToken::new(),
+            )
+            .expect("open a conversation"),
+        );
+        let plan = |name: &str| {
+            MutationPlan::new(
+                MutationKind::Write,
+                workspace.path().join(name),
+                name.to_string(),
+                TargetScope::PrimaryWorkspace,
+                Preimage::Absent,
+                b"x\n".to_vec(),
+            )
+        };
+        let (kept, withdrawn) = (plan("kept.txt"), plan("withdrawn.txt"));
+        let always = |state: &mut Runtime, plan: &MutationPlan| {
+            let conversation = state.conversation.as_mut().expect("open");
+            let decided = conversation
+                .tools
+                .permissions()
+                .decide_with_feedback(ProposedAction::Mutation(plan))
+                .decision;
+            assert_eq!(
+                decided,
+                PolicyDecision::Allow {
+                    source: AllowSource::InteractiveAlways
+                }
+            );
+        };
+        // Two "always" answers, written down at the end of their turn.
+        always(&mut state, &kept);
+        always(&mut state, &withdrawn);
+        record_grants(state.conversation.as_mut().expect("open"));
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .recorder
+                .state()
+                .grants
+                .len(),
+            2
+        );
+
+        // The reset, as the UI makes it mid-turn: in force at once ...
+        handle.change_permissions(Change::Reset).expect("alive");
+        assert!(state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grants()
+            .is_empty());
+        // ... so the same turn asks again, and is told "always" again for one.
+        always(&mut state, &kept);
+        // The turn ends: the log already lists that target, so nothing is new.
+        record_grants(state.conversation.as_mut().expect("open"));
+        // Between pieces of work the runtime writes the reset down.
+        assert_eq!(state.change_permissions(Change::Reset), None);
+        let conversation = state.conversation.as_ref().expect("open");
+        let key = |plan: &MutationPlan| ProposedAction::Mutation(plan).target();
+        assert_eq!(
+            conversation.recorder.state().grants,
+            vec![Grant::new("write_file", key(&kept))],
+            "the log does not say what the person is left with"
+        );
+        assert!(log_text(&state).contains(r#""kind":"permission_grants_cleared""#));
+
+        // And a resume reads exactly that.
+        let id = conversation.recorder.id().clone();
+        state.conversation = None;
+        let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+            .expect("the saved session opens");
+        assert_eq!(
+            resumed.session.state().grants,
+            vec![Grant::new("write_file", key(&kept))],
+            "a resume brought a reset grant back"
+        );
+    }
+
+    #[test]
+    fn a_mode_a_higher_layer_outranks_is_saved_and_says_so_in_upstreams_words() {
+        // `appendShadowedUserSource` (`session_commands.zig:225-236`): the write
+        // happened, and a fresh session here will still start in what the
+        // environment -- or this workspace's own entry -- says.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_PERMISSION_MODE".to_string(), "ask".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let said = state
+            .change_permissions(Change::Mode(PermissionMode::Auto))
+            .expect("the shadow is said");
+        assert_eq!(
+            said,
+            super::super::notice::Notice::neutral(
+                "permission-mode",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence permission_mode=process_override"
+            )
+        );
+        assert_eq!(
+            profile_text(&state),
+            "{\n  \"permission_mode\": \"auto\"\n}\n"
+        );
+
+        // A workspace entry outranks the global key the same way.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().canonicalize().expect("a workspace");
+        // Through the writer, so the profile home is born owner-only, as the
+        // session store requires of it.
+        crate::provider::profile::write_preference(
+            &home.path().join(".xfx").join("settings.json"),
+            &["workspaces"],
+            serde_json::json!({root.to_string_lossy(): {"permission_mode": "ask"}}),
+        )
+        .expect("seed");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(
+            config.sources.permission_mode,
+            crate::config::SettingSource::UserWorkspace
+        );
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let said = state
+            .change_permissions(Change::Reset)
+            .expect("the shadow is said");
+        assert!(
+            said.body
+                .ends_with("higher-precedence permission_mode=user_workspace"),
+            "{said:?}"
+        );
+
+        // Nothing above the profile: nothing to say, as before.
+        let (_home, _workspace, mut state) = recording();
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Ask)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_keystroke_puts_the_mode_and_a_reset_in_force_before_the_runtime_hears_of_it() {
+        let (handle, _work, _control, mut changes) = WorkHandle::detached_with_changes();
+        let live = handle.live().clone();
+        assert_eq!(live.mode(), PermissionMode::Auto);
+        handle
+            .change_permissions(Change::Mode(PermissionMode::Yolo))
+            .expect("alive");
+        assert_eq!(live.mode(), PermissionMode::Yolo, "not in force at once");
+        handle.publish_grants(vec![" - write_file -> a.txt".to_string()]);
+        assert_eq!(handle.grants().len(), 1);
+        assert!(!handle.grants_reset_since_published());
+        handle.change_permissions(Change::Reset).expect("alive");
+        assert_eq!((live.mode(), live.resets()), (PermissionMode::Ask, 1));
+        assert!(handle.grants().is_empty(), "a reset grant is still listed");
+        assert!(handle.grants_reset_since_published());
+        handle
+            .change_permissions(Change::Acknowledge)
+            .expect("alive");
+        assert_eq!(live.mode(), PermissionMode::Ask);
+        assert_eq!(
+            std::iter::from_fn(|| changes.try_recv().ok()).collect::<Vec<_>>(),
+            vec![
+                Change::Mode(PermissionMode::Yolo),
+                Change::Reset,
+                Change::Acknowledge
+            ],
+            "the record of each change, in the order they were made"
+        );
+        // A runtime that is gone: refused, and nothing moved.
+        drop(changes);
+        assert_eq!(
+            handle.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            Err(Rejected::Gone)
+        );
+        assert_eq!(live.mode(), PermissionMode::Ask);
     }
 
     #[test]
@@ -2990,7 +3309,7 @@ mod tests {
             .permissions()
             .grant(Grant::new("terminal", "printf '\u{1b}[2J' in /w"));
         state.publish();
-        let listed = grants.read();
+        let listed = grants.read().1;
         assert_eq!(listed.len(), 1);
         assert!(!listed[0].contains('\u{1b}'), "{listed:?}");
         assert!(listed[0].starts_with(" - terminal -> printf"), "{listed:?}");
@@ -3846,6 +4165,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -4849,6 +5169,191 @@ mod tests {
             name: name.to_string(),
             input,
         }
+    }
+
+    /// A provider that, before answering its `at`-th request, makes the
+    /// change the person would make mid-turn -- through the UI's own call,
+    /// on the handle that shares the runtime's live authority.
+    ///
+    /// The hook stands where the keystroke lands in production: after the
+    /// turn's first tool call has been judged and run, before its second one
+    /// is. Made from inside the turn rather than from another thread so the
+    /// case is about *what the second call is judged by*, not about a race.
+    struct ChangesMidTurn<'a> {
+        script: ScriptedProvider,
+        handle: &'a WorkHandle,
+        at: usize,
+        change: Option<Change>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for ChangesMidTurn<'_> {
+        async fn stream(
+            &self,
+            request: &crate::gateway::protocol::CompletionRequest,
+            deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            if self.script.requests() == self.at {
+                if let Some(change) = self.change {
+                    self.handle
+                        .change_permissions(change)
+                        .expect("the runtime is listening");
+                }
+            }
+            self.script.stream(request, deltas).await
+        }
+    }
+
+    /// One turn of two steps, each writing one file, under a session opened
+    /// the way `ready` opens one -- `Runtime::authority` -- in `mode`, with the
+    /// band answering "no" to anything it is asked; when `granted`, the
+    /// session already holds an "always" for both writes; `change`, if any,
+    /// made between the two steps. Answers which files exist afterwards,
+    /// whether the band was asked, and the mode in force at the end.
+    fn two_writes(
+        mode: PermissionMode,
+        granted: bool,
+        change: Option<Change>,
+    ) -> (bool, bool, bool, PermissionMode) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = mode;
+        let store = open_store(&config).expect("a store");
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        // The band's "no", waiting for the question the second call asks.
+        control_tx
+            .send(TurnControl::Answer {
+                id: super::super::approval_readiness::ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
+            .expect("the channel is open");
+        let cancel = Cancellation::new(CancelToken::new());
+        let prompter = TuiPrompter::new(
+            events_tx.clone(),
+            ControlChannel::new(control_rx),
+            cancel.clone(),
+        );
+        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        // The UI's handle and the runtime share one live authority, as
+        // `spawn` makes them.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        handle.live().set_mode(mode);
+        state.live = handle.live().clone();
+        let scope = crate::workspace::AccessScope::primary_only(workspace.path()).expect("a scope");
+        let mut authority = state.authority();
+        if granted {
+            // Keyed as a grant is: the write's canonical absolute target.
+            let root = workspace.path().canonicalize().expect("a workspace");
+            for name in ["first.txt", "second.txt"] {
+                authority.grant(Grant::new(
+                    "write_file",
+                    root.join(name).to_string_lossy().into_owned(),
+                ));
+            }
+        }
+        let tools = crate::tools::ToolContext::new(scope).with_permissions(authority);
+
+        let provider = ChangesMidTurn {
+            script: ScriptedProvider::new(vec![
+                calls(vec![call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "first.txt", "content": "one\n"}),
+                )]),
+                calls(vec![call(
+                    "call-2",
+                    "write_file",
+                    serde_json::json!({"path": "second.txt", "content": "two\n"}),
+                )]),
+                answers("done"),
+            ]),
+            handle: &handle,
+            at: 1,
+            change,
+        };
+        let turn = cancel.turn();
+        let request = TurnRequest {
+            model: "vendor/model".to_string(),
+            prompt: "write two files".to_string(),
+            history: Vec::new(),
+            max_steps: 4,
+            max_attempts: 1,
+            cancel: turn.mirror.clone(),
+            tools,
+        };
+        let mut sink = UiEventSink::new(events_tx.clone(), turn.token.clone());
+        let outcome = on_a_runtime(crate::agent::run_turn(request, &provider, &mut sink));
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(
+            provider.script.requests(),
+            3,
+            "the turn did not run to its end"
+        );
+        let mut asked = false;
+        while let Ok(event) = events_rx.try_recv() {
+            asked |= matches!(event, UiEvent::Approval(_));
+        }
+        (
+            workspace.path().join("first.txt").exists(),
+            workspace.path().join("second.txt").exists(),
+            asked,
+            handle.live().mode(),
+        )
+    }
+
+    #[test]
+    fn a_switch_to_ask_mid_turn_gates_that_turns_next_tool_call() {
+        // Upstream's `Shift+Tab tightening to ask gates a later tool call in
+        // the active turn` (`yolo-permission-mode.test.ts:452-530`): the
+        // person who switches to `ask` to stop a runaway turn is protected
+        // from the very next call, not from the next turn.
+        let (first, second, asked, mode) = two_writes(
+            PermissionMode::Auto,
+            false,
+            Some(Change::Mode(PermissionMode::Ask)),
+        );
+        assert!(
+            first,
+            "the call before the switch was judged by the new mode"
+        );
+        assert!(asked, "the call after the switch was not put to the band");
+        assert!(
+            !second,
+            "the call after the switch to ask ran without anybody saying yes"
+        );
+        assert_eq!(mode, PermissionMode::Ask);
+
+        // The control: with no switch, `auto` writes both -- so the case above
+        // is about the switch and not about `auto` refusing the second write.
+        let (first, second, asked, mode) = two_writes(PermissionMode::Auto, false, None);
+        assert!(first && second, "auto did not admit both writes");
+        assert!(!asked, "auto asked the band");
+        assert_eq!(mode, PermissionMode::Auto);
+    }
+
+    #[test]
+    fn a_reset_mid_turn_takes_the_grants_away_from_that_turns_next_call() {
+        // A reset is `ask` and no grants, at once: in an `ask` session that
+        // had already been told "always" for both writes, the second is asked
+        // about again -- a grant outranks the mode, so only the grants going
+        // can make it ask.
+        let (first, second, asked, mode) =
+            two_writes(PermissionMode::Ask, true, Some(Change::Reset));
+        assert!(first, "the grant before the reset was not honoured");
+        assert!(asked, "the call after the reset was not put to the band");
+        assert!(
+            !second,
+            "a grant the reset took away still allowed the call"
+        );
+        assert_eq!(mode, PermissionMode::Ask);
+
+        // The control: the same session with no reset writes both unasked.
+        let (first, second, asked, _) = two_writes(PermissionMode::Ask, true, None);
+        assert!(first && second, "the grants did not admit both writes");
+        assert!(!asked);
     }
 
     /// One session that can run turns the way the worker runs them, kept whole
