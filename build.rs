@@ -46,22 +46,40 @@ fn main() {
 /// `status` report a stale revision until an unrelated rebuild. A packaged source
 /// tree has no `.git` at all, so both paths are conditional.
 fn watch_git_head() {
-    let head = std::path::Path::new(".git/HEAD");
+    // Where HEAD and the refs really live: `.git` itself in a plain checkout,
+    // and in a linked worktree a file pointing at the worktree's own git
+    // directory (HEAD) and the main one (refs). Asked of git rather than
+    // assumed, so a worktree build's revision follows its commits too.
+    let Some(git_dir) = git_path(&["rev-parse", "--git-dir"]) else {
+        return;
+    };
+    let common = git_path(&["rev-parse", "--git-common-dir"]).unwrap_or_else(|| git_dir.clone());
+    let head = git_dir.join("HEAD");
     if !head.exists() {
         return;
     }
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed={}", head.display());
 
-    let Ok(contents) = std::fs::read_to_string(head) else {
+    let Ok(contents) = std::fs::read_to_string(&head) else {
         return;
     };
     if let Some(reference) = contents.trim().strip_prefix("ref: ") {
         // A packed ref has no file of its own; watching it is then a no-op.
-        let path = format!(".git/{reference}");
-        if std::path::Path::new(&path).exists() {
-            println!("cargo:rerun-if-changed={path}");
+        let path = common.join(reference);
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
+}
+
+/// A path git prints for `args`, or `None` outside a repository.
+fn git_path(args: &[&str]) -> Option<std::path::PathBuf> {
+    let output = Command::new("git").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    Some(std::path::PathBuf::from(text.trim()))
 }
 
 fn env_revision() -> Option<String> {
