@@ -6446,7 +6446,8 @@ impl CommandHandlers for Shell {
         match Request::parse(argument) {
             Request::Show => {
                 let grants = self.work.grants();
-                self.announce(permissions::status(self.mode, &grants));
+                let rules = self.work.rules().current();
+                self.announce(permissions::status(self.mode, &rules, &grants));
                 self.announce(permissions::saved_rules());
             }
             Request::Select(mode) => {

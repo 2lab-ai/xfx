@@ -318,6 +318,7 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         preimage.summary(),
         bytes.to_vec(),
     )
+    .with_rule_targets(located.rule_targets())
     .with_diff(ApprovalDiff::around_change(
         &preimage.as_text(),
         &input.content,
@@ -418,6 +419,7 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         preimage.summary(),
         after.into_bytes(),
     )
+    .with_rule_targets(located.rule_targets())
     .with_excerpt(MutationExcerpt {
         before: bounded_excerpt(&input.old_string),
         after: bounded_excerpt(&input.new_string),
@@ -457,7 +459,8 @@ fn execute_create_folder(input: &ToolInput, context: &ToolContext) -> ToolResult
         located.target_scope(),
         Preimage::Absent,
         Vec::new(),
-    );
+    )
+    .with_rule_targets(located.rule_targets());
     commit(context, located, plan, None, |plan| {
         format!("Created {}", plan.display())
     })
@@ -760,6 +763,9 @@ mod namespace {
     pub struct Location {
         /// The deepest directory on the path that already exists.
         parent: OwnedFd,
+        /// What a configured rule is matched against for this change
+        /// ([`MutationPlan::rule_targets`]).
+        rule_targets: Vec<Vec<u8>>,
         /// Directories between `parent` and the final name that do not exist
         /// yet, in order. Creating them is part of the change, not of resolving
         /// it, so nothing here has been created.
@@ -783,6 +789,12 @@ mod namespace {
 
         pub fn target_scope(&self) -> TargetScope {
             self.target_scope
+        }
+
+        /// Every path a configured rule judges this change at, in upstream's
+        /// order, canonical and workspace-relative.
+        pub fn rule_targets(&self) -> Vec<Vec<u8>> {
+            self.rule_targets.clone()
         }
 
         /// Whether the target can possibly exist yet.
@@ -910,14 +922,71 @@ mod namespace {
             }
         }
 
+        let rule_targets = rule_targets(scope, root, &relative, &missing);
         Ok(Location {
             parent,
+            rule_targets,
             missing,
             name: relative[last].clone(),
             display: scope.display_path(&full),
             full,
             target_scope,
         })
+    }
+
+    /// The paths a configured rule judges a change at: the target, its
+    /// parent, then every other directory the change creates, deepest first
+    /// (`assembleFileTargetDrafts`, `vercel-labs/fx@c1db9191
+    /// src/core/permissions/permissions.zig:738-801`).
+    ///
+    /// **Spelled as the filesystem spells them.** The walk above opened every
+    /// existing component without following a link, so no link is left to
+    /// resolve -- but on a filesystem that ignores case, `SECRET/a` and
+    /// `secret/a` are one file and only one of them is what a rule says.
+    /// Upstream matches the path its resolver `realpath`ed, so this asks the
+    /// same question of the part that exists (and of the target itself when
+    /// it exists and is not a link); a directory still to be created is named
+    /// as written, as upstream names it. A lookup that fails falls back to the
+    /// path as written, which is also what the walk just proved exists.
+    fn rule_targets(
+        scope: &AccessScope,
+        root: &Path,
+        relative: &[OsString],
+        missing: &[OsString],
+    ) -> Vec<Vec<u8>> {
+        let last = relative.len() - 1;
+        let existing = &relative[..last - missing.len()];
+        let mut lexical = root.to_path_buf();
+        for component in existing {
+            lexical.push(component);
+        }
+        let deepest = std::fs::canonicalize(&lexical).unwrap_or(lexical);
+        let mut created: Vec<PathBuf> = Vec::with_capacity(missing.len());
+        let mut directory = deepest.clone();
+        for component in missing {
+            directory.push(component);
+            created.push(directory.clone());
+        }
+        let parent = created.last().cloned().unwrap_or(deepest);
+        let mut target = parent.join(&relative[last]);
+        if missing.is_empty() {
+            if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+                if !metadata.file_type().is_symlink() {
+                    if let Ok(canonical) = std::fs::canonicalize(&target) {
+                        target = canonical;
+                    }
+                }
+            }
+        }
+        let primary = scope.primary();
+        let mut targets = vec![
+            crate::permission::rules::rule_path(primary, &target),
+            crate::permission::rules::rule_path(primary, &parent),
+        ];
+        for directory in created.iter().rev().skip(1) {
+            targets.push(crate::permission::rules::rule_path(primary, directory));
+        }
+        targets
     }
 
     /// The first component of `relative` that names write-protected metadata.
@@ -1274,6 +1343,10 @@ mod namespace {
 
         pub fn target_scope(&self) -> TargetScope {
             TargetScope::PrimaryWorkspace
+        }
+
+        pub fn rule_targets(&self) -> Vec<Vec<u8>> {
+            Vec::new()
         }
     }
 

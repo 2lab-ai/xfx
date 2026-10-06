@@ -951,6 +951,30 @@ mod tests {
     }
 
     #[test]
+    fn a_preference_write_keeps_every_key_in_the_order_the_file_had_it() {
+        // A permission table is read last-match-wins in document order
+        // (`crate::permission::rules::RuleSet::decide`), so a write of any
+        // other key that sorted the file would change what the table allows:
+        // `{"rm*":"allow","*":"deny"}` denies everything, and sorted it would
+        // allow `rm`. Upstream's writer keeps the order (`writeJsonValue` over
+        // an insertion-ordered map, `settings_store.zig:1830-1850`).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            "{\"zeta\":1,\"permission\":{\"bash\":{\"rm*\":\"allow\",\"*\":\"deny\"},\"edit\":\"ask\"},\"alpha\":2}",
+        )
+        .expect("seed");
+        write_preference(&path, &["statusLine", "session"], json!(true)).expect("write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"zeta\": 1,\n  \"permission\": {\n    \"bash\": {\n      \"rm*\": \"allow\",\n      \
+             \"*\": \"deny\"\n    },\n    \"edit\": \"ask\"\n  },\n  \"alpha\": 2,\n  \
+             \"statusLine\": {\n    \"session\": true\n  }\n}\n"
+        );
+    }
+
+    #[test]
     fn a_value_in_the_way_of_a_preference_is_replaced_by_an_object() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");

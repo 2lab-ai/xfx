@@ -92,7 +92,7 @@ use crate::interactive::{
     bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
 };
 use crate::output::StatusSnapshot;
-use crate::permission::{LiveAuthority, PermissionSession};
+use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
 };
@@ -231,6 +231,15 @@ pub(crate) struct WorkHandle {
     /// (`yolo-permission-mode.test.ts:373-450`) -- and never by the runtime,
     /// whose channel messages can be older than what the person chose since.
     live: LiveAuthority,
+    /// The configured permission table every conversation's authority reads
+    /// at each decision ([`LiveRules`]).
+    ///
+    /// Written here, on the UI thread, by `/allowlist` the moment it has
+    /// written the file -- so the change governs the next tool call, of a
+    /// running turn too, as upstream's live engine does
+    /// (`replaceEffectivePermissionRules`, `session_commands.zig:927-941`) --
+    /// and read by a bare `/permissions` for its `configured rules`.
+    rules: LiveRules,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
 }
@@ -493,12 +502,19 @@ impl WorkHandle {
                 status: StatusBoard::unpublished(),
                 permissions,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
             },
             work_rx,
             control_rx,
             changes,
         )
+    }
+
+    /// The configured permission table every conversation decides with, for
+    /// the UI thread to read and to replace ([`LiveRules`]).
+    pub(crate) fn rules(&self) -> &LiveRules {
+        &self.rules
     }
 
     /// Stands in for the runtime's publication of the grants list, as of the
@@ -757,6 +773,10 @@ pub(crate) fn spawn(
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
+    // The same for the configured table: one handle, written by `/allowlist`
+    // on the UI thread, read by every conversation the runtime opens.
+    let rules = LiveRules::new(config.permission.effective().clone());
+    let loops_rules = rules.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -779,6 +799,7 @@ pub(crate) fn spawn(
             state.reply = loops_reply;
             state.grants = publishes_grants;
             state.live = loops_live;
+            state.rules = loops_rules;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -812,6 +833,7 @@ pub(crate) fn spawn(
                 status,
                 permissions: permissions_tx,
                 live,
+                rules,
                 grants,
             },
             resumable: None,
@@ -961,6 +983,9 @@ struct Runtime {
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// The configured table the UI writes and every conversation's authority
+    /// reads ([`WorkHandle::rules`]). Read here, never written.
+    rules: LiveRules,
 }
 
 impl Runtime {
@@ -995,6 +1020,7 @@ impl Runtime {
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let effort = config.effort.clone();
         let config_mode = config.permission_mode;
+        let config_rules = config.permission.effective().clone();
         Self {
             config,
             env,
@@ -1009,6 +1035,7 @@ impl Runtime {
             board,
             grants: Grants::default(),
             live: LiveAuthority::new(config_mode),
+            rules: LiveRules::new(config_rules),
         }
     }
 
@@ -1321,6 +1348,8 @@ impl Runtime {
             // Read at every decision, so a change the person makes while a
             // turn runs governs that turn's next call (`LiveAuthority`).
             .with_live(self.live.clone())
+            // And the configured table, for the same reason (`LiveRules`).
+            .with_live_rules(self.rules.clone())
     }
 
     /// Makes a saved session this runtime's conversation, before any work.
@@ -2795,6 +2824,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2854,6 +2884,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2892,6 +2923,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -3248,6 +3280,7 @@ mod tests {
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
             live: LiveAuthority::new(PermissionMode::Auto),
+            rules: LiveRules::default(),
             grants: Grants::default(),
         };
         drop(work_rx);
@@ -4735,6 +4768,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
             },
             resumable: None,

@@ -9,6 +9,8 @@
 //!   permission for exactly one prepared action.
 //! - [`policy`]: the modes, the configured rules, the session grants, the
 //!   approval channel, and the decision itself.
+//! - [`rules`]: the configured table upstream's settings carry, its pattern
+//!   language, and the verdict it gives one target.
 //! - [`slash`]: what `/permissions` means and says, for both shells.
 //!
 //! # Why this shape
@@ -41,6 +43,7 @@
 pub mod authority;
 pub mod command;
 pub mod policy;
+pub mod rules;
 pub mod slash;
 
 /// The permission mode is a configuration setting, and configuration owns it.
@@ -60,9 +63,10 @@ pub use authority::{
 pub use command::{classify, CommandEffect, DeniedEffect};
 pub use policy::{
     AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
-    ApprovalSubject, Decided, DenyCause, Grant, LiveAuthority, PermissionRules, PermissionSession,
-    PolicyDecision, ProposedAction, Rule, TtyPrompter, YOLO_WARNING,
+    ApprovalSubject, Decided, DenyCause, Grant, LiveAuthority, LiveRules, PermissionSession,
+    PolicyDecision, ProposedAction, TtyPrompter, YOLO_WARNING,
 };
+pub use rules::{ConfiguredRule, RuleAction, RuleSet};
 
 #[cfg(test)]
 mod tests {

@@ -32,7 +32,7 @@ use crate::output::{
     safe_one_line, Event, EventSink, OutputFormat, SessionFacts, StatusSnapshot, TextSink,
     SANDBOX_LABEL,
 };
-use crate::permission::{PermissionSession, YOLO_WARNING};
+use crate::permission::{LiveRules, PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{
@@ -1011,6 +1011,10 @@ pub async fn run(
     // value it is assigned comes from re-reading the file that was just
     // written, never from what the writer believed it wrote.
     let mut config = config.clone();
+    // The configured table every conversation this shell opens decides with,
+    // and the one `/allowlist` puts a changed file's table into: a handle
+    // rather than a copy, so a change is in force for the next tool call.
+    let rules = LiveRules::new(config.permission.effective().clone());
     let env = Environment::from_process();
 
     let cancel = CancelToken::new();
@@ -1088,7 +1092,10 @@ pub async fn run(
                                     &store,
                                     &config,
                                     &model,
-                                    crate::app::permission_session(config.permission_mode),
+                                    crate::app::permission_session(
+                                        config.permission_mode,
+                                        rules.clone(),
+                                    ),
                                     None,
                                     &cancel,
                                 )
@@ -1138,7 +1145,7 @@ pub async fn run(
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                     Slash::Permissions => {
-                        apply_permissions(&argument, &mut config, conversation.as_mut())?;
+                        apply_permissions(&argument, &mut config, conversation.as_mut(), &rules)?;
                     }
                     Slash::Statusline => statusline_on_the_line(
                         &argument,
@@ -1170,7 +1177,7 @@ pub async fn run(
                         // The configuration's mode rather than the launch's:
                         // `/permissions` moves it, and a conversation opened
                         // after that is opened in the mode the user chose.
-                        crate::app::permission_session(config.permission_mode),
+                        crate::app::permission_session(config.permission_mode, rules.clone()),
                         // fx's interactive shell is xfx's TUI, not this line
                         // shell: this loop reads one line at a time from
                         // standard input and has nowhere to render a question
@@ -1552,6 +1559,7 @@ fn apply_permissions(
     argument: &str,
     config: &mut RuntimeConfig,
     conversation: Option<&mut Conversation>,
+    rules: &LiveRules,
 ) -> io::Result<()> {
     use crate::permission::slash::{self, Request};
     let (mode, reset) = match Request::parse(argument) {
@@ -1563,7 +1571,8 @@ fn apply_permissions(
             // fx's own rows: the facts behind the prefix and each grant under
             // them as ` - <tool> -> <target>`, flattened to one line because a
             // command a model wrote is not text this shell hands a terminal.
-            for row in slash::status_rows(config.permission_mode, &grants).lines() {
+            let rules = rules.current();
+            for row in slash::status_rows(config.permission_mode, &rules, &grants).lines() {
                 match row.strip_prefix(" - ") {
                     Some(grant) => writeln!(stdout, " - {}", safe_one_line(grant, usize::MAX))?,
                     None => writeln!(stdout, "[permissions] {row}")?,

@@ -38,9 +38,9 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::output::{Event, RecordingSink};
 use xfx::permission::{
     classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
-    AuthorityError, CommandEffect, CommandPlan, CommandRoute, DeniedEffect, DenyCause, Grant,
-    PermissionMode, PermissionRules, PermissionSession, PolicyDecision, ProposedAction, Rule,
-    YOLO_WARNING,
+    AuthorityError, CommandEffect, CommandPlan, CommandRoute, ConfiguredRule, DeniedEffect,
+    DenyCause, Grant, PermissionMode, PermissionSession, PolicyDecision, ProposedAction,
+    RuleAction, RuleSet, YOLO_WARNING,
 };
 use xfx::provider::Wire;
 use xfx::tools::{
@@ -234,6 +234,17 @@ fn read_whole(context: &ToolContext, path: &str) -> String {
 }
 
 /// The rule/grant key for a command plan: the text *and* the directory.
+/// A configured table of `(category, pattern, action)` rows, in order.
+fn table(rows: &[(&str, &str, RuleAction)]) -> RuleSet {
+    RuleSet::new(
+        rows.iter()
+            .map(|(permission, pattern, action)| {
+                ConfiguredRule::new(*permission, *pattern, *action)
+            })
+            .collect(),
+    )
+}
+
 fn target_of(plan: &CommandPlan) -> String {
     ProposedAction::Command(plan).target()
 }
@@ -731,7 +742,7 @@ fn yolo_mode_admits_what_every_other_mode_refuses_and_says_which_source_did_it()
 fn a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it() {
     let tree = Tree::new();
     let plan = plan(&tree, "cargo --version");
-    let rules = PermissionRules::new(Vec::new(), vec![Rule::new("terminal", target_of(&plan))]);
+    let rules = table(&[("bash", "cargo --version", RuleAction::Deny)]);
     let denied = session(PermissionMode::Auto).with_rules(rules);
     let PolicyDecision::Deny { reason, .. } = denied.evaluate(ProposedAction::Command(&plan))
     else {
@@ -744,7 +755,7 @@ fn a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it() {
 fn a_configured_allow_rule_admits_without_an_approval() {
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
-    let rules = PermissionRules::new(vec![Rule::new("terminal", target_of(&plan))], Vec::new());
+    let rules = table(&[("bash", "cargo publish", RuleAction::Allow)]);
     let allowed = session(PermissionMode::Ask).with_rules(rules);
     assert_eq!(
         allowed.evaluate(ProposedAction::Command(&plan)),
@@ -821,15 +832,100 @@ fn a_grant_for_a_command_does_not_follow_it_into_another_directory() {
         );
     }
 
-    // A configured rule is keyed the same way, so writing one for the workspace
-    // does not silently authorize an added root.
-    let ruled = session(PermissionMode::Ask).with_rules(PermissionRules::new(
-        vec![Rule::new("terminal", target_of(&here))],
-        Vec::new(),
-    ));
+    // A configured rule is not a grant: it is about the command's text,
+    // wherever it runs, as upstream's is (`patternForRuleMatch` strips the
+    // directory, `vercel-labs/fx@c1db9191 src/core/permissions/permissions.zig:1501-1516`).
+    // A person who writes `pwd` into their table has said `pwd` is fine.
+    let ruled =
+        session(PermissionMode::Ask).with_rules(table(&[("bash", "pwd", RuleAction::Allow)]));
+    for anywhere in [&here, &inner, &added] {
+        assert_eq!(
+            ruled.evaluate(ProposedAction::Command(anywhere)),
+            PolicyDecision::Allow {
+                source: AllowSource::ConfiguredRule
+            },
+            "{}",
+            target_of(anywhere)
+        );
+    }
+}
+
+#[test]
+fn a_command_allow_with_a_wildcard_admits_only_plain_words() {
+    // `git *` must never allow a second command riding on the first
+    // (`ruleTargetMatches`, `permissions.zig:1620-1630`): the static-grammar
+    // narrowing is what keeps a pattern from widening into a shell.
+    let tree = Tree::new();
+    let allowed =
+        session(PermissionMode::Ask).with_rules(table(&[("bash", "git *", RuleAction::Allow)]));
     assert_eq!(
-        ruled.evaluate(ProposedAction::Command(&added)),
+        allowed.evaluate(ProposedAction::Command(&plan(&tree, "git status --short"))),
+        PolicyDecision::Allow {
+            source: AllowSource::ConfiguredRule
+        }
+    );
+    for riding in [
+        "git status && touch pwned",
+        "git status; touch pwned",
+        "git status | sh",
+        "git $(touch pwned)",
+        "git `touch pwned`",
+        "git status > pwned",
+        "git \"status\"",
+        "GIT_DIR=x git status",
+    ] {
+        assert_eq!(
+            allowed.evaluate(ProposedAction::Command(&plan(&tree, riding))),
+            PolicyDecision::Prompt,
+            "{riding:?}"
+        );
+    }
+    // A deny keeps the plain glob, so it catches the riding command too.
+    let denied =
+        session(PermissionMode::Yolo).with_rules(table(&[("bash", "git *", RuleAction::Deny)]));
+    assert_eq!(
+        denied.evaluate(ProposedAction::Command(&plan(
+            &tree,
+            "git status && touch pwned"
+        ))),
+        PolicyDecision::Allow {
+            source: AllowSource::Yolo
+        },
+        "yolo consults no rule"
+    );
+    let denied =
+        session(PermissionMode::Auto).with_rules(table(&[("bash", "git *", RuleAction::Deny)]));
+    assert!(matches!(
+        denied.evaluate(ProposedAction::Command(&plan(
+            &tree,
+            "git status && touch pwned"
+        ))),
+        PolicyDecision::Deny {
+            cause: DenyCause::ConfiguredRule,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_rule_keyed_by_the_terminal_tool_name_does_not_allow_a_command() {
+    // Upstream judges a command as `bash` / `run_command`; its `terminal` is
+    // the non-run actions of its shell tool, which run nothing. A rule written
+    // for that name must not admit xfx's command.
+    let tree = Tree::new();
+    let ruled =
+        session(PermissionMode::Ask).with_rules(table(&[("terminal", "*", RuleAction::Allow)]));
+    assert_eq!(
+        ruled.evaluate(ProposedAction::Command(&plan(&tree, "ls"))),
         PolicyDecision::Prompt
+    );
+    let by_upstream_name =
+        session(PermissionMode::Ask).with_rules(table(&[("run_command", "ls", RuleAction::Allow)]));
+    assert_eq!(
+        by_upstream_name.evaluate(ProposedAction::Command(&plan(&tree, "ls"))),
+        PolicyDecision::Allow {
+            source: AllowSource::ConfiguredRule
+        }
     );
 }
 
@@ -3674,4 +3770,194 @@ fn the_release_loop_reads_a_file_edits_it_runs_a_command_and_answers() {
     entries.sort();
     assert_eq!(entries, ["notes.md"]);
     run.assert_no_secret();
+}
+
+// ---------------------------------------------------------------------------
+// configured rules at the tools
+// ---------------------------------------------------------------------------
+
+/// A context over `tree` in `mode` deciding with `rows`, and nobody to ask.
+fn ruled(tree: &Tree, mode: PermissionMode, rows: &[(&str, &str, RuleAction)]) -> ToolContext {
+    ToolContext::new(AccessScope::primary_only(tree.root()).expect("a usable primary root"))
+        .with_permissions(session(mode).with_rules(table(rows)))
+}
+
+/// Whether this tree sits on a filesystem that ignores case, where `A` and
+/// `a` are one name.
+fn ignores_case(tree: &Tree) -> bool {
+    tree.mkdir("CaseProbe");
+    tree.root().join("caseprobe").exists()
+}
+
+#[test]
+fn a_read_deny_is_not_walked_around_through_a_link_or_a_capital_letter() {
+    let tree = Tree::new();
+    tree.write("secrets/key", "hunter2");
+    tree.write("notes.md", "fine");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(tree.root().join("secrets"), tree.root().join("door"))
+        .expect("a link");
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("read", "secrets/*", RuleAction::Deny)],
+    );
+    let mut spellings = vec!["secrets/key".to_string()];
+    if cfg!(unix) {
+        spellings.push("door/key".to_string());
+    }
+    if ignores_case(&tree) {
+        spellings.push("SECRETS/KEY".to_string());
+    }
+    for path in spellings {
+        let result = call(&context, "read_file", json!({ "path": path }));
+        assert!(!result.ok, "{path}: {}", result.output);
+        assert_eq!(
+            result.output,
+            "read_file was not permitted: a configured permission rule denies `read_file` for `secrets/key`",
+            "{path}"
+        );
+        assert!(!result.output.contains("hunter2"));
+    }
+    assert!(call(&context, "read_file", json!({ "path": "notes.md" })).ok);
+}
+
+#[test]
+fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_refuses_it() {
+    let tree = Tree::new();
+    tree.write("src/a.rs", "needle");
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[
+            ("grep", "*", RuleAction::Ask),
+            ("glob", "src", RuleAction::Deny),
+        ],
+    );
+    let grep = call(&context, "grep_files", json!({ "pattern": "needle" }));
+    assert!(!grep.ok);
+    assert!(
+        grep.output.starts_with(
+            "grep_files was not permitted: a configured permission rule asks before `grep_files` reads `.`"
+        ),
+        "{}",
+        grep.output
+    );
+    let glob = call(
+        &context,
+        "glob_files",
+        json!({ "pattern": "*.rs", "path": "src" }),
+    );
+    assert!(!glob.ok, "{}", glob.output);
+    let listed = call(&context, "list_files", json!({ "path": "src" }));
+    assert!(
+        !listed.ok,
+        "list_files is judged as glob: {}",
+        listed.output
+    );
+    assert!(call(&context, "glob_files", json!({ "pattern": "**/*.rs" })).ok);
+}
+
+#[test]
+fn a_write_is_judged_at_its_parent_and_every_directory_it_creates() {
+    let tree = Tree::new();
+    tree.mkdir("vault");
+    // A deny on the directory stops a write into it.
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("edit", "vault", RuleAction::Deny)],
+    );
+    let refused = call(
+        &context,
+        "write_file",
+        json!({ "path": "vault/new.txt", "content": "x" }),
+    );
+    assert!(!refused.ok);
+    assert!(
+        refused
+            .output
+            .ends_with("a configured permission rule denies `write_file` for `vault`"),
+        "{}",
+        refused.output
+    );
+    assert!(tree.entries("vault").is_empty());
+    // A directory the change would create is judged too, deepest first.
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("edit", "made", RuleAction::Deny)],
+    );
+    let refused = call(
+        &context,
+        "create_folder",
+        json!({ "path": "made/deeper/deepest" }),
+    );
+    assert!(!refused.ok, "{}", refused.output);
+    assert!(refused.output.ends_with("for `made`"), "{}", refused.output);
+    assert!(!tree.root().join("made").exists());
+}
+
+#[test]
+fn an_allow_covering_every_target_admits_a_write_in_ask_mode_with_nobody_to_ask() {
+    let tree = Tree::new();
+    let context = ruled(
+        &tree,
+        PermissionMode::Ask,
+        &[("edit", "*", RuleAction::Allow)],
+    );
+    let written = call(
+        &context,
+        "write_file",
+        json!({ "path": "a.txt", "content": "ok" }),
+    );
+    assert!(written.ok, "{}", written.output);
+    assert_eq!(tree.read("a.txt"), "ok");
+    // One that covers the file and not its directory leaves it to the mode.
+    let context = ruled(
+        &tree,
+        PermissionMode::Ask,
+        &[("edit", "sub/b.txt", RuleAction::Allow)],
+    );
+    tree.mkdir("sub");
+    let asked = call(
+        &context,
+        "write_file",
+        json!({ "path": "sub/b.txt", "content": "no" }),
+    );
+    assert!(!asked.ok);
+    assert!(
+        asked.output.contains("`ask` mode needs"),
+        "{}",
+        asked.output
+    );
+    assert!(!tree.root().join("sub/b.txt").exists());
+}
+
+#[test]
+fn a_write_deny_is_not_walked_around_by_a_capital_letter() {
+    let tree = Tree::new();
+    tree.mkdir("secret");
+    if !ignores_case(&tree) {
+        // On a filesystem that keeps case, `SECRET` is another directory and
+        // the rule is rightly not about it.
+        return;
+    }
+    let context = ruled(
+        &tree,
+        PermissionMode::Auto,
+        &[("edit", "secret/*", RuleAction::Deny)],
+    );
+    let refused = call(
+        &context,
+        "write_file",
+        json!({ "path": "SECRET/planted.txt", "content": "x" }),
+    );
+    assert!(!refused.ok, "{}", refused.output);
+    assert!(
+        refused.output.ends_with("for `secret/planted.txt`"),
+        "{}",
+        refused.output
+    );
+    assert!(tree.entries("secret").is_empty());
 }

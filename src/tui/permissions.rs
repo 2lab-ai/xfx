@@ -57,10 +57,18 @@ pub(crate) enum Change {
 
 /// The first notice of a bare `/permissions`: the three facts and the usage
 /// line under them (`writePermissionsStatus`, `session_commands.zig:1047-1053`).
-pub(crate) fn status(mode: PermissionMode, grants: &[String]) -> Notice {
+pub(crate) fn status(
+    mode: PermissionMode,
+    rules: &crate::permission::RuleSet,
+    grants: &[String],
+) -> Notice {
     Notice::neutral(
         TOPIC,
-        format!("{}\n{}", slash::status_rows(mode, grants), slash::USAGE),
+        format!(
+            "{}\n{}",
+            slash::status_rows(mode, rules, grants),
+            slash::USAGE
+        ),
     )
 }
 
@@ -212,7 +220,11 @@ mod tests {
     fn a_bare_listing_is_upstreams_first_notice_less_the_rules_it_cannot_keep() {
         // `cap/fx-permissions-40x120-bare.txt`, less the two usage rows that
         // name `remember` and `revoke`.
-        let notice = status(PermissionMode::Auto, &[]);
+        let notice = status(
+            PermissionMode::Auto,
+            &crate::permission::RuleSet::default(),
+            &[],
+        );
         assert_eq!(
             (notice.tone, notice.topic.as_str()),
             (Tone::Neutral, "permissions")

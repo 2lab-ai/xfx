@@ -18,6 +18,8 @@ use std::path::Path;
 
 use crate::config::PermissionMode;
 
+use super::rules::RuleSet;
+
 /// The topic every answer is said under.
 pub const TOPIC: &str = "permissions";
 
@@ -74,12 +76,25 @@ impl Request {
 /// `src/core/output/output_contracts.zig:722-744`), without the usage line a
 /// caller puts under it.
 ///
-/// `grants` are the rows [`grant_line`] made. `configured rules` is always
-/// `(none)`: xfx reads no rules from settings ([`super::PermissionRules`] is
-/// built only by its own tests), and `(none)` is upstream's own text for an
-/// empty set.
-pub fn status_rows(mode: PermissionMode, grants: &[String]) -> String {
-    let mut body = format!("mode={}\nconfigured rules: (none)\n", mode.display_label());
+/// `rules` is the table in force -- this workspace's when it has one, else the
+/// profile's (`crate::config::PermissionTables::effective`) -- one
+/// ` - <action> <category> -> <pattern>` row per rule in the file's order.
+/// `grants` are the rows [`grant_line`] made.
+pub fn status_rows(mode: PermissionMode, rules: &RuleSet, grants: &[String]) -> String {
+    let mut body = format!("mode={}\n", mode.display_label());
+    if rules.is_empty() {
+        body.push_str("configured rules: (none)\n");
+    } else {
+        body.push_str("configured rules:\n");
+        for rule in rules.rules() {
+            body.push_str(&format!(
+                " - {} {} -> {}\n",
+                rule.action.label(),
+                rule.permission,
+                rule.pattern
+            ));
+        }
+    }
     if grants.is_empty() {
         body.push_str("session grants: (none)");
     } else {
@@ -191,12 +206,13 @@ mod tests {
     fn the_status_rows_are_upstreams_three_facts() {
         // `cap/fx-permissions-40x120-bare.txt`, rows 3-5.
         assert_eq!(
-            status_rows(PermissionMode::Auto, &[]),
+            status_rows(PermissionMode::Auto, &RuleSet::default(), &[]),
             "mode=auto\nconfigured rules: (none)\nsession grants: (none)"
         );
         assert_eq!(
             status_rows(
                 PermissionMode::Yolo,
+                &RuleSet::default(),
                 &[
                     " - write_file -> a.txt".to_string(),
                     " - terminal -> ls in /w".to_string(),
@@ -206,6 +222,22 @@ mod tests {
              - write_file -> a.txt\n - terminal -> ls in /w"
         );
         assert!(!USAGE.contains("remember") && !USAGE.contains("revoke"));
+    }
+
+    #[test]
+    fn configured_rules_are_listed_in_the_files_order_as_upstream_lists_them() {
+        // `output_contracts.zig:2178`: ` - <action> <permission> -> <pattern>`.
+        use crate::permission::rules::{ConfiguredRule, RuleAction};
+        let rules = RuleSet::new(vec![
+            ConfiguredRule::new("edit", "src/*", RuleAction::Allow),
+            ConfiguredRule::new("open_url", "*", RuleAction::Ask),
+            ConfiguredRule::new("bash", "rm*", RuleAction::Deny),
+        ]);
+        assert_eq!(
+            status_rows(PermissionMode::Ask, &rules, &[]),
+            "mode=ask\nconfigured rules:\n - allow edit -> src/*\n - ask open_url -> *\n \
+             - deny bash -> rm*\nsession grants: (none)"
+        );
     }
 
     #[test]

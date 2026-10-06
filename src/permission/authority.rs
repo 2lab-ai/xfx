@@ -726,6 +726,16 @@ pub struct MutationPlan {
     /// beside the excerpt rather than replacing it: the band still asks its
     /// one-line question whichever surface reviews the change.
     diff: Option<ApprovalDiff>,
+    /// What a configured rule is matched against, in upstream's order: the
+    /// target, its parent, then every other directory this change creates,
+    /// deepest first (`assembleFileTargetDrafts`, `permissions.zig:738-801`),
+    /// each canonical and workspace-relative ([`super::rules::rule_path`]).
+    ///
+    /// Set by the executor that resolved the path, because only it knows which
+    /// directories exist and how the filesystem spells them; a plan built
+    /// without it judges the target and the parent its display names. Not part
+    /// of the fingerprint: it is a reading of the same target, for policy.
+    rule_targets: Option<Vec<Vec<u8>>>,
     fingerprint: ContentHash,
 }
 
@@ -764,8 +774,33 @@ impl MutationPlan {
             after,
             excerpt: None,
             diff: None,
+            rule_targets: None,
             fingerprint,
         }
+    }
+
+    /// The same plan, judged by rules against `targets`
+    /// ([`Self::rule_targets`]).
+    pub fn with_rule_targets(mut self, targets: Vec<Vec<u8>>) -> Self {
+        self.rule_targets = Some(targets);
+        self
+    }
+
+    /// Every path a configured rule is matched against for this change: what
+    /// the executor resolved, or -- for a plan built without one -- the
+    /// target and its parent as [`Self::display`] names them (`.` for the
+    /// workspace root).
+    pub fn rule_targets(&self) -> Vec<Vec<u8>> {
+        if let Some(targets) = &self.rule_targets {
+            return targets.clone();
+        }
+        let shown = Path::new(&self.display);
+        let parent = match shown.parent() {
+            Some(parent) if parent.as_os_str().is_empty() => ".".to_string(),
+            Some(parent) => parent.to_string_lossy().into_owned(),
+            None => ".".to_string(),
+        };
+        vec![self.display.as_bytes().to_vec(), parent.into_bytes()]
     }
 
     /// The same plan, carrying the before/after a prompt will show.
