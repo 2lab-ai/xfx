@@ -6,7 +6,7 @@
 
   Read both.
 
-  1s (↑1 ↓40)
+  0s (↑1 ↓40)
 
 * collapse tool calls: saved to user settings (scope=user)
 
@@ -24,7 +24,7 @@
 
 
 
-  Running (3s) (↑2 ↓0)
+• Running (3s) (↑2 ↓0)
 
 ┃
 

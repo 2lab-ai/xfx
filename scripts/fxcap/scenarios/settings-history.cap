@@ -1,6 +1,8 @@
 # /settings' Prompt history row and the history file: a prompt kept, history
 # off (a prompt kept nowhere), on again (a prompt kept), then a fresh launch
 # on the same HOME and what Up recalls there. Each step's file by `home`.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
 gateway settings-history-turns.json
 wait 2
 type first prompt

@@ -3,6 +3,8 @@
 # (`appearance-security-ext/scenarios/settings.cap`) keystroke for keystroke,
 # less `startup-scrollback`'s own answers on xfx, which has no such setting:
 # there `/settings startup-scrollback` is the usage line like any argument.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
 wait 2
 type /settings
 wait 0.5

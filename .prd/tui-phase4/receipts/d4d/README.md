@@ -15,19 +15,23 @@ for `<scenario>` in `settings`, `settings2`, `settings-perm`, `settings-cats`,
 scenarios (`appearance-security-ext/scenarios/settings*.cap`) keystroke for
 keystroke, with a `home` dump after each write. Where the two menus list a
 different number of settings, the `Down` count is per binary (`fx:`/`xfx:`
-lines) so both land on the same row.
+lines) so both land on the same row. Every scenario starts xfx with
+`XFX_SOUND=off`, as the harness starts fx with `FX_SOUND=0`.
 
-The xfx binary is a debug build of `7ecf3a9` -- this branch with `plan/tui-phase4`
-at `2b5967f` merged, E1 and F4 included -- passed as `XFX_BIN` (the banner says
-so). fx was captured with the harness at `f0b1caa`, xfx with it at `7ecf3a9`;
+The xfx binary is a debug build of `b36b41a` -- this branch with `plan/tui-phase4`
+at `aed448c` merged, E1, F4, W1 and W6 included -- passed as `XFX_BIN` (the
+banner says so). fx was captured with the harness at `f0b1caa`, xfx with it at
+`b36b41a`;
 the two differ only in how a binary file is dumped and in the sound guard's
 glob (`cafab50`) and in `relaunch` with no arguments, none of which these
 scenarios reach on fx.
 
-Rechecked on `bedb36a` (the history append moved to a writer thread): all
-eight scenarios again, every `.txt`/`.ansi` the same after the banner except a
-turn's `0s`/`1s` and a session id in an approval's command line, and every
-`history.jsonl` dump the same lines. The files here stay the `7ecf3a9` ones.
+A mechanical check over every snap pair (`.ansi`, rows matched by label,
+tmux's carried reset at a row's start set aside): of the 272 setting rows xfx
+painted that fx painted too, 243 are byte-identical; the other 29 are the 28
+`Sound level` rows, identical once fx's trailing `  max` is taken off, and the
+`Advanced` tab's `Prompt history`, whose value column is narrower because
+`Startup scrollback` is not there to be the widest label.
 
 Sanitized: the run directory is written `<scratch>` in every `.files` dump (the
 harness does it); the `.txt`/`.ansi` screens hold no path. `.ansi` files are

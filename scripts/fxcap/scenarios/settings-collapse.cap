@@ -1,6 +1,8 @@
 # /settings' Collapse tool calls row: a tool group on the screen, collapse on,
 # then a second group, a command approved, running, and stopped with Ctrl-C.
 # Both in ask mode, so the command is decided by key (as `toolgroup.cap`).
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
 fx: gateway settings-collapse-fx.json
 xfx: gateway settings-collapse-xfx.json
 work toolgroup-ws

@@ -1,15 +1,18 @@
 === ~/.xfx/history.jsonl (133 bytes)
-{"schema_version":1,"timestamp_ms":1791322361253,"workspace_root":"<scratch>/work","text":"first prompt"}
+{"schema_version":1,"timestamp_ms":1791324611639,"workspace_root":"<scratch>/work","text":"first prompt"}
 
 === ~/.xfx/history.lock (0 bytes)
-=== ~/.xfx/sessions/1791322361349-8fb8ab08e5f0091a/events.jsonl (1540 bytes)
-{"schema_version":1,"log_generation":"71e9b22a2c9ed264f6950c237e2a4821","seq":1,"event_id":"fe2a2315c18c182af023424877607e7f","timestamp_ms":1791322361386,"event":{"kind":"session_started","id":"1791322361349-8fb8ab08e5f0091a","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
-{"schema_version":1,"log_generation":"71e9b22a2c9ed264f6950c237e2a4821","seq":2,"event_id":"eefd035471c34ccbc782f4d9119f5993","timestamp_ms":1791322361510,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"71e9b22a2c9ed264f6950c237e2a4821","seq":3,"event_id":"7a14b222d8f3efd86b0c8a683c25d2c5","timestamp_ms":1791322361561,"event":{"kind":"user_message","text":"first prompt"}}
-{"schema_version":1,"log_generation":"71e9b22a2c9ed264f6950c237e2a4821","seq":4,"event_id":"2228dcc7f29d6135c53aa15de74a2d16","timestamp_ms":1791322361674,"event":{"kind":"assistant_message","text":"one","tool_calls":[]}}
-{"schema_version":1,"log_generation":"71e9b22a2c9ed264f6950c237e2a4821","seq":5,"event_id":"be44289942eba261624daaa955489098","timestamp_ms":1791322361782,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40}}
-{"schema_version":1,"log_generation":"71e9b22a2c9ed264f6950c237e2a4821","seq":6,"event_id":"5c3e060f07c5efdd354d8c747c5932c8","timestamp_ms":1791322361890,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+=== ~/.xfx/sessions/1791324611640-24d83b7c0de6bf59/events.jsonl (1700 bytes)
+{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":1,"event_id":"71b83ae4f99e5e1446fa31059f55c753","timestamp_ms":1791324611643,"event":{"kind":"session_started","id":"1791324611640-24d83b7c0de6bf59","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":2,"event_id":"d934ddca0db38b0cf66024a23b10ac5b","timestamp_ms":1791324611667,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":3,"event_id":"84e9a7291f1980307306fb6e1b8dbc3d","timestamp_ms":1791324611683,"event":{"kind":"user_message","text":"first prompt"}}
+{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":4,"event_id":"95039f086e2f92f4bd101e84b2bf1ccc","timestamp_ms":1791324611702,"event":{"kind":"assistant_message","text":"one","tool_calls":[]}}
+{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":5,"event_id":"9550f4c28728a1dc449f415f1793dd0a","timestamp_ms":1791324611718,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791324611702,"duration_ms":5,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":6,"event_id":"e0342a75497fafe52bdc6d26dbe267d2","timestamp_ms":1791324611737,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
 
-=== ~/.xfx/sessions/1791322361349-8fb8ab08e5f0091a/session.json (622 bytes)
-{"schema_version":1,"storage_format":"event_log_v1","id":"1791322361349-8fb8ab08e5f0091a","log_generation":"71e9b22a2c9ed264f6950c237e2a4821","created_at_ms":1791322361386,"updated_at_ms":1791322361890,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"first prompt","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":6,"event_log_bytes":1540,"event_log_sha256":"b7a7321ffa53687059fc025f8529fd864f15c0fc937ca56de0c58ed49cdc3e4f"}
+=== ~/.xfx/sessions/1791324611640-24d83b7c0de6bf59/session.json (622 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791324611640-24d83b7c0de6bf59","log_generation":"9cec78b298bba19a0326dde4a9868f8a","created_at_ms":1791324611643,"updated_at_ms":1791324611737,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"first prompt","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":6,"event_log_bytes":1700,"event_log_sha256":"0941e1fda17ae02e6de9a408fffb23a9be561ee9485da4e144e9f5f1b69be57f"}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791324611718}
 

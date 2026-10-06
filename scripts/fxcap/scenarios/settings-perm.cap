@@ -1,6 +1,8 @@
 # /settings' Permission mode row: Right is `/permissions <mode>` with its
 # notices, twice round (auto -> full access -> ask). Down is counted per binary
 # so both land on the row.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
 wait 2
 type /settings
 key Enter

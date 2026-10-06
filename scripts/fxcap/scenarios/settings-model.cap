@@ -1,5 +1,7 @@
 # /settings' Model row: Enter opens the model surface -- fx an inline list
 # under the row, xfx `/model`'s menu -- and Escape.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
 wait 2
 type /settings
 key Enter

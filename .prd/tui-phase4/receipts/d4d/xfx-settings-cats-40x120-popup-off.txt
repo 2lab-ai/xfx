@@ -1,10 +1,10 @@
-x𝒇x v0.1.0-7ecf3a9 [debug] · Run /help for commands
+x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
 
 * slash menu categories: saved to user settings (scope=user)
 
 ┃ /
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Commands 17 · type to filter                                                                                        1–6
+Commands 20 · type to filter                                                                                        1–6
 
   /help     show available slash commands
   /clear    start a fresh conversation while keeping managed processes

@@ -3,6 +3,8 @@
 # choices, Right round them and the saves, then a model with no levels
 # (`fake/model-a`), where the row is its value alone. Down is counted per
 # binary: fx lists Fast and Ultra between them, xfx does not.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
 models models-effort.json
 fx: seed settings-effort-seed-fx.json
 xfx: seed settings-effort-seed-xfx.json
