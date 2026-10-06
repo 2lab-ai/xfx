@@ -153,6 +153,48 @@ pub fn write_document(path: &Path, document: &[u8]) -> io::Result<()> {
     replace_private_file(dir, path, document)
 }
 
+/// Sets one preference in the settings file at `path` and keeps every other
+/// key it holds.
+///
+/// `key_path` names the member from the top of the document down:
+/// `["notifications", "turn_end"]` is `{"notifications": {"turn_end": …}}`.
+/// An object missing on the way is created, and a value on the way that is
+/// **not** an object is replaced by one -- there is no member to set inside a
+/// string, and refusing would leave a preference the operator just chose
+/// unsaved over a value nothing can read. A file that cannot be read is an
+/// error and is never overwritten ([`read_existing`]).
+///
+/// The same document discipline as `setup`: pretty JSON and a trailing line
+/// break, written through [`write_document`]'s staged `0600` file and rename.
+/// And the same transaction scope (this module's header): the read and the
+/// write are not one atomic step, so two writers racing are last-writer-wins.
+pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
+    let Some((last, parents)) = key_path.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a preference has to name a key",
+        ));
+    };
+    let mut document = read_existing(path)?;
+    let mut object = &mut document;
+    for key in parents {
+        let slot = object
+            .entry((*key).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        object = slot
+            .as_object_mut()
+            .expect("the slot was made an object just above");
+    }
+    object.insert((*last).to_string(), value);
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
 /// The settings file as it stood before a transaction touched it.
 ///
 /// Two states rather than one, and the difference is the whole point:
@@ -719,6 +761,88 @@ mod tests {
         assert!(
             document.ends_with(b"\n"),
             "pretty JSON with a trailing newline"
+        );
+    }
+
+    #[test]
+    fn a_preference_is_set_where_its_path_says_and_nothing_else_moves() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+        // No file and no directory yet: the first preference creates both.
+        write_preference(&path, &["notifications", "turn_end"], Value::Bool(true))
+            .expect("write into nothing");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"notifications\": {\n    \"turn_end\": true\n  }\n}\n",
+            "pretty JSON with a trailing line break"
+        );
+        // A sibling under the same object, beside keys this writer knows
+        // nothing about -- which survive, at every depth.
+        fs::write(
+            &path,
+            r#"{"model":"x/y","notifications":{"turn_end":true,"max":true}}"#,
+        )
+        .expect("seed");
+        write_preference(
+            &path,
+            &["notifications", "attention_required"],
+            Value::Bool(false),
+        )
+        .expect("write beside");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({
+                "model": "x/y",
+                "notifications": {"turn_end": true, "max": true, "attention_required": false}
+            })
+        );
+        // A value in the way that is not an object is replaced by one.
+        fs::write(&path, r#"{"notifications":"loud","keep":1}"#).expect("seed");
+        write_preference(&path, &["notifications", "turn_end"], Value::Bool(false))
+            .expect("write through");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"notifications": {"turn_end": false}, "keep": 1})
+        );
+        // A top-level key, and a value that is not a bool.
+        write_preference(&path, &["keep"], json!("two")).expect("top level");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written["keep"], "two");
+    }
+
+    #[test]
+    fn a_preference_never_overwrites_a_file_it_could_not_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, b"{ not json").expect("seed");
+        assert!(
+            write_preference(&path, &["notifications", "turn_end"], Value::Bool(true)).is_err()
+        );
+        assert_eq!(fs::read(&path).expect("read"), b"{ not json", "untouched");
+        // And a path that names no key is refused rather than guessed at.
+        assert_eq!(
+            write_preference(&path, &[], Value::Bool(true))
+                .expect_err("no key")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preference_is_written_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        write_preference(&path, &["notifications", "turn_end"], Value::Bool(true)).expect("write");
+        assert_eq!(
+            fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+            0o600
         );
     }
 

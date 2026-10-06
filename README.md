@@ -287,6 +287,11 @@ when stdin or stdout is not a terminal -- use `xfx ask` there.
 Later layers override earlier ones, key by key: project `.xfx.json`, then
 `~/.xfx/settings.json`, then that file's exact `workspaces["<root>"]` entry, then
 the environment (`XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`).
+`XFX_SOUND=off` (or `0`, `false`) starts a session with `/sound` off -- the
+switch for the terminal bell the full-screen shell rings when a turn ends and
+when it stops to ask you something -- and any other value starts it on;
+otherwise the profile's `notifications` decides, and on a machine that never
+set it the bell is on for macOS and off elsewhere, as upstream's sounds are.
 
 Five keys are read, because those are the five the runtime consumes:
 `max_agent_steps`, and the four that are **profile-only** -- `model`,

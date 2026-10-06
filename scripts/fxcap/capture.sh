@@ -31,6 +31,24 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
+#   files <label>          writes every file under the run's HOME but the
+#                          session logs -- the settings file and, for fx, its
+#                          settings backups -- to
+#                          <bin>-<scenario>-<size>-<label>.files, the run's
+#                          scratch path replaced by <scratch>
+#   bells <label>          writes how many terminal bells the pane has rung so
+#                          far (tmux's alert-bell hook, one line per bell; an
+#                          OSC's BEL terminator is not one) and the clients
+#                          attached to this server -- none, so no bell reaches
+#                          any real terminal -- to
+#                          <bin>-<scenario>-<size>-<label>.bells
+#
+# fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
+# the PATH shims below do not reach. Every fx run starts with FX_SOUND=0; a
+# scenario that turns sound on also sets `fx: env TMPDIR=/var/empty`, a
+# directory fx cannot write its chime into, so it rings the terminal bell
+# instead (vercel-labs/fx@c1db9191 src/core/notifications/sound.zig:40-62,
+# :176-181) and nothing plays on the machine running the capture.
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` is xfx's
@@ -128,6 +146,9 @@ XFX_MODEL=fake/model-a $extra_env $bin"
   fi
   tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
     "cd $run/work && exec $launch"
+  # Every bell the pane rings, one line each. Set after the session starts and
+  # before any keystroke: nothing in either binary rings before it is typed at.
+  tmux -f /dev/null -S "$sock" set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -167,6 +188,25 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         else
           echo "clip $rest: nothing was copied"
         fi
+        ;;
+      files)
+        local name=$out/$which-$scenario-$size-$rest.files
+        (cd "$run/home" && find . -type f ! -path '*/sessions/*' | LC_ALL=C sort | while IFS= read -r f; do
+          echo "=== ${f#./}"
+          cat "$f"
+          echo
+        done) | sed "s|$run|<scratch>|g" > "$name"
+        echo "$name"
+        ;;
+      bells)
+        local name=$out/$which-$scenario-$size-$rest.bells
+        # The hook runs a shell of its own; give it a moment to append.
+        sleep 0.3
+        {
+          echo "bells=$( [[ -f $run/bells ]] && wc -l < "$run/bells" | tr -d ' ' || echo 0)"
+          echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
+        } > "$name"
+        echo "$name: $(tr '\n' ' ' < "$name")"
         ;;
       clipfail)
         case $rest in

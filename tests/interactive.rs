@@ -351,6 +351,35 @@ fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
 }
 
 #[test]
+fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
+    // The same switch, saved to the same file the full-screen shell reads; and
+    // the line that says so, because this shell's question is the shared stdin
+    // prompter's and rings nothing.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command();
+    command.env("XFX_SOUND", "off");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/sound");
+    let text = session.wait_for("rings none");
+    assert!(text.contains("[shell] sound: on;"), "{text}");
+    assert_eq!(
+        sandbox.settings(),
+        Some(json!({"notifications": {"turn_end": true, "attention_required": true}}))
+    );
+    session.type_line("/sound max");
+    session.wait_for("usage: /sound [on|off]");
+    session.type_line("/sound off");
+    session.wait_for("[shell] sound: off;");
+    assert_eq!(
+        sandbox.settings(),
+        Some(json!({"notifications": {"turn_end": false, "attention_required": false}}))
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_model_reports_the_active_model_and_changes_it_for_later_turns() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
     let sandbox = Sandbox::new();

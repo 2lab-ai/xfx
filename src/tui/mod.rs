@@ -712,6 +712,7 @@ mod render_request;
 mod router;
 mod shell;
 mod signals;
+mod sound;
 mod term;
 mod theme;
 mod transcript;

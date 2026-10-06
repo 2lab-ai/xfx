@@ -845,10 +845,12 @@ mod tests {
         let rows = menu.rows(120, 5, PALETTE);
         assert_eq!(shown(&rows), ["/c01", "/c02", "/c03"]);
         assert!(rows[3].starts_with(&format!("  {BRIGHT}")), "{rows:?}");
-        // The live registry wraps the same way.
+        // The live registry wraps the same way, to the last command in the
+        // catalog's order: `/sound`, the one command filed under Appearance,
+        // the tab after Model's.
         let mut live = HelpMenu::open("");
         assert!(live.step(false, 20));
-        assert_eq!(live.selected().map(|spec| spec.name), Some("/model"));
+        assert_eq!(live.selected().map(|spec| spec.name), Some("/sound"));
         assert!(live.step(true, 20));
         assert_eq!(live.selected().map(|spec| spec.name), Some("/help"));
     }

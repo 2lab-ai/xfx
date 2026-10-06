@@ -1,0 +1,71 @@
+# /sound: the notice for every argument form, the settings each write leaves,
+# and the terminal bells each level rings. Both start with sound off -- fx by
+# the harness's own FX_SOUND=0, xfx by XFX_SOUND=off -- and both ask before a
+# write. fx's TMPDIR is a directory it cannot write, so its cues fall back to
+# the terminal bell rather than a chime through /usr/bin/afplay (see the
+# header of capture.sh): the bell is the thing being compared.
+gateway sound-turns.json
+fx: env FX_PERMISSION_MODE=ask TMPDIR=/var/empty
+xfx: env XFX_PERMISSION_MODE=ask XFX_SOUND=off
+wait 3
+files start
+type first question
+key Enter
+wait 3
+snap turn-off
+bells turn-off
+type /sound
+key Enter
+wait 1
+snap bare
+files bare
+type /sound on
+key Enter
+wait 1
+snap on
+files on
+type /sound max
+key Enter
+wait 1
+snap max
+files max
+type /sound off
+key Enter
+wait 1
+snap off
+files off
+type /sound
+key Enter
+wait 1
+snap bare2
+files bare2
+type /sound bogus
+key Enter
+wait 1
+snap bogus
+files bogus
+bells before-turn
+type second question
+key Enter
+wait 3
+snap turn-on
+bells turn-on
+type write the file
+key Enter
+wait 3
+snap ask
+bells ask
+key 1
+wait 3
+snap answered
+bells answered
+type /sound off
+key Enter
+wait 1
+snap off2
+files off2
+type fourth question
+key Enter
+wait 3
+snap turn-off2
+bells turn-off2

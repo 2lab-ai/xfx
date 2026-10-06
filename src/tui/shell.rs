@@ -96,6 +96,7 @@ use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigge
 use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
+use super::sound::Sound;
 use super::theme::{Mode, Palette};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
@@ -766,6 +767,9 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// `/sound`'s two switches, the bells they owe the loop, and the saves
+    /// that keep them ([`super::sound`]).
+    sound: Sound,
     /// What the terminal writer has done this session, for `/stats`.
     ///
     /// Counted by the loop that does the writing (`super::event_loop`), which
@@ -1031,6 +1035,14 @@ impl Shell {
         let clipboard = Clipboard::system();
         #[cfg(test)]
         let clipboard = Clipboard::searching(super::copy::NOWHERE);
+        // The profile `/sound` saves into -- except in a shell a test built,
+        // which saves nowhere unless the test hands it a file: the fixtures'
+        // homes are gone by the time a case runs, and a save would create one
+        // again wherever that was.
+        #[cfg(not(test))]
+        let settings = config.user_settings_path.clone();
+        #[cfg(test)]
+        let settings = None;
         Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -1107,6 +1119,7 @@ impl Shell {
             fatal: None,
             leaving: None,
             copies: Copies::new(clipboard),
+            sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
         }
     }
@@ -1786,6 +1799,11 @@ impl Shell {
                     .started
                     .is_some()
                     .then(|| self.tally.line(Instant::now()));
+                // The same fact decides the bell: `/model`, `/setup` and a
+                // catalog load end here too, and upstream rings for a turn
+                // (`postTurnEndHandler`). Owed once the answer is presented,
+                // which [`Self::settle_band`] notices.
+                self.sound.turn_ended(summary.is_some());
                 self.tally.started = None;
                 match (failure, summary) {
                     // Upstream reports a request that failed as an error under
@@ -1977,6 +1995,9 @@ impl Shell {
         // typed early would be told to make their window bigger.
         self.intend_approval();
         self.render.request(Reason::Modal);
+        // The turn is waiting on the user (`dispatchAttentionRequired(..,
+        // .permission)`, `app_worker_runtime.zig:766-767`).
+        self.sound.attention();
     }
 
     /// Which plane the session is composing frames for.
@@ -2694,6 +2715,8 @@ impl Shell {
         // and the caret are all somewhere else.
         self.refit();
         self.render.request(Reason::Modal);
+        // The model is waiting on the user (`app_worker_runtime.zig:1089-1097`).
+        self.sound.attention();
     }
 
     /// One keystroke, while a batch of the model's questions has the focus.
@@ -3150,6 +3173,8 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // And so is a `/sound` save.
+        self.settle_saves();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -3168,6 +3193,37 @@ impl Shell {
         // turn of the loop is what releases it. Last, so the rows it adds are
         // measured against a band this turn has already settled.
         self.pace(now);
+        // Once nothing is left to present, a turn that ended is a bell
+        // (upstream's `presentationFinished`): the reader has reached the end
+        // the provider reached a while ago.
+        if self.pacer.pending() == 0 && self.marks.is_empty() {
+            self.sound.presented();
+        }
+    }
+
+    /// Says how each `/sound` save that has finished went -- only when it
+    /// failed, as upstream reports a commit with `announce_commit=false`
+    /// (`app_commands.zig:4005-4021`): the level was said when it was typed.
+    fn settle_saves(&mut self) {
+        while let Some(saved) = self.sound.saved() {
+            if let Err(reason) = saved.outcome {
+                self.announce(notice::Notice::error(
+                    crate::sound::TOPIC,
+                    crate::sound::not_saved(saved.changed, &reason),
+                ));
+            }
+        }
+    }
+
+    /// The terminal bells the session owes, taken by the loop that writes them
+    /// (`super::event_loop`'s `commit_bells`).
+    pub(crate) fn take_bells(&mut self) -> u16 {
+        self.sound.take()
+    }
+
+    /// Bells the terminal refused without taking a byte, owed again.
+    pub(crate) fn restore_bells(&mut self, rings: u16) {
+        self.sound.restore(rings);
     }
 
     /// Says how each `/copy` that has finished went, in the order they
@@ -3807,6 +3863,9 @@ impl Shell {
                 self.work.control(TurnControl::Cancel {
                     through: self.work.accepted(),
                 });
+                // The turn this stops ends with no bell: the user is here, and
+                // upstream's turn-end cue is silent for an interrupted turn.
+                self.sound.interrupted();
                 // The same sentence the line-oriented shell writes for the same
                 // keystroke (`app::INTERRUPT_NOTICE`), so that the request is
                 // something the user watched land rather than something they
@@ -4342,6 +4401,33 @@ impl CommandHandlers for Shell {
                 clipboard::COPY_FAILED,
             ));
         }
+    }
+
+    /// Upstream's `handleNotificationsCommand` (`app_commands.zig:3974-4029`):
+    /// a bare `/sound` toggles, `on` and `off` set, both switches move together
+    /// and are saved, and the answer is `* sound: <level>`. Anything else is
+    /// `✗ usage: /sound [on|off]`, said at once like `/setup`'s refusal.
+    ///
+    /// The switches move **here**, before the save has landed, as upstream's
+    /// do: the next turn rings or not by what was typed, whatever the disk
+    /// says. The save goes to its own thread ([`super::sound`]); a save that
+    /// could not be started is said before the level, as upstream says a
+    /// failed one, and a save that fails later is said when it does
+    /// ([`Self::settle_saves`]).
+    fn sound(&mut self, argument: &str) {
+        let Some(request) = crate::sound::Request::parse(argument) else {
+            self.write_notice(&notice::Notice::error("", crate::sound::USAGE));
+            return;
+        };
+        let level = request.level(self.sound.notifications());
+        let (changed, started) = self.sound.set(level);
+        if let Err(reason) = started {
+            self.announce(notice::Notice::error(
+                crate::sound::TOPIC,
+                crate::sound::not_saved(changed, &reason),
+            ));
+        }
+        self.announce(notice::Notice::neutral(crate::sound::TOPIC, level.label()));
     }
 }
 
@@ -9926,6 +10012,297 @@ mod tests {
         assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
     }
 
+    // -----------------------------------------------------------------------
+    // /sound
+    // -----------------------------------------------------------------------
+
+    /// A shell whose `/sound` starts `on` or not, and saves into `settings`.
+    fn sounding(rows: u16, on: bool, settings: Option<std::path::PathBuf>) -> Fixture {
+        let mut shell = shell(rows, 80);
+        shell.sound = Sound::new(crate::config::Notifications::both(on), settings);
+        shell
+    }
+
+    /// A profile of the case's own, and the settings file in it.
+    fn profile() -> (tempfile::TempDir, std::path::PathBuf) {
+        let home = tempfile::tempdir().expect("a home");
+        let path = home.path().join(".xfx").join("settings.json");
+        (home, path)
+    }
+
+    /// Waits for `path` to hold `expected`, or fails the case: the save is on
+    /// a thread of its own.
+    fn saved_as(path: &std::path::Path, expected: serde_json::Value) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let read = std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+            if read.as_ref() == Some(&expected) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "the file holds {read:?}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The notice a save that failed settles into, waited for.
+    fn save_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            shell.settle_band(Instant::now());
+            let released = shell.released();
+            if !released.is_empty() {
+                return released;
+            }
+            assert!(Instant::now() < deadline, "the save never said how it went");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn sound_toggles_and_sets_and_answers_with_upstreams_notice() {
+        // `fx-sound-40x120-{bare,on,off,bare2}.txt` from a session started
+        // off: `* sound: on`, `on`, `off`, and a bare toggle from off is `on`
+        // again -- every one a neutral notice, no echo, nothing saved said.
+        let (_home, path) = profile();
+        let mut shell = sounding(24, false, Some(path.clone()));
+        for (line, level) in [
+            ("/sound", "on"),
+            ("/sound on", "on"),
+            ("/sound off", "off"),
+            ("/sound", "on"),
+            ("/sound", "off"),
+            ("/sound  on ", "on"),
+        ] {
+            shell.route_bytes(line.as_bytes());
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("sound", level)),
+                "{line:?}"
+            );
+            assert_eq!(
+                shell.sound.notifications(),
+                crate::config::Notifications::both(level == "on"),
+                "{line:?}"
+            );
+        }
+        assert!(shell.sent.try_recv().is_err(), "/sound reached the runtime");
+        assert!(shell.editor.is_empty());
+        // Both switches, in the file the next session reads.
+        saved_as(
+            &path,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
+        );
+        // And a successful save says nothing more.
+        shell.settle_band(Instant::now());
+        assert!(shell.released().is_empty());
+    }
+
+    #[test]
+    fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing() {
+        // `fx-sound-40x120-bogus.txt`: `✗ usage: /sound [on|off|max]`, no
+        // topic -- here without the `max` this build does not have, which is
+        // why `max` itself is one of the refusals.
+        let (_home, path) = profile();
+        let mut shell = sounding(24, true, Some(path.clone()));
+        for line in ["/sound bogus", "/sound max", "/sound ON", "/sound on off"] {
+            shell.route_bytes(line.as_bytes());
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("", "usage: /sound [on|off]")),
+                "{line:?}"
+            );
+            assert_eq!(
+                shell.sound.notifications(),
+                crate::config::Notifications::both(true),
+                "{line:?} moved the switches"
+            );
+        }
+        shell.settle_band(Instant::now());
+        assert!(!path.exists(), "a refused level was saved");
+    }
+
+    #[test]
+    fn a_save_that_failed_says_so_after_the_level() {
+        // `reportUserSettingsFailure` (`session_commands.zig:110-133`): an
+        // error under `sound`, saying the switch is in force anyway. Upstream
+        // says it before the level because it saves before it answers; here
+        // the save is on its own thread, so it is said when the thread says.
+        let (home, path) = profile();
+        std::fs::create_dir_all(path.parent().expect("a profile")).expect("profile");
+        std::fs::write(&path, "{ not json").expect("seed");
+        let mut shell = sounding(24, false, Some(path.clone()));
+        shell.route_bytes(b"/sound\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        let failed = joined(&save_settled(&mut shell));
+        assert!(
+            failed.starts_with(
+                "\u{2717} sound: active for this process but not saved to user settings ("
+            ),
+            "{failed}"
+        );
+        assert!(failed.contains("not valid JSON"), "{failed}");
+        assert_eq!(std::fs::read(&path).expect("read"), b"{ not json");
+        // The switch is in force all the same.
+        assert_eq!(
+            shell.sound.notifications(),
+            crate::config::Notifications::both(true)
+        );
+        drop(home);
+    }
+
+    #[test]
+    fn a_save_with_nowhere_to_go_is_said_before_the_level() {
+        // The one failure known before the level is said, so it is said in
+        // upstream's order. A shell a test built has no settings file.
+        let mut shell = shell(24, 80);
+        let before = shell.sound.notifications();
+        shell.route_bytes(b"/sound\r");
+        let level = if before.turn_end { "off" } else { "on" };
+        let said_rows = shell.document();
+        assert_eq!(
+            joined(&said_rows),
+            format!(
+                "\u{2717} sound: active for this process but not saved to user settings \
+                 (no home directory is set) * sound: {level}"
+            )
+        );
+    }
+
+    /// One whole turn: started, answered, ended, and presented to the end.
+    fn a_whole_turn(shell: &mut Fixture, failure: Option<&str>) {
+        let started = turn_running(shell, b"ask something\r");
+        shell.apply(UiEvent::Delta("an answer".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: failure.map(str::to_string),
+        });
+        let mut now = started;
+        while shell.pacer.pending() > 0 || !shell.marks.is_empty() {
+            now += Duration::from_millis(TICK_MILLIS);
+            shell.settle_band(now);
+        }
+        shell.settle_band(now);
+    }
+
+    #[test]
+    fn a_turn_that_ends_rings_once_its_answer_is_on_the_screen() {
+        // `postTurnEndHandler` and the presentation queue
+        // (`hooks/notifications.zig:74-118`, `:224-240`): a bell for a turn
+        // that answered and for one that failed, and not before the reader has
+        // been given the end of the answer.
+        for failure in [None, Some("the provider said no")] {
+            let mut shell = sounding(24, true, None);
+            let started = turn_running(&mut shell, b"ask something\r");
+            shell.apply(UiEvent::Delta(
+                "a long enough answer to be paced".to_string(),
+            ));
+            shell.apply(UiEvent::TurnEnded {
+                failure: failure.map(str::to_string),
+            });
+            if failure.is_none() {
+                assert!(shell.pacer.pending() > 0, "nothing was left to present");
+                shell.settle_band(started);
+                assert_eq!(shell.take_bells(), 0, "rang ahead of the answer");
+            }
+            let mut now = started;
+            while shell.pacer.pending() > 0 || !shell.marks.is_empty() {
+                now += Duration::from_millis(TICK_MILLIS);
+                shell.settle_band(now);
+            }
+            shell.settle_band(now);
+            assert_eq!(shell.take_bells(), 1, "{failure:?}");
+            assert_eq!(shell.take_bells(), 0, "{failure:?} rang twice");
+        }
+    }
+
+    #[test]
+    fn a_turn_ends_in_silence_when_sound_is_off_or_the_user_stopped_it() {
+        let mut quiet = sounding(24, false, None);
+        a_whole_turn(&mut quiet, None);
+        assert_eq!(quiet.take_bells(), 0, "sound off rang");
+
+        // Ctrl-C stops the turn: its end is the user's, as upstream's
+        // `.interrupted => return` has it -- and the next turn rings again.
+        let mut shell = sounding(24, true, None);
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.settle_band(started + Duration::from_secs(5));
+        assert_eq!(shell.take_bells(), 0, "an interrupted turn rang");
+        a_whole_turn(&mut shell, None);
+        assert_eq!(shell.take_bells(), 1, "the interrupt outlived its turn");
+    }
+
+    #[test]
+    fn work_that_ran_no_turn_rings_nothing() {
+        // `/model`, `/setup` and a catalog load end with the same event and
+        // ran no turn: no summary, and no bell.
+        let mut shell = sounding(24, true, None);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.take_bells(), 0);
+    }
+
+    #[test]
+    fn a_question_that_opens_rings_at_once() {
+        // `dispatchAttentionRequired` for a permission prompt and for the
+        // model's questions (`app_worker_runtime.zig:766-767`, `:1089-1097`),
+        // and with no wait for the pacer: the turn is stopped on the user.
+        let mut shell = sounding(24, true, None);
+        turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(shell.take_bells(), 1, "the permission prompt");
+
+        let mut fixture = sounding(24, true, None);
+        turn_running(&mut fixture, b"ask me\r");
+        fixture.apply(UiEvent::Question(a_batch()));
+        assert_eq!(fixture.take_bells(), 1, "the model's question");
+
+        // On the other plane too: a change too large for the band.
+        let mut wide = sounding(40, true, None);
+        turn_running(&mut wide, b"edit the notes\r");
+        wide.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(wide.take_bells(), 1, "the review on the other plane");
+    }
+
+    #[test]
+    fn a_question_nobody_is_shown_or_sound_off_rings_nothing() {
+        // A screen too small refuses the question on the user's behalf; there
+        // is nobody to call.
+        let mut small = sounding(10, true, None);
+        turn_running(&mut small, b"edit the notes\r");
+        small.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(small.geometry.panel, 0);
+        assert_eq!(small.take_bells(), 0);
+
+        let mut quiet = sounding(24, false, None);
+        turn_running(&mut quiet, b"edit the notes\r");
+        quiet.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(quiet.take_bells(), 0);
+    }
+
+    #[test]
+    fn sound_moves_what_the_next_turn_does() {
+        // The switch is in force from the keystroke: the turn after `/sound`
+        // rings, and the one after `/sound off` does not.
+        let mut shell = sounding(24, false, None);
+        shell.route_bytes(b"/sound\r");
+        a_whole_turn(&mut shell, None);
+        assert_eq!(shell.take_bells(), 1);
+        shell.route_bytes(b"/sound off\r");
+        a_whole_turn(&mut shell, None);
+        assert_eq!(shell.take_bells(), 0);
+    }
+
     #[test]
     fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it() {
         // `fx-basic-40x120-version-trailing-space.txt`, in its order: the two
@@ -11998,8 +12375,10 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         let rows = menu(&shell);
         let last = rows.len() - 1;
+        // The last in the catalog's order: `/sound`, under Appearance, the
+        // category after Model's.
         assert!(
-            rows[last].starts_with(&format!("  {}/model", PALETTE.subtitle())),
+            rows[last].starts_with(&format!("  {}/sound", PALETTE.subtitle())),
             "Up from the first row is the last: {rows:?}"
         );
         shell.route_bytes(b"\x1b[B");

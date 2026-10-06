@@ -43,6 +43,10 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/sound`, with the rest of the line -- already trimmed, and empty for
+    /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
+    /// what refuses a word that is not a level.
+    fn sound(&mut self, argument: &str);
     /// `/stats`: what this surface's terminal writer has done so far.
     fn stats(&mut self);
     /// `/status`: the configuration a turn would run under, and the live
@@ -135,6 +139,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Copy => handlers.copy(),
+        Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
         Slash::Version => handlers.version(),
@@ -189,6 +194,9 @@ mod tests {
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
         }
+        fn sound(&mut self, argument: &str) {
+            self.calls.push(format!("sound {argument}"));
+        }
         fn stats(&mut self) {
             self.calls.push("stats".to_string());
         }
@@ -220,6 +228,7 @@ mod tests {
             ("/clear", "clear"),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/sound", "sound "),
             ("/stats", "stats"),
             ("/status", "status"),
             ("/version", "version"),
@@ -252,6 +261,31 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Every form `/sound` is typed in reaches its one handler, the words
+        // it does not know included: refusing them is the handler's, with the
+        // usage line (`app_commands.zig:3984-3988`), not this module's with
+        // "unknown command".
+        for (line, call) in [
+            ("/sound", "sound "),
+            ("/sound on", "sound on"),
+            ("/sound off", "sound off"),
+            ("/sound   off  ", "sound off"),
+            ("/sound max", "sound max"),
+            ("/sound bogus", "sound bogus"),
+            ("/sound on off", "sound on off"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(
+                matches!(
+                    super::classify(line),
+                    Submitted::Command {
+                        command: Slash::Sound,
+                        ..
+                    }
+                ),
+                "{line:?} is not `/sound` on this surface"
+            );
+        }
     }
 
     /// Advertising without a handler is what this module exists to make
