@@ -200,14 +200,10 @@ impl Drop for Sound {
     /// unsaved. Closing the channel ends the thread once it has written what
     /// it was given.
     ///
-    /// **And the thread is gone before the signal handlers are.** The shell
-    /// is dropped inside `super::hold`, ahead of `super::signals::release`,
-    /// whose safety argument is that no handler can be running on a thread
-    /// other than the UI's when the dispositions go back. This thread is
-    /// spawned from the UI thread outside a wait, so it inherits a mask with
-    /// the stop blocked, but the death signals and the wakeups are deliverable
-    /// to it while it lives. The cost is that an exit waits for a save in
-    /// flight -- two `fsync`s, in the one place a wait is the right answer.
+    /// The cost is that an exit waits for a save in flight -- two `fsync`s,
+    /// in the one place a wait is the right answer. The thread itself takes
+    /// no signal ([`super::signals::spawn_unsignalled`]): the wait is for the
+    /// save, not for `super::signals::release`.
     fn drop(&mut self) {
         if let Some(Writer { orders, thread }) = self.writer.take() {
             drop(orders);
@@ -219,21 +215,18 @@ impl Drop for Sound {
 /// Starts the one thread that writes this session's saves, in order.
 fn spawn_writer(settings: PathBuf, done: Sender<Saved>) -> Result<Writer, String> {
     let (orders, received) = mpsc::channel::<Order>();
-    let thread = std::thread::Builder::new()
-        .name(THREAD_NAME.to_string())
-        .spawn(move || {
-            for order in received {
-                let outcome =
-                    crate::sound::save(&settings, order.level).map_err(|err| err.to_string());
-                // Nobody left to tell is a session that has ended, and the file
-                // was written for it all the same.
-                let _ = done.send(Saved {
-                    changed: order.changed,
-                    outcome,
-                });
-            }
-        })
-        .map_err(|err| format!("no thread to save with: {err}"))?;
+    let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+        for order in received {
+            let outcome = crate::sound::save(&settings, order.level).map_err(|err| err.to_string());
+            // Nobody left to tell is a session that has ended, and the file
+            // was written for it all the same.
+            let _ = done.send(Saved {
+                changed: order.changed,
+                outcome,
+            });
+        }
+    })
+    .map_err(|err| format!("no thread to save with: {err}"))?;
     Ok(Writer { orders, thread })
 }
 

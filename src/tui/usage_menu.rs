@@ -199,20 +199,18 @@ impl Reader {
             let done = self.done.clone();
             let read = Arc::clone(&self.read);
             let cancel = Arc::clone(&self.cancel);
-            let thread = std::thread::Builder::new()
-                .name(THREAD_NAME.to_string())
-                .spawn(move || {
-                    for at_ms in asked {
-                        // Cancelled part way: the session is ending, and
-                        // nobody is left to show a partial read to.
-                        let Some(ledger) = read(&profile, at_ms, &cancel) else {
-                            return;
-                        };
-                        // Nobody left to tell is a session that has ended.
-                        let _ = done.send(Read { at_ms, ledger });
-                    }
-                })
-                .map_err(|err| format!("no thread to read usage with: {err}"))?;
+            let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+                for at_ms in asked {
+                    // Cancelled part way: the session is ending, and
+                    // nobody is left to show a partial read to.
+                    let Some(ledger) = read(&profile, at_ms, &cancel) else {
+                        return;
+                    };
+                    // Nobody left to tell is a session that has ended.
+                    let _ = done.send(Read { at_ms, ledger });
+                }
+            })
+            .map_err(|err| format!("no thread to read usage with: {err}"))?;
             self.thread = Some((asks, thread));
         }
         let (asks, _) = self.thread.as_ref().expect("the reader was just started");
@@ -237,13 +235,10 @@ impl Reader {
 
 impl Drop for Reader {
     /// Stops a read in flight at the next session it would open, and lets the
-    /// thread end before the signal handlers do: the shell is dropped ahead of
-    /// `super::signals::release`, whose safety argument is that no handler can
-    /// be running on a thread other than the UI's when the dispositions go
-    /// back -- and a thread spawned from the UI thread outside a wait can be
-    /// handed one ([`super::sound`]'s writer is joined for the same reason).
-    /// The join is short because the cancel came first: at most the one
-    /// session log the read is in the middle of.
+    /// thread end, so nothing of the session is still reading the profile once
+    /// it is over. The join is short because the cancel came first: at most
+    /// the one session log the read is in the middle of. The thread takes no
+    /// signal while it lives ([`super::signals::spawn_unsignalled`]).
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Release);
         if let Some((asks, thread)) = self.thread.take() {

@@ -9070,13 +9070,16 @@ fn trace_records_a_failed_compaction_and_the_one_after_it() {
     // runtime's thread, and `/trace` reads the record on the screen's: a
     // report taken in between is asked for again.
     let deadline = Instant::now() + WAIT;
+    let notice = if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    };
     let report = loop {
         let taken = clipboard.reports().len();
         session.type_bytes(b"/trace\r");
-        while clipboard.reports().len() == taken {
-            assert!(Instant::now() < deadline, "no report was written");
-            std::thread::sleep(IDLE_POLL);
-        }
+        // Read once the notice says the report is whole.
+        session.wait_for_count(notice, taken + 1);
         let path = clipboard.reports().pop().expect("a report");
         let report = std::fs::read_to_string(&path).expect("the report");
         if report.contains("event=committed") {
@@ -9221,14 +9224,16 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
     );
     assert_eq!(gateway.request_count(), 2);
     assert!(checkpoints(&sandbox).is_empty());
-    // `/trace` says why (`compactor.zig:185-193`).
+    // `/trace` says why (`compactor.zig:185-193`), once the report is whole.
     resumed.type_bytes(b"/trace\r");
-    let deadline = Instant::now() + WAIT;
-    while clipboard.reports().is_empty() {
-        assert!(Instant::now() < deadline, "no report was written");
-        std::thread::sleep(IDLE_POLL);
-    }
-    let report = std::fs::read_to_string(&clipboard.reports()[0]).expect("the report");
+    resumed.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let report = std::fs::read_to_string(&reports[0]).expect("the report");
     for needle in [
         "event=credential_unauthorized failed provider=gateway credential_source=none",
         "event=transaction_failed failed stage=preparation origin=manual \
