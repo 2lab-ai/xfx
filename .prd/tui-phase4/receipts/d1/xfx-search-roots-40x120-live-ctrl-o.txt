@@ -1,0 +1,40 @@
+  tokens: 1200 in · 40 out
+
+  2026-10-07 05:41:55.243 UTC · Prompt
+┃ search the file
+
+  2026-10-07 05:41:55.349 UTC · Response
+  Searching.
+
+  2026-10-07 05:41:55.349 UTC · Tool
+● 3 tool calls · 2 list · 1 read
+├ Matched *.txt
+│  path: a.txt
+│  [glob] 1 matches for *.txt
+│   - a.txt
+
+
+  2026-10-07 05:41:55.349 UTC · Tool
+├ Matched *.rs
+│  path: a.txt
+│  [glob] no matches for *.rs
+
+
+  2026-10-07 05:41:55.368 UTC · Tool
+└ Searched alpha
+│  path: a.txt
+│  [grep] 3 matches for alpha
+│   - a.txt:1: alpha line 1
+│   - a.txt:2: alpha line 2
+│   - a.txt:3: alpha line 3
+
+
+  2026-10-07 05:41:55.525 UTC · Response
+  Done.
+
+  2026-10-07 05:41:55.525 UTC · Usage
+  0s (↑4 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

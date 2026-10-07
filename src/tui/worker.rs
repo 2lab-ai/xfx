@@ -87,6 +87,7 @@ use super::notice::Notice;
 use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
+use crate::agent::compaction_trace::{self, Context, Kind as TraceKind, Origin};
 use crate::agent::{Steer, Steering, TurnJournal, TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
@@ -103,10 +104,7 @@ use crate::provider::model::{
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{
-    CancellationOrigin, SessionEvent, SessionId, SessionStore, TerminalReason, TurnConclusion,
-    WritableSession,
-};
+use crate::session::{SessionEvent, SessionId, SessionStore, WritableSession};
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -303,6 +301,11 @@ pub(crate) struct WorkHandle {
     spend: SessionSpend,
     /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
     credits: CreditsBoard,
+    /// Where a fresh session's title is asked for, at submit, and the
+    /// `/settings` switch that decides whether it is
+    /// ([`super::titles::TitleDesk`]): shared with the runtime, which
+    /// publishes where to ask and settles every answer.
+    titles: super::titles::TitleDesk,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -633,6 +636,81 @@ impl WorkHandle {
         self.credits.read()
     }
 
+    /// Whether a fresh session's first prompt asks for a title, as the band
+    /// last set it.
+    pub(crate) fn session_titles(&self) -> bool {
+        self.titles.on()
+    }
+
+    /// Turns title generation on or off, in force for the next prompt that
+    /// would ask, whatever the runtime is doing.
+    pub(crate) fn set_session_titles(&self, on: bool) {
+        self.titles.set_on(on);
+    }
+
+    /// Asks a model for the session's title from `excerpt`, at the keystroke
+    /// that submitted it ([`super::titles::TitleDesk::ask`]). The band has
+    /// checked its half of the gate; the desk checks the rest.
+    pub(crate) fn ask_title(&self, excerpt: &str) -> bool {
+        self.titles.ask(excerpt)
+    }
+
+    /// The conversation the band shows was let go of -- `/new`, `/clear`,
+    /// `/reset` -- at the keystroke: one asked from here on is about the
+    /// next, and a question about this one runs on to an answer that is
+    /// dropped ([`super::titles::TitleDesk::next_lineage`]).
+    pub(crate) fn new_title_lineage(&self) {
+        self.titles.next_lineage();
+    }
+
+    /// Holds `excerpt` for the runtime when a switch the band handed it is
+    /// still to be made ([`Self::submit_switch`],
+    /// [`super::titles::TitleDesk::defer`]), and says whether it did: the
+    /// band then asks nothing at the keystroke. `at` is the prompt's position
+    /// in the queue ([`Self::accepted`] once it was taken), or `None` for a
+    /// steer.
+    pub(crate) fn defer_title(&self, excerpt: &str, at: Option<usize>) -> bool {
+        self.titles.defer(excerpt, at)
+    }
+
+    /// [`Self::submit`] for a switch of the conversation -- a resume or a
+    /// provider switch -- which a prompt submitted behind it waits for before
+    /// anything is asked about its title ([`Self::defer_title`]). The
+    /// position is recorded first: the runtime may make the switch before
+    /// this returns.
+    pub(crate) fn submit_switch(&self, work: TurnWork) -> Result<(), Rejected> {
+        let before = self.titles.switching(self.accepted() + 1);
+        let submitted = self.submit(work);
+        if submitted.is_err() {
+            self.titles.switch_refused(before);
+        }
+        submitted
+    }
+
+    /// How title generation stands, for `/trace`.
+    pub(crate) fn title_generation(&self) -> crate::trace::TitleGeneration {
+        self.titles.generation()
+    }
+
+    /// The requests title questions made, for `/trace`'s `## Network Calls`
+    /// ([`super::titles::TitleDesk::calls`]).
+    pub(crate) fn title_calls(&self) -> Vec<crate::trace::Entry> {
+        self.titles.calls()
+    }
+
+    /// The desk the band asks at, for a case that has to see it.
+    #[cfg(test)]
+    pub(crate) fn title_desk(&self) -> &super::titles::TitleDesk {
+        &self.titles
+    }
+
+    /// Puts `desk` in the handle's place, for a case that answers its own
+    /// questions.
+    #[cfg(test)]
+    pub(crate) fn titles_for_tests(&mut self, desk: super::titles::TitleDesk) {
+        self.titles = desk;
+    }
+
     /// Stands in for the runtime's publication of what `/credits` asks.
     #[cfg(test)]
     pub(crate) fn publish_credits(
@@ -697,6 +775,7 @@ impl WorkHandle {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::titles::TitleDesk::new(true).0,
             },
             work_rx,
             control_rx,
@@ -1063,6 +1142,10 @@ pub(crate) fn spawn(
     // first publication asks what that publication would say.
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
+    // One desk for the session, the switch from the profile: the band asks
+    // there at submit, the runtime publishes where to and settles answers.
+    let (titles, title_answers) = super::titles::TitleDesk::new(config.session_titles);
+    let loops_titles = titles.clone();
     let session_cancel = cancel.clone();
     let stop = cancel.mirror();
     let steering = Steering::new();
@@ -1099,6 +1182,8 @@ pub(crate) fn spawn(
         state.rules = loops_rules;
         state.spend = publishes_spend;
         state.credits = publishes_credits;
+        state.titles = loops_titles;
+        state.title_answers = Some(title_answers);
         if let Some(resumed) = resumed {
             state.resume(resumed, &session_cancel.mirror());
             state.ask_for_bills();
@@ -1109,15 +1194,21 @@ pub(crate) fn spawn(
         // `/status` reads the resumed conversation's counts from the start
         // too: `publishing_to` publishes what the runtime is now.
         let state = state.publishing_to(publishes);
-        runtime.block_on(turn_loop(
-            state,
-            &events_tx,
-            &mut work_rx,
-            &mut permissions_rx,
-            control,
-            session_cancel,
-            &loops_outstanding,
-        ))
+        // A set of local tasks around the loop, for the catalog load it
+        // starts at launch and runs beside its work
+        // ([`ModelSelector::begin_load`]).
+        tokio::task::LocalSet::new().block_on(
+            &runtime,
+            turn_loop(
+                state,
+                &events_tx,
+                &mut work_rx,
+                &mut permissions_rx,
+                control,
+                session_cancel,
+                &loops_outstanding,
+            ),
+        )
     })?;
     Ok((
         Worker {
@@ -1141,6 +1232,7 @@ pub(crate) fn spawn(
                 saved_rules,
                 spend,
                 credits,
+                titles,
             },
             resumable: None,
         },
@@ -1304,7 +1396,8 @@ struct Runtime {
     /// `/model` reports the same reason without asking a daemon that is not
     /// there again. Rebuilt -- not merely cleared -- when the provider changes,
     /// because its fetcher is that provider's endpoint and its model is that
-    /// provider's model.
+    /// provider's model. Its catalog is read in the background at launch and
+    /// after a switch, as upstream warms its model cache ([`turn_loop`]).
     selector: ModelSelector,
     /// The session's reasoning effort and its Fast and Ultra switches
     /// (`crate::provider::effort`): the effort carried across a model change
@@ -1363,6 +1456,19 @@ struct Runtime {
     /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     credits: CreditsBoard,
+    /// Where the band asks for the session's title ([`super::titles::TitleDesk`]):
+    /// this side publishes where to ask ([`Runtime::publish`]), moves the
+    /// lineage on a resume and a provider switch, and settles every answer.
+    titles: super::titles::TitleDesk,
+    /// Where the answers arrive: read between pieces of work by [`turn_loop`],
+    /// and lent to the turn that is running ([`run_turn`]).
+    title_answers: Option<super::titles::Answers>,
+    /// The lineage of the conversation that is open, set when it is opened
+    /// ([`Runtime::opened`]).
+    conversation_lineage: Option<u64>,
+    /// A generated title of the lineage in force whose conversation is not
+    /// open yet: written the moment it is ([`Runtime::install_pending_title`]).
+    pending_title: Option<super::titles::Titled>,
     /// The directories `/workspace` saved for this workspace, each as the real
     /// path it was when it was read: at launch, from the profile, and after
     /// each change, from what the change read back.
@@ -1373,6 +1479,12 @@ struct Runtime {
     /// scope rather than the somewhere else in it
     /// (`crate::workspace::AccessScope::with_observed_roots`).
     workspace: WorkspaceAccess,
+    /// What the last request measured of the part compaction cannot shrink
+    /// -- its instructions and tool definitions -- for a `/compact` between
+    /// turns to size its room by, as upstream's keeps the agent's last
+    /// measurement (`request_fixed_tokens`, `orchestrator.zig:6191-6192`).
+    /// Zero until a turn has measured one.
+    fixed_tokens: Arc<AtomicUsize>,
 }
 
 impl Runtime {
@@ -1414,6 +1526,7 @@ impl Runtime {
         let workspace =
             WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
         let config_rules = config.permission.effective().clone();
+        let (titles, title_answers) = super::titles::TitleDesk::new(config.session_titles);
         Self {
             config,
             env,
@@ -1436,7 +1549,12 @@ impl Runtime {
             began_ms: crate::session::event::system_now_ms(),
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
+            titles,
+            title_answers: Some(title_answers),
+            conversation_lineage: None,
+            pending_title: None,
             workspace,
+            fixed_tokens: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -1489,6 +1607,7 @@ impl Runtime {
             started_at_ms: Some(self.began_ms),
         });
         self.credits.publish(crate::credits::question(&self.config));
+        self.titles.publish_asker(self.title_asker());
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1623,6 +1742,141 @@ impl Runtime {
         self.publish();
     }
 
+    /// Where a title is asked from now: the Gateway with its key, or nobody
+    /// (`sessionTitleModel`, `vercel-labs/fx@c1db9191 src/main.zig:471-475`:
+    /// the Gateway names a title model, a configured provider -- llmux's
+    /// place here -- names none), at the endpoint every turn goes to
+    /// (`Bundle::select`).
+    fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
+        if self.config.provider != ProviderId::Gateway {
+            return None;
+        }
+        let credential = self.config.credential.clone()?;
+        let endpoint = crate::gateway::Endpoint::from_process().ok()?;
+        Some((endpoint, credential))
+    }
+
+    /// Drops a title that came back for a conversation not yet opened, now
+    /// that it never will be (`session_changed`,
+    /// `app_session_runtime.zig:3720-3728`).
+    fn drop_pending_title(&mut self) {
+        if self.pending_title.take().is_some() {
+            self.titles.record_dropped("session_changed");
+        }
+    }
+
+    /// The runtime has got past `worked` pieces of work, and asks for the
+    /// session's title from a prompt the band held for a switch it has now
+    /// made ([`super::titles::TitleDesk::worked_through`]) -- **of the
+    /// conversation that prompt will run in**, as upstream's finalized prompt
+    /// is snapshotted against the session in force then
+    /// (`finalizePendingSubmission` -> `snapshotPrompt`, `src/main.zig:1238-1266`,
+    /// `:1479-1481`). The gate's half the band would have read is read from
+    /// the conversation itself: no title on record, none come back for it,
+    /// and no turn in it (`session_untitled`, `app_session_runtime.zig:3674-3675`).
+    /// After a provider switch that is a conversation not yet opened; after a
+    /// resume, the resumed one, whose turns ask nothing.
+    fn worked_through(&mut self, worked: usize) {
+        let Some(excerpt) = self.titles.worked_through(worked) else {
+            return;
+        };
+        let untitled = self.pending_title.is_none()
+            && self.conversation.as_ref().is_none_or(|conversation| {
+                let state = conversation.recorder.state();
+                state.renamed.is_none() && state.turns.is_empty()
+            });
+        if untitled {
+            self.titles.ask(&excerpt);
+        }
+    }
+
+    /// Records that a conversation was just opened, in the lineage in force,
+    /// and writes the title waiting for it, if one is -- one the band was
+    /// shown when it came back.
+    fn opened(&mut self) {
+        self.conversation_lineage = Some(self.titles.lineage());
+        self.publish_title_session();
+        if let Some(titled) = self.pending_title.take() {
+            let _ = self.install_title(&titled);
+        }
+    }
+
+    /// Tells the desk which session is open, for `/trace`'s `session=`
+    /// ([`super::titles::TitleDesk::publish_session`]).
+    fn publish_title_session(&self) {
+        self.titles.publish_session(
+            self.conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.id().as_str()),
+        );
+    }
+
+    /// Takes one answer off the books and gives the session its title when it
+    /// is one to give, answering the title the band is to show
+    /// (`pollSessionTitleGeneration`, `app_session_runtime.zig:3706-3779`).
+    ///
+    /// `settled` when the turn that read it has settled it already
+    /// ([`titled_while`]). An answer to a question that is not the one out is
+    /// no answer.
+    fn title_arrived(&mut self, titled: &super::titles::Titled, settled: bool) -> Option<String> {
+        if !settled && !self.titles.settle(titled) {
+            return None;
+        }
+        self.install_title(titled)
+    }
+
+    /// Gives the session `titled`'s title if it is still one to give.
+    ///
+    /// **About a conversation let go of** -- an older lineage than the one in
+    /// force -- it is dropped (`session_changed`). **About the one in force,
+    /// whose conversation is not open yet** -- the first prompt has not
+    /// started its turn, or the band has already let the open one go -- it
+    /// waits for that conversation ([`Self::pending_title`]) and the band is
+    /// shown it now: the conversation it waits for is the one the band shows,
+    /// and a title that has none yet is no title of the user's. Otherwise
+    /// upstream's rule decides (`installGeneratedTitle`,
+    /// `session_title_generation.zig:378-394`; v2's,
+    /// `session_adapter.zig:1675-1697`): the title on record must be none, or
+    /// the one derived from the first prompt -- which upstream writes down at
+    /// the first turn's commit (`session_adapter.zig:1300-1310`) and xfx
+    /// derives where it reads it ([`crate::session::DurableState::derived_title`]).
+    /// Anything else is a title the user chose (`user_title_present`).
+    fn install_title(&mut self, titled: &super::titles::Titled) -> Option<String> {
+        let title = titled.title()?;
+        let current = self.titles.lineage();
+        if titled.lineage < current {
+            self.titles.record_dropped("session_changed");
+            return None;
+        }
+        if self.conversation_lineage != Some(current) || self.conversation.is_none() {
+            self.pending_title = Some(titled.clone());
+            return Some(title.to_string());
+        }
+        let conversation = self.conversation.as_mut()?;
+        let state = conversation.recorder.state();
+        if let Some(on_record) = &state.renamed {
+            if state.derived_title().as_deref() != Some(on_record.as_str()) {
+                self.titles.record_dropped("user_title_present");
+                return None;
+            }
+        }
+        if crate::session::validate_title(title) != Ok(title) {
+            self.titles.record_dropped("install_failed");
+            return None;
+        }
+        conversation.recorder.commit(SessionEvent::SessionRenamed {
+            title: title.to_string(),
+            source: crate::session::TitleSource::Generated,
+        });
+        if conversation.recorder.failure().is_some() {
+            self.titles.record_dropped("install_failed");
+            return None;
+        }
+        // `/status` and `/trace` read the session's title from its log.
+        self.publish();
+        Some(title.to_string())
+    }
+
     fn publish_reply(&self) {
         self.reply.publish(
             self.conversation
@@ -1657,6 +1911,7 @@ impl Runtime {
                 Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
+            self.opened();
         }
         // **The scope this turn runs in**, made now from the saved directories
         // that are still themselves ([`Runtime::workspace`]): a `/workspace`
@@ -1690,6 +1945,7 @@ impl Runtime {
                 Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
+            self.opened();
         }
         self.conversation
             .as_mut()
@@ -1849,7 +2105,10 @@ impl Runtime {
             && self.model() != resumption.model()
         {
             self.config.model = resumption.model().to_string();
-            self.selector = ModelSelector::new(&self.config);
+            // The same provider, so the same catalog -- read, or on its way
+            // -- describes the session's model (`resetForProviderChange` only
+            // on another provider, `app_auth_runtime.zig:151-158`).
+            self.selector.follow_model(&self.config);
         }
         // The effort and the switches the session recorded, as upstream's
         // resume restores them (`restoreRuntimePreferences`,
@@ -1881,19 +2140,55 @@ impl Runtime {
         self.selector.model()
     }
 
-    /// How large the conversation may be for the model in force: its catalog
-    /// row's window, when a catalog has been read (`compactionSize`,
-    /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/orchestrator.zig:
-    /// 6190-6200`). With no row, nothing is known, and upstream's rule for
-    /// that holds: a manual compaction keeps the newest four turns, and
-    /// nothing compacts by itself (`window.zig:127-131`).
+    /// How large the conversation may be for the model in force, and how far
+    /// the estimate ran from the provider's count on its last request
+    /// (`compactionSize`, `vercel-labs/fx@c1db9191
+    /// src/core/agent/runtime/orchestrator.zig:6187-6200`): the catalog row's
+    /// window, or on the Gateway the one upstream knows the model's id by
+    /// ([`Self::context_window`]). With neither, nothing is known, and
+    /// upstream's rule for that holds: a manual compaction keeps the newest
+    /// four turns, and nothing compacts by itself (`window.zig:127-131`).
     fn compaction_size(&self) -> Size {
         let entry = self.selector.entry(self.selector.model());
-        Size::of(
-            entry.and_then(|entry| entry.max_context),
+        let mut size = Size::of(
+            self.context_window(),
             entry.and_then(|entry| entry.facts.max_output),
             compact::DEFAULT_PERCENT,
-        )
+        );
+        size.fixed = Some(self.fixed_tokens.load(Ordering::Relaxed)).filter(|fixed| *fixed > 0);
+        size.correction = self
+            .calibration()
+            .and_then(|calibration| calibration.correction(self.model()));
+        size
+    }
+
+    /// The model's window: its catalog row's, else on the Gateway the one
+    /// upstream gives the id before a catalog says otherwise
+    /// (`mergeCapabilities`, `model_capabilities.zig:107`;
+    /// `crate::provider::model::gateway_context_window`).
+    fn context_window(&self) -> Option<u64> {
+        self.selector
+            .entry(self.selector.model())
+            .and_then(|entry| entry.max_context)
+            .or_else(|| {
+                (self.config.provider == ProviderId::Gateway)
+                    .then(|| crate::provider::model::gateway_context_window(self.model()))
+                    .flatten()
+            })
+    }
+
+    /// The provider's count of the conversation's last measured request, while
+    /// the history it was counted on is the one sent: no compaction since
+    /// (`agent.request_token_calibration`, `orchestrator.zig:7458`).
+    fn calibration(&self) -> Option<compact::Calibration> {
+        let conversation = self.conversation.as_ref()?;
+        let compactions = compactions_of(conversation.recorder.state());
+        conversation
+            .calibration
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|calibration| calibration.compactions == compactions)
     }
 
     /// Whether the conversation holds a turn no compaction covers yet
@@ -1940,6 +2235,11 @@ impl Runtime {
     /// reads what this one really used.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
         self.bills.forget();
+        // Another conversation: a question about the one it replaces runs on
+        // to an answer that is dropped, and one already back and waiting for
+        // that conversation to open is dropped now.
+        self.titles.next_lineage();
+        self.drop_pending_title();
         let mut conversation = bind_conversation(
             &self.store,
             resumed.session,
@@ -1973,6 +2273,8 @@ impl Runtime {
         // A resumed session's clock is its own: from when it was created.
         self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
+        self.conversation_lineage = Some(self.titles.lineage());
+        self.publish_title_session();
     }
 
     /// The session this runtime's conversation is recorded in, when it holds
@@ -2059,10 +2361,15 @@ impl Runtime {
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
         // session was in.
+        // Its catalog is read in the background as soon as the loop is idle
+        // again ([`turn_loop`]).
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
         self.bills.forget();
+        self.titles.next_lineage();
+        self.conversation_lineage = None;
+        self.drop_pending_title();
         self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
@@ -2101,7 +2408,10 @@ impl Runtime {
     /// ([`Runtime::catalog_event`]), because its rows are what the band
     /// resolves a query and fills the effort column from.
     async fn load_catalog(&mut self) -> bool {
-        let unasked = matches!(self.selector.catalog(), CatalogState::NotLoaded);
+        // A read already on its way tells the UI itself, when it answers
+        // ([`begin_catalog_read`]).
+        let unasked = matches!(self.selector.catalog(), CatalogState::NotLoaded)
+            && !self.selector.is_loading();
         self.selector.ensure_catalog().await;
         unasked && !matches!(self.selector.catalog(), CatalogState::NotLoaded)
     }
@@ -2110,7 +2420,11 @@ impl Runtime {
     /// in the menu's order; no rows, for a provider with none; or that it
     /// could not be read, and whether asking again could help.
     fn catalog_event(&self) -> UiEvent {
-        catalog_event_of(self.config.provider, &self.selector)
+        catalog_event_of(
+            self.config.provider,
+            self.selector.catalog(),
+            self.selector.failure_retry(),
+        )
     }
 
     /// What every request of the next turn asks for beside its prompt: the
@@ -2140,6 +2454,9 @@ impl Runtime {
             reasoning: self.settings.effort.for_request(entry),
             fast: !ultrafast && self.settings.fast && entry.is_some_and(|entry| entry.facts.fast),
             ultrafast,
+            // A turn's answer is never capped; only a title's is
+            // (`crate::tui::titles::options`).
+            max_output_tokens: None,
         })
     }
 
@@ -2340,10 +2657,15 @@ enum CatalogAnswer {
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
-/// What the UI is told about `selector`'s catalog for `provider`
+/// What the UI is told about `provider`'s catalog in `catalog`, `retry`
+/// saying whether asking again could change a failure
 /// ([`Runtime::catalog_event`]).
-fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
-    match from_state(selector.catalog()) {
+fn catalog_event_of(
+    provider: ProviderId,
+    catalog: &CatalogState,
+    retry: Option<crate::provider::model::CatalogRetry>,
+) -> UiEvent {
+    match from_state(catalog) {
         CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
         // The provider has no catalog; nothing went wrong, and the menu
         // says there is nothing in it.
@@ -2351,10 +2673,7 @@ fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
             provider,
             entries: Vec::new(),
         },
-        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
-            provider,
-            retry: selector.failure_retry(),
-        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread { provider, retry },
     }
 }
 
@@ -2405,6 +2724,24 @@ async fn turn_loop(
     // at once, every time, so an arm left on it would spin this loop.
     let mut changes_open = true;
     loop {
+        // Before anything else is taken: a switch the runtime has got past --
+        // made, or dropped unstarted by an interrupt -- gives back the prompt
+        // the band held for it, which asks now, ahead of its own turn
+        // ([`Runtime::worked_through`]).
+        state.worked_through(queue.taken);
+        // **The catalog, read in the background** whenever the session holds
+        // none and is not reading one: at launch, as upstream reads it on a
+        // thread of its own once the session is up (`app.startModelCacheWarmup()`,
+        // `vercel-labs/fx@c1db9191 src/core/app/app_entry_runtime.zig:335`;
+        // `startWarmup`, `model_cache_runtime.zig:321-349`), and after a
+        // provider switch, as it reads one when the credential a catalog is
+        // read with changes (`applyCredentialChange`,
+        // `app_auth_runtime.zig:2026-2036`). Nothing waits for it here: the
+        // first thing that needs it takes its answer, waiting if it has not
+        // come ([`await_catalog_for_window`]); the UI is told it the moment it
+        // comes, a turn running or not. A failed one is not read again until `/model`
+        // asks ([`ModelSelector::retry_after_failure`]).
+        begin_catalog_read(&mut state, events);
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
         // happens below, outside that borrow.
@@ -2460,6 +2797,12 @@ async fn turn_loop(
             // work by the recorder that owns the log; never during one, which
             // may be writing that log itself.
             answered = state.bills.next() => Taken::Bill(answered),
+            // The catalog read in the background, answered while nothing
+            // needed it yet: taken now, the UI having been told already.
+            () = state.selector.settle_load(), if state.selector.is_loading() => Taken::Catalog,
+            // A session title, written down and shown between pieces of work
+            // for the reason a bill is: the recorder that owns the log.
+            titled = next_title(&mut state.title_answers) => Taken::Title(titled),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -2503,6 +2846,13 @@ async fn turn_loop(
             Taken::Nothing => continue,
             Taken::Bill(answered) => {
                 state.settle_bill(&answered);
+                continue;
+            }
+            Taken::Catalog => continue,
+            Taken::Title(titled) => {
+                if let Some(title) = state.title_arrived(&titled, false) {
+                    bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
+                }
                 continue;
             }
             Taken::Shutdown => return settled(state, changes),
@@ -2659,10 +3009,28 @@ async fn turn_loop(
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
     state.bills.forget();
+    // The band moved the title lineage on at the keystroke
+    // ([`WorkHandle::new_title_lineage`]): what was asked about this
+    // conversation is cancelled already, and what was asked since is the next
+    // one's.
+    state.conversation_lineage = None;
     state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
+    // A title the conversation that starts now already has: asked by a prompt
+    // typed after the reset, answered while the old conversation's work still
+    // ran. The band set aside everything before the fence, so it is told
+    // after it; the log takes it when the conversation opens.
+    let waiting = state
+        .pending_title
+        .as_ref()
+        .filter(|titled| titled.lineage == state.titles.lineage())
+        .and_then(|titled| titled.title())
+        .map(str::to_string);
+    if let Some(title) = waiting {
+        bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
+    }
 }
 
 /// Applies every authority change still waiting, then names the session to
@@ -2678,6 +3046,9 @@ fn settled(mut state: Runtime, changes: &mut UnboundedReceiver<Change>) -> Optio
     while let Ok(change) = changes.try_recv() {
         let _ = state.change_permissions(change);
     }
+    // A title still being asked for is not waited for (`requestStop`,
+    // `app_session_runtime.zig:3950`).
+    state.titles.stop();
     state.resumable()
 }
 
@@ -2711,6 +3082,11 @@ enum Taken {
     Rename { title: String, announced: bool },
     /// What the Gateway said about a pending request's bill.
     Bill(super::reconcile::Answered),
+    /// The catalog read in the background has answered, and its answer is
+    /// taken.
+    Catalog,
+    /// What a model said the session is called.
+    Title(super::titles::Titled),
     /// The session is over.
     Shutdown,
 }
@@ -2842,22 +3218,43 @@ async fn run_turn(
     let steering = state.steering.clone();
     steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
+    // The title answers, held by the turn while it holds the runtime: the
+    // first prompt's question is asked as it is submitted, and an answer that
+    // waited for the turn to end would keep the window on the workspace's
+    // name for as long as the turn took.
+    let mut answers = state.title_answers.take();
+    let desk = state.titles.clone();
+    let shown = desk.lineage();
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, attached, events, &turn, control,
     )))
     .catch_unwind();
+    let body = titled_while(body, answers.as_mut(), &desk, shown, control, events);
     // Both halves of one keystroke, and they have to happen **together, at the
     // moment the cancellation arrives**: the turn stops, and everything queued
     // behind it is dropped. Doing the second half after the body finished would
     // be too late for the case that matters most -- a provider that has gone
     // quiet without hanging up never lets the body finish at all, and the queue
     // would sit there claiming a place the band is still announcing.
-    let (caught, ended) = raced_against_control(body, control, |through| {
+    let ((caught, titled), ended) = raced_against_control(body, control, |through| {
         turn.cancel();
         queue.abandon(through);
     })
     .await;
     steering.close();
+    if answers.is_some() {
+        state.title_answers = answers;
+    }
+    // The titles that came back while the turn ran, written down now that the
+    // turn has let go of the log -- into the conversation they are about,
+    // when it is still the one the band shows. A `/new` typed during the turn
+    // moved the lineage on at the keystroke: a title about the conversation
+    // it let go of is dropped here, and one a prompt typed after it asked
+    // waits for the conversation that `/new` starts, and the band is told of
+    // it after the fence ([`drop_conversation`]).
+    for titled in &titled {
+        let _ = state.title_arrived(titled, true);
+    }
     // **Before the conclusion goes**, so that a `/copy` typed once the UI has
     // shown this turn ending copies this turn's reply. Published again after
     // the work is over ([`turn_loop`]), which is the copy that covers every
@@ -2928,11 +3325,54 @@ async fn compact_between_turns(
     if !state.has_context_to_compact() {
         return Feedback::NoOp;
     }
+    // A compaction admitted as work takes the next turn id, as upstream's does
+    // (`queued.turn_id = debug_trace.nextTurnId()`, `worker_runtime.zig:989`).
+    let context = Context {
+        turn: compaction_trace::next_turn_id(),
+        step: 0,
+    };
     if state.ready(&turn.mirror).is_err() {
+        // Upstream's compaction is unavailable without a credential it may
+        // ask with (`ContextCompactionUnavailable`, `compactor.zig:185-193`),
+        // and `/trace` says which.
+        compaction_trace::failure(
+            context,
+            TraceKind::CredentialUnauthorized,
+            format!(
+                "provider={} credential_source=none",
+                state.config.provider.label()
+            ),
+        );
+        transaction_failed(
+            context,
+            "preparation",
+            Origin::Manual,
+            "ContextCompactionUnavailable",
+        );
         return Feedback::NotStarted;
     }
     let size = state.compaction_size();
-    compact_conversation(state, size, false, events, turn).await
+    compact_conversation(state, size, Origin::Manual, context, events, turn).await
+}
+
+/// Upstream's name for a write to the log that may or may not have landed
+/// (`rollbackAppend`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_log.zig:561-574`), and its row says to reopen
+/// the session (`compaction_activity.zig:22`, `activity_status.zig:44-45`).
+/// xfx's recorder takes no rollback: a write it could not finish stops every
+/// write after it, so whether the checkpoint landed is not known either.
+const UNCONFIRMED_WRITE: &str = "SessionPersistenceUncertain";
+
+/// `/trace`'s record of a compaction that did not finish
+/// (`compactContext`'s `errdefer`, `orchestrator.zig:6222-6228`): a failure,
+/// unless the user stopped it.
+fn transaction_failed(context: Context, stage: &str, origin: Origin, err: &str) {
+    let detail = format!("stage={stage} origin={} err={err}", origin.name());
+    if err == "Cancelled" {
+        compaction_trace::info(context, TraceKind::TransactionFailed, detail);
+    } else {
+        compaction_trace::failure(context, TraceKind::TransactionFailed, detail);
+    }
 }
 
 /// Plans, asks for, and saves one compaction of the open conversation, and
@@ -2943,19 +3383,33 @@ async fn compact_between_turns(
 async fn compact_conversation(
     state: &mut Runtime,
     size: Size,
-    automatic: bool,
+    origin: Origin,
+    context: Context,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) -> Feedback {
     let Some(conversation) = state.conversation.as_ref() else {
         return Feedback::NoOp;
     };
-    let plan = match compact::plan(conversation.recorder.state(), &size) {
+    let plan = match compact::plan(conversation.recorder.state(), &size, context) {
         Ok(Some(plan)) => plan,
-        Ok(None) => return Feedback::NoOp,
-        Err(failure) => return feedback_of(failure),
+        Ok(None) => {
+            compaction_trace::info(
+                context,
+                TraceKind::Decision,
+                format!(
+                    "decision=no_op origin={} reason=nothing_to_compact",
+                    origin.name()
+                ),
+            );
+            return Feedback::NoOp;
+        }
+        Err(failure) => {
+            transaction_failed(context, "preparation", origin, failure.name());
+            return feedback_of(failure);
+        }
     };
-    if automatic {
+    if origin != Origin::Manual {
         let _ = bridge::send_ui(
             events,
             &turn.token,
@@ -2971,7 +3425,8 @@ async fn compact_conversation(
         )
         .await;
     }
-    let event = {
+    let spent = compact::Spent::default();
+    let finished = {
         let model = state.model().to_string();
         let selector = &state.selector;
         let efforts = |name: &str| {
@@ -2990,27 +3445,67 @@ async fn compact_conversation(
             model: &model,
             fallback: state.config.provider == ProviderId::Gateway,
             efforts: &efforts,
+            spent: &spent,
+            // Between turns there is no request to follow
+            // (`app_agent_runtime.zig:1112-1129`).
+            conversation: None,
         };
-        match compact::finish(&plan, &caller).await {
-            Ok(event) => event,
-            Err(failure) => return feedback_of(failure),
+        compact::finish(&plan, &caller).await
+    };
+    let Some(conversation) = state.conversation.as_mut() else {
+        return Feedback::Failed;
+    };
+    // What the notes requests cost goes to `/usage` however the compaction
+    // ends: a request that was answered was billed (`spent`'s doc).
+    if let Some(frame) = spent.frame() {
+        conversation.recorder.commit(frame);
+    }
+    let event = match finished {
+        Ok(event) => event,
+        Err(failure) => {
+            transaction_failed(context, "summary", origin, failure.name());
+            return feedback_of(failure);
         }
     };
     // Stopped while the notes were written: nothing is saved
     // (`orchestrator.zig:6241`).
     if turn.mirror.is_cancelled() {
+        transaction_failed(context, "summary", origin, "Cancelled");
         return Feedback::Cancelled;
     }
-    let Some(conversation) = state.conversation.as_mut() else {
-        return Feedback::Failed;
-    };
     let before = conversation.recorder.state().last_event_seq;
+    let removed_turns = plan.turn_count();
     conversation.recorder.commit(event);
-    if conversation.recorder.state().last_event_seq == before {
-        // The log would not take it; the conversation is what it was.
-        return Feedback::Failed;
-    }
+    let saved = conversation.recorder.state();
+    let Some(checkpoint) = saved
+        .checkpoint
+        .as_ref()
+        .filter(|_| saved.last_event_seq != before)
+    else {
+        transaction_failed(context, "publication", origin, UNCONFIRMED_WRITE);
+        return Feedback::Unconfirmed;
+    };
+    compaction_trace::info(
+        context,
+        TraceKind::Committed,
+        format!(
+            "origin={} removed_turns={removed_turns} compaction_count={} summary_bytes={} \
+             tools={}",
+            origin.name(),
+            checkpoint.count,
+            crate::session::checkpoint::render(&checkpoint.compacted).len(),
+            checkpoint.compacted.tool_count
+        ),
+    );
     Feedback::Succeeded
+}
+
+/// How many compactions the conversation has had: what says a provider's
+/// count still describes the history it is sent.
+fn compactions_of(state: &crate::session::DurableState) -> u64 {
+    state.checkpoint.as_ref().map_or(0, |checkpoint| {
+        u64::try_from(checkpoint.count).unwrap_or(u64::MAX)
+    })
 }
 
 /// The band's sentence for a compaction that did not happen.
@@ -3022,125 +3517,429 @@ fn feedback_of(failure: Failure) -> Feedback {
     }
 }
 
-/// Compacts the conversation before a turn whose request has reached the
-/// automatic compaction point (`orchestrator.zig:7306-7322`, `size.due()`):
-/// the request the turn would open with, measured as upstream measures a
-/// request -- its body, by the token estimate
-/// (`measureProviderRequest`, `prompt_context.zig:83-86`).
+/// Starts the background read of the catalog, if the session holds none and
+/// is not reading one ([`ModelSelector::begin_load`]), with the UI told its
+/// answer the moment it arrives: upstream's interface takes a load's end on
+/// its own loop's next tick and redraws an open menu and the footer then,
+/// whatever its worker is doing (`pollLoadTransition`,
+/// `vercel-labs/fx@c1db9191 src/core/app/model_cache_runtime.zig:549-557`,
+/// from `loopCollectFacts`, `src/main.zig:3050-3083`). Here the read is a
+/// task beside the loop's work, so it tells the band itself -- through the
+/// send that does not depend on a turn's token, since a turn may be running
+/// or none at all -- and the selector takes the answer when it is next
+/// asked.
+fn begin_catalog_read(state: &mut Runtime, events: &Sender<UiEvent>) {
+    let provider = state.config.provider;
+    let events = events.clone();
+    state.selector.begin_load(move |catalog, retry| async move {
+        bridge::send_terminal(&events, catalog_event_of(provider, &catalog, retry)).await;
+    });
+}
+
+/// Waits for the catalog the session began reading at launch
+/// ([`ModelSelector::begin_load`]) when the turn cannot be sized without it,
+/// as upstream's turn does: when what it knows of the model without a
+/// catalog gives no window, it resolves the model's capabilities before it
+/// plans the request's size, and that waits for a load still on its way
+/// (`requiresResolvedRequestCapabilities`, `orchestrator.zig:5383-5395`,
+/// `:5551-5586`; `resolveForRequest`, `model_cache_runtime.zig:614-669`).
+/// A load that has failed, or none at all, is not waited for: the turn goes
+/// with what it knows. Raced against the turn's own cancellation, as
+/// upstream's wait is.
 ///
-/// The window is the catalog's, so a conversation with something to compact
-/// reads the catalog once if nothing has yet, as a turn in a non-default
-/// effort does; a model the catalog does not describe never compacts by
-/// itself, as upstream's does not (`due` with no window).
-///
-/// `Err` is a compaction that began and did not finish: the turn does not
-/// run, and the band keeps the sentence, as upstream keeps the error on the
-/// row rather than in the transcript (`compactionErrorHandled`,
-/// `app_process_runtime.zig:10-17`, `:55-56`).
-async fn compact_if_due(
+/// The other reasons upstream waits -- an effort, Fast or Ultra, an image
+/// -- read the catalog where they are decided ([`one_turn`],
+/// [`image_refusal`]), which waits for the same load.
+async fn await_catalog_for_window(
     state: &mut Runtime,
-    prompt: &str,
-    context: &ProjectContext,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
-) -> Result<(), Feedback> {
-    if !state.has_context_to_compact() {
-        return Ok(());
+) {
+    if state.context_window().is_some() || !state.selector.is_loading() {
+        return;
     }
-    if matches!(state.selector.catalog(), CatalogState::NotLoaded) {
-        let fresh = tokio::select! {
-            biased;
-            () = turn.token.cancelled() => false,
-            fresh = state.load_catalog() => fresh,
-        };
-        if fresh {
-            let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    let fresh = tokio::select! {
+        biased;
+        () = turn.token.cancelled() => false,
+        fresh = state.load_catalog() => fresh,
+    };
+    if fresh {
+        let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    }
+}
+
+/// A turn's compactions: before each model step, whether the request it is
+/// about to send has reached the automatic compaction point, and after a
+/// request the provider refused as too large, once
+/// (`orchestrator.zig:7286-7322`, `:8099-8124`). The turns before the one in
+/// progress are compacted; the turn goes on with the compacted form in place
+/// of them, on its own clock, and the row says `Compacting` meanwhile.
+///
+/// One that began and did not finish ends the turn: the row keeps the
+/// sentence and the turn's conclusion says nothing more, as upstream keeps
+/// the error on the row rather than in the transcript
+/// (`compactionErrorHandled`, `app_process_runtime.zig:10-17`, `:55-56`) --
+/// [`TurnCompactor::ended`] is how the turn knows.
+struct TurnCompactor {
+    size: Size,
+    model: String,
+    /// The efforts the conversation's model and its fallback list, read from
+    /// the catalog as the turn began.
+    efforts: Vec<(String, Vec<String>)>,
+    fallback: bool,
+    wire: crate::provider::Wire,
+    /// What the turn's requests ask for, put back after a notes request.
+    options: crate::gateway::protocol::RequestOptions,
+    events: Sender<UiEvent>,
+    token: tokio_util::sync::CancellationToken,
+    mirror: CancelToken,
+    /// The turn's number in the session, for `/trace`.
+    turn: u64,
+    spent: compact::Spent,
+    /// Where each check's measurement of the fixed part is kept for a
+    /// `/compact` after the turn ([`Runtime::fixed_tokens`]).
+    fixed_tokens: Arc<AtomicUsize>,
+    /// The conversation's last provider count ([`Runtime::calibration`]),
+    /// read before each step and written after each answered one.
+    calibration: Arc<std::sync::Mutex<Option<compact::Calibration>>>,
+    /// How many compactions the conversation has had: a count from before
+    /// the last one no longer applies.
+    compactions: u64,
+    /// How a compaction that ended the turn ended.
+    ended: std::rc::Rc<std::cell::Cell<Option<Feedback>>>,
+}
+
+impl TurnCompactor {
+    fn new(
+        state: &Runtime,
+        events: &Sender<UiEvent>,
+        turn: &TurnCancel,
+        options: crate::gateway::protocol::RequestOptions,
+    ) -> Self {
+        let model = state.model().to_string();
+        let efforts = [model.clone(), compact::fallback_model(&model).to_string()]
+            .into_iter()
+            .map(|name| {
+                let listed = state
+                    .selector
+                    .entry(&name)
+                    .map(|entry| entry.efforts.clone())
+                    .unwrap_or_default();
+                (name, listed)
+            })
+            .collect();
+        Self {
+            size: state.compaction_size(),
+            model,
+            efforts,
+            fallback: state.config.provider == ProviderId::Gateway,
+            wire: state.config.provider.wire(),
+            options,
+            events: events.clone(),
+            token: turn.token.clone(),
+            mirror: turn.mirror.clone(),
+            // Every turn takes the next id, compacting or not, so the ids
+            // `/trace` prints are the ones upstream's would
+            // (`debug_trace.nextTurnId`).
+            turn: compaction_trace::next_turn_id(),
+            spent: compact::Spent::default(),
+            fixed_tokens: Arc::clone(&state.fixed_tokens),
+            calibration: state
+                .conversation
+                .as_ref()
+                .map(|conversation| Arc::clone(&conversation.calibration))
+                .unwrap_or_default(),
+            compactions: state.conversation.as_ref().map_or(0, |conversation| {
+                compactions_of(conversation.recorder.state())
+            }),
+            ended: std::rc::Rc::default(),
         }
     }
-    let mut size = state.compaction_size();
-    if size.compact_at.is_none() {
-        return Ok(());
+
+    /// The count that applies to this turn's requests: the conversation's
+    /// last, unless a compaction has replaced the history it was counted on.
+    fn calibration(&self) -> Option<compact::Calibration> {
+        self.calibration
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|calibration| calibration.compactions == self.compactions)
     }
-    let Some(conversation) = state.conversation.as_ref() else {
-        return Ok(());
-    };
-    // Measured as text: upstream prices an image apart from the text around
-    // it (`measureProviderRequest`, `prompt_context.zig:87-120`), so an
-    // image's bytes are not counted as words here either.
-    let mut history = conversation
-        .recorder
-        .state()
-        .history_messages(state.config.provider.wire())
-        .messages;
-    for message in &mut history {
-        message
-            .content
-            .retain(|part| !matches!(part, crate::gateway::protocol::ContentPart::Image { .. }));
+
+    /// Tells the band how it ended; for one that did not succeed, the turn
+    /// ends too and says nothing of its own.
+    async fn settle(&self, feedback: Feedback) {
+        if feedback != Feedback::Succeeded {
+            self.ended.set(Some(feedback));
+        }
+        bridge::send_terminal(&self.events, UiEvent::Compaction(Update::Settled(feedback))).await;
     }
-    let request = TurnRequest {
-        images: Vec::new(),
-        model: state.model().to_string(),
-        prompt: prompt.to_string(),
-        history,
-        max_steps: state.config.max_agent_steps,
-        max_attempts: DEFAULT_MAX_ATTEMPTS,
-        cancel: turn.mirror.clone(),
-        tools: conversation.tools.clone(),
-    };
-    let Ok(body) = TurnMachine::new(request)
-        .with_context(context.clone())
-        .completion_request()
-        .body()
-    else {
-        // A request that cannot be built is the turn's to report.
-        return Ok(());
-    };
-    size.request = Some(compact::text_tokens(&body));
-    if !size.due() {
-        return Ok(());
+
+    /// The turn's error for a compaction that ended it: the row says why,
+    /// and the turn says nothing (`compactionErrorHandled`).
+    fn ended_turn(failure: &Failure) -> crate::agent::TurnError {
+        match failure {
+            Failure::Cancelled => crate::agent::TurnError::Cancelled,
+            other => crate::agent::TurnError::CompactionEnded {
+                reason: other.name(),
+            },
+        }
     }
-    match compact_conversation(state, size, true, events, turn).await {
-        // Nothing was chosen, so nothing began: the turn goes on as it was.
-        Feedback::NoOp => Ok(()),
-        Feedback::Succeeded => {
-            bridge::send_terminal(
-                events,
-                UiEvent::Compaction(Update::Settled(Feedback::Succeeded)),
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::agent::StepCompactor for TurnCompactor {
+    async fn before_step(
+        &mut self,
+        check: crate::agent::StepCheck<'_>,
+    ) -> Result<Option<crate::agent::StepCompaction>, crate::agent::TurnError> {
+        // The request by the estimate, scaled by the provider's count of the
+        // one before it when that count still describes it, and the fixed
+        // part with it (`orchestrator.zig:7292-7318`).
+        let calibration = self.calibration();
+        let applicable = calibration
+            .as_ref()
+            .filter(|calibration| calibration.applies(&self.model, &check.request));
+        let estimated = applicable.map_or(check.request.text_tokens, |calibration| {
+            calibration.estimate(&check.request)
+        });
+        let fixed = check.fixed.map(|fixed| {
+            applicable
+                .filter(|calibration| calibration.applies(&self.model, &fixed))
+                .map_or(fixed.text_tokens, |calibration| {
+                    calibration.estimate(&fixed)
+                })
+        });
+        let mut size = self.size;
+        size.request = Some(estimated);
+        size.overflow = check.overflow;
+        size.fixed = fixed;
+        size.correction = calibration
+            .as_ref()
+            .and_then(|calibration| calibration.correction(&self.model));
+        if let Some(fixed) = fixed {
+            self.fixed_tokens.store(fixed, Ordering::Relaxed);
+        }
+        let context = Context {
+            turn: self.turn,
+            step: u64::from(check.step) + 1,
+        };
+        let origin = if check.overflow {
+            Origin::ProviderOverflow
+        } else {
+            Origin::Automatic
+        };
+        let not_reduced = crate::agent::TurnError::ContextNotReduced {
+            reason: "ContextCapacityExceeded",
+        };
+        if !(check.compactable && (check.overflow || size.due())) {
+            if check.overflow {
+                // `overflow_without_compaction`, `orchestrator.zig:7344-7346`.
+                compaction_trace::failure(
+                    context,
+                    TraceKind::OverflowWithoutCompaction,
+                    format!(
+                        "estimated_tokens={estimated} usable_tokens={}",
+                        compaction_trace::any(size.usable)
+                    ),
+                );
+                return Err(not_reduced);
+            }
+            if let Some(usable) = size.usable.filter(|usable| estimated > *usable) {
+                // Just compacted and still too large: not sent
+                // (`no_compactable_context`, `orchestrator.zig:7347-7350`).
+                compaction_trace::failure(
+                    context,
+                    TraceKind::NoCompactableContext,
+                    format!("estimated_tokens={estimated} usable_tokens={usable}"),
+                );
+                return Err(not_reduced);
+            }
+            return Ok(None);
+        }
+        // Upstream's line, field for field (`orchestrator.zig:7323-7339`). xfx's
+        // requests ask for no output limit.
+        let has_images = check.request.images.is_some();
+        compaction_trace::info(
+            context,
+            TraceKind::Decision,
+            format!(
+                "decision=compact overflow={} request_bytes={} estimated_tokens={estimated} \
+                 text_tokens={} has_images={has_images} image_baseline={} \
+                 prior_input_tokens={} usable_tokens={} compact_at_tokens={} \
+                 compact_at_percent={} max_output_tokens=null",
+                check.overflow,
+                check.request.bytes,
+                check.request.text_tokens,
+                has_images && applicable.is_some(),
+                compaction_trace::any(applicable.map(|calibration| calibration.exact)),
+                compaction_trace::any(size.usable),
+                compaction_trace::any(size.compact_at),
+                compact::DEFAULT_PERCENT
+            ),
+        );
+        let planned = match check.journal.state() {
+            Some(state) => compact::plan_in_turn(state, &size, context),
+            None => Ok(None),
+        };
+        let plan = match planned {
+            Ok(Some(plan)) => plan,
+            Ok(None) => {
+                compaction_trace::info(
+                    context,
+                    TraceKind::Decision,
+                    format!(
+                        "decision=no_op origin={} reason=nothing_to_compact",
+                        origin.name()
+                    ),
+                );
+                if check.overflow {
+                    // The refused request cannot go again as it was
+                    // (`overflow_recovery_incomplete`, `orchestrator.zig:7487-7490`).
+                    compaction_trace::failure(
+                        context,
+                        TraceKind::OverflowRecoveryIncomplete,
+                        format!("estimated_tokens={estimated}"),
+                    );
+                    return Err(not_reduced);
+                }
+                return Ok(None);
+            }
+            // Nothing could be left out and the request still does not fit:
+            // found before anything was chosen, so no row was begun and the
+            // turn ends with upstream's error on its own line (`choose`,
+            // `window.zig:297-318`; `compactionErrorHandled` finds no
+            // operation, `app_process_runtime.zig:10-17`, and `formatErrorBody`
+            // writes it, `:113-126`).
+            Err(Failure::TooLarge) => {
+                transaction_failed(context, "preparation", origin, Failure::TooLarge.name());
+                return Err(not_reduced);
+            }
+            Err(failure) => {
+                transaction_failed(context, "preparation", origin, failure.name());
+                self.settle(feedback_of(failure.clone())).await;
+                return Err(Self::ended_turn(&failure));
+            }
+        };
+        let _ = bridge::send_ui(
+            &self.events,
+            &self.token,
+            UiEvent::Compaction(Update::Began { automatic: true }),
+        )
+        .await;
+        if plan.needs_model() {
+            let _ = bridge::send_ui(
+                &self.events,
+                &self.token,
+                UiEvent::Compaction(Update::Summarizing),
             )
             .await;
-            Ok(())
         }
-        other => {
-            // A turn stopped while it compacted is a turn that was asked and
-            // stopped, and its log says so as an ordinary stopped turn's does
-            // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:
-            // 7413-7423`; e2e `tui-compaction-activity.test.ts:467-471`): a
-            // resume shows the prompt, and the model is told the turn ended
-            // before completion. One that failed never began; the row says why.
-            //
-            // Its reason is the sentence the user was shown; whose stop it
-            // was is its own field, as upstream records it (the compaction's
-            // `cancellation_origin`, `runtime/interruption.zig:51-77`), and a
-            // resume reads that field to replay the turn as its card alone,
-            // no cancellation line (`app_session_runtime.zig:4796-4800`; e2e
-            // `tui-compaction-activity.test.ts:481-488`).
-            if other == Feedback::Cancelled {
-                if let Some(conversation) = state.conversation.as_mut() {
-                    conversation.recorder.commit(SessionEvent::UserMessage {
-                        text: prompt.to_string(),
-                    });
-                    conversation.recorder.commit(SessionEvent::TurnConcluded {
-                        outcome: TurnConclusion::Interrupted {
-                            reason: Feedback::Cancelled.label().to_string(),
-                            terminal_reason: Some(TerminalReason::Cancelled),
-                            cancellation_origin: CancellationOrigin::Compaction,
-                        },
-                    });
-                }
+        let finished = {
+            let efforts = |name: &str| {
+                self.efforts
+                    .iter()
+                    .find(|(model, _)| model == name)
+                    .map(|(_, listed)| listed.clone())
+                    .unwrap_or_default()
+            };
+            let caller = Caller {
+                provider: check.provider,
+                model: &self.model,
+                fallback: self.fallback,
+                efforts: &efforts,
+                spent: &self.spent,
+                // After a refusal the conversation no longer fits
+                // (`orchestrator.zig:7390-7393`).
+                conversation: (!check.overflow).then_some((check.conversation, &self.options)),
+            };
+            compact::finish(&plan, &caller).await
+        };
+        // The turn's own requests ask for what they asked for before.
+        check.provider.set_options(self.options.clone());
+        let event = match finished {
+            Ok(event) if !self.mirror.is_cancelled() => event,
+            Ok(_) => {
+                transaction_failed(context, "summary", origin, "Cancelled");
+                self.settle(Feedback::Cancelled).await;
+                return Err(crate::agent::TurnError::Cancelled);
             }
-            bridge::send_terminal(events, UiEvent::Compaction(Update::Settled(other))).await;
-            Err(other)
-        }
+            Err(failure) => {
+                transaction_failed(context, "summary", origin, failure.name());
+                self.settle(feedback_of(failure.clone())).await;
+                return Err(Self::ended_turn(&failure));
+            }
+        };
+        let before = check
+            .journal
+            .state()
+            .map_or(0, |state| state.last_event_seq);
+        let removed_turns = plan.turn_count();
+        check.journal.record(event);
+        let wire = self.wire.clone();
+        let committed = check.journal.state().and_then(|state| {
+            let checkpoint = state.checkpoint.as_ref()?;
+            (state.last_event_seq != before).then(|| {
+                (
+                    checkpoint.count,
+                    crate::session::checkpoint::render(&checkpoint.compacted),
+                    checkpoint.compacted.tool_count,
+                    state.history_messages_before_open(wire).messages,
+                )
+            })
+        });
+        let Some((count, text, tools, history)) = committed else {
+            transaction_failed(context, "publication", origin, UNCONFIRMED_WRITE);
+            self.settle(Feedback::Unconfirmed).await;
+            return Err(crate::agent::TurnError::CompactionEnded {
+                reason: UNCONFIRMED_WRITE,
+            });
+        };
+        compaction_trace::info(
+            context,
+            TraceKind::Committed,
+            format!(
+                "origin={} removed_turns={removed_turns} compaction_count={count} \
+                 summary_bytes={} tools={tools}",
+                origin.name(),
+                text.len()
+            ),
+        );
+        // `orchestrator.zig:7452-7457`. The count of the request before it
+        // describes a history that is gone (`:7458`).
+        compaction_trace::info(
+            context,
+            TraceKind::Installed,
+            format!(
+                "request_bytes_before={} estimated_tokens_before={estimated} summary_bytes={} \
+                 tools={tools}",
+                check.request.bytes,
+                text.len()
+            ),
+        );
+        self.compactions = u64::try_from(count).unwrap_or(u64::MAX);
+        self.settle(Feedback::Succeeded).await;
+        Ok(Some(crate::agent::StepCompaction {
+            history,
+            exchanges: plan.active_exchanges(),
+        }))
+    }
+
+    fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
+        self.spent.take()
+    }
+
+    fn stopped(&self) -> Option<String> {
+        (self.ended.get() == Some(Feedback::Cancelled))
+            .then(|| Feedback::Cancelled.label().to_string())
+    }
+
+    fn answered(&mut self, request: &compact::RequestCost, input_tokens: u64) {
+        *self
+            .calibration
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            compact::Calibration::new(&self.model, *request, input_tokens, self.compactions);
     }
 }
 
@@ -3489,14 +4288,24 @@ impl TurnJournal for StoppedAtApproval<'_> {
         self.inner.change_made(call_id, change);
     }
 
-    // Every method the trait has, forwarded: a default left in place here
-    // would be the wrapped journal's work silently not done.
+    // Every method the trait has, forwarded (the trait has no defaults, so a
+    // method added to it stops this from compiling until it is).
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str) {
+        self.inner.presented(call_id, tool, text);
+    }
+
     fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
         self.inner.attach_images(images)
     }
 
     fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
         self.inner.attach_tool_images(call_id, images);
+    }
+
+    // The log as it stands, which a compaction between the turn's steps plans
+    // from.
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        self.inner.state()
     }
 }
 
@@ -3736,6 +4545,81 @@ async fn run_catalog(
     ended
 }
 
+/// Runs `body` while reading the session-title answers the turn holds, and
+/// gives back the ones that came.
+///
+/// Each is settled as it comes ([`super::titles::TitleDesk::settle`]), so the
+/// band sees no question out once it is answered -- as upstream's poll takes
+/// a finished task at once, whatever its worker is doing
+/// (`src/main.zig:3140-3143`) -- and one that carries a title about the
+/// conversation the turn is in is shown at once: the band is told, and the
+/// runtime writes it into the log once the body has let go of it
+/// ([`run_turn`]). The band can be told before the log has it because nothing
+/// in the turn can give the session a title first: a `/rename` is work, and
+/// waits for the turn -- and one that comes after a `/rename` the turn put
+/// aside is dropped here, as upstream's finds the user's title on record. One
+/// about a conversation the band has let go of is shown to nobody, and
+/// dropped once the turn is over ([`run_turn`]).
+///
+/// **The answers are read before the body, never after it**, so the body is
+/// polled at most once each time this is: a turn's call yields once when it
+/// is done so that [`raced_against_control`], above this, reads a Ctrl-C the
+/// call's question took before the turn goes on (`crate::agent::machine`'s
+/// `yield_once`). Read after the body, an answer that came while the call had
+/// the thread sent this loop round to poll the body again, straight past
+/// that yield -- and the turn asked for its next step with the stop unread.
+async fn titled_while<F: Future>(
+    body: F,
+    answers: Option<&mut super::titles::Answers>,
+    desk: &super::titles::TitleDesk,
+    shown: u64,
+    control: &ControlChannel,
+    events: &Sender<UiEvent>,
+) -> (F::Output, Vec<super::titles::Titled>) {
+    tokio::pin!(body);
+    let Some(answers) = answers else {
+        return (body.await, Vec::new());
+    };
+    let mut kept = Vec::new();
+    loop {
+        tokio::select! {
+            biased;
+            titled = answers.next() => {
+                if !desk.settle(&titled) {
+                    continue;
+                }
+                // A `/rename` typed during the turn is put aside until it
+                // ends, and upstream would have written it at the keystroke:
+                // a title that comes after it finds the user's on record
+                // (`installGeneratedTitle`, `session_title_generation.zig:378-394`).
+                if titled.lineage == shown && titled.title().is_some() && control.renaming() {
+                    desk.record_dropped("user_title_present");
+                    continue;
+                }
+                if titled.lineage == shown {
+                    if let Some(title) = titled.title() {
+                        // Not through the turn's token: a turn stopped after
+                        // the title came still leaves the session titled.
+                        bridge::send_terminal(events, UiEvent::SessionTitled(title.to_string()))
+                            .await;
+                    }
+                }
+                kept.push(titled);
+            }
+            output = &mut body => return (output, kept),
+        }
+    }
+}
+
+/// The next session-title answer, or never while the answers are lent to a
+/// turn: an arm [`turn_loop`]'s `select!` can always carry.
+async fn next_title(answers: &mut Option<super::titles::Answers>) -> super::titles::Titled {
+    match answers.as_mut() {
+        Some(answers) => answers.next().await,
+        None => std::future::pending().await,
+    }
+}
+
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -3930,11 +4814,17 @@ impl ToolImageGate<'_> {
         }
         let selector = self.selector.borrow_mut().take()?;
         if matches!(selector.catalog(), CatalogState::NotLoaded) {
+            // A read already on its way tells the UI itself.
+            let told = selector.is_loading();
             tokio::select! {
                 biased;
                 () = self.token.cancelled() => {}
-                _ = selector.ensure_catalog() => {
-                    let event = catalog_event_of(self.provider, selector);
+                _ = selector.ensure_catalog() => if !told {
+                    let event = catalog_event_of(
+                        self.provider,
+                        selector.catalog(),
+                        selector.failure_retry(),
+                    );
                     let _ = bridge::send_ui(&self.events, &self.token, event).await;
                 }
             }
@@ -4092,14 +4982,7 @@ async fn one_turn(
             .tools
             .scope(),
     );
-    if compact_if_due(state, &prompt, &context, events, turn)
-        .await
-        .is_err()
-    {
-        // The row says why; the turn did not run, and there is nothing more
-        // for its conclusion to say (`compactionErrorHandled`).
-        return None;
-    }
+    await_catalog_for_window(state, events, turn).await;
     // The skills this workspace has now -- one added in another window is in
     // this prompt's catalog -- and the ones the prompt or its `$` tokens name,
     // loaded whole for this turn (`crate::skills`).
@@ -4131,6 +5014,10 @@ async fn one_turn(
         .await;
     }
     let ultrafast = options.ultrafast;
+    // Built before the conversation is borrowed for the turn: it reads the
+    // catalog's window and efforts as they are now.
+    let compactor = TurnCompactor::new(state, events, turn, options.clone());
+    let compaction_ended = std::rc::Rc::clone(&compactor.ended);
     state
         .provider
         .as_ref()
@@ -4234,11 +5121,13 @@ async fn one_turn(
     // And, in Ultra, whether each response was served at it
     // ([`ServedUltra`]).
     let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
-    // `run_turn_saved`'s machine, taking the person's steers as it runs.
+    // `run_turn_saved`'s machine, taking the person's steers as it runs, and
+    // compacting before any step that needs it.
     let outcome = TurnMachine::new(request)
         .with_context(context)
         .with_skills(&skills)
         .with_steering(state.steering.clone())
+        .with_compactor(Box::new(compactor))
         .run_journaled(&served, &mut sink, &mut journal)
         .await;
 
@@ -4280,6 +5169,9 @@ async fn one_turn(
             .recorder
             .failure()
             .map(|problem| format!("xfx: {problem}")),
+        // A compaction ended it: the row says why, and there is nothing more
+        // for its conclusion to say (`compactionErrorHandled`).
+        Err(_) if compaction_ended.get().is_some() => None,
         Err(err) => Some(err.to_string()),
     }
 }
@@ -4429,6 +5321,7 @@ mod tests {
     };
     use crate::provider::effort::TurnSettings;
     use crate::provider::Wire;
+    use crate::session::TurnConclusion;
     use crate::tools::undo::Mark;
 
     /// A configuration from a home and a workspace that exist and hold no
@@ -4548,6 +5441,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -4614,6 +5508,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -4659,6 +5554,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -5022,6 +5918,7 @@ mod tests {
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
             credits: CreditsBoard::default(),
+            titles: super::super::titles::TitleDesk::new(true).0,
         };
         drop(work_rx);
         assert_eq!(
@@ -5066,13 +5963,14 @@ mod tests {
         (body, stopped)
     }
 
-    /// Runs `work` on a runtime of its own, as the worker thread does.
+    /// Runs `work` on a runtime of its own, in a set of local tasks, as the
+    /// worker thread does.
     fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
-        tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("a runtime")
-            .block_on(work)
+            .expect("a runtime");
+        tokio::task::LocalSet::new().block_on(&runtime, work)
     }
 
     #[test]
@@ -6466,7 +7364,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -6506,7 +7403,7 @@ mod tests {
                     HydratedStep::Text(text)
                     | HydratedStep::Feedback(text)
                     | HydratedStep::Steer(text) => all.push_str(text),
-                    HydratedStep::ToolStart { id, shown, .. } => {
+                    HydratedStep::ToolStart { id, shown } => {
                         all.push_str(id);
                         all.push_str(shown.target.as_deref().unwrap_or(""));
                     }
@@ -6896,6 +7793,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -7047,6 +7945,9 @@ mod tests {
             fn change_made(&mut self, call_id: &str, _change: &crate::permission::ApprovalDiff) {
                 self.1.push(format!("change {call_id}"));
             }
+            fn presented(&mut self, call_id: &str, _tool: &str, _text: &str) {
+                self.1.push(format!("presented {call_id}"));
+            }
             fn attach_images(
                 &mut self,
                 images: &[crate::image::Image],
@@ -7058,9 +7959,13 @@ mod tests {
                 self.1
                     .push(format!("tool images {call_id} {}", images.len()));
             }
+            fn state(&self) -> Option<&crate::session::DurableState> {
+                Some(&KEPT_STATE)
+            }
         }
+        static KEPT_STATE: std::sync::LazyLock<crate::session::DurableState> =
+            std::sync::LazyLock::new(crate::session::DurableState::empty_for_tests);
         let refused = || SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: "w".to_string(),
             tool: "write_file".to_string(),
             ok: false,
@@ -7111,6 +8016,7 @@ mod tests {
             control: &control,
         };
         wrapper.change_made("w", &crate::permission::ApprovalDiff::of("a\n", "b\n"));
+        wrapper.presented("w", "write_file", "shown");
         // The directory the images were copied into is the recorder's
         // answer, which the card's badges link to.
         assert_eq!(
@@ -7130,7 +8036,16 @@ mod tests {
                 path: "shot.png".to_string(),
             }],
         );
-        assert_eq!(kept.1, ["change w", "images 1", "tool images r 1"]);
+        // The log as it stands, which a compaction between the turn's steps
+        // plans from.
+        assert!(std::ptr::eq(
+            wrapper.state().expect("forwarded"),
+            &*KEPT_STATE
+        ));
+        assert_eq!(
+            kept.1,
+            ["change w", "presented w", "images 1", "tool images r 1"]
+        );
         // And the loop reads its stop as before.
         assert!(control.stopping());
         assert_eq!(
@@ -7640,6 +8555,71 @@ mod tests {
             self.asked.fetch_add(1, Ordering::SeqCst);
             Ok(self.entries.clone())
         }
+    }
+
+    /// A catalog that answers `entries` once `gate` opens.
+    struct Gated {
+        entries: Vec<CatalogEntry>,
+        gate: std::cell::RefCell<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for Gated {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            let gate = self.gate.borrow_mut().take().expect("asked once");
+            let _ = gate.await;
+            Ok(self.entries.clone())
+        }
+    }
+
+    #[test]
+    fn a_catalog_that_answers_while_a_turn_runs_is_told_to_the_band_at_once() {
+        // Upstream's interface redraws an open menu and the footer on the
+        // first tick after a load ends, whatever its worker is doing
+        // (`pollLoadTransition`, `model_cache_runtime.zig:549-557`, from
+        // `loopCollectFacts`, `main.zig:3050-3083`). Here a stand-in turn holds
+        // the runtime the whole time; the rows reach the UI before it ends,
+        // once, and the selector takes them when it is next asked.
+        let (_home, _workspace, mut state) = recording();
+        let (open, gate) = tokio::sync::oneshot::channel();
+        state.selector.set_fetcher_for_test(Box::new(Gated {
+            entries: vec![published("anthropic/claude-opus-5")],
+            gate: std::cell::RefCell::new(Some(gate)),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        let (turn_over, ended) = tokio::sync::oneshot::channel::<()>();
+        let told = on_a_runtime(async {
+            begin_catalog_read(&mut state, &events);
+            let held = &mut state;
+            let turn = async move {
+                let _ = ended.await;
+                held.selector.is_loading()
+            };
+            let watch = async {
+                open.send(()).expect("the read is waiting");
+                let told = tokio::time::timeout(TEST_DRAIN, received.recv())
+                    .await
+                    .expect("the band was not told while the turn ran")
+                    .expect("told");
+                turn_over.send(()).expect("the turn is waiting");
+                told
+            };
+            let (still_loading, told) = tokio::join!(turn, watch);
+            assert!(still_loading, "the selector took it before it was asked");
+            told
+        });
+        assert_eq!(
+            told,
+            UiEvent::CatalogLoaded {
+                provider: state.config.provider,
+                entries: vec![published("anthropic/claude-opus-5")],
+            }
+        );
+        // Taken when asked, and not told a second time.
+        let fresh = on_a_runtime(state.load_catalog());
+        assert!(!fresh, "a read that told the UI itself was told again");
+        assert!(state.selector.entry("anthropic/claude-opus-5").is_some());
+        assert!(received.try_recv().is_err());
     }
 
     /// One catalog row offering `efforts`.
@@ -10366,5 +11346,643 @@ mod tests {
         assert!(!session.workspace.path().join("asked-about.txt").exists());
         assert!(!session.written().exists());
         assert_eq!(provider.requests(), 1);
+    }
+
+    // ---- session titles (`super::titles`) ----
+
+    /// A runtime on the Gateway with a key and nothing asked in it yet, its
+    /// desk publishing where to ask and answered by `answer` from the excerpt.
+    fn titled_runtime(
+        answer: impl Fn(&str) -> super::super::titles::Outcome + Send + Sync + 'static,
+    ) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        assert_eq!(config.provider, ProviderId::Gateway);
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let (desk, answers) = super::super::titles::TitleDesk::answering(true, answer);
+        state.titles = desk;
+        state.title_answers = Some(answers);
+        state.publish();
+        (home, workspace, state)
+    }
+
+    fn generated(title: &str) -> super::super::titles::Outcome {
+        super::super::titles::Outcome::Generated(title.to_string())
+    }
+
+    /// The next title answer, or `None` when none comes.
+    fn next_title_within(
+        state: &mut Runtime,
+        within: Duration,
+    ) -> Option<super::super::titles::Titled> {
+        on_a_runtime(async {
+            tokio::time::timeout(within, next_title(&mut state.title_answers))
+                .await
+                .ok()
+        })
+    }
+
+    /// Every `session_renamed` frame of the conversation's log, as written.
+    fn rename_frames(state: &Runtime) -> Vec<String> {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        let log = std::fs::read_to_string(
+            state
+                .store
+                .session_dir(conversation.recorder.id())
+                .join(crate::session::EVENTS_FILE),
+        )
+        .expect("the log");
+        log.lines()
+            .filter(|line| line.contains("\"kind\":\"session_renamed\""))
+            .map(|line| {
+                let start = line.find("\"event\":").expect("an event");
+                line[start..].to_string()
+            })
+            .collect()
+    }
+
+    /// A first turn that ran and ended in the conversation, so the session
+    /// has a title derived from its prompt.
+    fn concluded(state: &mut Runtime, prompt: &str) {
+        let recorder = &mut state.conversation.as_mut().expect("open").recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: prompt.to_string(),
+        });
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        });
+    }
+
+    #[test]
+    fn a_title_that_lands_while_a_call_has_the_thread_does_not_carry_the_turn_past_its_stop() {
+        // A turn sees a Ctrl-C typed at a question it parked on only because
+        // the call yields once when it is done (`crate::agent::machine`'s
+        // `yield_once`), and the race above it reads the channel before it
+        // polls the turn again. Red before: a title's answer that came while
+        // the question had the thread was read below that race, and the turn
+        // was polled straight past its yield -- the stop came after the next
+        // request had already gone, and that request took the reply the
+        // user's next prompt was owed.
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (desk, mut answers) = super::super::titles::TitleDesk::new(true);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&stopped);
+        let parked = Arc::clone(&control);
+        let landing = desk.clone();
+        let body = async move {
+            // The question, while it has the thread: the Ctrl-C ends it and
+            // is handed back to the loop that can stop the turn
+            // (`super::super::question::TuiQuestioner`) -- and the title
+            // asked at the first prompt's keystroke comes back meanwhile.
+            parked.give_back(TurnControl::Cancel { through: 0 });
+            landing.land(super::super::titles::Outcome::Unavailable(
+                super::super::titles::Unavailable::Empty,
+            ));
+            // The call's one yield.
+            let mut yielded = false;
+            std::future::poll_fn(move |cx| {
+                if yielded {
+                    return std::task::Poll::Ready(());
+                }
+                yielded = true;
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            })
+            .await;
+            // What the turn's loop reads before it asks for the next step.
+            watched.load(Ordering::Acquire)
+        };
+        let shown = desk.lineage();
+        let ((was_stopped, _titled), ended) = on_a_runtime(raced_against_control(
+            titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
+            &control,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
+        assert!(
+            was_stopped,
+            "the turn went on to its next step with the stop still unread"
+        );
+        assert_eq!(ended, Ended::Turn);
+    }
+
+    #[test]
+    fn a_title_that_comes_after_a_rename_the_turn_put_aside_is_dropped() {
+        // Upstream writes a `/rename` at the keystroke, so a generated title
+        // after it finds the user's title on record and is dropped
+        // (`user_title_present`, `installGeneratedTitle`,
+        // `session_title_generation.zig:378-394`). xfx's turn puts the rename
+        // aside until it ends; an answer read meanwhile is dropped the same
+        // way -- not shown, and not written ahead of the user's.
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (desk, mut answers) =
+            super::super::titles::TitleDesk::answering(true, |_| generated("Generated"));
+        desk.publish_asker(titled_runtime(|_| generated("x")).2.title_asker());
+        assert!(desk.ask("fix the renderer"));
+        control.defer_rename("Mine".to_string(), false, true);
+        let landed = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&landed);
+        let probe = desk.clone();
+        let body = async move {
+            while probe.running() {
+                tokio::task::yield_now().await;
+            }
+            watched.store(true, Ordering::Release);
+        };
+        let shown = desk.lineage();
+        let (((), kept), _ended) = on_a_runtime(raced_against_control(
+            titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
+            &control,
+            |_through| {},
+        ));
+        assert!(landed.load(Ordering::Acquire));
+        assert!(kept.is_empty(), "kept for writing ahead of the rename");
+        assert!(seen.try_recv().is_err(), "the band was shown it");
+        let record = desk.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("user_title_present"));
+    }
+
+    #[test]
+    fn trace_names_the_session_a_failed_question_was_about() {
+        // Upstream's record carries the session its task was started for,
+        // whatever came back (`LastResult.copyIds`,
+        // `app_session_runtime.zig:1110-1117`; `/trace` prints it as
+        // `session=`, `app_commands.zig:2796-2800`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| {
+            super::super::titles::Outcome::Unavailable(super::super::titles::Unavailable::Provider(
+                500,
+            ))
+        });
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .as_str()
+            .to_string();
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Failed);
+        assert_eq!(record.detail.as_deref(), Some("server_error"));
+        assert_eq!(record.session.as_deref(), Some(id.as_str()));
+    }
+
+    #[test]
+    fn the_desk_asks_only_on_the_gateway_with_a_key() {
+        // `sessionTitleModel` (`src/main.zig:471-475`): the Gateway names a
+        // title model; a configured provider -- llmux's place -- names none.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Asked"));
+        assert!(state.title_asker().is_some());
+        state.config.provider = ProviderId::Llmux;
+        state.publish();
+        assert!(!state.titles.ask("fix the renderer"), "llmux was asked");
+        state.config.provider = ProviderId::Gateway;
+        state.config.credential = None;
+        state.publish();
+        assert!(!state.titles.ask("fix the renderer"), "asked with no key");
+    }
+
+    #[test]
+    fn an_answer_before_the_conversation_opens_waits_for_it_and_is_shown_at_once() {
+        // The first prompt asks at the keystroke, before its turn opens the
+        // session: the answer is the band's now, and the log's the moment the
+        // session exists.
+        let (_home, _workspace, mut state) = titled_runtime(|excerpt| {
+            assert_eq!(excerpt, "fix the renderer");
+            generated("Fix the renderer")
+        });
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Fix the renderer"),
+            "the band was not given the title"
+        );
+        assert!(state.conversation.is_none());
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert_eq!(
+            rename_frames(&state),
+            [
+                r#""event":{"kind":"session_renamed","title":"Fix the renderer","source":"generated"}}"#
+            ]
+        );
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Fix the renderer"));
+        // A side call: nothing it cost is in what `/usage` reads
+        // (`session_title_generation.zig:185-187`).
+        assert!(recorded.usage.requests.is_empty());
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Installed);
+        assert_eq!(
+            record.session.as_deref(),
+            Some(
+                state
+                    .conversation
+                    .as_ref()
+                    .expect("open")
+                    .recorder
+                    .id()
+                    .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn a_users_title_is_kept_and_only_the_derived_one_is_replaced() {
+        // `installGeneratedTitle` (`session_title_generation.zig:378-394`;
+        // v2's, `session_adapter.zig:1675-1697`): the title on record may be
+        // replaced when it is none, or the one the first prompt derives --
+        // which upstream writes down at the first turn
+        // (`session_adapter.zig:1300-1310`). Anything else is the user's.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "fix the renderer");
+        state.rename("Mine", &CancelToken::new()).expect("renamed");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        assert_eq!(
+            rename_frames(&state),
+            [r#""event":{"kind":"session_renamed","title":"Mine"}}"#]
+        );
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("user_title_present"));
+
+        // A title on record that is the derived one -- here the user retyped
+        // it -- is replaced, as upstream replaces the derived title it wrote.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "fix the renderer");
+        state
+            .rename("fix the renderer", &CancelToken::new())
+            .expect("renamed");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Generated")
+        );
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Generated"));
+
+        // A rename with no turn yet: upstream's derived title is not present,
+        // so the rename stands (`!display.present`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state
+            .rename("Before asking", &CancelToken::new())
+            .expect("renamed");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+
+        // And a rename after a generated title is the one in force.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert!(state.title_arrived(&titled, false).is_some());
+        state.rename("Mine", &CancelToken::new()).expect("renamed");
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Mine"));
+    }
+
+    #[test]
+    fn a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next() {
+        // A `/new` moves the lineage on at the keystroke; a resume and a
+        // provider switch move it in the runtime. The question runs on, and
+        // its answer is about the conversation let go of: dropped
+        // (`session_changed`, `pollSessionTitleGeneration`,
+        // `app_session_runtime.zig:3720-3728`), which `/trace` says over the
+        // title that came back (`recordDropped`, `:1153-1171`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        // The band's `/new`, then the runtime's drop.
+        state.titles.next_lineage();
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(titled.lineage, 0);
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+        state
+            .ready(&CancelToken::new())
+            .expect("the next conversation");
+        assert!(rename_frames(&state).is_empty());
+
+        // A provider switch's own lineage change, with the question still
+        // out when it is made.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+
+        // One that came back and was read before the lineage moved is
+        // dropped by its lineage too.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert!(state.titles.settle(&titled));
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        assert_eq!(state.title_arrived(&titled, true), None);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+
+        // And one that was waiting for a conversation not yet open when a
+        // switch let it go: dropped too, not forgotten with `/trace` still
+        // calling it installed.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Never opened"));
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Never opened"),
+            "the band was not shown it"
+        );
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+    }
+
+    #[test]
+    fn a_prompt_held_for_a_switch_asks_of_the_conversation_it_will_run_in() {
+        // Upstream holds a prompt while its provider is prepared and asks
+        // when it finalizes it, of the session in force then
+        // (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`,
+        // `:1479-1481`). After xfx's provider switch that is a conversation
+        // not yet opened: asked.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("New provider"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "a turn in the conversation the switch drops");
+        state.titles.switching(1);
+        assert!(state.titles.defer("fix the renderer", Some(2)));
+        state.worked_through(0);
+        assert!(!state.titles.running(), "asked before the switch was made");
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        state.worked_through(1);
+        assert!(
+            state.titles.running(),
+            "the fresh conversation's prompt asked nothing"
+        );
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(titled.lineage, state.titles.lineage());
+
+        // After a resume it is the resumed conversation, whose turns ask
+        // nothing (`session_untitled`, `app_session_runtime.zig:3674-3675`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Not asked"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "the session resumed into");
+        state.titles.switching(1);
+        assert!(state.titles.defer("fix the renderer", Some(2)));
+        state.worked_through(1);
+        assert!(!state.titles.running(), "a conversation with turns asked");
+
+        // A switch the interrupt dropped with the prompt: nothing asked.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Not asked"));
+        state.titles.switching(1);
+        assert!(state.titles.defer("dropped", Some(2)));
+        state.worked_through(2);
+        assert!(!state.titles.running(), "a dropped prompt asked");
+    }
+
+    #[test]
+    fn a_question_asked_after_a_new_is_the_next_conversations() {
+        // A prompt typed straight after `/new`, before the runtime has
+        // dropped the old conversation: its title is the next one's, held
+        // until that one is open.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Second session"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        state.titles.next_lineage();
+        assert!(state.titles.ask("second session question"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        // Still the old conversation open: not written into it.
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Second session")
+        );
+        assert!(rename_frames(&state).is_empty());
+        // The band is told again after the fence, which sets aside everything
+        // before it -- the case of an answer the old turn read.
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert_eq!(
+            seen,
+            [
+                UiEvent::Fresh { through: 0 },
+                UiEvent::SessionTitled("Second session".to_string())
+            ]
+        );
+        state
+            .ready(&CancelToken::new())
+            .expect("the next conversation");
+        assert_eq!(
+            rename_frames(&state),
+            [
+                r#""event":{"kind":"session_renamed","title":"Second session","source":"generated"}}"#
+            ]
+        );
+    }
+
+    /// A provider that answers only once a title asked beside it has come
+    /// back -- `answered` set by the asker -- and a moment more: the turn is
+    /// provably still running when the title arrives, however loaded the
+    /// machine is.
+    struct AfterTheTitle {
+        answer: std::cell::RefCell<Option<Completion>>,
+        answered: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for AfterTheTitle {
+        async fn stream(
+            &self,
+            _request: &crate::gateway::protocol::CompletionRequest,
+            _deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            let deadline = Instant::now() + TEST_DRAIN;
+            while !self.answered.load(Ordering::SeqCst) && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(self.answer.borrow_mut().take().expect("one request"))
+        }
+    }
+
+    #[test]
+    fn a_title_that_comes_back_mid_turn_is_shown_then_and_written_when_the_turn_ends() {
+        // Upstream installs it from its main loop whatever the worker is doing
+        // (`src/main.zig:3140-3143`): the window is titled during the first
+        // turn, not after it.
+        let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let says = Arc::clone(&answered);
+        let (_home, _workspace, mut state) = titled_runtime(move |_| {
+            says.store(true, Ordering::SeqCst);
+            generated("Fix the renderer")
+        });
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(AfterTheTitle {
+                answer: std::cell::RefCell::new(Some(answers("done"))),
+                answered,
+            }),
+        });
+        // Asked at the keystroke, before the turn takes the prompt.
+        assert!(state.titles.ask("fix the renderer"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+
+        let ended = on_a_runtime(run_turn(
+            &mut state,
+            "fix the renderer".to_string(),
+            (Vec::new(), Vec::new()),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+
+        assert_eq!(ended, Ended::Turn);
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        let titled = seen
+            .iter()
+            .position(|event| *event == UiEvent::SessionTitled("Fix the renderer".to_string()))
+            .expect("the band was told the title");
+        let ended_at = seen
+            .iter()
+            .position(|event| matches!(event, UiEvent::TurnEnded { .. }))
+            .expect("the turn ended");
+        assert!(titled < ended_at, "the title waited for the turn: {seen:?}");
+        // Written down once the turn let go of the log, and nothing of it in
+        // the turn's usage.
+        let frames = rename_frames(&state);
+        assert_eq!(frames.len(), 1, "{frames:?}");
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Fix the renderer"));
+        assert_eq!(recorded.turns.len(), 1);
+        // The turn's own request, and none for the title.
+        assert_eq!(recorded.usage.requests.len(), 1);
+        assert!(!state.titles.running());
+        assert!(
+            state.title_answers.is_some(),
+            "the answers were not given back"
+        );
+    }
+
+    #[test]
+    fn a_title_that_comes_back_between_turns_is_written_and_then_shown() {
+        // The loop's own arm: the bill's way, the recorder that owns the log.
+        let (home, _workspace, mut state) = titled_runtime(|_| generated("Between turns"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (_changes_tx, mut changes_rx) = mpsc::unbounded_channel();
+        let outstanding = AtomicUsize::new(0);
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let log = home
+            .path()
+            .join(".xfx")
+            .join("sessions")
+            .join(id.as_str())
+            .join(crate::session::EVENTS_FILE);
+        let watched = log.clone();
+        std::thread::scope(|scope| {
+            let stopper = scope.spawn(move || {
+                // Once the loop has written the title down, and not before.
+                let deadline = Instant::now() + TEST_DRAIN;
+                while !std::fs::read_to_string(&watched)
+                    .is_ok_and(|log| log.contains("\"kind\":\"session_renamed\""))
+                    && Instant::now() < deadline
+                {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let _ = control_tx.send(TurnControl::Shutdown);
+            });
+            let _ = on_a_runtime(turn_loop(
+                state,
+                &events_tx,
+                &mut work_rx,
+                &mut changes_rx,
+                control,
+                Cancellation::new(CancelToken::new()),
+                &outstanding,
+            ));
+            stopper.join().expect("the stopper");
+        });
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert_eq!(
+            seen,
+            [UiEvent::SessionTitled("Between turns".to_string())],
+            "{seen:?}"
+        );
+        let log = std::fs::read_to_string(&log).expect("the log");
+        assert!(
+            log.contains(
+                r#""event":{"kind":"session_renamed","title":"Between turns","source":"generated"}}"#
+            ),
+            "{log}"
+        );
     }
 }

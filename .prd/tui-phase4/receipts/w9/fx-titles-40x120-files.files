@@ -1,0 +1,43 @@
+=== ~/.fx/continue/d2e82630c1ad3d9377d025b33b73bd33e1217a2783db68db0dd00a7bd650ee2b (13 bytes)
+VqTUxrDczucq
+
+=== ~/.fx/history.jsonl (423 bytes)
+{"schema_version":1,"timestamp_ms":1791347793633,"workspace_root":"<scratch>/work","text":"fix the renderer loop, it redraws every row twice"}
+{"schema_version":1,"timestamp_ms":1791347797722,"workspace_root":"<scratch>/work","text":"/new"}
+{"schema_version":1,"timestamp_ms":1791347799764,"workspace_root":"<scratch>/work","text":"/resume"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/.resume-catalog (262 bytes)
+(binary)
+=== ~/.fx/sessions/LOSJEggUFnNT/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/LOSJEggUFnNT/owner.live (43 bytes)
+{"pid":14939,"opened_at_ms":1791347797724}
+
+=== ~/.fx/sessions/LOSJEggUFnNT/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/LOSJEggUFnNT/session.json (365 bytes)
+{"schema_version":4,"id":"LOSJEggUFnNT","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791347797724,"updated_at_ms":1791347797724,"conversation_language":"und","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/LOSJEggUFnNT/session.lock (0 bytes)
+=== ~/.fx/sessions/LOSJEggUFnNT/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"LOSJEggUFnNT","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/sessions/VqTUxrDczucq/events.jsonl (649 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791347794274,"event":{"user":{"text":"fix the renderer loop, it redraws every row twice","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791347794274,"event":{"assistant":{"text":"The renderer answer.","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791347794274,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791347793687,"completed_at_ms":1791347794251,"thinking_duration_ms":220,"turn_duration_ms":564,"token_progress":{"input_tokens":14,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/VqTUxrDczucq/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/VqTUxrDczucq/session.json (402 bytes)
+{"schema_version":4,"id":"VqTUxrDczucq","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791347790449,"updated_at_ms":1791347794274,"conversation_language":"und-Latn","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"title":"Fix the renderer loop","subagent_child":false}
+=== ~/.fx/sessions/VqTUxrDczucq/session.lock (0 bytes)
+=== ~/.fx/sessions/VqTUxrDczucq/usage-v2.json (539 bytes)
+{"schema_version":1,"session_id":"VqTUxrDczucq","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":2,"settled_through_sequence":1,"api_duration_ms":162,"wall_duration_ms":3784,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (34 bytes)
+{"statusLine": {"session": true}}
+
+=== ~/.fx/usage.jsonl (167 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791347794233}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791347794157,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-5c0ea7d [debug] · Run /help for commands
+x𝒇x v0.1.0-e90d5dc [debug] · Run /help for commands
 
 ┃ first question
 
@@ -7,7 +7,7 @@ x𝒇x v0.1.0-5c0ea7d [debug] · Run /help for commands
 
   ANSWER-ONE: the notes are read.
 
-  0s (↑4 ↓40)
+  1s (↑4 ↓80)
 
 ┃ second question
 

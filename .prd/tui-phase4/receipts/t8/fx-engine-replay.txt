@@ -1,0 +1,66 @@
+== fx-stream-12 scroll_rows=2 sync_active=false
+┃ stream please
+
+  STREAM-HEAD the first line of a streamed answer, long enough that it wraps
+  past the right edge of an eighty-column screen at least once.
+
+  A second paragraph, streamed a few words at a time, ending here. STREAM-TAIL
+
+  1s (↑4 ↓40)
+
+┃
+
+auto · model-a
+== before-stream-12 scroll_rows=2 sync_active=false
+┃ stream please
+
+  STREAM-HEAD the first line of a streamed answer, long enough that it wraps
+  past the right edge of an eighty-column screen at least once.
+
+  A second paragraph, streamed a few words at a time, ending here. STREAM-TAIL
+
+  1s (↑4 ↓40)
+
+┃
+
+auto · model-a
+== after-stream-12 scroll_rows=2 sync_active=false
+┃ stream please
+
+  STREAM-HEAD the first line of a streamed answer, long enough that it wraps
+  past the right edge of an eighty-column screen at least once.
+
+  A second paragraph, streamed a few words at a time, ending here. STREAM-TAIL
+
+  1s (↑4 ↓40)
+
+┃
+
+auto · model-a
+== before-notice-12 scroll_rows=10 sync_active=false
+  word109 word110 word111 word112 word113 word114 word115 word116 word117
+  word118 word119 word120 word121 word122 word123 word124 word125 word126
+  word127 word128 word129 word130 word131 word132 word133 word134 word135
+  word136 word137 word138 word139
+
+  Closing line of the answer.
+
+  5s (↑8 ↓40)
+
+┃
+
+auto · model-a
+== after-notice-12 scroll_rows=10 sync_active=false
+  word109 word110 word111 word112 word113 word114 word115 word116 word117
+  word118 word119 word120 word121 word122 word123 word124 word125 word126
+  word127 word128 word129 word130 word131 word132 word133 word134 word135
+  word136 word137 word138 word139
+
+  Closing line of the answer.
+
+  5s (↑8 ↓40)
+
+┃
+
+auto · model-a
+OK

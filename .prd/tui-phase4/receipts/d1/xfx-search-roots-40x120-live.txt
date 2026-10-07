@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7f3587b [debug] · Run /help for commands
+
+┃ search the file
+
+  Searching.
+
+● 3 tool calls · 2 list · 1 read
+├ Matched *.txt
+├ Matched *.rs
+└ Searched alpha
+
+  Done.
+
+  0s (↑4 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ fix the renderer loop
+
+  Working on the renderer.
+
+┃ make it faster too
+
+  Took the steer.
+
+  1s (↑5 ↓47)
+
+* Trace copied to clipboard. Review and redact it before sharing.
+
+┃
+
+auto · model-a · fix the renderer loop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

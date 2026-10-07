@@ -87,10 +87,10 @@ pub(crate) enum EntityKind {
     /// number (`writeImageBadge` and `writeImagePlaceholder`,
     /// `vercel-labs/fx@c1db9191 src/core/images/image_attachments.zig:1336`,
     /// `:1376`). The badge **is** the attachment: a delete that takes it drops
-    /// the image (`kill_ring.zig:562-584`), and nothing that brings its words
-    /// back -- an undo, a yank, a recalled line -- brings the image with them
-    /// ([`super::edit_history::EditHistory::record`], [`Entities::snapshots`],
-    /// [`Entities::renumber_recalled`]).
+    /// the image (`kill_ring.zig:562-584`), no undo brings it back
+    /// ([`super::edit_history::EditHistory::record`]), and a yank or a
+    /// recalled line brings a fresh image under a fresh number
+    /// ([`Entities::snapshots`], [`Entities::renumber_recalled_with_images`]).
     Image {
         image: Arc<crate::image::Image>,
         /// [`crate::image::token`] of its id: what [`Entities::expand`] puts
@@ -282,25 +282,30 @@ impl Entities {
             .collect()
     }
 
-    /// Where each skill token stands in [`Self::with_image_tokens`]' text --
-    /// the card's -- so the card can paint the names as upstream's does
-    /// (`renderSkillTokensForCard`, `user_message_card.zig:271-291`).
-    pub(crate) fn skill_runs_in_card(&self) -> Vec<Range<usize>> {
-        let mut out = Vec::new();
-        let mut shift: isize = 0;
+    /// The card's text for `draft`, and where each skill token's name stands
+    /// in it: the prompt as it is sent ([`Self::expand`]) with each token
+    /// written as its name, which upstream's card paints in its accent
+    /// (`renderSkillTokensForCard`, `user_message_card.zig:271-291`, over the
+    /// submitted prompt's `$name` runs) -- so the card says `demo run it`
+    /// where the prompt says `$demo run it`.
+    pub(crate) fn card(&self, draft: &str) -> (String, Vec<Range<usize>>) {
+        let mut out = String::with_capacity(draft.len().saturating_add(self.retained()));
+        let mut runs = Vec::new();
+        let mut cut = 0usize;
         for span in &self.spans {
-            match &span.kind {
-                EntityKind::Image { token, .. } => {
-                    shift += token.len() as isize - (span.end - span.start) as isize;
+            out.push_str(&draft[cut..span.start]);
+            match span.skill() {
+                Some((name, _)) => {
+                    let start = out.len();
+                    out.push_str(name);
+                    runs.push(start..out.len());
                 }
-                EntityKind::Skill { .. } => {
-                    let start = (span.start as isize + shift) as usize;
-                    out.push(start..start + (span.end - span.start));
-                }
-                EntityKind::Paste { .. } => {}
+                None => out.push_str(span.text()),
             }
+            cut = span.end;
         }
-        out
+        out.push_str(&draft[cut..]);
+        (out, runs)
     }
 
     /// Records a new entity: the caller has just put its summary into the draft
@@ -454,36 +459,38 @@ impl Entities {
         out
     }
 
-    /// `draft` with each image badge spelled as the token the prompt carries,
-    /// `[Image N]` as `[Image #N]`, and every paste left as its summary: the
-    /// text upstream's composer holds, whose estimate a turn's summary counts
-    /// (`TurnSummaryAccumulator.init`, `telemetry.zig:87-96`).
-    pub(crate) fn with_image_tokens(&self, draft: &str) -> String {
-        self.spelled(draft, |span| span.image().is_some())
-    }
-
-    /// What a turn's summary counts for the prompt: [`Self::with_image_tokens`]'
-    /// text with each skill token spelled `$name` as well, the prompt as it is
-    /// sent (`TurnSummaryAccumulator.init` over `job.prompt`,
-    /// `telemetry.zig:87-96`, `orchestrator.zig:5482-5485`), where the card
-    /// shows the name alone.
-    pub(crate) fn counted(&self, draft: &str) -> String {
-        self.spelled(draft, |span| {
-            span.image().is_some() || span.skill().is_some()
-        })
-    }
-
-    /// `draft` with the spans `which` picks spelled as their tokens.
-    fn spelled(&self, draft: &str, which: impl Fn(&Span) -> bool) -> String {
-        let mut out = String::with_capacity(draft.len());
+    /// `draft` with every block put back as the text it stands for, and the
+    /// spans left the badges alone, moved to where they now stand: what a yank
+    /// puts in the composer, as upstream's kill ring holds a killed block's
+    /// text rather than the block (`capturePayload`, `kill_ring.zig:429-447`)
+    /// and its yank registers no block (`yank`, `:119-190`). The badges stay
+    /// badges -- each yank of one is a fresh image ([`Self::renumber_recalled_with_images`]).
+    pub(crate) fn inline_pastes(&mut self, draft: &mut String) {
+        if !self.spans.iter().any(Span::is_paste) {
+            return;
+        }
+        let mut out = String::with_capacity(draft.len().saturating_add(self.retained()));
+        let mut kept: Vec<Span> = Vec::with_capacity(self.spans.len());
         let mut cut = 0usize;
-        for span in self.spans.iter().filter(|span| which(span)) {
+        for span in std::mem::take(&mut self.spans) {
             out.push_str(&draft[cut..span.start]);
-            out.push_str(span.text());
             cut = span.end;
+            if span.is_paste() {
+                out.push_str(span.text());
+                continue;
+            }
+            let start = out.len();
+            out.push_str(&draft[span.start..span.end]);
+            kept.push(Span {
+                start,
+                end: out.len(),
+                kind: span.kind,
+            });
         }
         out.push_str(&draft[cut..]);
-        out
+        *draft = out;
+        self.spans = kept;
+        self.reindex();
     }
 
     /// What a history entry has to remember to be able to put these blocks
@@ -915,7 +922,7 @@ mod tests {
     #[test]
     fn every_block_goes_back_where_it_stands_and_words_that_look_like_one_do_not() {
         // The whole reason a span replaces a name search: the draft below holds
-        // *three* copies of `[Pasted text #1, 1 lines]` and exactly one of them
+        // *three* copies of `[Pasted text #1, 1 line]` and exactly one of them
         // is the block.
         let (mut draft, mut entities) = one(&format!("{} see ", summary(1, 1)), 1, "y");
         let tail = format!(" {}", summary(1, 1));

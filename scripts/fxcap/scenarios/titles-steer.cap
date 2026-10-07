@@ -1,0 +1,27 @@
+# W9 r2-r3: a prompt steered into the first turn asks for the session's title
+# at its own keystroke, as fx's steer is admitted through the same
+# `snapshotPrompt` (src/main.zig:1407-1420, :1479-1481). The title request is
+# refused (500) each time, so no title comes back and the gate stays open:
+# the first prompt asks, the steer typed while the first answer is held open
+# asks again. Then `/trace`, whose `## Session Title` says how the last
+# question went.
+gateway titles-steer-turns.json
+titled titles-refused.json
+seed titles-seed.json
+xfx: env XFX_SOUND=off
+wait 3
+type fix the renderer loop
+key Enter
+wait 1.5
+type make it faster too
+key Enter
+wait 8
+snap steered
+title steered
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap trace
+reports report
+gwlog

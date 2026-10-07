@@ -14,14 +14,14 @@
 //!   `char`, because a combining accent and a ZWJ family are one thing to the
 //!   person typing and to the terminal drawing them
 //!   (`text_boundaries.zig` tests `:184-199`). It is also an obligation this
-//!   module owes [`wrap::cursor_point`], which **panics** on an offset that is
+//!   module owes [`wrap::composer_point`], which **panics** on an offset that is
 //!   not even a `char` boundary and reports a column inside a glyph for one
 //!   that splits a cluster: the caret is only honest if the offset is.
 //! * **Lines and rows are different things, and both are needed.** A *line* is
 //!   what the newlines in the text delimit, and it is what `Home`, `End` and
 //!   the two kills work on -- `C-a` on a wrapped paragraph goes to the start of
 //!   the paragraph, which is what every line editor a terminal user has ever
-//!   used does. A *row* is what [`wrap::wrap`] produces for the width the band
+//!   used does. A *row* is what [`wrap::composer`] produces for the width the band
 //!   has, and it is what `Up` and `Down` work on, because those are movements
 //!   on the screen and the screen is rows.
 //! * **Vertical motion remembers the column it wanted.** Walking down through a
@@ -41,10 +41,11 @@
 //! breaks and tabs, and both are text rather than bytes the terminal would
 //! obey. That is what makes submitting a composer into the transcript safe: an
 //! `ESC [ 2 J` cannot be in it to be written back. A pasted **tab** is the one
-//! control the composer both holds and shows: [`wrap::TAB_WIDTH`] measures it
-//! at four cells and the row this module hands the painter has it expanded to
-//! that many spaces, so pasted indentation is sent whole *and* drawn, and the
-//! caret sits on the glyph it belongs to rather than four columns from it.
+//! control the composer both holds and shows: it advances to the next tab stop
+//! ([`wrap::composer_tab`]) and the row this module hands the painter has it
+//! expanded to that many spaces, so pasted indentation is sent whole *and*
+//! drawn, and the caret sits on the glyph it belongs to rather than columns
+//! from it.
 //!
 //! # What a block is
 //!
@@ -297,31 +298,14 @@ impl Editor {
     /// not there.
     /// The span the caller still needs is read back from the delta
     /// ([`Delta::inserted_entities`]), which is the same fact with one producer
-    /// instead of two: a paste is one recorded transaction, and the entity in it
-    /// is the one that was really registered.
+    /// instead of two: the entity in it is the one that was really registered.
     pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Delta> {
-        // Where the summary goes: the caret, or the start of what it replaces
-        // -- whose ends are carets, so never inside a block.
-        let at = self.selection().map_or(self.cursor, |range| range.start);
         let span = Span {
             start: 0,
             end: summary.len(),
             kind,
         };
-        let delta = self.insert_with_entities(summary, std::slice::from_ref(&span))?;
-        debug_assert_eq!(delta.at(), at);
-        Some(Delta::new(
-            delta.at(),
-            delta.removed().to_string(),
-            delta.inserted().to_string(),
-            delta.removed_entities().to_vec(),
-            delta.inserted_entities().to_vec(),
-            delta.caret_before(),
-            delta.caret_after(),
-            // One framed paste is one transaction, whatever it weighed and
-            // however many reads of the terminal it arrived in.
-            DeltaKind::Paste,
-        ))
+        self.insert_with_entities(summary, std::slice::from_ref(&span))
     }
 
     /// Puts a skill token in place of `range` -- the `$` word a mention menu
@@ -596,16 +580,16 @@ impl Editor {
     /// The offsets are the delta's own -- widened where the editor widened them
     /// -- so this is a `replace_range` on a boundary this module produced rather
     /// than one re-derived from a buffer that no longer says how its bytes got
-    /// there. The blocks come back with the **ids they had**, because the
-    /// summaries being restored say those numbers out loud (`entity.rs:212-216`
-    /// would reject a duplicate, and there is none: the block was gone).
+    /// there. **Text only**: an edit that took a block or a badge, or put one
+    /// in, is a boundary of the history and never an entry in it
+    /// ([`super::edit_history::EditHistory::record`]), as upstream's structured
+    /// edits are, so no delta handed back here carries one.
     pub(crate) fn revert(&mut self, delta: &Delta) {
-        self.splice(
-            delta.at(),
-            delta.inserted().len(),
-            delta.removed(),
-            delta.removed_entities(),
+        debug_assert!(
+            delta.removed_entities().is_empty() && delta.inserted_entities().is_empty(),
+            "the history held an edit over an entity"
         );
+        self.splice(delta.at(), delta.inserted().len(), delta.removed());
         self.cursor = delta.caret_before();
         self.sticky = None;
         self.anchor = None;
@@ -613,29 +597,26 @@ impl Editor {
 
     /// Does `delta` again, after a [`Self::revert`] took it back.
     pub(crate) fn replay(&mut self, delta: &Delta) {
-        self.splice(
-            delta.at(),
-            delta.removed().len(),
-            delta.inserted(),
-            delta.inserted_entities(),
+        debug_assert!(
+            delta.removed_entities().is_empty() && delta.inserted_entities().is_empty(),
+            "the history held an edit over an entity"
         );
+        self.splice(delta.at(), delta.removed().len(), delta.inserted());
         self.cursor = delta.caret_after();
         self.sticky = None;
         self.anchor = None;
     }
 
-    /// Replaces `remove` bytes at `at` with `insert`, and puts `entities` back
-    /// at the absolute offsets they name.
+    /// Replaces `remove` bytes at `at` with `insert`.
     ///
     /// The one place a history operation touches the buffer, so the two
     /// directions cannot disagree about what "putting it back" means.
-    fn splice(&mut self, at: usize, remove: usize, insert: &str, entities: &[Span]) {
+    fn splice(&mut self, at: usize, remove: usize, insert: &str) {
         if remove > 0 {
             let end = at.saturating_add(remove);
-            // Widening cannot reach past this range: what a delta names is
-            // either the run the editor already widened to, or the summary it
-            // registered whole -- and an entity that merely *abuts* the range is
-            // not an overlap (`super::entity::Entities::delete_touching`).
+            // No entity is in this range: an edit over one is never on the
+            // history, and one that merely *abuts* the range is not an overlap
+            // (`super::entity::Entities::delete_touching`).
             let taken = self.entities.delete_touching(at..end);
             debug_assert_eq!(taken, at..end, "a history delta named a partial entity");
             self.text.replace_range(taken, "");
@@ -643,9 +624,6 @@ impl Editor {
         if !insert.is_empty() {
             self.text.insert_str(at, insert);
             self.entities.shift_after_insert(at, insert.len());
-        }
-        for span in entities {
-            self.entities.register(span.clone());
         }
     }
 
@@ -697,17 +675,31 @@ impl Editor {
     /// (`super::frame::row_text` strips it, and a row that arrives already
     /// stripped is one the two modules cannot disagree about).
     pub(crate) fn rows(&self, cols: u16) -> Vec<String> {
-        wrap::wrap(&self.text, cols.max(1))
+        self.layout(cols)
             .into_iter()
             .map(|row| {
-                // Expanded here rather than at the painter, because the wrap
-                // that produced this row already measured the tab at
-                // `wrap::TAB_WIDTH` cells: a row handed over with the control
-                // still in it would be a row the terminal indents by its own
-                // tab stop, which is not the number the caret was placed from.
-                wrap::expand_tabs(body(&self.text[row.start..row.end])).into_owned()
+                // Expanded here rather than at the painter, because the layout
+                // that produced this row already measured each tab at its tab
+                // stop (`wrap::composer_tab`): a row handed over with the
+                // control still in it would be a row the terminal indents by
+                // its own tab stop, which is not the number the caret was
+                // placed from.
+                wrap::composer_expand(body(&self.text[row.start..row.end]), cols).into_owned()
             })
             .collect()
+    }
+
+    /// The composer's rows for a text width of `cols`: upstream's composer
+    /// layout ([`wrap::composer`]), with the draft's blocks and badges as the
+    /// units it never breaks.
+    fn layout(&self, cols: u16) -> Vec<Row> {
+        let units: Vec<std::ops::Range<usize>> = self
+            .entities
+            .spans()
+            .iter()
+            .map(|span| span.start..span.end)
+            .collect();
+        wrap::composer(&self.text, cols.max(1), &units)
     }
 
     /// The same rows with the selection marked: `open` before each run of
@@ -759,7 +751,7 @@ impl Editor {
                 .find(|(span, _)| span.contains(&at))
                 .map(|(_, link)| link.as_str())
         };
-        wrap::wrap(&self.text, cols.max(1))
+        self.layout(cols)
             .into_iter()
             .map(|row| {
                 let body = body(&self.text[row.start..row.end]);
@@ -767,6 +759,7 @@ impl Editor {
                 let mut inside = false;
                 let mut linked: Option<&str> = None;
                 let mut named = false;
+                let mut used = 0u16;
                 for (offset, cluster) in body.grapheme_indices(true) {
                     let at = row.start + offset;
                     let in_token = tokens.iter().any(|range| range.contains(&at));
@@ -798,7 +791,14 @@ impl Editor {
                         out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
                         linked = link;
                     }
-                    out.push_str(&wrap::expand_tabs(cluster));
+                    if cluster == "\t" {
+                        let cells = wrap::composer_tab(used, cols);
+                        out.extend(std::iter::repeat_n(' ', usize::from(cells)));
+                        used = used.saturating_add(cells);
+                    } else {
+                        out.push_str(cluster);
+                        used = used.saturating_add(wrap::width(cluster));
+                    }
                 }
                 if named {
                     out.push_str(token.1);
@@ -842,8 +842,8 @@ impl Editor {
     /// coordinate* is made, clamped to the rows the band really has
     /// (`super::shell::Shell::cursor`).
     pub(crate) fn point(&self, cols: u16) -> (usize, u16) {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        wrap::cursor_point(&self.text, &rows, self.cursor)
+        let rows = self.layout(cols);
+        wrap::composer_point(&self.text, &rows, self.cursor, cols.max(1))
     }
 
     /// Moves the caret, and forgets the column vertical motion was aiming for.
@@ -953,8 +953,8 @@ impl Editor {
     /// forgetting the column there would make the next `Down` aim at wherever
     /// the caret happened to be.
     fn move_by_row(&mut self, step: Step, cols: u16) {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        let (row, column) = wrap::cursor_point(&self.text, &rows, self.cursor);
+        let rows = self.layout(cols);
+        let (row, column) = wrap::composer_point(&self.text, &rows, self.cursor, cols.max(1));
         let target = self.sticky.unwrap_or(column);
         self.sticky = Some(target);
         let wanted = match step {
@@ -965,7 +965,7 @@ impl Editor {
             return;
         };
         let last = wanted + 1 == rows.len();
-        let landed = self.offset_on(&rows[wanted], last, target);
+        let landed = self.offset_on(&rows[wanted], last, target, cols.max(1));
         self.cursor = self.beside(landed);
         self.anchor = None;
     }
@@ -998,8 +998,8 @@ impl Editor {
     /// page down -- and a page never turns into a history step there, which is
     /// the difference from the arrows.
     pub(crate) fn move_rows(&mut self, step: Step, count: usize, cols: u16) -> bool {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        let (row, column) = wrap::cursor_point(&self.text, &rows, self.cursor);
+        let rows = self.layout(cols);
+        let (row, column) = wrap::composer_point(&self.text, &rows, self.cursor, cols.max(1));
         let target = self.sticky.unwrap_or(column);
         self.sticky = Some(target);
         let wanted = match step {
@@ -1010,7 +1010,7 @@ impl Editor {
             return false;
         }
         let last = wanted + 1 == rows.len();
-        let landed = self.offset_on(&rows[wanted], last, target);
+        let landed = self.offset_on(&rows[wanted], last, target, cols.max(1));
         self.cursor = self.beside(landed);
         self.anchor = None;
         true
@@ -1023,8 +1023,8 @@ impl Editor {
     /// What the `@` file picker is placed by: its rows start under the `@`
     /// (`picker_start_col`, `input_presentation.zig:377-380`).
     pub(crate) fn point_of(&self, offset: usize, cols: u16) -> (usize, u16) {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        wrap::cursor_point(&self.text, &rows, offset.min(self.text.len()))
+        let rows = self.layout(cols);
+        wrap::composer_point(&self.text, &rows, offset.min(self.text.len()), cols.max(1))
     }
 
     /// Where the caret is, as a byte offset into [`Self::text`].
@@ -1075,7 +1075,7 @@ impl Editor {
         }
         let caret_before = self.cursor;
         let removed = self.text[start..end].to_string();
-        self.splice(start, end - start, text, &[]);
+        self.splice(start, end - start, text);
         self.cursor = boundary_at_or_after(&self.text, caret.min(self.text.len()));
         self.sticky = None;
         self.anchor = None;
@@ -1108,29 +1108,44 @@ impl Editor {
         self.replace(at, self.cursor, "\n", at + 1)
     }
 
-    /// The offset on `row` at `target` cells from its left edge, or as close to
-    /// it as the row reaches.
-    fn offset_on(&self, row: &Row, last: bool, target: u16) -> usize {
+    /// The offset on `row` that a vertical move aiming at `target` cells lands
+    /// on: of the places the caret may stand there, the rightmost one at or
+    /// left of `target`, the later of two at one column (`TargetBuilder`,
+    /// `visual_layout.zig:631-657`). The places are the starts of the row's
+    /// units -- a cluster, a tab, a block or a badge whole -- and its end when
+    /// a line break or the end of the text ended it. A row a **soft wrap**
+    /// ended has no place past its last unit: that offset is the following
+    /// row's first column ([`wrap::composer_point`]), so a caret put there
+    /// would be a row below the one asked for. A wide glyph `target` falls
+    /// inside of lands the caret in front of it.
+    fn offset_on(&self, row: &Row, last: bool, target: u16, cols: u16) -> usize {
         let text = &self.text[row.start..row.end];
-        let body = body(text);
-        // The far end of the row, which is not always the end of its bytes. A
-        // row a *soft wrap* ended has no column past its last cluster: the
-        // offset the next cluster begins at is the following row's first
-        // column (`wrap::cursor_point`), so a caret placed there would be a row
-        // below the one that was asked for.
-        let limit = if body.len() == text.len() && !last {
-            row.end - body.graphemes(true).next_back().map_or(0, str::len)
-        } else {
-            row.start + body.len()
-        };
+        let end = row.start + body(text).len();
+        let soft = end == row.end && !last;
+        let mut best = row.start;
         let mut used = 0u16;
-        for (index, cluster) in body.grapheme_indices(true) {
-            if used >= target {
-                return (row.start + index).min(limit);
-            }
-            used = used.saturating_add(wrap::width(cluster));
+        let mut at = row.start;
+        while at < end && used <= target {
+            best = at;
+            let (next, cells) = match self.entities.spans().iter().find(|span| span.start == at) {
+                Some(span) => (span.end, wrap::width(&self.text[span.start..span.end])),
+                None => {
+                    let cluster = self.text[at..end].graphemes(true).next().unwrap_or("");
+                    let cells = if cluster == "\t" {
+                        wrap::composer_tab(used, cols)
+                    } else {
+                        wrap::width(cluster)
+                    };
+                    (at + cluster.len().max(1), cells)
+                }
+            };
+            used = used.saturating_add(cells);
+            at = next;
         }
-        limit
+        if !soft && at >= end && used <= target {
+            best = end;
+        }
+        best
     }
 
     /// The start of the line the caret is on: the byte after the break above
@@ -1385,6 +1400,7 @@ fn after(text: &str, at: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::edit_history::EditHistory;
     use crate::tui::entity::{Entities, EntityKind, Span};
 
     fn editor(text: &str) -> Editor {
@@ -1398,8 +1414,16 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn undo_of_a_paste_restores_the_block_with_its_original_id() {
-        let mut editor = Editor::new();
+    fn a_pasted_block_is_a_boundary_so_no_undo_takes_it_back() {
+        // Upstream registers a collapsed paste's block and then draws a
+        // boundary under the history (`historyBoundary`,
+        // `input_paste_runtime.zig:436-438`; `undo` answers `false` right after
+        // it, `app_input_runtime.zig:15603-15624`): the paste is not an entry,
+        // and nothing before it is one any more.
+        let mut editor = editor("typed");
+        let mut history = EditHistory::new();
+        history.record(editor.insert(" first").expect("an edit"));
+        assert_eq!(history.undo_depth(), 1);
         let delta = editor
             .insert_entity(
                 "[Pasted text #1, 12 lines]",
@@ -1410,36 +1434,30 @@ mod tests {
                 },
             )
             .expect("the paste fits");
-        assert_eq!(delta.kind(), DeltaKind::Paste);
-        let id = delta.inserted_entities()[0].id();
+        assert_eq!(delta.inserted_entities()[0].id(), 1);
+        history.record(delta);
+        assert_eq!((history.undo_depth(), history.redo_depth()), (0, 0));
 
-        editor.revert(&delta);
-        assert_eq!(editor.text(), "");
-        assert!(
-            editor.entities().is_empty(),
-            "the block outlived the summary it stands for"
-        );
-        assert_eq!(caret(&editor), delta.caret_before());
-
-        editor.replay(&delta);
-        assert_eq!(editor.text(), "[Pasted text #1, 12 lines]");
-        assert_eq!(
-            editor.entities().spans()[0].id(),
-            id,
-            "the replayed block came back under a different number"
-        );
-        assert_eq!(editor.expanded(), "a\nb\nc");
-        assert_eq!(caret(&editor), delta.caret_after());
+        assert!(!history.undo(|delta| editor.revert(delta)));
+        assert_eq!(editor.text(), "typed first[Pasted text #1, 12 lines]");
+        assert_eq!(editor.entities().spans()[0].id(), 1);
+        assert_eq!(editor.expanded(), "typed firsta\nb\nc");
     }
 
     #[test]
-    fn a_delta_round_trips_over_an_entity_boundary() {
+    fn a_backspace_at_a_block_names_the_whole_block_and_is_a_boundary() {
         // A backspace at a summary's right edge takes the **whole** block, so
-        // the delta names the widened range (`Entities::delete_touching`) and
-        // the undo has to put the block back with it -- text, span and id.
+        // the delta names the widened range (`Entities::delete_touching`) --
+        // and an edit over a block is a boundary of the history rather than
+        // an entry (`composer_replacement.zig:223-232`): nothing brings the
+        // block back, and the entries before it are gone too
+        // (`composer_deletion.zig:300-329`).
         let (mut editor, range) = with_block("before ", "a very long paste", " after");
         assert_eq!(editor.entities().len(), 1);
-        let whole = editor.text().to_string();
+        let mut history = EditHistory::new();
+        history.record(editor.insert("!").expect("an edit"));
+        history.record(editor.apply(Action::Backspace, 80).expect("an edit"));
+        assert_eq!(history.undo_depth(), 2);
         editor.apply(Action::Home, 80);
         editor.apply(Action::End, 80);
         // The caret is at the end of the line; walk it back over ` after` and
@@ -1463,17 +1481,10 @@ mod tests {
         assert_eq!(delta.removed_entities().len(), 1);
         assert_eq!(delta.removed_entities()[0].id(), 1);
 
-        editor.revert(&delta);
-        assert_eq!(editor.text(), whole);
-        assert_eq!(editor.entities().len(), 1, "the block did not come back");
-        assert_eq!(editor.entities().spans()[0].range(), range);
-        assert_eq!(editor.expanded(), "before a very long paste after");
-        assert_eq!(caret(&editor), delta.caret_before());
-
-        editor.replay(&delta);
+        history.record(delta);
+        assert_eq!((history.undo_depth(), history.redo_depth()), (0, 0));
+        assert!(!history.undo(|delta| editor.revert(delta)));
         assert_eq!(editor.text(), "before  after");
-        assert!(editor.entities().is_empty());
-        assert_eq!(caret(&editor), delta.caret_after());
     }
 
     #[test]
@@ -1647,13 +1658,16 @@ mod tests {
         assert!(!draft.select_all(), "selecting all twice changed something");
         let rows = draft.painted_rows(80, "<", ">");
         assert_eq!(rows.len(), 1);
-        assert!(rows[0].starts_with("<a    b "), "{rows:?}");
+        // The tab after `a` advances to the screen's ninth column: five cells
+        // (`tabAdvance`, `visual_layout.zig:714-723`).
+        assert!(rows[0].starts_with("<a     b "), "{rows:?}");
         assert!(rows[0].ends_with(" c>"), "{rows:?}");
         let delta = draft.insert("z").expect("an edit");
         assert_eq!(draft.text(), "z");
         assert!(draft.entities().is_empty());
-        draft.revert(&delta);
-        assert_eq!(draft.entities().len(), 1, "the undo lost the block");
+        // The block went with it: what makes the edit a boundary of the
+        // history rather than an entry ([`EditHistory::record`]).
+        assert_eq!(delta.removed_entities().len(), 1);
         assert_eq!(draft.selection(), None);
         // With nothing selected the painted rows are the rows.
         assert_eq!(draft.painted_rows(80, "<", ">"), draft.rows(80));
@@ -1718,18 +1732,20 @@ mod tests {
     }
 
     #[test]
-    fn a_badge_wrapped_across_rows_is_closed_on_each_and_opened_on_the_next() {
-        // `user_message_card.zig:354-379` balances a badge across narrow rows.
+    fn a_badge_wider_than_its_row_is_one_unit_on_one_row() {
+        // Upstream's composer never breaks a badge: one wider than the row
+        // takes the row whole (`oversized_empty_row`, `visual_layout.zig:251-255`;
+        // `:1083-1114`) and the painter cuts what does not fit. A link opened
+        // on a row is closed on it, as everywhere else.
         let mut draft = Editor::new();
         attach(&mut draft, 1, "/tmp/a.png");
+        draft.insert("x").expect("an edit");
         let a = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\";
         assert_eq!(
             draft.painted_rows(5, "<", ">"),
-            [
-                format!("{a}[Imag{LINK_CLOSE}"),
-                format!("{a}e 1]{LINK_CLOSE}")
-            ]
+            [format!("{a}[Image 1]{LINK_CLOSE}"), "x".to_string()]
         );
+        assert_eq!(draft.point(5), (1, 1));
     }
 
     #[test]
@@ -2181,13 +2197,15 @@ mod tests {
     fn a_pasted_tab_is_the_same_run_of_cells_measured_and_painted() {
         // Phase 1 kept a tab in the text and drew nothing for it, so the caret
         // sat a column away from where the text was. One width, and the
-        // painter uses the same one.
+        // painter uses the same one: the advance to the next tab stop, every
+        // eighth column of the screen with the gutter counted (`tabAdvance`,
+        // `visual_layout.zig:714-723`; `fx-composer-wrap-24x80-tabs`). After
+        // `a` at column 3 of the screen, the stop is column 9.
         let editor = editor("a\tb");
-        let cells = usize::from(wrap::TAB_WIDTH);
-        assert_eq!(editor.rows(80), vec![format!("a{}b", " ".repeat(cells))]);
+        assert_eq!(editor.rows(78), vec![format!("a{}b", " ".repeat(5))]);
         assert_eq!(
-            editor.point(80),
-            (0, 1 + wrap::TAB_WIDTH + 1),
+            editor.point(78),
+            (0, 1 + 5 + 1),
             "the caret is not past the cells the tab paints"
         );
     }
@@ -2244,6 +2262,26 @@ mod tests {
         assert_eq!(editor.point(80), (1, 2));
         editor.apply(Action::Up, 80); // and the preferred column returns
         assert_eq!(editor.point(80), (0, 3));
+    }
+
+    #[test]
+    fn a_vertical_move_under_a_wide_glyph_lands_in_front_of_it() {
+        // `TargetBuilder` (`visual_layout.zig:631-657`) takes the rightmost
+        // place at or left of the column: column 3 is the second cell of
+        // `\u{754c}`, so the caret goes in front of it, at 2, rather than
+        // after it at 4 (`fx-composer-wrap-40x120-up-wide`).
+        let mut editor = editor("ab\u{754c}cd\nxyz");
+        assert_eq!(editor.point(80), (1, 3));
+        editor.apply(Action::Up, 80);
+        assert_eq!(editor.point(80), (0, 2));
+        // A badge is one place: under its middle, the caret goes in front of
+        // it.
+        let mut draft = Editor::new();
+        draft.insert("ab").expect("an edit");
+        attach(&mut draft, 1, "/tmp/a.png");
+        draft.insert("\nxxxxxx").expect("an edit");
+        draft.apply(Action::Up, 80);
+        assert_eq!(draft.point(80), (0, 2));
     }
 
     #[test]

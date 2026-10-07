@@ -51,17 +51,14 @@ pub(crate) const MAX_RETAINED_BYTES: usize = 1 << 20;
 /// block marker standing for bytes that are no longer behind it.
 pub(crate) const MAX_KILL_BYTES: usize = 1 << 20;
 
-/// What kind of edit made a delta, for the two questions the kind decides:
-/// whether it loads the kill slot, and whether it is one gesture or many.
+/// What kind of edit made a delta, for the one question the kind decides:
+/// whether it loads the kill slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeltaKind {
-    /// A typed character, a backspace, a forward delete, a yank.
+    /// A typed character, a backspace, a forward delete, a paste, a yank.
     Ordinary,
     /// `C-k`, `C-u`, `C-w`: what it removed goes to the kill slot.
     Kill,
-    /// One framed paste, however many reads it arrived in -- the boundary the
-    /// one-entry seam this module replaces used to hold on its own.
-    Paste,
 }
 
 /// One difference between two drafts.
@@ -242,26 +239,25 @@ impl EditHistory {
                     .collect(),
             });
         }
-        // **An edit that takes a badge or puts one in is a boundary**, as
-        // upstream's structured edits are: a deletion, a kill or a typed
-        // replacement over one (`composer_replacement.zig:223-232`,
-        // `composer_kill_ring.zig:90-101`) and a yank that brings one back
-        // (`:56-66`) clear both stacks rather than record, so an undo never
-        // brings a badge back, as words or as an image, and upstream's
-        // refusal of an undo over one (`composer_undo.zig:35-40,252-268`)
-        // has nothing left to refuse. Neither stack holds an image's bytes.
-        //
-        // **A skill token is one of them** (`entityOverlapping` counts
+        // **An edit that takes an entity or puts one in is a boundary** -- a
+        // pasted-text block or an image's badge, the composer's structured
+        // units (`registered_entities.zig:270-290`) -- as upstream's
+        // structured edits are: a block's or a badge's own insertion
+        // (`input_paste_runtime.zig:436-438`, `image_commands.zig:172-174`),
+        // a deletion, a kill or a typed replacement over one
+        // (`composer_replacement.zig:223-232`, `composer_kill_ring.zig:90-101`)
+        // and a yank that brings a badge back (`:56-66`) clear both stacks
+        // rather than record. So an undo never brings an entity back, and
+        // upstream's refusal of an undo over one
+        // (`composer_undo.zig:35-40,252-268`) has nothing left to refuse.
+        // A skill token is the third (`entityOverlapping` counts
         // `skill_tokens`, `registered_entities.zig:296-300`, and binding one
         // resets the history, `composer_skill_binding.zig:36`): an undo never
-        // brings a token back as the bare name, nor takes the name back out
-        // of a token the menu bound.
+        // brings a token back as the bare name, nor takes the name back out of
+        // a token the menu bound.
         if weight > MAX_RETAINED_BYTES
-            || delta
-                .removed_entities()
-                .iter()
-                .chain(delta.inserted_entities())
-                .any(|span| span.image().is_some() || span.skill().is_some())
+            || !delta.removed_entities().is_empty()
+            || !delta.inserted_entities().is_empty()
         {
             self.boundary();
             return;
