@@ -2758,9 +2758,15 @@ impl Shell {
         let last = self.geometry.input_rows().saturating_sub(1);
         let offset =
             u16::try_from(row.saturating_sub(window.start).min(usize::from(last))).unwrap_or(last);
+        // A caret after a row that fills the screen -- its last cell taken, or
+        // spaces hanging past it -- sits on the last column, as upstream's
+        // does (`terminalColumn`, `visual_layout.zig:696-702`): one past it is
+        // off the screen, and the output check refuses that frame.
         (
             self.geometry.input_first.saturating_add(offset),
-            PROMPT_CELLS.saturating_add(column),
+            PROMPT_CELLS
+                .saturating_add(column)
+                .min(self.geometry.cols.saturating_sub(1)),
         )
     }
 
@@ -30616,6 +30622,24 @@ mod tests {
         // Nor is there anything to redo.
         shell.route_bytes(b"\x1b[122;10u");
         assert_eq!(shell.editor.text(), "look ");
+    }
+
+    #[test]
+    fn a_caret_at_the_end_of_a_full_row_stays_on_the_screen() {
+        // `fx-composer-wrap-24x80-full-78`: a draft that fills its row exactly
+        // leaves the caret after its last cell, and upstream clamps the column
+        // to the screen's last one (`terminalColumn`, `visual_layout.zig:696-702`).
+        // xfx put it one past, and the output check refused the frame and
+        // ended the session: `caret placed off the screen ... column 81`.
+        for (rows, cols) in [(24, 80), (40, 120)] {
+            let mut shell = shell(rows, cols);
+            let text = usize::from(cols - PROMPT_CELLS);
+            shell.route_bytes("b".repeat(text).as_bytes());
+            assert_eq!(shell.cursor().1, cols - 1, "{cols} columns");
+            // Hanging spaces past the margin are clamped the same way.
+            shell.route_bytes(b"   ");
+            assert_eq!(shell.cursor().1, cols - 1, "{cols} columns, spaces");
+        }
     }
 
     #[test]
