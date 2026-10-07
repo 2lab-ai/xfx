@@ -1628,6 +1628,13 @@ impl Tally {
     }
 }
 
+/// `/rename`'s `* session: renamed to "…"` (`app_commands.zig:3852-3857`),
+/// said by the shell while work runs and on the runtime's word otherwise
+/// ([`UiEvent::Renamed`]).
+fn renamed(title: &str) -> notice::Notice {
+    notice::Notice::neutral("session", format!("renamed to \"{title}\""))
+}
+
 /// A turn's summary row: how long it took, and the tokens it moved when it
 /// moved any (`transcript/runtime.zig:540-547`). A live turn's and a replayed
 /// one's are this one function, so a resumed screen says what the live one
@@ -2866,10 +2873,19 @@ impl Shell {
             self.settings = settings;
             self.fast_bound = self.fast_bound && replay.keeps_fast_binding;
         }
+        // Upstream's projection starts stamped with the moment of the resume
+        // (`beginResumeProjection`, `main.zig:1366-1372`) and keeps whatever
+        // stamp it was last given (`ResumeProjection.setCreatedAtMs`,
+        // `resume_projection.zig:76-78`): the notice and any turn before the
+        // first one with a summary carry the resume, and a turn with no
+        // summary carries the one before's conclusion.
+        let mut stamp = self.full.now();
+        self.full.stamp_with(Some(stamp));
         self.resumed(replay.title);
         for turn in replay.turns {
-            self.replay_turn(turn);
+            stamp = self.replay_turn(turn, stamp);
         }
+        self.full.stamp_with(None);
         self.render.request(Reason::Footer);
     }
 
@@ -2881,10 +2897,22 @@ impl Shell {
     /// screen never shows -- each call's arguments and whole result -- before
     /// them, to wait for their rows ([`full_transcript::details_of`]). Its
     /// entries carry the log's times, as upstream's replay stamps them
-    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`): the turn's
-    /// start for the card and what it did on the way, its conclusion for the
-    /// answer after its last call and the summary.
-    fn replay_turn(&mut self, turn: HydratedTurn) {
+    /// (`replayHistoryToSinkIncremental`'s `setCreatedAtMs`,
+    /// `app_session_runtime.zig:4753-4810`, which the TUI's resume sink passes
+    /// on -- `DetachedHistorySink`, `:4272-4274`, into `ResumeProjection`,
+    /// `resume_projection.zig:76-78` -- rather than the no-op of the sink it
+    /// does not take, `:3972`). A turn with a summary -- one that concluded:
+    /// upstream gives one to its finished turns only (`setHistoryTurnSummary`,
+    /// `orchestrator.zig:9267`, `:12313`, `finalization.zig:194`, each an
+    /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
+    /// carries its start on the card and what it did on the way, and its
+    /// conclusion on the answer after its last call and the summary. Any other
+    /// carries `carried`, the stamp the replay had reached, throughout. A
+    /// call's entry carries its result's own time where the log has one
+    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
+    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
+    /// turn is to carry.
+    fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
             // handed over without crossing it.
@@ -2893,9 +2921,17 @@ impl Shell {
                 detail: detail.made_inert(),
             });
         }
-        // A turn the log has no conclusion for keeps its start throughout.
-        let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
-        self.full.stamp_with(Some(turn.started_at_ms));
+        let summarized = matches!(turn.ending, Ending::Concluded { .. });
+        let (started, concluded) = if summarized {
+            (
+                turn.started_at_ms,
+                turn.concluded_at_ms.unwrap_or(turn.started_at_ms),
+            )
+        } else {
+            (carried, carried)
+        };
+        self.full.stamp_with(Some(started));
+        self.full.replay(true);
         let concluding = turn
             .steps
             .iter()
@@ -2913,20 +2949,22 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown } => {
+                HydratedStep::ToolStart { id, shown, at_ms } => {
+                    self.full.stamp_call(at_ms);
                     self.run_mark(Mark::ToolStart { id, shown });
+                    self.full.stamp_call(None);
                 }
                 HydratedStep::ToolResult {
                     id,
                     ok,
-                    detail,
                     outcome,
+                    changes,
                 } => self.run_mark(Mark::ToolResult {
                     id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    detail: String::new(),
                     outcome,
-                    changes: None,
+                    changes,
                 }),
                 HydratedStep::Feedback(text) => self.run_mark(Mark::Line(
                     format!(
@@ -2956,16 +2994,24 @@ impl Shell {
                     output,
                 )));
             }
-            // The sentence the live turn ended on, as its conclusion showed it.
-            Ending::Interrupted(reason) => {
-                self.run_mark(Mark::Notice(notice::Notice::error(
-                    "system",
-                    unattributed(&reason),
-                )));
+            // Upstream's line for a stopped turn, the live one's
+            // ([`cancelled_line`]), as a block so the full transcript records
+            // it as upstream's replay does, and recorded as a stopped row so a
+            // theme report repaints its two greys.
+            Ending::Cancelled => self.run_mark(Mark::Block(vec![(
+                cancelled_line(self.palette),
+                DocumentRow::ToolStopped,
+            )])),
+            // And for one that failed, whatever the live turn's sentence was.
+            Ending::Failed => {
+                self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
             }
-            Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
+            // The card alone: nothing after a stop the compaction took, as
+            // nothing reached the log of a turn that never concluded.
+            Ending::CompactionCancelled | Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
-        self.full.stamp_with(None);
+        self.full.replay(false);
+        concluded
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -3524,17 +3570,18 @@ impl Shell {
             }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
-            UiEvent::Renamed { title, unsaved } => {
-                self.session_title = Some(title.clone());
-                self.retitle();
-                self.announce(match unsaved {
-                    None => notice::Notice::neutral("session", format!("renamed to \"{title}\"")),
-                    Some(problem) => notice::Notice::warning(
-                        "session",
-                        format!("renamed for this process but not saved ({problem})"),
-                    ),
-                });
+            // A title already applied that the log would not take: the
+            // title stays this process's, and the warning says so
+            // (`app_commands.zig:3833-3846`).
+            UiEvent::RenameUnsaved(problem) => {
+                self.announce(notice::Notice::warning(
+                    "session",
+                    format!("renamed for this process but not saved ({problem})"),
+                ));
             }
+            // A rename said nothing yet: the log has it now
+            // (`app_commands.zig:3852-3857`).
+            UiEvent::Renamed(title) => self.announce(renamed(&title)),
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -4685,6 +4732,8 @@ impl Shell {
             SessionAction::Up | SessionAction::Down => {
                 let visible = sessions.visible_items(self.geometry.panel);
                 if sessions.step(request == SessionAction::Down, visible) {
+                    // A page it loaded on the way can change its height.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -4692,6 +4741,8 @@ impl Shell {
                 let visible = sessions.visible_items(self.geometry.panel);
                 let page = i64::from(layout::input_row_limit(self.geometry.rows));
                 if sessions.step_by(if down { page } else { -page }, visible) {
+                    // As a step, a page can load the next one.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -4701,6 +4752,14 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
             SessionAction::Close => self.close_sessions(true),
+            // On `↓ Load more`, Enter loads the page rather than resuming
+            // (`loadMoreSessionPicker`, `app_input_runtime.zig:1792`).
+            SessionAction::Resume if sessions.on_load_more() => {
+                let visible = sessions.visible_items(self.geometry.panel);
+                sessions.load_more(visible);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
             SessionAction::Resume => self.resume_selected(),
         }
         true
@@ -9253,14 +9312,17 @@ impl CommandHandlers for Shell {
     /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2650`), on
     /// `Loading sessions…` until the runtime has read the store.
     ///
-    /// **Refused while anything is in hand** -- a turn running, a prompt
-    /// waiting, a `/model` being answered -- with upstream's notice, at once:
-    /// the conversation a resume would replace is the one that work is
-    /// writing into. Upstream refuses while its response streams; xfx's
-    /// outstanding count is that and the prompt queued behind it, which would
-    /// otherwise run in the old conversation after the resume had switched.
+    /// **Refused while a response is in hand** -- a turn running, or a prompt
+    /// sent whose turn has not started -- with upstream's notice, at once:
+    /// the conversation a resume would replace is the one that turn writes
+    /// into. Upstream's rule is `stream.active` (`:2590`), which its turn sets
+    /// as it begins (`begin_prompt`, `app_worker_runtime.zig:975-985`) and
+    /// keeps while prompts wait behind it (`:783-805`): the busy rule a
+    /// provider switch is under too ([`Self::provider_work_busy`]). Other work
+    /// -- a `/model` being answered, a catalog loading -- is no response; the
+    /// picker's listing simply runs after it.
     fn resume(&mut self) {
-        if self.work.outstanding() > 0 {
+        if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", RESUME_BUSY));
             return;
         }
@@ -9275,7 +9337,10 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
-        self.sessions = Some(SessionPicker::open(self.editor.text()));
+        self.sessions = Some(SessionPicker::open(
+            self.editor.text(),
+            session_picker::page_for(self.geometry.rows),
+        ));
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -9286,11 +9351,21 @@ impl CommandHandlers for Shell {
     /// ([`crate::session::validate_title`]), and refused at once in upstream's
     /// words: `✗ usage: /rename <title>` with no topic for an empty one,
     /// `✗ session: title is too long` and `✗ session: title must be printable
-    /// text` for the other two. An accepted one goes to the runtime, which
-    /// writes it into the conversation's session and answers with
-    /// [`UiEvent::Renamed`]: the window takes the title then, and the notice
-    /// says whether the log has it. A rename a Ctrl-C drops from the queue
-    /// before it runs titles nothing.
+    /// text` for the other two.
+    ///
+    /// An accepted one **applies at once**, as upstream's does whether or not
+    /// a response is streaming: the window takes the title, as upstream
+    /// caches it before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
+    /// conversation's session ([`TurnControl::Rename`]) -- at once when idle,
+    /// the moment the running work ends when not. Upstream says one thing,
+    /// what became of the write: between turns that is the runtime's answer,
+    /// `renamed to "…"` ([`UiEvent::Renamed`]) or the warning alone
+    /// ([`UiEvent::RenameUnsaved`]); while work runs, upstream's notice comes
+    /// at once and this write cannot, so `renamed to "…"` is said now and the
+    /// runtime answers only a log that would not take it. One control channel
+    /// carries it and a reset, so a title typed after a `/new` names the
+    /// session that `/new` starts.
     fn rename(&mut self, argument: &str) {
         let title = match crate::session::validate_title(argument) {
             Ok(title) => title.to_string(),
@@ -9307,8 +9382,15 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
-        if let Err(rejected) = self.work.submit(TurnWork::Rename(title)) {
-            self.refused(rejected);
+        let announced = self.work.outstanding() > 0;
+        self.work.control(TurnControl::Rename {
+            title: title.clone(),
+            announced,
+        });
+        self.session_title = Some(title.clone());
+        self.retitle();
+        if announced {
+            self.announce(renamed(&title));
         }
     }
 
@@ -10583,7 +10665,8 @@ impl Shell {
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
-            | UiEvent::Renamed { .. }
+            | UiEvent::RenameUnsaved(_)
+            | UiEvent::Renamed(_)
             | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
@@ -19966,6 +20049,65 @@ mod tests {
         );
     }
 
+    /// A saved session as its log reduces to ([`DurableState`]) and the
+    /// replay the runtime builds from it ([`Hydration::of`]) -- the whole
+    /// path a resume takes but the file.
+    fn logged(turns: Vec<crate::session::HistoryTurn>) -> Hydration {
+        let state = crate::session::DurableState {
+            id: "s".to_string(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            origin_workspace_root: "/w".to_string(),
+            workspace_root: "/w".to_string(),
+            model: "m".to_string(),
+            permission_mode: PermissionMode::Ask,
+            turns,
+            grants: Vec::new(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            context_sources: Vec::new(),
+            last_event_seq: 0,
+            renamed: None,
+            usage: Default::default(),
+            checkpoint: None,
+            turn_settings: None,
+        };
+        Hydration::of(&state, None)
+    }
+
+    fn logged_turn(
+        user: &str,
+        steps: Vec<crate::session::TurnStep>,
+        outcome: crate::session::TurnConclusion,
+    ) -> crate::session::HistoryTurn {
+        crate::session::HistoryTurn {
+            user: user.to_string(),
+            images: Vec::new(),
+            steps,
+            outcome: Some(outcome),
+            timing: crate::session::TurnTiming::default(),
+            seqs: Default::default(),
+        }
+    }
+
+    fn logged_result(
+        id: &str,
+        ok: bool,
+        ending: Option<crate::session::ToolEnding>,
+        lines: Option<crate::session::LineCounts>,
+    ) -> crate::session::TurnStep {
+        crate::session::TurnStep::ToolResult {
+            created_at_ms: None,
+            call_id: id.to_string(),
+            tool: "t".to_string(),
+            ok,
+            output: "no such path: `gone.txt`".to_string(),
+            ending,
+            lines,
+            change: None,
+        }
+    }
+
     #[test]
     fn a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times() {
         // Upstream's resume replays a call through the adapters a live one
@@ -19990,12 +20132,16 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
                 output:
                     "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
                         .into(),
+                ending: None,
+                lines: None,
+                change: None,
             },
         ];
         let mut turn = saved(
@@ -20005,12 +20151,14 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
+                    // Its result came back a second in.
+                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
                     ok: true,
-                    detail: String::new(),
                     outcome: CallOutcome::Finished,
+                    changes: None,
                 },
                 HydratedStep::Text("Done.".to_string()),
             ],
@@ -20021,8 +20169,29 @@ mod tests {
         turn.started_at_ms = 1_790_899_200_000;
         turn.concluded_at_ms = Some(1_790_899_202_000);
         turn.details = full_transcript::details_of(&steps);
+        // Turns with no summary, before it and after it: upstream sets no
+        // stamp for them (`app_session_runtime.zig:4780-4783`), so they carry
+        // the one the replay had reached -- the resume's, then this turn's
+        // conclusion -- whatever the log says of their own times.
+        let stopped = |user: &str, started_at_ms: i64| {
+            let mut turn = saved(user, Vec::new(), 0, None);
+            turn.ending = Ending::Cancelled;
+            turn.started_at_ms = started_at_ms;
+            turn.concluded_at_ms = Some(started_at_ms + 500);
+            turn
+        };
         let mut shell = shell(40, 120);
-        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.hydrate(
+            replay(
+                Some("look"),
+                vec![
+                    stopped("before", 1_790_899_100_000),
+                    turn,
+                    stopped("after", 1_790_899_300_000),
+                ],
+            ),
+            false,
+        );
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);
         let headers: Vec<&str> = screen
@@ -20030,14 +20199,19 @@ mod tests {
             .filter(|row| row.contains(" UTC \u{b7} "))
             .map(String::as_str)
             .collect();
+        let resumed_at = headers[0]
+            .strip_suffix(" Notice")
+            .expect("the resume notice first");
+        assert_eq!(headers[1], format!("{resumed_at} Prompt"), "{screen:#?}");
         assert_eq!(
-            headers[1..],
+            headers[2..],
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:00.000 UTC \u{b7} Tool",
+                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
             ],
             "{screen:#?}"
         );
@@ -20057,108 +20231,306 @@ mod tests {
     }
 
     #[test]
-    fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
-        let read = crate::tools::Registry::builtin()
-            .spec("read_file")
-            .expect("read_file")
-            .shown(&serde_json::json!({"path": "notes.txt"}));
+    fn a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts() {
+        use crate::session::{LineCounts, RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let calls = [
+            (
+                "e",
+                "edit_file",
+                serde_json::json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+            ),
+            (
+                "w",
+                "write_file",
+                serde_json::json!({"path": "c.txt", "content": "c"}),
+            ),
+            (
+                "x",
+                "terminal",
+                serde_json::json!({"action": "exec", "command": "exit 3"}),
+            ),
+            (
+                "n",
+                "edit_file",
+                serde_json::json!({"path": "b.txt", "old_string": "a", "new_string": "a"}),
+            ),
+            ("r", "read_file", serde_json::json!({"path": "gone.txt"})),
+        ];
+        // Live: each outcome form a row can take. The failure's reason is
+        // left out here because upstream's replay leaves it out
+        // (`Failed missing.txt`, capture `fx-resume-tools-40x120-resumed`),
+        // so the live group to hold the replay to is the one without it.
         let mut live = shell(40, 120);
-        live.route_bytes(b"look\r");
+        live.route_bytes(b"fix\r");
         let _ = live.picks_up();
         live.apply(UiEvent::TurnStarted);
         live.apply(UiEvent::Delta("Looking.".to_string()));
-        live.apply(tool_start(
-            "c1",
-            "read_file",
-            serde_json::json!({"path": "notes.txt"}),
-        ));
-        live.apply(tool_result("c1", "read_file", true, "notes.txt"));
-        live.apply(tool_start(
-            "c2",
-            "read_file",
-            serde_json::json!({"path": "gone.txt"}),
-        ));
-        live.apply(tool_result(
-            "c2",
-            "read_file",
-            false,
-            "no such path: `gone.txt`",
-        ));
+        let endings = [
+            (
+                true,
+                CallOutcome::Finished,
+                Some(LineChanges {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            (false, CallOutcome::Denied, None),
+            (true, CallOutcome::Exited(3), None),
+            (true, CallOutcome::Unchanged, None),
+            (false, CallOutcome::Finished, None),
+        ];
+        for ((id, tool, input), (ok, outcome, changes)) in calls.iter().zip(endings) {
+            live.apply(tool_start(id, tool, input.clone()));
+            live.apply(UiEvent::ToolResult {
+                call_id: id.to_string(),
+                tool: tool.to_string(),
+                ok,
+                detail: String::new(),
+                outcome,
+                changes,
+            });
+        }
         live.apply(UiEvent::Delta("Done.".to_string()));
         live.apply(UiEvent::TurnEnded { failure: None });
         live.shell.flush_paced();
         let live_rows = live.painted_document();
 
+        // Replayed: the same turn as the log keeps it.
+        let mut steps = vec![TurnStep::Assistant {
+            text: "Looking.".to_string(),
+            tool_calls: calls
+                .iter()
+                .map(|(id, name, input)| RecordedToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: input.clone(),
+                })
+                .collect(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }];
+        steps.extend([
+            logged_result(
+                "e",
+                true,
+                None,
+                Some(LineCounts {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            logged_result("w", false, Some(ToolEnding::Denied), None),
+            logged_result("x", true, Some(ToolEnding::Exited { code: 3 }), None),
+            logged_result("n", true, Some(ToolEnding::Unchanged), None),
+            logged_result("r", false, None, None),
+            TurnStep::Assistant {
+                text: "Done.".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+        ]);
         let mut resumed = shell(40, 120);
         resumed.hydrate(
-            replay(
-                Some("look"),
-                vec![
-                    saved(
-                        "look",
-                        vec![
-                            HydratedStep::Text("Looking.".to_string()),
-                            HydratedStep::ToolStart {
-                                id: "c1".to_string(),
-                                shown: read.clone(),
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c1".to_string(),
-                                ok: true,
-                                detail: String::new(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::ToolStart {
-                                id: "c2".to_string(),
-                                shown: crate::tools::Shown {
-                                    target: Some("gone.txt".to_string()),
-                                    ..read
-                                },
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c2".to_string(),
-                                ok: false,
-                                detail: "no such path: `gone.txt`".to_string(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::Text("Done.".to_string()),
-                        ],
-                        0,
-                        None,
-                    ),
-                    HydratedTurn {
-                        user: "and then".to_string(),
-                        sent: "and then".to_string(),
-                        steps: Vec::new(),
-                        ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
-                        started_at_ms: 0,
-                        concluded_at_ms: None,
-                        details: Vec::new(),
-                        images: Vec::new(),
-                    },
-                ],
-            ),
+            logged(vec![logged_turn(
+                "fix",
+                steps,
+                TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            )]),
             false,
         );
         let rows = resumed.painted_document();
         // The live turn's summary estimated what streamed, as the replay
         // does when the log recorded no usage: the same row.
-        assert_eq!(rows[2..2 + live_rows.len()], live_rows[..], "{rows:?}");
+        assert_eq!(rows[2..], live_rows[..], "{rows:?}");
         let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
-        assert!(
-            words.contains(&"\u{25cf} 2 tool calls \u{b7} 2 read \u{b7} 1 failed".to_string()),
+        assert_eq!(
+            words[6..12],
+            [
+                "\u{25cf} 5 tool calls \u{b7} 2 edit \u{b7} 1 read \u{b7} 1 write \u{b7} 1 command \u{b7} 2 failed \u{b7} 1 denied",
+                "\u{251c} Edited a.txt +1 / -1",
+                "\u{251c} Denied file",
+                "\u{251c} Exited 3 exit 3",
+                "\u{251c} No changes to b.txt; it already contains the requested content",
+                "\u{2514} Failed gone.txt",
+            ],
             "{words:?}"
         );
-        // The stopped turn: its card and the sentence it ended on, under
-        // `system` as the live conclusion was, and no summary.
+    }
+
+    /// Upstream's stopped turn after a resume is its card and its
+    /// cancellation line -- the call the stop cut off is not replayed -- and
+    /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
+    /// capture `fx-resume-tools-40x120-resumed`, rows 21-28).
+    /// What a hostile log paints, through the one inert step a resume's
+    /// replay takes on either way in (`bridge::inert_hydration`, which the
+    /// worker's `a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker`
+    /// holds both ways to): the document and the full transcript carry none of
+    /// the sequences it held -- only the screen's own colours.
+    #[test]
+    fn a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript() {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let hostile = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: format!("answer {hostile}"),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": format!("p{hostile}")}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                created_at_ms: None,
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {hostile}"),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            &format!("prompt {hostile}"),
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every escape left is an SGR the palette wrote.
+            let foreign: Vec<&str> = bytes
+                .split('\u{1b}')
+                .skip(1)
+                .filter(|sequence| {
+                    !(sequence.starts_with('[')
+                        && sequence[1..]
+                            .split_once('m')
+                            .is_some_and(|(parameters, _)| {
+                                parameters.chars().all(|c| c.is_ascii_digit() || c == ';')
+                            }))
+                })
+                .collect();
+            assert_eq!(foreign, Vec::<&str>::new(), "{surface}: {bytes:?}");
+            assert!(
+                !bytes.contains('\u{9b}') && !bytes.contains('\u{7}'),
+                "{surface}: {bytes:?}"
+            );
+        }
+        assert!(
+            painted.contains("prompt x ]0;pwned y [2Jz 31m"),
+            "{painted:?}"
+        );
+        assert!(full.contains("read x ]0;pwned y [2Jz 31m"), "{full:?}");
+    }
+
+    #[test]
+    fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
+        use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let cut_off = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "w".to_string(),
+                    name: "write_file".to_string(),
+                    input: serde_json::json!({"path": "d.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            logged_result("w", false, Some(ToolEnding::Cancelled), None),
+        ];
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            logged(vec![
+                logged_turn(
+                    "and once more",
+                    cut_off,
+                    TurnConclusion::Interrupted {
+                        reason: crate::agent::TurnError::Cancelled.to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
+                    },
+                ),
+                logged_turn(
+                    "and then",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: "the provider failed: overloaded".to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
+                    },
+                ),
+                // Stopped while its automatic compaction ran: the card and
+                // nothing else (`tui-compaction-activity.test.ts:481-488`).
+                logged_turn(
+                    "Cancel this held response.",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: super::super::compaction::Feedback::Cancelled
+                            .label()
+                            .to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Compaction,
+                    },
+                ),
+            ]),
+            false,
+        );
+        let rows = resumed.painted_document();
+        let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
         assert_eq!(
-            words[2 + live_rows.len()..],
+            words[2..],
             [
+                "\u{2503} and once more",
+                "",
+                "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+                "",
                 "\u{2503} and then",
                 "",
-                "\u{2717} system: the turn was cancelled",
+                "\u{2717} system: failed",
                 "",
-            ]
+                "\u{2503} Cancel this held response.",
+                "",
+            ],
+            "{words:?}"
+        );
+        // And the full transcript after it has the prompt and no
+        // cancellation of it.
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let held = full
+            .split("Cancel this held response.")
+            .nth(1)
+            .expect("the prompt is recorded");
+        assert!(!held.contains("Cancelled"), "{full}");
+        // The mark in the warning colour and closed before the space, the
+        // word in the hint colour (`lifecycleTerminalLine`, unmarked).
+        assert_eq!(
+            rows[4],
+            format!(
+                "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+                PALETTE.warning(),
+                PALETTE.reset(),
+                PALETTE.hint(),
+                PALETTE.reset()
+            )
         );
         assert!(!resumed.owes_wipe(), "a launch's resume reset the terminal");
     }
@@ -20383,6 +20755,100 @@ mod tests {
         );
     }
 
+    /// Upstream refuses while its response is active (`stream.active`,
+    /// `app_session_runtime.zig:2590`), which a turn begins
+    /// (`begin_prompt`, `app_worker_runtime.zig:975-985`) and keeps while
+    /// prompts wait behind it (`:783-805`) -- the busy rule a provider switch
+    /// is under too ([`Shell::provider_work_busy`]). A `/model` the runtime
+    /// has not answered yet is no response, and the picker opens.
+    /// More sessions than a page: the band ends on `↓ Load more`, walking to
+    /// the last loaded session loads the next page and the band grows by the
+    /// row it gave up (`fx-resume-paging-24x80`).
+    #[test]
+    fn a_picker_with_more_sessions_than_a_page_loads_the_next_as_the_mark_reaches_it() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        let current: Vec<ListedSession> = (1..=18)
+            .map(|i| ListedSession {
+                id: format!("s{i}"),
+                title: Some(format!("question {i}")),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            })
+            .collect();
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            all: current.clone(),
+            current,
+            now_ms: 0,
+        })));
+        let band = |shell: &Fixture| -> Vec<String> {
+            shell
+                .band_rows()
+                .iter()
+                .map(|row| visible_text(row))
+                .collect()
+        };
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 17 ")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&"  \u{2193} Load more".to_string()),
+            "{rows:?}"
+        );
+        let panel = shell.geometry.panel;
+        for _ in 0..16 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 18 ")),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains("Load more")),
+            "{rows:?}"
+        );
+        assert_eq!(shell.geometry.panel, panel, "{rows:?}");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("s17".to_string()));
+    }
+
+    #[test]
+    fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/model second-model\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/resume\r");
+        assert!(shell.sessions.is_some(), "{:?}", shell.document());
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.sessions.is_none());
+        // Both answered, as the runtime would have by now.
+        shell.work.give_back();
+        shell.work.give_back();
+
+        // A prompt sent and not started yet runs before anything the picker
+        // could ask for: refused, as one streaming is.
+        shell.route_bytes(b"queued one\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/resume\r");
+        assert!(
+            shell.sessions.is_none(),
+            "a picker opened over a waiting prompt"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", RESUME_BUSY))
+        );
+    }
+
     #[test]
     fn rename_refuses_in_upstreams_words_and_titles_the_window_at_once() {
         // `fx-basic-40x120-rename-empty.txt` and `-rename-title.txt`.
@@ -20394,8 +20860,9 @@ mod tests {
             said(notice::Notice::error("", "usage: /rename <title>"))
         );
         assert_eq!(shell.document(), Vec::<String>::new());
-        assert!(
-            shell.sent.try_recv().is_err(),
+        assert_eq!(
+            shell.controlled(),
+            None,
             "an empty title reached the runtime"
         );
         shell.route_bytes(format!("/rename {}\r", "x".repeat(241)).as_bytes());
@@ -20417,30 +20884,31 @@ mod tests {
             "a refused title titled the window"
         );
 
+        // Accepted: titled at once and handed to the runtime to write, and
+        // said when the runtime says the log has it
+        // (`app_commands.zig:3852-3857`).
         shell.route_bytes(b"/rename   My Title  \r");
-        assert_eq!(shell.picks_up(), TurnWork::Rename("My Title".to_string()));
-        shell.work.give_back();
         assert_eq!(
-            shell.take_title(),
-            None,
-            "titled before the runtime renamed it"
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "My Title".to_string(),
+                announced: false,
+            })
         );
-        shell.apply(UiEvent::Renamed {
-            title: "My Title".to_string(),
-            unsaved: None,
-        });
         assert_eq!(shell.take_title().as_deref(), Some("My Title"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("My Title".to_string()));
+        assert_eq!(shell.take_title(), None, "the answer retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "* session: renamed to \"My Title\""
         );
-        // A store that refused: the title is this process's, and the warning
-        // says so (`app_commands.zig:3833-3846`).
-        shell.apply(UiEvent::Renamed {
-            title: "Kept here".to_string(),
-            unsaved: Some("cannot record the `session_renamed` session event".to_string()),
-        });
-        assert_eq!(shell.take_title().as_deref(), Some("Kept here"));
+        // A store that refused: the title stays this process's, and the
+        // warning says so (`app_commands.zig:3833-3846`).
+        shell.apply(UiEvent::RenameUnsaved(
+            "cannot record the `session_renamed` session event".to_string(),
+        ));
+        assert_eq!(shell.take_title(), None, "the warning retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "! session: renamed for this process but not saved \
@@ -20452,6 +20920,84 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title(), None);
+    }
+
+    /// Between turns the notice is the write's outcome, one row either way,
+    /// as upstream's (`handleRenameCommand`, `app_commands.zig:3815-3858`):
+    /// `renamed to "…"` once the log has the title, or only `renamed for this
+    /// process but not saved (…)` when it would not take it -- the window is
+    /// titled at once in both, as upstream caches the title before it writes
+    /// (`renameActiveSession`, `app_session_runtime.zig:3807`).
+    #[test]
+    fn between_turns_a_rename_says_one_thing_what_became_of_the_write() {
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.route_bytes(b"/rename Refused\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.take_title().as_deref(), Some("Refused"));
+        shell.apply(UiEvent::RenameUnsaved("the disk is full".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::warning(
+                "session",
+                "renamed for this process but not saved (the disk is full)"
+            ))
+        );
+        shell.route_bytes(b"/rename Kept\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("Kept".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", "renamed to \"Kept\""))
+        );
+    }
+
+    /// While a turn runs the title applies at once, as upstream's does --
+    /// it renames whether or not a response streams
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`) -- and goes to
+    /// the runtime as a control message, which stops nothing: the runtime
+    /// writes it once the turn is over. A title typed after a `/new` goes on
+    /// the same channel behind the reset, which is how the runtime knows it
+    /// names the session the reset starts.
+    #[test]
+    fn rename_while_a_turn_runs_applies_at_once_and_follows_a_reset_on_one_channel() {
+        let mut shell = shell(24, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.take_title();
+        let _ = shell.document();
+        shell.route_bytes(b"/rename Mid Turn\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "Mid Turn".to_string(),
+                announced: true,
+            })
+        );
+        assert_eq!(shell.controlled(), None, "a rename stopped the turn");
+        assert_eq!(shell.take_title().as_deref(), Some("Mid Turn"));
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| visible_text(row) == "* session: renamed to \"Mid Turn\""),
+            "the notice waited for the turn"
+        );
+
+        shell.route_bytes(b"/new\r");
+        shell.route_bytes(b"/rename Next One\r");
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Reset { .. })
+        ));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "Next One".to_string(),
+                announced: true,
+            })
+        );
+        assert_eq!(shell.take_title().as_deref(), Some("Next One"));
     }
 
     #[test]

@@ -1,0 +1,40 @@
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:06.890 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:10.204 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 808ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:11.943 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 4ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:16.167 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 2ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:57.241 UTC · Prompt
+┃ look at the files and fix them
+
+  2026-10-07 03:08:57.397 UTC · Response
+  I will look at the files first.
+
+  2026-10-07 03:08:57.397 UTC · Tool
+● 9 tool calls · 4 read · 2 commands · 1 list · 1 write · 1 edit · 2 failed · 1 denied
+├ Read a.txt
+│  1    alpha line 1
+│  2    alpha line 2
+│  3    alpha line 3
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

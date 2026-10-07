@@ -1,0 +1,40 @@
+  skills: loading
+  mcp: none
+
+  2026-10-07 03:07:59.471 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 338ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:00.107 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 318ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:00.629 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 226ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:04.691 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 13ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:06.655 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 16ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:08.679 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 16ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:08:08.689 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 14ms
+  finish: tool_calls
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a
