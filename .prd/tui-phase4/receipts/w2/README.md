@@ -333,6 +333,81 @@ included. Before `5de23de` the undo in `undone` brought back `[Image 1]` as
 words with no image behind them (`deleting_the_badge_drops_the_image_and_an_undo_after_it_changes_nothing`
 failed on the old rule: `left: "look [Image 2]"`, `right: "look "`).
 
+## Round 7: plan `23907ead` merged, the boundary rule for pasted-text blocks
+
+xfx `target/debug/xfx` at `eab9e5b` (banner `v0.1.0-eab9e5b`; plan
+`23907ead` merged as `3373442`), fx the c1db919 build. New:
+`paste-block-undo.cap` -- `look` and a space typed, 1001 `x`s pasted (a
+block), Backspace, Ctrl-_ twice; 1001 `x`s pasted again, Ctrl-U, Ctrl-Y,
+Ctrl-_, Ctrl-_.
+
+| snap | fx | xfx | upstream |
+|---|---|---|---|
+| `pasted` | `┃ look [Pasted text #1, 1 line]` | `… 1 lines]` | the paste is a boundary, `input_paste_runtime.zig:436-438` |
+| `deleted` | `┃ look ` | same | Backspace takes the block whole |
+| `undone` | `┃ look `: the two undos find nothing | same | `composer_replacement.zig:223-232`, `composer_undo.zig:252-268` |
+| `pasted-again` | `┃ look [Pasted text #2, 1 line]` | `… 1 lines]` | |
+| `killed` | `┃` | same | the kill is a boundary, `composer_kill_ring.zig:90-118` |
+| `yanked` | `look ` and the 1001 `x`s as text, no block | same text; the rows wrap differently | the ring holds the block's text, `kill_ring.zig:429-447` |
+| `yank-undone` | `┃`: the yank was an entry | same | |
+| `undone-again` | `┃`: the kill was not | same | |
+
+Five of eight snaps were identical in `.txt` and `.ansi`. The other three
+differed in two things that are not the undo, both closed in round 8 (the
+xfx side retaken at `dd69754`: all eight identical):
+
+- **The summary's noun.** fx writes `1 line` for one line
+  (`formatPlaceholder`, `pasted_blocks.zig:59-62`); xfx's `paste::summary`
+  always writes `lines` (`src/tui/paste.rs:326-328`).
+- **Where a long word breaks in the composer.** fx keeps `look` and starts
+  the run of `x`s on the same row, breaking it at the edge; xfx moves the run
+  to the next row. The yanked text is the same 1006 characters on both.
+
+Before `eab9e5b` xfx's `yanked` was `┃ look [Pasted text #3, 1 lines]` (a new
+block), and the second undo in `undone-again` brought back
+`┃ look [Pasted text #2, 1 lines]`, the killed block (a capture at `3373442`,
+not kept).
+
+## Round 8: the block's noun, the composer's layout
+
+xfx `target/debug/xfx` at `dd69754` (banner `v0.1.0-dd69754`), fx the
+c1db919 build. New: `composer-wrap.cap`, taken at 40x120 and 24x80, and a
+`cursor` verb in the harness (`tmux display -p '#{cursor_x},#{cursor_y}'`,
+the caret from the pane's top left, zero-based) -- `snap` alone does not
+show where the caret is.
+
+fx's composer layout (`visual_layout.zig`), rule by rule, against what xfx's
+composer did before this round (`wrap::wrap`):
+
+| rule | fx | xfx before |
+|---|---|---|
+| a word that does not fit the rest of a row | moves whole if it fits the next row (`shouldSoftWrapWord`, `:265-282`) | the same |
+| a word wider than a whole row | breaks at the margin **from the row it began on** | moved to the next row, then broke |
+| spaces at the margin | hang past it, the next row starts at the word (`shouldBreakBefore`, `:134-138`) | the same |
+| a wide glyph | never straddles the margin (`shouldSoftWrap`, `:312-324`) | the same |
+| a badge or a pasted block | one unit, never broken at its own spaces; the text after it starts a word; a word ends where one begins (`peekRawUnit`, `consumeRawUnit`, `wordEndsAt`) | text: broke after `[Image` or `[Pasted` |
+| a unit wider than its row | takes the row, the next unit starts a row (`:251-255`) | the same for a glyph |
+| a tab | the advance to the next eighth screen column, gutter counted, none at the margin (`tabAdvance`, `:714-723`), painted as spaces | four cells |
+| a caret on a soft-wrap boundary | the next row's first column (`pendingResolvesAt`, `:415-417`) | the same |
+| a caret after a row that fills the screen | the last column (`terminalColumn`, `:696-702`) | one past it: the output check refused the frame and **the session ended** (`caret placed off the screen at byte 98 (row 3, column 81)`) |
+| a vertical move | the rightmost place at or left of the column, a unit's start (`TargetBuilder`, `:631-657`) | the first place at or right of it: after a wide glyph |
+
+| snap (both sizes) | what it shows | fx = xfx |
+|---|---|---|
+| `long-word` | `look ` and 200 `x`s: the run starts on `look`'s row | `.txt`, `.ansi`, cursor |
+| `words` | `alpha`, 90 `y`s, `omega and the rest of it`: at 80 columns the `y`s start on `alpha`'s row, at 120 they move whole | same |
+| `badge-71`, `badge-111` | a badge after 71 and after 111 cells: whole on the next row where it does not fit (at 80 and at 120 respectively) | same |
+| `block-71`, `block-111` | `[Pasted text #N, 1 line]` the same way | same |
+| `full-78`, `full-118` | a row filled exactly: the caret on the last column | same (xfx before: the session ended) |
+| `boundary` | one more `b`, then Left: the caret at the next row's start | same |
+| `tabs` | `a\tbb\tccc\td`: `a·····bb······ccc·····d` | same |
+| `up-wide` | `ab界cd`, then `xyz` on the next line, then Up from column 3: the caret in front of `界` | same |
+
+All 22 snaps (11 at each size) are identical in `.txt`, `.ansi` and
+`.cursor`, links included. The block's summary says `1 line` for one line,
+as fx's `formatPlaceholder` does (`pasted_blocks.zig:59-62`); `paste-block-undo`
+retaken on xfx is identical to fx in all eight snaps.
+
 ## Differences, and why
 
 - **Where a clipboard badge's link goes** (round 4): fx's copy is in the

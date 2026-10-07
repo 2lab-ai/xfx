@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-2d0432b [debug] · Run /help for commands
+
+  2026-10-07 04:51:34.450 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  tools: 9 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal, +1
+  more)
+  mcp: none
+
+  2026-10-07 04:51:35.555 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 36ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 04:51:36.049 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 119ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-07 04:51:35.245 UTC · Prompt
+┃ read them
+
+  2026-10-07 04:51:35.616 UTC · Response
+  Reading.
+
+  2026-10-07 04:51:35.616 UTC · Tool
+● 4 tool calls · 3 read · 1 list · 4 failed
+├ Failed src
+│  {"error":{"type":"tool_execution_failed","tool_name":"read_file","message":"read_file requires a regular file","detai
+│  ls":{"field":"path","path":"/private/tmp/claude-501/fxcap.DJFnXq/work/src","error":"NotRegularFile"},"suggestion":"Us
+│  e glob_files to inspect directory contents, then choose a regular file."}}
+
+  2026-10-07 04:51:35.670 UTC · Tool
+├ Failed   missing.txt  : Path not found: missing.txt
+│  Path not found:   missing.txt
+
+  2026-10-07 04:51:35.722 UTC · Tool
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

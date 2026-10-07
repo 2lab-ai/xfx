@@ -1,0 +1,40 @@
+* session resumed: read them
+
+┃ read them
+
+  Reading.
+
+● 4 tool calls · 3 read · 1 list · 4 failed
+├ Failed src
+├ Failed   missing.txt
+├ Failed *.rs
+└ Failed alpha
+
+  Done.
+
+  0s (↑2 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

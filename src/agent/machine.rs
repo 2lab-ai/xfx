@@ -860,7 +860,7 @@ impl TurnMachine {
                     call_id: call.id.clone(),
                     tool: call.name.clone(),
                     ok: result.ok,
-                    detail: result.detail.clone(),
+                    detail: result.detail.to_string(),
                     outcome: result.outcome,
                     changes: result.changes,
                 })
@@ -869,7 +869,6 @@ impl TurnMachine {
             // With what the row said beyond `ok`, so a resumed session's row
             // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
-                created_at_ms: Some(crate::session::event::system_now_ms()),
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,
@@ -896,6 +895,9 @@ impl TurnMachine {
             }
             if let Some(change) = &result.change {
                 journal.change_made(&call.id, change);
+            }
+            if let Some(presented) = &result.presented {
+                journal.presented(&call.id, &call.name, presented);
             }
             // A call that failed is said as one on the wire, and one that was
             // refused as a refusal, as upstream says each (`error-text`,
@@ -946,7 +948,7 @@ impl TurnMachine {
                     self.flush_amendments(events, journal, amendments, SinkRefusal::JournalOn);
                 let revoked = TurnError::ToolAuthorityRevoked {
                     tool: call.name.clone(),
-                    detail: result.detail,
+                    detail: result.detail.into_string(),
                 };
                 // Two failures and one `TurnError`, so one of them is reported
                 // and the other is **superseded** -- which is a different claim

@@ -2562,6 +2562,54 @@ fn terminal_kills_a_command_that_outruns_its_timeout() {
     );
 }
 
+/// A command its turn stopped is asked to stop first, as upstream's is -- a
+/// cooperative `SIGTERM` to its group, `SIGKILL` only after a grace
+/// (`terminationSignalPlan`, `vercel-labs/fx@c1db9191
+/// src/core/execution/command_runner.zig:2473-2493`;
+/// `foreground_target_termination_grace_ms`, `:85`) -- so what the screen is
+/// shown is the signal the command died of (`signal 15`,
+/// `fx-resume-tools-40x120-live-ctrl-o`), while the model is told only that
+/// the call was aborted.
+#[test]
+fn a_stopped_command_is_asked_to_stop_and_the_screen_is_shown_how_it_ended() {
+    let stop_after = |command: &str| {
+        let tree = Tree::new();
+        let cancel = CancelToken::new();
+        let context = ToolContext::new(AccessScope::primary_only(tree.root()).expect("root"))
+            .with_permissions(session(PermissionMode::Yolo))
+            .with_cancel(cancel.clone());
+        let watcher = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            watcher.cancel();
+        });
+        let started = Instant::now();
+        let result = call(
+            &context,
+            "terminal",
+            json!({ "action": "exec", "command": command }),
+        );
+        (result, started.elapsed())
+    };
+    let (result, took) = stop_after("echo started; sleep 30");
+    assert_eq!(result.output, "aborted by user");
+    let presented = result.presented.as_deref().expect("the screen's account");
+    assert!(presented.contains("<signal>15</signal>"), "{presented}");
+    assert!(presented.contains("started"), "{presented}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
+
+    // One that will not stop when asked is killed once the grace is over.
+    let (result, took) = stop_after("trap '' TERM; sleep 30 & wait");
+    assert_eq!(result.output, "aborted by user");
+    let presented = result.presented.as_deref().expect("the screen's account");
+    assert!(
+        presented.contains("<signal>9</signal>") || presented.contains("<exit_code>"),
+        "{presented}"
+    );
+    assert!(took >= Duration::from_millis(900), "no grace: {took:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
+}
+
 #[test]
 fn terminal_stops_when_the_turn_is_cancelled() {
     let tree = Tree::new();
