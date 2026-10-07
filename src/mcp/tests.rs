@@ -563,3 +563,38 @@ fn removing_a_server_stops_its_process_and_says_how_the_reload_went() {
         r#"{"mcp":{}}"#
     );
 }
+
+#[test]
+fn an_http_server_is_sent_its_headers_then_its_environment_headers_then_its_bearer() {
+    let mut server = ServerConfig::http("remote", "https://mcp.example.test/mcp");
+    server.headers = vec![("X-Static".into(), "one".into())];
+    server.header_env = vec![("X-Team".into(), "FIXTURE_TEAM".into())];
+    server.bearer_token_env = Some("FIXTURE_TOKEN".into());
+    let set = |name: &str| match name {
+        "FIXTURE_TEAM" => Some("blue".to_string()),
+        "FIXTURE_TOKEN" => Some("not-a-real-token".to_string()),
+        _ => None,
+    };
+    assert_eq!(
+        super::runtime::http_headers(&server, &set).expect("resolved"),
+        [
+            ("X-Static".to_string(), "one".to_string()),
+            ("X-Team".to_string(), "blue".to_string()),
+            (
+                "Authorization".to_string(),
+                "Bearer not-a-real-token".to_string()
+            ),
+        ]
+    );
+    // A variable that is not set is upstream's failure, not a missing header.
+    let unset = |_: &str| None;
+    assert_eq!(
+        super::runtime::http_headers(&server, &unset),
+        Err(super::McpError::Named("McpHeaderEnvironmentMissing"))
+    );
+    server.header_env.clear();
+    assert_eq!(
+        super::runtime::http_headers(&server, &unset),
+        Err(super::McpError::Named("McpBearerEnvironmentMissing"))
+    );
+}

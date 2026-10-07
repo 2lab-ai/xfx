@@ -402,6 +402,30 @@ struct State {
 /// How a workspace server's `${VAR}` is looked up.
 type Lookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
+/// What an HTTP server is sent besides the protocol's own headers
+/// (`buildResolvedHeaders`, `vercel-labs/fx@c1db9191 src/core/mcp/
+/// server_auth.zig:64-110`): its `headers` as written, then each `header_env`
+/// header with the value of the variable it names, then `Authorization:
+/// Bearer` with the value of `bearer_token_env`. A variable that is not set
+/// fails the connection by upstream's name rather than sending the header
+/// without it. The values are read when the server connects and go nowhere
+/// but its URL.
+pub(super) fn http_headers(
+    config: &ServerConfig,
+    environment: &Lookup,
+) -> Result<Vec<(String, String)>, McpError> {
+    let mut headers = config.headers.clone();
+    for (name, variable) in &config.header_env {
+        let value = environment(variable).ok_or(McpError::Named("McpHeaderEnvironmentMissing"))?;
+        headers.push((name.clone(), value));
+    }
+    if let Some(variable) = &config.bearer_token_env {
+        let token = environment(variable).ok_or(McpError::Named("McpBearerEnvironmentMissing"))?;
+        headers.push(("Authorization".to_string(), format!("Bearer {token}")));
+    }
+    Ok(headers)
+}
+
 /// The session's MCP servers.
 pub struct McpRuntime {
     paths: Paths,
@@ -411,7 +435,8 @@ pub struct McpRuntime {
     jobs: Mutex<Option<mpsc::Sender<Job>>>,
     /// Bumped by every reload that put a new set in force.
     generation: AtomicU64,
-    /// What the environment says, for a workspace server's `${VAR}`.
+    /// What the environment says, for a workspace server's `${VAR}` and an
+    /// HTTP server's `header_env` and `bearer_token_env`.
     environment: Box<Lookup>,
 }
 
@@ -898,7 +923,10 @@ impl McpRuntime {
                 &config.env,
                 None,
             )?),
-            Kind::Http => Arc::new(HttpTransport::open(&config.url, &config.headers)?),
+            Kind::Http => Arc::new(HttpTransport::open(
+                &config.url,
+                &http_headers(config, &*self.environment)?,
+            )?),
             Kind::Sse => return Err(McpError::Named("McpTransportUnsupported")),
         };
         let result = self.handshake(server, &transport, &left);
