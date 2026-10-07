@@ -2255,6 +2255,17 @@ impl Band {
         Ok(Retint::Settled(Commit::Painted))
     }
 
+    /// Records that the document's last `rows` rows -- written blank by the
+    /// append that just landed -- are no longer the document's: a block that
+    /// shrank gave them back, and the band may take them without carrying
+    /// anything ([`Self::grown`]).
+    pub(crate) fn document_released(&mut self, rows: u16) {
+        self.document_bottom = self
+            .document_bottom
+            .map(|bottom| bottom.saturating_sub(rows))
+            .filter(|row| *row > 0);
+    }
+
     /// Collapses the tool groups still on the screen, for a session whose
     /// `Collapse tool calls` was just switched on: each group's call rows and
     /// cancelled lines go, the rows under them move up, and the rows that

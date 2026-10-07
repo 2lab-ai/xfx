@@ -1438,6 +1438,13 @@ fn commit_document(
                 // shrinks -- a question answered, a menu closed -- floats back
                 // down by them and leaves blank rows over the turn's own.
                 document = reached.min(u32::from(after.content_bottom));
+                // A block that shrank wrote its old rows blank, and they are
+                // the band's again: the document ends above them.
+                if append.release > 0 {
+                    let released = u16::try_from(append.release).unwrap_or(u16::MAX);
+                    document = document.saturating_sub(u32::from(released));
+                    band.document_released(released);
+                }
                 Landed::All
             }
             Err(emit) => {
@@ -3167,6 +3174,57 @@ mod tests {
         // group written collapsed were never there to put back.
         shell.route_bytes(b"\x1b[C");
         assert!(!shell.owes_collapse());
+    }
+
+    #[test]
+    fn an_open_group_collapsed_gives_its_call_rows_back_to_what_comes_next() {
+        // The group the turn is still writing is the transcript's open block,
+        // rewritten rather than moved: collapsed, it writes its call rows
+        // blank -- and they are the document's no longer, so what is written
+        // next lands right under the group's own blank row, as upstream's
+        // re-render puts it (`fx-settings-collapse-40x120-running`: the
+        // header, one blank, the next row).
+        let mut shell = shell_of(40, 120);
+        shell.document_landed(0);
+        let mut band = Band::new();
+        let now = Instant::now();
+        shell.route_bytes(b"look\r");
+        committed(&mut shell, &mut band);
+        shell.apply(UiEvent::TurnStarted);
+        for event in a_call("call-1", "a.txt")
+            .into_iter()
+            .chain(a_call("call-2", "b.txt"))
+        {
+            shell.apply(event);
+        }
+        shell.settle_band(now);
+        committed(&mut shell, &mut band);
+        // The header, two calls and the group's blank row end the document.
+        let header = u16::try_from(shell.document_rows()).expect("a short document") - 3;
+        let before = shell.document_rows();
+
+        shell.route_bytes(b"/settings\r");
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B\x1b[B\x1b[C");
+        let written = committed(&mut shell, &mut band);
+
+        let said = written
+            .find("collapse tool calls:")
+            .unwrap_or_else(|| panic!("the switch said nothing: {written:?}"));
+        let placed = written[..said]
+            .rfind(";1H")
+            .and_then(|end| {
+                let start = written[..end].rfind('[')? + 1;
+                written[start..end].parse::<u16>().ok()
+            })
+            .unwrap_or_else(|| panic!("the notice was not placed: {written:?}"));
+        assert_eq!(
+            placed,
+            header + 2,
+            "the notice is not under the collapsed group's blank row: {written:?}"
+        );
+        // Two rows given back, and the notice's two taken.
+        assert_eq!(shell.document_rows(), before - 2 + 2);
     }
 
     #[test]

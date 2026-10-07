@@ -444,13 +444,15 @@ impl Grid {
     /// **Read off what the writers recorded, never guessed.** A row is a group's
     /// when its writer said so ([`DocumentRow::ToolGroup`],
     /// [`DocumentRow::ToolStopped`]), and its header is the one of them that
-    /// opens with the group's mark. A run of call rows whose header has left
-    /// the top of the screen is left as it is: what would say which group
-    /// they are, and that they are one, is in scrollback.
+    /// opens with the group's mark. Call rows at the top of the screen whose
+    /// header has already left it are a group's too -- the rows above the
+    /// first one are the same group's, in scrollback -- and go as well:
+    /// upstream's re-render has that group above the screen, header and all
+    /// (`fx-settings-collapse-open-40x120-collapse-on`, row 1).
     pub(crate) fn collapsible_rows(&self, last: u16) -> Vec<u16> {
         let last = last.min(self.rows);
         let mut removed = Vec::new();
-        let mut in_group = false;
+        let mut in_group = true;
         let mut line = 1;
         while line <= last {
             match self.kind(line) {
@@ -1223,7 +1225,7 @@ mod tests {
     fn a_collapse_takes_each_groups_calls_and_cancelled_lines_and_keeps_its_header() {
         use DocumentRow::{Plain, ToolGroup, ToolStopped};
         let mut grid = document(&[
-            // A group whose header is in scrollback: left as it is.
+            // A group whose header is in scrollback: its calls go too.
             ("\u{251c} Read old.txt", ToolGroup),
             ("\u{2514} Read older.txt", ToolGroup),
             ("", Plain),
@@ -1243,17 +1245,15 @@ mod tests {
             ("  after", Plain),
         ]);
         let removed = grid.collapsible_rows(17);
-        assert_eq!(removed, [7, 8, 13, 15, 16]);
+        assert_eq!(removed, [1, 2, 7, 8, 13, 15, 16]);
         // And nothing at or past a row it was not given.
-        assert_eq!(grid.collapsible_rows(7), [7]);
+        assert_eq!(grid.collapsible_rows(7), [1, 2, 7]);
 
         grid.remove_rows(&removed, 17);
         let texts: Vec<String> = (1..=17).map(|line| text_of(&grid, line)).collect();
         assert_eq!(
             texts,
             [
-                "\u{251c} Read old.txt",
-                "\u{2514} Read older.txt",
                 "",
                 "\u{2503} look",
                 "",
@@ -1269,12 +1269,14 @@ mod tests {
                 "",
                 "",
                 "",
+                "",
+                "",
             ]
         );
         // The records went with their rows, and the freed rows have none.
-        assert_eq!(grid.kind(6), ToolGroup);
-        assert_eq!(grid.kind(10), ToolGroup);
-        assert_eq!(grid.kind(13), Plain);
+        assert_eq!(grid.kind(4), ToolGroup);
+        assert_eq!(grid.kind(8), ToolGroup);
+        assert_eq!(grid.kind(11), Plain);
         assert_eq!(
             grid.collapsible_rows(17),
             [] as [u16; 0],

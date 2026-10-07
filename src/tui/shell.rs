@@ -11124,6 +11124,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["answered".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11153,11 +11154,13 @@ mod tests {
                     scroll: 2,
                     rows: vec!["first".to_string(), String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 0,
                     rows: vec!["second".to_string()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -11197,6 +11200,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11221,6 +11225,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }],
             "the text was written as the one 25-column row the wider screen \
              would have given it"
@@ -11243,6 +11248,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["abc".to_string(), String::new()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
         let _asked = shell.render.begin().expect("the frame the write asked for");
@@ -11389,11 +11395,13 @@ mod tests {
                     scroll: 1,
                     rows: vec![card_row("ask me")],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 1,
                     rows: vec![String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -13501,6 +13509,7 @@ mod tests {
                 let settled = append.rows.len() - append.scroll.min(append.rows.len());
                 document.truncate(document.len().saturating_sub(settled));
                 document.extend(append.rows.iter().map(|row| colourless(row)));
+                document.truncate(document.len().saturating_sub(append.release));
             }
             document
         }
@@ -20530,11 +20539,13 @@ mod tests {
                         scroll: 1,
                         rows: vec!["  the next answer".to_string()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                     Append {
                         scroll: 1,
                         rows: vec![String::new()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                 ],
                 "{}",
