@@ -379,6 +379,16 @@ pub enum SessionEvent {
     /// frame rather than resuming the conversation without the images its
     /// prompts name.
     ImagesAttached { images: Vec<RecordedImage> },
+    /// The images a tool result carried for the model -- `read_file` of an
+    /// image file -- saved beside the log as a prompt's are, written right
+    /// after that [`Self::ToolResult`] so a later request and a resume send
+    /// them again, as upstream retains a result's tool images
+    /// (`retainToolImages`, `execution_memory.zig:672-688`). Each `id` is its
+    /// place in the result, from 1; `path` is the file it was read from.
+    ToolImagesAttached {
+        call_id: String,
+        images: Vec<RecordedImage>,
+    },
     /// One assistant step: its text, then the tools it asked for, in order.
     ///
     AssistantMessage {
@@ -597,6 +607,7 @@ impl SessionEvent {
             Self::ProjectContextRecorded { .. } => "project_context_recorded",
             Self::UserMessage { .. } => "user_message",
             Self::ImagesAttached { .. } => "images_attached",
+            Self::ToolImagesAttached { .. } => "tool_images_attached",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",

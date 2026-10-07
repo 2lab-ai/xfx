@@ -1,0 +1,8 @@
+[fakegw] listening 61116
+[fakegw] completion /v4/ai/language-model -> tool read_file
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed
+[fakegw] completion /v4/ai/language-model -> tool read_file
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed

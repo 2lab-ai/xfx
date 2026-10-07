@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-eb375fa [debug] · Run /help for commands
+
+┃ [Image 1] describe this too
+
+  It is a small red square.
+
+  0s (↑7 ↓40)
+
+┃ inspect [Image 2],
+
+  Still red.
+
+  0s (↑5 ↓40)
+
+┃ see nope.png and notes.txt
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

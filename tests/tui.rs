@@ -8804,6 +8804,302 @@ fn an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_ev
 }
 
 #[test]
+fn an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood() {
+    // `fx-image-40x120-inline-typed.ansi`: a pasted path is a badge before
+    // Enter, with no notice (`input_paste_runtime.zig:370-377`); a typed one
+    // is attached as the prompt is sent, its punctuation kept
+    // (`tui-composer-edit-contracts.test.ts:1018-1030`).
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-PASTED"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-TYPED"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"\x1b[200~shot.png describe this too\x1b[201~");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] describe this too"],
+        &["images:", "shot.png"],
+    );
+    assert_eq!(gateway.request_count(), 0, "the paste was sent");
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-PASTED");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"inspect shot.png,\r");
+    session.wait_for("MARKER-TYPED");
+    wait_for_conclusions(&sandbox, 2);
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} [Image 1] describe this too",
+            "\u{2503} inspect [Image 2],",
+        ],
+        &["shot.png,"],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(
+        user_messages(&requests[0].json()),
+        ["[Image #1] describe this too"]
+    );
+    assert_eq!(
+        file_parts(&requests[0].json()),
+        [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+    );
+    assert_eq!(
+        user_messages(&requests[1].json()),
+        ["[Image #1] describe this too", "inspect [Image #2],"]
+    );
+    assert_eq!(file_parts(&requests[1].json()).len(), 2);
+}
+
+#[test]
+fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number() {
+    // `tui-composer-edit-contracts.test.ts:1033-1047`: the words stay, the
+    // badge is renumbered, and the log names the image by its new number.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-SEEN"]),
+    )])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"\x1b[200~shot.png\x1b[201~ duplicate [Image #1]\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 2] duplicate [Image #1]"],
+        &[],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let body = gateway.requests()[0].json();
+    assert_eq!(user_messages(&body), ["[Image #2] duplicate [Image #1]"]);
+    assert_eq!(file_parts(&body).len(), 1);
+    let ids = sandbox.session_ids();
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    assert!(
+        log.contains("\"text\":\"[Image #2] duplicate [Image #1]\""),
+        "{log}"
+    );
+    assert!(log.contains("\"images\":[{\"id\":2,"), "{log}");
+}
+
+/// A turn that reads `shot.png` and answers, then a second turn's answer.
+fn reads_the_picture(answers: &[&str]) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let mut replies = vec![Reply::Sse(sse_body(&[
+        tool_call("r1", "read_file", serde_json::json!({"path": "shot.png"})),
+        finish("tool-calls"),
+    ]))];
+    replies.extend(
+        answers
+            .iter()
+            .map(|answer| Reply::Sse(content_only(&[answer]))),
+    );
+    replies
+}
+
+/// The user message after the tool results that carries their images, and
+/// the output the result kept, from a Gateway request.
+fn tool_image_parts(body: &Value) -> (Option<Value>, Vec<(String, String)>) {
+    let prompt = body["prompt"].as_array().expect("a prompt");
+    let output = prompt
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["toolCallId"] == "r1")
+        .map(|part| part["output"].clone());
+    (output, file_parts(body))
+}
+
+#[test]
+fn read_file_of_an_image_shows_it_to_the_model_on_every_later_request() {
+    // `imageToolResult` (`read_file.zig:228-278`) and the Gateway's place for
+    // it (`write_tool_image_user_message`, `vercel_protocol.zig:679-713`): the
+    // result says `image attached`, the image follows the results in a user
+    // message, and the next turn sends it again with the history.
+    let gateway = FakeGateway::start(reads_the_picture(&["MARKER-SEEN", "MARKER-AGAIN"]))
+        .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"what is in the picture?\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-AGAIN");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3);
+    for request in &requests[1..] {
+        let (output, files) = tool_image_parts(&request.json());
+        assert_eq!(
+            output,
+            Some(
+                serde_json::json!({"type": "content", "value": [{"type": "text",
+                "text": "<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"}]})
+            )
+        );
+        assert_eq!(
+            files,
+            [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+        );
+        assert!(
+            request
+                .body
+                .contains("Attached image(s) from the tool result."),
+            "{}",
+            request.body
+        );
+    }
+    let ids = sandbox.session_ids();
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    assert!(log.contains("\"kind\":\"tool_images_attached\""), "{log}");
+}
+
+#[test]
+fn a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there() {
+    // `projectToolImageMessages` (`gateway_step.zig:256-283`): the image is
+    // taken out and the result says why, in upstream's sentence for a model
+    // with no image input and no `vision` tool to fall back on.
+    let gateway = FakeGateway::start(reads_the_picture(&["MARKER-SEEN"]))
+        .with_catalog(catalog_tagging(&["tool-use"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"what is in the picture?\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    let (output, files) = tool_image_parts(&requests[1].json());
+    assert!(files.is_empty(), "the image was sent: {}", requests[1].body);
+    let text = output.expect("the result")["value"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        text.starts_with("[Tool images were retained but not sent: this model does not accept inline images and no vision fallback is available."),
+        "{text}"
+    );
+    assert_eq!(gateway.catalog_requests().len(), 1);
+}
+
+/// A PNG signature and an `IHDR` declaring `width` x `height`: upstream's
+/// `testPngHeader` (`image_data.zig:370-379`).
+fn png_header(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+    bytes.extend_from_slice(&width.to_be_bytes());
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request() {
+    // `withholdOversizedAttachments` (`image_attachments.zig:882-920`): the
+    // image stays out of the request, the text says why in front of it, and
+    // the history keeps it -- so the next request withholds it again, where
+    // the Gateway used to be sent it and refuse the whole turn.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SEEN"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-AGAIN"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("wide.png"), png_header(9000, 10)).expect("wide.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image wide.png\r");
+    session.wait_for("attached image: wide.png");
+    session.type_bytes(b" describe\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-AGAIN");
+    wait_for_conclusions(&sandbox, 2);
+    // The transcript is the history: the badge and the words, no note.
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] describe"],
+        &["not sent"],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1);
+    let dir = sandbox.sessions_dir().join(&ids[0]);
+    let copies: Vec<_> = std::fs::read_dir(dir.join("images"))
+        .expect("an images directory")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    let note = format!(
+        "[Image #1 not sent: image/png is 9000x10 pixels. This request permits at most 8000 per \
+         side and 5 MiB encoded per image. The original is saved at {}. Use an available image \
+         tool to save a smaller copy to a new file ending in .png, then read_file the copy. If no \
+         image tool is available, ask the user before installing one.]\n",
+        copies[0].display()
+    );
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        let body = request.json();
+        assert_eq!(file_parts(&body), [], "an image was sent");
+        assert_eq!(
+            user_messages(&body)[0],
+            format!("{note}[Image #1] describe")
+        );
+    }
+    assert_eq!(user_messages(&requests[1].json())[1], "and now?");
+    // The log keeps the turn as it was typed.
+    let log = std::fs::read_to_string(dir.join("events.jsonl")).expect("the log");
+    assert!(log.contains("\"text\":\"[Image #1] describe\""), "{log}");
+    assert!(!log.contains("not sent"), "{log}");
+}
+
+#[test]
 fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
     // `fx-image-unknown-40x120-sent.ansi`: a model the catalog does not list
     // is refused with upstream's sentence and **no completion request**; one

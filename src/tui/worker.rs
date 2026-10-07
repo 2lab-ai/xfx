@@ -2110,20 +2110,7 @@ impl Runtime {
     /// in the menu's order; no rows, for a provider with none; or that it
     /// could not be read, and whether asking again could help.
     fn catalog_event(&self) -> UiEvent {
-        let provider = self.config.provider;
-        match from_state(self.selector.catalog()) {
-            CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
-            // The provider has no catalog; nothing went wrong, and the menu
-            // says there is nothing in it.
-            CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
-                provider,
-                entries: Vec::new(),
-            },
-            CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
-                provider,
-                retry: self.selector.failure_retry(),
-            },
-        }
+        catalog_event_of(self.config.provider, &self.selector)
     }
 
     /// What every request of the next turn asks for beside its prompt: the
@@ -2353,6 +2340,24 @@ enum CatalogAnswer {
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
+/// What the UI is told about `selector`'s catalog for `provider`
+/// ([`Runtime::catalog_event`]).
+fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
+    match from_state(selector.catalog()) {
+        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+        // The provider has no catalog; nothing went wrong, and the menu
+        // says there is nothing in it.
+        CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+            provider,
+            entries: Vec::new(),
+        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
+            provider,
+            retry: selector.failure_retry(),
+        },
+    }
+}
+
 fn from_state(state: &CatalogState) -> CatalogAnswer {
     match state {
         CatalogState::Loaded(entries) => CatalogAnswer::Rows(in_menu_order(entries)),
@@ -3476,8 +3481,12 @@ impl TurnJournal for StoppedAtApproval<'_> {
 
     // Every method the trait has, forwarded: a default left in place here
     // would be the wrapped journal's work silently not done.
-    fn attach_images(&mut self, images: &[crate::image::Image]) {
-        self.inner.attach_images(images);
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        self.inner.attach_images(images)
+    }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        self.inner.attach_tool_images(call_id, images);
     }
 }
 
@@ -3877,6 +3886,86 @@ async fn image_refusal(
     }
 }
 
+/// Whether a request's tool images go to the model, decided the way a
+/// prompt's are and asked only when a request carries one.
+///
+/// **On the Gateway, the catalog decides** ([`image_refusal`]): a model it
+/// tags `vision` and `file-input` is sent them; any other request goes with
+/// the images taken out and upstream's sentence in front of each result that
+/// had any -- [`crate::image::TOOL_IMAGES_NOT_NATIVE`] for a listed model
+/// without the tags, [`crate::image::TOOL_IMAGES_UNKNOWN`] for one the catalog
+/// does not list or could not be read (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`). Upstream resolves the catalog the first time a
+/// tool image appears (`orchestrator.zig:7206-7214`); so does this, raced
+/// against the turn's cancellation and told to the UI when it is fresh.
+///
+/// **On llmux the daemon decides**, as it does a prompt's image: it is sent,
+/// and a model that cannot read it is the daemon's 400.
+struct ToolImageGate<'a> {
+    inner: &'a dyn crate::gateway::Provider,
+    provider: ProviderId,
+    /// Lent out while the catalog is read, so no borrow is held across that
+    /// wait.
+    selector: std::cell::RefCell<Option<&'a mut ModelSelector>>,
+    events: Sender<UiEvent>,
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl ToolImageGate<'_> {
+    /// The note a request's tool images are replaced by, or `None` when the
+    /// model is sent them.
+    async fn refusal(&self) -> Option<&'static str> {
+        if self.provider != ProviderId::Gateway {
+            return None;
+        }
+        let selector = self.selector.borrow_mut().take()?;
+        if matches!(selector.catalog(), CatalogState::NotLoaded) {
+            tokio::select! {
+                biased;
+                () = self.token.cancelled() => {}
+                _ = selector.ensure_catalog() => {
+                    let event = catalog_event_of(self.provider, selector);
+                    let _ = bridge::send_ui(&self.events, &self.token, event).await;
+                }
+            }
+        }
+        let note = match selector.entry(selector.model()) {
+            Some(entry) if entry.facts.image_input => None,
+            Some(_) => Some(crate::image::TOOL_IMAGES_NOT_NATIVE),
+            None => Some(crate::image::TOOL_IMAGES_UNKNOWN),
+        };
+        *self.selector.borrow_mut() = Some(selector);
+        note
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::gateway::Provider for ToolImageGate<'_> {
+    async fn stream(
+        &self,
+        request: &crate::gateway::protocol::CompletionRequest,
+        deltas: &mut dyn crate::gateway::DeltaSink,
+    ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
+        let carries = request.messages.iter().any(|message| {
+            message.content.iter().any(|part| {
+                matches!(part, crate::gateway::protocol::ContentPart::ToolResult { images, .. } if !images.is_empty())
+            })
+        });
+        if carries {
+            if let Some(note) = self.refusal().await {
+                if let Some(stripped) = crate::image::strip_tool_images(request, note) {
+                    return self.inner.stream(&stripped, deltas).await;
+                }
+            }
+        }
+        self.inner.stream(request, deltas).await
+    }
+
+    fn set_options(&self, options: crate::gateway::protocol::RequestOptions) {
+        self.inner.set_options(options);
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
@@ -3976,15 +4065,18 @@ async fn one_turn(
     // owns it: the model this turn is sent under is the model `/model` last
     // applied, whatever the configuration said at launch.
     let model = state.model().to_string();
+    let provider_id = state.config.provider;
     // Two fields of one struct rather than one method returning both: the
     // provider is read and the conversation is written, and the borrow checker
-    // is what keeps that honest.
+    // is what keeps that honest. The selector is a third: the tool-image gate
+    // below reads the catalog through it.
     let provider = state
         .provider
         .as_ref()
         .expect("the bundle was just built")
         .stream
         .as_ref();
+    let selector = &mut state.selector;
     let conversation = state
         .conversation
         .as_mut()
@@ -4049,10 +4141,17 @@ async fn one_turn(
     // record (`super::full_transcript::Networked`).
     let provider = super::full_transcript::Networked::new(
         provider,
-        state.config.provider.label(),
+        provider_id.label(),
         events.clone(),
         turn.token.clone(),
     );
+    let provider = ToolImageGate {
+        inner: &provider,
+        provider: provider_id,
+        selector: std::cell::RefCell::new(Some(selector)),
+        events: events.clone(),
+        token: turn.token.clone(),
+    };
     // And, in Ultra, whether each response was served at it
     // ([`ServedUltra`]).
     let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
@@ -6321,7 +6420,7 @@ mod tests {
         use super::super::hydration::HydratedStep;
         let mut all = format!("{:?}", replay.title);
         for turn in &replay.turns {
-            all.push_str(&turn.user);
+            all.push_str(&turn.sent);
             for step in &turn.steps {
                 match step {
                     HydratedStep::Text(text)
@@ -6868,8 +6967,16 @@ mod tests {
             fn change_made(&mut self, call_id: &str, _change: &crate::permission::ApprovalDiff) {
                 self.1.push(format!("change {call_id}"));
             }
-            fn attach_images(&mut self, images: &[crate::image::Image]) {
+            fn attach_images(
+                &mut self,
+                images: &[crate::image::Image],
+            ) -> Option<std::path::PathBuf> {
                 self.1.push(format!("images {}", images.len()));
+                Some(std::path::PathBuf::from("kept-images"))
+            }
+            fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+                self.1
+                    .push(format!("tool images {call_id} {}", images.len()));
             }
         }
         let refused = || SessionEvent::ToolResult {
@@ -6924,13 +7031,26 @@ mod tests {
             control: &control,
         };
         wrapper.change_made("w", &crate::permission::ApprovalDiff::of("a\n", "b\n"));
-        wrapper.attach_images(&[crate::image::Image::new(
-            1,
-            std::path::PathBuf::from("shot.png"),
-            crate::image::MediaType::Png,
-            std::sync::Arc::from(&b"png"[..]),
-        )]);
-        assert_eq!(kept.1, ["change w", "images 1"]);
+        // The directory the images were copied into is the recorder's
+        // answer, which the card's badges link to.
+        assert_eq!(
+            wrapper.attach_images(&[crate::image::Image::new(
+                1,
+                std::path::PathBuf::from("shot.png"),
+                crate::image::MediaType::Png,
+                std::sync::Arc::from(&b"png"[..]),
+            )]),
+            Some(std::path::PathBuf::from("kept-images"))
+        );
+        wrapper.attach_tool_images(
+            "r",
+            &[crate::image::ToolImage {
+                media_type: crate::image::MediaType::Png,
+                data: std::sync::Arc::from(&b"png"[..]),
+                path: "shot.png".to_string(),
+            }],
+        );
+        assert_eq!(kept.1, ["change w", "images 1", "tool images r 1"]);
         // And the loop reads its stop as before.
         assert!(control.stopping());
         assert_eq!(

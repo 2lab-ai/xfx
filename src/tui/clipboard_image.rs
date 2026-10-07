@@ -63,6 +63,76 @@ impl ClipboardReads {
     }
 }
 
+/// Where a clipboard image is copied the moment it is pasted, so its badge
+/// links a file that is there (`writeImageBadge`,
+/// `image_attachments.zig:1336-1340`).
+///
+/// Upstream captures a pasted clipboard image into its session's `images/`
+/// before the badge goes in, and names and links the image by that copy
+/// (`insertImageAtCursor`, `image_commands.zig:138-147`); with no session to
+/// hold it, the copy goes to a private temporary directory removed when the
+/// session ends (`imageSnapshotStorageDir`, `session_store.zig:102-118`;
+/// `createTempSnapshotDir`, `image_attachments.zig:240-262`; removed at
+/// `app_session_runtime.zig:1378-1381`). xfx opens its session with the first
+/// prompt, on another thread, so a paste always has no session to write into:
+/// the copy is that temporary one, and the session keeps its own when the
+/// prompt is recorded.
+#[derive(Debug, Default)]
+pub(crate) struct PasteCopies {
+    dir: Option<std::path::PathBuf>,
+}
+
+impl PasteCopies {
+    /// Writes `bytes` as `name`, owner-only, in the session's private
+    /// directory -- made on the first paste -- and hands back where.
+    pub(crate) fn write(
+        &mut self,
+        name: &str,
+        bytes: &[u8],
+    ) -> std::io::Result<std::path::PathBuf> {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = match &self.dir {
+            Some(dir) => dir.clone(),
+            None => {
+                let dir = crate::clipboard::private_directory("xfx-image-snapshots")?;
+                self.dir = Some(dir.clone());
+                dir
+            }
+        };
+        let path = dir.join(name);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .or_else(|err| match err.kind() {
+                // The same number and the same bytes: the name carries both.
+                std::io::ErrorKind::AlreadyExists => std::fs::OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(&path),
+                _ => Err(err),
+            })?;
+        file.write_all(bytes)?;
+        Ok(path)
+    }
+
+    /// The directory the copies are in, once one has been written.
+    #[cfg(test)]
+    pub(crate) fn dir(&self) -> Option<&std::path::Path> {
+        self.dir.as_deref()
+    }
+}
+
+impl Drop for PasteCopies {
+    fn drop(&mut self) {
+        if let Some(dir) = self.dir.take() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod tests {
     use super::*;
