@@ -47,6 +47,7 @@ pub(crate) struct Job {
     pub(crate) outstanding: usize,
     pub(crate) timeline: Vec<Entry>,
     pub(crate) network: Vec<Entry>,
+    pub(crate) title: crate::trace::TitleTrace,
 }
 
 impl Job {
@@ -86,6 +87,7 @@ impl Job {
                 timeline: &self.timeline,
                 network: &self.network,
             }),
+            title: Some(&self.title),
         }
         .render()
     }
@@ -173,6 +175,7 @@ mod tests {
             outstanding: 0,
             timeline: Vec::new(),
             network: Vec::new(),
+            title: crate::trace::TitleTrace::default(),
         }
     }
 
