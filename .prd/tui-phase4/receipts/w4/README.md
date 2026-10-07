@@ -1,6 +1,6 @@
 # W4 `/compact` — fx `c1db919` vs xfx, 40x120
 
-Four scenarios, driven identically on both binaries by `scripts/fxcap/capture.sh` (isolated tmux
+Five scenarios, driven identically on both binaries by `scripts/fxcap/capture.sh` (isolated tmux
 socket, empty `HOME`, fake key, loopback fake gateway, the desktop shims and fx's sound guard kept),
 with one turns file each that both products read (`read_file` takes `{"path"}` on both):
 
@@ -14,6 +14,8 @@ FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-fail   40x120 <ou
 scripts/fxcap/capture.sh                            xfx compact-fail   40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-text   40x120 <out>
 scripts/fxcap/capture.sh                            xfx compact-text   40x120 <out>
+FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-overflow 40x120 <out>
+scripts/fxcap/capture.sh                            xfx compact-overflow 40x120 <out>
 ```
 
 The first three scenarios seed the same two turns on the `compact-ws` workspace: `first question` → a
@@ -165,6 +167,23 @@ ANSWER-ONE: plain text.` -- then `second question` and `third question` (`Plan.n
 `summarize.zig:937-945`: no work, no rule candidate). The compacted texts are identical but for fx's
 `Saved word for word: turn M1. …` line, as above.
 
+## `compact-overflow`
+
+Two text-only turns, then `third question`, whose first request the fake gateway refuses with
+`400 {"error":{"message":"input exceeds the context window","code":"context_length_exceeded"}}`
+(`compact-overflow-turns.json`). Taken at `eb49413` (`plan/tui-phase4` at `835b565` merged in).
+
+| snap | fx | xfx | result |
+|---|---|---|---|
+| `answered` | the three turns, `ANSWER-THREE.` under the third, no row and nothing of the refusal | same | **match**: the refusal is recovered from, not shown (`provider_overflow`, `orchestrator.zig:8099-8124`). The welcome row and one turn summary's second differ as above. |
+
+Both gateway logs show the refused request (`status 400`) and then one more completion: no notes
+request (the turns are text-only), and the retried request -- fx `005`, xfx `004`, not committed --
+carries `<compacted_conversation>` holding turn 1's exact texts, then `second question` and
+`third question`, on both; the compacted texts are identical but for fx's `Saved word for word: turn
+M1. …` line, as in `compact-text`. fx reads the catalog at launch and xfx before its second turn, as
+in `compact`.
+
 ## Not captured here, and where it is proven instead
 
 - **The automatic trigger.** The fake gateway's catalog publishes no window, and with no window neither
@@ -184,10 +203,9 @@ ANSWER-ONE: plain text.` -- then `second question` and `third question` (`Plan.n
   `a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step` shows the
   second turn's first request sent as it was, the notes request after its read, the next step
   carrying the compacted form, the checkpoint inside the turn, and a resume continuing from it.
-- **A request refused as too large** (`provider_overflow`, `orchestrator.zig:8099-8124`). `tests/tui.rs`
-  `a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again`: a `400`
-  `context_length_exceeded`, then the same turn sent again with the compacted form and nothing of the
-  refusal on the screen; `agent::machine` tests hold the once-per-turn rule and the eight phrasings.
+- **A request refused as too large** is the `compact-overflow` pair above; `tests/tui.rs`
+  `a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again` asserts the same, and
+  `agent::machine` tests hold the once-per-turn rule and the eight phrasings.
 - **`/trace`'s `## Context Compaction`** (e2e `tui-compaction-activity.test.ts:506-549`). `tests/tui.rs`
   `trace_records_a_failed_compaction_and_the_one_after_it` (the failed notes requests with the
   provider's words masked, the fallback, `transaction_failed`, then `provider_start`,
