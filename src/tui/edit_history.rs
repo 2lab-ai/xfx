@@ -59,8 +59,9 @@ pub(crate) enum DeltaKind {
     Ordinary,
     /// `C-k`, `C-u`, `C-w`: what it removed goes to the kill slot.
     Kill,
-    /// One framed paste, however many reads it arrived in -- the boundary the
-    /// one-entry seam this module replaces used to hold on its own.
+    /// A collapsed paste or a badge put in at the caret
+    /// ([`super::editor::Editor::insert_entity`]): it puts an entity in, so
+    /// recording it is a boundary ([`EditHistory::record`]).
     Paste,
 }
 
@@ -242,20 +243,23 @@ impl EditHistory {
                     .collect(),
             });
         }
-        // **An edit that takes a badge or puts one in is a boundary**, as
-        // upstream's structured edits are: a deletion, a kill or a typed
-        // replacement over one (`composer_replacement.zig:223-232`,
-        // `composer_kill_ring.zig:90-101`) and a yank that brings one back
-        // (`:56-66`) clear both stacks rather than record, so an undo never
-        // brings a badge back, as words or as an image, and upstream's
-        // refusal of an undo over one (`composer_undo.zig:35-40,252-268`)
-        // has nothing left to refuse. Neither stack holds an image's bytes.
+        // **An edit that takes an entity or puts one in is a boundary** -- a
+        // pasted-text block or an image's badge, the composer's structured
+        // units (`registered_entities.zig:270-290`) -- as upstream's
+        // structured edits are: a block's or a badge's own insertion
+        // (`input_paste_runtime.zig:436-438`, `image_commands.zig:172-174`),
+        // a deletion, a kill or a typed replacement over one
+        // (`composer_replacement.zig:223-232`, `composer_kill_ring.zig:90-101`)
+        // and a yank that brings a badge back (`:56-66`) clear both stacks
+        // rather than record. So an undo never brings an entity back, and
+        // upstream's refusal of an undo over one
+        // (`composer_undo.zig:35-40,252-268`) has nothing left to refuse.
+        // A skill token (`$name`, the /skills unit's) is the third such
+        // entity upstream has; it joins here as an `EntityKind` of its own,
+        // and this test takes it with no change.
         if weight > MAX_RETAINED_BYTES
-            || delta
-                .removed_entities()
-                .iter()
-                .chain(delta.inserted_entities())
-                .any(|span| span.image().is_some())
+            || !delta.removed_entities().is_empty()
+            || !delta.inserted_entities().is_empty()
         {
             self.boundary();
             return;
