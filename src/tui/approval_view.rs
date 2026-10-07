@@ -986,14 +986,14 @@ pub(crate) fn safe_rows(text: &str, budget: u16) -> Vec<String> {
 /// A command with nothing left in it a terminal would obey or reorder, spelled
 /// as upstream's approval spells it (`projectCommandText`,
 /// `vercel-labs/fx@c1db9191 src/ui/footer/approval_ui.zig:228-247`; the token
-/// policy is `terminalSafeToken`, `src/core/shared/text_utils.zig:560-616`).
+/// policy is `terminalSafeToken`, `src/core/shared/text_utils.zig:560-626`).
 ///
 /// A line break is kept: it is a row break. Every other C0 control and `DEL`
 /// is `\xNN`, two lowercase hex digits -- a tab is `\x09` and a carriage
 /// return `\x0d`, where [`tamed`] names them `\t` and `\r`. The C1 controls
 /// and the zero-width, line-separator, bidirectional, invisible-operator and
 /// byte-order-mark code points upstream names (`isNonPrintingCodepoint`,
-/// `:608-614`) are `\u{NNNN}`, at least four lowercase hex digits.
+/// `:620-626`) are `\u{NNNN}`, at least four lowercase hex digits.
 ///
 /// **One code point more than upstream's**: the Arabic letter mark (`U+061C`)
 /// is named too, because [`reorders`] counts it among the characters that
@@ -1023,7 +1023,7 @@ pub(crate) fn command_text(command: &str) -> String {
 }
 
 /// Whether upstream's command text names `code` by its number
-/// (`isNonPrintingCodepoint`, `text_utils.zig:608-614`), or xfx's bidi rule
+/// (`isNonPrintingCodepoint`, `text_utils.zig:620-626`), or xfx's bidi rule
 /// does ([`reorders`], `U+061C`).
 fn names_code_point(code: u32) -> bool {
     matches!(
@@ -1040,10 +1040,10 @@ fn names_code_point(code: u32) -> bool {
 /// trailing line break included). Within a line, a row is:
 ///
 /// * **The longest run of tokens that fits** (`prefixTerminalSafeByWidth`,
-///   `text_utils.zig:294-309`): a `\xNN` or `\u{…}` is one token, so a
+///   `text_utils.zig:294-310`): a `\xNN` or `\u{…}` is one token, so a
 ///   spelled control is never split across two rows; it goes down whole.
 /// * **Cut back to the last space inside the width, when that is shorter**
-///   (`wrapCutIgnoringAnsi`, `display_width.zig:333-353`) -- and not a space
+///   (`wrapCutIgnoringAnsi`, `display_width.zig:354-374`) -- and not a space
 ///   at the row's very start. The width is measured to the margin, not to the
 ///   end of the tokens that fit, so a word that ends exactly at the margin
 ///   goes down with the space before it when another space is in front of it.
@@ -1103,7 +1103,7 @@ fn token_prefix(line: &str, content: u16) -> usize {
 }
 
 /// The bytes the token `text` begins with takes (`terminalSafeEncodedTokenLen`,
-/// `text_utils.zig:311-341`): a `\xNN`, a `\u{…}` of one to eight hex digits,
+/// `text_utils.zig:312-341`): a `\xNN`, a `\u{…}` of one to eight hex digits,
 /// or one character.
 fn token_len(text: &str) -> usize {
     let bytes = text.as_bytes();
@@ -1129,7 +1129,7 @@ fn token_len(text: &str) -> usize {
 }
 
 /// Where `line` is cut by its spaces within `content` cells
-/// (`wrapCutIgnoringAnsi`, `display_width.zig:333-353`): the prefix that fits
+/// (`wrapCutIgnoringAnsi`, `display_width.zig:354-374`): the prefix that fits
 /// is measured cluster by cluster to the margin, and the cut is before the
 /// last space in it when that space is past the first byte -- else the prefix
 /// itself, or the whole line when all of it fits.
@@ -1368,7 +1368,7 @@ mod tests {
     #[test]
     fn a_command_with_escape_and_link_bytes_shows_them_spelled_and_never_split() {
         // `projectCommandText` and `terminalSafeToken` (`approval_ui.zig:228-
-        // 247`, `text_utils.zig:560-616`): what a terminal would obey is its
+        // 247`, `text_utils.zig:560-626`): what a terminal would obey is its
         // number, and the number is one token, so it goes down whole --
         // fx's `cmd-wrap` receipt, `A-C2:xxx...` / `\x1b[31mred\x1b[0m`.
         assert_eq!(
@@ -1416,13 +1416,13 @@ mod tests {
             ["curl --header alpha", "--header bravo"]
         );
         // `approval command projection keeps literal escapes and encodes
-        // controls` (`:2497-2507`).
+        // controls` (`:2496-2507`).
         assert_eq!(
             command_text("printf '\\x0a'\nprintf '\u{1b}[31m'\r"),
             "printf '\\x0a'\nprintf '\\x1b[31m'\\x0d"
         );
         // `inline command panel preserves hard newlines from the raw command`
-        // (`:2468-2495`).
+        // (`:2468-2494`).
         assert_eq!(
             command_rows("cat <<'EOF'\nline one\nEOF", 120 - 4),
             ["cat <<'EOF'", "line one", "EOF"]
