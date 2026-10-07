@@ -84,7 +84,7 @@ use super::compaction::{self, Compaction};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
-use super::entity::{Entities, EntityKind};
+use super::entity::{Entities, EntityKind, Span};
 use super::file_index::Files;
 use super::file_picker::{self, FilePicker};
 use super::frame::Caret;
@@ -94,6 +94,7 @@ use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
+use super::image_paths;
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
@@ -433,20 +434,18 @@ const QUESTION_TOO_SMALL: &str =
 /// (`app_process_runtime.zig:61`, where a request that failed is reported).
 const GONE_NOTICE: &str = "the runtime is gone; that line was not sent";
 
-/// The hint row's refusal for a paste larger than the byte budget.
-///
-/// A **hint-row** refusal rather than a document line, for the reason
-/// [`QUEUE_REJECTED`] is one: it belongs beside the composer it did not change,
-/// and it is a condition that clears the moment anything else happens on that
-/// row. Said at all, unlike the composer's own budget -- which refuses silently
-/// because a keystroke that changes nothing is its own feedback -- because a
-/// paste that vanished without a word looks exactly like a terminal that never
-/// sent it.
-const PASTE_REFUSED: &str = "that paste is larger than 8 MiB; nothing was taken";
+/// What an edit the prompt's byte budget refuses says, under `input`, as an
+/// error in the document: a paste, a typed character, a yank -- any edit of
+/// the composer (`input_limit_feedback.zig:5-42`,
+/// `fx-image-composer-40x120-oversized`). Said once per run of refusals,
+/// again after an edit has gone through (`input_limit_rejection.zig:12-25`),
+/// and for every paste, each of which begins a run of its own
+/// (`input_paste_runtime.zig:110-127`).
+const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and was not applied.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
-/// Its own sentence rather than [`PASTE_REFUSED`]'s, because the two are
+/// Its own sentence rather than [`INPUT_LIMIT`]'s, because the two are
 /// different problems with different answers: a paste past the budget is one a
 /// user can make smaller, and a session four billion pastes deep is one they
 /// have to leave. Reachable only through `Paste::with_next`, which is why the
@@ -1279,6 +1278,13 @@ pub(crate) struct Shell {
     /// The clipboard reads `/paste` and Ctrl-V started, and what each found
     /// ([`super::clipboard_image`]).
     clipboard_reads: ClipboardReads,
+    /// Where each clipboard image is copied as it is pasted, so its badge links
+    /// a file ([`super::clipboard_image::PasteCopies`]).
+    paste_copies: super::clipboard_image::PasteCopies,
+    /// Whether the composer's byte budget has refused an edit since the last
+    /// one it took: the refusal is said once per such run
+    /// ([`Shell::over_budget`]).
+    over_limit: bool,
     /// The number the next attached image takes. Spent only when a badge
     /// lands and never given back, so no two images in one process answer to
     /// one `[Image #N]` (`allocateImageId`, `image_attachments.zig:1366-1370`);
@@ -1477,58 +1483,65 @@ pub(crate) fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice)
     owed
 }
 
-/// Each image badge a card names and the link that opens around it, in no
-/// particular order: the badge as the card spells it (`[Image N]`) and
-/// upstream's open for its file (`writeImageBadge`,
-/// `image_attachments.zig:1336-1340`) -- no parameters, the path
-/// percent-encoded ([`super::hyperlink::file_uri`]).
-type BadgeLinks = Vec<(String, String)>;
+/// The images a card's prompt sent, by the number the prompt names each by,
+/// and the link that opens around its badge: upstream's open for its file
+/// (`writeImageBadge`, `image_attachments.zig:1336-1340`) -- no parameters,
+/// the path percent-encoded ([`super::hyperlink::file_uri`]) -- or none for a
+/// file no link may name, whose badge is text.
+type BadgeLinks = Vec<(u32, Option<String>)>;
 
-/// A prompt's card while it waits for its turn: the text and its badges'
-/// links ([`Shell::prompts`]).
+/// A prompt's card while it waits for its turn: the prompt as it is sent and
+/// its images ([`Shell::prompts`]).
 type WaitingCard = (String, BadgeLinks);
 
-/// [`BadgeLinks`] for these images. One whose file has no target a link may
-/// carry -- a relative path, or one too long -- is left out, and its badge
-/// stays text.
+/// [`BadgeLinks`] for these images.
 fn badge_links<'a>(images: impl IntoIterator<Item = (u32, &'a std::path::Path)>) -> BadgeLinks {
     images
         .into_iter()
-        .filter_map(|(id, path)| {
-            let uri = super::hyperlink::file_uri(path)?;
-            Some((crate::image::badge(id), super::hyperlink::open("", &uri)))
+        .map(|(id, path)| {
+            let link = super::hyperlink::file_uri(path).map(|uri| super::hyperlink::open("", &uri));
+            (id, link)
         })
         .collect()
 }
 
-/// `line` with every badge [`BadgeLinks`] names wrapped in its link: upstream's
-/// card (`expandPlaceholdersWithLinkedBadges`, `user_message_card.zig:222-230`).
+/// One line of a card: the prompt as it was sent, each `[Image #N]` naming an
+/// image the turn sent spelled as its badge `[Image N]` -- inside the link to
+/// its file when `linked` -- and every other run as written, a typed
+/// `[Image #1]` that names no image of the turn included: upstream's
+/// `expandPlaceholdersWithLinkedBadges` (`image_attachments.zig:1560-1620`,
+/// from `user_message_card.zig:222-230`). The badges come from the tokens,
+/// never from text that looks like a badge.
 ///
 /// A link changes only where the target does, as upstream's writer emits one
 /// (`emitHyperlinkTransition`, `engine.zig:3245-3260`): two badges side by side
 /// that name one file are one run under one open, and a badge next to another
 /// file's opens that file's link without a close between them. The last one is
 /// closed before the text after it.
-fn linked_badges(line: &str, links: &BadgeLinks) -> String {
-    if links.is_empty() {
-        return line.to_string();
-    }
+fn card_line(line: &str, links: &BadgeLinks, linked: bool) -> String {
     let mut out = String::with_capacity(line.len());
     let mut open: Option<&str> = None;
     let mut rest = line;
     while !rest.is_empty() {
-        let found = links
-            .iter()
-            .find(|(badge, _)| rest.starts_with(badge.as_str()));
-        let (taken, link) = match found {
-            Some((badge, link)) => (badge.len(), Some(link.as_str())),
-            None => (rest.chars().next().map_or(1, char::len_utf8), None),
+        let sent = crate::image::placeholder_at(rest).and_then(|(id, len)| {
+            links
+                .iter()
+                .find(|(image, _)| *image == id)
+                .map(|(_, link)| (id, len, link.as_deref()))
+        });
+        let (badge, taken, link) = match sent {
+            Some((id, len, link)) => (Some(crate::image::badge(id)), len, link),
+            None => (None, rest.chars().next().map_or(1, char::len_utf8), None),
         };
+        let link = link.filter(|_| linked);
         if link != open {
             out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
             open = link;
         }
-        out.push_str(&rest[..taken]);
+        match badge {
+            Some(badge) => out.push_str(&badge),
+            None => out.push_str(&rest[..taken]),
+        }
         rest = &rest[taken..];
     }
     if open.is_some() {
@@ -1537,12 +1550,23 @@ fn linked_badges(line: &str, links: &BadgeLinks) -> String {
     out
 }
 
+/// A card's text as a reader sees it, with no link: each sent image's
+/// `[Image #N]` as its badge ([`card_line`]).
+fn card_text(text: &str, links: &BadgeLinks) -> String {
+    text.split('\n')
+        .map(|line| card_line(line, links, false))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
     /// The line the user submitted, as upstream's card: the rail, the text in
     /// bold, and a blank row under it (`user_message_card.zig:319-325`) --
-    /// and each image badge on it a link to its file ([`BadgeLinks`]).
+    /// and each image badge on it a link to its file ([`BadgeLinks`]). The
+    /// text is the prompt as it was sent, `[Image #N]` and all
+    /// ([`card_line`]).
     Card(String, BadgeLinks),
     /// The turn's summary under its answer, and a blank row under it
     /// (`transcript/runtime.zig:540-547`).
@@ -2019,6 +2043,8 @@ impl Shell {
             fatal: None,
             leaving: None,
             clipboard_reads: ClipboardReads::new(clipboard.clone()),
+            paste_copies: super::clipboard_image::PasteCopies::default(),
+            over_limit: false,
             traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
             images_next: 1,
@@ -2990,7 +3016,7 @@ impl Shell {
             .rposition(|step| !matches!(step, HydratedStep::Text(_)))
             .map_or(0, |last| last + 1);
         let links = badge_links(turn.images.iter().map(|(id, path)| (*id, path.as_path())));
-        self.run_mark(Mark::Card(turn.user.clone(), links));
+        self.run_mark(Mark::Card(turn.sent.clone(), links));
         let mut streamed = Estimator::default();
         for (index, step) in turn.steps.into_iter().enumerate() {
             if index == concluding {
@@ -3243,7 +3269,9 @@ impl Shell {
                     }
                     !taken
                 });
-                // A steer carries no images, so no badge links.
+                // A steer carries no images, so no badge links: its card is
+                // its text (`worker_runtime.zig:1109-1113`,
+                // `user_message_card.zig:221-238`).
                 for card in delivered {
                     self.echo(&card, BadgeLinks::new());
                 }
@@ -3963,7 +3991,7 @@ impl Shell {
     /// the document by roads other than a mark as well.
     fn record(&mut self, mark: &Mark) {
         match mark {
-            Mark::Card(text, _) => self.full.prompt(text),
+            Mark::Card(text, links) => self.full.prompt(&card_text(text, links)),
             Mark::Summary(line) => self.full.usage(line),
             // The one line said this way is what the user said at an
             // approval, which upstream's screen heads as a prompt.
@@ -4082,12 +4110,13 @@ impl Shell {
     /// Says whatever the standing question owes the user, on the plane they can
     /// see.
     ///
-    /// The same rule the readiness refusal follows and for the same reason:
-    /// while the review plane is up it owns every row of the terminal, so a
-    /// sentence written into the document is a sentence behind a screen nobody
-    /// can look past. The band's own hint row is where it goes otherwise --
-    /// which is where every other refused keystroke on this surface is
-    /// reported ([`Self::notice`]).
+    /// An error under `input` in the document, above the panel, as upstream
+    /// writes an amendment's refusal (`input_limit_feedback.zig:31-41`,
+    /// `fx-approvals-amend-limit-40x120-refused`). While the review plane is up
+    /// it owns every row of the terminal, so a sentence written into the
+    /// document is a sentence behind a screen nobody can look past: the plane
+    /// says it on its own status row instead -- the same rule the readiness
+    /// refusal follows.
     fn notice_at_the_question(&mut self) {
         let notice = match (self.panel.as_mut(), self.alternate.as_mut()) {
             (Some(panel), _) => panel.take_notice(),
@@ -4099,10 +4128,7 @@ impl Shell {
         };
         match self.alternate.as_mut() {
             Some(screen) => screen.set_status(notice.to_string()),
-            None => {
-                self.notice = Some(notice);
-                self.render.request(Reason::Footer);
-            }
+            None => self.announce(notice::Notice::error("input", notice)),
         }
     }
 
@@ -7593,10 +7619,19 @@ impl Shell {
                         media_type,
                         std::sync::Arc::from(bytes),
                     );
-                    // Named by the copy the session keeps of it, which is what
-                    // upstream links a clipboard badge to: the source was a
-                    // temporary file and is gone.
-                    image.path = std::path::PathBuf::from(image.snapshot_name());
+                    // Named, and linked, by the copy written now, as upstream
+                    // names and links a clipboard badge by the copy it captures
+                    // at the paste (`image_commands.zig:138-147`): the source
+                    // was a temporary file and is gone. A copy that cannot be
+                    // written leaves the badge its name and no link.
+                    let name = image.snapshot_name();
+                    match self.paste_copies.write(&name, &image.bytes) {
+                        Ok(path) => {
+                            image.path = path;
+                            image.copied = true;
+                        }
+                        Err(_) => image.path = std::path::PathBuf::from(name),
+                    }
                     if !self.attach(image) {
                         self.announce(notice::Notice::neutral(
                             crate::image::TOPIC,
@@ -7648,6 +7683,310 @@ impl Shell {
         self.edit_history.boundary();
         self.amended(None);
         true
+    }
+
+    /// An edit the prompt's byte budget refused: the composer is exactly as it
+    /// was, and the document says so once per run of refusals, as upstream's
+    /// `input_limit_feedback.report` does (`input_limit_feedback.zig:5-42`).
+    fn over_budget(&mut self) {
+        self.render.request(Reason::Footer);
+        if std::mem::replace(&mut self.over_limit, true) {
+            return;
+        }
+        self.announce(notice::Notice::error("input", INPUT_LIMIT));
+    }
+
+    /// A paste that names image files: each one that loads becomes its badge
+    /// where its path was, the rest of the paste goes in as it came, and no
+    /// notice is written for an image that was attached
+    /// (`handlePastedBytes`, `input_paste_runtime.zig:445-622`).
+    ///
+    /// A path to a file over 20 MiB says so and stays as words; any other
+    /// that does not load stays as words in silence -- a pasted sentence that
+    /// mentions `notes.png` is a sentence. With no image the paste is text,
+    /// inline whatever its length. With one, a `/image ` the paste began with
+    /// and an `/image` alone in the composer are the command the path was
+    /// meant for, and go (`stripPastedImageSlashPrefix`,
+    /// `isBareImageSlashPrefix`, `:27-78`, `:573-580`).
+    fn paste_paths(&mut self, text: &str) {
+        let first = self.images_next;
+        let mut replacement = String::with_capacity(text.len());
+        let mut spans: Vec<Span> = Vec::new();
+        let mut cut = 0;
+        for word in image_paths::find(text) {
+            let (path, media_type, bytes) =
+                match image_paths::load(&self.workspace, self.home.as_deref(), &word) {
+                    Ok(loaded) => loaded,
+                    Err(crate::image::AttachError::TooLarge) => {
+                        self.announce(notice::Notice::error(
+                            crate::image::TOPIC,
+                            crate::image::TOO_LARGE,
+                        ));
+                        continue;
+                    }
+                    Err(_) => continue,
+                };
+            let Some(id) = u32::try_from(spans.len())
+                .ok()
+                .and_then(|count| first.checked_add(count))
+                .filter(|id| id.checked_add(1).is_some())
+            else {
+                continue;
+            };
+            replacement.push_str(&text[cut..word.range.start]);
+            let start = replacement.len();
+            replacement.push_str(&crate::image::badge(id));
+            spans.push(Span {
+                start,
+                end: replacement.len(),
+                kind: EntityKind::Image {
+                    token: std::sync::Arc::from(crate::image::token(id)),
+                    image: std::sync::Arc::new(crate::image::Image::new(
+                        id,
+                        path,
+                        media_type,
+                        std::sync::Arc::from(bytes),
+                    )),
+                },
+            });
+            cut = word.range.end;
+        }
+        replacement.push_str(&text[cut..]);
+        let refused = |shell: &mut Self| shell.over_budget();
+        if spans.is_empty() {
+            if !paste::fits(
+                self.editor.text().len(),
+                self.editor.retained(),
+                replacement.len(),
+            ) {
+                refused(self);
+                return;
+            }
+            match self.editor.insert(&replacement) {
+                Some(delta) => self.amended(Some(delta)),
+                None if replacement.is_empty() => {}
+                None => refused(self),
+            }
+            return;
+        }
+        if self.editor.is_empty() {
+            if let Some(prefix) = image_slash_prefix(&replacement) {
+                if spans[0].start == prefix {
+                    replacement.drain(..prefix);
+                    for span in &mut spans {
+                        span.start -= prefix;
+                        span.end -= prefix;
+                    }
+                }
+            }
+        }
+        let consume = self.editor.entities().images().next().is_none()
+            && self.editor.selection().is_none()
+            && self.editor.caret_at_end()
+            && matches!(
+                self.editor.text().trim_matches([' ', '\t']),
+                "/image" | "/img"
+            );
+        let draft = if consume { 0 } else { self.editor.text().len() };
+        if !paste::fits(draft, self.editor.retained(), replacement.len()) {
+            refused(self);
+            return;
+        }
+        if consume {
+            self.take_draft();
+        }
+        if self
+            .editor
+            .insert_with_entities(&replacement, &spans)
+            .is_none()
+        {
+            refused(self);
+            return;
+        }
+        self.images_next = first + spans.len() as u32;
+        self.edit_history.boundary();
+        self.amended(None);
+    }
+
+    /// The image paths typed into a prompt that is about to be sent, made
+    /// badges in the draft (`extractInlineImageAttachments`,
+    /// `input_submit_runtime.zig:756-776`): each that loads is attached as
+    /// `/image` would attach it, numbered in the order they stand.
+    ///
+    /// A path that is not there, not an image, not a file, or means nothing
+    /// is the words it is ([`image_paths::passed_over_at_submit`]); any other
+    /// failure is said under `images` in `/image`'s words, and the prompt is
+    /// not sent -- the draft stays as typed for the user to fix. A path inside
+    /// a badge or a paste's summary is not a word of the draft.
+    fn attach_typed(&mut self, text: &str) -> Typed {
+        let spans = self.editor.entities().spans();
+        let words: Vec<image_paths::ImagePath> = image_paths::find(text)
+            .into_iter()
+            .filter(|word| {
+                !spans
+                    .iter()
+                    .any(|span| span.start < word.range.end && word.range.start < span.end)
+            })
+            .collect();
+        let mut found = Vec::new();
+        for word in words {
+            match image_paths::load(&self.workspace, self.home.as_deref(), &word) {
+                Ok(loaded) => found.push((word.range, loaded)),
+                Err(problem) if image_paths::passed_over_at_submit(&problem) => {}
+                Err(problem) => {
+                    self.announce(notice::Notice::error(
+                        crate::image::TOPIC,
+                        problem.to_string(),
+                    ));
+                    return Typed::Refused;
+                }
+            }
+        }
+        let first = self.images_next;
+        let Some(next) = u32::try_from(found.len())
+            .ok()
+            .and_then(|count| first.checked_add(count))
+        else {
+            return Typed::Nothing;
+        };
+        if found.is_empty() {
+            return Typed::Nothing;
+        }
+        let before = self.draft_before();
+        // From the last to the first, so each range is still where it was.
+        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate().rev() {
+            let id = first + index as u32;
+            let kind = EntityKind::Image {
+                token: std::sync::Arc::from(crate::image::token(id)),
+                image: std::sync::Arc::new(crate::image::Image::new(
+                    id,
+                    path,
+                    media_type,
+                    std::sync::Arc::from(bytes),
+                )),
+            };
+            let placed = self
+                .editor
+                .replace(range.start, range.end, "", range.start)
+                .and_then(|_| self.editor.insert_entity(&crate::image::badge(id), kind));
+            if placed.is_none() {
+                // No room for the badge: the draft as it was, the paths words.
+                self.restore_draft(before);
+                return Typed::Nothing;
+            }
+        }
+        self.images_next = next;
+        self.edit_history.boundary();
+        Typed::Attached
+    }
+
+    /// Gives each badge whose number the prompt already says in words -- a
+    /// typed `[Image #1]` beside the badge that is #1 -- a fresh number, so
+    /// the model is never handed two things called `[Image #1]`
+    /// (`mapSubmittedImages`, `input_submit_runtime.zig:1615-1692`). The
+    /// words stay as typed; the badge takes the session's next number that
+    /// neither the words nor another badge use (`nextRemappedImageId`,
+    /// `:1713-1724`), and the numbers it spends are spent
+    /// (`commitRemappedImageIds`, `:1701-1711`).
+    ///
+    /// The words are read from the prompt as it is sent, a collapsed paste's
+    /// text included (`literalImageIdUsed`, `:1726-1752`). `true` when a
+    /// badge was renumbered.
+    fn renumber_lookalikes(&mut self) -> bool {
+        let text = self.editor.text().to_string();
+        let spans = self.editor.entities().spans().to_vec();
+        let mut words: Vec<u32> = Vec::new();
+        let mut cut = 0;
+        for span in &spans {
+            words.extend(crate::image::placeholder_ids(&text[cut..span.start]));
+            if span.image().is_none() {
+                words.extend(crate::image::placeholder_ids(span.text()));
+            }
+            cut = span.end;
+        }
+        words.extend(crate::image::placeholder_ids(&text[cut..]));
+        let taken: Vec<u32> = spans
+            .iter()
+            .filter_map(|span| span.image().map(|image| image.id))
+            .collect();
+        if !taken.iter().any(|id| words.contains(id)) {
+            return false;
+        }
+        let mut next = self.images_next;
+        let mut out = String::with_capacity(text.len());
+        let mut entities = Entities::new();
+        let mut cut = 0;
+        for span in spans {
+            out.push_str(&text[cut..span.start]);
+            let start = out.len();
+            let kind = match span.image() {
+                Some(image) if words.contains(&image.id) => {
+                    while words.contains(&next) || taken.contains(&next) {
+                        let Some(after) = next.checked_add(1) else {
+                            return false;
+                        };
+                        next = after;
+                    }
+                    let id = next;
+                    let Some(after) = id.checked_add(1) else {
+                        return false;
+                    };
+                    next = after;
+                    let mut renamed = crate::image::Image::clone(image);
+                    renamed.id = id;
+                    out.push_str(&crate::image::badge(id));
+                    EntityKind::Image {
+                        token: std::sync::Arc::from(crate::image::token(id)),
+                        image: std::sync::Arc::new(renamed),
+                    }
+                }
+                _ => {
+                    out.push_str(&text[span.start..span.end]);
+                    span.kind.clone()
+                }
+            };
+            entities.register(Span {
+                start,
+                end: out.len(),
+                kind,
+            });
+            cut = span.end;
+        }
+        out.push_str(&text[cut..]);
+        if !self.editor.set_text(&out, entities) {
+            return false;
+        }
+        self.images_next = self.images_next.max(next);
+        self.edit_history.boundary();
+        true
+    }
+
+    /// The draft as it stands, to be put back if a prompt made from it is
+    /// not taken ([`Self::restore_draft`]).
+    fn draft_before(&self) -> DraftBefore {
+        DraftBefore {
+            text: self.editor.text().to_string(),
+            spans: self.editor.entities().spans().to_vec(),
+            next: self.images_next,
+        }
+    }
+
+    /// Puts back the draft submit changed for sending -- typed paths made
+    /// badges, badges renumbered -- as it was before: a prompt the runtime
+    /// would not take keeps what the user typed, and spends no number, as
+    /// upstream's composer does when the admission fails
+    /// (`input_submit_runtime.zig:872-874`).
+    fn restore_draft(&mut self, before: DraftBefore) {
+        let DraftBefore { text, spans, next } = before;
+        let mut entities = Entities::new();
+        for span in spans {
+            entities.register(span);
+        }
+        self.edit_history.boundary();
+        if self.editor.set_text(&text, entities) {
+            self.images_next = next;
+        }
+        self.edited(None);
     }
 
     /// Says how each `/trace` that has finished went, in upstream's one
@@ -8270,8 +8609,8 @@ impl Shell {
         // shows for a collapsed paste is 25 bytes standing for as much as 8
         // MiB, so a composer that counted only its own text would let a
         // keystroke build a prompt twice the size of the cap
-        // ([`super::paste::fits`]). Refused silently, like every other
-        // keystroke the budget refuses.
+        // ([`super::paste::fits`]). Refused in upstream's words
+        // ([`Self::over_budget`]).
         //
         // One question rather than two. While a block was a *name*, a keystroke
         // could land inside a summary and release the megabytes behind it, so
@@ -8283,6 +8622,7 @@ impl Shell {
             self.editor.retained(),
             typed.len(),
         ) {
+            self.over_budget();
             return;
         }
         if let Some(delta) = self.editor.insert(typed) {
@@ -8304,15 +8644,20 @@ impl Shell {
     /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
     /// paste that plainly did not happen, and the hint row says which it was.
     fn pasted(&mut self) {
-        let pasted = self
-            .paste
-            .finish(self.editor.text().len(), self.editor.retained());
-        match pasted {
-            Pasted::Refused(refusal) => {
-                self.notice = Some(match refusal {
-                    Refusal::Oversized => PASTE_REFUSED,
-                    Refusal::Unnumbered => PASTE_UNNUMBERED,
+        // `/model`'s search is typed in the composer, and an image attached
+        // there would outlive the query, so a path pasted into it is the words
+        // it is (`modelPickerBorrowsComposer`, `input_paste_runtime.zig:355-364`, `:370-377`).
+        let borrowed = self.model_draft.is_some() || self.model_menu.is_some();
+        let pasted =
+            self.paste
+                .finish_with(self.editor.text().len(), self.editor.retained(), |text| {
+                    !borrowed && image_paths::any(text)
                 });
+        match pasted {
+            Pasted::Paths(text) => self.paste_paths(&text),
+            Pasted::Refused(Refusal::Oversized) => self.over_budget(),
+            Pasted::Refused(Refusal::Unnumbered) => {
+                self.notice = Some(PASTE_UNNUMBERED);
                 self.render.request(Reason::Footer);
             }
             Pasted::Inline(text) => {
@@ -8575,7 +8920,13 @@ impl Shell {
             // rather than keys, which is the whole of why a pasted newline does
             // not submit the composer and a pasted `0x03` does not cancel a
             // turn.
-            Action::PasteStart => self.paste.begin(),
+            // A paste is an episode of its own: one past the budget is said
+            // even straight after another (`beginPaste`,
+            // `input_paste_runtime.zig:110-127`).
+            Action::PasteStart => {
+                self.over_limit = false;
+                self.paste.begin();
+            }
             Action::PasteEnd => self.pasted(),
             // `Tab` reaches here only with no menu and no question up -- both
             // bind it, and both are offered every keystroke before this runs --
@@ -8713,7 +9064,10 @@ impl Shell {
         // name for an edit that did not happen -- press `C-y` at a full
         // composer often enough and the ids run out for pastes nobody made.
         let mut next = *self.paste.ids();
-        entities.renumber_recalled(&mut text, &mut next);
+        // And the images, from a copy of their own counter: each yank of a
+        // killed badge is a fresh image (`kill_ring.zig:120-190`).
+        let mut images = self.images_next;
+        entities.renumber_recalled_with_images(&mut text, &mut next, &mut Some(&mut images));
         // The same question a typed character asks, and for the same reason: a
         // yank brings its payload back too, so the draft plus what its blocks
         // stand for has to stay inside one budget (`super::paste::fits`).
@@ -8722,10 +9076,11 @@ impl Shell {
             self.editor.retained(),
             text.len().saturating_add(entities.retained()),
         ) {
-            // Refused silently, like every other keystroke the budget refuses
-            // (`Self::type_character`): the slot keeps what it holds, the draft
-            // is exactly the text it was, and `next` is dropped with the
-            // numbers it was going to spend still unspent.
+            // Refused in upstream's words, like every other edit the budget
+            // refuses ([`Self::over_budget`]): the slot keeps what it holds,
+            // the draft is exactly the text it was, and `next` is dropped with
+            // the numbers it was going to spend still unspent.
+            self.over_budget();
             return None;
         }
         let delta = self.editor.insert_with_entities(&text, entities.spans())?;
@@ -8734,6 +9089,7 @@ impl Shell {
         // a refusal of its own (`super::editor::Editor::insert`) and a name on
         // no summary is the same leak by another door.
         *self.paste.ids() = next;
+        self.images_next = images;
         if entities.len() < wanted {
             // The end of the id space, seen from the yank: those summaries are
             // words now, and a line that would be sent as its own description is
@@ -8980,22 +9336,44 @@ impl Shell {
         {
             self.compaction = None;
         }
-        let text = self.editor.text().to_string();
+        let mut text = self.editor.text().to_string();
         if let Some((cut, submitted)) = self.after_badges(&text) {
             self.run_command_after_badges(&text, cut, &submitted);
             return;
         }
-        let submitted = router::classify(&text);
-        // **Before any arm below, because every one of them consumes the
+        let mut submitted = router::classify(&text);
+        // A prompt's typed image paths first, because a path that cannot be
+        // attached stops the prompt before anything below records it; then
+        // its badges' numbers against the ones its words say.
+        let mut before = None;
+        if matches!(submitted, Submitted::Prompt(_)) {
+            let draft = self.draft_before();
+            let attached = match self.attach_typed(&text) {
+                Typed::Refused => return,
+                Typed::Nothing => false,
+                Typed::Attached => true,
+            };
+            if self.renumber_lookalikes() || attached {
+                before = Some(draft);
+                text = self.editor.text().to_string();
+                submitted = router::classify(&text);
+            }
+        }
+        // **Read before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
         // command arms clear the composer through `run_command`, the prompt arm
-        // through `send`, and a line recorded afterwards would be recorded from
-        // an empty editor. A command is recorded like anything else -- it is a
+        // through `send`, and a line read afterwards would be read from an
+        // empty editor. A command is recorded like anything else -- it is a
         // line the user typed, and running one again is the commonest reason to
         // reach for the recall. Whitespace and nothing else is the one line
         // that is not: it is consumed and never written down, so there is
         // nothing to come back to, and an entry for it would put a keypress
         // between the user and the line they really sent.
+        //
+        // **A prompt is written down only once the runtime has taken it**, as
+        // upstream records one only after its admission
+        // (`input_submit_runtime.zig:872-886`): a prompt refused for a full
+        // queue stays in the composer, and is not a line that was sent.
         //
         // `Blank` still ends the walk, for the same reason recording one does:
         // the draft the walk was standing beside has been consumed.
@@ -9003,20 +9381,21 @@ impl Shell {
         // **Neither while the prompt history is off** (`/settings`): the line
         // is kept nowhere, and the walk still ends, because the draft it stood
         // beside has been consumed either way.
-        let saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
-            .then(|| self.saved_line(&text));
-        if saved.is_none() {
+        let recording = !matches!(submitted, Submitted::Blank) && self.recall.enabled;
+        let mut saved = recording.then(|| self.saved_line(&text));
+        // **With the blocks its summaries name.** An entry is the line as the
+        // composer held it, which for a collapsed paste is 25 bytes standing
+        // for as much as 8 MiB; an entry that recorded only the words would
+        // recall a summary that stands for nothing
+        // (`super::entity::EntitySnapshot`).
+        let mut entry =
+            recording.then(|| HistoryEntry::new(text.clone(), self.editor.entities().snapshots()));
+        if !recording {
             self.history.leave();
-        } else {
-            // **With the blocks its summaries name.** An entry is the line as
-            // the composer held it, which for a collapsed paste is 25 bytes
-            // standing for as much as 8 MiB; an entry that recorded only the
-            // words would recall a summary that stands for nothing
-            // (`super::entity::EntitySnapshot`).
-            self.history.record(HistoryEntry::new(
-                text.clone(),
-                self.editor.entities().snapshots(),
-            ));
+        } else if !matches!(submitted, Submitted::Prompt(_)) {
+            if let Some(entry) = entry.take() {
+                self.history.record(entry);
+            }
         }
         match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
@@ -9072,7 +9451,25 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                self.send(self.expanded_prompt(&text, prompt), &text);
+                // Upstream writes a prompt that carries images to the history
+                // file not at all (`!has_images_for_submit`,
+                // `input_submit_runtime.zig:884`): the file is words, and the
+                // words of a badge attach nothing in another session.
+                let carries_images = self.editor.entities().images().next().is_some();
+                if self.send(self.expanded_prompt(&text, prompt), &text) {
+                    if let Some(entry) = entry.take() {
+                        self.history.record(entry);
+                    }
+                    if carries_images {
+                        saved = None;
+                    }
+                } else {
+                    if let Some(before) = before.take() {
+                        self.restore_draft(before);
+                    }
+                    self.history.leave();
+                    saved = None;
+                }
             }
         }
         // To the file after the line has been acted on, as upstream appends
@@ -9114,7 +9511,7 @@ impl Shell {
     /// already thrown the draft away. What it takes is echoed into the
     /// terminal's document, so a submission is something the session visibly
     /// did rather than something that vanished.
-    fn send(&mut self, prompt: String, text: &str) {
+    fn send(&mut self, prompt: String, text: &str) -> bool {
         // Of the prompt as the runtime is given it, which is what the store
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
@@ -9148,12 +9545,15 @@ impl Shell {
                 self.refit();
                 self.render.request(Reason::Footer);
                 self.gestures.submitted();
-                return;
+                return true;
             }
         }
         // What the card's badges link to: the files these images were read
         // from, as the composer's badges did.
         let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
+        // The card is the prompt as it is sent, its tokens made badges there
+        // ([`card_line`]).
+        let card = self.editor.entities().with_image_tokens(text);
         let work = if images.is_empty() {
             TurnWork::Submit(prompt)
         } else {
@@ -9178,20 +9578,21 @@ impl Shell {
                 let mut estimate = Estimator::default();
                 estimate.consume(&counted);
                 if waits {
-                    self.prompts.push_back((
-                        estimate.estimate(),
-                        title,
-                        Some((text.to_string(), links)),
-                    ));
+                    self.prompts
+                        .push_back((estimate.estimate(), title, Some((card, links))));
                     self.refit();
                     self.render.request(Reason::Footer);
                 } else {
                     self.prompts.push_back((estimate.estimate(), title, None));
-                    self.echo(text, links);
+                    self.echo(&card, links);
                 }
                 self.gestures.submitted();
+                true
             }
-            Err(rejected) => self.refused(rejected),
+            Err(rejected) => {
+                self.refused(rejected);
+                false
+            }
         }
     }
 
@@ -9294,7 +9695,7 @@ impl Shell {
         // its style per row (`user_message_card.zig:365,374`).
         let card = text
             .split('\n')
-            .map(|line| format!("{BOLD}{}{RESET}", linked_badges(line, links)))
+            .map(|line| format!("{BOLD}{}{RESET}", card_line(line, links, true)))
             .collect::<Vec<_>>()
             .join("\n");
         self.write_transcript_as(&card, Role::Plain);
@@ -9477,6 +9878,37 @@ impl Shell {
         self.gestures.submitted();
         router::route(submitted, self);
     }
+}
+
+/// What [`Shell::attach_typed`] did to a prompt's draft.
+enum Typed {
+    /// Nothing: no path in it loaded, or it holds none.
+    Nothing,
+    /// A path could not be attached and the user has been told; the prompt
+    /// is not sent.
+    Refused,
+    /// Its paths are badges now.
+    Attached,
+}
+
+/// A draft as it was before submit changed it ([`Shell::restore_draft`]).
+struct DraftBefore {
+    text: String,
+    spans: Vec<Span>,
+    next: u32,
+}
+
+/// Where the path after a pasted `/image ` or `/img ` begins, or `None` when
+/// the paste does not begin with one (`pastedImageSlashPrefixLen`,
+/// `input_paste_runtime.zig:32-42`): the name, at least one blank, and every
+/// blank after it.
+fn image_slash_prefix(text: &str) -> Option<usize> {
+    let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
+    ["/image", "/img"].into_iter().find_map(|name| {
+        let rest = text[lead..].strip_prefix(name)?;
+        let blanks = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        (blanks > 0).then_some(lead + name.len() + blanks)
+    })
 }
 
 /// `event` with Shift taken off Up and Down.
@@ -11093,7 +11525,10 @@ impl Shell {
         let wanted = entry.entities().len();
         let mut text = entry.text().to_string();
         let mut entities = Entities::recalled(entry.entities());
-        entities.renumber_recalled(&mut text, self.paste.ids());
+        // An image comes back too, under a fresh number
+        // (`tui-composer-edit-contracts.test.ts:852-878`).
+        let mut images = self.images_next;
+        entities.renumber_recalled_with_images(&mut text, self.paste.ids(), &mut Some(&mut images));
         if entities.len() < wanted {
             // The end of the id space, seen from the recall: those summaries
             // are words now, and a line that will be sent as its own
@@ -11122,6 +11557,7 @@ impl Shell {
         // `set_text` is the one whole-draft disposal that does not go through
         // [`Self::take_draft`], which is why the boundary is named here.
         self.edit_history.boundary();
+        self.images_next = images;
         self.recalled_slash = Trigger::of(self.editor.text()) == Some(Trigger::Slash);
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited(None);
@@ -11141,6 +11577,8 @@ impl Shell {
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
+        // An edit went through: the next refusal is a new run, and is said.
+        self.over_limit = false;
         self.history.leave();
         self.recalled_slash = false;
         self.edited(delta);
@@ -11377,18 +11815,26 @@ impl Shell {
     fn banner_rows(&self, cols: u16) -> Vec<String> {
         let width = usize::from(cols.saturating_sub(2)).max(1);
         let mut rows = Vec::new();
-        // A steer carries no images, so its card has no badge to link.
-        let steers = self.steers.iter().map(|(_, _, card)| Some(card.as_str()));
+        // A steer's card is its prompt with no images: upstream steers only a
+        // prompt that carries none (`sameTurnSteeringEligible`,
+        // `worker_runtime.zig:1109-1113`), and a card with no images is its
+        // text as written, a typed `[Image #N]` included
+        // (`user_message_card.zig:221-238`).
+        let none = BadgeLinks::new();
+        let steers = self
+            .steers
+            .iter()
+            .map(|(_, _, card)| Some((card.as_str(), &none)));
         let waiting = self
             .prompts
             .iter()
-            .map(|(_, _, card)| card.as_ref().map(|(card, _)| card.as_str()));
+            .map(|(_, _, card)| card.as_ref().map(|(card, links)| (card.as_str(), links)));
         for card in steers.chain(waiting) {
-            let Some(card) = card else {
+            let Some((card, links)) = card else {
                 continue;
             };
             rows.extend(
-                banner_layout(card, width)
+                banner_layout(&card_text(card, links), width)
                     .into_iter()
                     .map(|row| format!("{BANNER_MARK}{row}")),
             );
@@ -12713,7 +13159,7 @@ mod tests {
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         let draft = shell.editor.text().len();
-        let notice = shell.notice;
+        let said_it = shell.document();
 
         shell.route_bytes(&[0x0d]);
         let TurnWork::Submit(prompt) = shell.picks_up() else {
@@ -12726,8 +13172,8 @@ mod tests {
         );
         assert_eq!(draft, typed.len(), "the refused paste changed the draft");
         assert_eq!(
-            notice,
-            Some(PASTE_REFUSED),
+            said_it,
+            said(notice::Notice::error("input", INPUT_LIMIT)),
             "the paste was dropped without a word"
         );
     }
@@ -13790,11 +14236,11 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_past_the_budget_says_so_and_leaves_the_draft_alone() {
-        // Refused whole rather than half-taken, and said rather than silent:
-        // the composer's own budget refuses a keystroke silently because a
-        // keystroke that changes nothing is its own feedback, and a paste that
-        // vanished without a word looks like a terminal that never sent it.
+    fn a_paste_past_the_budget_says_so_once_and_leaves_the_draft_alone() {
+        // Refused whole rather than half-taken, and said in upstream's words
+        // (`fx-image-composer-40x120-oversized`: `✗ input: That edit exceeds
+        // the local prompt safety limit and was not applied.`), once per run
+        // of refusals (`input_limit_rejection.zig:12-25`).
         let mut shell = shell(24, 80);
         shell.route_bytes(b"a draft worth keeping");
         shell.route_bytes(b"\x1b[200~");
@@ -13809,10 +14255,54 @@ mod tests {
             "a draft worth keeping",
             "a paste that did not fit took the draft with it"
         );
-        let hint = shell.hint();
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT)),
+            "a paste larger than the budget vanished without a word"
+        );
+        // Each paste begins a run of its own, so a second one is said again
+        // (`fx-approvals-amend-limit-40x120-refused-again`).
+        shell.route_bytes(b"\x1b[200~");
+        for _ in 0..=(super::super::paste::MAX_PASTE_BYTES / chunk.len()) {
+            shell.route_bytes(&chunk);
+        }
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT))
+        );
+    }
+
+    #[test]
+    fn keystrokes_past_the_budget_are_said_once_until_an_edit_goes_through() {
+        // `input_limit_rejection.zig:12-25`: one report per run of refusals
+        // by one owner.
+        // A block standing for all but one byte of the budget: the draft is
+        // short, so each keystroke is cheap, and one character still fits.
+        let mut shell = shell(24, 80);
+        let summary = super::super::paste::summary(1, 1);
+        let held = super::super::paste::MAX_PASTE_BYTES - summary.len() - 1;
+        let block = EntityKind::Paste {
+            id: 1,
+            text: std::sync::Arc::from("x".repeat(held)),
+            lines: 1,
+        };
+        assert!(shell.editor.insert_entity(&summary, block).is_some());
+        shell.route_bytes(b"ab");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT))
+        );
+        shell.route_bytes(b"c");
         assert!(
-            hint.contains(PASTE_REFUSED),
-            "a paste larger than the budget vanished without a word: {hint:?}"
+            shell.document().is_empty(),
+            "a refusal was said twice in one run"
+        );
+        shell.route_bytes(b"\x7f");
+        shell.route_bytes(b"de");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT))
         );
     }
 
@@ -16664,6 +17154,50 @@ mod tests {
                 .any(|row| row.contains("change tone")),
             "the steer stayed in the band after delivery"
         );
+    }
+
+    #[test]
+    fn a_steer_is_its_text_and_a_prompt_with_an_image_is_not_one() {
+        // Upstream steers only a prompt with no images
+        // (`sameTurnSteeringEligible`, `worker_runtime.zig:1109-1113`), and a
+        // card with no images is its text as typed, so a typed `[Image #1]`
+        // in a steer is words and no link (`user_message_card.zig:221-238`).
+        let mut shell = running("run it");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        std::fs::write(
+            workspace.path().join("shot.png"),
+            crate::image::fixture::SHOT_PNG,
+        )
+        .expect("shot");
+        shell.workspace = workspace.path().canonicalize().expect("real");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        shell.route_bytes(b"compare with [Image #1]\r");
+        assert!(steering.pending(), "the prompt did not steer");
+        let taken = steering.take();
+        assert_eq!(taken[0].text, "compare with [Image #1]");
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let document = shell.released();
+        let card = document
+            .iter()
+            .find(|row| uncoloured(row) == "\u{2503} compare with [Image #1]")
+            .expect("the steer's card");
+        assert!(
+            !card.contains("\u{1b}]8;"),
+            "a steer's words were linked: {card:?}"
+        );
+        // A typed path makes the prompt carry an image: the next turn's,
+        // not a steer.
+        shell.route_bytes(b"and shot.png\r");
+        assert!(!steering.pending(), "a prompt with an image steered");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images } if prompt == "and [Image #1]" && images.len() == 1
+        ));
     }
 
     #[test]
@@ -20083,7 +20617,6 @@ mod tests {
         output: Option<u64>,
     ) -> HydratedTurn {
         HydratedTurn {
-            user: user.to_string(),
             sent: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
@@ -20206,10 +20739,15 @@ mod tests {
     #[test]
     fn a_replayed_card_links_its_badges_to_the_files_the_log_names() {
         // `fx-image-40x120-resumed.ansi`: the replayed card's badges are one
-        // link to the file the images were read from.
+        // link to the file the images were read from. Through the inert step
+        // both ways of resuming take (`bridge::inert_hydration`): the images
+        // cross it with the prompt.
         let mut resumed = shell(40, 120);
+        // The card is made from the prompt as the log holds it: each token of
+        // an image the turn sent is a linked badge, and `[Image #9]`, which
+        // names none, and a typed `[Image 3]` are the user's own words.
         let mut turn = saved(
-            "[Image 3][Image 4] what is in this image?",
+            "[Image #3][Image #4] what is in this image? [Image #9] [Image 3]",
             vec![HydratedStep::Text("Red.".to_string())],
             0,
             Some(40),
@@ -20218,15 +20756,37 @@ mod tests {
             (3, std::path::PathBuf::from("/w/shot.png")),
             (4, std::path::PathBuf::from("/w/shot.png")),
         ];
-        resumed.hydrate(replay(Some("x"), vec![turn]), true);
+        resumed.hydrate(bridge::inert_hydration(replay(Some("x"), vec![turn])), true);
         let rows = resumed.painted_document();
         let open = "\u{1b}]8;;file:///w/shot.png\u{1b}\\";
         assert_eq!(
             rows[2],
             card_row(&format!(
-                "{open}[Image 3][Image 4]\u{1b}]8;;\u{1b}\\ what is in this image?"
+                "{open}[Image 3][Image 4]\u{1b}]8;;\u{1b}\\ what is in this image? [Image #9] \
+                 [Image 3]"
             )),
             "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_live_card_links_the_images_it_sent_by_token_and_no_words_that_look_like_one() {
+        // `expandPlaceholdersWithLinkedBadges` (`image_attachments.zig:1560-1620`):
+        // the badge renumbered at send is linked under its sent number; a
+        // typed `[Image #1]` and a typed `[Image 2]` are words.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" [Image #1] and [Image 2]\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] [Image #1] and [Image 2]".to_string(), vec![2])
+        );
+        assert_eq!(
+            shell.document(),
+            card(&format!(
+                "{} [Image #1] and [Image 2]",
+                linked_shot(&shell, 2)
+            ))
         );
     }
 
@@ -20400,6 +20960,7 @@ mod tests {
     ) -> crate::session::TurnStep {
         crate::session::TurnStep::ToolResult {
             created_at_ms: None,
+            images: Vec::new(),
             call_id: id.to_string(),
             tool: "t".to_string(),
             ok,
@@ -20441,6 +21002,7 @@ mod tests {
                 output:
                     "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
                         .into(),
+                images: Vec::new(),
                 ending: None,
                 lines: None,
                 change: None,
@@ -20692,6 +21254,7 @@ mod tests {
             },
             TurnStep::ToolResult {
                 created_at_ms: None,
+                images: Vec::new(),
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -27832,11 +28395,11 @@ mod tests {
     }
 
     #[test]
-    fn a_line_the_runtime_refused_is_still_walked_back_to() {
+    fn a_line_the_runtime_refused_is_not_walked_back_to() {
         // The refusal leaves the draft in the composer and says so on the hint
-        // row, so the line was submitted -- and a history that recorded only
-        // what the runtime accepted would forget exactly the line the user is
-        // most likely to want back.
+        // row: the line is still there, and it was not sent, so upstream
+        // writes it down nowhere (`input_submit_runtime.zig:872-886`, a
+        // rejected admission returns before the history is touched).
         let mut shell = shell(24, 80);
         shell.route_bytes(b"first\r");
         let _first = shell.picks_up();
@@ -27858,7 +28421,7 @@ mod tests {
         shell.route_bytes(b"\x15");
         assert_eq!(shell.band_rows()[0], composer_row(""));
         shell.route_bytes(b"\x1b[A");
-        assert_eq!(shell.band_rows()[0], composer_row("third"));
+        assert_eq!(shell.band_rows()[0], composer_row("second"));
     }
 
     #[test]
@@ -28612,11 +29175,11 @@ mod tests {
     }
 
     #[test]
-    fn an_oversized_paste_at_a_draft_is_refused_atomically_and_the_hint_row_says_so() {
+    fn an_oversized_paste_at_a_draft_is_refused_atomically_in_upstreams_words() {
         // Refused **whole**: the alternative -- the first 4096 bytes of
         // somebody's file, silently -- is a draft the user did not type. The
-        // sentence goes on the band's own hint row, which is where every other
-        // refused keystroke on this surface is reported.
+        // sentence is upstream's error in the document, above the panel
+        // (`fx-approvals-amend-limit-40x120-refused`).
         let mut shell = shell(24, 80);
         asking(&mut shell);
         shell.decide(Input::Action(Action::Tab), Instant::now());
@@ -28628,12 +29191,13 @@ mod tests {
         }
         shell.decide(Input::Action(Action::PasteEnd), Instant::now());
 
-        assert!(
-            shell
-                .hint()
-                .contains(super::super::approval_amendment::PASTE_REFUSED),
-            "the refusal was silent: {:?}",
-            shell.hint()
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "input",
+                super::super::approval_amendment::INPUT_LIMIT
+            )),
+            "the refusal was not said in the document"
         );
         assert!(
             band(&shell).contains("keep this"),
@@ -28687,7 +29251,7 @@ mod tests {
         shell.decide(Input::Action(Action::PasteEnd), Instant::now());
         let painted = unwrapped(&shell.screen_rows());
         assert!(
-            painted.contains(super::super::approval_amendment::PASTE_REFUSED),
+            painted.contains(super::super::approval_amendment::INPUT_LIMIT),
             "the refusal was written behind the plane: {painted:?}"
         );
 
@@ -30057,7 +30621,7 @@ mod tests {
     }
 
     #[test]
-    fn deleting_the_badge_drops_the_image_and_nothing_brings_it_back() {
+    fn deleting_the_badge_drops_the_image_and_an_undo_after_it_changes_nothing() {
         // `fx-image-cu-40x120-after.ansi`: Ctrl-U, then `/images` says none
         // (`kill_ring.zig:562-584`: `placeholder backing dropped kind=image`).
         let mut shell = attaching();
@@ -30070,24 +30634,97 @@ mod tests {
             shell.document(),
             said(notice::Notice::neutral("images", "no pending images"))
         );
-        // A yank of the killed badge is its words, and so is an undo of the
-        // delete: neither attaches the image again.
-        shell.route_bytes(b"/image shot.png\r");
-        shell.route_bytes(b"\x15\x19");
-        assert_eq!(shell.editor.text(), "[Image 2]");
-        assert!(attached_ids(&shell).is_empty());
-        shell.route_bytes(b"\x15");
-        shell.route_bytes(b"/image shot.png\r");
+        // An edit that takes a badge is a boundary of the history, as the
+        // badge's insertion was (`composer_replacement.zig:223-232`,
+        // `edit_history.zig:99-101`; `composer_deletion.zig:300-329` leaves
+        // nothing to undo after a badge is deleted): so an undo after it finds
+        // nothing, and the composer is as it was, with nothing said
+        // (`app_input_runtime.zig:397-402`), the words typed before the badge
+        // included.
+        shell.route_bytes(b"look ");
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "look [Image 2]");
         shell.route_bytes(b"\x7f");
-        assert!(
-            shell.editor.is_empty(),
+        assert_eq!(
+            shell.editor.text(),
+            "look ",
             "a backspace at a badge takes it whole"
         );
+        shell.document();
         shell.route_bytes(b"\x1f");
-        assert_eq!(shell.editor.text(), "[Image 3]");
+        assert_eq!(shell.editor.text(), "look ");
         assert!(attached_ids(&shell).is_empty());
+        assert!(
+            shell.document().is_empty(),
+            "an undo with nothing to take said something"
+        );
+        // Nor is there anything to redo.
+        shell.route_bytes(b"\x1b[122;10u");
+        assert_eq!(shell.editor.text(), "look ");
+    }
+
+    #[test]
+    fn a_yanked_badge_is_not_taken_back_by_an_undo() {
+        // `composer_kill_ring.zig:44-88,303-332`: a kill over a badge and a
+        // yank that brings one back are boundaries, not entries.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b"\x15\x19");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert_eq!(attached_ids(&shell), [2]);
+        // A character typed after it is an entry of its own, and only it is
+        // taken.
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "[Image 2]x");
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert_eq!(attached_ids(&shell), [2]);
+    }
+
+    #[test]
+    fn a_killed_badge_is_yanked_back_as_a_fresh_image_each_time() {
+        // `tui-composer-edit-contracts.test.ts:763-797` and
+        // `fx-image-composer-40x120-yanked`: Ctrl-U then Ctrl-Y twice is two
+        // images, each under a number of its own; Ctrl-K then Ctrl-Y is one.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b"\x15\x19\x19");
+        assert_eq!(shell.editor.text(), "[Image 2][Image 3]");
+        assert_eq!(attached_ids(&shell), [2, 3]);
         shell.route_bytes(b"\r");
-        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 3]".to_string()));
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2][Image #3]".to_string(), vec![2, 3])
+        );
+        shell.work.finished_one();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b"\x01\x0b\x19");
+        assert_eq!(shell.editor.text(), "[Image 5]");
+        assert_eq!(attached_ids(&shell), [5]);
+        // A kill spends no number; only a yank does.
+        shell.route_bytes(b"\x15");
+        assert_eq!(shell.images_next, 6);
+    }
+
+    #[test]
+    fn a_recalled_prompt_brings_its_image_back_under_a_fresh_number() {
+        // `tui-composer-edit-contracts.test.ts:852-878` and
+        // `fx-image-composer-40x120-recalled`.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" describe history image\r");
+        let _ = shell.picks_up();
+        shell.work.finished_one();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "[Image 2] describe history image");
+        assert_eq!(attached_ids(&shell), [2]);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] describe history image".to_string(), vec![2])
+        );
     }
 
     #[test]
@@ -30171,6 +30808,267 @@ mod tests {
         }
     }
 
+    // -- image paths pasted or typed into a prompt ---------------------------
+
+    /// Badge `id` as a card writes it for the workspace's `shot.png`: inside
+    /// upstream's link to the file (`writeImageBadge`,
+    /// `image_attachments.zig:1336-1340`).
+    fn linked_shot(shell: &Fixture, id: u32) -> String {
+        let uri = super::super::hyperlink::file_uri(&shell.workspace.join("shot.png"))
+            .expect("an absolute path");
+        format!(
+            "{}{}{}",
+            super::super::hyperlink::open("", &uri),
+            crate::image::badge(id),
+            super::super::hyperlink::CLOSE
+        )
+    }
+
+    /// The prompt and the numbers of the images the runtime was handed.
+    fn sent_with_images(shell: &mut Fixture) -> (String, Vec<u32>) {
+        match shell.picks_up() {
+            TurnWork::Attached { prompt, images } => {
+                (prompt, images.iter().map(|image| image.id).collect())
+            }
+            TurnWork::Submit(prompt) => (prompt, Vec::new()),
+            other => panic!("not a prompt: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pasted_path_is_its_badge_at_once_and_says_nothing() {
+        // `fx-image-40x120-inline-typed.ansi`: `┃ [Image 5] describe this
+        // too`, no notice, before Enter (`input_paste_runtime.zig:445-622`).
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png describe this too");
+        assert_eq!(shell.editor.text(), "[Image 1] describe this too");
+        assert_eq!(attached_ids(&shell), [1]);
+        assert!(shell.document().is_empty(), "a pasted image wrote a notice");
+        assert!(shell.sent.try_recv().is_err(), "the paste was sent");
+        // Its words and punctuation stay around it, and an absolute path is a
+        // path as well as a relative one (`tui-composer-edit-contracts.test.ts:1050-1065`).
+        let absolute = shell.workspace.join("shot.png");
+        pasted(&mut shell, &format!(" HEAD {}, TAIL", absolute.display()));
+        assert_eq!(
+            shell.editor.text(),
+            "[Image 1] describe this too HEAD [Image 2], TAIL"
+        );
+        assert_eq!(attached_ids(&shell), [1, 2]);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            (
+                "[Image #1] describe this too HEAD [Image #2], TAIL".to_string(),
+                vec![1, 2]
+            )
+        );
+    }
+
+    #[test]
+    fn a_paste_whose_paths_do_not_load_is_text_however_long_and_too_large_says_so() {
+        // `handlePastedBytes`: a path over 20 MiB is said and stays as
+        // words; one that is missing or no image stays in silence.
+        let mut shell = attaching();
+        pasted(&mut shell, "see nope.png and notes.png");
+        assert_eq!(shell.editor.text(), "see nope.png and notes.png");
+        assert!(shell.document().is_empty());
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, "huge.png");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "image exceeds the 20 MiB limit"
+            ))
+        );
+        assert_eq!(shell.editor.text(), "huge.png");
+        assert!(attached_ids(&shell).is_empty());
+        // A paste that names an image is never a summary, even one long
+        // enough to be (`finalizePastedBlock`, `input_paste_runtime.zig:370-377`).
+        shell.route_bytes(b"\x15");
+        let long = format!("{} nope.png", "x".repeat(paste::COLLAPSE_ABOVE + 1));
+        pasted(&mut shell, &long);
+        assert_eq!(shell.editor.text(), long);
+        assert!(shell.editor.entities().is_empty());
+    }
+
+    #[test]
+    fn a_pasted_path_after_slash_image_is_the_command_it_was_for() {
+        // `stripPastedImageSlashPrefix` and `isBareImageSlashPrefix`
+        // (`input_paste_runtime.zig:27-95`, `:573-580`).
+        let mut shell = attaching();
+        pasted(&mut shell, "/image shot.png describe");
+        assert_eq!(shell.editor.text(), "[Image 1] describe");
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"/img ");
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert_eq!(attached_ids(&shell), [2]);
+        // With no image the prefix is the words it is.
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, "/image missing.png");
+        assert_eq!(shell.editor.text(), "/image missing.png");
+        // And after a word, a pasted `/image` is not a command.
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, "see /image shot.png");
+        assert_eq!(shell.editor.text(), "see /image [Image 3]");
+    }
+
+    #[test]
+    fn a_path_pasted_into_the_model_search_is_the_words_it_is() {
+        // `modelPickerBorrowsComposer` (`input_paste_runtime.zig:355-364`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/model\r");
+        assert!(
+            shell.model_menu.is_some(),
+            "no menu, so this proves nothing"
+        );
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "shot.png");
+        assert!(attached_ids(&shell).is_empty());
+    }
+
+    #[test]
+    fn a_typed_path_is_attached_as_the_prompt_is_sent() {
+        // `tui-composer-edit-contracts.test.ts:1018-1030`: `inspect i.png,`
+        // sends `inspect [Image #1],` and one file.
+        let mut shell = attaching();
+        shell.route_bytes(b"inspect shot.png,\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("inspect [Image #1],".to_string(), vec![1])
+        );
+        assert_eq!(
+            shell.document(),
+            card(&format!("inspect {},", linked_shot(&shell, 1)))
+        );
+        shell.work.finished_one();
+        // The picker's spelling, quoted, and the next number. Put in whole:
+        // typed, the `@` would open the picker and the Return be its.
+        shell
+            .editor
+            .set_text("@\"shot.png\" and @shot.png", Entities::new());
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] and [Image #3]".to_string(), vec![2, 3])
+        );
+        shell.work.finished_one();
+        // A badge already in the draft keeps its number and goes first in
+        // the order the draft holds them.
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" vs shot.png\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #4] vs [Image #5]".to_string(), vec![4, 5])
+        );
+    }
+
+    #[test]
+    fn a_typed_path_that_cannot_be_attached_stops_the_prompt_or_is_left_as_words() {
+        // `input_submit_runtime.zig:756-776`: missing, unsupported, a
+        // directory -- words; too large -- said, nothing sent, the draft kept.
+        let mut shell = attaching();
+        std::fs::create_dir(shell.workspace.join("pics.png")).expect("a directory");
+        shell.route_bytes(b"read nope.png notes.png pics.png\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("read nope.png notes.png pics.png".to_string(), Vec::new())
+        );
+        shell.document();
+        shell.route_bytes(b"and huge.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "image exceeds the 20 MiB limit"
+            ))
+        );
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(shell.editor.text(), "and huge.png");
+        // Nothing was recorded for the line that did not go.
+        shell.route_bytes(b"\x15\x1b[A");
+        assert_eq!(shell.editor.text(), "read nope.png notes.png pics.png");
+    }
+
+    #[test]
+    fn a_badge_whose_number_the_prompt_types_in_words_is_sent_under_a_fresh_one() {
+        // `tui-composer-edit-contracts.test.ts:1033-1047` and
+        // `fx-image-composer-40x120-lookalike-sent`: the words stay `[Image
+        // #1]`, the badge is sent as #2, and #2 is spent.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" duplicate [Image #1]\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] duplicate [Image #1]".to_string(), vec![2])
+        );
+        // The badge is linked to its file; the words are not a badge.
+        assert_eq!(
+            shell.document(),
+            card(&format!("{} duplicate [Image #1]", linked_shot(&shell, 2)))
+        );
+        shell.work.finished_one();
+        // The next number skips every one the words or another badge say.
+        pasted(&mut shell, "shot.png shot.png");
+        assert_eq!(attached_ids(&shell), [3, 4]);
+        shell.route_bytes(b" [Image #3] [Image #5]\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            (
+                "[Image #6] [Image #4] [Image #3] [Image #5]".to_string(),
+                vec![6, 4]
+            )
+        );
+        shell.work.finished_one();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [7]);
+    }
+
+    #[test]
+    fn a_renumbered_prompt_the_runtime_refuses_keeps_its_badge_and_spends_nothing() {
+        let mut shell = attaching();
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.document();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" [Image #1]\r");
+        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        assert_eq!(shell.editor.text(), "[Image 1] [Image #1]");
+        assert_eq!(attached_ids(&shell), [1]);
+        assert_eq!(shell.images_next, 2);
+    }
+
+    #[test]
+    fn a_prompt_the_runtime_refuses_keeps_the_paths_that_were_typed() {
+        // Upstream attaches a typed path only once the prompt is admitted
+        // (`commitStableExtractedImageIds`, `input_submit_runtime.zig:872-873`):
+        // a full queue leaves the draft as typed and spends no number.
+        let mut shell = attaching();
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.document();
+        shell.route_bytes(b"look at shot.png\r");
+        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        assert_eq!(shell.editor.text(), "look at shot.png");
+        assert!(attached_ids(&shell).is_empty());
+        // And it was not sent, so it is not walked back to: the newest line
+        // is the last one the runtime took.
+        shell.route_bytes(b"\x15\x1b[A");
+        assert_eq!(shell.editor.text(), "second");
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"look at shot.png");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        shell.work.finished_one();
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("look at [Image #1]".to_string(), vec![1])
+        );
+    }
+
     #[test]
     fn ctrl_v_puts_the_clipboard_image_at_the_caret_with_no_notice() {
         // `image_commands.zig:86-104`: a badge and a repaint, no notice -- and
@@ -30204,6 +31102,59 @@ mod tests {
                 String::new()
             ]
         );
+    }
+
+    #[test]
+    fn a_clipboard_image_is_copied_at_the_paste_and_its_badge_links_the_copy() {
+        // `insertImageAtCursor` (`image_commands.zig:138-147`) and
+        // `fx-image-paste-40x120-paste.ansi`: the badge links the copy written
+        // at the paste, in the composer and on the card.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        shell.route_bytes(b"\x16");
+        assert!(read_settled(&mut shell).is_empty());
+        let image = shell
+            .editor
+            .entities()
+            .images()
+            .next()
+            .cloned()
+            .expect("an image");
+        assert!(image.copied && image.path.is_absolute(), "{:?}", image.path);
+        assert_eq!(
+            image.path.file_name().and_then(|name| name.to_str()),
+            Some(image.snapshot_name().as_str())
+        );
+        assert_eq!(
+            std::fs::read(&image.path).expect("the copy"),
+            crate::image::fixture::SHOT_PNG
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).expect("mode").permissions().mode() & 0o777
+            };
+            assert_eq!(mode(&image.path), 0o600);
+            assert_eq!(mode(image.path.parent().expect("a directory")), 0o700);
+        }
+        let open = super::super::hyperlink::open(
+            "",
+            &super::super::hyperlink::file_uri(&image.path).expect("a link"),
+        );
+        let composer = shell.editor.painted_rows(118, "", "").join("");
+        assert!(
+            composer.contains(&format!("{open}[Image 1]")),
+            "{composer:?}"
+        );
+        shell.route_bytes(b" what is this?\r");
+        let _ = shell.picks_up();
+        let card = shell.document().join("");
+        assert!(card.contains(&format!("{open}[Image 1]")), "{card:?}");
+        // The copy is the session's to remove: gone when the shell is.
+        let dir = shell.paste_copies.dir().expect("a directory").to_path_buf();
+        drop(shell);
+        assert!(!dir.exists(), "{dir:?} outlived the session");
     }
 
     #[test]
@@ -31608,6 +32559,30 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_carrying_an_image_is_recalled_in_session_but_not_written_to_the_file() {
+        // `!has_images_for_submit` (`input_submit_runtime.zig:884`): the file
+        // is words, and a badge's words attach nothing in another session.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        std::fs::write(
+            shell.workspace.join("shot.png"),
+            crate::image::fixture::SHOT_PNG,
+        )
+        .expect("shot");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b" look\r");
+        let _ = shell.picks_up();
+        shell.work.finished_one();
+        shell.route_bytes(b"plain\r");
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["/image shot.png", "plain"]
+        );
+        assert_eq!(recalled(&mut shell), "plain");
+        assert_eq!(recalled(&mut shell), "[Image 2] look");
+    }
+
+    #[test]
     fn prompt_history_off_keeps_no_line_anywhere_and_on_keeps_them_again() {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = remembering(root.path());
@@ -31639,6 +32614,12 @@ mod tests {
         assert!(shell.recall.enabled);
         assert!(profile_at(root.path()).contains("\"enabled\": true"));
         escape(&mut shell);
+        // The two prompts above hold the runtime's two places; a third would
+        // be refused, and a refused prompt is written down nowhere.
+        for _ in 0..2 {
+            let _ = shell.picks_up();
+            shell.work.finished_one();
+        }
         shell.route_bytes(b"public\r");
         assert_eq!(
             saved_texts(&mut shell, root.path()),
