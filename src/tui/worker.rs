@@ -6034,23 +6034,21 @@ mod tests {
                 workspace.path(),
             )
             .expect("the other writer opens it");
-        // The fastest of a few refusals, so a machine too loaded to schedule
-        // one promptly is not read as a wait: a resume that waited would sleep
-        // out the store's lock budget (250 ms) every time.
-        let fastest = (0..5)
-            .map(|_| {
-                let started = Instant::now();
-                assert_eq!(
-                    state.resume_by_id(saved.as_str(), &CancelToken::new()),
-                    Err(ResumeFailure::OpenElsewhere)
-                );
-                started.elapsed()
-            })
-            .min()
-            .expect("five tries");
-        assert!(
-            fastest < Duration::from_millis(200),
-            "the picker waited on the lock: {fastest:?}"
+        // "At once" is one try at the lock: a resume that waited would try it
+        // again until its grace period ran out (the store's own clock-free
+        // cases: `a_budget_of_nothing_is_one_attempt_and_no_pause` against
+        // `a_lock_that_frees_during_the_grace_is_acquired_after_the_documented_backoff`).
+        // Counted, not timed, so a loaded machine can neither pass a wait nor
+        // fail a refusal.
+        let before_tries = crate::session::store::lock_attempts_on_this_thread();
+        assert_eq!(
+            state.resume_by_id(saved.as_str(), &CancelToken::new()),
+            Err(ResumeFailure::OpenElsewhere)
+        );
+        assert_eq!(
+            crate::session::store::lock_attempts_on_this_thread() - before_tries,
+            1,
+            "the picker waited on the lock"
         );
         assert_eq!(state.resumable(), Some(before.clone()));
         drop(held);

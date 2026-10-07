@@ -3045,6 +3045,21 @@ enum Wait {
     None,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread has tried a session's writer lock
+    /// ([`lock_attempts_on_this_thread`]).
+    static LOCK_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has tried a session's writer lock: how a test
+/// tells a resume that did not wait -- one try -- from one that waited out
+/// the grace period, without a wall clock a loaded machine can stretch.
+#[cfg(test)]
+pub(crate) fn lock_attempts_on_this_thread() -> usize {
+    LOCK_ATTEMPTS.with(std::cell::Cell::get)
+}
+
 #[cfg(unix)]
 fn lock_exclusive_within(
     file: &File,
@@ -3054,12 +3069,16 @@ fn lock_exclusive_within(
 ) -> Result<(), SessionError> {
     use rustix::fs::{flock, FlockOperation};
 
-    let attempt = || match flock(file, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => AttemptOutcome::Acquired,
-        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
-        // xfx builds for, so matching one covers both.
-        Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
-        Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
+    let attempt = || {
+        #[cfg(test)]
+        LOCK_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
+        match flock(file, FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => AttemptOutcome::Acquired,
+            // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
+            // xfx builds for, so matching one covers both.
+            Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
+            Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
+        }
     };
     let outcome = match wait {
         Wait::Grace => acquire_with_grace(attempt, std::thread::sleep, Instant::now),
