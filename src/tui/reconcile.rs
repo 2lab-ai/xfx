@@ -15,9 +15,9 @@
 //! reads between pieces of work, and is written to the session's log by the
 //! recorder that owns it -- one writer, as the log requires.
 //!
-//! **The thread is started from the runtime thread**, which was itself started
-//! with the owned death signals blocked, so it inherits that mask: no
-//! restore-and-reraise handler can run on it, and it is never waited for.
+//! **The thread is started with every owned signal blocked**
+//! ([`super::signals::spawn_unsignalled`]), so no handler can run on it, and
+//! it is never waited for.
 //! Cancelled, it stops within a few milliseconds; a question it is in the
 //! middle of is dropped, and the generation stays pending in the log for the
 //! next session that opens it.
@@ -214,10 +214,7 @@ impl Reconciler {
             done: self.done.clone(),
         };
         let ids: Vec<String> = job.questions.iter().map(|(id, _)| id.clone()).collect();
-        let started = std::thread::Builder::new()
-            .name(THREAD_NAME.to_string())
-            .spawn(move || job.run())
-            .is_ok();
+        let started = super::signals::spawn_unsignalled(THREAD_NAME, move || job.run()).is_ok();
         if !started {
             // Nothing is asking, so nothing is in flight; the requests stay
             // pending for the next start.
@@ -256,7 +253,7 @@ impl Reconciler {
 
 impl Drop for Reconciler {
     /// Stops every thread at its next look at the flag. None is waited for:
-    /// none can take a death signal (the module's own note), and a question in
+    /// none can take a signal (the module's own note), and a question in
     /// flight is one whose generation stays pending in the log.
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Release);
@@ -541,6 +538,33 @@ mod tests {
         assert_eq!(asks.load(Ordering::SeqCst), 1);
         // The next session's requests are its own to ask about.
         assert!(reconciler.ask("s2", &[&pending(FIRST)], "key"));
+    }
+
+    /// The question is asked on the asking thread, so the asker reads that
+    /// thread's mask: every owned signal blocked, whoever started it.
+    #[test]
+    fn the_asking_thread_can_take_no_owned_signal() {
+        let mut reconciler = Reconciler::answering(
+            // A thread that could take one rejects the bill, which fails the
+            // case below.
+            |_, _, id| {
+                if super::super::signals::owned_blocked_here()
+                    .iter()
+                    .all(|(_, blocked)| *blocked)
+                {
+                    Lookup::Found(bill(id))
+                } else {
+                    Lookup::Reject
+                }
+            },
+            Duration::from_millis(1),
+        );
+        assert!(reconciler.ask("s1", &[&pending(FIRST)], "key"));
+        let runtime = runtime();
+        assert_eq!(
+            answer(&runtime, &mut reconciler).settlement,
+            Settlement::Billed(bill(FIRST))
+        );
     }
 
     #[test]
