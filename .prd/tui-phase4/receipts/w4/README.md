@@ -30,7 +30,10 @@ revision, a turn summary's second and the marker's blink phase. (A take in betwe
 caught `empty-0.3s` before the band had painted -- the machine's load average was over 20 -- and was
 not kept.) The four were taken again at `27cb3eb` (`plan/tui-phase4` at `350a5d1`, W2's images and
 W8's rules merged in) and not committed: every request body is the same JSON as the `5c0ea7d`
-take's, and the screens differ only in a marker's blink phase and a turn summary's second.
+take's, and the screens differ only in a marker's blink phase and a turn summary's second. They were
+taken a third time after the follow-ups (`66eb7f2`: the meter, `/usage`, `/trace`, the per-step and
+refusal compaction points) with the same result -- every body the same JSON, one blink phase apart.
+The follow-ups change no screen of these four; where each is proven is at the end.
 
 ## What every snap shares
 
@@ -171,3 +174,29 @@ ANSWER-ONE: plain text.` -- then `second question` and `third question` (`Plan.n
 - **No credential.** `tests/tui.rs` `compact_with_no_credential_is_not_started_and_asks_nobody`
   (`Compaction was not started. Try /compact again.`, no request), as fx's e2e
   (`tui-compaction-activity.test.ts:551-584`).
+- **A compaction between a turn's steps** (`orchestrator.zig:7286-7322`). Not captured as a pair: by
+  the same estimate fx's opening request is about 8,700 tokens (`rcpt/fx-compact-40x120-bodies/002`)
+  and xfx's about 3,000, so one catalog window puts the two products' compaction points at different
+  steps; and at that point fx compacts the read of the turn in progress too, which xfx does not (its
+  `/compact` row's "Not ported"), so the two notes requests and the requests after them differ by
+  construction. `tests/tui.rs`
+  `a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step` shows the
+  second turn's first request sent as it was, the notes request after its read, the next step
+  carrying the compacted form, the checkpoint inside the turn, and a resume continuing from it.
+- **A request refused as too large** (`provider_overflow`, `orchestrator.zig:8099-8124`). `tests/tui.rs`
+  `a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again`: a `400`
+  `context_length_exceeded`, then the same turn sent again with the compacted form and nothing of the
+  refusal on the screen; `agent::machine` tests hold the once-per-turn rule and the eight phrasings.
+- **`/trace`'s `## Context Compaction`** (e2e `tui-compaction-activity.test.ts:506-549`). `tests/tui.rs`
+  `trace_records_a_failed_compaction_and_the_one_after_it` (the failed notes requests with the
+  provider's words masked, the fallback, `transaction_failed`, then `provider_start`,
+  `provider_completed` and `committed`, and the failures under `## Problems`) and
+  `compact_with_no_credential_is_not_started_and_asks_nobody` (`credential_unauthorized`).
+- **The notes requests in `/usage`'s record** (`app_agent_runtime.zig:1127`). `tests/tui.rs`
+  `compact_replaces_the_older_turn…` (a `usage_recorded` frame with the notes request, no turn totals,
+  before the checkpoint) and `ctrl_c_stops_an_automatic_compaction…` (a stopped one marks the turn
+  `unaccounted`).
+- **The context meter** keeps its number through a compaction until the next turn's usage
+  (`app_callbacks.zig:1447-1451`): `tui::shell` test
+  `a_compaction_leaves_the_context_meter_until_a_turn_measures_again`. The footer's context segment
+  is off until the profile turns it on, so none of the four scenarios shows it.
