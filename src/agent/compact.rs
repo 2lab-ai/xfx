@@ -2037,8 +2037,10 @@ fn earlier_tokens(earlier: &Compacted) -> usize {
 }
 
 /// A request that follows the conversation reads like the user's next
-/// message, so the model is told not to note it (`from_fx`, `ledger.zig:62-64`).
-const FROM_XFX: &str = " This request comes from fx, not from the user, so leave it and the \
+/// message, so the model is told not to note it (`from_fx`, `ledger.zig:62-64`)
+/// -- under this product's name, as the transcript's `[From xfx, not the
+/// user]` is.
+const FROM_XFX: &str = " This request comes from xfx, not from the user, so leave it and the \
 writing of these notes out of every note and entry.";
 
 /// The request for the notes, for a session whose tool calls cannot be
@@ -3991,7 +3993,7 @@ these notes.";
         assert!(!seen.contains("[Turn 1]"), "{seen}");
         assert!(!seen.contains("SEED_VALUE_42"), "{seen}");
         assert!(seen.contains("Answer with text only and call no tools."));
-        assert!(seen.contains("This request comes from fx, not from the user"));
+        assert!(seen.contains("This request comes from xfx, not from the user"));
         // Turn 1 has nothing in between but is listed for its number.
         assert!(
             seen.contains(
@@ -4088,7 +4090,7 @@ these notes.";
                 "each heading followed by its notes:\n\nTurn 1 (T1), which begins \
                  \u{201c}question one\u{201d}\n  T1 read_file: notes.txt\n\nUnder each heading \
                  above are the turn's tool calls, so you can find them; do not copy those lines. \
-                 Answer with text only and call no tools. This request comes from fx"
+                 Answer with text only and call no tools. This request comes from xfx"
             ),
             "{follow_up}"
         );

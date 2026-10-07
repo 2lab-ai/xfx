@@ -1,0 +1,18 @@
+# W4 round 4: a prompt still past the window once compacted. `hello`, whose
+# request the provider counts at 7 000 tokens, then a pasted prompt of 52 000
+# `x`s, 13 000 tokens by the estimate on its own: past the 14 250 usable
+# either way it is measured, so the turn before it is compacted (text only,
+# no notes request) and the rebuilt request, still past the window, is not
+# sent (`no_compactable_context`, `orchestrator.zig:7347-7350`); the turn ends
+# with upstream's error line (`formatErrorBody`, `app_process_runtime.zig:113-126`).
+gateway compact-toolarge-turns.json
+models compact-inturn-models.json
+wait 3
+type hello
+key Enter
+wait 3
+pastex 52000
+key Enter
+wait 3
+snap refused
+gwlog

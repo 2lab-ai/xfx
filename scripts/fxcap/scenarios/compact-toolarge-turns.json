@@ -1,0 +1,19 @@
+[
+ {
+  "chunks": [
+   "ANSWER-HELLO."
+  ],
+  "billing": {
+   "gen": "gen-hello",
+   "slug": "fake/model-a",
+   "cost": 0.01,
+   "input": 7000,
+   "output": 40
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-UNREACHABLE."
+  ]
+ }
+]
