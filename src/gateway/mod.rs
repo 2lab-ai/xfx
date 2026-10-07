@@ -732,6 +732,9 @@ pub struct GatewayProvider {
     /// may be driven from another; it is held for a clone and never across an
     /// `await`.
     options: std::sync::Mutex<protocol::RequestOptions>,
+    /// How long the rest of a body may be read once the model has finished
+    /// ([`Self::draining_after_finish`]); `None` lets it go at once.
+    drain_after_finish: Option<Duration>,
 }
 
 impl GatewayProvider {
@@ -746,7 +749,21 @@ impl GatewayProvider {
             credential,
             cancel,
             options: std::sync::Mutex::new(protocol::RequestOptions::default()),
+            drain_after_finish: None,
         })
+    }
+
+    /// Reads the rest of a body after the model's finish, for at most
+    /// `budget`, before the call returns -- what upstream's client does on its
+    /// pooled connection, so a finished stream gives the connection back
+    /// (`vercel-labs/fx@c1db9191 src/gateway/client.zig:1777-1810`, bounded by
+    /// `pool_drain_budget_ms`, `:218-221`). A drain that fails or runs out
+    /// costs nothing but the time: the answer is already whole. Opt-in, and
+    /// asked for by the session-title call alone (`crate::tui`'s `titles`),
+    /// whose elapsed time upstream measures past it.
+    pub fn draining_after_finish(mut self, budget: Duration) -> Self {
+        self.drain_after_finish = Some(budget);
+        self
     }
 
     /// The options in force, taken past a poisoned lock: the value is a plain
@@ -888,6 +905,22 @@ impl Provider for GatewayProvider {
             if reader.is_complete() {
                 // The model finished; the rest of the body is trailer.
                 break;
+            }
+        }
+        if let Some(budget) = self.drain_after_finish.filter(|_| reader.is_complete()) {
+            let deadline = tokio::time::Instant::now() + budget;
+            loop {
+                if self.cancel.is_cancelled() {
+                    return Err(ProviderError::Cancelled);
+                }
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(left.min(CANCEL_POLL), stream.next()).await {
+                    Ok(Some(Ok(_))) | Err(_) => {}
+                    Ok(Some(Err(_))) | Ok(None) => break,
+                }
             }
         }
         Ok(reader.finish()?)

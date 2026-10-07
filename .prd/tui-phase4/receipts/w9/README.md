@@ -23,12 +23,10 @@ asked of (`ai-language-model-id`), never the bearer.
 | `titles-steer` | every title request refused (`titles-refused.json`, 500), so no title comes back and the gate stays open; a first prompt whose answer is held open four seconds (`titles-steer-turns.json`), and a second prompt typed into it 1.5 s in -- a steer (F4) -- answered `Took the steer.`; then `/trace`. `reports`, `gwlog`. |
 | `titles-rename` | the title answered `Generated Name` two seconds late (`titles-late-answer.json`); a first prompt whose answer is held open five seconds; `/rename Mine` typed one second in, while the turn runs; then `/trace`. `reports`, `gwlog`, `home files`. |
 
-The xfx binary is `target/debug/xfx` built from the tree of the commit that
-adds this README (W9 round 3 with `plan/tui-phase4` 8891d04f merged, at
-`bcb13ad`, plus that commit's `/trace` detail and `session=` change); its
-banner names `bcb13ad` because the change was not yet committed when it was
-built. The
-same shims, `FX_NO_OPEN_BROWSER=1`, the fx sound guard, an isolated tmux
+The fx side was taken once, at round 3. The xfx side was retaken at round 4:
+`target/debug/xfx` built from the tree of the round-4 commit (W9 at `51fa35a`
+plus round 4's title drain and network records); its banner names `51fa35a`
+because those changes were not yet committed when it was built. The same shims, `FX_NO_OPEN_BROWSER=1`, the fx sound guard, an isolated tmux
 socket and an empty `HOME` as every capture; `xfx: env XFX_SOUND=off` gives
 xfx the start fx's `FX_SOUND=0` gives fx. No file was edited after capture;
 `.files` dumps and reports write the run's scratch directory as `<scratch>`
@@ -69,17 +67,17 @@ attributes (`capture-pane -e`), not the programs' wire bytes (see
 | `gateway.log`, `bodies/` | **the same four requests in the same order on both**: `001-title`, `002-completion`, `003-title`, `004-completion`. The first prompt asks at its keystroke; its 500 leaves the session untitled and no turn has ended, so the prompt steered into the running turn asks again at its own keystroke (fx: `snapshotAndAdmitInteractivePromptWithSkillBindings` -> `snapshotPrompt` -> `admitInteractivePrompt` -> `admitPrompt(steer_if_active)`, `src/main.zig:1407-1420`, `:1479-1481`, `worker_runtime.zig:966-968`, `:1064-1104`). |
 | `steered` (+ `.title`) | rows 2-40 byte-identical; window title `fix the renderer loop` on both: no generated title, the derived one. |
 | `report-1.md` `## Session Title` | identical but for the session id and the elapsed time: `setting: true`, `title: fix the renderer loop`, `generation: status=failed session=<id> model=openai/gpt-5.6-luna reason=provider_failure detail=server_error elapsed=<n>ms` (`app_commands.zig:2779-2816`; the detail is fx's `FailureKind` tag for a 500, `builtins/gateway.zig:710-723`). `## Problems` carries `- session title generation failed reason=provider_failure detail=server_error` on both (`:2596-2611`). |
+| `report-1.md` `## Network Calls`, `## Problems` | both list the two refused title requests beside the turn's, in the order they were made: fx `model=openai/gpt-5.6-luna source=parent status=500 duration=14ms ...` in its own line format, xfx `! network: provider: gateway · model: openai/gpt-5.6-luna · 12ms failed: server_error` in the turns' record's; both put the refusals under `## Problems` too. Each section keeps its own product's summary line and per-call format. |
 
 ## `titles-rename`: fx's install rule against a rename typed mid-turn
 
 | snap | fx vs xfx |
 |---|---|
 | `renamed` (+ `.title`) | rows 2-40 byte-identical: `* session: renamed to "Mine"`, the answer, the summary, and `auto · model-a · Mine` in the status line; window title `Mine` on both. The title came back after the rename and found the user's title on record (`installGeneratedTitle`, `session_title_generation.zig:378-394`). xfx writes a rename typed during a turn once the turn ends (D1); the answer read meanwhile is dropped all the same. |
-| `report-1.md` `## Session Title` | identical but for the session id and the elapsed time: `title: Mine`, `generation: status=dropped session=<id> model=openai/gpt-5.6-luna reason=user_title_present elapsed=<n>ms`, and `- session title generation dropped reason=user_title_present` under `## Problems`. |
+| `report-1.md` `## Session Title` | identical but for the session id: `title: Mine`, `generation: status=dropped session=<id> model=openai/gpt-5.6-luna reason=user_title_present elapsed=<n>ms` -- fx 4027 ms, xfx 4017 ms: both read the answer's body to its end after the finish, which the fake ends two seconds later (fx's pooled drain, `client.zig:1777-1810`, budget `:218-221`) -- and `- session title generation dropped reason=user_title_present` under `## Problems`. `## Network Calls` lists the title request (about 4 s, answered) before the turn's on both. |
 | `files.files` | fx's `session.json` title `Mine`; xfx's `events.jsonl` has one `session_renamed`, the user's `Mine`: the generated title was never written. |
 
 ## What differs and is not W9's
 
-- **Elapsed.** fx's `elapsed` in `titles-rename` (about 4 s) counts to the fake's `[DONE]`, which comes `delayMs` after the finish event; xfx's (about 2 s) stops at the finish event, as its gateway client does for every stream.
-- **`## Network Calls`.** fx's lists every request its gateway client made, the title calls among them (`model=openai/gpt-5.6-luna ... status=500`), and puts the failed ones under `## Problems`; xfx's section is its own summary of the turn's calls (`calls=1 ok=1 refused=0`) and does not list side calls. That section belongs to `/trace`, not to this workstream's port.
+- **`## Network Calls`' own lines.** fx's summary is `last= ok= errors= avg= min= max=` with session totals and per-turn rollups, and each call is `model= source= status= duration= bytes= ...` stamped when it started; xfx's is `calls= ok= refused=` and each call is its `* network:` record. A turn's request is stamped when the band hears of it, and a title's when it started. fx also lists `titles-steer`'s first turn stream, which the steer cut (`err=Cancelled`); xfx records no stream that settled with no answer (`network_record`). Those are `/trace`'s and F4's, not this workstream's.
 - **`Sound level`'s `max`**, as in every capture.

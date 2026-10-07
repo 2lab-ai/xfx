@@ -59,6 +59,46 @@ fn on_screen(session: &Session, (rows, cols): (usize, usize), needles: &[&str], 
     );
 }
 
+/// [`on_screen`] for a notice that names a path: the notice is found
+/// whether or not it fits on one row.
+///
+/// A notice wider than the screen is wrapped by xfx onto rows under it with a
+/// hanging indent, at a path's `/` as readily as at a space, and the path is
+/// the sandbox's -- under whatever `TMPDIR` is -- so its length is the
+/// environment's, not the test's. A one-row needle for it timed out every run
+/// once `TMPDIR` was long enough: `* undo: Restored <path>` came as 238 bytes
+/// on a 200-column screen, split after `det/` onto the next row. The claim is
+/// unchanged -- this notice, naming this file, landed -- and is checked over the
+/// rows a notice wraps onto, blanks aside ([`Screen::holds`]).
+fn notice_on_screen(session: &Session, (rows, cols): (usize, usize), needles: &[&str]) {
+    session.wait_until(
+        &format!("{needles:?} on the screen, wrapped or not"),
+        |text| {
+            Screen::painted(text, rows, cols)
+                .is_some_and(|screen| needles.iter().all(|needle| screen.holds(needle)))
+        },
+    );
+}
+
+#[test]
+fn a_notice_wrapped_onto_the_row_under_it_is_held_and_another_notice_is_not() {
+    // `notice_on_screen`'s oracle, on the rows the long-`TMPDIR` run wrote: a
+    // notice split after a path's `/`, the rest under a two-space indent.
+    let wire =
+        "\u{1b}[2;1H* undo: Restored /tmp/a-long/scratch/\u{1b}[3;1H  directory/workspace/a.txt";
+    let screen = Screen::of(5, 40, wire);
+    assert!(screen.holds("* undo: Restored /tmp/a-long/scratch/directory/workspace/a.txt"));
+    assert!(!screen.holds("* undo: Deleted /tmp/a-long/scratch/directory/workspace/a.txt"));
+    assert!(!screen.holds("* undo: Restored /tmp/a-long/scratch/directory/workspace/b.txt"));
+    // A wrap at a space drops the space: the break's blanks are not counted.
+    let spaced = Screen::of(
+        5,
+        40,
+        "\u{1b}[2;1H* undo: Deleted /w/b.txt\u{1b}[3;1H  (was newly created)",
+    );
+    assert!(spaced.holds("* undo: Deleted /w/b.txt (was newly created)"));
+}
+
 /// The text of every user message in a captured request body.
 ///
 /// The same reduction `tests/interactive.rs` performs on the line-oriented
@@ -218,6 +258,25 @@ impl Screen {
     /// The one-based row `needle` is on, if any row carries it.
     fn find(&self, needle: &str) -> Option<usize> {
         (1..=self.lines.len()).find(|row| self.row_text(*row).contains(needle))
+    }
+
+    /// Whether `needle` is on the screen, on one row or wrapped over the rows
+    /// under its first: each continuation row read without its indent, and
+    /// the blanks of the break -- a wrap at a space drops it -- not counted.
+    fn holds(&self, needle: &str) -> bool {
+        if self.find(needle).is_some() {
+            return true;
+        }
+        let squeezed =
+            |text: &str| -> String { text.chars().filter(|c| !c.is_whitespace()).collect() };
+        let wanted = squeezed(needle);
+        (1..=self.lines.len()).any(|first| {
+            let mut joined = squeezed(&self.row_text(first));
+            (first + 1..=self.lines.len().min(first + 4)).any(|row| {
+                joined.push_str(&squeezed(&self.row_text(row)));
+                joined.contains(&wanted)
+            })
+        })
     }
 
     /// The one-based row the band's rule is on, if the band has painted one.
@@ -4326,11 +4385,10 @@ fn undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest()
     let path = std::fs::canonicalize(&file).expect("canonicalize");
 
     session.type_bytes(b"/undo\r");
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!("* undo: Restored {}", path.display())],
-        &[],
     );
     assert_eq!(std::fs::read_to_string(&file).expect("restored"), "one\n");
 
@@ -4393,14 +4451,13 @@ fn an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn
     assert!(file.exists(), "the undo ran under the running turn");
 
     session.type_bytes(&[0x03]);
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!(
             "* undo: Deleted {} (was newly created)",
             path.display()
         )],
-        &[],
     );
     assert!(!file.exists(), "the undo was dropped with the turn");
 
@@ -4491,14 +4548,13 @@ fn a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back() {
     let pty = Pty::open();
     let (mut session, first) = undo_typed_in_the_pause(&sandbox, &gateway, &pty, "b.txt");
 
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[
             "ALL-DONE",
             &format!("* undo: Deleted {} (was newly created)", first.display()),
         ],
-        &[],
     );
     assert!(!first.exists(), "the change typed at was not taken back");
     let second = sandbox.workspace.join("b.txt");
@@ -4510,14 +4566,13 @@ fn a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back() {
     // pressed: the undo may have removed it by the time the next line runs.
     let second = std::fs::canonicalize(&second).expect("canonicalize");
     session.type_bytes(b"/undo\r");
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!(
             "* undo: Deleted {} (was newly created)",
             second.display()
         )],
-        &[],
     );
     assert!(!second.exists());
 
@@ -4538,25 +4593,23 @@ fn an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back(
     let pty = Pty::open();
     let (mut session, first) = undo_typed_in_the_pause(&sandbox, &gateway, &pty, "b.txt");
 
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[
             "ALL-DONE",
             &format!("* undo: Could not undo {}", first.display()),
         ],
-        &[],
     );
     assert_eq!(
         std::fs::read_to_string(&first).expect("left alone"),
         "two\n"
     );
     session.type_bytes(b"/undo\r");
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!("* undo: Restored {}", first.display())],
-        &[],
     );
     assert_eq!(std::fs::read_to_string(&first).expect("restored"), "one\n");
 
@@ -9420,7 +9473,11 @@ fn slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text(
         "\n    TRACE_RENDER_DONE\n".to_string(),
         "] user\n  render the trace fixture\n".to_string(),
         "] assistant\n  TRACE_RENDER_DONE\n".to_string(),
-        "\n## Network Calls\ncalls=1 ok=1 refused=0\n".to_string(),
+        // The turn's request and the title's: upstream's ring holds every
+        // model call, the title's among them (`writeNetworkCallsSummary`,
+        // `app_commands.zig:3005-3030`; `gateway_step.zig:144`).
+        "\n## Network Calls\ncalls=2 ok=2 refused=0\n".to_string(),
+        "] * network: provider: gateway \u{b7} model: openai/gpt-5.6-luna \u{b7} ".to_string(),
         // The fixture's title request answers with no text: the switch is on,
         // the session is shown under its prompt, and the question came back
         // empty (`writeSessionTitleSummary`, `app_commands.zig:2779-2816`).
