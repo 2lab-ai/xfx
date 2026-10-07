@@ -1262,6 +1262,19 @@ fn body_rows(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<Stri
             state.observe(&text[seen.min(row.start)..row.start]);
             let reopen = state.reopen();
             let (shown, past) = slice.split_at(cut);
+            // The spaces a wrap leaves at the end of a row that another row
+            // follows are the break, not part of the run they fell inside:
+            // upstream's wrap drops them (`assistant_wrap.zig:1306-1324`,
+            // `alpha beta` -> `alpha` / `beta`), so the cell after the last
+            // word is a blank one there. Written after the close here, they
+            // are blank cells too -- where an underline under them, or a link
+            // a click on them would follow, is a cell upstream does not paint.
+            let hung = if row.end < text.len() {
+                shown.len() - shown.trim_end_matches([' ', '\n']).len()
+            } else {
+                0
+            };
+            let (shown, spaces) = shown.split_at(shown.len() - hung);
             state.observe(shown);
             // A reset for the attributes and a close for a link, each only
             // when the row leaves it open: a wrap inside a link's text closes
@@ -1270,7 +1283,7 @@ fn body_rows(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<Stri
             let close = state.close();
             state.observe(past);
             seen = row.end;
-            format!("{reopen}{shown}{close}{past}")
+            format!("{reopen}{shown}{close}{spaces}{past}")
         })
         .collect()
 }
@@ -1689,7 +1702,9 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                format!("{OPEN}\u{1b}[4mabc {RESET}{CLOSE}"),
+                // The break space after `abc` is outside the link and the
+                // underline: a blank cell, as upstream's wrap leaves it.
+                format!("{OPEN}\u{1b}[4mabc{RESET}{CLOSE} "),
                 format!("\u{1b}[4m{OPEN}def\u{1b}[24m{CLOSE} "),
                 "tail".to_string(),
             ]
