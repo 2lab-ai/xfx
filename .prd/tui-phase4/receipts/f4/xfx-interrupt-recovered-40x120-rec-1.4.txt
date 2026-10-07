@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
+
+┃ run it
+
+● 1 tool call · 1 command
+└ Running sleep 4
+
+✓ recovered · attempt 2
+
+┃
+
+full access · model-a                                                Full access enabled: xfx permission checks disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

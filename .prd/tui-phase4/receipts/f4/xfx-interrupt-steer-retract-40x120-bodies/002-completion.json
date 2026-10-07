@@ -1,0 +1,51 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "run it"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool-call",
+     "toolCallId": "call_1_0",
+     "toolName": "terminal",
+     "input": {
+      "action": "exec",
+      "command": "sleep 4; echo done"
+     }
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "content": [
+    {
+     "type": "tool-result",
+     "toolCallId": "call_1_0",
+     "toolName": "terminal",
+     "output": {
+      "type": "text",
+      "value": "<command>sleep 4; echo done</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\ndone\n</stdout>\n<stderr>\n</stderr>\n"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<user_steering>\nApply this live user update to the current task. Continue working unless the user asks you to stop, the task is complete, or a genuine blocker prevents progress.\n\nchange tone and keep it short\n</user_steering>"
+    }
+   ]
+  }
+ ]
+}

@@ -1,18 +1,18 @@
-x𝒇x v0.1.0-ab08b05 [debug] · Run /help for commands
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
 
 ┃ stream please
 
-• Generating (2s) (↑4 ↓41)
+  MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15
 
-┋ what are you doing
+┃ what are you doing
+
+  steered answer.
+
+  2s (↑4 ↓40)
 
 ┃
 
-queued 1 · full access · model-a
-
-
-
-
+full access · model-a
 
 
 

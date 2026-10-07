@@ -864,6 +864,8 @@ impl Report<'_> {
                     TurnStep::ToolFeedback { call_id, text } => {
                         block(out, &format!("feedback id={call_id}"), text);
                     }
+                    // A prompt the person sent into the turn while it ran.
+                    TurnStep::Steered { text } => block(out, "steer", text),
                 }
             }
         }

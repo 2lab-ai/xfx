@@ -200,25 +200,30 @@ pub(crate) fn solve_band(
         .or_else(|| solve_padded(rows, cols, input_rows, Some(0), panel))
 }
 
-/// The same, with a waiting prompt's `banner` rows -- and the blank row that
-/// keeps them from the composer -- under the activity row's own blank row
-/// (`steering_composer_gap_rows`, `render_input.zig:490-491`; capture
-/// `fx-steer-40x120-steer-tool`: the activity row, a blank, `┋ change tone`, a
-/// blank, the composer). `None` when the screen cannot hold them, and the
-/// caller then asks for the band without them: a waiting prompt is also said
-/// on the hint row, so the rows are a view of it rather than its only sign.
-pub(crate) fn solve_band_with_banner(
+/// The same, with `more` rows of the activity row's own under it -- a
+/// recovery's label wrapped onto them (`activityProjectionRows`,
+/// `render_input.zig:689-697`) -- and a waiting prompt's `banner` rows, with
+/// the blank row that keeps them from the composer, under the activity row's
+/// own blank row (`steering_composer_gap_rows`, `render_input.zig:490-491`;
+/// capture `fx-steer-40x120-steer-tool`: the activity row, a blank, `┋ change
+/// tone`, a blank, the composer). Either may be zero. `None` when the screen
+/// cannot hold them, and the caller then asks for less: a waiting prompt is
+/// also said on the hint row, so its rows are a view of it rather than its
+/// only sign, and a recovery's first row cut at the edge still says it.
+pub(crate) fn solve_band_tall(
     rows: u16,
     cols: u16,
     input_rows: u16,
     panel: u16,
+    more: u16,
     banner: u16,
 ) -> Option<Geometry> {
+    let banner = if banner > 0 { banner + 1 } else { 0 };
     solve_padded(
         rows,
         cols,
         input_rows,
-        Some(ACTIVITY_PADDING + banner + 1),
+        Some(ACTIVITY_PADDING + more + banner),
         panel,
     )
 }

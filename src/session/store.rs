@@ -49,7 +49,7 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::TurnJournal;
 use crate::config::PermissionMode;
-use crate::gateway::protocol::{Message, ToolCall};
+use crate::gateway::protocol::{Message, ResultStatus, ToolCall};
 use crate::permission::Grant;
 use crate::provider::Wire;
 
@@ -406,6 +406,9 @@ pub enum TurnStep {
     /// opens a turn here, and one opened mid-batch would leave the results still
     /// to come with no call ahead of them.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the turn while it ran
+    /// ([`SessionEvent::Steered`]), in the words they typed.
+    Steered { text: String },
 }
 
 /// What the model is told after a turn that did not finish, before the next
@@ -725,6 +728,15 @@ impl DurableState {
     }
 }
 
+/// Whether a recorded result is the answer of a call its turn was stopped
+/// under: a failure whose first line is [`ABORTED_TOOL_OUTPUT`] -- alone, or
+/// followed by xfx's own note that a stopped command left something running
+/// (`crate::tools::terminal`). No tool's own failure begins with those words:
+/// every other failure is a sentence xfx writes about the call.
+fn stopped_answer(ok: bool, output: &str) -> bool {
+    !ok && output.split('\n').next() == Some(ABORTED_TOOL_OUTPUT)
+}
+
 /// One turn as the messages a request carries for it on `active`, its user
 /// message first ([`DurableState::history_messages`]). A reasoning state that
 /// does not replay on `active` is dropped with a line in `notices`.
@@ -841,21 +853,26 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 ok,
                 output,
             } => {
-                // Replayed as it was sent: a failure as a failure.
-                pending.push(if *ok {
-                    Message::tool_result(call_id, tool, output.clone())
+                // Replayed as it was sent: a failure as a failure, a
+                // refusal as a refusal.
+                let status = if *ok {
+                    ResultStatus::Success
+                } else if crate::tools::is_refusal(tool, output) {
+                    ResultStatus::Denied
                 } else {
-                    Message::tool_error(call_id, tool, output.clone())
-                });
+                    ResultStatus::Failure
+                };
+                pending.push(Message::tool_ended(call_id, tool, output.clone(), status));
                 awaiting.retain(|id| id != call_id);
                 // A call that answered `aborted by user` did not
                 // finish: its turn was stopped under it (a question the
-                // user cancelled, `crate::tools::question`). It is the
+                // user cancelled, `crate::tools::question`; a command
+                // the user stopped, `crate::tools::terminal`). It is the
                 // call upstream keeps on the interrupted turn rather
                 // than among the completed ones
                 // (`InterruptedHistoryTurn.tool_call`,
                 // `session.zig:2701-2736`).
-                if !*ok && output == ABORTED_TOOL_OUTPUT {
+                if stopped_answer(*ok, output) {
                     stopped = true;
                 } else {
                     finished.push(tool.clone());
@@ -871,6 +888,15 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 // one it is dropped with the group, rather than
                 // arriving as a user message about a result the model
                 // was never shown.
+                pending.push(Message::user(text.clone()));
+            }
+            // The person's words as a user message of their own, as
+            // upstream's history replays a steer: plain, not in the
+            // wrapper the model was given live (`fx-interrupt-steer-
+            // 40x120-bodies/005-completion.json`: `user "what are you
+            // doing"`). Delivered only after every result of its step,
+            // so it goes out with the group.
+            TurnStep::Steered { text } => {
                 pending.push(Message::user(text.clone()));
             }
         }
@@ -2615,6 +2641,11 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     text: text.clone(),
                 });
         }
+        SessionEvent::Steered { text } => {
+            open_turn(state, "a steer", envelope.seq)?
+                .steps
+                .push(TurnStep::Steered { text: text.clone() });
+        }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
             let grant = Grant::new(tool.clone(), target.clone());
             if !state.grants.contains(&grant) {
@@ -3588,9 +3619,15 @@ mod tests {
                         ContentPart::ToolResult {
                             call_id,
                             output,
-                            error,
+                            status,
                             ..
-                        } => format!("result {call_id} {output} error={error}"),
+                        } => match status {
+                            ResultStatus::Denied => format!("result {call_id} {output} denied"),
+                            _ => format!(
+                                "result {call_id} {output} error={}",
+                                *status != ResultStatus::Success
+                            ),
+                        },
                         ContentPart::RawBlocks(_) => "raw".to_string(),
                         ContentPart::Image { media_type, .. } => {
                             format!("image {}", media_type.label())
@@ -3813,6 +3850,37 @@ mod tests {
                 (Role::User, TURN_ABORTED.to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn history_answers_a_command_the_user_stopped_as_the_call_its_turn_stopped_under() {
+        // A command stopped under its turn answers `aborted by user`
+        // (`crate::tools::terminal`), with xfx's note after it when its group
+        // could not be emptied; either way it is the call the turn stopped
+        // under, not a tool that completed (`fx-interrupt-next-cmd-40x120-
+        // bodies/003-completion.json`).
+        for output in [
+            ABORTED_TOOL_OUTPUT.to_string(),
+            format!("{ABORTED_TOOL_OUTPUT}\n... [the command's process group was still there]\n"),
+        ] {
+            let state = reduce(vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "run cmd".to_string(),
+                },
+                assistant("", &[("c1", "terminal")]),
+                result("c1", "terminal", false, &output),
+                interrupted(),
+            ])
+            .expect("reduces");
+            let shown = shape(&state.history_messages(Wire::VercelGateway).messages);
+            assert_eq!(shown.len(), 4, "{shown:#?}");
+            assert_eq!(shown[1], (Role::Assistant, "call c1".to_string()));
+            assert_eq!(shown[3], (Role::User, TURN_ABORTED.to_string()));
+        }
+        // A tool's own failure that merely mentions the words is not one.
+        assert!(!stopped_answer(false, "no such file: aborted by user"));
+        assert!(!stopped_answer(true, ABORTED_TOOL_OUTPUT));
     }
 
     #[test]
