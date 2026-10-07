@@ -16319,6 +16319,41 @@ mod tests {
     }
 
     #[test]
+    fn up_over_a_draft_goes_to_its_start_before_it_takes_a_steer_back() {
+        // `input_completion_runtime.zig:265-284`: the draft's start first,
+        // and only at an empty composer the steer (`restoreQueuedSteerToComposer`
+        // asks for no draft, `:299`) -- so with a draft typed over a waiting
+        // steer, Up moves the caret and takes nothing back.
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"draft");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "draft");
+        assert_eq!(shell.editor.caret(), 0, "the caret did not go to the start");
+        assert!(steering.pending(), "a steer came back over a draft");
+        // From the start of a draft it is the history's step: the newest
+        // line -- the steer's own text, recorded when it was sent -- and the
+        // steer stays the turn's.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(steering.pending(), "an Up over a draft took the steer back");
+        // Back to the draft, emptied: the next Up is the steer's.
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.editor.text(), "draft");
+        shell.route_bytes(&[0x05, 0x15]);
+        assert!(shell.editor.is_empty());
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the empty composer's Up left the steer"
+        );
+    }
+
+    #[test]
     fn a_steer_the_turn_never_took_is_the_next_prompt_and_a_stop_drops_it() {
         let mut shell = running("run it");
         let steering = shell.work.steering();
