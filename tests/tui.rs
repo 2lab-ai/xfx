@@ -1187,13 +1187,9 @@ fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
     // discards a stop sent there.
     let session = in_its_own_process_group(&sandbox, &pty);
 
-    session.signal(Signal::TSTP);
     assert!(
         matches!(
-            session.wait_state("the child to stop", |state| matches!(
-                state,
-                Wait::Stopped(_)
-            )),
+            session.stop_with(Signal::TSTP, "the child to stop"),
             Wait::Stopped(_)
         ),
         "a stop aimed at a starting session was swallowed"
@@ -1233,12 +1229,8 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     let before = modes(&pty);
     let session = started(&sandbox, &pty);
 
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw()),
         "only raise(SIGSTOP) after SIG_DFL produces a genuine stop"
     );
@@ -1299,12 +1291,8 @@ fn a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced() {
     let session = started(&sandbox, &pty);
     session.wait_for(TITLE);
 
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     session.wait_for(ABNORMAL_RESTORE);
@@ -1358,12 +1346,8 @@ fn a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back() 
     let session = in_its_own_process_group(&sandbox, &pty);
 
     session.wait_for(PROBE);
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     assert_eq!(before, modes(&pty), "a stopped job left the terminal raw");
@@ -5769,10 +5753,7 @@ fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() 
         "the plane was not taken once before the stop: {before_stop:?}"
     );
 
-    session.signal(Signal::TSTP);
-    session.wait_state("the child to really stop", |state| {
-        matches!(state, Wait::Stopped(_))
-    });
+    session.stop_with(Signal::TSTP, "the child to really stop");
     // The handler gave the plane back on its way down: that is what makes the
     // retake below necessary rather than decorative.
     assert_eq!(
@@ -5839,10 +5820,7 @@ fn a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on() 
         "the plane was not taken once before the stop"
     );
 
-    session.signal(Signal::STOP);
-    session.wait_state("the child to really stop", |state| {
-        matches!(state, Wait::Stopped(_))
-    });
+    session.stop_with(Signal::STOP, "the child to really stop");
     // The discriminating fact: no handler ran, so nothing gave the plane back.
     assert!(
         !session.text().contains(LEAVES_ALTERNATE),
