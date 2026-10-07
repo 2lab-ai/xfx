@@ -1,0 +1,40 @@
+[38;5;245m├ Matched **/*.rs[39m
+[38;5;245m├ Searched alpha[39m
+[38;5;245m├ Ran [38;5;252msleep[38;5;245m 3[38;5;252m;[38;5;245m [38;5;252mecho[38;5;245m hello from shell[38;5;252m;[38;5;245m [38;5;252mls[39m
+[38;5;245m├ Edited a.txt +1 / -1[39m
+[38;5;245m├ Denied file[39m
+[38;5;245m├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`[39m
+[38;5;245m└ Exited 3 [38;5;252mecho[38;5;245m boom[38;5;252m;[38;5;245m [38;5;252mecho[38;5;245m err [38;5;252m>&[38;5;250m2[38;5;252m;[38;5;245m [38;5;252mexit[38;5;245m 3[39m
+
+  All done. The files were updated.
+
+[38;5;245m  13s (↑8 ↓40)[39m
+
+[38;5;255m┃[39m [1mand once more[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 write · 1 cancelled[39m
+[38;5;245m└ Cancelled file[39m
+
+[38;5;252m■[38;5;255m Cancelled[39m [38;5;245mfile[39m · What can xfx do differently?
+
+[38;5;255m┃[39m [1mrun the long one[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command[39m
+[38;5;245m└ Ran [38;5;252msleep[38;5;245m 4[39m
+
+[38;5;252m■[39m [38;5;255mCancelled[39m · What can xfx do differently?
+
+[38;5;255m┃[39m
+
+[38;5;245mask · model-a[39m
+
+
+
+
+
+
+
+
+
+
+

@@ -1,27 +1,27 @@
 === ~/.xfx/history.jsonl (397 bytes)
-{"schema_version":1,"timestamp_ms":1791324611639,"workspace_root":"<scratch>/work","text":"first prompt"}
-{"schema_version":1,"timestamp_ms":1791324613700,"workspace_root":"<scratch>/work","text":"/settings"}
-{"schema_version":1,"timestamp_ms":1791324622489,"workspace_root":"<scratch>/work","text":"public prompt"}
+{"schema_version":1,"timestamp_ms":1791331799646,"workspace_root":"<scratch>/work","text":"first prompt"}
+{"schema_version":1,"timestamp_ms":1791331801823,"workspace_root":"<scratch>/work","text":"/settings"}
+{"schema_version":1,"timestamp_ms":1791331810509,"workspace_root":"<scratch>/work","text":"public prompt"}
 
 === ~/.xfx/history.lock (0 bytes)
-=== ~/.xfx/sessions/1791324611640-24d83b7c0de6bf59/events.jsonl (4300 bytes)
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":1,"event_id":"71b83ae4f99e5e1446fa31059f55c753","timestamp_ms":1791324611643,"event":{"kind":"session_started","id":"1791324611640-24d83b7c0de6bf59","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":2,"event_id":"d934ddca0db38b0cf66024a23b10ac5b","timestamp_ms":1791324611667,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":3,"event_id":"84e9a7291f1980307306fb6e1b8dbc3d","timestamp_ms":1791324611683,"event":{"kind":"user_message","text":"first prompt"}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":4,"event_id":"95039f086e2f92f4bd101e84b2bf1ccc","timestamp_ms":1791324611702,"event":{"kind":"assistant_message","text":"one","tool_calls":[]}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":5,"event_id":"9550f4c28728a1dc449f415f1793dd0a","timestamp_ms":1791324611718,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791324611702,"duration_ms":5,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":6,"event_id":"e0342a75497fafe52bdc6d26dbe267d2","timestamp_ms":1791324611737,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":7,"event_id":"948e8ccd64316c415b2e2b8f0bfeac3d","timestamp_ms":1791324616629,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":8,"event_id":"789f5e3879a3efca92bf86c7d740dd47","timestamp_ms":1791324616656,"event":{"kind":"user_message","text":"secret prompt"}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":9,"event_id":"7379451327f7198c80d5ae46262542c9","timestamp_ms":1791324616693,"event":{"kind":"assistant_message","text":"two","tool_calls":[]}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":10,"event_id":"1ff520949aec9f7692b0ac12b573dd7f","timestamp_ms":1791324616734,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791324616693,"duration_ms":5,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":11,"event_id":"951fae0de30e2c55487d5d49963828da","timestamp_ms":1791324616786,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":12,"event_id":"69035367a479918320077bf5010ac06a","timestamp_ms":1791324622489,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":13,"event_id":"4143b935ba59a716f434399668ccb06d","timestamp_ms":1791324622600,"event":{"kind":"user_message","text":"public prompt"}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":14,"event_id":"a4277a43f98dda44416f9af546493427","timestamp_ms":1791324622823,"event":{"kind":"assistant_message","text":"three","tool_calls":[]}}
-{"schema_version":1,"log_generation":"9cec78b298bba19a0326dde4a9868f8a","seq":15,"event_id":"a5e762e6763cdadb8121c5a364fbf55b","timestamp_ms":1791324622928,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791324622823,"duration_ms":58,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,
-=== ~/.xfx/sessions/1791324611640-24d83b7c0de6bf59/session.json (624 bytes)
-{"schema_version":1,"storage_format":"event_log_v1","id":"1791324611640-24d83b7c0de6bf59","log_generation":"9cec78b298bba19a0326dde4a9868f8a","created_at_ms":1791324611643,"updated_at_ms":1791324623031,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"first prompt","history_turns":3,"permission_grants":0,"total_input_tokens":3600,"total_output_tokens":120,"last_event_seq":16,"event_log_bytes":4300,"event_log_sha256":"18643e71c491c3a69c4f8652377b302afb47d0f1c8637da7212e2a999c641a0c"}
+=== ~/.xfx/sessions/1791331799647-3b5e53ae465d4c01/events.jsonl (4301 bytes)
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":1,"event_id":"388e5d611242f6d630066af9273e0602","timestamp_ms":1791331799682,"event":{"kind":"session_started","id":"1791331799647-3b5e53ae465d4c01","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":2,"event_id":"61621a2c570f31d23bdf5b0f416a0d40","timestamp_ms":1791331799751,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":3,"event_id":"5d7d216e28b56c3886890a1bb30180d2","timestamp_ms":1791331799808,"event":{"kind":"user_message","text":"first prompt"}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":4,"event_id":"9708ceb07071508b32c23eef72d34264","timestamp_ms":1791331799876,"event":{"kind":"assistant_message","text":"one","tool_calls":[]}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":5,"event_id":"a435dd99b4fa3c558d07a3b0de2837aa","timestamp_ms":1791331799914,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791331799876,"duration_ms":9,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":6,"event_id":"d3c2ebe8bc699b10ee03131187c0cd7c","timestamp_ms":1791331799973,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":7,"event_id":"6ad846e9f1462484d9e2bbbd48c3f387","timestamp_ms":1791331804704,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":8,"event_id":"09872cb789815e3d5218cc3cb2c72bc6","timestamp_ms":1791331804791,"event":{"kind":"user_message","text":"secret prompt"}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":9,"event_id":"e7a9e234e6e69279741d0b44f1dd542a","timestamp_ms":1791331804913,"event":{"kind":"assistant_message","text":"two","tool_calls":[]}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":10,"event_id":"eb668bb04c16c25d8fb7f6c9de6ac0c8","timestamp_ms":1791331804969,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791331804913,"duration_ms":22,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":11,"event_id":"d3766b5106fa8900a555f71f2ec0536b","timestamp_ms":1791331804994,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":12,"event_id":"c0a3b5791fc6e7ed8b337289280ab50c","timestamp_ms":1791331810509,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":13,"event_id":"f81e6948c44d5d8b39beb15890200efa","timestamp_ms":1791331810628,"event":{"kind":"user_message","text":"public prompt"}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":14,"event_id":"255673657717e27105c22b71d1d3f49c","timestamp_ms":1791331810806,"event":{"kind":"assistant_message","text":"three","tool_calls":[]}}
+{"schema_version":1,"log_generation":"c1d7b80d3d77222e9875e54b430195c6","seq":15,"event_id":"9bb188ea855fc09f57eaa86300984f20","timestamp_ms":1791331810952,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791331810806,"duration_ms":48,"model":"fake/model-a","input_tokens":1200,"output_tokens":40
+=== ~/.xfx/sessions/1791331799647-3b5e53ae465d4c01/session.json (624 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791331799647-3b5e53ae465d4c01","log_generation":"c1d7b80d3d77222e9875e54b430195c6","created_at_ms":1791331799682,"updated_at_ms":1791331811119,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"first prompt","history_turns":3,"permission_grants":0,"total_input_tokens":3600,"total_output_tokens":120,"last_event_seq":16,"event_log_bytes":4301,"event_log_sha256":"8cb38da64be5fdd2f1138c2eea1af340d70d105e391cfefd06e5763e796ac8d6"}
 
 === ~/.xfx/settings.json (50 bytes)
 {
@@ -32,5 +32,5 @@
 
 === ~/.xfx/settings.lock (0 bytes)
 === ~/.xfx/usage.json (41 bytes)
-{"tracking_started_at_ms":1791324611718}
+{"tracking_started_at_ms":1791331799914}
 

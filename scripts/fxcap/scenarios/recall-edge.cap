@@ -5,10 +5,10 @@
 # fx's harness launches it with FX_SOUND=0; xfx is given the same start.
 xfx: env XFX_SOUND=off
 wait 2
-type /version
+type /copy
 key Enter
 wait 1
-type /status
+type /stats
 key Enter
 wait 1
 type half
