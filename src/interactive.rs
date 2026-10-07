@@ -2156,6 +2156,7 @@ fn trace_on_the_line(
         _ => crate::trace::Session::None,
     };
     let now = crate::session::event::system_now_ms();
+    let compaction = crate::agent::compaction_trace::snapshot();
     let report = crate::trace::Report {
         generated_ms: now,
         status: &status,
@@ -2163,6 +2164,7 @@ fn trace_on_the_line(
         settings: &settings,
         session,
         screen: None,
+        compaction: &compaction,
     }
     .render();
     let disposition = crate::trace::deliver(

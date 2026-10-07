@@ -43,6 +43,7 @@ use std::time::Instant;
 
 use serde_json::Value;
 
+use super::compaction_trace::{self as trace, Context, Kind};
 use super::machine::{may_have_billed, request_usage};
 
 use crate::gateway::protocol::{
@@ -280,6 +281,8 @@ pub struct Window {
     pub cut: usize,
     /// Estimated tokens of the turns kept as they are.
     pub kept_used: usize,
+    /// The room the turns kept as they are were chosen within.
+    pub kept_tokens: usize,
 }
 
 /// Why a compaction did not happen.
@@ -291,19 +294,51 @@ pub enum Failure {
     /// The user stopped it.
     Cancelled,
     /// The notes could not be written: the provider failed, refused, said
-    /// nothing, or stopped short. What it said is kept for the record.
-    Summary(String),
+    /// nothing, or stopped short.
+    Summary(SummaryError),
+}
+
+/// Why the notes could not be written, in upstream's error name
+/// (`ModelFailed`, `SummaryIncomplete`, `EmptySummary`; `model.zig:149-161`,
+/// `summarize.zig:598`) and what was said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummaryError {
+    pub name: &'static str,
+    pub detail: String,
+}
+
+impl Failure {
+    fn summary(name: &'static str, detail: impl Into<String>) -> Self {
+        Self::Summary(SummaryError {
+            name,
+            detail: detail.into(),
+        })
+    }
+
+    /// Upstream's error name for it, as `/trace` writes it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::TooLarge => "ContextCapacityExceeded",
+            Self::Cancelled => "Cancelled",
+            Self::Summary(error) => error.name,
+        }
+    }
 }
 
 /// Chooses what to compact of `turns`, the ones no compaction covers yet.
 /// `None` when nothing needs compacting (`choose`, `window.zig:297-318`).
-pub fn choose(turns: &[HistoryTurn], size: &Size) -> Result<Option<Window>, Failure> {
+pub fn choose(
+    turns: &[HistoryTurn],
+    size: &Size,
+    context: Context,
+) -> Result<Option<Window>, Failure> {
     let mut kept = percent_of(size.conversation_tokens(), KEPT_PERCENT);
     loop {
         let window = if kept == 0 {
             Window {
                 cut: turns.len(),
                 kept_used: 0,
+                kept_tokens: 0,
             }
         } else {
             select_recent(turns, kept, size.usable)
@@ -315,8 +350,21 @@ pub fn choose(turns: &[HistoryTurn], size: &Size) -> Result<Option<Window>, Fail
             return Ok(None);
         }
         if kept == 0 {
+            trace::failure(
+                context,
+                Kind::RetentionExhausted,
+                format!("estimated_tokens={}", size.request.unwrap_or(0)),
+            );
             return Err(Failure::TooLarge);
         }
+        trace::failure(
+            context,
+            Kind::RetentionForcedZero,
+            format!(
+                "estimated_tokens={} kept_tokens={kept}",
+                size.request.unwrap_or(0)
+            ),
+        );
         kept = 0;
     }
 }
@@ -328,6 +376,7 @@ fn select_recent(turns: &[HistoryTurn], target: usize, capacity: Option<usize>) 
     let mut selected = Window {
         cut: turns.len(),
         kept_used: 0,
+        kept_tokens: target,
     };
     let mut total = 0usize;
     // `used` is how many turns are kept so far: every one before this was.
@@ -357,6 +406,7 @@ fn select_recent(turns: &[HistoryTurn], target: usize, capacity: Option<usize>) 
         selected = Window {
             cut: index,
             kept_used: total,
+            kept_tokens: target,
         };
     }
     selected
@@ -922,24 +972,39 @@ struct Heading {
 pub struct Plan {
     /// The compaction in force, which this one carries on.
     earlier: Compacted,
+    /// Whether there is one: the first compaction of a session has none.
+    has_earlier: bool,
     turns: Vec<Prepared>,
     candidates: Vec<Candidate>,
     /// The last frame of the last turn this compacts.
     covers_through_seq: u64,
     max_prompt_tokens: usize,
     max_text_tokens: usize,
+    /// The room it was chosen in, as `/trace` reports it.
+    room: Room,
+    /// Where it happened, for `/trace`.
+    context: Context,
+}
+
+/// The sizes a compaction was chosen with, for `/trace`'s "room after
+/// compaction" line (`compactor.zig:195`).
+#[derive(Debug, Clone, Copy)]
+struct Room {
+    after_tokens: usize,
+    kept_tokens: usize,
+    kept_used: usize,
 }
 
 /// Chooses and prepares a compaction of `state`'s conversation within
 /// `size`. `None` when nothing needs compacting -- no turn the compaction in
 /// force does not cover, or none older than the turns kept as they are
 /// (`compact`, `compactor.zig:160-180`).
-pub fn plan(state: &DurableState, size: &Size) -> Result<Option<Plan>, Failure> {
+pub fn plan(state: &DurableState, size: &Size, context: Context) -> Result<Option<Plan>, Failure> {
     let turns = state.uncovered_turns();
     if turns.is_empty() {
         return Ok(None);
     }
-    let Some(window) = choose(turns, size)? else {
+    let Some(window) = choose(turns, size, context)? else {
         return Ok(None);
     };
     let earlier = state
@@ -957,10 +1022,17 @@ pub fn plan(state: &DurableState, size: &Size) -> Result<Option<Plan>, Failure> 
     Ok(Some(Plan {
         covers_through_seq: turns[window.cut - 1].seqs.last,
         earlier,
+        has_earlier: state.checkpoint.is_some(),
         turns: prepared,
         candidates,
         max_prompt_tokens: size.summary_request_tokens(),
         max_text_tokens: size.compacted_tokens(window.kept_used),
+        room: Room {
+            after_tokens: size.after_tokens(),
+            kept_tokens: window.kept_tokens,
+            kept_used: window.kept_used,
+        },
+        context,
     }))
 }
 
@@ -1051,7 +1123,8 @@ impl Plan {
 /// messages, final replies and notes shorter, never below
 /// [`MIN_CLIP_BYTES`] (`fitWithin`, `summarize.zig:1185-1208`).
 fn fit_within(compacted: &mut Compacted, limit: usize) {
-    if tokens(&[&crate::session::checkpoint::render(compacted)]) <= limit {
+    let before = tokens(&[&crate::session::checkpoint::render(compacted)]);
+    if before <= limit {
         return;
     }
     let mut clip = usize::MAX;
@@ -1068,9 +1141,24 @@ fn fit_within(compacted: &mut Compacted, limit: usize) {
         }
     }
     if clip == usize::MAX {
+        trace::log(
+            true,
+            format!(
+                "compacted text over its room with no text long enough to clip tokens={before} \
+                 limit={limit}"
+            ),
+        );
         return;
     }
     compacted.turns = clipped_turns(&compacted.turns, clip);
+    let after = tokens(&[&crate::session::checkpoint::render(compacted)]);
+    trace::log(
+        after > limit,
+        format!(
+            "compacted text over its room; its longest texts were clipped, whole in their saved \
+             turns tokens={before} clipped_tokens={after} limit={limit} clip_bytes={clip}"
+        ),
+    );
 }
 
 fn longest_exact(turns: &[CompactedTurn]) -> usize {
@@ -1949,24 +2037,54 @@ impl DeltaSink for Discard {
     }
 }
 
+/// How the notes requests of one compaction went, for `/trace`'s
+/// `provider_completed` line (`Summarizer`, `model.zig:92-97`).
+#[derive(Debug, Default)]
+struct Asked {
+    /// How many times notes were asked for, a fallback counted with its own.
+    summaries: Cell<usize>,
+    /// The other family's model, when it was asked.
+    fallback: Cell<Option<&'static str>>,
+}
+
 /// Asks the model for notes, and on a failure or an empty reply asks the
 /// fallback family once (`Summarizer.summarizeWith`, `model.zig:103-131`).
-async fn summarize_with(caller: &Caller<'_>, user: &str) -> Result<String, Failure> {
-    let primary = ask(caller, caller.model, user).await;
-    match &primary {
+async fn summarize_with(
+    caller: &Caller<'_>,
+    user: &str,
+    asked: &Asked,
+    context: Context,
+) -> Result<String, Failure> {
+    asked.summaries.set(asked.summaries.get() + 1);
+    let primary = ask(caller, caller.model, user, context).await;
+    let after = match &primary {
         Ok(text) if !text.trim().is_empty() => return primary,
         Err(Failure::Cancelled) => return primary,
-        _ => {}
-    }
+        Ok(_) => "empty_summary",
+        Err(failure) => failure.name(),
+    };
     if !caller.fallback {
         return primary;
     }
-    ask(caller, fallback_model(caller.model), user).await
+    let fallback = fallback_model(caller.model);
+    trace::info(
+        context,
+        Kind::Log,
+        format!("fallback model={fallback} after={after}"),
+    );
+    asked.fallback.set(Some(fallback));
+    ask(caller, fallback, user, context).await
 }
 
 /// One notes request to `model`, with no tools, at its lowest reasoning
-/// (`ask`, `model.zig:134-161`).
-async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Failure> {
+/// (`ask`, `model.zig:134-161`; `CompactorCaller.send`,
+/// `text_completion.zig:225-284`).
+async fn ask(
+    caller: &Caller<'_>,
+    model: &str,
+    user: &str,
+    context: Context,
+) -> Result<String, Failure> {
     caller.provider.set_options(RequestOptions {
         reasoning: lowest_effort(&(caller.efforts)(model)),
     });
@@ -1977,16 +2095,40 @@ async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Fai
         tool_choice: ToolChoice::None,
     };
     let began = Instant::now();
-    let completion = match caller.provider.stream(&request, &mut Discard).await {
+    let outcome = caller.provider.stream(&request, &mut Discard).await;
+    let usage = outcome
+        .as_ref()
+        .map(|completion| completion.usage)
+        .unwrap_or_default();
+    if !matches!(outcome, Err(ProviderError::Cancelled)) {
+        trace::log(
+            false,
+            format!(
+                "compaction model call model={model} after_conversation=false input_tokens={} \
+                 cache_read_tokens={} cache_write_tokens={} output_tokens={}",
+                trace::any(usage.input_tokens),
+                trace::any(None::<u64>),
+                trace::any(None::<u64>),
+                trace::any(usage.output_tokens),
+            ),
+        );
+    }
+    let completion = match outcome {
         Ok(completion) => completion,
         Err(err) => {
             if may_have_billed(&err) {
                 caller.spent.unaccounted.set(true);
             }
-            return Err(match err {
-                ProviderError::Cancelled => Failure::Cancelled,
-                err => Failure::Summary(err.to_string()),
-            });
+            if matches!(err, ProviderError::Cancelled) {
+                return Err(Failure::Cancelled);
+            }
+            let detail = provider_failure(&err);
+            trace::failure(
+                context,
+                Kind::SummaryTransportFailed,
+                format!("model={model} {detail}"),
+            );
+            return Err(Failure::summary("ModelFailed", err.to_string()));
         }
     };
     caller
@@ -1997,43 +2139,161 @@ async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Fai
     match completion.finish_reason {
         FinishReason::Stop if completion.tool_calls.is_empty() => {}
         FinishReason::Stop | FinishReason::ToolCalls => {
-            return Err(Failure::Summary(format!(
-                "{model} called a tool instead of writing notes"
-            )))
+            trace::failure(
+                context,
+                Kind::SummaryToolCallRejected,
+                format!("model={model}"),
+            );
+            return Err(Failure::summary(
+                "ModelFailed",
+                format!("{model} called a tool instead of writing notes"),
+            ));
         }
         other => {
-            return Err(Failure::Summary(format!(
-                "{model} stopped with `{}`",
-                other.label()
-            )))
+            trace::failure(
+                context,
+                Kind::SummaryIncomplete,
+                format!(
+                    "model={model} finish_reason={} bytes={}",
+                    other.label(),
+                    completion.text.len()
+                ),
+            );
+            return Err(Failure::summary(
+                "SummaryIncomplete",
+                format!("{model} stopped with `{}`", other.label()),
+            ));
         }
     }
     if completion.text.len() > MAX_SUMMARY_BYTES {
-        return Err(Failure::Summary(format!(
-            "{model} wrote {} bytes of notes",
-            completion.text.len()
-        )));
+        trace::failure(
+            context,
+            Kind::SummaryTruncated,
+            format!("model={model} bytes={}", completion.text.len()),
+        );
+        return Err(Failure::summary(
+            "ModelFailed",
+            format!("{model} wrote {} bytes of notes", completion.text.len()),
+        ));
     }
     Ok(completion.text)
+}
+
+/// A failed notes request as `/trace` describes it: the provider's refusal
+/// by its kind and its masked words (`kind=… detail=…`,
+/// `text_completion.zig:133-142`), a request that never completed by what
+/// went wrong (`err=…`).
+fn provider_failure(err: &ProviderError) -> String {
+    match err {
+        ProviderError::Status { status, body, .. } => format!(
+            "kind={} detail={}",
+            failure_kind(*status),
+            trace::provider_detail(body)
+        ),
+        other => format!("err={}", trace::provider_detail(&other.to_string())),
+    }
+}
+
+/// The provider's refusal by its status, in upstream's words
+/// (`agent_stream_provider.FailureKind`; `failureHttpStatus`,
+/// `orchestrator.zig:4413-4426`, read the other way).
+fn failure_kind(status: u16) -> &'static str {
+    match status {
+        400 => "invalid_request",
+        401 => "unauthorized",
+        403 => "forbidden",
+        413 => "request_too_large",
+        429 => "rate_limited",
+        500 => "server_error",
+        502 => "bad_gateway",
+        503 => "unavailable",
+        504 => "gateway_timeout",
+        _ => "provider_error",
+    }
 }
 
 /// The checkpoint for `plan`, asking the model for notes when it needs them
 /// (`summarize.compact` and `compactPart`, `summarize.zig:169-559`, for one
 /// part). A reply that skips a turn that did work is asked once more for just
 /// those turns; that request failing keeps the first notes.
+///
+/// Says what it did on `/trace` as upstream's compactor does: the room it
+/// was chosen in, `provider_start` and `provider_completed` around the notes
+/// -- both for a compaction that needs none -- and each request's failures
+/// (`compactor.zig:195-215`).
 pub async fn finish(plan: &Plan, caller: &Caller<'_>) -> Result<SessionEvent, Failure> {
+    let context = plan.context;
+    trace::log(
+        false,
+        format!(
+            "room after compaction after_tokens={} fixed_tokens=null kept_tokens={} \
+             kept_used={} compacted_tokens={}",
+            plan.room.after_tokens,
+            plan.room.kept_tokens,
+            plan.room.kept_used,
+            plan.max_text_tokens
+        ),
+    );
+    trace::info(
+        context,
+        Kind::ProviderStart,
+        format!(
+            "model={} turns={} earlier={} store=false",
+            caller.model,
+            plan.turns.len(),
+            plan.has_earlier
+        ),
+    );
+    let asked = Asked::default();
+    let event = notes(plan, caller, &asked).await?;
+    if let SessionEvent::ContextCheckpoint { compacted, .. } = &event {
+        trace::info(
+            context,
+            Kind::ProviderCompleted,
+            format!(
+                "model={} summaries={} shown_turns={} turns={} tools={} entries={} used=0 \
+                 text_bytes={} fallback={}",
+                caller.model,
+                asked.summaries.get(),
+                compacted.turns.len(),
+                compacted.turn_count,
+                compacted.tool_count,
+                compacted.entries.len(),
+                crate::session::checkpoint::render(compacted).len(),
+                asked.fallback.get().unwrap_or("none")
+            ),
+        );
+    }
+    Ok(event)
+}
+
+async fn notes(plan: &Plan, caller: &Caller<'_>, asked: &Asked) -> Result<SessionEvent, Failure> {
+    let context = plan.context;
     if !plan.needs_model() {
         return Ok(plan.local());
     }
     let (user, start) = fitting_transcript(plan);
-    let reply = summarize_with(caller, &user).await?;
+    let reply = summarize_with(caller, &user, asked, context).await?;
     let reply = reply.trim_matches([' ', '\t', '\r', '\n']);
     if reply.is_empty() {
-        return Err(Failure::Summary("the notes were empty".to_string()));
+        return Err(Failure::summary("EmptySummary", "the notes were empty"));
     }
     let known = plan.known();
     let highest = plan.earlier.highest_ids();
     let mut written = read(reply, &known, &plan.earlier.entries, &highest);
+    trace::log(
+        false,
+        format!(
+            "compaction notes: turns_noted={}/{} tool_notes={} tools={} entries={} \
+             earlier_bytes=0 reply_bytes={} after_conversation=false",
+            written.works.len(),
+            known.turns.len(),
+            written.tools.len(),
+            known.tools.len(),
+            written.entries.len(),
+            reply.len()
+        ),
+    );
     let missing = plan.headings(&written.noted);
     if !missing.is_empty() {
         let mut so_far = plan.earlier.entries.clone();
@@ -2041,14 +2301,31 @@ pub async fn finish(plan: &Plan, caller: &Caller<'_>) -> Result<SessionEvent, Fa
         let highest_so_far = highest_ids(&so_far);
         let mut follow_up = user[..start].to_string();
         write_follow_up(&mut follow_up, &missing, &highest_so_far);
-        match summarize_with(caller, &follow_up).await {
+        match summarize_with(caller, &follow_up, asked, context).await {
             Ok(more) => {
+                let more_bytes = more.trim().len();
                 let more = read(more.trim(), &known, &so_far, &highest_so_far);
+                trace::log(
+                    false,
+                    format!(
+                        "compaction notes follow-up: missing_turns={} summary_missing=false \
+                         noted={} reply_bytes={}",
+                        missing.len(),
+                        more.noted.len(),
+                        more_bytes
+                    ),
+                );
                 written = written.merged(more);
             }
             Err(Failure::Cancelled) => return Err(Failure::Cancelled),
             // The first notes stand (`summarize.zig:491-494`).
-            Err(_) => {}
+            Err(failure) => trace::log(
+                true,
+                format!(
+                    "compaction notes follow-up failed err={}; keeping the first notes",
+                    failure.name()
+                ),
+            ),
         }
     }
     Ok(plan.checkpoint(&written))
@@ -2267,7 +2544,10 @@ mod tests {
         // fx: `/compact` after one turn is `No context to compact.`
         // (`cap/fx-compact-40x120-compacting-0.4s`).
         let turns = vec![said("one", "ONE", 2)];
-        assert_eq!(choose(&turns, &Size::default()), Ok(None));
+        assert_eq!(
+            choose(&turns, &Size::default(), Context::default()),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -2277,14 +2557,14 @@ mod tests {
         // request 4: the first turn compacted, the second as it was).
         let two = vec![said("one", "ONE", 2), said("two", "TWO", 5)];
         assert_eq!(
-            choose(&two, &Size::default()).map(|w| w.map(|w| w.cut)),
+            choose(&two, &Size::default(), Context::default()).map(|w| w.map(|w| w.cut)),
             Ok(Some(1))
         );
         let five: Vec<_> = (0..5u64)
             .map(|n| said(&format!("q{n}"), "answer", 2 + n * 3))
             .collect();
         assert_eq!(
-            choose(&five, &Size::default()).map(|w| w.map(|w| w.cut)),
+            choose(&five, &Size::default(), Context::default()).map(|w| w.map(|w| w.cut)),
             Ok(Some(1))
         );
     }
@@ -2296,7 +2576,7 @@ mod tests {
         let big = "word ".repeat(3_000);
         let turns = vec![said("a", &big, 2), said("b", &big, 5), said("c", &big, 8)];
         let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
-        let window = choose(&turns, &size)
+        let window = choose(&turns, &size, Context::default())
             .expect("chooses")
             .expect("something to compact");
         assert_eq!(window.cut, 2, "only the newest fits the kept room");
@@ -2307,6 +2587,7 @@ mod tests {
         let plan = plan(
             &state(vec![said("one", "ONE", 2), said("two", "TWO", 5)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn to compact");
@@ -2333,6 +2614,7 @@ mod tests {
                 said("two", "TWO", 5),
             ]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2351,6 +2633,7 @@ mod tests {
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2426,6 +2709,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2466,6 +2750,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2499,6 +2784,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2515,6 +2801,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2650,7 +2937,7 @@ these notes.";
             said("two", "TWO", 7),
             said("three", "THREE", 10),
         ]);
-        let first = plan(&state, &Size::default())
+        let first = plan(&state, &Size::default(), Context::default())
             .expect("plans")
             .expect("a turn");
         let SessionEvent::ContextCheckpoint {
@@ -2666,8 +2953,9 @@ these notes.";
             covers_through_seq,
             covered_turns: 1,
             compacted: compacted.clone(),
+            count: 1,
         });
-        let second = plan(&state, &Size::default())
+        let second = plan(&state, &Size::default(), Context::default())
             .expect("plans")
             .expect("a turn");
         let SessionEvent::ContextCheckpoint {

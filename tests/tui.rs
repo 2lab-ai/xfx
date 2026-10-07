@@ -8789,6 +8789,102 @@ fn a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation()
 }
 
 #[test]
+fn trace_records_a_failed_compaction_and_the_one_after_it() {
+    // Upstream's `manual failure then success: /trace records compaction
+    // decisions and failures without FX_TRACE`
+    // (`tui-compaction-activity.test.ts:506-549`): the section is always
+    // there, the refusal's words reach it masked, and the failures are
+    // problems.
+    use support::fake_gateway::{content_only, Reply};
+    const SECRET: &str = "sk-abcdef0123456789abcdef0123456789xyz";
+    let mut script = read_then_answer("MARKER-ONE");
+    script.push(Reply::Sse(content_only(&["MARKER-TWO"])));
+    for _ in 0..2 {
+        script.push(Reply::Status(400, format!("Synthetic rejection {SECRET}")));
+    }
+    script.push(Reply::Sse(content_only(&[NOTES])));
+    let gateway = FakeGateway::start(script);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-TWO");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(b"/compact\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Compaction failed. Try /compact again."],
+        &[],
+    );
+    session.type_bytes(b"/compact\r");
+    wait_for_checkpoints(&sandbox, 1);
+    // `committed` is recorded just after the checkpoint is written, on the
+    // runtime's thread; `/trace` reads the record on the screen's.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    session.type_bytes(b"/trace\r");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let report = std::fs::read_to_string(&reports[0]).expect("the report");
+    let section = report
+        .split("\n## Context Compaction\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or_else(|| panic!("no compaction section:\n{report}"));
+    let head = section.lines().next().unwrap_or_default();
+    let counts: Vec<u64> = head
+        .split(' ')
+        .filter_map(|word| word.split_once('=').and_then(|(_, n)| n.parse().ok()))
+        .collect();
+    assert!(
+        head.starts_with("last=") && head.ends_with(" (always recorded)") && counts[1] > 0,
+        "{head}"
+    );
+    for needle in [
+        "event=summary_transport_failed failed model=zai/glm-5.2 kind=invalid_request",
+        "[redacted]",
+        "event=log fallback model=anthropic/claude-sonnet-5 after=ModelFailed",
+        "event=transaction_failed failed stage=summary origin=manual err=ModelFailed",
+        "event=provider_start model=zai/glm-5.2 turns=1 earlier=false store=false",
+        "event=provider_completed model=zai/glm-5.2 summaries=1 shown_turns=1 turns=1 tools=1",
+        "event=committed origin=manual removed_turns=1 compaction_count=1",
+    ] {
+        assert!(section.contains(needle), "{needle:?} is not in:\n{section}");
+    }
+    assert!(
+        !report.contains(SECRET),
+        "the provider's secret reached the report"
+    );
+    let problems = report
+        .split("\n## Problems\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .expect("problems");
+    assert!(
+        problems.contains("- context compaction transaction_failed detail=stage=summary"),
+        "{problems}"
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes() {
     use support::fake_gateway::{content_only, Reply};
     let mut script = read_then_answer("MARKER-ONE");

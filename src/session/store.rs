@@ -504,6 +504,9 @@ pub struct Checkpoint {
     /// How many of [`DurableState::turns`] it covers, oldest first.
     pub covered_turns: usize,
     pub compacted: super::checkpoint::Compacted,
+    /// How many compactions the session has had, this one counted: what
+    /// `/trace` calls `compaction_count` (`compactor.zig:207`).
+    pub count: usize,
 }
 
 /// When one turn was asked, when it ended, and the tokens its provider
@@ -2627,10 +2630,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             {
                 return Err("a checkpoint covers part of a turn".to_string());
             }
+            let count = state
+                .checkpoint
+                .as_ref()
+                .map_or(0, |checkpoint| checkpoint.count)
+                + 1;
             state.checkpoint = Some(Checkpoint {
                 covers_through_seq: *covers_through_seq,
                 covered_turns: covered,
                 compacted: compacted.clone(),
+                count,
             });
         }
     }

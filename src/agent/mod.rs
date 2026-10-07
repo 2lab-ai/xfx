@@ -7,6 +7,7 @@
 //! exactly one conclusion is journaled.
 
 pub mod compact;
+pub mod compaction_trace;
 pub mod machine;
 pub mod types;
 

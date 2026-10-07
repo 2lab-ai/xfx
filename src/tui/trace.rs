@@ -72,6 +72,7 @@ impl Job {
                 reason,
             },
         };
+        let compaction = crate::agent::compaction_trace::snapshot();
         Report {
             generated_ms: now_ms,
             status: &self.status,
@@ -86,6 +87,7 @@ impl Job {
                 timeline: &self.timeline,
                 network: &self.network,
             }),
+            compaction: &compaction,
         }
         .render()
     }

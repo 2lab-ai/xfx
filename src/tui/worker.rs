@@ -85,6 +85,7 @@ use super::compaction::{Feedback, Update};
 use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
+use crate::agent::compaction_trace::{self, Context, Kind as TraceKind, Origin};
 use crate::agent::{run_turn_saved, TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
@@ -2386,10 +2387,38 @@ async fn compact_between_turns(
         return Feedback::NoOp;
     }
     if state.ready(&turn.mirror).is_err() {
+        // Upstream's compaction is unavailable without a provider it may ask
+        // (`ContextCompactionUnavailable`, `compactor.zig:185-193`).
+        transaction_failed(
+            Context::default(),
+            "preparation",
+            Origin::Manual,
+            "ContextCompactionUnavailable",
+        );
         return Feedback::NotStarted;
     }
     let size = state.compaction_size();
-    compact_conversation(state, size, false, events, turn).await
+    compact_conversation(
+        state,
+        size,
+        Origin::Manual,
+        Context::default(),
+        events,
+        turn,
+    )
+    .await
+}
+
+/// `/trace`'s record of a compaction that did not finish
+/// (`compactContext`'s `errdefer`, `orchestrator.zig:6222-6228`): a failure,
+/// unless the user stopped it.
+fn transaction_failed(context: Context, stage: &str, origin: Origin, err: &str) {
+    let detail = format!("stage={stage} origin={} err={err}", origin.name());
+    if err == "Cancelled" {
+        compaction_trace::info(context, TraceKind::TransactionFailed, detail);
+    } else {
+        compaction_trace::failure(context, TraceKind::TransactionFailed, detail);
+    }
 }
 
 /// Plans, asks for, and saves one compaction of the open conversation, and
@@ -2400,19 +2429,33 @@ async fn compact_between_turns(
 async fn compact_conversation(
     state: &mut Runtime,
     size: Size,
-    automatic: bool,
+    origin: Origin,
+    context: Context,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) -> Feedback {
     let Some(conversation) = state.conversation.as_ref() else {
         return Feedback::NoOp;
     };
-    let plan = match compact::plan(conversation.recorder.state(), &size) {
+    let plan = match compact::plan(conversation.recorder.state(), &size, context) {
         Ok(Some(plan)) => plan,
-        Ok(None) => return Feedback::NoOp,
-        Err(failure) => return feedback_of(failure),
+        Ok(None) => {
+            compaction_trace::info(
+                context,
+                TraceKind::Decision,
+                format!(
+                    "decision=no_op origin={} reason=nothing_to_compact",
+                    origin.name()
+                ),
+            );
+            return Feedback::NoOp;
+        }
+        Err(failure) => {
+            transaction_failed(context, "preparation", origin, failure.name());
+            return feedback_of(failure);
+        }
     };
-    if automatic {
+    if origin != Origin::Manual {
         let _ = bridge::send_ui(
             events,
             &turn.token,
@@ -2462,19 +2505,44 @@ async fn compact_conversation(
     }
     let event = match finished {
         Ok(event) => event,
-        Err(failure) => return feedback_of(failure),
+        Err(failure) => {
+            transaction_failed(context, "summary", origin, failure.name());
+            return feedback_of(failure);
+        }
     };
     // Stopped while the notes were written: nothing is saved
     // (`orchestrator.zig:6241`).
     if turn.mirror.is_cancelled() {
+        transaction_failed(context, "summary", origin, "Cancelled");
         return Feedback::Cancelled;
     }
     let before = conversation.recorder.state().last_event_seq;
+    let removed_turns = plan.turn_count();
     conversation.recorder.commit(event);
-    if conversation.recorder.state().last_event_seq == before {
-        // The log would not take it; the conversation is what it was.
+    let saved = conversation.recorder.state();
+    let Some(checkpoint) = saved
+        .checkpoint
+        .as_ref()
+        .filter(|_| saved.last_event_seq != before)
+    else {
+        // The log would not take it; the conversation is what it was. Not a
+        // name upstream has: its log reports how the write failed, and xfx's
+        // recorder keeps that for the session-log problem `/trace` lists.
+        transaction_failed(context, "publication", origin, "SessionWriteFailed");
         return Feedback::Failed;
-    }
+    };
+    compaction_trace::info(
+        context,
+        TraceKind::Committed,
+        format!(
+            "origin={} removed_turns={removed_turns} compaction_count={} summary_bytes={} \
+             tools={}",
+            origin.name(),
+            checkpoint.count,
+            crate::session::checkpoint::render(&checkpoint.compacted).len(),
+            checkpoint.compacted.tool_count
+        ),
+    );
     Feedback::Succeeded
 }
 
@@ -2564,7 +2632,13 @@ async fn compact_if_due(
     if !size.due() {
         return Ok(());
     }
-    match compact_conversation(state, size, true, events, turn).await {
+    let context = Context {
+        turn: state.conversation.as_ref().map_or(0, |conversation| {
+            conversation.recorder.state().turns.len() as u64 + 1
+        }),
+        step: 1,
+    };
+    match compact_conversation(state, size, Origin::Automatic, context, events, turn).await {
         // Nothing was chosen, so nothing began: the turn goes on as it was.
         Feedback::NoOp => Ok(()),
         Feedback::Succeeded => {
