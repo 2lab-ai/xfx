@@ -105,6 +105,11 @@ pub trait StepCompactor {
     fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
         (Vec::new(), false)
     }
+
+    /// The provider counted `input_tokens` for the request measured as
+    /// `request` and then sent, which later measurements are scaled by
+    /// (`storeRequestTokenCalibration`, `orchestrator.zig:8873-8885`).
+    fn answered(&mut self, _request: &crate::agent::compact::RequestCost, _input_tokens: u64) {}
 }
 
 /// What a compaction before a step did to the request.
@@ -122,17 +127,18 @@ pub struct StepCompaction {
 
 /// One step's question to a [`StepCompactor`].
 pub struct StepCheck<'a> {
-    /// The request about to be sent, by the token estimate
-    /// (`crate::agent::compact::text_tokens` of its body, images left out).
-    pub request_tokens: usize,
-    /// Its body's length, images left out, for `/trace`.
-    pub request_bytes: usize,
-    /// Whether it carries an image, for `/trace`.
-    pub has_images: bool,
-    /// The same request with no messages, measured the same way: the part
-    /// compaction cannot shrink (`request_fixed_tokens`,
+    /// The request about to be sent, as measured (`measureProviderRequest`,
+    /// `prompt_context.zig:71-151`): its body's length, its text by the token
+    /// estimate with images left out, and which images it carries.
+    pub request: crate::agent::compact::RequestCost,
+    /// The same request with no messages but its instructions, measured the
+    /// same way: the part compaction cannot shrink (`request_fixed_tokens`,
     /// `orchestrator.zig:7307-7316`). `None` when it could not be built.
-    pub fixed_tokens: Option<usize>,
+    pub fixed: Option<crate::agent::compact::RequestCost>,
+    /// The request itself, which a notes request may follow so the provider
+    /// can reuse what it cached of it (`CompactorCaller.conversation`,
+    /// `orchestrator.zig:7390-7393`).
+    pub conversation: &'a crate::gateway::protocol::CompletionRequest,
     /// The provider refused the last request as too large.
     pub overflow: bool,
     /// Whether anything new can be compacted: not straight after a

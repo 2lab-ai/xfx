@@ -1107,15 +1107,21 @@ pub(crate) fn spawn(
         // `/status` reads the resumed conversation's counts from the start
         // too: `publishing_to` publishes what the runtime is now.
         let state = state.publishing_to(publishes);
-        runtime.block_on(turn_loop(
-            state,
-            &events_tx,
-            &mut work_rx,
-            &mut permissions_rx,
-            control,
-            session_cancel,
-            &loops_outstanding,
-        ))
+        // A set of local tasks around the loop, for the catalog load it
+        // starts at launch and runs beside its work
+        // ([`ModelSelector::begin_load`]).
+        tokio::task::LocalSet::new().block_on(
+            &runtime,
+            turn_loop(
+                state,
+                &events_tx,
+                &mut work_rx,
+                &mut permissions_rx,
+                control,
+                session_cancel,
+                &loops_outstanding,
+            ),
+        )
     })?;
     Ok((
         Worker {
@@ -1272,7 +1278,8 @@ struct Runtime {
     /// `/model` reports the same reason without asking a daemon that is not
     /// there again. Rebuilt -- not merely cleared -- when the provider changes,
     /// because its fetcher is that provider's endpoint and its model is that
-    /// provider's model.
+    /// provider's model. Its catalog is read in the background at launch and
+    /// after a switch, as upstream warms its model cache ([`turn_loop`]).
     selector: ModelSelector,
     /// The session's reasoning effort and its Fast and Ultra switches
     /// (`crate::provider::effort`): the effort carried across a model change
@@ -1817,7 +1824,10 @@ impl Runtime {
             && self.model() != resumption.model()
         {
             self.config.model = resumption.model().to_string();
-            self.selector = ModelSelector::new(&self.config);
+            // The same provider, so the same catalog -- read, or on its way
+            // -- describes the session's model (`resetForProviderChange` only
+            // on another provider, `app_auth_runtime.zig:151-158`).
+            self.selector.follow_model(&self.config);
         }
         // The effort and the switches the session recorded, as upstream's
         // resume restores them (`restoreRuntimePreferences`,
@@ -1851,21 +1861,55 @@ impl Runtime {
         self.selector.model()
     }
 
-    /// How large the conversation may be for the model in force: its catalog
-    /// row's window, when a catalog has been read (`compactionSize`,
-    /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/orchestrator.zig:
-    /// 6190-6200`). With no row, nothing is known, and upstream's rule for
-    /// that holds: a manual compaction keeps the newest four turns, and
-    /// nothing compacts by itself (`window.zig:127-131`).
+    /// How large the conversation may be for the model in force, and how far
+    /// the estimate ran from the provider's count on its last request
+    /// (`compactionSize`, `vercel-labs/fx@c1db9191
+    /// src/core/agent/runtime/orchestrator.zig:6187-6200`): the catalog row's
+    /// window, or on the Gateway the one upstream knows the model's id by
+    /// ([`Self::context_window`]). With neither, nothing is known, and
+    /// upstream's rule for that holds: a manual compaction keeps the newest
+    /// four turns, and nothing compacts by itself (`window.zig:127-131`).
     fn compaction_size(&self) -> Size {
         let entry = self.selector.entry(self.selector.model());
         let mut size = Size::of(
-            entry.and_then(|entry| entry.max_context),
+            self.context_window(),
             entry.and_then(|entry| entry.facts.max_output),
             compact::DEFAULT_PERCENT,
         );
         size.fixed = Some(self.fixed_tokens.load(Ordering::Relaxed)).filter(|fixed| *fixed > 0);
+        size.correction = self
+            .calibration()
+            .and_then(|calibration| calibration.correction(self.model()));
         size
+    }
+
+    /// The model's window: its catalog row's, else on the Gateway the one
+    /// upstream gives the id before a catalog says otherwise
+    /// (`mergeCapabilities`, `model_capabilities.zig:107`;
+    /// `crate::provider::model::gateway_context_window`).
+    fn context_window(&self) -> Option<u64> {
+        self.selector
+            .entry(self.selector.model())
+            .and_then(|entry| entry.max_context)
+            .or_else(|| {
+                (self.config.provider == ProviderId::Gateway)
+                    .then(|| crate::provider::model::gateway_context_window(self.model()))
+                    .flatten()
+            })
+    }
+
+    /// The provider's count of the conversation's last measured request, while
+    /// the history it was counted on is the one sent: no compaction since
+    /// (`agent.request_token_calibration`, `orchestrator.zig:7458`).
+    fn calibration(&self) -> Option<compact::Calibration> {
+        let conversation = self.conversation.as_ref()?;
+        let compactions = compactions_of(conversation.recorder.state());
+        conversation
+            .calibration
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|calibration| calibration.compactions == compactions)
     }
 
     /// Whether the conversation holds a turn no compaction covers yet
@@ -2025,6 +2069,8 @@ impl Runtime {
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
         // session was in.
+        // Its catalog is read in the background as soon as the loop is idle
+        // again ([`turn_loop`]).
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
@@ -2414,6 +2460,19 @@ async fn turn_loop(
     // at once, every time, so an arm left on it would spin this loop.
     let mut changes_open = true;
     loop {
+        // **The catalog, read in the background** whenever the session holds
+        // none and is not reading one: at launch, as upstream reads it on a
+        // thread of its own once the session is up (`app.startModelCacheWarmup()`,
+        // `vercel-labs/fx@c1db9191 src/core/app/app_entry_runtime.zig:335`;
+        // `startWarmup`, `model_cache_runtime.zig:321-349`), and after a
+        // provider switch, as it reads one when the credential a catalog is
+        // read with changes (`applyCredentialChange`,
+        // `app_auth_runtime.zig:2026-2036`). Nothing waits for it here: the
+        // first thing that needs it takes its answer, waiting if it has not
+        // come ([`await_catalog_for_window`]), and when it comes first it is
+        // told to the UI below. A failed one is not read again until `/model`
+        // asks ([`ModelSelector::retry_after_failure`]).
+        state.selector.begin_load();
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
         // happens below, outside that borrow.
@@ -2464,6 +2523,10 @@ async fn turn_loop(
             // work by the recorder that owns the log; never during one, which
             // may be writing that log itself.
             answered = state.bills.next() => Taken::Bill(answered),
+            // The catalog read in the background, answered while nothing
+            // needed it yet: the band's menu, column and meter read its rows
+            // (upstream's `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
+            () = state.selector.settle_load(), if state.selector.is_loading() => Taken::Catalog,
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -2501,6 +2564,10 @@ async fn turn_loop(
             Taken::Nothing => continue,
             Taken::Bill(answered) => {
                 state.settle_bill(&answered);
+                continue;
+            }
+            Taken::Catalog => {
+                bridge::send_terminal(events, state.catalog_event()).await;
                 continue;
             }
             Taken::Shutdown => return settled(state, changes),
@@ -2689,6 +2756,8 @@ enum Taken {
     Change(Option<Change>),
     /// What the Gateway said about a pending request's bill.
     Bill(super::reconcile::Answered),
+    /// The catalog read in the background has answered.
+    Catalog,
     /// The session is over.
     Shutdown,
 }
@@ -3027,6 +3096,9 @@ async fn compact_conversation(
             fallback: state.config.provider == ProviderId::Gateway,
             efforts: &efforts,
             spent: &spent,
+            // Between turns there is no request to follow
+            // (`app_agent_runtime.zig:1112-1129`).
+            conversation: None,
         };
         compact::finish(&plan, &caller).await
     };
@@ -3078,6 +3150,14 @@ async fn compact_conversation(
     Feedback::Succeeded
 }
 
+/// How many compactions the conversation has had: what says a provider's
+/// count still describes the history it is sent.
+fn compactions_of(state: &crate::session::DurableState) -> u64 {
+    state.checkpoint.as_ref().map_or(0, |checkpoint| {
+        u64::try_from(checkpoint.count).unwrap_or(u64::MAX)
+    })
+}
+
 /// The band's sentence for a compaction that did not happen.
 fn feedback_of(failure: Failure) -> Feedback {
     match failure {
@@ -3087,28 +3167,26 @@ fn feedback_of(failure: Failure) -> Feedback {
     }
 }
 
-/// Reads the catalog before a turn whose conversation has something to
-/// compact, if nothing has read it yet: its window is what the automatic
-/// compaction point is measured against, and a model the catalog does not
-/// describe never compacts by itself, as upstream's does not (`due` with no
-/// window). Raced against the turn's own cancellation, as the effort's read
-/// is.
+/// Waits for the catalog the session began reading at launch
+/// ([`ModelSelector::begin_load`]) when the turn cannot be sized without it,
+/// as upstream's turn does: when what it knows of the model without a
+/// catalog gives no window, it resolves the model's capabilities before it
+/// plans the request's size, and that waits for a load still on its way
+/// (`requiresResolvedRequestCapabilities`, `orchestrator.zig:5383-5395`,
+/// `:5551-5586`; `resolveForRequest`, `model_cache_runtime.zig:614-669`).
+/// A load that has failed, or none at all, is not waited for: the turn goes
+/// with what it knows. Raced against the turn's own cancellation, as
+/// upstream's wait is.
 ///
-/// **Not before a session's first turn**, where upstream has read its catalog
-/// at launch already: xfx makes no network call at launch and reads the
-/// catalog when something needs it, and reading it before every first turn
-/// would add a catalog request, and a catalog state, to every session's
-/// first turn. That turn compacts only when the provider refuses a request
-/// as too large ([`crate::agent::StepCheck::overflow`]), which needs no
-/// window.
-async fn read_catalog_for_compaction(
+/// The other reasons upstream waits -- an effort, Fast or Ultra, an image
+/// -- read the catalog where they are decided ([`one_turn`],
+/// [`image_refusal`]), which waits for the same load.
+async fn await_catalog_for_window(
     state: &mut Runtime,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) {
-    if !state.has_context_to_compact()
-        || !matches!(state.selector.catalog(), CatalogState::NotLoaded)
-    {
+    if state.context_window().is_some() || !state.selector.is_loading() {
         return;
     }
     let fresh = tokio::select! {
@@ -3152,6 +3230,12 @@ struct TurnCompactor {
     /// Where each check's measurement of the fixed part is kept for a
     /// `/compact` after the turn ([`Runtime::fixed_tokens`]).
     fixed_tokens: Arc<AtomicUsize>,
+    /// The conversation's last provider count ([`Runtime::calibration`]),
+    /// read before each step and written after each answered one.
+    calibration: Arc<std::sync::Mutex<Option<compact::Calibration>>>,
+    /// How many compactions the conversation has had: a count from before
+    /// the last one no longer applies.
+    compactions: u64,
     /// How a compaction that ended the turn ended.
     ended: std::rc::Rc<std::cell::Cell<Option<Feedback>>>,
 }
@@ -3191,8 +3275,26 @@ impl TurnCompactor {
             turn: compaction_trace::next_turn_id(),
             spent: compact::Spent::default(),
             fixed_tokens: Arc::clone(&state.fixed_tokens),
+            calibration: state
+                .conversation
+                .as_ref()
+                .map(|conversation| Arc::clone(&conversation.calibration))
+                .unwrap_or_default(),
+            compactions: state.conversation.as_ref().map_or(0, |conversation| {
+                compactions_of(conversation.recorder.state())
+            }),
             ended: std::rc::Rc::default(),
         }
+    }
+
+    /// The count that applies to this turn's requests: the conversation's
+    /// last, unless a compaction has replaced the history it was counted on.
+    fn calibration(&self) -> Option<compact::Calibration> {
+        self.calibration
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|calibration| calibration.compactions == self.compactions)
     }
 
     /// Tells the band how it ended; for one that did not succeed, the turn
@@ -3222,11 +3324,31 @@ impl crate::agent::StepCompactor for TurnCompactor {
         &mut self,
         check: crate::agent::StepCheck<'_>,
     ) -> Result<Option<crate::agent::StepCompaction>, crate::agent::TurnError> {
+        // The request by the estimate, scaled by the provider's count of the
+        // one before it when that count still describes it, and the fixed
+        // part with it (`orchestrator.zig:7292-7318`).
+        let calibration = self.calibration();
+        let applicable = calibration
+            .as_ref()
+            .filter(|calibration| calibration.applies(&self.model, &check.request));
+        let estimated = applicable.map_or(check.request.text_tokens, |calibration| {
+            calibration.estimate(&check.request)
+        });
+        let fixed = check.fixed.map(|fixed| {
+            applicable
+                .filter(|calibration| calibration.applies(&self.model, &fixed))
+                .map_or(fixed.text_tokens, |calibration| {
+                    calibration.estimate(&fixed)
+                })
+        });
         let mut size = self.size;
-        size.request = Some(check.request_tokens);
+        size.request = Some(estimated);
         size.overflow = check.overflow;
-        size.fixed = check.fixed_tokens;
-        if let Some(fixed) = check.fixed_tokens {
+        size.fixed = fixed;
+        size.correction = calibration
+            .as_ref()
+            .and_then(|calibration| calibration.correction(&self.model));
+        if let Some(fixed) = fixed {
             self.fixed_tokens.store(fixed, Ordering::Relaxed);
         }
         let context = Context {
@@ -3238,52 +3360,50 @@ impl crate::agent::StepCompactor for TurnCompactor {
         } else {
             Origin::Automatic
         };
+        let not_reduced = crate::agent::TurnError::ContextNotReduced {
+            reason: "ContextCapacityExceeded",
+        };
         if !(check.compactable && (check.overflow || size.due())) {
             if check.overflow {
+                // `overflow_without_compaction`, `orchestrator.zig:7344-7346`.
                 compaction_trace::failure(
                     context,
                     TraceKind::OverflowWithoutCompaction,
                     format!(
-                        "estimated_tokens={} usable_tokens={}",
-                        check.request_tokens,
+                        "estimated_tokens={estimated} usable_tokens={}",
                         compaction_trace::any(size.usable)
                     ),
                 );
-            } else if let Some(usable) = size.usable.filter(|usable| check.request_tokens > *usable)
-            {
+                return Err(not_reduced);
+            }
+            if let Some(usable) = size.usable.filter(|usable| estimated > *usable) {
                 // Just compacted and still too large: not sent
                 // (`no_compactable_context`, `orchestrator.zig:7347-7350`).
                 compaction_trace::failure(
                     context,
                     TraceKind::NoCompactableContext,
-                    format!(
-                        "estimated_tokens={} usable_tokens={usable}",
-                        check.request_tokens
-                    ),
+                    format!("estimated_tokens={estimated} usable_tokens={usable}"),
                 );
-                return Err(crate::agent::TurnError::ContextNotReduced {
-                    reason: "ContextCapacityExceeded",
-                });
+                return Err(not_reduced);
             }
             return Ok(None);
         }
-        // Upstream's line, field for field (`orchestrator.zig:7323-7339`).
-        // xfx calibrates no estimate against the provider's count, so there
-        // is no prior count and no image baseline, and its requests ask for
-        // no output limit.
+        // Upstream's line, field for field (`orchestrator.zig:7323-7339`). xfx's
+        // requests ask for no output limit.
+        let has_images = check.request.images.is_some();
         compaction_trace::info(
             context,
             TraceKind::Decision,
             format!(
-                "decision=compact overflow={} request_bytes={} estimated_tokens={} \
-                 text_tokens={} has_images={} image_baseline=false prior_input_tokens=null \
-                 usable_tokens={} compact_at_tokens={} compact_at_percent={} \
-                 max_output_tokens=null",
+                "decision=compact overflow={} request_bytes={} estimated_tokens={estimated} \
+                 text_tokens={} has_images={has_images} image_baseline={} \
+                 prior_input_tokens={} usable_tokens={} compact_at_tokens={} \
+                 compact_at_percent={} max_output_tokens=null",
                 check.overflow,
-                check.request_bytes,
-                check.request_tokens,
-                check.request_tokens,
-                check.has_images,
+                check.request.bytes,
+                check.request.text_tokens,
+                has_images && applicable.is_some(),
+                compaction_trace::any(applicable.map(|calibration| calibration.exact)),
                 compaction_trace::any(size.usable),
                 compaction_trace::any(size.compact_at),
                 compact::DEFAULT_PERCENT
@@ -3304,7 +3424,27 @@ impl crate::agent::StepCompactor for TurnCompactor {
                         origin.name()
                     ),
                 );
+                if check.overflow {
+                    // The refused request cannot go again as it was
+                    // (`overflow_recovery_incomplete`, `orchestrator.zig:7487-7490`).
+                    compaction_trace::failure(
+                        context,
+                        TraceKind::OverflowRecoveryIncomplete,
+                        format!("estimated_tokens={estimated}"),
+                    );
+                    return Err(not_reduced);
+                }
                 return Ok(None);
+            }
+            // Nothing could be left out and the request still does not fit:
+            // found before anything was chosen, so no row was begun and the
+            // turn ends with upstream's error on its own line (`choose`,
+            // `window.zig:297-318`; `compactionErrorHandled` finds no
+            // operation, `app_process_runtime.zig:10-17`, and `formatErrorBody`
+            // writes it, `:113-126`).
+            Err(Failure::TooLarge) => {
+                transaction_failed(context, "preparation", origin, Failure::TooLarge.name());
+                return Err(not_reduced);
             }
             Err(failure) => {
                 transaction_failed(context, "preparation", origin, failure.name());
@@ -3340,6 +3480,9 @@ impl crate::agent::StepCompactor for TurnCompactor {
                 fallback: self.fallback,
                 efforts: &efforts,
                 spent: &self.spent,
+                // After a refusal the conversation no longer fits
+                // (`orchestrator.zig:7390-7393`).
+                conversation: (!check.overflow).then_some((check.conversation, &self.options)),
             };
             compact::finish(&plan, &caller).await
         };
@@ -3393,18 +3536,19 @@ impl crate::agent::StepCompactor for TurnCompactor {
                 text.len()
             ),
         );
-        // `orchestrator.zig:7452-7457`.
+        // `orchestrator.zig:7452-7457`. The count of the request before it
+        // describes a history that is gone (`:7458`).
         compaction_trace::info(
             context,
             TraceKind::Installed,
             format!(
-                "request_bytes_before={} estimated_tokens_before={} summary_bytes={} \
+                "request_bytes_before={} estimated_tokens_before={estimated} summary_bytes={} \
                  tools={tools}",
-                check.request_bytes,
-                check.request_tokens,
+                check.request.bytes,
                 text.len()
             ),
         );
+        self.compactions = u64::try_from(count).unwrap_or(u64::MAX);
         self.settle(Feedback::Succeeded).await;
         Ok(Some(crate::agent::StepCompaction {
             history,
@@ -3414,6 +3558,14 @@ impl crate::agent::StepCompactor for TurnCompactor {
 
     fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
         self.spent.take()
+    }
+
+    fn answered(&mut self, request: &compact::RequestCost, input_tokens: u64) {
+        *self
+            .calibration
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            compact::Calibration::new(&self.model, *request, input_tokens, self.compactions);
     }
 }
 
@@ -4103,7 +4255,7 @@ async fn one_turn(
             .tools
             .scope(),
     );
-    read_catalog_for_compaction(state, events, turn).await;
+    await_catalog_for_window(state, events, turn).await;
     let options = match state.request_options() {
         Ok(options) => options,
         Err(refusal) => return Some(refusal),
@@ -5043,13 +5195,14 @@ mod tests {
         (body, stopped)
     }
 
-    /// Runs `work` on a runtime of its own, as the worker thread does.
+    /// Runs `work` on a runtime of its own, in a set of local tasks, as the
+    /// worker thread does.
     fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
-        tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("a runtime")
-            .block_on(work)
+            .expect("a runtime");
+        tokio::task::LocalSet::new().block_on(&runtime, work)
     }
 
     #[test]

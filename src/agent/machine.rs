@@ -345,6 +345,13 @@ pub struct TurnMachine {
     /// Where in [`Self::suffix`] the request starts: past the steps a
     /// compaction in this turn took into its compacted form.
     suffix_start: usize,
+    /// Where in [`Self::suffix`] each tool step's results end -- and with
+    /// them its exchange, the steers after them going with the next
+    /// ([`crate::session::HistoryTurn::exchange_starts`]).
+    exchange_ends: Vec<usize>,
+    /// The request the next step sends, as the compactor was shown it, for
+    /// the provider's count of it ([`StepCompactor::answered`]).
+    measured: Option<crate::agent::compact::RequestCost>,
     /// A compaction ran in this turn.
     compacted_in_turn: bool,
     /// Every assistant fragment this turn delivered, concatenated. A turn that
@@ -399,10 +406,52 @@ impl std::fmt::Debug for Compactor {
 
 /// A request as a compaction check measures it ([`TurnMachine::measure`]).
 struct Measured {
-    tokens: usize,
-    bytes: usize,
-    has_images: bool,
-    fixed: Option<usize>,
+    request: crate::agent::compact::RequestCost,
+    fixed: Option<crate::agent::compact::RequestCost>,
+}
+
+/// `request` measured as upstream measures one before deciding to compact
+/// (`measureProviderRequest`, `prompt_context.zig:71-151`): its whole body's
+/// length, images too; its text by the token estimate with every image left
+/// out, so a picture's bytes are not counted as words; and a digest of its
+/// images, which is what says a provider's count of an earlier request still
+/// describes this one. And the same request with nothing but its
+/// instructions, measured the same way: the part compaction cannot shrink.
+fn measure(request: &CompletionRequest) -> Measured {
+    use sha2::{Digest, Sha256};
+
+    let mut request = request.clone();
+    let bytes = request.body().map_or(0, |body| body.len());
+    let mut images: Option<Sha256> = None;
+    for message in &mut request.messages {
+        message.content.retain(|part| {
+            let ContentPart::Image { media_type, data } = part else {
+                return true;
+            };
+            let digest = images.get_or_insert_with(Sha256::new);
+            for value in [media_type.label().as_bytes(), data.as_ref()] {
+                digest.update((value.len() as u64).to_le_bytes());
+                digest.update(value);
+            }
+            false
+        });
+    }
+    let body = request.body().unwrap_or_default();
+    let cost = |body: &str, images| crate::agent::compact::RequestCost {
+        bytes: body.len(),
+        text_tokens: super::compact::text_tokens(body),
+        images,
+    };
+    let mut measured = cost(&body, images.map(|digest| digest.finalize().into()));
+    measured.bytes = bytes;
+    // Its instructions stay: they are not the conversation.
+    request
+        .messages
+        .retain(|message| message.role == crate::gateway::protocol::Role::System);
+    Measured {
+        request: measured,
+        fixed: request.body().ok().map(|body| cost(&body, None)),
+    }
 }
 
 /// What was asked of the compactor before the turn opened in the log
@@ -423,7 +472,8 @@ enum Start {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Overflow {
     Ready,
-    /// Refused: the next check compacts, and the refusal stands if it cannot.
+    /// Refused: the next check compacts, and the turn ends with
+    /// `ContextCapacityExceeded` if it cannot.
     Pending,
     Used,
 }
@@ -490,6 +540,8 @@ impl TurnMachine {
             user,
             suffix: Vec::new(),
             suffix_start: 0,
+            exchange_ends: Vec::new(),
+            measured: None,
             compacted_in_turn: false,
             output: String::new(),
             partial: String::new(),
@@ -727,8 +779,6 @@ impl TurnMachine {
         start: Start,
     ) -> Result<TurnOutcome, TurnError> {
         let mut overflow = Overflow::Ready;
-        // The provider's refusal, while it is being recovered from.
-        let mut refusal: Option<TurnError> = None;
         // A compaction has rebuilt the request, which has not gone yet.
         let mut rebuilt = start == Start::Rebuilt;
         // The first request was measured before the turn opened.
@@ -757,27 +807,36 @@ impl TurnMachine {
                         rebuilt = true;
                         if pending {
                             overflow = Overflow::Used;
-                            refusal = None;
                         }
                         // Measured again before it goes: a request that still
                         // does not fit is not sent (`orchestrator.zig:7347-7350`).
                         continue;
                     }
-                    // Nothing could be compacted, so the refusal stands
-                    // (`overflow_without_compaction`, `:7344-7346`).
+                    // Nothing could be compacted, so the request cannot be
+                    // sent: the turn ends with upstream's error rather than
+                    // the provider's refusal (`overflow_recovery_incomplete`,
+                    // `orchestrator.zig:7487-7490`).
                     None if pending => {
-                        return Err(refusal.take().unwrap_or(TurnError::ProviderFailure {
-                            detail: "the request was too large for the model".to_string(),
-                        }));
+                        return Err(TurnError::ContextNotReduced {
+                            reason: "ContextCapacityExceeded",
+                        });
                     }
                     None => {}
                 }
             }
 
             let began = Instant::now();
+            let measured = self.measured.take();
             let completion = match self.step(provider, events).await {
                 Ok(Stepped::Completed(completion)) => {
                     self.account(&completion, began.elapsed());
+                    if let (Some(request), Some(input), Some(Compactor(compactor))) = (
+                        measured,
+                        completion.usage.input_tokens,
+                        self.compactor.as_mut(),
+                    ) {
+                        compactor.answered(&request, input);
+                    }
                     *completion
                 }
                 // Cut short by a steer: the answer as far as it got is the
@@ -825,7 +884,6 @@ impl TurnMachine {
                         && is_context_overflow(&err) =>
                 {
                     overflow = Overflow::Pending;
-                    refusal = Some(TurnError::Provider(err));
                     rebuilt = false;
                     continue;
                 }
@@ -903,6 +961,7 @@ impl TurnMachine {
                 steering.tool_running(false);
             }
             ran?;
+            self.exchange_ends.push(self.suffix.len());
             // After the results, before the next request
             // (`observe_steering_boundary`, `orchestrator.zig:157-178`).
             let steers = self.waiting_steers(false);
@@ -1278,16 +1337,16 @@ impl TurnMachine {
         overflow: bool,
         rebuilt: bool,
     ) -> Result<Option<StepCompaction>, TurnError> {
-        let measured = self.measure();
+        let conversation = self.completion_request();
+        let measured = measure(&conversation);
         let Some(Compactor(compactor)) = self.compactor.as_mut() else {
             return Ok(None);
         };
         let answer = compactor
             .before_step(StepCheck {
-                request_tokens: measured.tokens,
-                request_bytes: measured.bytes,
-                has_images: measured.has_images,
-                fixed_tokens: measured.fixed,
+                request: measured.request,
+                fixed: measured.fixed,
+                conversation: &conversation,
                 overflow,
                 compactable: !rebuilt,
                 step: self.steps,
@@ -1298,41 +1357,10 @@ impl TurnMachine {
         let (requests, unaccounted) = compactor.spent();
         self.requests.extend(requests);
         self.unaccounted |= unaccounted;
+        // The request goes as it was measured, unless a compaction rebuilt
+        // it, and then it is measured again before it goes.
+        self.measured = matches!(answer, Ok(None)).then_some(measured.request);
         answer
-    }
-
-    /// The request this step would send, measured as upstream measures one
-    /// before deciding to compact (`measureProviderRequest`,
-    /// `prompt_context.zig:83-120`): its body by the token estimate, with an
-    /// image priced apart from the text around it -- here, left out -- so a
-    /// picture's bytes are not counted as words.
-    fn measure(&self) -> Measured {
-        let mut request = self.completion_request();
-        // Its whole length, images too, as upstream's `request_bytes` is.
-        let bytes = request.body().map_or(0, |body| body.len());
-        let mut has_images = false;
-        for message in &mut request.messages {
-            message.content.retain(|part| {
-                let image = matches!(part, ContentPart::Image { .. });
-                has_images |= image;
-                !image
-            });
-        }
-        let body = request.body().unwrap_or_default();
-        // Its instructions stay: they are not the conversation.
-        request
-            .messages
-            .retain(|message| message.role == crate::gateway::protocol::Role::System);
-        let fixed = request
-            .body()
-            .ok()
-            .map(|body| super::compact::text_tokens(&body));
-        Measured {
-            tokens: super::compact::text_tokens(&body),
-            bytes,
-            has_images,
-            fixed,
-        }
     }
 
     /// Whether anything is left that a compaction could take: before one in
@@ -1351,25 +1379,16 @@ impl TurnMachine {
     fn compacted(&mut self, compaction: StepCompaction) {
         self.compacted_in_turn = true;
         self.history = compaction.history;
-        // The start of exchange `exchanges`: the assistant message that made
-        // that step's calls, counted from the turn's first -- or past every
-        // step when it took them all. None of the turn's own when it took
-        // none: what came before the first exchange (a steer) stays.
-        self.suffix_start = if compaction.exchanges == 0 {
-            0
-        } else {
-            self.suffix
-                .iter()
-                .enumerate()
-                .filter(|(_, message)| {
-                    message.role == crate::gateway::protocol::Role::Assistant
-                        && message
-                            .content
-                            .iter()
-                            .any(|part| matches!(part, ContentPart::ToolCall(_)))
-                })
-                .nth(compaction.exchanges)
-                .map_or(self.suffix.len(), |(index, _)| index)
+        // The start of exchange `exchanges`, counted from the turn's first:
+        // right after the results of the step before it, so the steers that
+        // followed those results stay with the step they came before -- or
+        // past every step, and the steers after the last, when it took them
+        // all (`retainedMessageOffset`, `orchestrator.zig:7432-7433`). None of
+        // the turn's own when it took none.
+        self.suffix_start = match compaction.exchanges {
+            0 => 0,
+            taken if taken >= self.exchange_ends.len() => self.suffix.len(),
+            taken => self.exchange_ends[taken - 1],
         };
     }
 
@@ -1705,6 +1724,27 @@ mod tests {
         compact_on: Vec<usize>,
     }
 
+    /// Each count a compactor was told of: the request as it was measured,
+    /// and the provider's count of it.
+    type Answers = std::rc::Rc<std::cell::RefCell<Vec<(crate::agent::compact::RequestCost, u64)>>>;
+
+    /// Compacts nothing and keeps the counts it is told of.
+    struct Counting(Answers);
+
+    #[async_trait::async_trait(?Send)]
+    impl StepCompactor for Counting {
+        async fn before_step(
+            &mut self,
+            _check: StepCheck<'_>,
+        ) -> Result<Option<StepCompaction>, TurnError> {
+            Ok(None)
+        }
+
+        fn answered(&mut self, request: &crate::agent::compact::RequestCost, input_tokens: u64) {
+            self.0.borrow_mut().push((*request, input_tokens));
+        }
+    }
+
     #[async_trait::async_trait(?Send)]
     impl StepCompactor for Compacting {
         async fn before_step(
@@ -1713,7 +1753,7 @@ mod tests {
         ) -> Result<Option<StepCompaction>, TurnError> {
             let mut asked = self.asked.borrow_mut();
             asked.push((
-                check.request_tokens,
+                check.request.text_tokens,
                 check.overflow,
                 check.compactable,
                 check.step,
@@ -1800,19 +1840,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refusal_nothing_can_be_compacted_for_stands_and_a_second_is_not_recovered() {
+    async fn a_refusal_nothing_can_be_compacted_for_ends_in_upstream_s_error_and_a_second_is_not_recovered(
+    ) {
         let (_one, context) = tools();
-        // Nothing compacted: the refusal is the turn's error.
+        // Nothing compacted: the request cannot go, and the turn ends with
+        // upstream's error rather than the provider's words
+        // (`overflow_recovery_incomplete`, `orchestrator.zig:7487-7490`;
+        // `formatErrorBody`, `app_process_runtime.zig:113-126`).
         let mut turn = machine(context).with_compactor(Box::new(Compacting {
             asked: std::rc::Rc::default(),
             compact_on: Vec::new(),
         }));
         let provider = Script::new(vec![too_large()]);
         let err = turn.run(&provider, &mut Quiet).await.expect_err("refused");
-        assert!(
-            err.to_string().contains("exceeds the context window"),
-            "{err}"
-        );
+        assert_eq!(err.to_string(), "request failed: ContextCapacityExceeded");
         assert_eq!(provider.asked.borrow().len(), 1);
 
         // Compacted once and refused again: the second stands.
@@ -1919,6 +1960,114 @@ mod tests {
         assert_eq!(texts[0], "<compacted_conversation>");
         assert_eq!(texts[1], "now");
         assert!(texts[2].contains("also this"), "{texts:?}");
+    }
+
+    #[tokio::test]
+    async fn the_provider_s_count_of_each_request_is_told_with_the_request_as_it_was_measured() {
+        // `storeRequestTokenCalibration`, `orchestrator.zig:8873-8885`: the
+        // count pairs with what was measured of the request it counted.
+        let (_dir, context) = tools();
+        let told: Answers = std::rc::Rc::default();
+        let mut turn =
+            machine(context).with_compactor(Box::new(Counting(std::rc::Rc::clone(&told))));
+        let mut counted = answer("done").expect("an answer");
+        counted.usage.input_tokens = Some(1234);
+        let provider = Script::new(vec![Ok(counted)]);
+        turn.run(&provider, &mut Quiet).await.expect("answered");
+        let (request, input) = {
+            let told = told.borrow();
+            assert_eq!(told.len(), 1, "{told:?}");
+            told[0]
+        };
+        assert_eq!(input, 1234);
+        let sent = provider.asked.borrow()[0].body().expect("a body");
+        assert_eq!(request.bytes, sent.len());
+        assert_eq!(
+            request.text_tokens,
+            crate::agent::compact::text_tokens(&sent)
+        );
+        assert_eq!(request.images, None);
+
+        // A request with no count is told of nothing.
+        let (_two, context) = tools();
+        let told: Answers = std::rc::Rc::default();
+        let mut turn =
+            machine(context).with_compactor(Box::new(Counting(std::rc::Rc::clone(&told))));
+        turn.run(&Script::new(vec![answer("done")]), &mut Quiet)
+            .await
+            .expect("answered");
+        assert!(told.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_request_s_images_are_measured_apart_from_its_text_and_known_by_their_bytes() {
+        // `measureProviderRequest`, `prompt_context.zig:71-151`.
+        let with = |bytes: &[u8]| CompletionRequest {
+            model: "m".to_string(),
+            messages: vec![
+                Message::system("be brief"),
+                Message::user_with_images(
+                    "look",
+                    [(
+                        crate::image::MediaType::Png,
+                        &std::sync::Arc::<[u8]>::from(bytes),
+                    )],
+                ),
+            ],
+            tools: Vec::new(),
+            tool_choice: crate::gateway::protocol::ToolChoice::None,
+        };
+        let one = measure(&with(b"picture one"));
+        let same = measure(&with(b"picture one"));
+        let other = measure(&with(b"picture two"));
+        assert!(one.request.images.is_some());
+        assert_eq!(one.request.images, same.request.images);
+        assert_ne!(one.request.images, other.request.images);
+        let text_only = measure(&CompletionRequest {
+            messages: vec![Message::system("be brief"), Message::user("look")],
+            ..with(b"")
+        });
+        assert_eq!(text_only.request.images, None);
+        assert_eq!(one.request.text_tokens, text_only.request.text_tokens);
+        assert!(one.request.bytes > text_only.request.bytes);
+        // The part a compaction cannot shrink: the instructions alone.
+        assert_eq!(one.fixed, text_only.fixed);
+        assert!(one.fixed.expect("built").bytes < text_only.request.bytes);
+    }
+
+    #[test]
+    fn a_compaction_inside_a_turn_keeps_a_steer_with_the_step_after_it() {
+        // `selectRecentContext`, `window.zig:219-224`: a steer after step
+        // one's results goes with step two, so a compaction of one exchange
+        // keeps it; one of both keeps nothing of the turn's own.
+        let (_dir, tools) = tools();
+        let mut turn = machine(tools);
+        let call = |id: &str| crate::gateway::protocol::ToolCall {
+            id: id.to_string(),
+            name: "read_file".to_string(),
+            input: serde_json::json!({ "path": "a.txt" }),
+        };
+        turn.suffix.push(Message::assistant(None, vec![call("c1")]));
+        turn.suffix
+            .push(Message::tool_result("c1", "read_file", "one"));
+        turn.exchange_ends.push(turn.suffix.len());
+        turn.suffix.push(Message::user("also this"));
+        turn.suffix.push(Message::assistant(None, vec![call("c2")]));
+        turn.suffix
+            .push(Message::tool_result("c2", "read_file", "two"));
+        turn.exchange_ends.push(turn.suffix.len());
+        let compaction = |exchanges| StepCompaction {
+            history: vec![Message::user("<compacted_conversation>")],
+            exchanges,
+        };
+        turn.compacted(compaction(1));
+        let texts: Vec<String> = turn.messages().iter().map(Message::text).collect();
+        assert_eq!(texts[..3], ["<compacted_conversation>", "now", "also this"]);
+        assert_eq!(turn.messages().len(), 5);
+        turn.compacted(compaction(2));
+        assert_eq!(turn.messages().len(), 2);
+        turn.compacted(compaction(0));
+        assert_eq!(turn.messages().len(), 7);
     }
 
     #[test]

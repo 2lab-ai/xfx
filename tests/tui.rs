@@ -7911,7 +7911,7 @@ fn a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_i
         request["model"], "unlisted-xyz",
         "the applied id was not the model of the next turn: {request}"
     );
-    // The catalog was read once, for both selections.
+    // The catalog was read once -- at launch -- and both selections used it.
     assert_eq!(
         daemon
             .paths()
@@ -8031,6 +8031,7 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let asked = gateway.catalog_requests();
+    // Read once, at launch; the menu and the query used that read.
     assert_eq!(asked.len(), 1, "the catalog is read once: {asked:?}");
     assert_eq!(asked[0].method, "GET");
     assert_eq!(asked[0].path, support::fake_gateway::MODELS_PATH);
@@ -8311,16 +8312,23 @@ fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it
     assert_eq!(settings["effort"], "low");
     assert_eq!(settings["models"]["gateway"], "fake/model-a");
 
-    // The next launch starts in it. No catalog has been read yet, so nothing
-    // says this model does not take the level and the footer shows it, as
-    // upstream's does while its catalog is loading
-    // (`active_capabilities_pending`) -- upstream loads one at launch, xfx
-    // when something first needs it.
+    // The next launch starts in it. Its catalog, read at launch, says this
+    // model lists no levels, so once it has answered the footer shows none
+    // -- as upstream's shows the level only while its catalog is loading
+    // (`active_capabilities_pending`) -- and the session still holds `low`
+    // for the next model that does.
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     again.wait_for(READY);
-    on_screen(&again, (40, 120), &["auto \u{b7} model-a \u{b7} low"], &[]);
+    on_screen(
+        &again,
+        (40, 120),
+        &["auto \u{b7} model-a"],
+        &["auto \u{b7} model-a \u{b7} low"],
+    );
+    again.type_bytes(b"\x1b[200~/model qqq/unlisted\x1b[201~\r");
+    again.wait_for("Switched to qqq/unlisted (effort: low, speed: normal)");
     again.type_bytes(&[0x04]);
     assert_eq!(again.wait_exit().code(), Some(0));
 }
@@ -8745,7 +8753,8 @@ fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
         session.type_bytes(b" what is in this image?\r");
         on_screen(&session, (40, 120), &["\u{2717} system:", refusal], &[]);
         assert_eq!(gateway.request_count(), 0, "{refusal}: a request was sent");
-        // The catalog was what decided it, and the answer stays on the screen.
+        // The catalog read at launch was what decided it, and the answer
+        // stays on the screen.
         assert_eq!(gateway.catalog_requests().len(), 1);
         session.type_bytes(&[0x04]);
         assert_eq!(session.wait_exit().code(), Some(0));
@@ -9566,13 +9575,13 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
 fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
     // Upstream's automatic trigger (`orchestrator.zig:7306-7322`): the request
     // the turn opens with is measured against 80% of the model's usable input,
-    // known from the catalog's window, and compacted first when it reaches it.
-    // A 16K window keeping 4K for output is 12K usable and compacts at 9.6K:
-    // the first turn's request is the tool schemas and a line, and the second
-    // carries the first turn's read, ten thousand words of it.
-    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
-    let line = "evidence ".repeat(25);
-    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    // known from the catalog read at launch, and compacted first when it
+    // reaches it. A 16K window keeping 4K for output is 12K usable and
+    // compacts at 9.6K. The first turn reads a small file; the provider
+    // counts its answering request at the point, and the second turn's
+    // request -- that one and a little more -- is measured by that count
+    // (`calibrateProviderRequest`, `prompt_context.zig:153-171`).
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
             tool_call(
@@ -9582,17 +9591,14 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
             ),
             finish("tool-calls"),
         ])),
-        Reply::Sse(content_only(&["MARKER-ONE"])),
-        Reply::Sse(content_only(&[NOTES])),
-        Reply::Sse(content_only(&["MARKER-TWO"])),
+        counted("MARKER-ONE", 9_600),
+        uncounted(NOTES),
+        uncounted("MARKER-TWO"),
     ])
-    .with_catalog(serde_json::json!({"object": "list", "data": [
-        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
-         "released": 1_700_000_000, "tags": ["tool-use"],
-         "context_window": 16_000, "max_tokens": 4_000},
-    ]}));
+    .with_catalog(small_window());
     let sandbox = Sandbox::new();
-    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("big.txt"), lines_of_evidence(20))
+        .expect("write the fixture");
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session =
@@ -9606,8 +9612,26 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
     wait_for_checkpoints(&sandbox, 1);
     let requests = gateway.requests();
     assert_eq!(requests.len(), 4, "{requests:?}");
-    assert!(!is_summary(&requests[1].json()), "the first turn compacted");
-    assert!(is_summary(&requests[2].json()), "the notes went first");
+    assert!(
+        !is_summary(&requests[1].json()) && !is_notes_after_conversation(&requests[1].json()),
+        "the first turn compacted"
+    );
+    // The notes went first, right after the conversation the turn was about
+    // to send, so the provider can reuse what it cached of it
+    // (`summarize.zig:571-595`; `text_completion.zig:68-80`): its tools and
+    // tool choice, every message, then the request.
+    let notes = requests[2].json();
+    assert!(is_notes_after_conversation(&notes), "{notes}");
+    assert_eq!(notes["tools"], requests[1].json()["tools"]);
+    assert_eq!(notes["toolChoice"], requests[1].json()["toolChoice"]);
+    let asked = user_messages(&notes);
+    assert_eq!(&asked[..2], ["first question", "second question"]);
+    assert!(
+        asked[2].contains(
+            "Turn 1 (T1), which begins \u{201c}first question\u{201d}\n  T1 read_file: big.txt\n"
+        ),
+        "{asked:?}"
+    );
     let users = user_messages(&requests[3].json());
     assert!(
         users[0].starts_with("<compacted_conversation>\n"),
@@ -9618,7 +9642,7 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
         !requests[3].body.contains("evidence evidence"),
         "the compacted turn's read was still sent"
     );
-    // The catalog was read once, for the window.
+    // The catalog was read once, at launch, and the window came from it.
     assert_eq!(gateway.catalog_requests().len(), 1);
     on_screen(&session, (40, 120), &["MARKER-TWO"], &COMPACTION_WORDS);
     wait_for_conclusions(&sandbox, 2);
@@ -9632,7 +9656,8 @@ fn a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its
     // (`orchestrator.zig:7286-7322`): the second turn opens under the point,
     // its read takes the next request past it, and the turns before it are
     // compacted between the read and that request. 16K window, 4K output:
-    // 12K usable, compacting at 9.6K; the tool schemas are about 3K.
+    // 12K usable, compacting at 9.6K; the tool schemas are about 3K. The
+    // first answer carries no count, so the estimate alone measures.
     use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
     let line = "evidence ".repeat(25);
     let lines = |count: usize| -> String { (0..count).map(|_| format!("{line}\n")).collect() };
@@ -9644,7 +9669,7 @@ fn a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its
     };
     let gateway = FakeGateway::start(vec![
         read("read-1", "first.txt"),
-        Reply::Sse(content_only(&["MARKER-ONE"])),
+        uncounted("MARKER-ONE"),
         read("read-2", "second.txt"),
         Reply::Sse(content_only(&[NOTES])),
         Reply::Sse(content_only(&["MARKER-TWO"])),
@@ -9799,14 +9824,51 @@ fn read_reply(id: &str, path: &str) -> support::fake_gateway::Reply {
     ]))
 }
 
+/// An answer whose finish carries no usage: the provider gives no count for
+/// a later request's estimate to be scaled by (`calibrateProviderRequest`,
+/// `prompt_context.zig:153-171`), so the window tests size their requests by
+/// the estimate alone, as they were sized before xfx calibrated.
+fn uncounted(text: &str) -> support::fake_gateway::Reply {
+    use support::fake_gateway::{finish, sse_body, text_delta, Reply};
+    Reply::Sse(sse_body(&[text_delta("answer_0", text), finish("stop")]))
+}
+
+/// An answer whose finish says the provider counted `input` tokens for the
+/// request it answered: the next request's estimate is that count scaled by
+/// how much larger it is (`orchestrator.zig:7292-7303`).
+fn counted(text: &str, input: u64) -> support::fake_gateway::Reply {
+    use support::fake_gateway::{finish_with_usage, sse_body, text_delta, Reply};
+    Reply::Sse(sse_body(&[
+        text_delta("answer_0", text),
+        finish_with_usage("stop", input, 5),
+    ]))
+}
+
+/// The notes request sent right after the conversation (`askFirstNotes`,
+/// `summarize.zig:571-595`): the turn's own request, tools and all, then one
+/// user message that opens with the compactor's instructions.
+fn is_notes_after_conversation(body: &Value) -> bool {
+    body["tools"]
+        .as_array()
+        .is_some_and(|tools| !tools.is_empty())
+        && user_messages(body).last().is_some_and(|last| {
+            last.starts_with("You write compaction notes on an AI coding assistant's work")
+                && last.contains(
+                    "Write the compaction notes for the turns of the conversation above that \
+                     are listed below;",
+                )
+        })
+}
+
 const IN_PROGRESS_NOTES: &str = "Turn in progress\nIn between: Read the three files.\n\
 T1: one\nT2: two\nT3: three\n\nFacts:\nF1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
 
 #[test]
 fn a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused() {
-    // The first turn of a session, which xfx sends before any catalog read
-    // and so with no window: three reads, and the provider refuses the next
-    // request as too large. The turn's own exchanges are compacted while its
+    // The first turn of a session with no window: this fake publishes no
+    // catalog, so the read at launch fails, and nothing else gives this model
+    // one. Three reads, and the provider refuses the next request as too
+    // large. The turn's own exchanges are compacted while its
     // first message stays (`split`, `window.zig:271-295`) and the refused
     // request goes again (`provider_overflow`, `orchestrator.zig:8099-8124`)
     // -- where a cut at whole turns had nothing to compact.
@@ -9856,9 +9918,10 @@ fn a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_r
 
 #[test]
 fn one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on() {
-    // A turn after a short one, so the window is known: three reads take its
-    // next request past the point, and the turn before it and its own
-    // exchanges so far are compacted while its first message stays
+    // A turn after a short one whose answer carries no count, so the
+    // estimate alone measures: three reads take its next request past the
+    // point, and the turn before it and its own exchanges so far are
+    // compacted while its first message stays
     // (`selectRecentContext`, `window.zig:169-251`; `split`, `:271-295`) --
     // the turn goes on and answers, where a whole-turn cut kept its reads.
     use support::fake_gateway::{content_only, Reply};
@@ -9866,7 +9929,7 @@ fn one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on() {
 In between: Read the three files.\nT1: one\nT2: two\nT3: three\n\nFacts:\n\
 F1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
     let gateway = FakeGateway::start(vec![
-        Reply::Sse(content_only(&["MARKER-HELLO"])),
+        uncounted("MARKER-HELLO"),
         read_reply("read-1", "a.txt"),
         read_reply("read-2", "b.txt"),
         read_reply("read-3", "c.txt"),
@@ -9893,20 +9956,29 @@ F1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
     let requests = gateway.requests();
     assert_eq!(requests.len(), 6, "{requests:?}");
     assert!((0..4).all(|at| !is_summary(&requests[at].json())));
+    // The notes went after the third read, right after the conversation the
+    // step was about to send, which leaves room for them
+    // (`roomAfterConversation`, `window.zig:79-89`; `summarize.zig:571-595`):
+    // every turn listed, findable, and the turn in progress noted through
+    // its last call.
     let notes = requests[4].json();
-    assert!(is_summary(&notes), "the notes went after the third read");
-    let asked = user_messages(&notes).join("\n");
-    assert!(asked.starts_with("[Turn 1]\n[User]\nhello\n"), "{asked}");
+    assert!(is_notes_after_conversation(&notes), "{notes}");
+    let asked = user_messages(&notes);
+    assert_eq!(&asked[..2], ["hello", "read all three"]);
     assert!(
-        asked.contains(
-            "[Turn in progress]\n[User, this message stays in the conversation after the \
-             summary]\nread all three\n"
+        asked[2].contains(
+            "Turn 1 (no tool calls), which begins \u{201c}hello\u{201d}\nTurn in progress \
+             (T1\u{2013}T3), which begins \u{201c}read all three\u{201d}\n  T1 read_file: a.txt\n  \
+             T2 read_file: b.txt\n  T3 read_file: c.txt\n"
         ),
-        "{asked}"
+        "{asked:?}"
     );
     assert!(
-        asked.contains("Turn in progress (T1\u{2013}T3)\n"),
-        "{asked}"
+        asked[2].contains(
+            "For the turn in progress, give its notes so far, through the last tool call listed \
+             under its heading; the calls after it stay in the conversation.\n"
+        ),
+        "{asked:?}"
     );
     let next = requests[5].json();
     let users = user_messages(&next);
@@ -9967,9 +10039,9 @@ fn a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its
     // `finishExecutionOnlyFailureIfNeeded` (`finalization.zig:213-246`): the
     // turn keeps the reads it made and ends with no error text, live or on a
     // resume; the row alone says what went wrong (`compactionErrorHandled`).
-    use support::fake_gateway::{content_only, Reply};
+    use support::fake_gateway::Reply;
     let gateway = FakeGateway::start(vec![
-        Reply::Sse(content_only(&["MARKER-HELLO"])),
+        uncounted("MARKER-HELLO"),
         read_reply("read-1", "a.txt"),
         read_reply("read-2", "b.txt"),
         read_reply("read-3", "c.txt"),
@@ -10046,6 +10118,98 @@ fn a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its
 }
 
 #[test]
+fn the_catalog_is_read_at_launch_and_a_session_s_first_turn_is_sized_by_it() {
+    // Upstream reads its catalog on a thread of its own once the session is
+    // up (`app.startModelCacheWarmup()`, `app_entry_runtime.zig:335`;
+    // `startWarmup`, `model_cache_runtime.zig:321-349`), and a turn whose
+    // window only the catalog gives waits for that read
+    // (`requiresResolvedRequestCapabilities`, `orchestrator.zig:5383-5395`;
+    // `resolveForRequest`, `model_cache_runtime.zig:614-669`). So a session's
+    // first turn knows the window: three reads take its next request past
+    // the point, and its own exchanges are compacted while its first message
+    // stays -- with nothing refused first.
+    let gateway = FakeGateway::start(vec![
+        read_reply("read-1", "a.txt"),
+        read_reply("read-2", "b.txt"),
+        read_reply("read-3", "c.txt"),
+        uncounted(IN_PROGRESS_NOTES),
+        uncounted("MARKER-ANSWER"),
+    ])
+    .with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+    }
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    // Asked with nothing typed.
+    let deadline = Instant::now() + std::time::Duration::from_secs(10);
+    while gateway.catalog_requests().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the catalog was not read at launch"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(gateway.request_count(), 0);
+    session.type_bytes(b"read all three\r");
+    session.wait_for("MARKER-ANSWER");
+    wait_for_conclusions(&sandbox, 1);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 5, "{requests:?}");
+    let notes = requests[3].json();
+    assert!(
+        is_summary(&notes) || is_notes_after_conversation(&notes),
+        "the notes went after the third read: {notes}"
+    );
+    let users = user_messages(&requests[4].json());
+    assert!(users[0].contains("Turn in progress, whose first user message follows this:\n"));
+    assert_eq!(&users[1..], ["read all three"]);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    assert_eq!(gateway.catalog_requests().len(), 1);
+    on_screen(&session, (40, 120), &["MARKER-ANSWER"], &COMPACTION_WORDS);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words() {
+    // Compacted and still past the window, the request is not sent
+    // (`no_compactable_context`, `orchestrator.zig:7347-7350`), and the turn
+    // ends with upstream's error on a line of its own -- `formatErrorBody`'s
+    // "request failed: " and the error's name (`app_process_runtime.zig:
+    // 113-126`, `:149-158`). The prompt alone is about 10K of the 12K usable.
+    let gateway = FakeGateway::start(vec![uncounted("MARKER-HELLO")]).with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"hello\r");
+    session.wait_for("MARKER-HELLO");
+    wait_for_conclusions(&sandbox, 1);
+    let mut paste = b"\x1b[200~".to_vec();
+    paste.extend("evidence ".repeat(5_000).trim_end().as_bytes());
+    paste.extend(b"\x1b[201~\r");
+    session.type_bytes(&paste);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2717} system: request failed: ContextCapacityExceeded"],
+        &["Compacting ("],
+    );
+    // Only the first turn's request went; the first turn was compacted.
+    assert_eq!(gateway.request_count(), 1);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again() {
     // Upstream's `provider_overflow` (`orchestrator.zig:8099-8124`,
     // `isContextOverflowFailure` `:4428-4445`): a refusal that says the
@@ -10109,9 +10273,7 @@ fn an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_
     // compaction that failed is not in the log, and a resume shows nothing
     // of it -- its e2e forbids `compaction` anywhere in a reopened
     // transcript (`COMPACTION_OUTPUT`, `tui-compaction-activity.test.ts:24`).
-    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
-    let line = "evidence ".repeat(25);
-    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
             tool_call(
@@ -10121,17 +10283,17 @@ fn an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_
             ),
             finish("tool-calls"),
         ])),
-        Reply::Sse(content_only(&["MARKER-ONE"])),
+        // Counted just under the window: the second turn's request is past
+        // the point, with no room left after it for notes
+        // (`roomAfterConversation`, `window.zig:79-89`).
+        counted("MARKER-ONE", 11_900),
         Reply::Status(400, "Synthetic summary rejection".to_string()),
         Reply::Status(400, "Synthetic summary rejection".to_string()),
     ])
-    .with_catalog(serde_json::json!({"object": "list", "data": [
-        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
-         "released": 1_700_000_000, "tags": ["tool-use"],
-         "context_window": 16_000, "max_tokens": 4_000},
-    ]}));
+    .with_catalog(small_window());
     let sandbox = Sandbox::new();
-    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("big.txt"), lines_of_evidence(20))
+        .expect("write the fixture");
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session =
@@ -10185,9 +10347,7 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     // compaction, nothing is checkpointed, the row says `Compaction cancelled.`,
     // and the turn is recorded as asked and stopped
     // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:7413-7423`).
-    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
-    let line = "evidence ".repeat(25);
-    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
             tool_call(
@@ -10197,16 +10357,16 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
             ),
             finish("tool-calls"),
         ])),
-        Reply::Sse(content_only(&["MARKER-ONE"])),
+        // Counted just under the window: the second turn's request is past
+        // the point, with no room left after it for notes
+        // (`roomAfterConversation`, `window.zig:79-89`).
+        counted("MARKER-ONE", 11_900),
         Reply::SseThenHang(Vec::new()),
     ])
-    .with_catalog(serde_json::json!({"object": "list", "data": [
-        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
-         "released": 1_700_000_000, "tags": ["tool-use"],
-         "context_window": 16_000, "max_tokens": 4_000},
-    ]}));
+    .with_catalog(small_window());
     let sandbox = Sandbox::new();
-    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("big.txt"), lines_of_evidence(20))
+        .expect("write the fixture");
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session =
