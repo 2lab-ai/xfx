@@ -148,8 +148,8 @@ pub struct Image {
     /// within a process (`allocateImageId`, `image_attachments.zig:1366-1370`).
     pub id: u32,
     /// The file it was read from, resolved -- or, for a clipboard image, the
-    /// name its saved copy has in the session ([`Self::snapshot_name`]), which
-    /// is what upstream names one by (`image_commands.zig:144-149`).
+    /// copy written when it was pasted, named [`Self::snapshot_name`], which
+    /// is what upstream names and links one by (`image_commands.zig:138-147`).
     pub path: PathBuf,
     pub media_type: MediaType,
     /// What was read when it was attached, and nothing read since.
@@ -159,6 +159,10 @@ pub struct Image {
     pub bytes: Arc<[u8]>,
     /// The SHA-256 of [`Self::bytes`], lowercase hex.
     pub sha256: String,
+    /// Whether [`Self::path`] is the copy written when it was pasted off the
+    /// clipboard rather than a file the user named: the session then records
+    /// it by its saved copy, which outlives the paste's.
+    pub copied: bool,
 }
 
 impl Image {
@@ -181,6 +185,7 @@ impl Image {
             media_type,
             bytes,
             sha256,
+            copied: false,
         }
     }
 
@@ -219,25 +224,34 @@ pub fn badge(id: u32) -> String {
     format!("[Image {id}]")
 }
 
-/// Every `[Image #N]` in `text`, by its number, in the order they stand
-/// (`matchImagePlaceholder`, `image_attachments.zig:1388-1403`): the prefix,
-/// one or more digits, and `]`. A number too large for an id names no image
-/// this session could have, and is skipped.
-pub fn placeholder_ids(text: &str) -> impl Iterator<Item = u32> + '_ {
+/// The `[Image #N]` `text` begins with, as its number and its length in
+/// bytes (`matchImagePlaceholder`, `image_attachments.zig:1388-1403`): the
+/// prefix, one or more digits, and `]`. A number too large for an id names no
+/// image this session could have, and is not one.
+pub fn placeholder_at(text: &str) -> Option<(u32, usize)> {
     const PREFIX: &str = "[Image #";
+    let after = text.strip_prefix(PREFIX)?;
+    let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 || after.as_bytes().get(digits) != Some(&b']') {
+        return None;
+    }
+    let id = after[..digits].parse::<u32>().ok()?;
+    Some((id, PREFIX.len() + digits + 1))
+}
+
+/// Every `[Image #N]` in `text`, by its number, in the order they stand
+/// ([`placeholder_at`]).
+pub fn placeholder_ids(text: &str) -> impl Iterator<Item = u32> + '_ {
     let mut rest = text;
     std::iter::from_fn(move || loop {
-        let at = rest.find(PREFIX)?;
-        let after = &rest[at + PREFIX.len()..];
-        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
-        if digits > 0 && after.as_bytes().get(digits) == Some(&b']') {
-            rest = &after[digits + 1..];
-            if let Ok(id) = after[..digits].parse::<u32>() {
+        let at = rest.find("[Image #")?;
+        match placeholder_at(&rest[at..]) {
+            Some((id, len)) => {
+                rest = &rest[at + len..];
                 return Some(id);
             }
-            continue;
+            None => rest = &rest[at + 1..],
         }
-        rest = after;
     })
 }
 

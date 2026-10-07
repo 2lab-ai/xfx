@@ -685,7 +685,6 @@ impl UiEvent {
                     .into_iter()
                     .map(|turn| super::hydration::HydratedTurn {
                         images: turn.images,
-                        user: inert_owned(turn.user),
                         sent: inert_owned(turn.sent),
                         steps: turn.steps.into_iter().map(inert_step).collect(),
                         ending: match turn.ending {

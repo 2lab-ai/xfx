@@ -56,11 +56,10 @@ pub(crate) struct Hydration {
 /// One turn of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HydratedTurn {
-    /// The prompt as its card shows it: the log's text, with each image's
-    /// `[Image #N]` spelled as the badge the composer showed, `[Image N]`.
-    pub(crate) user: String,
-    /// The prompt exactly as the log holds it -- what the model was sent, and
-    /// what the turn's summary counts, as a live turn's does.
+    /// The prompt exactly as the log holds it -- what the model was sent, what
+    /// the turn's summary counts, and what its card is made from: each
+    /// `[Image #N]` that names one of [`Self::images`] is a badge there, as a
+    /// live card's is (`super::shell`'s `card_line`).
     pub(crate) sent: String,
     pub(crate) steps: Vec<HydratedStep>,
     pub(crate) ending: Ending,
@@ -199,17 +198,7 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         }
         None => Ending::Unconcluded,
     };
-    // The card says what the composer said: each image's badge, `[Image N]`,
-    // where the prompt the model was sent says `[Image #N]`.
-    let mut user = turn.user.clone();
-    for image in &turn.images {
-        user = user.replace(
-            &crate::image::token(image.recorded.id),
-            &crate::image::badge(image.recorded.id),
-        );
-    }
     HydratedTurn {
-        user,
         sent: turn.user.clone(),
         steps,
         ending,
@@ -291,10 +280,16 @@ mod tests {
             checkpoint: None,
         };
         let replay = Hydration::of(&state, None);
-        // `#9` names no image of the turn: those are the user's own words.
+        // The card is made from the prompt as sent and the turn's images; `#9`
+        // names no image of the turn, so it stays the user's own words there
+        // (`super::shell`'s cases).
         assert_eq!(
-            replay.turns[0].user,
-            "[Image 3][Image 4] what is in this image? [Image #9]"
+            replay.turns[0]
+                .images
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            [3, 4]
         );
         assert_eq!(
             replay.turns[0].sent,
@@ -352,7 +347,7 @@ mod tests {
             },
         );
         let replayed = super::turn(&turn);
-        assert_eq!(replayed.user, "read it");
+        assert_eq!(replayed.sent, "read it");
         assert_eq!(replayed.steps.len(), 5, "{:?}", replayed.steps);
         assert_eq!(
             replayed.steps[0],

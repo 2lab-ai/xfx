@@ -2372,7 +2372,13 @@ impl SessionRecorder {
                 .iter()
                 .map(|image| RecordedImage {
                     id: image.id,
-                    path: image.path.display().to_string(),
+                    // A pasted clipboard image by the copy kept here, which a
+                    // resumed card links and which outlives the paste's own.
+                    path: if image.copied {
+                        folder.join(image.snapshot_name()).display().to_string()
+                    } else {
+                        image.path.display().to_string()
+                    },
                     media_type: image.media_type.label().to_string(),
                     sha256: image.sha256.clone(),
                     bytes: image.bytes.len() as u64,
@@ -4482,6 +4488,28 @@ mod tests {
         assert_eq!(images_of(&replay.messages[0]), 2, "{:?}", replay.messages);
         assert!(replay.notices.is_empty(), "{:?}", replay.notices);
         assert_eq!(saved_paths(&replay.messages[0])[0], copy);
+    }
+
+    #[test]
+    fn a_pasted_clipboard_image_is_recorded_by_the_copy_the_session_keeps() {
+        // Its paste-time copy is removed with the process; a resumed card
+        // links the session's own.
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, _workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "[Image #1]".to_string(),
+        });
+        let mut pasted = shot(1);
+        pasted.path = PathBuf::from("/tmp/xfx-image-snapshots-x/image-1-0.bin");
+        pasted.copied = true;
+        recorder.attach_images(&[pasted.clone(), shot(2)]);
+        let recorded = &recorder.state().turns[0].images;
+        let folder = store.session_dir(&id).join(IMAGES_DIR);
+        assert_eq!(
+            recorded[0].recorded.path,
+            folder.join(pasted.snapshot_name()).display().to_string()
+        );
+        assert_eq!(recorded[1].recorded.path, "/w/shot.png");
     }
 
     #[test]
