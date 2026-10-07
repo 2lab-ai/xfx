@@ -362,6 +362,19 @@ fn last_frame(text: &str) -> Option<&str> {
     Some(&text[begins..ends])
 }
 
+/// The band's part of an update, from where it retitles the window.
+///
+/// An update that grows the document carries the document's rows first and
+/// the band's frame behind them (upstream's order, `composeWireFrame`,
+/// `render_engine/terminal_diff.zig:604-645`), and a band frame writes the
+/// window title at its head whenever the terminal has not been told it yet --
+/// which the session's first frame always has not. So on the first update the
+/// title is where the document's rows end and the band's begin; an update with
+/// no title in it is taken whole.
+fn band_part(update: &str) -> &str {
+    update.find("\u{1b}]2;").map_or(update, |at| &update[at..])
+}
+
 /// The end of a frame that leaves the cursor off: the full transcript's,
 /// whose screen has no caret (`paint_plan.zig:1047`).
 const FRAME_END_HIDDEN: &str = "\u{1b}[?2026l";
@@ -1615,14 +1628,18 @@ fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
     let text = session.settled_text();
     let announced = text.find(READY).expect("the session's announce");
     let after = &text[announced..];
-    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
+    // Through the first update: the welcome line is the document's growth, so
+    // it is written inside the band's first frame, ahead of the band.
+    let launch = &after[..after.find(FRAME_END).expect("the band's first frame")];
     assert!(
         !launch.contains('\n'),
         "the launch pushed the shell's output away: {text:?}"
     );
     // The welcome line is the document's first row, and it is row 2.
+    let first = &launch[launch.find(FRAME_BEGIN).expect("the band's first frame")..];
+    let welcome = &first[..first.len() - band_part(first).len()];
     assert!(
-        launch.contains("\u{1b}[2;1H"),
+        welcome.contains("\u{1b}[2;1H"),
         "the welcome line is not on the cursor's row: {launch:?}"
     );
     assert!(
@@ -1660,6 +1677,44 @@ fn sgr_runs(text: &str) -> Vec<String> {
         index = end.min(bytes.len());
     }
     runs
+}
+
+/// Every attribute the SGR sequences in `text` switch on, one per entry: an
+/// SGR's parameters split into what each one sets (`1`, `38;5;255`,
+/// `38;2;r;g;b`, `0`), so two spellings of one set of attributes -- `1;38;5;255`
+/// in one sequence, or `1` and then `38;5;255` -- read as the same attributes.
+///
+/// For a comparison of *which* attributes a frame paints in, made across
+/// frames that spell them differently: the band's frame writes a row's colour
+/// as the row carries it, and a recolour of the document's cells writes it as
+/// the cell diff does (`Grid::diff`), and since the recolour lands in the same
+/// update as the band (`commit_primary`) a frame now holds both spellings.
+fn sgr_attributes(text: &str) -> Vec<String> {
+    let mut attributes = Vec::new();
+    for run in sgr_runs(text) {
+        let params = &run[2..run.len() - 1];
+        let mut parts = params.split(';').peekable();
+        while let Some(part) = parts.next() {
+            let take = match (part, parts.peek()) {
+                ("38" | "48", Some(&"5")) => 2,
+                ("38" | "48", Some(&"2")) => 4,
+                _ => 0,
+            };
+            let mut attribute = part.to_string();
+            for _ in 0..take {
+                if let Some(next) = parts.next() {
+                    attribute.push(';');
+                    attribute.push_str(next);
+                }
+            }
+            attributes.push(if attribute.is_empty() {
+                "0".to_string()
+            } else {
+                attribute
+            });
+        }
+    }
+    attributes
 }
 
 /// Fixes how exactly a colour may be asked for, so the two sessions below
@@ -1883,23 +1938,27 @@ fn a_theme_notification_repaints_the_band_with_no_keystroke_behind_it() {
     let pty = Pty::open();
     pty.resize(24, 80);
     let before = modes(&pty);
-    let (mut session, _dark_text, dark_runs) = started_dark(&pty, &sandbox);
+    let (mut session, dark_text, _dark_runs) = started_dark(&pty, &sandbox);
+    // Compared as attributes rather than as sequences: the band comes back in
+    // the same update as the recolour of the document's rows above it, and the
+    // two spell one colour differently ([`sgr_attributes`]).
+    let dark = sgr_attributes(&dark_text);
 
     session.type_bytes(b"\x1b[?997;2n");
     let after = session.wait_until(
         "a frame painted in an attribute the dark start-up frame never used",
         |text| {
-            sgr_runs(after_the_first_frame(text))
+            sgr_attributes(after_the_first_frame(text))
                 .iter()
-                .any(|run| !dark_runs.contains(run))
+                .any(|attribute| !dark.contains(attribute))
         },
     );
-    let light_runs: Vec<String> = sgr_runs(after_the_first_frame(&after))
+    let light: Vec<String> = sgr_attributes(after_the_first_frame(&after))
         .into_iter()
-        .filter(|run| !dark_runs.contains(run))
+        .filter(|attribute| !dark.contains(attribute))
         .collect();
     assert!(
-        !light_runs.is_empty(),
+        !light.is_empty(),
         "the wait was satisfied by something other than a new attribute"
     );
 
@@ -1910,10 +1969,10 @@ fn a_theme_notification_repaints_the_band_with_no_keystroke_behind_it() {
     session.type_bytes(b"\x1b[?997;1n");
     let back = session.wait_until("the band back in the dark attributes", |text| {
         last_frame(text).is_some_and(|frame| {
-            let runs = sgr_runs(frame);
-            !runs.is_empty()
-                && runs.iter().all(|run| dark_runs.contains(run))
-                && light_runs.iter().all(|light| !runs.contains(light))
+            let attributes = sgr_attributes(frame);
+            !attributes.is_empty()
+                && attributes.iter().all(|attribute| dark.contains(attribute))
+                && light.iter().all(|light| !attributes.contains(light))
         })
     });
     assert!(
@@ -2157,11 +2216,20 @@ fn the_band_is_painted_under_the_welcome_inside_one_synchronized_frame() {
         frame.ends_with("\u{1b}[3;3H"),
         "the frame did not end by placing the caret in the composer: {frame:?}"
     );
-    // The band starts under the welcome and nothing above it is the frame's: a
-    // row placed in the document would be painting over the transcript.
+    // The welcome line is the document's, and it is inside the same update as
+    // the band under it, ahead of it -- as upstream's first frame carries its
+    // welcome (`fx-stream-wire-24x80-end.wire`, `.prd/tui-phase4/receipts/t8/`).
+    let band = band_part(frame);
+    let document = &frame[..frame.len() - band.len()];
+    assert!(
+        document.contains("\u{1b}[1;1H") && document.contains("Run /help"),
+        "the welcome line is not in the first update, ahead of the band: {frame:?}"
+    );
+    // The band starts under the welcome and nothing above it is the band's: a
+    // band row placed in the document would be painting over the transcript.
     for row in 1..=2 {
         assert!(
-            !frame.contains(&format!("\u{1b}[{row};1H")),
+            !band.contains(&format!("\u{1b}[{row};1H")),
             "the band painted on document row {row}: {frame:?}"
         );
     }
@@ -2569,13 +2637,14 @@ fn the_composer_stops_growing_at_half_the_content_area() {
     let top = capped(&Screen::painted(&text, 12, 20).expect("a frame")).expect("the cap");
     assert!(top > 1, "the band left no row for the welcome above it");
     // The band's own frames, and only those: the welcome line is a document
-    // write above the band and lands on those rows legitimately.
+    // write above the band and lands on those rows legitimately -- inside the
+    // first update, ahead of the band's part of it ([`band_part`]).
     let frames: Vec<&str> = text
         .match_indices(FRAME_BEGIN)
         .filter_map(|(at, _)| {
             text[at..]
                 .find(FRAME_END)
-                .map(|end| &text[at..at + end + FRAME_END.len()])
+                .map(|end| band_part(&text[at..at + end + FRAME_END.len()]))
         })
         .collect();
     for row in 1..top {
