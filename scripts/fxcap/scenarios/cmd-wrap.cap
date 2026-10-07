@@ -1,0 +1,30 @@
+# An approval's command rows (`.prd/tui-phase4` T10): fx cuts a command with
+# `CommandSegmentIterator` (`approval_ui.zig:265-340`) over its terminal-safe
+# text (`projectCommandText`, `:228-247`), not with the composer's wrap. Two
+# commands, each refused with `3`: A's lines are aimed at 116 cells (120
+# columns less `  $ `), B's at 76 (80 less it) -- a word that ends at the
+# margin after a space (it goes down), an escape token across the margin (it
+# goes down whole), and, in A only, an OSC 8 link, wide glyphs and a tab made
+# inert, an empty line, a token longer than a row, three spaces across the
+# margin, and a trailing line break. B is its first two lines, so that xfx's
+# band -- which also says what `2` would grant, and asks only what fits --
+# can ask it at 24 rows. The tools are each product's own: fx's `shell` is
+# xfx's `terminal`.
+fx: gateway cmd-wrap-fx.json
+xfx: gateway cmd-wrap-xfx.json
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 10
+type run the two commands
+wait 2
+key Enter
+wait 20
+snap cmd-a
+key 3
+wait 20
+snap cmd-b
+key 3
+wait 20
+snap after
+snapfull after

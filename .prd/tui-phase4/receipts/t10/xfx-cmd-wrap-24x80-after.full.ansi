@@ -1,0 +1,30 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-6605035 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mrun the two commands[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command · 1 denied[39m
+[38;5;245m├ Denied [38;5;252mecho[38;5;245m A-C1 echo the quick brown fox jumps over the lazy dog and the com…
+└ Denied [38;5;252mecho[38;5;245m B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeee…
+
+[38;5;252m✗ permissions:[38;5;250m this screen is too small to ask for permission, so the change was
+[39m  [38;5;250mrefused[39m
+
+  Both refused.
+
+[38;5;245m  20s (↑5 ↓120)[39m
+
+[38;5;255m┃[39m 3
+
+[38;5;245mask · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
