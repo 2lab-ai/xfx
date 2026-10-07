@@ -1,14 +1,14 @@
 === ~/.xfx/.skill-install-locks/foo (0 bytes)
 
 === ~/.xfx/history.jsonl (1099 bytes)
-{"schema_version":1,"timestamp_ms":1791355161034,"workspace_root":"<scratch>/work","text":"/skills"}
-{"schema_version":1,"timestamp_ms":1791355163692,"workspace_root":"<scratch>/work","text":"/skills list"}
-{"schema_version":1,"timestamp_ms":1791355165637,"workspace_root":"<scratch>/work","text":"/skills show demo"}
-{"schema_version":1,"timestamp_ms":1791355167542,"workspace_root":"<scratch>/work","text":"/skills show nope"}
-{"schema_version":1,"timestamp_ms":1791355169094,"workspace_root":"<scratch>/work","text":"/skills path"}
-{"schema_version":1,"timestamp_ms":1791355170180,"workspace_root":"<scratch>/work","text":"/skills create made"}
-{"schema_version":1,"timestamp_ms":1791355171754,"workspace_root":"<scratch>/work","text":"/skills create ../escape"}
-{"schema_version":1,"timestamp_ms":1791355172829,"workspace_root":"<scratch>/work","text":"/skills add ./skill-src"}
+{"schema_version":1,"timestamp_ms":1791358265114,"workspace_root":"<scratch>/work","text":"/skills"}
+{"schema_version":1,"timestamp_ms":1791358267888,"workspace_root":"<scratch>/work","text":"/skills list"}
+{"schema_version":1,"timestamp_ms":1791358269892,"workspace_root":"<scratch>/work","text":"/skills show demo"}
+{"schema_version":1,"timestamp_ms":1791358271773,"workspace_root":"<scratch>/work","text":"/skills show nope"}
+{"schema_version":1,"timestamp_ms":1791358273336,"workspace_root":"<scratch>/work","text":"/skills path"}
+{"schema_version":1,"timestamp_ms":1791358274411,"workspace_root":"<scratch>/work","text":"/skills create made"}
+{"schema_version":1,"timestamp_ms":1791358276038,"workspace_root":"<scratch>/work","text":"/skills create ../escape"}
+{"schema_version":1,"timestamp_ms":1791358277305,"workspace_root":"<scratch>/work","text":"/skills add ./skill-src"}
 
 === ~/.xfx/history.lock (0 bytes)
 === ~/.xfx/skills/foo/SKILL.md (90 bytes)

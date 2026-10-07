@@ -23,8 +23,10 @@ The workspaces are the same skills under each product's root:
 `scenarios/skills-ws-fx/` has `.fx/skills/demo`, `scenarios/skills-ws-xfx/` has
 `.xfx/skills/demo`, and both have `skills/release-notes` and the local source
 `skill-src/foo` (each scenario's `fx: work` / `xfx: work` line). fx is the
-c1db919 build (banner `v0.0.13`). xfx is `target/debug/xfx` built from this
-branch's tree on `plan/tui-phase4` `8891d04` (banner `v0.1.0-8891d04`).
+c1db919 build (banner `v0.0.13`). xfx is `target/debug/xfx` built at
+`0e78888`: this branch with `plan/tui-phase4` at `276e805b` merged (banner
+`v0.1.0-0e78888`). An earlier set, taken before the merge (`8891d04`), gave
+the same verdicts row for row once the two fixes below were in.
 
 Sanitized: each run directory's random suffix is written as `XXXXXX`
 (`/private/tmp/claude-501/fxcap.XXXXXX`), the same length, so no row moves. No
@@ -71,7 +73,15 @@ launch, and xfx opens its session with the first prompt.
 
 ## Request bodies
 
-`*-bodies/001-completion.json`, the request the `$demo run it` turn sent:
+The request the `$demo run it` turn sent: fx's
+`fx-skills-40x120-bodies/001-completion.json` and xfx's
+`xfx-skills-40x120-bodies/002-completion.json`. xfx's `001-title.json` is the
+session-title request from the plan's W9, with the excerpt `$demo run it`.
+fx sent no title request in this run, although it does ask on the
+skill-binding path (`snapshotPrompt`, `main.zig:1479-1481`). Its gate
+(`shouldGenerate`, `session_title_generation.zig:40-46`, from
+`app_session_runtime.zig:3669-3678`) is what said no here. That is a W9
+question, not part of this slice, and is recorded rather than closed.
 
 - **The catalog block** (`Skills provide task instructions. …
   <available_skills> … </available_skills>`): the same bytes on both, apart
