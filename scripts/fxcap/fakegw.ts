@@ -1,5 +1,5 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
+// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
 //        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
@@ -38,6 +38,7 @@ const port = Number(process.argv[2] ?? 0);
 const script: any[] = JSON.parse(await Bun.file(process.argv[3]).text());
 const bodies = process.argv[4];
 let seq = 0;
+const started = Date.now();
 const log = (m: string) => console.log(`[fakegw] ${m}`);
 // Generation id -> the record a later GET /v1/generation answers, and how many asks to turn away first.
 const generations = new Map<string, { record: object; notYet: number }>();
@@ -129,6 +130,12 @@ const server = Bun.serve({
       }
       if (url.pathname.endsWith("/models")) {
         log(`GET ${url.pathname} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}`);
+        // FAKEGW_MODELS_DOWN_MS (`capture.sh`'s `modelsdown` verb): unavailable for that long after
+        // the gateway starts, so a catalog the launch could not read is back for a later ask.
+        if (Date.now() - started < Number(process.env.FAKEGW_MODELS_DOWN_MS || 0)) {
+          log(`GET ${url.pathname} -> 503 (down)`);
+          return new Response("unavailable", { status: 503 });
+        }
         if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
         return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
       }
