@@ -49,7 +49,9 @@
 # scenario.
 #
 # Requirements: bash, python3 (present on every supported platform and on the CI
-# images). The four helpers are written out as real files under the evidence
+# images), and the checkout the script sits in: the slash menu row is judged
+# against the registry `src/interactive.rs` declares. The four helpers and a
+# copy of that source are written out as real files under the evidence
 # directory, and each scenario prints the command that re-runs it by hand.
 
 set -euo pipefail
@@ -111,6 +113,22 @@ evidence="$(cd "$evidence" && pwd)"
 helpers="$evidence/helpers"
 mkdir -p "$helpers"
 
+# The slash registry, as the source this binary was built from declares it.
+# Scenario 16 reads its commands, their order and their categories out of
+# `src/interactive.rs`'s `SLASH_REGISTRY` rather than out of a list kept here --
+# a list kept here goes stale the moment a command lands, and one read out of
+# the *binary* would agree with whatever the popup rendered. The source is
+# neither: it is what the popup is required to show, read the way
+# `scripts/check-no-stubs.sh` reads it, without building anything. Copied beside
+# the helpers so the evidence directory holds the registry a run was judged
+# against and a scenario re-run by hand needs nothing else.
+registry="$(cd "$(dirname "$0")/.." && pwd)/src/interactive.rs"
+if [ ! -f "$registry" ]; then
+	printf 'smoke-tui: %s is missing; the slash menu row is judged against the registry it declares\n' "$registry" >&2
+	exit 2
+fi
+cp "$registry" "$helpers/interactive.rs"
+
 # ---------------------------------------------------------------------------
 # the four helpers
 # ---------------------------------------------------------------------------
@@ -127,16 +145,28 @@ subset it emits (`src/tui/term.rs`, `src/tui/frame.rs`, `src/tui/shell.rs`'s
 `CLEAR_SCREEN`); a build that started emitting anything else fails the run here
 rather than being shrugged at by a permissive emulator and noticed by a user.
 
+**The rules are `src/tui/check.rs`'s**, the product's own refusal of a vector
+before it is written, restated here rather than loosened: what that checker
+admits this emulator admits, and what it refuses is a finding here too. Two
+places where the product writes outside the checker's reach -- the launch's
+push and the exit's report, both through `src/tui/term.rs` -- are the reason
+`CR` is still accepted although the checker's alphabet has none.
+
 What is modelled, and nothing else:
 
-* `CUP` (`CSI row ; col H`), `ED` (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
+* `CUP` (`CSI row ; col H`, both numbers, on the screen), `ED`
+  (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
 * `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on --
-  the foreground colour in `attrs` and the text attributes (bold, dim, italic,
-  underline, strike) beside it in `styles`, because the vocabulary is
-  `src/tui/pacer.rs::is_palette_sgr`'s: groups of a reset or the default
-  foreground (`0`, `39`), a text attribute or its close
-  (`1 2 3 4 9 22 23 24 29`), or one foreground colour (`38;5;n`,
-  `38;2;r;g;b`). One group outside it and the whole sequence is a finding
+  the foreground colour in `attrs`, the background in `backgrounds`, and the
+  text attributes (bold, dim, italic, underline, reverse, strike) beside them in
+  `styles`, because the vocabulary is `src/tui/pacer.rs::is_palette_sgr`'s and
+  `check.rs`'s `wire_color`: groups of a reset or the default foreground (`0`,
+  `39`), a text attribute or its close (`1 2 3 4 7 9 22 23 24 27 29` -- the
+  reverse pair is a draft's caret cell and a composer selection), one
+  foreground colour (`38;5;n`, `38;2;r;g;b`), or one background and its close
+  (`48;5;n`, `48;2;r;g;b`, `49` -- the file picker's), every number a
+  terminal reads (`0-255`). One group outside it and the whole sequence is a
+  finding
 * `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
   output), `?25` (cursor visibility), `?7` (autowrap -- xfx turns it **off**,
   which is why the wrap below is not the usual one), `?2004` (bracketed paste),
@@ -154,13 +184,24 @@ over the user's document, and would report a restore that never happened as a
 band that came back.
 * `CSI 6 n` (the launch's cursor query) and the three `>`/`<` keyboard-protocol
   sequences of `term.rs:32-52`
-* `OSC 2` (the window title, remembered rather than drawn) and `OSC 11` (the
-  background query and its reply); **every other `OSC` number is a finding**,
-  `OSC 52` first among them -- a band that started writing the user's clipboard
-  would otherwise be an escape sequence nobody looked at
+* `OSC 2` (the window title, remembered rather than drawn; `BEL`-terminated and
+  free of control characters, as `check.rs` spells one), `OSC 11` (the
+  background query, `11;?` and `ST`-terminated -- the reply is the terminal's
+  and never on this wire) and `OSC 8` (a hyperlink, `ST`-terminated, by
+  `check.rs`'s `wire_link`: parameters empty or `id=` and a short
+  `[A-Za-z0-9._-]` run, a target of at most 2083 bytes with no control
+  character in one of `http`, `https`, `file`, `mailto`, and a close that
+  carries nothing). A link is remembered per cell in `links`, and one left open
+  across a linefeed, a `CUP`, an erase, a plane change or the end of a
+  synchronized update is a finding, as each is a refusal there. **Every other
+  `OSC` is a finding**, `OSC 52` first among them -- a band that started writing
+  the user's clipboard would otherwise be an escape sequence nobody looked at
 * `XTWINOPS` `CSI 22 ; 2 t` / `CSI 23 ; 2 t`, the title stack xfx pushes at
   entry and pops on every restore path
-* `CR`, `LF` with a scroll at the bottom margin
+* `CR`, `LF` with a scroll at the bottom margin, and `BEL` -- counted in
+  `bells` and moving nothing, `/sound`'s bell (`check.rs`'s `Intent::Bell`)
+* a cluster written past the last column while autowrap is off is a finding:
+  the terminal would clip it, and the checker refuses it before it is written
 
 Text is put on the screen a **grapheme cluster** at a time, as wide as
 `unicode-width` says it is -- which is what `src/tui/wrap.rs` measures the
@@ -182,8 +223,9 @@ import unicodedata
 CSI = re.compile(rb"\x1b\[(?P<private>[<=>?]?)(?P<params>[0-9;]*)(?P<inter>[ -/]*)(?P<final>[@-~])")
 
 # ESC ] ... BEL, or ESC ] ... ESC \. The body excludes both terminators, so a
-# truncated OSC does not swallow the rest of the stream.
-OSC = re.compile(rb"\x1b\](?P<body>[^\x07\x1b]*)(?:\x07|\x1b\\)")
+# truncated OSC does not swallow the rest of the stream. Which of the two ended
+# it is kept: each string this crate writes is spelled with exactly one of them.
+OSC = re.compile(rb"\x1b\](?P<body>[^\x07\x1b]*)(?P<end>\x07|\x1b\\)")
 
 # The private modes xfx is allowed to set. Anything else is a finding.
 #
@@ -193,11 +235,19 @@ OSC = re.compile(rb"\x1b\](?P<body>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 # rather than being polled for one.
 KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 
-# The `OSC` numbers xfx is allowed to write: the window title
-# (`src/tui/frame.rs`) and the background query it asks the terminal
-# (`src/tui/theme.rs:66`). `OSC 52` is deliberately **not** here -- a build that
-# started writing the clipboard must fail this run rather than be shrugged at.
-KNOWN_OSC = {"2", "11"}
+# The `OSC` strings xfx is allowed to write, each with the one terminator it is
+# written with (`src/tui/check.rs`'s `operating_system_command`): the window
+# title (`src/tui/frame.rs`, `BEL`), the background query it asks the terminal
+# (`src/tui/theme.rs:66`, `ST`), and a hyperlink (`src/tui/hyperlink.rs`,
+# `ST`). `OSC 52` is deliberately **not** here -- a build that started writing
+# the clipboard must fail this run rather than be shrugged at.
+KNOWN_OSC = {"2": b"\x07", "11": b"\x1b\\", "8": b"\x1b\\"}
+
+# What a hyperlink may carry (`check.rs`'s `wire_link`, `hyperlink.rs`'s
+# `MAX_URI_BYTES` and `MAX_ID_BYTES`), restated rather than imported.
+LINK_ID = re.compile(r"^id=[A-Za-z0-9._-]{1,64}$")
+LINK_SCHEMES = ("http", "https", "file", "mailto")
+MAX_URI_BYTES = 2083
 
 # The window operations xfx is allowed to write: push and pop of the title
 # stack, so a session gives the terminal's title back the way it found it.
@@ -304,10 +354,25 @@ class Grid:
         # assertion about a colour stays an assertion about a colour: a bold
         # card and a plain row in the same grey are the same foreground.
         self.styles = [[""] * cols for _ in range(rows)]
+        # The background each cell was written with, as the `48;...` group that
+        # set it and `""` for the terminal's own -- apart from `attrs` for the
+        # reason `styles` is: an assertion about the foreground stays one.
+        self.backgrounds = [[""] * cols for _ in range(rows)]
+        # The hyperlink target each cell was written under (`OSC 8`), `""` for
+        # none: which text a link really covers is a claim about cells.
+        self.links = [[""] * cols for _ in range(rows)]
         self.row = self.col = 0
         self.sgr = ""
         self.style = ""
+        self.background = ""
+        # The link the stream has open, and `""` while none is.
+        self.link = ""
         self.autowrap = True
+        # Whether a synchronized update (`?2026h`) is open.
+        self.synchronized = False
+        # How many `BEL`s reached the terminal. A bell moves nothing, so this is
+        # the only place it can be read back from.
+        self.bells = 0
         self.unknown = []
         # Which of the terminal's two buffers is on the screen: "primary" is the
         # normal one xfx paints its band on, "alternate" is the one an approval
@@ -356,7 +421,7 @@ class Grid:
             elif byte == 0x0D:
                 self.col = 0
             elif byte == 0x07:
-                pass  # a bell moves no cell
+                self.bells += 1  # a bell moves no cell
             elif byte < 0x20 or byte == 0x7F:
                 # A control byte that reached the screen is exactly the class of
                 # defect this emulator exists to catch: xfx strips controls from
@@ -405,20 +470,28 @@ class Grid:
                 self._newline()
             else:
                 # `?7l` is on: the terminal overwrites the last cell instead of
-                # moving to the next row. xfx measures its own rows so this is
-                # unreachable in practice, and modelling it wrongly would turn a
-                # product bug into a *different* product bug on the grid.
+                # moving to the next row -- so the cluster is a clipped write,
+                # which `check.rs` refuses before it is written ("a cluster
+                # written past the last column"). A finding, and modelled as the
+                # terminal would draw it so the grid stays one a terminal shows.
+                self.unknown.append(b"a cluster past the last column: " + character.encode("utf-8"))
                 self.col = self.cols - width
         self.cells[self.row][self.col] = character
         self.attrs[self.row][self.col] = self.sgr
         self.styles[self.row][self.col] = self.style
+        self.backgrounds[self.row][self.col] = self.background
+        self.links[self.row][self.col] = self.link
         for offset in range(1, width):
             self.cells[self.row][self.col + offset] = ""
             self.attrs[self.row][self.col + offset] = self.sgr
             self.styles[self.row][self.col + offset] = self.style
+            self.backgrounds[self.row][self.col + offset] = self.background
+            self.links[self.row][self.col + offset] = self.link
         self.col += width
 
     def _newline(self):
+        if self.link:
+            self.unknown.append(b"a hyperlink left open across a row")
         if self.row + 1 >= self.rows:
             # The bottom margin: a linefeed scrolls, which is how xfx's document
             # appends reach the terminal's own scrollback. **The normal buffer's
@@ -431,9 +504,13 @@ class Grid:
             del self.scrollback[:-SCROLLBACK_ROWS]
             self.attrs.pop(0)
             self.styles.pop(0)
+            self.backgrounds.pop(0)
+            self.links.pop(0)
             self.cells.append([" "] * self.cols)
             self.attrs.append([""] * self.cols)
             self.styles.append([""] * self.cols)
+            self.backgrounds.append([""] * self.cols)
+            self.links.append([""] * self.cols)
         else:
             self.row += 1
 
@@ -457,10 +534,12 @@ class Grid:
         if private:
             self._private(private, params, final, match)
             return match.end()
+        if final in "HJK" and self.link:
+            # A caret move or an erase under an open link would make what it
+            # moves to, or what it blanks, part of the link (`check.rs`).
+            self.unknown.append(b"a hyperlink left open across " + match.group(0))
         if final == "H":
-            row, _, col = params.partition(";")
-            self.row = min(max(int(row or 1) - 1, 0), self.rows - 1)
-            self.col = min(max(int(col or 1) - 1, 0), self.cols - 1)
+            self._position(params, match)
         elif final == "J":
             self._erase_screen(params or "0", match)
         elif final == "K":
@@ -481,27 +560,81 @@ class Grid:
             self.unknown.append(match.group(0))
         return match.end()
 
-    def _osc(self, match):
-        """An `OSC` string: no cell moves, but the number has to be one of ours."""
-        body = match.group("body").decode("utf-8", "replace")
-        number, separator, argument = body.partition(";")
-        if number not in KNOWN_OSC:
+    def _position(self, params, match):
+        """`CUP`: both numbers, and a cell on the screen (`check.rs`'s `position`).
+
+        A bare `CSI H` is the origin. Anything else names a row and a column, and
+        an address off the screen -- a `0`, or past the last row or column -- is a
+        finding rather than a clamp: a terminal would clamp it, and the caret
+        would land somewhere the product did not say.
+        """
+        if params == "":
+            self.row = self.col = 0
+            return
+        parts = params.split(";")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
             self.unknown.append(match.group(0))
             return
-        if number == "2" and separator:
+        row, col = int(parts[0]), int(parts[1])
+        if not (1 <= row <= self.rows and 1 <= col <= self.cols):
+            self.unknown.append(match.group(0))
+        self.row = min(max(row - 1, 0), self.rows - 1)
+        self.col = min(max(col - 1, 0), self.cols - 1)
+
+    def _osc(self, match):
+        """An `OSC` string: no cell moves, but the string has to be one of ours."""
+        body = match.group("body").decode("utf-8", "replace")
+        number, separator, argument = body.partition(";")
+        if number not in KNOWN_OSC or not separator or match.group("end") != KNOWN_OSC[number]:
+            self.unknown.append(match.group(0))
+            return
+        if number == "2":
+            if any(unicodedata.category(c) == "Cc" for c in argument):
+                self.unknown.append(match.group(0))
+                return
             self.title = argument
+        elif number == "11":
+            if argument != "?":
+                self.unknown.append(match.group(0))
+        else:
+            self._hyperlink(argument, match)
+
+    def _hyperlink(self, argument, match):
+        """`OSC 8`, by `check.rs`'s `wire_link`: a close, or an inert target."""
+        params, separator, uri = argument.partition(";")
+        if not separator:
+            self.unknown.append(match.group(0))
+            return
+        if uri == "":
+            if params:
+                self.unknown.append(match.group(0))
+                return
+            self.link = ""
+            return
+        scheme, colon, _ = uri.partition(":")
+        if (
+            (params and not LINK_ID.match(params))
+            or len(uri.encode("utf-8")) > MAX_URI_BYTES
+            or any(unicodedata.category(c) == "Cc" for c in uri)
+            or not colon
+            or scheme.lower() not in LINK_SCHEMES
+        ):
+            self.unknown.append(match.group(0))
+            return
+        self.link = uri
 
     def _sgr(self, params, match):
         """One `SGR`, against the vocabulary `src/tui/pacer.rs` actually emits.
 
         The narrow question, not the SGR grammar: what a *row* may carry is a
-        256-colour or direct-colour foreground, the five text attributes the
-        markdown presenter and the card use (bold, dim, italic, underline,
-        strike) with their closes, and the resets that end them
+        256-colour or direct-colour foreground, the text attributes the
+        markdown presenter, the card and the composer use (bold, dim, italic,
+        underline, reverse, strike) with their closes, the file picker's
+        background and its close, and the resets that end them
         (`src/tui/pacer.rs::is_palette_sgr`, mirrored by `src/tui/check.rs`'s
         `wire_color`). An emulator that took the whole vocabulary would accept
-        a band that had started to blink, to reverse, to conceal a row, or to
-        paint a background across the screen.
+        a band that had started to blink, to conceal a row, or to paint in a
+        colour no terminal reads.
 
         **Atomic**: the groups are checked first and applied only if every one
         of them is in the vocabulary, so a sequence that is half a known
@@ -509,18 +642,18 @@ class Grid:
         finding that left the pen half moved.
         """
         if params in ("", "0"):
-            self.sgr, self.style = "", ""
+            self.sgr, self.style, self.background = "", "", ""
             return
         parts = params.split(";")
         steps = []
         index = 0
         while index < len(parts):
             part = parts[index]
-            if part in ("0", "39", "1", "2", "3", "4", "9", "22", "23", "24", "29"):
+            if part in ("0", "39", "49", "1", "2", "3", "4", "7", "9", "22", "23", "24", "27", "29"):
                 steps.append(part)
                 index += 1
                 continue
-            if part == "38" and index + 1 < len(parts):
+            if part in ("38", "48") and index + 1 < len(parts):
                 wanted = {"5": 1, "2": 3}.get(parts[index + 1])
                 values = parts[index + 2 : index + 2 + (wanted or 0)]
                 if (
@@ -528,25 +661,31 @@ class Grid:
                     and len(values) == wanted
                     and all(value.isdigit() and int(value) <= 255 for value in values)
                 ):
-                    steps.append("38;%s;%s" % (parts[index + 1], ";".join(values)))
+                    steps.append("%s;%s;%s" % (part, parts[index + 1], ";".join(values)))
                     index += 2 + wanted
                     continue
             self.unknown.append(match.group(0))
             return
-        colour, style = self.sgr, set(self.style.split(";")) - {""}
-        closes = {"22": ("1", "2"), "23": ("3",), "24": ("4",), "29": ("9",)}
+        colour, background = self.sgr, self.background
+        style = set(self.style.split(";")) - {""}
+        closes = {"22": ("1", "2"), "23": ("3",), "24": ("4",), "27": ("7",), "29": ("9",)}
         for step in steps:
             if step == "0":
-                colour, style = "", set()
+                colour, background, style = "", "", set()
             elif step == "39":
                 colour = ""
+            elif step == "49":
+                background = ""
             elif step in closes:
                 style -= set(closes[step])
             elif step.startswith("38;"):
                 colour = "\x1b[%sm" % step
+            elif step.startswith("48;"):
+                background = "\x1b[%sm" % step
             else:
                 style.add(step)
         self.sgr = colour
+        self.background = background
         self.style = ";".join(sorted(style, key=int))
 
     def _private(self, private, params, final, match):
@@ -557,9 +696,19 @@ class Grid:
             if params == "7":
                 self.autowrap = final == "h"
             if params == "1049":
+                if self.link:
+                    self.unknown.append(b"a hyperlink left open across a buffer change")
                 self._alternate(final == "h")
-            if params == "2026" and final == "l":
-                self._frame_closed()
+            if params == "2026":
+                if final == "l":
+                    # An update is a screen a terminal presents, and a link
+                    # still open at its end would take in whatever the next one
+                    # paints first (`check.rs`: "a vector that left a
+                    # hyperlink open").
+                    if self.link:
+                        self.unknown.append(b"a hyperlink left open across an update's end")
+                    self._frame_closed()
+                self.synchronized = final == "h"
             return
         if (private, params, final) in KNOWN_PRIVATE:
             return
@@ -596,10 +745,15 @@ class Grid:
                 self.sgr,
                 [row[:] for row in self.styles],
                 self.style,
+                [row[:] for row in self.backgrounds],
+                [row[:] for row in self.links],
+                self.background,
             )
             self.cells = [[" "] * self.cols for _ in range(self.rows)]
             self.attrs = [[""] * self.cols for _ in range(self.rows)]
             self.styles = [[""] * self.cols for _ in range(self.rows)]
+            self.backgrounds = [[""] * self.cols for _ in range(self.rows)]
+            self.links = [[""] * self.cols for _ in range(self.rows)]
             self.row = self.col = 0
             self.plane = "alternate"
             return
@@ -610,9 +764,11 @@ class Grid:
             # by doing nothing. Counted, so a scenario can still say how many
             # there were, and otherwise ignored.
             return
-        cells, attrs, row, col, sgr, styles, style = self.saved
+        cells, attrs, row, col, sgr, styles, style, backgrounds, links, background = self.saved
         self.cells, self.attrs, self.styles = cells, attrs, styles
+        self.backgrounds, self.links = backgrounds, links
         self.row, self.col, self.sgr, self.style = row, col, sgr, style
+        self.background = background
         self.saved = None
         self.plane = "primary"
 
@@ -621,27 +777,29 @@ class Grid:
         if self.record_frames:
             self.frames.append(self.text())
 
+    def _blank_row(self, row, start=0):
+        for col in range(start, self.cols):
+            self.cells[row][col] = " "
+            self.attrs[row][col] = ""
+            self.styles[row][col] = ""
+            self.backgrounds[row][col] = ""
+            self.links[row][col] = ""
+
     def _erase_right(self):
-        for col in range(self.col, self.cols):
-            self.cells[self.row][col] = " "
-            self.attrs[self.row][col] = ""
-            self.styles[self.row][col] = ""
+        self._blank_row(self.row, self.col)
 
     def _erase_screen(self, params, match):
         if params == "0":  # from the cursor to the end of the screen
             self._erase_right()
             for row in range(self.row + 1, self.rows):
-                self.cells[row] = [" "] * self.cols
-                self.attrs[row] = [""] * self.cols
-                self.styles[row] = [""] * self.cols
+                self._blank_row(row)
         elif params in ("2", "3"):
             # `2` is the visible screen and `3` is the terminal's own scrollback,
             # which this emulator does not model -- it has no scrollback to
             # erase, so erasing it is a no-op rather than an unknown sequence.
             if params == "2":
-                self.cells = [[" "] * self.cols for _ in range(self.rows)]
-                self.attrs = [[""] * self.cols for _ in range(self.rows)]
-                self.styles = [[""] * self.cols for _ in range(self.rows)]
+                for row in range(self.rows):
+                    self._blank_row(row)
         else:
             self.unknown.append(match.group(0))
 
@@ -715,13 +873,20 @@ class Grid:
         return runs
 
     def is_plain(self, row, col):
-        """Whether the cell carries no colour and no text attribute at all.
+        """Whether the cell carries no colour, no background, no text attribute
+        and no link at all.
 
-        The question "did a pen leak past here" has two halves now that a row may
-        be bold or dim as well as coloured: a cell back on the default
-        foreground but still bold is a leak exactly as much as a coloured one.
+        The question "did a pen leak past here" has as many halves as a pen has
+        slots: a cell back on the default foreground but still bold, still on a
+        background or still inside a link is a leak exactly as much as a
+        coloured one.
         """
-        return self.attrs[row][col] == "" and self.styles[row][col] == ""
+        return (
+            self.attrs[row][col] == ""
+            and self.styles[row][col] == ""
+            and self.backgrounds[row][col] == ""
+            and self.links[row][col] == ""
+        )
 
     def snapshot(self):
         ruler = "     " + "".join(str(column % 10) for column in range(self.cols))
@@ -740,6 +905,8 @@ class Grid:
             lines.append("")
             lines.append("--- what left the top of the screen, oldest first ---")
             lines.extend(self.scrollback[-40:])
+        if self.bells:
+            lines.append("bells: %d" % self.bells)
         for row in range(self.rows):
             runs = self.attrs_of_row(row)
             if runs:
@@ -747,6 +914,12 @@ class Grid:
             styles = self.styles_of_row(row)
             if styles:
                 lines.append("styles row %d: %r" % (row + 1, styles))
+            backgrounds = [b for i, b in enumerate(self.backgrounds[row]) if b and (i == 0 or self.backgrounds[row][i - 1] != b)]
+            if backgrounds:
+                lines.append("backgrounds row %d: %r" % (row + 1, backgrounds))
+            links = [l for i, l in enumerate(self.links[row]) if l and (i == 0 or self.links[row][i - 1] != l)]
+            if links:
+                lines.append("links row %d: %r" % (row + 1, links))
         if self.unknown:
             lines.append("UNKNOWN SEQUENCES: %r" % (self.unknown,))
         return "\n".join(lines) + "\n"
@@ -774,11 +947,15 @@ to everything:
   not declare fails the run; an allowlist with a hole in it is a permissive
   emulator wearing a contract's clothes. `OSC 52` (clipboard) and an
   unsupported SGR parameter are the two the band could plausibly grow by
-  accident, so they are the two asserted on.
+  accident, so they are the two asserted on -- and beside them every refusal of
+  `src/tui/check.rs` the emulator restates: a hyperlink that is not inert or is
+  left open, a title or a query spelled with the other terminator, a caret
+  placed off the screen, a cluster clipped at the last column.
 * **The subset xfx really emits is still accepted.** A contract that rejects
   the product is a broken harness rather than a caught defect, so every shape
-  `src/tui/term.rs`, `src/tui/theme.rs` and `src/tui/frame.rs` write is fed
-  through and must leave `unknown` empty.
+  `src/tui/term.rs`, `src/tui/theme.rs`, `src/tui/frame.rs` and
+  `src/tui/hyperlink.rs` write is fed through and must leave `unknown` empty --
+  the reverse video of a caret cell and the picker's background among them.
 """
 
 import os
@@ -796,8 +973,13 @@ FAMILY = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
 PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;188;188;188m", "\x1b[0m", "\x1b[m")
 
 # The background query and the window title (`src/tui/theme.rs:66`,
-# `src/tui/frame.rs`), in both terminator spellings a terminal may use.
-PRODUCT_OSC = ("\x1b]11;?\x1b\\", "\x1b]11;rgb:0000/0000/0000\x1b\\", "\x1b]2;xfx \u00b7 glm-5.2\x07")
+# `src/tui/frame.rs`), each in the one terminator the product spells it with
+# (`src/tui/check.rs`'s `operating_system_command`), and the exit's clear.
+PRODUCT_OSC = ("\x1b]11;?\x1b\\", "\x1b]2;\x07", "\x1b]2;xfx \u00b7 glm-5.2\x07")
+
+# A hyperlink as `src/tui/hyperlink.rs` writes one -- open with upstream's `id=`,
+# the text, the close -- and the cells it covers.
+PRODUCT_LINK = "\x1b]8;id=xfx-1;https://example.com/a\x1b\\docs\x1b]8;;\x1b\\ x"
 
 # The title stack xfx pushes at entry and pops on every restore path
 # (`src/tui/term.rs`).
@@ -878,8 +1060,86 @@ def the_osc_the_product_emits_is_accepted():
     )
 
 
+def an_osc_in_the_other_terminator_or_with_another_body_is_a_finding():
+    """Each string in the one spelling `check.rs` admits, and only that one.
+
+    The terminal's own *reply* to the background query is here too: it is
+    something a terminal writes to xfx, never something xfx writes, so an
+    emulator that accepted it on xfx's wire would accept a session echoing its
+    input.
+    """
+    for sequence in (
+        "\x1b]2;title\x1b\\",
+        "\x1b]11;?\x07",
+        "\x1b]11;rgb:0000/0000/0000\x1b\\",
+        "\x1b]2;tab\there\x07",
+        "\x1b]2\x07",
+    ):
+        require(fed(sequence).unknown, "%r passed the oracle unremarked" % sequence)
+
+
+def a_hyperlink_the_product_writes_is_accepted_and_covers_its_cells():
+    grid = fed(PRODUCT_LINK)
+    require(not grid.unknown, "the product's own link was rejected: %r" % (grid.unknown,))
+    require(
+        [grid.links[0][col] for col in range(4)] == ["https://example.com/a"] * 4,
+        "the link's text is not under its target: %r" % (grid.links[0][:5],),
+    )
+    require(grid.links[0][5] == "" and grid.is_plain(0, 5), "the close did not end the link")
+    require(grid.link == "", "the stream was left inside a link")
+    for scheme in ("http://a", "file:///tmp/a.png", "mailto:a@b.c", "HTTPS://A"):
+        sequence = "\x1b]8;;%s\x1b\\x\x1b]8;;\x1b\\" % scheme
+        require(not fed(sequence).unknown, "%r was rejected" % sequence)
+
+
+def a_hyperlink_that_is_not_inert_or_is_left_open_is_a_finding():
+    """`check.rs`'s `wire_link` and its three places a link may not cross."""
+    close = "\x1b]8;;\x1b\\"
+    for what, sequence in (
+        ("a BEL-terminated open", "\x1b]8;;https://a\x07x" + close),
+        ("a scheme nobody links", "\x1b]8;;javascript:alert(1)\x1b\\x" + close),
+        ("a target with no scheme", "\x1b]8;;README.md\x1b\\x" + close),
+        ("a control in the target", "\x1b]8;;https://a\x7fb\x1b\\x" + close),
+        ("parameters nobody writes", "\x1b]8;foo=1;https://a\x1b\\x" + close),
+        ("a close with parameters", "\x1b]8;;https://a\x1b\\x\x1b]8;id=a;\x1b\\"),
+        ("a target past the cap", "\x1b]8;;https://" + "a" * 2083 + "\x1b\\x" + close),
+        ("the recovery cleanup's BEL close", "\x1b]8;;\x07"),
+        ("open across a row", "\x1b]8;;https://a\x1b\\x\ny" + close),
+        ("open across a caret move", "\x1b]8;;https://a\x1b\\x\x1b[2;1Hy" + close),
+        ("open across an erase", "\x1b]8;;https://a\x1b\\x\x1b[K" + close),
+        ("open across an update's end", "\x1b[?2026h\x1b]8;;https://a\x1b\\x\x1b[?2026l" + close),
+        ("open across a plane change", "\x1b]8;;https://a\x1b\\x\x1b[?1049h" + close),
+    ):
+        require(fed(sequence).unknown, "%s passed the oracle unremarked: %r" % (what, sequence))
+
+
+def a_bell_moves_nothing_and_is_counted():
+    grid = fed("ab\x07\x07c")
+    require(not grid.unknown, "a bell was reported as a defect: %r" % (grid.unknown,))
+    require(grid.bells == 2, "the bells were not counted: %d" % grid.bells)
+    require(grid.row_text(0) == "abc", "a bell moved a cell: %r" % grid.row_text(0))
+
+
+def a_caret_placed_off_the_screen_or_half_addressed_is_a_finding():
+    for sequence in ("\x1b[0;1H", "\x1b[4;1H", "\x1b[1;21H", "\x1b[2H", "\x1b[1;2;3H"):
+        require(fed(sequence).unknown, "%r passed the oracle unremarked" % sequence)
+    for sequence in ("\x1b[H", "\x1b[3;20H", "\x1b[1;1H"):
+        require(not fed(sequence).unknown, "%r was rejected" % sequence)
+
+
+def a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off():
+    """`?7l` is what xfx runs under, and there a terminal clips the write."""
+    require(fed("\x1b[?7l" + "x" * 21).unknown, "a clipped write passed the oracle unremarked")
+    require(not fed("\x1b[?7l" + "x" * 20).unknown, "a row exactly as wide as the screen was rejected")
+    wrapped = fed("x" * 21)
+    require(not wrapped.unknown and wrapped.row_text(1) == "x", "autowrap on did not wrap")
+
+
 def an_undeclared_sgr_parameter_is_a_finding():
-    for sequence in ("\x1b[999m", "\x1b[7m", "\x1b[5m", "\x1b[48;5;1m", "\x1b[38;5;m"):
+    for sequence in (
+        "\x1b[999m", "\x1b[5m", "\x1b[8m", "\x1b[38;5;m", "\x1b[48;5;256m",
+        "\x1b[48;2;1;2m", "\x1b[58;5;1m", "\x1b[38;2;1;2m",
+    ):
         grid = fed(sequence)
         require(grid.unknown, "%r passed the oracle unremarked" % sequence)
 
@@ -920,6 +1180,27 @@ def the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colou
     require(not fed("\x1b[1mx").is_plain(0, 0), "a bold cell is not a plain one")
 
 
+def reverse_video_and_a_background_are_accepted_and_kept_apart():
+    """The caret cell's reverse (`7`/`27`) and the picker's background
+    (`48;5;n`, `48;2;r;g;b`, `49`), as `check.rs`'s `wire_color` admits them."""
+    for sequence in ("\x1b[7m", "\x1b[27m", "\x1b[49m", "\x1b[48;5;236m", "\x1b[48;2;1;2;3m",
+                     "\x1b[0;7m", "\x1b[1;38;5;255;48;5;236m"):
+        require(not fed(sequence + "x").unknown, "the product's %r was rejected" % sequence)
+    grid = fed("\x1b[0;7m \x1b[0mx\x1b[48;5;236;38;5;250my\x1b[49mz")
+    require(grid.styles[0][0] == "7" and grid.attrs[0][0] == "", "reverse is a style: %r" % grid.styles[0][0])
+    require(grid.is_plain(0, 1), "the reset closed the reverse")
+    require(
+        (grid.backgrounds[0][2], grid.attrs[0][2]) == ("\x1b[48;5;236m", "\x1b[38;5;250m"),
+        "a background and a foreground are two slots: %r" % ((grid.backgrounds[0][2], grid.attrs[0][2]),),
+    )
+    require(
+        (grid.backgrounds[0][3], grid.attrs[0][3]) == ("", "\x1b[38;5;250m"),
+        "49 closed the background and kept the colour",
+    )
+    require(not fed("\x1b[48;5;1mx").is_plain(0, 0), "a cell on a background is not a plain one")
+    require(fed("\x1b[7mx\x1b[27my").is_plain(0, 1), "27 closed the reverse")
+
+
 def an_sgr_with_one_foreign_group_is_a_finding_that_moves_no_pen():
     """One group outside the vocabulary and the whole sequence is refused.
 
@@ -927,7 +1208,7 @@ def an_sgr_with_one_foreign_group_is_a_finding_that_moves_no_pen():
     and merely report the reverse, or a scenario reading the pen after a finding
     would be reading a state no terminal is in.
     """
-    for sequence in ("\x1b[1;7m", "\x1b[38;5;250;5m", "\x1b[38;5;256m", "\x1b[2;48;5;1m"):
+    for sequence in ("\x1b[1;5m", "\x1b[38;5;250;5m", "\x1b[38;5;256m", "\x1b[2;48;5;256m", "\x1b[7;8m"):
         grid = fed(sequence + "x")
         require(grid.unknown, "%r passed the oracle unremarked" % sequence)
         require(grid.is_plain(0, 0), "%r moved the pen though it was refused" % sequence)
@@ -1066,9 +1347,16 @@ TESTS = (
     a_clipboard_osc_is_a_finding,
     an_undeclared_osc_number_is_a_finding,
     the_osc_the_product_emits_is_accepted,
+    an_osc_in_the_other_terminator_or_with_another_body_is_a_finding,
+    a_hyperlink_the_product_writes_is_accepted_and_covers_its_cells,
+    a_hyperlink_that_is_not_inert_or_is_left_open_is_a_finding,
+    a_bell_moves_nothing_and_is_counted,
+    a_caret_placed_off_the_screen_or_half_addressed_is_a_finding,
+    a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off,
     an_undeclared_sgr_parameter_is_a_finding,
     the_sgr_the_product_emits_is_accepted,
     the_text_attributes_the_product_emits_are_accepted_and_kept_apart_from_colour,
+    reverse_video_and_a_background_are_accepted_and_kept_apart,
     an_sgr_with_one_foreign_group_is_a_finding_that_moves_no_pen,
     the_title_stack_is_accepted_and_other_window_operations_are_not,
     a_control_byte_on_the_screen_is_still_a_finding,
@@ -1478,13 +1766,31 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
         self.server_port = self.server_address[1]
 
 
-class Fixture:
-    """A loopback Gateway that answers `script` in order and records everything."""
+# Where the Gateway publishes its model catalog (`src/provider/model.rs`'s
+# `GATEWAY_MODELS_PATH`, upstream's `gateway.zig:48`).
+GATEWAY_MODELS_PATH = "/coding-agent/v1/models"
 
-    def __init__(self, script, record_path=None):
+
+class Fixture:
+    """A loopback Gateway that answers `script` in order and records everything.
+
+    **A catalog request is not a turn**, and is answered apart from the script:
+    a session asks the Gateway for its model catalog on its own (`/model`, and
+    the context window a turn's meter is measured against), so a script keyed
+    by arrival order would hand the catalog the reply meant for the next prompt
+    and the prompt an `unscripted request` -- which is how scenario 7's second
+    turn once failed on a request the product was right to make. The same
+    split `tests/support/fake_gateway.rs`'s `with_catalog` makes: answered
+    `404` unless a catalog is given, and recorded in `catalog_requests` rather
+    than in what `requests` and `bodies` report.
+    """
+
+    def __init__(self, script, record_path=None, catalog=None):
         self.script = list(script)
         self.record_path = record_path
+        self.catalog = catalog
         self.captured = []
+        self.catalog_captured = []
         self.lock = threading.Lock()
         self.served = 0
         self.title_requests = 0
@@ -1522,6 +1828,10 @@ class Fixture:
     def bodies(self):
         return [request["body"] for request in self.requests()]
 
+    def catalog_requests(self):
+        with self.lock:
+            return list(self.catalog_captured)
+
     def stop(self):
         self.server.shutdown()
         self.server.server_close()
@@ -1547,6 +1857,20 @@ class Fixture:
             "headers": {key.lower(): value for key, value in handler.headers.items()},
             "body": body,
         }
+        if handler.command == "GET" and handler.path.split("?")[0] == GATEWAY_MODELS_PATH:
+            with self.lock:
+                self.catalog_captured.append(record)
+            if self.catalog is None:
+                status, document = 404, {"error": "fixture: no catalog"}
+            else:
+                status, document = 200, self.catalog
+            payload = json.dumps(document).encode("utf-8")
+            handler.send_response(status)
+            handler.send_header("content-type", "application/json")
+            handler.send_header("content-length", str(len(payload)))
+            handler.end_headers()
+            handler.wfile.write(payload)
+            return
         with self.lock:
             index = self.served
             self.served += 1
@@ -1901,21 +2225,44 @@ THEME_PROBE = "\x1b]11;?"
 # The first and last bytes of a band frame. Waiting on the *end* is what makes
 # "a band is on the screen" a fact rather than a race: a needle matching a row's
 # `CUP` would be satisfied by half a frame.
+#
+# **Two ends, because a frame need not show the caret.** Every frame opens with
+# `FRAME_BEGIN` (`src/tui/frame.rs`'s `BEGIN_FRAME`), and the one that leaves a
+# caret on the screen closes with `FRAME_END`, the cursor shown only once the
+# update is presented (`render_engine/terminal_diff.zig:643-644`). A frame whose
+# screen has no caret -- a reset's handoff, the full transcript -- closes with
+# the synchronized update's own end alone (`END_FRAME_HIDDEN`). So "this frame
+# is complete" is a question about `FRAME_CLOSE`, and "the caret came back" is a
+# question about `FRAME_END`; a reader that asked the second when it meant the
+# first would read a completed hidden-caret frame as one still being painted,
+# and cut the screen back to the frame before it.
 FRAME_BEGIN = "\x1b[?2026h\x1b[?25l"
-FRAME_END = "\x1b[?2026l\x1b[?25h"
+FRAME_CLOSE = "\x1b[?2026l"
+FRAME_END = FRAME_CLOSE + "\x1b[?25h"
 
 # The whole interactive mode sequence and the two restores, in order
-# (`src/tui/term.rs:32-52`). Spelled out rather than imported: a harness that
+# (`src/tui/term.rs:56-90`). Spelled out rather than imported: a harness that
 # read the constant it is checking would pass for whatever the module declared.
 # The title push (`22;2t`) is the last thing in the mode set and its pop
-# (`23;2t`) is the first thing in every restore below -- the only last/first
-# pair here. `?2031h`/`?2031l` (`src/tui/term.rs:56,65`), the theme-change
-# subscription, sits the other way round it: set *before* the push and unset
-# *after* the pop, so the subscription is taken and given back inside the
-# title the session borrows, never outside it.
+# (`23;2t`) leads every restore's own modes -- the only last/first pair here.
+# `?2031h`/`?2031l` (`src/tui/term.rs:56,65`), the theme-change subscription,
+# sits the other way round it: set *before* the push and unset *after* the pop,
+# so the subscription is taken and given back inside the title the session
+# borrows, never outside it.
+#
+# **The planned exit clears the title first** (`ESC ] 2 ; BEL`, upstream's
+# `TerminalTitle.clear`, `render.zig:780-792`; `.prd/tui-phase4/receipts/c5`,
+# "Both write `ESC]2;BEL` on the way out") and the abnormal restores do not
+# (`term.rs`'s `ABNORMAL_RESTORE`). So the two share a tail and differ in what
+# leads it, and a search for the normal restore has to start at the clear: one
+# that started at the pop would count the clear as the last bytes of whatever
+# came before it -- which is how scenario 3c once measured a torn frame five
+# bytes longer than the terminal had taken.
 MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t"
-RESTORE = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h"
-ABNORMAL_RESTORE = "\x1b[?1049l" + RESTORE
+CLEAR_TITLE = "\x1b]2;\x07"
+RESTORE_MODES = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h"
+RESTORE = CLEAR_TITLE + RESTORE_MODES
+ABNORMAL_RESTORE = "\x1b[?1049l" + RESTORE_MODES
 
 # The local and input modes raw mode clears (`shell_runtime.zig:108-138`).
 RAW_LOCAL_OFF = ("ECHO", "ICANON", "IEXTEN", "ISIG")
@@ -2160,7 +2507,7 @@ class Session:
         begins = text.rfind(FRAME_BEGIN)
         if begins < 0:
             return None
-        ends = text.find(FRAME_END, begins)
+        ends = text.find(FRAME_CLOSE, begins)
         return None if ends < 0 else text[begins:ends]
 
     # -- what the child is doing ------------------------------------------
@@ -2314,13 +2661,40 @@ PROBE_ANSWERS = "\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[2;1R"
 # What a session says while a turn is waiting to be told whether it may act.
 PERMISSION_TITLE = "Permission needed"
 
-# The second choice's wording for anything that is not a shell command.
-ALWAYS_WORDING = "don't ask again for this request"
+# A file change's three answers, in upstream's words and with xfx's own grant in
+# the second (`src/tui/approval_view.rs`'s `label`; `.prd/tui-phase4/receipts/f2`,
+# `edit-ask`: `❯ 1  Apply once`, `3  Don't apply`, and "What differs" #1 for the
+# second). An edit's second choice and a write's name different grants, so each
+# has its own needle. Spelled out rather than imported, as every needle here is.
+APPLY_ONCE = "1  Apply once"
+DONT_APPLY = "3  Don't apply"
+ALWAYS_WORDING = "2  Apply + allow future edits to this file for this session"
+ALWAYS_WRITE_WORDING = "2  Apply + allow future writes to this file for this session"
+
+# What marks the answer Enter would take, in front of it
+# (`fx-approvals-40x120-edit-ask`: `  ❯ 1  Apply once`).
+CHOICE_MARK = "❯ "
+
+# The tool group's row for a finished read of the notes every approval fixture
+# reads first (`.prd/tui-phase4/receipts/f1`: `Read a.txt`; the call's row is
+# `Reading …` while it runs). It replaces the `[tool] read_file ok` line the
+# transcript used to write, and is the document row an approval is asked under.
+READ_NOTES = "Read notes.txt"
+
+# The line a cancelled turn leaves in the document (`src/tui/shell.rs`'s
+# `cancelled_line`; `.prd/tui-phase4/receipts/f4`, "cancelled turn":
+# `■ Cancelled · What can fx do differently?`, in this product's name). It
+# replaces the `stopping the turn` notice an interrupt used to write.
+CANCELLED_TURN = "■ Cancelled · What can xfx do differently?"
+
+# What the hint row says, whole, while a second Ctrl-C would leave
+# (`src/tui/shell.rs`'s `EXIT_ARMED`; `receipts/f4`, "exit hint").
+EXIT_ARMED = "press ctrl+c again to exit"
 
 # What the shell says to an affirmative given before the question's frame has
 # been committed and reconciled (`shell::APPROVAL_NOT_READY`). A literal here,
-# beside the other product wordings this script pins, and byte-identical to the
-# Rust constant.
+# beside the other product wordings this script pins, and the head of the Rust
+# constant.
 APPROVAL_NOT_READY = "the question is not on the screen yet"
 
 # The bytes that take the terminal's second buffer and give it back. Spelled out
@@ -2337,6 +2711,7 @@ HINT_AUTO = "auto · glm-5.2"
 HINT_MODEL = "glm-5.2"
 
 FRAME_BEGIN_BYTES = pty.FRAME_BEGIN.encode()
+FRAME_CLOSE_BYTES = pty.FRAME_CLOSE.encode()
 FRAME_END_BYTES = pty.FRAME_END.encode()
 
 
@@ -2571,7 +2946,7 @@ class Trial:
         """
         captured = bytes(self.session.captured)
         begins = captured.rfind(FRAME_BEGIN_BYTES)
-        if begins >= 0 and captured.find(FRAME_END_BYTES, begins) < 0:
+        if begins >= 0 and captured.find(FRAME_CLOSE_BYTES, begins) < 0:
             captured = captured[:begins]
         return Grid(self.rows, self.cols, record_frames=record_frames).feed(captured)
 
@@ -2688,11 +3063,23 @@ def from_a_known_composer(run, trial, label):
 #                     the composer and the panel
 #   panel rows        the menu or the question, while it is up
 #   divider           a `─` rule while a panel is up, a **blank** row otherwise
-#   hint              statusline grey, the permission mode in its own accent
+#   hint              statusline grey, the permission mode in its own accent --
+#                     or the panel's own key help while one is up
 #
 # The composer is found by its rail and only as the run of rail rows directly
 # above that structure -- never by scanning the screen for a rail, because a
 # submitted prompt is echoed into the document as a card behind the same rail.
+#
+# **A question has no composer and no activity row.** A permission question
+# and the model's own batch replace the composer rather than sitting under it,
+# and the turn's row is off the band while one is up (`src/tui/shell.rs`'s
+# `fit`, "A question takes them all"; `render_input.zig:705`;
+# `.prd/tui-phase4/receipts/f1`, "The activity row is off the band while an
+# approval is up"; `receipts/f3`, "the composer gives the question its rows").
+# So a panel between its two rules with no rail above it is still the band,
+# with an empty `composer`, and its top is the rule that heads the panel. Only a
+# panel licenses that: with no panel up, a structure with no rail above its
+# divider is not the band's.
 
 # The rail every composer row and every echoed card starts with.
 RAIL = "\u2503"
@@ -2720,6 +3107,12 @@ ACTIVITY_ROW = re.compile(
 SUMMARY_ROW = re.compile(
     r"^  (?:\d+s|\d+m \d+s|\d+h \d{2}m)(?: \(\u2191\d+(?:\.\d)?k? \u2193\d+(?:\.\d)?k?\))?$"
 )
+
+
+# The line a session with a conversation leaves under its document on the way
+# out, naming the command that resumes it (`src/tui/shell.rs`'s `RESUME_LABEL`;
+# `.prd/tui-phase4/receipts/c5`: `Continue session with: xfx --resume <id>`).
+RESUME_HANDOFF = re.compile(r"^Continue session with: xfx --resume \S+$")
 
 
 def grid_row_blank(grid, row):
@@ -2753,7 +3146,9 @@ class Band:
 
     @property
     def top(self):
-        return self.activity if self.activity is not None else self.composer[0]
+        if self.activity is not None:
+            return self.activity
+        return self.composer[0] if self.composer else self.picker_rule
 
     @property
     def document_bottom(self):
@@ -2801,17 +3196,23 @@ def find_band(grid):
         return None
     # A composer shorter than the rows its geometry gave it pads the rest blank
     # (`band_rows`' own loop) -- those rows are the band's and are skipped over
-    # rather than read as the end of it.
-    while above >= 0 and grid.row_text(above) == "":
-        above -= 1
+    # rather than read as the end of it. **Not under a panel**: there the
+    # composer sits on the rule that heads the panel, and a blank row above
+    # that rule is the document's own -- the gap under a card the question was
+    # asked below, which a reader that skipped it would take for the composer.
+    if picker_rule is None:
+        while above >= 0 and grid.row_text(above) == "":
+            above -= 1
     composer = []
     while above >= 0 and grid.cells[above][0] == RAIL:
         composer.append(above)
         above -= 1
-    if not composer:
-        return None
-    composer.reverse()
     panel.reverse()
+    if not composer:
+        if picker_rule is None:
+            return None
+        return Band(hint, divider, panel, picker_rule, [], None)
+    composer.reverse()
     activity = None
     first = composer[0]
     if first >= 2 and grid.row_text(first - 1) == "" and ACTIVITY_ROW.match(grid.row_text(first - 2)):
@@ -2868,26 +3269,35 @@ def activity_seconds(grid):
 
 
 def composer_first_row(grid):
-    """The composer's first row shown, or `None` when there is no band.
+    """The composer's first row shown, or `None` when there is no composer.
 
     Every composer row carries the rail, so this is `None` only when the band
-    itself could not be found -- never because the draft is tall. A draft taller
-    than the window shows `┃↑` on this row instead (`composer_scrolled`).
+    itself could not be found or a question has replaced the composer -- never
+    because the draft is tall. A draft taller than the window shows `┃↑` on
+    this row instead (`composer_scrolled`).
     """
     band = find_band(grid)
-    return None if band is None else band.composer[0]
+    return None if band is None or not band.composer else band.composer[0]
 
 
 def composer_scrolled(grid):
     """Whether rows above the composer's first row shown are scrolled away."""
     band = find_band(grid)
-    return band is not None and grid.cells[band.composer[0]][1] == RAIL_HIDDEN_ABOVE
+    return (
+        band is not None
+        and bool(band.composer)
+        and grid.cells[band.composer[0]][1] == RAIL_HIDDEN_ABOVE
+    )
 
 
 def composer_rows_text(grid):
-    """Each composer row's text after its rail, top row first, or `None`."""
+    """Each composer row's text after its rail, top row first, or `None`.
+
+    `None` too while a question has replaced the composer: a draft that is not
+    on the screen is not an empty one.
+    """
     band = find_band(grid)
-    if band is None:
+    if band is None or not band.composer:
         return None
     return [grid.row_text(row)[2:] for row in band.composer]
 
@@ -2906,6 +3316,24 @@ def hint_text(grid):
     """The band's hint row -- where the mode, the model and the context meter are."""
     band = find_band(grid)
     return None if band is None else grid.row_text(band.hint).strip()
+
+
+def stopped_on_the_grid(trial, what):
+    """Waits until a first Ctrl-C has stopped the running turn, and returns that grid.
+
+    Two facts on one committed grid, both of them upstream's answer to the key
+    (`.prd/tui-phase4/receipts/f4`, `cc-0.3`): the turn's cancelled line in the
+    document and the exit armed on the hint row. They replace the `stopping the
+    turn` notice the interrupt used to write; a session that ignored the key
+    shows neither, and one that left on it shows no band at all.
+    """
+    trial.wait_until(
+        what,
+        lambda _t: (
+            lambda grid: grid.find(CANCELLED_TURN) is not None and hint_text(grid) == EXIT_ARMED
+        )(trial.peek()),
+    )
+    return trial.peek()
 
 
 def rows_above_band(grid, band=None):
@@ -3022,6 +3450,10 @@ def scenario_1(run):
         "an activity row with its blank row dropped": (
             find_band(synthetic("\u2022 Running (3s)", RAIL + " x", "", "auto")),
             ([1], 2, 3, [], 0),
+        ),
+        "a question under a card replaces the composer; the card is the document's": (
+            find_band(synthetic(RAIL + " steered", "", rule, "  Permission needed", rule, "keys")),
+            ([], 4, 5, [3], None),
         ),
     }
     for what, (band, expected) in reads.items():
@@ -3362,7 +3794,29 @@ def scenario_3b(run):
     run.require(grid.find("chunk-0") is not None, "and the stream behind it is running")
     run.require(grid.text().strip() != "", "the screen is not blank")
 
-    trial.send(b"\x04")
+    # **Restated for fx's Ctrl-D** (`.prd/tui-phase4/receipts/f4`, `cd-streaming`:
+    # "Ctrl-D while an answer streams is not an exit on either",
+    # `app_input_runtime.zig:1750`; `src/tui/shell.rs`'s `Action::Eof`). This
+    # row used to leave mid-stream with Ctrl-D, and a session that did so now
+    # would be ending the answer its user is reading. So the key is asserted
+    # to be read and refused -- the keystroke behind it reaches the composer of
+    # a session that is still up -- and the drain is driven the way fx leaves
+    # a session with a stream still inside it: `/quit` (`commandQuit`,
+    # `app_commands.zig:662-665`), which ends the session whatever is running.
+    trial.send(b"\x04z")
+    trial.wait_until(
+        "the keystroke behind a mid-stream Ctrl-D to reach the composer",
+        lambda _t: composer_text(trial.peek()) == "z",
+    )
+    run.require(
+        trial.session.state()[0] == "running",
+        "Ctrl-D while the answer streams did not end the session",
+    )
+    trial.send(b"\x15")
+    trial.wait_until(
+        "the composer to be empty again", lambda _t: composer_text(trial.peek()) == ""
+    )
+    trial.send("/quit\r")
     started = time.time()
     state = trial.session.wait_exit(timeout=30)
     elapsed = time.time() - started
@@ -3706,7 +4160,7 @@ def recovered_peek(trial, after, record_frames=False):
     """
     captured = bytes(trial.session.captured)[after:]
     begins = captured.rfind(FRAME_BEGIN_BYTES)
-    if begins >= 0 and captured.find(FRAME_END_BYTES, begins) < 0:
+    if begins >= 0 and captured.find(FRAME_CLOSE_BYTES, begins) < 0:
         captured = captured[:begins]
     return Grid(trial.rows, trial.cols, record_frames=record_frames).feed(captured)
 
@@ -3932,7 +4386,7 @@ def excised(trial, torn_at, cleanup_end, until=None):
         captured = captured[:until]
     spliced = captured[:torn_at] + captured[cleanup_end:]
     begins = spliced.rfind(FRAME_BEGIN_BYTES)
-    if begins >= 0 and spliced.find(FRAME_END_BYTES, begins) < 0:
+    if begins >= 0 and spliced.find(FRAME_CLOSE_BYTES, begins) < 0:
         spliced = spliced[:begins]
     return spliced
 
@@ -3961,7 +4415,7 @@ def asked_on_the_alternate_plane(run, trial, what):
     complete, which is where every later search for the repaint starts.
     """
     trial.send("edit the notes " + run.nonce + "\r")
-    trial.wait_for("[tool] read_file ok")
+    trial.wait_for(READ_NOTES)
     trial.wait_for(ALTERNATE_ENTER)
     trial.wait_until(
         "%s: the question to be painted on the plane it took" % what,
@@ -3979,8 +4433,10 @@ def scenario_3e(run):
     in the same call when the cleanup lands, fatal when it does not.
 
     The one other vector `3d`'s recovery reaches. A question about a change too
-    big for the band is up on the plane it took; one step of the walk (`C-n`)
-    asks for a repaint of that plane, which takes no plane, gives none back and
+    big for the band is up on the plane it took; one step of the walk (`C-p`,
+    up from the tail the review opens on -- `.prd/tui-phase4/receipts/f2`,
+    "the review's tail against the dotted rule" -- where `C-n` is a step past
+    the end that paints nothing) asks for a repaint of that plane, which takes no plane, gives none back and
     scrolls nothing into a scrollback the terminal keeps -- so its whole
     intended content is in hand when it tears. `partial-alternate-once` takes
     half of that repaint and fails, and then answers the fixed cleanup and the
@@ -4020,7 +4476,7 @@ def scenario_3e(run):
     ).settled()
     run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
     asked = asked_on_the_alternate_plane(run, control, "control")
-    control.send(b"\x0e")
+    control.send(b"\x10")
     control.wait_until(
         "control: the walk to repaint the plane",
         lambda _t: bytes(control.session.captured).find(FRAME_END_BYTES, asked) >= 0,
@@ -4062,7 +4518,7 @@ def scenario_3e(run):
     run.require(trial.modes().is_raw(), "recovery: raw mode really was entered")
     asked = asked_on_the_alternate_plane(run, trial, "recovery")
 
-    trial.send(b"\x0e")
+    trial.send(b"\x10")
 
     def recovered_and_repainted(_text):
         captured = bytes(trial.session.captured)
@@ -4133,7 +4589,7 @@ def scenario_3e(run):
         % (grid.entered_alternate, grid.left_alternate),
     )
     run.require(grid.find(PERMISSION_TITLE) is not None, "recovery: the rebuild names the question")
-    for choice in ("1. Yes", "3. No (esc)"):
+    for choice in (CHOICE_MARK + APPLY_ONCE, DONT_APPLY):
         run.require(grid.find(choice) is not None, "recovery: the rebuild kept %r" % choice)
     run.require(
         not grid.unknown,
@@ -4141,7 +4597,7 @@ def scenario_3e(run):
     )
     primary = grid.primary_text()
     run.require(
-        "read_file ok" in primary and HINT_MODEL in primary,
+        READ_NOTES in primary and HINT_MODEL in primary,
         "recovery: the user's own screen is still saved behind the plane: %r" % primary,
     )
     repainted = excised_grid(trial, torn_at, cleanup_end, "repainted-by-the-next-tick")
@@ -4201,7 +4657,7 @@ def scenario_3e(run):
         any(run.nonce in body for body in fatal_fixture.bodies()),
         "containment: the nonce this run minted is in the request xfx sent",
     )
-    torn.send(b"\x0e")
+    torn.send(b"\x10")
     state = torn.session.wait_exit()
     run.require(
         state == ("exited", 1),
@@ -4719,7 +5175,7 @@ def scenario_8(run):
     # Settled rather than snapshotted: the count below is a claim about the
     # screen the user is left looking at.
     trial.send(b"\x03")
-    trial.wait_for("stopping the turn")
+    stopped_on_the_grid(trial, "the first Ctrl-C to stop the stream")
     trial.send(b"\x03")
     run.require(trial.session.wait_exit() == ("exited", 130), "a second Ctrl-C left with 130")
     trial.session.settled_text()
@@ -4788,17 +5244,24 @@ def scenario_8(run):
     # clean turn leaves is the welcome line, the card, the answer in its
     # two-column indent and the dim summary row, and nothing else: a second
     # answer, a truncated one, a lost card or a band row left behind fails.
+    #
+    # **And the session's own name, last** (`.prd/tui-phase4/receipts/c5`,
+    # `quit`: the band's top row erased and `Continue session with: … --resume
+    # <id>` on the row after it, upstream's `render.zig:801-802`): a session
+    # that had a conversation names itself on the way out, Ctrl-D as much as
+    # `/quit`. One row, after everything the turn left.
     remaining = [
         text for text in (grid.row_text(row) for row in range(grid.rows)) if text.strip()
     ]
     run.require(
-        len(remaining) == 4
+        len(remaining) == 5
         and is_welcome(remaining[0])
         and remaining[1] == RAIL + " " + ordinary_prompt
         and remaining[2] == "  answer: " + ordinary_marker
-        and SUMMARY_ROW.match(remaining[3]) is not None,
-        "a completed turn left the welcome line, its card, its answer once and its summary: %r"
-        % (remaining,),
+        and SUMMARY_ROW.match(remaining[3]) is not None
+        and RESUME_HANDOFF.match(remaining[4]) is not None,
+        "a completed turn left the welcome line, its card, its answer once, its summary and "
+        "the session's name: %r" % (remaining,),
     )
     ordinary_fixture.stop()
 
@@ -4977,39 +5440,64 @@ def scenario_9(run):
 
     # And the clock stops while xfx is waiting to be told what it may do,
     # because that interval measures the person rather than the model.
+    #
+    # **Restated for fx's footer** (`render_input.zig:705`;
+    # `.prd/tui-phase4/receipts/f1`, "The activity row is off the band while an
+    # approval is up"; `src/tui/shell.rs`'s band settle, "the row comes back, at
+    # the elapsed time it stopped at, when the question goes"). This row used to
+    # read the clock twice beside the question and require the same number.
+    # There is no row beside a question now, so the stop is read from the
+    # number the row comes back with: the turn is held at both ends of the
+    # question by the fixture (`release_when`), the clock is read before the
+    # question is let through and again once the answer has given the turn its
+    # row back, and the question is held up for `QUESTION_HOLD` in between. A
+    # clock that ran through the wait comes back at least that much later; one
+    # that stopped comes back within the time the two releases themselves took.
     marker = run.marker("frozen")
-    fixture = start_fixture(run, fixtures.edit_then_finish(marker), name="frozen")
+    asked, answered = threading.Event(), threading.Event()
+    script = fixtures.edit_then_finish(marker)
+    script[1]["release_when"] = asked
+    script[2]["release_when"] = answered
+    fixture = start_fixture(run, script, name="frozen")
     frozen = run.trial("frozen-clock", gateway=fixture, mode="ask", notes=True).settled()
     frozen.send("edit the notes " + run.nonce + "\r")
-    frozen.wait_for(PERMISSION_TITLE)
-    # Off the band's own activity row on the committed grid, now that the
-    # clock is `(Ns)` behind the phase and a tick writes only the digit that
-    # changed: a parse of the wire would be reading half a row.
     frozen.wait_until(
-        "the activity row's clock beside the question",
-        lambda _t: activity_seconds(frozen.peek()) is not None
-        and PERMISSION_TITLE in frozen.peek().text(),
+        "the turn to be held before its question, its clock past two seconds",
+        lambda _t: fixture.request_count() == 2 and (activity_seconds(frozen.peek()) or 0) >= 2,
     )
-    before = activity_seconds(frozen.grid("question-up"))
-    frames_before = frozen.text().count(pty.FRAME_END)
-    run.require(before is not None, "the activity row carries an elapsed time")
-    deadline = time.time() + 3.0
-    while time.time() < deadline:
+    before = activity_seconds(frozen.grid("held-before-the-question"))
+    asked.set()
+    grid = wait_for_panel(frozen, PERMISSION_TITLE)
+    up = time.time()
+    frozen.grid("question-up")
+    band = find_band(grid)
+    run.require(
+        band is not None and band.activity is None and band.composer == [],
+        "the question has the footer to itself -- no activity row, no composer: %r" % (band,),
+    )
+    while time.time() - up < QUESTION_HOLD:
         frozen.session.pump(0.1)
-    text = frozen.text()
-    after = activity_seconds(frozen.grid("three-seconds-later"))
-    # The band kept painting, which is what keeps the assertion below from
-    # being vacuous: a session that had simply stopped drawing would trivially
-    # report the same number.
     run.require(
-        text.count(pty.FRAME_END) > frames_before,
-        "the band kept painting while the question was up",
+        find_band(frozen.peek()) is not None
+        and panel_rows_text(frozen.peek()) is not None
+        and any(PERMISSION_TITLE in text for text in panel_rows_text(frozen.peek())),
+        "the question was still up after %.0fs" % QUESTION_HOLD,
     )
-    run.require(
-        before is not None and before == after,
-        "the clock stopped while xfx was waiting for a decision (%r -> %r)" % (before, after),
-    )
+    waited = time.time() - up
     frozen.send(b"3")
+    frozen.wait_until(
+        "the turn's row to come back once the question is answered",
+        lambda _t: activity_seconds(frozen.peek()) is not None,
+    )
+    after = activity_seconds(frozen.grid("row-back-after-the-answer"))
+    run.require(
+        before is not None
+        and after is not None
+        and before <= after < before + QUESTION_HOLD - 2,
+        "the clock stopped while xfx was waiting for a decision: %r before a question held "
+        "up %.1fs, %r after it" % (before, waited, after),
+    )
+    answered.set()
     frozen.wait_for(marker)
     run.require(
         any(run.nonce in body for body in fixture.bodies()),
@@ -5022,13 +5510,34 @@ def scenario_9(run):
     fixture.stop()
 
 
+# How long scenario 9 keeps a question up between its two readings of the
+# clock. Long enough that a clock which ran through the wait comes back clear of
+# the time the two releases around it take on a loaded runner (a second or two
+# between them), and short enough not to dominate the suite.
+QUESTION_HOLD = 8.0
+
+
 # ---------------------------------------------------------------------------
 # 10. the approval panel
 # ---------------------------------------------------------------------------
 
 
 def scenario_10(run):
-    """Every way of answering a question, and the outcome the fixture then sees."""
+    """Every way of answering a question, and the outcome the fixture then sees.
+
+    **Restated for fx's approvals** (`.prd/tui-phase4/receipts/f2`, F1's tool
+    group). The panel's words are upstream's -- `❯ 1  Apply once`, xfx's own
+    grant in the second, `3  Don't apply` -- and two of the keys mean what they
+    mean there: **Escape cancels the turn** ("Both gateway logs end at the
+    request that asked") where it used to refuse the call and let the turn go
+    on, and **Ctrl-C refuses only the call, and the turn goes on** where it used
+    to stop the turn as well. Each trial below still proves what its key does
+    to the call and to the turn, by the file and by what the fixture is asked
+    next; the two claims that changed are replaced by fx's, for the same keys.
+    A refusal reaches the user as the call's own row in the tool group
+    (`Denied file`, `Cancelled file`) where it used to be an `edit_file
+    refused` line.
+    """
     marker = run.marker("panel")
 
     def ask(label):
@@ -5043,20 +5552,22 @@ def scenario_10(run):
     fixture, yes = ask("answer-yes")
     grid = yes.grid("panel")
     run.require(grid.find(PERMISSION_TITLE) is not None, "the panel names itself")
-    run.require(grid.find("1. Yes") is not None, "the first choice is offered")
+    run.require(grid.find(APPLY_ONCE) is not None, "the first choice is offered")
     run.require(grid.find(ALWAYS_WORDING) is not None, "the second says exactly what it grants")
-    run.require(grid.find("3. No") is not None, "the third refuses")
+    run.require(grid.find(DONT_APPLY) is not None, "the third refuses")
     run.require(
         grid.find("for the rest of this session") is not None,
         "and the disclosure the line shell's prompt makes is made here too",
     )
+    run.require(caret_on(yes, APPLY_ONCE), "the marker sits on the choice Enter would take")
     run.require(
-        grid.row_text(grid.find("1. Yes")[0]).startswith("> "),
-        "the caret sits on the choice Enter would take",
+        grid.find(APPLY_ONCE) is not None and grid.row == grid.find(APPLY_ONCE)[0],
+        "and so does the terminal's caret (row %d)" % (grid.row + 1),
     )
     run.require(
         read(yes.notes) == "alpha\n", "the edit did not run before it was approved"
     )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
     yes.send(b"1")
     yes.wait_for(marker)
     run.require(read(yes.notes) == "beta\n", "`1` let the edit through")
@@ -5068,6 +5579,10 @@ def scenario_10(run):
     run.require(grid.text().strip() != "", "the screen is not blank")
     run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
     run.require(
+        grid.find("Edited notes.txt +1 / -1") is not None,
+        "the edit's row in the tool group says what it did: %r" % grid.text(),
+    )
+    run.require(
         any("beta" in body for body in fixture.bodies()),
         "and the fixture saw the tool result the choice implies",
     )
@@ -5075,7 +5590,7 @@ def scenario_10(run):
     run.require(yes.session.wait_exit() == ("exited", 0), "the session left at 0")
     fixture.stop()
 
-    # `2`: yes, and stop asking for this request.
+    # `2`: yes, and stop asking for this file.
     fixture, always = ask("answer-always")
     always.send(b"2")
     always.wait_for(marker)
@@ -5089,9 +5604,16 @@ def scenario_10(run):
     no.send(b"3")
     no.wait_for(marker)
     run.require(read(no.notes) == "alpha\n", "`3` left the file alone")
+    grid = no.grid("refused")
     run.require(
-        "edit_file refused" in no.text(),
-        "and the refusal reached the user rather than being silent",
+        grid.find("Denied file") is not None,
+        "and the refusal reached the user as the call's own row rather than being silent: %r"
+        % grid.text(),
+    )
+    refusal = tool_result_text(amended_request(fixture, "call-1") or "{}", "call-1")
+    run.require(
+        refusal is not None and "not permitted" in refusal,
+        "and the model was told the call was refused: %r" % refusal,
     )
     no.send(b"\x04")
     no.session.wait_exit()
@@ -5101,7 +5623,7 @@ def scenario_10(run):
     # Enter is a different key from typing `3`.
     fixture, arrows = ask("answer-arrows")
     arrows.send(b"\x1b[B\x1b[B")
-    arrows.wait_until("the caret to move to the third choice", lambda _t: caret_on(arrows, "3. No"))
+    arrows.wait_until("the marker to move to the third choice", lambda _t: caret_on(arrows, DONT_APPLY))
     arrows.grid("caret")
     arrows.send(b"\r")
     arrows.wait_for(marker)
@@ -5110,40 +5632,62 @@ def scenario_10(run):
     arrows.session.wait_exit()
     fixture.stop()
 
-    # Esc answers *this call* -- no -- and the turn goes on.
+    # Esc refuses the call **and cancels the turn** behind it, as upstream's
+    # does: the call's row says it was cancelled, the turn's cancelled line is
+    # under it, and nothing more is asked of the model.
     fixture, escaped = ask("answer-escape")
     escaped.send(b"\x1b")
-    escaped.wait_for(marker)
+    grid = on_the_grid(escaped, "■ Cancelled file", "the escaped call's cancelled line")
+    escaped.grid("escaped")
     run.require(read(escaped.notes) == "alpha\n", "Esc refused the call")
     run.require(
-        escaped.session.state()[0] == "running", "and the turn it belonged to went on"
+        grid.find("Cancelled file") is not None
+        and grid.find("■ Cancelled file · What can xfx do differently?") is not None,
+        "the call's row and the turn's cancelled line say the turn was stopped: %r" % grid.text(),
+    )
+    run.require(
+        escaped.session.state()[0] == "running", "and the session it belonged to is still up"
     )
     escaped.send(b"\x04")
     run.require(escaped.session.wait_exit() == ("exited", 0), "the escaped session left at 0")
-    fixture.stop()
-
-    # Ctrl-C is the interrupt it is everywhere else: it refuses **and** stops
-    # the turn behind the question.
-    fixture, cancelled = ask("answer-ctrl-c")
-    cancelled.send(b"\x03")
-    cancelled.wait_for("stopping the turn")
-    run.require(read(cancelled.notes) == "alpha\n", "Ctrl-C refused the call")
-    cancelled.send(b"\x04")
     run.require(
-        cancelled.session.wait_exit() == ("exited", 0), "the interrupted session left at 0"
+        fixture.request_count() == 2,
+        "the cancelled turn asked the model for nothing more (%d requests)" % fixture.request_count(),
     )
     run.require(
-        marker not in cancelled.session.settled_text(),
-        "the interrupted turn never reached its own conclusion",
+        marker not in escaped.session.settled_text(),
+        "the cancelled turn never reached its own conclusion",
+    )
+    fixture.stop()
+
+    # Ctrl-C at the question refuses **the call**, and the turn goes on to its
+    # own conclusion -- upstream's key here, and not the interrupt it is over a
+    # running answer.
+    fixture, cancelled = ask("answer-ctrl-c")
+    cancelled.send(b"\x03")
+    cancelled.wait_for(marker)
+    run.require(read(cancelled.notes) == "alpha\n", "Ctrl-C refused the call")
+    grid = cancelled.grid("refused-by-ctrl-c")
+    run.require(
+        grid.find("Denied file") is not None and grid.find(marker) is not None,
+        "the call was denied and the turn went on to its conclusion: %r" % grid.text(),
+    )
+    run.require(
+        hint_text(grid) != EXIT_ARMED,
+        "a Ctrl-C that answered a question armed the exit as well: %r" % hint_text(grid),
+    )
+    cancelled.send(b"\x04")
+    run.require(
+        cancelled.session.wait_exit() == ("exited", 0), "the refused session left at 0"
     )
     fixture.stop()
 
 
 def caret_on(trial, choice):
-    """Whether the panel's caret sits on `choice` in the grid as it stands."""
+    """Whether the panel's marker sits on `choice` in the grid as it stands."""
     grid = trial.peek()
     found = grid.find(choice)
-    return found is not None and grid.row_text(found[0]).startswith("> ")
+    return found is not None and (CHOICE_MARK + choice) in grid.row_text(found[0])
 
 
 def read(path):
@@ -5156,72 +5700,176 @@ def read(path):
 # ---------------------------------------------------------------------------
 
 
+# What wraps a prompt sent into a running turn, on the wire
+# (`.prd/tui-phase4/receipts/f4`, `interrupt-steer`:
+# `user <user_steering>…what are you doing…</user_steering>`).
+STEERING_OPEN = "<user_steering>"
+STEERING_CLOSE = "</user_steering>"
+
+
+def steered_text(message):
+    """The prompt a `<user_steering>` user message carries, or `None` for any other message."""
+    if message.get("role") != "user":
+        return None
+    for part in message.get("content", []):
+        text = part.get("text", "") if part.get("type") == "text" else ""
+        if text.startswith(STEERING_OPEN) and text.rstrip().endswith(STEERING_CLOSE):
+            body = text[len(STEERING_OPEN) : text.rstrip().rindex(STEERING_CLOSE)]
+            return body.strip().split("\n")[-1]
+    return None
+
+
 def scenario_10b(run):
-    """An answer lands with a prompt already queued, and a third is refused."""
+    """A prompt sent mid-turn steers it, and a question asked after it is still answered.
+
+    **Restated for fx's steering** (`.prd/tui-phase4/receipts/f4`, round 2: "a
+    prompt typed mid-turn steers it at fx's boundaries", "no `queued N`";
+    `src/tui/shell.rs`'s `send`, `admitInteractivePrompt`,
+    `worker_runtime.zig:1080-1104`). This row used to queue a prompt behind a
+    running turn, answer a question with it waiting, and then refuse a third on
+    the hint row because one was already queued. Neither state exists in fx: a
+    prompt typed while a turn runs goes **into** that turn at its next boundary
+    -- at once over a pending answer -- so there is nothing queued for an answer
+    to be stuck behind, and no queue for a third prompt to overflow.
+
+    What the row proves is kept in fx's terms. The deadlock it guarded against
+    was an answer that could not reach the runtime past a prompt the session
+    had already sent it; so a prompt is sent into a turn held mid-step, the
+    steered turn then asks a question, and the answer still lands -- the
+    steering and the answer arrive on their own channels, in the order the
+    wire records. And where the third prompt was refused, a prompt typed over a
+    streaming answer is shown to steer it at once: the answer is cut where it
+    stood and the next request carries the cut answer and the prompt.
+    """
     marker = run.marker("midturn")
-    fixture = start_fixture(run, fixtures.edit_then_finish(marker))
+    steer = "queued while deciding"
+    held = threading.Event()
+    edit = {"path": "notes.txt", "old_string": "alpha", "new_string": "beta"}
+    script = [
+        fixtures.edit_then_finish(marker)[0],
+        # The step the steer cuts: its request is recorded and its reply held,
+        # so the turn is provably waiting on the model when the prompt arrives.
+        {
+            "events": [fixtures.tool_call("call-1", "edit_file", edit), fixtures.finish("tool-calls")],
+            "release_when": held,
+        },
+        # What the steered turn asks for: the same edit, so the question it
+        # raises is the one this row answers.
+        {"events": [fixtures.tool_call("call-2", "edit_file", edit), fixtures.finish("tool-calls")]},
+        fixtures.content_only(marker),
+    ]
+    fixture = start_fixture(run, script)
     trial = run.trial("mid-turn", gateway=fixture, mode="ask", notes=True).settled()
 
     trial.send("edit the notes " + run.nonce + "\r")
-    # Queued **before** the question appears, because the panel takes the focus
-    # when it does -- which is the other half of the same design.
-    trial.send("queued while deciding\r")
-    trial.wait_for("queued 1")
-    trial.wait_for(PERMISSION_TITLE)
+    trial.wait_until(
+        "the turn to be held on the model, mid-step",
+        lambda _t: fixture.request_count() == 2,
+    )
+    trial.send(steer + "\r")
+    grid = wait_for_panel(trial, PERMISSION_TITLE, "the steered turn's question")
+    # The handler holding the cut request is let go; its reply has no reader.
+    held.set()
+    trial.grid("question-after-the-steer")
+    run.require(
+        steer in cards(grid),
+        "the prompt sent mid-turn was taken into the turn, its card in the document: %r"
+        % (cards(grid),),
+    )
+    run.require(read(trial.notes) == "alpha\n", "the edit ran before it was approved")
 
     trial.send(b"1")
     trial.wait_for(marker)
     run.require(
         read(trial.notes) == "beta\n",
-        "the answer travelled on the control channel rather than behind the queued prompt",
+        "the answer reached the runtime past the prompt the session had sent it",
     )
     run.require(
         any(run.nonce in body for body in fixture.bodies()),
         "the nonce this run minted is in the request xfx sent",
     )
+    bodies = fixture.bodies()
+    run.require(
+        len(bodies) == 4,
+        "the cut step, the steered one and the answered one, and nothing else (%d requests)"
+        % len(bodies),
+    )
+    steered = json.loads(bodies[2]).get("prompt", []) if len(bodies) > 2 else []
+    run.require(
+        bool(steered)
+        and steered_text(steered[-1]) == steer
+        and tool_result_text(bodies[2], "call-0") is not None
+        and tool_result_text(bodies[2], "call-1") is None,
+        "the steer reached the model behind the read it followed, in place of the cut step: %r"
+        % (message_parts(bodies[2]) if len(bodies) > 2 else None,),
+    )
+    run.require(
+        len(bodies) > 3 and tool_result_text(bodies[3], "call-2") == "Edited notes.txt",
+        "and the answered edit's result came after it: %r"
+        % (message_parts(bodies[3]) if len(bodies) > 3 else None,),
+    )
     grid = trial.grid("answered")
     run.require(grid.text().strip() != "", "the screen is not blank")
     run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
 
-    trial.send(b"\x03\x03")
-    run.require(trial.session.wait_exit() == ("exited", 130), "the session left on a second Ctrl-C")
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
     fixture.stop()
 
-    # A third submission is refused on the hint row, with its text kept.
-    # A paragraph ended by a blank line, so the presenter writes it while the
-    # stream is still held open (`3efe232`: a prose line is shown once the
-    # presenter has seen what follows it).
+    # A prompt typed over a streaming answer steers it at once: no refusal,
+    # nothing queued, and the answer is cut where it stood. A paragraph ended by
+    # a blank line, so the presenter writes it while the stream is still held
+    # open (`3efe232`: a prose line is shown once the presenter has seen what
+    # follows it).
+    steered_marker = run.marker("steered")
     running = start_fixture(
-        run, [fixtures.hang(fixtures.text_delta("d", "FIRST-TURN-RUNNING\n\n"))], name="queue"
+        run,
+        [
+            fixtures.hang(fixtures.text_delta("d", "FIRST-TURN-RUNNING\n\n")),
+            fixtures.content_only(steered_marker),
+        ],
+        name="steer",
     )
-    queued = run.trial("third-refused", gateway=running).settled()
-    queued.send("first " + run.nonce + "\r")
-    queued.wait_for("FIRST-TURN-RUNNING")
-    queued.send("second\r")
-    queued.wait_for("queued 1")
-    queued.send("third\r")
-    queued.wait_for("one prompt is already queued")
-    queued.wait_until(
-        "the refusal on the committed hint row",
-        lambda _t: "one prompt is already queued" in (hint_text(queued.peek()) or ""),
-    )
-    grid = queued.grid("refused")
+    over = run.trial("steered-over-the-answer", gateway=running).settled()
+    first = "first " + run.nonce
+    over.send(first + "\r")
+    over.wait_for("FIRST-TURN-RUNNING")
+    over.send("second\r")
+    grid = on_the_grid(over, steered_marker, "the steered turn's own answer")
+    grid = over.grid("steered")
     run.require(
-        "one prompt is already queued" in (hint_text(grid) or ""),
-        "the refusal is visible on the hint row: %r" % hint_text(grid),
+        cards(grid) == [first, "second"],
+        "the prompt typed over the answer was written as the turn took it: %r" % (cards(grid),),
     )
     run.require(
-        composer_text(grid) == "third",
-        "and the composer kept its text: %r" % composer_text(grid),
+        QUEUE_REJECTED not in (hint_text(grid) or "") and QUEUE_REJECTED not in over.text(),
+        "a prompt typed over a running turn was refused rather than steering it",
     )
-    queued.send(b"\x03\x03")
-    run.require(queued.session.wait_exit() == ("exited", 130), "the queue session left at 130")
+    bodies = running.bodies()
     run.require(
-        running.request_count() == 1,
-        "neither the waiting prompt nor the refused one reached the wire (%d requests)"
-        % running.request_count(),
+        len(bodies) == 2,
+        "the steer is one request, made at once over the answer (%d requests)" % len(bodies),
     )
+    prompt = json.loads(bodies[1]).get("prompt", []) if len(bodies) > 1 else []
+    said = [message for message in prompt if message.get("role") != "system"]
+    run.require(
+        len(said) == 3
+        and user_messages(running.requests()[1])[0] == first
+        and said[1].get("role") == "assistant"
+        and said[1]["content"][0].get("text", "").strip() == "FIRST-TURN-RUNNING"
+        and steered_text(said[2]) == "second",
+        "the next request carries the cut answer and the steer behind it: %r" % (said,),
+    )
+    run.require(grid.find(steered_marker) is not None, "the fixture's own marker is rendered")
+    over.send(b"\x04")
+    run.require(over.session.wait_exit() == ("exited", 0), "the steered session left at 0")
     running.stop()
+
+
+# What the hint row says when a submission arrives with the queue already full
+# (`src/tui/shell.rs`'s `QUEUE_REJECTED`), spelled out to assert its absence.
+QUEUE_REJECTED = "one prompt is already queued"
 
 
 # ---------------------------------------------------------------------------
@@ -5249,7 +5897,10 @@ def scenario_11(run):
     run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
 
     trial.send(b"\x03")
-    trial.wait_for("stopping the turn")
+    # The turn's cancelled line and the exit armed on the hint row: the byte was
+    # read as the key it is (`.prd/tui-phase4/receipts/f4`, `cc-0.3`).
+    stopped_on_the_grid(trial, "the first Ctrl-C to stop the turn")
+    trial.grid("stopped")
     # No signal was delivered, so the child is still alive and the byte did the
     # work. Read without consuming anything, so asking does not change the
     # answer for the exit below.
@@ -5557,6 +6208,9 @@ def band_is_idle(grid):
     band = find_band(grid)
     if band is None:
         return None
+    # A question replaces the composer and holds the turn: not idle.
+    if not band.composer:
+        return False
     return band.activity is None and band.composer[0] <= grid.row <= band.composer[-1]
 
 
@@ -5929,69 +6583,182 @@ def scenario_15(run):
 # ---------------------------------------------------------------------------
 
 
-# The canonical palette, in `/help`'s order.
+# The canonical palette, read out of the source the binary was built from.
 #
-# Spelled here rather than read out of the binary because this harness must be
-# able to fail a build whose *source* and whose *screen* disagree: a list
-# derived from the same declaration the product renders from could not.
-# `scripts/check-no-stubs.sh` reconciles the same names against
-# `src/interactive.rs` and `docs/parity.md` without building anything, so a drift
-# between this list and the registry is caught in two independent places.
-CANONICAL_COMMANDS = [
-    "/help",
-    "/new",
-    "/clear",
-    "/model",
-    "/setup",
-    "/version",
-    "/quit",
-]
+# **Not a list kept here.** One kept here was seven names long when the
+# registry was twenty-nine, and the row failed for a menu that was right. And
+# not one read out of the binary, which would agree with whatever the popup
+# rendered: `src/interactive.rs`'s `SLASH_REGISTRY` is what the popup is
+# *required* to show -- upstream's order, upstream's categories
+# (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`) -- so it is read
+# the way `scripts/check-no-stubs.sh` reads it, textually and without building
+# anything, from the copy the runner put beside these helpers. A screen that
+# disagrees with its own source fails here.
+class SlashSpec:
+    """One registry row: a name, its aliases, its summary and its category."""
+
+    def __init__(self, name, aliases, summary, category):
+        self.name, self.aliases, self.summary, self.category = name, aliases, summary, category
+
+    def __repr__(self):
+        return "SlashSpec(%r, %r, %r)" % (self.name, self.aliases, self.category)
+
+
+def rust_strings(text):
+    """Every string literal in `text`, unescaped, in order."""
+    return [
+        re.sub(r"\\(.)", r"\1", literal)
+        for literal in re.findall(r'"((?:[^"\\]|\\.)*)"', text)
+    ]
+
+
+def rust_const_block(source, declaration):
+    """The body of the `const` array that opens with `declaration`, comments dropped."""
+    start = source.index(declaration) + len(declaration)
+    end = source.index("\n];", start)
+    lines = source[start:end].split("\n")
+    return "\n".join(line for line in lines if not line.strip().startswith("//"))
+
+
+def slash_registry():
+    """`SLASH_REGISTRY` in its own order, checked against the declarations pinned to it.
+
+    The crate pins `SLASH_REGISTRY` to the flat `SLASH_COMMANDS` and every row's
+    category to `SLASH_CATEGORIES` at compile time, so a reading that disagreed
+    with either would be this parser's defect rather than the product's -- and
+    is refused here, before any scenario trusts it, rather than turned into a
+    menu the popup was "wrong" about.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "interactive.rs")
+    with open(path, encoding="utf-8") as handle:
+        source = handle.read()
+    rows = rust_const_block(source, "pub const SLASH_REGISTRY: &[SlashSpec] = &[")
+    registry = []
+    for body in re.findall(r"SlashSpec \{(.*?)\n\s*\}", rows, re.S):
+        fields = {}
+        for field in ("name", "summary", "category"):
+            found = re.search(r'\b%s:\s*("(?:[^"\\]|\\.)*")' % field, body)
+            if found is None:
+                raise Failure("a registry row with no %s: %r" % (field, body))
+            fields[field] = rust_strings(found.group(1))[0]
+        aliases = re.search(r"\baliases:\s*&\[(.*?)\]", body, re.S)
+        if aliases is None:
+            raise Failure("a registry row with no aliases: %r" % body)
+        registry.append(
+            SlashSpec(fields["name"], rust_strings(aliases.group(1)), fields["summary"], fields["category"])
+        )
+    commands = rust_strings(rust_const_block(source, "pub const SLASH_COMMANDS: &[&str] = &["))
+    categories = rust_strings(rust_const_block(source, "pub const SLASH_CATEGORIES: &[&str] = &["))
+    names = [spec.name for spec in registry]
+    if not registry or names != commands:
+        raise Failure("the registry read %r, and SLASH_COMMANDS says %r" % (names, commands))
+    stray = [spec for spec in registry if spec.category not in categories]
+    if stray:
+        raise Failure("registry rows filed under no category of %r: %r" % (categories, stray))
+    return registry
+
+
+# The popup's key help, on the hint row while it is up (`.prd/tui-phase4/receipts/wu-b`,
+# "the key-help row"; `fx-slash-40x120`).
+MENU_KEYS = "\u2191\u2193 navigate     enter use     esc close"
+
+# The popup's header: how many commands the word matches, the filter prompt on a
+# bare slash, and the window's range at the right (`receipts/wu-b`: `Commands 36
+# · type to filter … 1–6`).
+MENU_HEADER = re.compile(r"^Commands (\d+)(?: \u00b7 type to filter)?(?:\s+(\d+)\u2013(\d+))?$")
 
 
 def menu_rows(grid):
     """The rows the menu is on, top first, and `[]` when there is no menu.
 
     **The band's panel**, read through `find_band`: the rows between the rule
-    under the composer and the bottom rule over the hint, and only those of
-    them in the menu's own shape -- a marker or an indent, then a slash name.
-    Bounded that way rather than "every row on the screen that starts with a
-    slash name", because the document above the band holds rows in exactly
-    that shape -- an answer line is written two columns in, so an answer that
-    begins with `/help` is `  /help` on the screen -- and a reader that counted
-    those would report a menu that had closed as a menu that was still up.
+    under the composer and the bottom rule over the key help, and only those of
+    them in the menu's own shape -- an indent, then a slash name. Bounded that
+    way rather than "every row on the screen that starts with a slash name",
+    because the document above the band holds rows in exactly that shape -- an
+    answer line is written two columns in, so an answer that begins with
+    `/help` is `  /help` on the screen -- and a reader that counted those would
+    report a menu that had closed as a menu that was still up.
 
-    **Restated for the fx band** (`a50f8a0`): the menu used to be the run of
-    rows directly *above* a single rule, over the composer; it is now *under*
-    the composer, between two rules.
+    **Restated for fx's popup** (`receipts/wu-b`): the marked row has no `> `
+    any more -- it is told apart by its bold name ([`marked_entry`]) -- and a
+    header and a blank row sit above the entries.
     """
     band = find_band(grid)
     if band is None:
         return []
-    return [
-        row
-        for row in band.panel
-        if grid.row_text(row).startswith("> /") or grid.row_text(row).startswith("  /")
-    ]
+    return [row for row in band.panel if grid.row_text(row).startswith("  /")]
 
 
 def offered(grid):
-    """Every command name the menu is offering, top row first.
+    """Every command name the menu is showing, top row first.
 
     Read off the **cells** rather than out of the byte stream: a menu is a claim
     about the screen, and a name that reached the terminal inside a frame that
     was then overwritten is not on it.
     """
-    # Past the two cells the marker owns, so the name is the name whether or
-    # not this is the row a completion would take.
     return [grid.row_text(row)[2:].strip().split(" ")[0] for row in menu_rows(grid)]
+
+
+def menu_header(grid):
+    """The popup's header as `(count, first, last)`, or `None` with no popup up.
+
+    `first` and `last` are the window's range, `None` when the header shows
+    none (a list that fits whole).
+    """
+    band = find_band(grid)
+    if band is None or not band.panel:
+        return None
+    found = MENU_HEADER.match(grid.row_text(band.panel[0]).strip())
+    if found is None:
+        return None
+    first = int(found.group(2)) if found.group(2) else None
+    last = int(found.group(3)) if found.group(3) else None
+    return (int(found.group(1)), first, last)
+
+
+def marked_entry(grid):
+    """The entry Enter would take, as `(name, category)`, or `None`.
+
+    Upstream marks it with a bold name and no glyph (`receipts/wu-b`: "marked
+    row `1;255`", every other row in the dim grey), so it is read off the name's
+    first cell's style. Exactly one row may be marked; two is `None`.
+    """
+    marked = [row for row in menu_rows(grid) if "1" in grid.styles[row][2].split(";")]
+    if len(marked) != 1:
+        return None
+    text = grid.row_text(marked[0])
+    return (text[2:].split(" ")[0], text.split()[-1])
+
+
+def walk_menu(trial, count, what):
+    """Every entry the popup marks as Down walks it, `count` of them, then one more.
+
+    The window shows six entries at a time (`receipts/wu-b`, `1–6`) and scrolls
+    to keep the marked one in it, so the whole list is read one marked entry at
+    a time -- each step waited for on the committed grid, because a step is a
+    repaint and a reading taken before it lands would see the entry before.
+    Returns the entries in the order they were marked and the entry the step
+    past the last one marked, which is where the list wraps to.
+    """
+    seen = []
+    for step in range(count):
+        entry = marked_entry(trial.peek())
+        seen.append(entry)
+        trial.send(b"\x1b[B")
+        trial.wait_until(
+            "%s: the walk's step %d to land" % (what, step + 1),
+            lambda _t, before=entry: marked_entry(trial.peek()) not in (None, before),
+        )
+    return seen, marked_entry(trial.peek())
 
 
 def scenario_16(run):
     """Typing a slash opens a ranked menu that completes without taking focus.
 
     Item 13 on a real terminal. Five claims, and none of them is "a menu
-    appeared": **where** it is (above the rule, in the rows a question would
-    take), **what order** it is in (name-prefix, then alias-prefix, then
+    appeared": **where** it is (under the composer, in the rows a question
+    would take), **what order** it is in (name-prefix, then alias-prefix, then
     substring), **who owns the caret** (the composer, always), **what Escape
     does** (closes it, and keeps it closed while the same word grows), and that
     a completed command **runs once** rather than being sent to a model.
@@ -5999,7 +6766,21 @@ def scenario_16(run):
     `/exit` is what supplies the alias tier: it is a real registry alias for
     `/quit` rather than a fixture, so the ranking asserted here is the ranking
     the product has.
+
+    **Restated for fx's popup** (`.prd/tui-phase4/receipts/wu-b`). The menu used
+    to list every command at once, marked with `> `, and a completed `/model`
+    answered with a `[shell] model=` line. Upstream's popup shows a header with
+    the count and the window's range and six entries at a time, marks the entry
+    Enter would take by its bold name, files each entry under its category at
+    the right, and puts its own key help on the hint row; a completed `/model`
+    opens `/model`'s menu. So "every command, in `/help`'s order" is read by
+    walking the window from the first entry to the last -- every name the
+    registry declares, in its order and under its category, then the wrap --
+    and "it ran once" is read off the menu the command opened. The registry is
+    the source's (`slash_registry`), not a list kept here.
     """
+    registry = slash_registry()
+    canonical = [spec.name for spec in registry]
     marker = run.marker("menu")
     # The answer's second paragraph begins with a slash name, so the document
     # holds a row in the menu's own shape -- `  /help …`, two columns in -- for
@@ -6021,39 +6802,48 @@ def scenario_16(run):
     trial.send("/")
     trial.wait_until(
         "the menu to open on a bare slash",
-        lambda _t: len(offered(trial.peek())) >= len(CANONICAL_COMMANDS),
+        lambda _t: menu_header(trial.peek()) is not None and offered(trial.peek()),
     )
     opened = trial.grid("menu-open")
+    header = menu_header(opened)
+    shown = len(offered(opened))
     run.require(
-        offered(opened) == CANONICAL_COMMANDS,
-        "a bare slash lists every command in the order /help lists them: %r"
-        % offered(opened),
+        header is not None
+        and header[0] == len(canonical)
+        and header[1:] == (1, shown)
+        and shown == min(len(canonical), 6),
+        "the header counts the whole registry (%d) over the window it shows: %r, %d entr(y/ies)"
+        % (len(canonical), header, shown),
+    )
+    run.require(
+        offered(opened) == canonical[:shown],
+        "the window opens on the registry's head, in its order: %r" % offered(opened),
     )
     # **Restated for the fx band** (`a50f8a0`): the menu used to be the rows
     # directly above the one rule, with the composer under it. It is now the
     # band's panel -- under the composer, between the rule that heads it and
-    # the bottom rule over the hint -- and the composer is directly above it.
+    # the bottom rule over the key help -- and the composer is directly above it.
     band = find_band(opened)
     run.require(
         band is not None and band.picker_rule is not None,
         "the band has a rule under the composer to place the menu against: %r" % (band,),
     )
-    count = len(CANONICAL_COMMANDS)
     rule = band.picker_rule if band is not None and band.picker_rule is not None else 0
     run.require(
         band is not None
-        and menu_rows(opened) == list(range(rule + 1, rule + 1 + count))
-        and band.divider == rule + 1 + count
-        and is_rule(opened, band.divider),
-        "the menu's %d rows are the %d between the rule under the composer and the bottom "
-        "rule: %r against %r" % (count, count, menu_rows(opened), band),
+        and band.panel[:2] == [rule + 1, rule + 2]
+        and opened.row_text(rule + 2) == ""
+        and menu_rows(opened) == list(range(rule + 3, rule + 3 + shown))
+        and band.divider == rule + 3 + shown
+        and is_rule(opened, band.divider)
+        and opened.row_text(band.hint) == MENU_KEYS,
+        "the menu is the header, a blank row and its %d entries between the rule under the "
+        "composer and the bottom rule, its key help under them: %r against %r"
+        % (shown, menu_rows(opened), band),
     )
     run.require(
-        opened.row_text(rule + 1).startswith("> ")
-        and [opened.row_text(row).startswith("  ") for row in menu_rows(opened)[1:]]
-        == [True] * (count - 1),
-        "exactly the top row is marked: %r"
-        % [opened.row_text(row)[:2] for row in menu_rows(opened)],
+        marked_entry(opened) == (canonical[0], registry[0].category),
+        "exactly the top entry is marked: %r" % (marked_entry(opened),),
     )
     run.require(
         band is not None and band.composer == [rule - 1] and opened.row_text(rule - 1) == RAIL + " /",
@@ -6069,44 +6859,63 @@ def scenario_16(run):
         % (opened.row, opened.col, rule - 1),
     )
     run.require(not opened.unknown, "xfx emitted only the sequences it declares: %r" % opened.unknown)
+    # Every command, in the registry's order and under its category, read one
+    # marked entry at a time -- and the step past the last wraps to the first.
+    walked, wrapped = walk_menu(trial, len(canonical), "the bare-slash menu")
+    run.require(
+        walked == [(spec.name, spec.category) for spec in registry],
+        "walking the menu marked every command in /help's order, each under its own "
+        "category: %r" % (walked,),
+    )
+    run.require(
+        wrapped == (canonical[0], registry[0].category),
+        "the step past the last command wrapped to the first: %r" % (wrapped,),
+    )
+    walked_grid = trial.grid("menu-wrapped")
+    run.require(
+        menu_header(walked_grid) == (len(canonical), 1, shown),
+        "and the window followed it back to the head: %r" % (menu_header(walked_grid),),
+    )
 
     # --- an exact prefix narrows it to one ---------------------------------
-    trial.send("he")
+    trial.send(b"\x15")
+    trial.send("/he")
     trial.wait_until(
         "the menu to narrow to the command the draft names",
         lambda _t: offered(trial.peek()) == ["/help"],
     )
     exact = trial.grid("menu-exact-prefix")
     run.require(
-        offered(exact) == ["/help"],
-        "an exact prefix offers exactly the command it names: %r" % offered(exact),
+        offered(exact) == ["/help"] and (menu_header(exact) or (None,))[0] == 1,
+        "an exact prefix offers exactly the command it names: %r %r"
+        % (offered(exact), menu_header(exact)),
     )
 
     # --- the alias tier outranks the substring tier ------------------------
     #
     # `/e` names no command, so the only reason `/quit` can be on this list is
-    # the `/exit` alias -- and it must be above every command that merely has
-    # an `e` in it.
+    # the `/exit` alias -- shown under its own name, as upstream's popup shows
+    # an alias that matched (`receipts/wu-b`, `filter-ex`) -- and it must be
+    # above every command that merely has an `e` in it.
     trial.send(b"\x15")
     trial.send("/e")
     trial.wait_until(
         "the menu to rank the alias above the substrings",
-        lambda _t: offered(trial.peek())[:1] == ["/quit"],
+        lambda _t: offered(trial.peek())[:1] == ["/exit"],
     )
     ranked = trial.grid("menu-alias-ranking")
-    # `/setup` joins the substring tier on its own `e`, in registry order like
-    # every other tie -- which is the property being asserted, not the length of
-    # the list.
+    # The substring tier, ties in registry order like every other tie -- which
+    # is the property being asserted, not the length of the list.
+    expected = ["/exit"] + [name for name in canonical if "e" in name[1:]]
+    count = (menu_header(ranked) or (0,))[0]
+    walked, _wrapped = walk_menu(trial, count, "the /e menu")
     run.require(
-        offered(ranked)
-        == ["/quit"] + [name for name in CANONICAL_COMMANDS if name != "/quit"],
-        "the alias prefix outranks every substring, ties in registry order: %r"
-        % offered(ranked),
+        count == len(expected) and [name for name, _category in walked] == expected,
+        "the alias prefix outranks every substring, ties in registry order: %r" % (walked,),
     )
-    top = menu_rows(ranked)[0]
     run.require(
-        "/exit" in ranked.row_text(top),
-        "the top row says which name put it there: %r" % ranked.row_text(top),
+        bool(walked) and walked[0][1] == next(spec.category for spec in registry if "/exit" in spec.aliases),
+        "the alias is filed under its command's category: %r" % (walked[:1],),
     )
 
     # --- a word that names nothing lists nothing ---------------------------
@@ -6118,7 +6927,7 @@ def scenario_16(run):
     )
     empty = trial.grid("menu-no-match")
     run.require(
-        offered(empty) == [],
+        offered(empty) == [] and menu_header(empty) is None,
         "an unknown sequence offers nothing at all: %r" % offered(empty),
     )
 
@@ -6183,7 +6992,7 @@ def scenario_16(run):
     )
     # **The trailing space is asserted through the caret**, because a space is
     # not a cell anyone can read: the composer's marker is two cells and the
-    # name is seven, so a caret at column nine is a caret one cell past the last
+    # name is six, so a caret at column nine is a caret one cell past the last
     # letter -- which is the room the argument goes in.
     run.require(
         completed.col == 9,
@@ -6195,14 +7004,20 @@ def scenario_16(run):
     )
     before = len(fixture.bodies())
     trial.send("\r")
+    # `/model` answers with its own menu (`.prd/tui-phase4/receipts/d2a`),
+    # which is the session's answer and nothing a model was asked for: the
+    # catalog it lists is fetched apart from any turn (`Fixture`'s
+    # `catalog_requests`), and with none to give, the menu says so.
     trial.wait_until(
         "the completed command to be answered by the session",
-        lambda _t: trial.peek().find("[shell] model=") is not None,
+        lambda _t: any(
+            text.startswith("Models ") for text in (panel_rows_text(trial.peek()) or [])
+        ),
     )
     ran = trial.grid("menu-completed-ran")
     run.require(
-        ran.find("[shell] model=") is not None,
-        "the completed command was answered by the session",
+        composer_text(ran) == "",
+        "the completed command was taken out of the composer to run: %r" % composer_text(ran),
     )
     run.require(
         len(fixture.bodies()) == before,
@@ -6210,6 +7025,11 @@ def scenario_16(run):
         % (len(fixture.bodies()) - before),
     )
     run.require(not ran.unknown, "xfx emitted only the sequences it declares: %r" % ran.unknown)
+    trial.send(b"\x1b")
+    trial.wait_until(
+        "the command's menu to close",
+        lambda _t: panel_rows_text(trial.peek()) == [],
+    )
 
     # --- and it is still the band's menu with a lookalike in the document ---
     #
@@ -6224,7 +7044,7 @@ def scenario_16(run):
     # above the blank row the band's top keeps from it.
     trial.send("/he")
     trial.wait_until(
-        "a one-row menu with the document directly above the band",
+        "a one-entry menu with the document directly above the band",
         lambda _t: composer_text(trial.peek()) == "/he" and offered(trial.peek()) == ["/help"],
     )
     pressed = trial.grid("menu-against-the-document")
@@ -6327,10 +7147,23 @@ def scenario_17(run):
 
     Item 15 on a real terminal. Five claims, and the first one alone is what a
     history without a captured draft would satisfy: **the arrow walks** from the
-    edge of the draft, **C-p/C-n walk from anywhere**, **the near end is the
-    half-typed line** rather than an empty composer, **the far end does not
-    wrap**, and **an edit ends the walk** -- so the next step back starts at the
-    newest entry again and comes back to the text the edit left behind.
+    edge of the draft, **it walks on from anywhere on a line**, **the near end
+    is the half-typed line** rather than an empty composer, **the far end does
+    not wrap**, and **an edit ends the walk** -- so the next step back starts at
+    the newest entry again and comes back to the text the edit left behind.
+
+    **Restated for fx's composer keys** (`.prd/tui-phase4/receipts/d4d`, "Up/Down
+    caret edge"; `.prd/tui-phase4/receipts/e1`). Two keys changed meaning:
+
+    * **Up is a step to the line's edge first.** From a caret that is not at
+      the start of a one-row draft, Up moves it there and changes no text; the
+      next Up is the recall. So every step back from the end of a line is two
+      presses, each asserted on the screen it leaves -- the text and the caret.
+    * **`C-p`/`C-n` are not history keys.** `C-p` is upstream's model catalog
+      shortcut (`src/tui/shell.rs`'s `open_model_catalog`), and fx binds no
+      history walk to either. The claim they carried -- the walk goes on from
+      wherever the caret is on a line -- is made with Up instead, from the end
+      of a recalled line.
 
     The two markers are the fixture's answers and nothing else says them, so a
     prompt echoed into the document can never satisfy a wait for one; the nonce
@@ -6361,12 +7194,34 @@ def scenario_17(run):
         lambda _t: composer_text(trial.peek()) == "",
     )
 
+    def composer_and_caret(grid):
+        """The draft and the caret's column in it, or `None` with no composer."""
+        row = composer_first_row(grid)
+        if row is None or grid.row != row:
+            return None
+        return (composer_text(grid), grid.col - 2)
+
+    def step(keys, text, column, label, what):
+        """Sends `keys`, waits for the composer to read `text` with the caret at
+        `column`, snapshots it and says whether it did."""
+        trial.send(keys)
+        trial.wait_until(
+            what, lambda _t: composer_and_caret(trial.peek()) == (text, column)
+        )
+        grid = trial.grid(label)
+        return run.require(
+            composer_and_caret(grid) == (text, column),
+            "%s: %r" % (what, composer_and_caret(grid)),
+        )
+
+    up, down = b"\x1b[A", b"\x1b[B"
+
     # --- the line that is typed and never sent ------------------------------
     draft = "unsent " + run.nonce
     trial.send(draft)
     trial.wait_until(
         "the composer to hold the line that is never sent",
-        lambda _t: composer_text(trial.peek()) == draft,
+        lambda _t: composer_and_caret(trial.peek()) == (draft, len(draft)),
     )
     typed = trial.grid("history-draft")
     run.require(
@@ -6374,114 +7229,45 @@ def scenario_17(run):
         "the draft the walk will be measured against: %r" % composer_text(typed),
     )
 
-    # --- Up, from the only row a one-row draft has --------------------------
-    trial.send(b"\x1b[A")
-    trial.wait_until(
-        "the newest submitted line to come back",
-        lambda _t: composer_text(trial.peek()) == newest,
-    )
-    recalled = trial.grid("history-up-newest")
+    # --- Up, from the end of the only row a one-row draft has ---------------
+    #
+    # The first press is the edge and nothing else: the draft is untouched and
+    # the caret is at its start. The second is the recall, with the caret at
+    # the **end** of the recalled line -- the claim the edit further down rests
+    # on: a caret left in front of a recalled line would make the next
+    # keystroke an insertion into the middle of it.
+    step(up, draft, 0, "history-up-to-the-edge", "the first Up to take the caret to the draft's start")
+    step(up, newest, len(newest), "history-up-newest", "the second Up to recall the newest line, caret at its end")
     run.require(
-        composer_text(recalled) == newest,
-        "the up arrow at the draft's first row did not recall the newest line: %r"
-        % composer_text(recalled),
-    )
-    # The caret is in the composer and at the **end** of the recalled line,
-    # which is the claim the edit further down rests on: a caret left in front
-    # of a recalled line would make the next keystroke an insertion into the
-    # middle of it.
-    marker_row = composer_first_row(recalled)
-    run.require(
-        (recalled.row, recalled.col) == (marker_row, 2 + len(newest)),
-        "the caret is not at the end of the recalled line: row %d col %d, "
-        "composer on row %r" % (recalled.row, recalled.col, marker_row),
-    )
-    run.require(
-        not recalled.unknown,
-        "xfx emitted only the sequences it declares: %r" % recalled.unknown,
+        not trial.peek().unknown,
+        "xfx emitted only the sequences it declares: %r" % trial.peek().unknown,
     )
 
-    # --- C-p, which is the recall wherever the caret is ---------------------
-    trial.send(b"\x10")
-    trial.wait_until(
-        "the line before the newest one to come back",
-        lambda _t: composer_text(trial.peek()) == oldest,
-    )
-    stepped = trial.grid("history-ctrl-p-older")
-    run.require(
-        composer_text(stepped) == oldest,
-        "C-p did not reach the older line: %r" % composer_text(stepped),
-    )
+    # --- and on, from the end of a recalled line ----------------------------
+    step(up, newest, 0, "history-up-recalled-edge", "Up from a recalled line's end to take the caret to its start")
+    step(up, oldest, len(oldest), "history-up-older", "the next Up to reach the line before the newest one")
 
     # --- and the far end does not wrap --------------------------------------
     #
-    # Asserted through the step *after* it, because a refusal paints nothing: a
-    # walk that had wrapped to the newest line would answer this C-n with the
-    # draft instead.
-    trial.send(b"\x10")
-    trial.send(b"\x0e")
-    trial.wait_until(
-        "one step forward from the oldest line to reach the newest",
-        lambda _t: composer_text(trial.peek()) == newest,
-    )
-    bounded = trial.grid("history-oldest-bound")
-    run.require(
-        composer_text(bounded) == newest,
-        "the walk wrapped past the oldest line: %r" % composer_text(bounded),
-    )
+    # Two more steps back from the oldest line: the edge, and then nothing --
+    # the oldest line stays, where a walk that wrapped would have brought the
+    # newest line or the draft round again. Then forward, which is the step
+    # that tells a refusal from a wrap that happened to land on the same text.
+    step(up, oldest, 0, "history-oldest-edge", "Up at the oldest line to take the caret to its start")
+    trial.send(up)
+    step(down, oldest, len(oldest), "history-oldest-bound", "an Up past the oldest line to change nothing, and Down to take the caret to its end")
+    step(down, newest, len(newest), "history-forward-from-the-oldest", "one step forward from the oldest line to reach the newest")
 
     # --- Down at the last row is the draft coming back ----------------------
-    trial.send(b"\x1b[B")
-    trial.wait_until(
-        "the draft the walk began from to come back",
-        lambda _t: composer_text(trial.peek()) == draft,
-    )
-    returned = trial.grid("history-draft-returned")
-    run.require(
-        composer_text(returned) == draft,
-        "the line that was never sent was lost by the walk: %r"
-        % composer_text(returned),
-    )
+    step(down, draft, len(draft), "history-draft-returned", "the draft the walk began from to come back")
 
     # --- an edit ends the walk ----------------------------------------------
-    trial.send(b"\x1b[A")
-    trial.wait_until(
-        "a second walk to reach the newest line",
-        lambda _t: composer_text(trial.peek()) == newest,
-    )
-    trial.send("!")
-    trial.wait_until(
-        "the recalled line to take the keystroke",
-        lambda _t: composer_text(trial.peek()) == newest + "!",
-    )
-    edited = trial.grid("history-edited")
-    run.require(
-        composer_text(edited) == newest + "!",
-        "the keystroke did not land at the end of the recalled line: %r"
-        % composer_text(edited),
-    )
-    trial.send(b"\x10")
-    trial.wait_until(
-        "the walk to start from the newest line again",
-        lambda _t: composer_text(trial.peek()) == newest,
-    )
-    restarted = trial.grid("history-restarted")
-    run.require(
-        composer_text(restarted) == newest,
-        "the walk carried on from the line the edit had left behind: %r"
-        % composer_text(restarted),
-    )
-    trial.send(b"\x0e")
-    trial.wait_until(
-        "the edited line to be what the second walk comes back to",
-        lambda _t: composer_text(trial.peek()) == newest + "!",
-    )
-    captured = trial.grid("history-edited-draft-returned")
-    run.require(
-        composer_text(captured) == newest + "!",
-        "the edited line was not what the walk came back to: %r"
-        % composer_text(captured),
-    )
+    step(up, draft, 0, "history-second-walk-edge", "a second walk's first Up to take the caret to the draft's start")
+    step(up, newest, len(newest), "history-second-walk-newest", "a second walk to reach the newest line")
+    step(b"!", newest + "!", len(newest) + 1, "history-edited", "the recalled line to take the keystroke at its end")
+    step(up, newest + "!", 0, "history-edited-edge", "Up from the edited line's end to take the caret to its start")
+    step(up, newest, len(newest), "history-restarted", "the walk to start from the newest line again rather than carry on from it")
+    step(down, newest + "!", len(newest) + 1, "history-edited-draft-returned", "the edited line to be what the walk comes back to")
 
     # --- and none of it sent anything ---------------------------------------
     run.require(
@@ -6496,6 +7282,12 @@ def scenario_17(run):
         trial.session.wait_exit() == ("exited", 0),
         "Ctrl-D did not leave cleanly after walking the history",
     )
+
+
+# What a provider switch finishes on, the provider's own name in it
+# (`src/tui/shell.rs`'s `Switched to {} with {}. The next prompt starts a fresh
+# conversation.`).
+SWITCHED_TO_LLMUX = "* provider: Switched to llmux"
 
 
 def scenario_18(run):
@@ -6535,6 +7327,13 @@ def scenario_18(run):
     )
 
     # --- the switch --------------------------------------------------------
+    #
+    # **Restated for fx's `/provider`** (`.prd/tui-phase4/receipts/d3`,
+    # `provider-switch`: `* provider: Preparing …`, then `* provider: Switched to
+    # … with <model>. The next prompt starts a fresh conversation.`). `/setup`
+    # is upstream's alias for `/provider` (`src/interactive.rs`'s registry), and
+    # the line a switch finishes on is that sentence where it used to be
+    # `[shell] provider=llmux`.
     trial.send("/setup llmux\r")
     # The line the switch is **finished** on. It is sent after the document was
     # committed and the configuration re-read from it, so waiting for it is
@@ -6542,12 +7341,13 @@ def scenario_18(run):
     # difference between what the session will do and what the write intended.
     trial.wait_until(
         "the switch to report the provider it reloaded",
-        lambda _t: "provider=llmux" in trial.peek().text(),
+        lambda _t: trial.peek().find(SWITCHED_TO_LLMUX) is not None,
     )
     switched = trial.grid("switched")
     run.require(
-        document_rows(switched, "provider=llmux"),
-        "the switch did not say what the session became: %r" % switched.text(),
+        document_rows(switched, SWITCHED_TO_LLMUX + " with fable."),
+        "the switch did not say what the session became, and with which model: %r"
+        % switched.text(),
     )
 
     after = profile_of(trial)
@@ -6611,21 +7411,45 @@ def scenario_19(run):
     neither -- because a browser that only ever rendered the happy shape would
     not be shown to render an absence as an absence. The catalog is what
     supplies the hint row's **denominator**, the completed turn supplies its
-    **numerator**, and with only one of the two on hand the row says nothing
-    about context rather than reporting a percentage nobody measured.
+    **numerator**, and with only one of the two on hand the row reports no
+    percentage nobody measured.
+
+    **Restated for fx's `/model`** (`.prd/tui-phase4/receipts/d2a`,
+    `receipts/d2b`) **and fx's statusline** (`receipts/d4b`). A bare `/model`
+    used to print `catalog=` and one `<id> context=… efforts=…` line per row
+    into the document. It opens upstream's menu now: `Models N`, each row's
+    name and its window (`1M context`) where one is published and nothing where
+    none is; a row's efforts are the column Enter opens under it (`default`
+    and the daemon's levels), and a row with none commits at once
+    (`* Switched to …`). And the meter is upstream's `context` segment, off
+    until it is turned on (`statusLine.context`, seeded here): over a window it
+    reads `{used}k/{total}k {pct}%`, and with no window it reads the numerator
+    alone (`receipts/d4b`, "The context shows the numerator alone, because the
+    Gateway publishes no window") -- so "only one of the two" is now that
+    numerator with no percentage, where it was no meter at all.
     """
     marker = run.marker("browse")
+    plain_marker = run.marker("plain")
     catalog = {
         "models": [
             fixtures.catalog_model("claude-fable-5[1m]", ["fable"], ["low", "high"], 1000000),
             fixtures.catalog_model("plain-model", [], [], None),
         ]
     }
-    daemon = start_daemon(run, [fixtures.anthropic_answer(marker)], catalog=catalog)
+    daemon = start_daemon(
+        run,
+        [fixtures.anthropic_answer(marker), fixtures.anthropic_answer(plain_marker)],
+        catalog=catalog,
+    )
     home = seeded_home(
         run,
         "browse",
-        {"provider": "llmux", "llmux_url": daemon.url(), "models": {"llmux": "fable"}},
+        {
+            "provider": "llmux",
+            "llmux_url": daemon.url(),
+            "models": {"llmux": "fable"},
+            "statusLine": {"context": True},
+        },
     )
     trial = run.trial("browse", home=home).settled()
     from_a_known_composer(run, trial, "browse")
@@ -6641,7 +7465,7 @@ def scenario_19(run):
     # --- nothing is claimed about context before anything has been measured -
     quiet = trial.grid("before-any-turn")
     run.require(
-        hint_text(quiet) and not meters(hint_text(quiet)),
+        hint_text(quiet) and not meters(hint_text(quiet)) and not re.search(r"\d+k$", hint_text(quiet)),
         "the hint row reported a context before a turn had measured one: %r"
         % hint_text(quiet),
     )
@@ -6655,32 +7479,52 @@ def scenario_19(run):
     # happened is that the reader looked too early.
     trial.wait_until(
         "the catalog rows to arrive from the runtime thread",
-        lambda _t: "plain-model context=unknown efforts=none" in trial.peek().text(),
+        lambda _t: "  plain-model" in (panel_rows_text(trial.peek()) or []),
     )
     browsed = trial.grid("browsed")
+    rows = panel_rows_text(browsed) or []
     run.require(
-        document_rows(browsed, "catalog="),
-        "the browser did not say how many rows it was shown: %r" % browsed.text(),
+        bool(rows) and rows[0].startswith("Models 2"),
+        "the browser did not say how many rows it was shown: %r" % rows,
     )
     run.require(
-        document_rows(browsed, "fable context=1000000 efforts=low,high"),
-        "a published window and effort list are not both rendered: %r" % browsed.text(),
+        "  claude-fable-5[1m]  1M context" in rows,
+        "a published window is not rendered beside its model: %r" % rows,
     )
-    # The other shape a real daemon sends. `unknown` and `none` are said rather
-    # than left blank: an empty column reads as a rendering fault, and the two
-    # facts really are absent rather than zero.
+    # The other shape a real daemon sends: no window is no column, rather than
+    # a zero or a guess -- the row is the model's name and nothing after it.
     run.require(
-        document_rows(browsed, "plain-model context=unknown efforts=none"),
-        "an absent window and an empty effort list are not rendered as absences: %r"
-        % browsed.text(),
+        "  plain-model" in rows,
+        "an absent window is not rendered as an absence: %r" % rows,
     )
     # The catalog alone is a denominator with no numerator, and that is not a
     # meter.
     run.require(
-        hint_text(browsed) and not meters(hint_text(browsed)),
+        not meters(hint_text(browsed)),
         "a catalog with no completed turn put a meter on the hint row: %r"
         % hint_text(browsed),
     )
+    run.require(not browsed.unknown, "xfx emitted only the sequences it declares: %r" % browsed.unknown)
+
+    # --- a published effort list is the column its row opens ----------------
+    trial.send(b"\r")
+    trial.wait_until(
+        "the marked row's effort column",
+        lambda _t: [text.strip() for text in (panel_rows_text(trial.peek()) or [])][:3]
+        == ["default", "low", "high"],
+    )
+    efforts = trial.grid("effort-column")
+    run.require(
+        composer_text(efforts) == "/model claude-fable-5[1m]",
+        "Enter on the row took it into the composer, its efforts under it: %r"
+        % composer_text(efforts),
+    )
+    trial.send(b"\x1b")
+    trial.wait_until(
+        "the effort column to close", lambda _t: panel_rows_text(trial.peek()) == []
+    )
+    trial.send(b"\x15")
+    trial.wait_until("the composer to be empty", lambda _t: composer_text(trial.peek()) == "")
 
     # --- one completed turn supplies the numerator -------------------------
     trial.send("say the marker\r")
@@ -6697,12 +7541,43 @@ def scenario_19(run):
     # The fixture reports 12345 input tokens against a published window of
     # 1000000: thousands, and the percentage between them.
     run.require(
-        hint.endswith(" \u00b7 12k/1000k 1%"),
+        hint.endswith(" · 12k/1000k 1%"),
         "the meter is not the fixture's own numbers over the catalog's window: %r" % hint,
     )
     run.require(
         len(meters(hint)) == 1,
         "the row carries more than one meter: %r" % hint,
+    )
+
+    # --- an empty effort list is no column, and no window is no percentage --
+    trial.send("/model\r")
+    trial.wait_until(
+        "the menu to be up again",
+        lambda _t: "  plain-model" in (panel_rows_text(trial.peek()) or []),
+    )
+    trial.send(b"\x1b[B\r")
+    trial.wait_until(
+        "a row with no efforts to commit at once",
+        lambda _t: trial.peek().find("* Switched to plain-model") is not None
+        and panel_rows_text(trial.peek()) == [],
+    )
+    trial.grid("plain-model-chosen")
+    trial.send("say the other marker\r")
+    trial.wait_until(
+        "the second answer, and its usage",
+        lambda _t: plain_marker in trial.peek().text()
+        and (hint_text(trial.peek()) or "").endswith(" · 12k"),
+    )
+    unmeasured = trial.grid("no-window")
+    run.require(
+        (hint_text(unmeasured) or "").endswith("plain-model · 12k")
+        and not meters(hint_text(unmeasured)),
+        "a model with no published window was given a percentage nobody measured: %r"
+        % hint_text(unmeasured),
+    )
+    run.require(
+        len(daemon.message_requests()) == 2,
+        "the browsing asked the daemon for an answer (%d requests)" % len(daemon.message_requests()),
     )
     trial.send(b"\x04")
     run.require(
@@ -6736,6 +7611,10 @@ def scenario_21(run):
     a prompt echoed into the document can never satisfy a wait for one; the
     nonce is in both prompts, which is what makes the block on the wire this
     run's rather than words that were on the screen.
+
+    **Restated for fx's summary** (`src/tui/paste.rs`'s `summary`, W2 round 8):
+    a one-line block is `[Pasted text #N, 1 line]`, upstream's singular, where
+    it used to read `1 lines`.
     """
     atomic = run.marker("atomic")
     recalled = run.marker("recalled")
@@ -6755,11 +7634,11 @@ def scenario_21(run):
     paste(first)
     trial.wait_until(
         "the first paste to be summarized",
-        lambda _t: composer_text(trial.peek()) == "[Pasted text #1, 1 lines]",
+        lambda _t: composer_text(trial.peek()) == "[Pasted text #1, 1 line]",
     )
     collapsed = trial.grid("collapsed")
     run.require(
-        composer_text(collapsed) == "[Pasted text #1, 1 lines]",
+        composer_text(collapsed) == "[Pasted text #1, 1 line]",
         "a large paste is a summary on screen: %r" % composer_text(collapsed),
     )
     run.require(
@@ -6786,17 +7665,17 @@ def scenario_21(run):
     paste(second)
     trial.wait_until(
         "the second paste to be summarized",
-        lambda _t: composer_text(trial.peek()) == "[Pasted text #2, 1 lines]",
+        lambda _t: composer_text(trial.peek()) == "[Pasted text #2, 1 line]",
     )
     trial.send(b"\x1b[D")
     trial.send("see ")
     trial.wait_until(
         "the keystroke to land in front of the whole unit",
-        lambda _t: composer_text(trial.peek()) == "see [Pasted text #2, 1 lines]",
+        lambda _t: composer_text(trial.peek()) == "see [Pasted text #2, 1 line]",
     )
     stepped = trial.grid("stepped-over")
     run.require(
-        composer_text(stepped) == "see [Pasted text #2, 1 lines]",
+        composer_text(stepped) == "see [Pasted text #2, 1 line]",
         "a left step landed inside the summary: %r" % composer_text(stepped),
     )
     # The caret is between what was typed and the unit it was typed in front
@@ -6830,11 +7709,11 @@ def scenario_21(run):
     trial.send(b"\x1b[A")
     trial.wait_until(
         "the submitted line to come back under a fresh number",
-        lambda _t: composer_text(trial.peek()) == "see [Pasted text #3, 1 lines]",
+        lambda _t: composer_text(trial.peek()) == "see [Pasted text #3, 1 line]",
     )
     renumbered = trial.grid("recalled")
     run.require(
-        composer_text(renumbered) == "see [Pasted text #3, 1 lines]",
+        composer_text(renumbered) == "see [Pasted text #3, 1 line]",
         "the recalled line kept a number this session had already used: %r"
         % composer_text(renumbered),
     )
@@ -6864,28 +7743,34 @@ def scenario_21(run):
 # ---------------------------------------------------------------------------
 
 
-def has_row(grid, text):
-    """Whether some row of `grid` is exactly `text`, ignoring its indent.
+# One numbered row of the review's diff: the line's number in its file, its
+# sign -- ` ` for context, `-` removed, `+` added -- and the line's own text
+# (`.prd/tui-phase4/receipts/f2`, `edit-ask`: `      2 - alpha line 2`,
+# `      2 + ALPHA LINE TWO`). A line too long for its row goes on in
+# continuation rows with no number of their own, so a numbered row is one line
+# of the file and a continuation row never is.
+REVIEW_ROW = re.compile(r"^\s+(\d+) ([ +-]) (.*)$")
+
+
+def review_lines(grid):
+    """Every numbered row of the review on `grid`, top first, as `(number, sign, text)`."""
+    out = []
+    for row in range(grid.rows):
+        found = REVIEW_ROW.match(grid.row_text(row))
+        if found:
+            out.append((int(found.group(1)), found.group(2), found.group(3)))
+    return out
+
+
+def has_line(grid, sign, text):
+    """Whether one numbered row of the review is exactly `text` under `sign`.
 
     Row-exact rather than a substring, and the difference is load-bearing on
-    this screen: the band's own summary quotes the head of the change *inside a
-    sentence*, so a check written as a substring would be satisfied by the
-    summary and would never see the change at all.
+    this screen: the review's own header and the scope's disclosure quote the
+    file's name and the tool inside sentences, so a substring would be
+    satisfied by them and would never see the change at all.
     """
-    return any(grid.row_text(row).strip() == text for row in range(grid.rows))
-
-
-def rows_below(grid, header):
-    """Every row under the row that is exactly `header`, in order.
-
-    What the two halves of a change are told apart by: `before` and `after` are
-    rows of their own, so "what the after side is showing" is the rows after
-    that one and nothing else.
-    """
-    for row in range(grid.rows):
-        if grid.row_text(row).strip() == header:
-            return [grid.row_text(index) for index in range(row + 1, grid.rows)]
-    return []
+    return any((s, x) == (sign, text) for _number, s, x in review_lines(grid))
 
 
 def scenario_20(run):
@@ -6913,6 +7798,16 @@ def scenario_20(run):
     discriminate each other: the edit's screen shows `alpha`/`beta` and the
     write's `beta`/`gamma`, so a screen showing the wrong change fails on a
     named cell rather than passing for looking right.
+
+    **Restated for fx's review** (`.prd/tui-phase4/receipts/f2`). The review used
+    to be a `before` heading over one side and an `after` heading over the
+    other, opened at the head of the change. It is upstream's numbered diff now
+    -- each line of the file a numbered row behind its sign, `-` for what goes
+    and `+` for what comes -- above a dotted rule and the question, and it
+    opens on the **tail** of the change against that rule ("the review's tail
+    against the dotted rule"), with `C-p`/`C-n` walking it. So each claim that
+    read a heading reads a sign instead, the first screenful is the tail and
+    the walk goes up to the head; what each claim proves is unchanged.
     """
     marker = run.marker("altscreen")
     written_marker = run.marker("altscreen-write")
@@ -6942,7 +7837,7 @@ def scenario_20(run):
     trial.send("edit the notes " + run.nonce + "\r")
     # The document row the tool wrote before the question, which is what makes
     # "the user's own screen survived" a claim with something on it.
-    trial.wait_for("[tool] read_file ok")
+    trial.wait_for(READ_NOTES)
 
     trial.wait_for(ALTERNATE_ENTER)
     # Waited for on the **grid** rather than on the wire, because `peek` reads
@@ -6962,59 +7857,41 @@ def scenario_20(run):
     )
     run.require(grid.left_alternate == 0, "the plane was given back before it was answered")
     run.require(grid.find(PERMISSION_TITLE) is not None, "the screen does not name itself")
+    run.require(
+        grid.find("Edit · +20  -20") is not None,
+        "the review does not say how much of the file the edit changes: %r" % grid.text(),
+    )
     # **Line for line.** The review keeps the file's own breaks and gives each
-    # one a row (`permission::bounded_diff_side`), so twenty lines are twenty
-    # rows rather than one wrapped run -- which is why the tail of the change is
-    # not on the first screenful, and why the walk below exists.
-    #
-    # **A changed coordinate, replaced by the property it stood for.** It was
-    # `alpha line 10`. The review plane shows the whole target and the whole
-    # always-scope now, so the viewport gave rows to the disclosure -- and how
-    # many depends on how long the workspace path is, which is where the
-    # evidence directory happens to live. A literal depth would be a check on
-    # this runner's `TMPDIR`. What the screen owes is the head of the change,
-    # line for line and in order; the tail is the walk's, below.
+    # one a numbered row (`permission::bounded_diff_side`), so twenty lines are
+    # twenty rows rather than one wrapped run -- which is why the head of the
+    # change is not on the first screenful, and why the walk below exists. The
+    # first screenful is the tail, against the dotted rule: the last lines the
+    # edit would put down, in order, each numbered as the file numbers it.
+    shown = [number for number, sign, text in review_lines(grid) if sign == "+" and text == "beta line %d" % (number - 1)]
     run.require(
-        grid.find("before") is not None,
-        "'before' is not on the screen that exists to show the change",
-    )
-    shown = 0
-    while grid.find("alpha line %d" % shown) is not None:
-        shown += 1
-    run.require(
-        shown >= 4,
-        "the first screenful showed %d lines of the change, which is not a viewport" % shown,
+        len(shown) >= 4 and shown == list(range(shown[0], shown[0] + len(shown))) and shown[-1] == 20,
+        "the first screenful is not the change's tail, line for line: %r" % review_lines(grid),
     )
     run.require(
-        grid.find("alpha line 0\\nalpha line 1") is None,
+        grid.find("beta line 18\\nbeta line 19") is None,
         "the file's line breaks were flattened into one run: %r" % grid.text(),
     )
-    own_rows = [
-        row
-        for row in range(grid.rows)
-        if grid.row_text(row).strip() in ("alpha line 0", "alpha line 1", "alpha line 2")
-    ]
-    run.require(
-        len(own_rows) == 3,
-        "the file's lines were not given rows of their own: %r"
-        % [grid.row_text(row) for row in range(grid.rows)],
-    )
-    for choice in ("1. Yes", "3. No (esc)"):
+    for choice in (CHOICE_MARK + APPLY_ONCE, DONT_APPLY):
         run.require(grid.find(choice) is not None, "the screen dropped %r" % choice)
-    # And the second half is reached by walking, which is what a viewport onto a
+    # And the other end is reached by walking, which is what a viewport onto a
     # change longer than a screen is for. Walked past its end on purpose: the
-    # viewport clamps there (`ApprovalScreen::scroll_by`), so the last row of
-    # the change is a position this does not have to count its way to.
-    trial.send(b"\x0e" * 60)
+    # viewport clamps there (`ApprovalScreen::scroll_by`), so the head of the
+    # change is a position this does not have to count its way to.
+    trial.send(b"\x10" * 60)
     trial.wait_until(
-        "the walk to reach the last line of the change",
-        lambda _t: has_row(trial.peek(), "beta line 19"),
+        "the walk to reach the first line of the change",
+        lambda _t: has_line(trial.peek(), "-", "alpha line 0"),
     )
-    walked = trial.grid("walked-to-the-far-side-of-the-change")
-    for needle in ("beta line 17", "beta line 18", "beta line 19"):
+    walked = trial.grid("walked-to-the-head-of-the-change")
+    for number, needle in ((1, "alpha line 0"), (2, "alpha line 1"), (3, "alpha line 2")):
         run.require(
-            has_row(walked, needle),
-            "%r was not reached by walking the change" % needle,
+            (number, "-", needle) in review_lines(walked),
+            "%r was not reached by walking the change as line %d" % (needle, number),
         )
     run.require(
         walked.plane == "alternate" and walked.left_alternate == 0,
@@ -7032,7 +7909,7 @@ def scenario_20(run):
         "the change was painted on the user's own screen: %r" % primary,
     )
     run.require(
-        "read_file ok" in primary,
+        READ_NOTES in primary,
         "the document the session had before the question is gone: %r" % primary,
     )
     run.require(
@@ -7100,7 +7977,7 @@ def scenario_20(run):
         "the write's question to be painted on the plane it took",
         lambda _t: trial.peek().plane == "alternate"
         and trial.peek().find(PERMISSION_TITLE) is not None
-        and trial.peek().find("gamma line 0") is not None,
+        and has_line(trial.peek(), "+", "gamma line 19"),
     )
     grid = trial.grid("write-on-the-alternate-plane")
 
@@ -7111,37 +7988,31 @@ def scenario_20(run):
         % (grid.entered_alternate, grid.left_alternate),
     )
     run.require(
-        grid.find(PERMISSION_TITLE) is not None,
-        "the write's screen does not name itself",
+        grid.find(PERMISSION_TITLE) is not None and grid.find("Write · +20  -20") is not None,
+        "the write's screen does not name itself as a write of twenty lines over twenty: %r"
+        % grid.text(),
     )
-    # **Both halves, and both are the write's own.** The "before" is the file
-    # this session is replacing -- which is the *edit's* result, so a screen
-    # showing the edit again fails here -- and the "after" is the text the write
-    # would put down.
-    # Measured rather than pinned, for the reason the edit's screen is.
+    # **Both halves, and both are the write's own.** The "after" is the text
+    # the write would put down -- the tail, on the first screenful -- and the
+    # "before" is the file this session is replacing, which is the *edit's*
+    # result, so a screen showing the edit again fails here.
+    written_shown = [number for number, sign, text in review_lines(grid) if sign == "+" and text == "gamma line %d" % (number - 1)]
     run.require(
-        grid.find("before") is not None,
-        "'before' is not on the screen that exists to show the write",
+        len(written_shown) >= 4 and written_shown[-1] == 20,
+        "the write's first screenful is not its tail, line for line: %r" % review_lines(grid),
     )
-    written_shown = 0
-    while grid.find("beta line %d" % written_shown) is not None:
-        written_shown += 1
-    run.require(
-        written_shown >= 4,
-        "the write's first screenful showed %d lines, which is not a viewport" % written_shown,
-    )
-    for choice in ("1. Yes", "3. No (esc)"):
+    for choice in (CHOICE_MARK + APPLY_ONCE, DONT_APPLY):
         run.require(grid.find(choice) is not None, "the write's screen dropped %r" % choice)
-    trial.send(b"\x0e" * 60)
+    trial.send(b"\x10" * 60)
     trial.wait_until(
-        "the walk to reach the last line the write would put down",
-        lambda _t: has_row(trial.peek(), "gamma line 19"),
+        "the walk to reach the first line the write would replace",
+        lambda _t: has_line(trial.peek(), "-", "beta line 0"),
     )
-    walked = trial.grid("walked-to-the-text-the-write-would-put-down")
-    for needle in ("gamma line 17", "gamma line 18", "gamma line 19"):
+    walked = trial.grid("walked-to-the-file-the-write-replaces")
+    for number, needle in ((1, "beta line 0"), (2, "beta line 1"), (3, "beta line 2")):
         run.require(
-            has_row(walked, needle),
-            "%r was not reached by walking the write" % needle,
+            (number, "-", needle) in review_lines(walked),
+            "%r was not reached by walking the write as line %d" % (needle, number),
         )
     run.require(
         read(trial.notes) == after + "\n",
@@ -7211,7 +8082,7 @@ def scenario_20(run):
         "the collision's question to be painted on the plane it took",
         lambda _t: trial.peek().plane == "alternate"
         and trial.peek().find(PERMISSION_TITLE) is not None
-        and has_row(trial.peek(), "gamma line 0"),
+        and trial.peek().find("Write · +1  -20") is not None,
     )
     grid = trial.grid("a-change-only-its-line-structure-tells-apart")
 
@@ -7221,38 +8092,42 @@ def scenario_20(run):
         "the plane was taken %d times and given back %d before the collision was answered"
         % (grid.entered_alternate, grid.left_alternate),
     )
-    # The side whose breaks are real is **rows**: each line occupies a row of
-    # its own with nothing else on it.
-    for needle in ("before", "gamma line 0", "gamma line 1", "gamma line 2"):
-        run.require(
-            has_row(grid, needle),
-            "%r is not a row of its own on the side whose breaks are real: %r"
-            % (needle, grid.text()),
-        )
+    # The side that only *spells* the breaks is **one** line: a single numbered
+    # `+` row, its literal escapes shown as escapes, and the rest of it on
+    # continuation rows that carry no number -- where the side whose breaks
+    # are real is a numbered row per line (below).
+    added = [line for line in review_lines(grid) if line[1] == "+"]
+    run.require(
+        [number for number, _sign, _text in added] == [1],
+        "the spelled-out side is not one line of the file: %r" % review_lines(grid),
+    )
+    run.require(
+        bool(added) and added[0][2].startswith("gamma line 0\\\\ngamma line 1\\\\n"),
+        "the spelled-out break was not shown as a literal escape: %r" % (added,),
+    )
+    run.require(
+        not has_line(grid, "+", "gamma line 1"),
+        "the spelled-out breaks were given rows, so the two sides read alike: %r" % grid.text(),
+    )
     run.require(
         read(trial.notes) == written,
         "the collision write ran before it was approved",
     )
 
-    # And the side that only *spells* the breaks is **not** rows. Anchored under
-    # the `after` heading rather than searched for anywhere, because the band's
-    # summary quotes the head of the same payload inside a sentence and a
-    # substring check would be satisfied by it.
-    trial.send(b"\x0e" * 60)
+    # And the side whose breaks are real is **rows**: walked to the head, each
+    # of its lines is a numbered row of its own with nothing else on it.
+    trial.send(b"\x10" * 60)
     trial.wait_until(
-        "the walk to reach the text the collision would put down",
-        lambda _t: has_row(trial.peek(), "after"),
+        "the walk to reach the first line the collision would replace",
+        lambda _t: has_line(trial.peek(), "-", "gamma line 0"),
     )
-    walked = trial.grid("the-spelled-out-side-is-not-rows")
-    shown = rows_below(walked, "after")
-    run.require(
-        any("gamma line 0\\\\ngamma line 1" in row for row in shown),
-        "the spelled-out break was not shown as a literal escape: %r" % shown,
-    )
-    run.require(
-        not any(row.strip() == "gamma line 1" for row in shown),
-        "the spelled-out breaks were given rows, so the two sides read alike: %r" % shown,
-    )
+    walked = trial.grid("the-side-whose-breaks-are-real-is-rows")
+    for number, needle in ((1, "gamma line 0"), (2, "gamma line 1"), (3, "gamma line 2")):
+        run.require(
+            (number, "-", needle) in review_lines(walked),
+            "%r is not a numbered row of its own on the side whose breaks are real: %r"
+            % (needle, walked.text()),
+        )
 
     trial.send(b"1")
     trial.wait_for(spelled_marker)
@@ -7302,18 +8177,16 @@ def scenario_20(run):
     trial.wait_until(
         "the control payload's question to be painted on the plane it took",
         lambda _t: trial.peek().plane == "alternate"
-        and trial.peek().find(PERMISSION_TITLE) is not None,
+        and trial.peek().find(PERMISSION_TITLE) is not None
+        and trial.peek().find("Write · +1  -1") is not None,
     )
-    # **A changed coordinate.** The named bytes are the *after* side, and the
-    # viewport gives rows to the whole target and the whole always-scope now, so
-    # the first screenful ends on the `after` heading rather than under it. They
-    # are reached by the walk -- the same walk the two changes above use for
-    # their tails -- and three steps keeps the heading in the window with the
-    # rows below it, which is what `rows_below` reads.
-    trial.send(b"\x0e" * 3)
+    # The named bytes are the `+` line, which a hundred and sixty-one names
+    # make taller than the viewport: its numbered head is reached by the walk,
+    # the same walk the changes above use.
+    trial.send(b"\x10" * 60)
     trial.wait_until(
-        "the named control bytes to be walked into the viewport",
-        lambda _t: trial.peek().find("\\u{001B}") is not None,
+        "the named control bytes' own line to be walked into the viewport",
+        lambda _t: any(sign == "+" for _n, sign, _t2 in review_lines(trial.peek())),
     )
     grid = trial.grid("a-change-made-of-bytes-the-terminal-would-obey")
 
@@ -7323,14 +8196,15 @@ def scenario_20(run):
         "the plane was taken %d times and given back %d before the controls were answered"
         % (grid.entered_alternate, grid.left_alternate),
     )
-    shown = rows_below(grid, "after")
+    added = [text for _number, sign, text in review_lines(grid) if sign == "+"]
     run.require(
-        any("\\u{001B}" in row for row in shown),
-        "the escape byte was not named by its code point under the after heading: %r" % shown,
+        bool(added) and added[0].startswith("\\u{001B}\\u{001B}"),
+        "the escape byte was not named by its code point on the line it arrives in: %r"
+        % (added,),
     )
     run.require(
-        not any("\ufffd" in row for row in shown),
-        "a control was blanked to one symbol instead of being named: %r" % shown,
+        grid.find("�") is None,
+        "a control was blanked to one symbol instead of being named: %r" % grid.text(),
     )
     # **Nothing executable reached the terminal.** The emulator fails the run on
     # any sequence it does not know, so an escape byte that had been passed
@@ -7606,13 +8480,20 @@ QUESTION_CANCELLED = "(user cancelled the question)"
 # model's own options and never one of them.
 FREEFORM_SLOT = "Other"
 
-# What a session says when a Ctrl-C stops the turn a question belongs to
-# (`src/app.rs`'s `INTERRUPT_NOTICE`).
-INTERRUPT_NOTICE = "stopping the turn"
+# What a question's record says once Escape or Ctrl-C has taken it down: the
+# glyph and the word, and nothing after them (`.prd/tui-phase4/receipts/f4`,
+# "question cancelled by Ctrl-C"; `receipts/f3`, `q2-esc`; `src/tui/question.rs`'s
+# `CANCELLED`). It replaces the `stopping the turn` notice the interrupt wrote.
+QUESTION_STOPPED = "\u25a0 Cancelled"
 
-# What the panel's own indent costs, which is the column a draft row starts in
-# (`src/tui/question.rs`'s `INDENT`).
-PANEL_INDENT = 2
+# What the model is told about a question whose turn was stopped, in the next
+# request (`receipts/f4`, "a question cancelled with Ctrl-C": the call's
+# `error-text` result `aborted by user`; `receipts/f3` #4 for Escape).
+QUESTION_ABORTED = "aborted by user"
+
+# The column a choice's text starts in, behind its number (`receipts/f3`: `    1)
+# Postgres`), which is where an open freeform draft is typed.
+CHOICE_TEXT_COLUMN = 7
 
 # What labels the sentence a user attached to a decision, in the transcript.
 #
@@ -7649,8 +8530,17 @@ def on_the_grid(trial, needle, what=None):
 
 
 def wire_ends_on_a_frame(trial):
-    """Whether the last bytes on the wire close a frame -- nothing appended after it."""
-    return bytes(trial.session.captured).endswith(FRAME_END_BYTES)
+    """Whether the last bytes on the wire close a frame -- nothing appended after it.
+
+    Either close (`pty.FRAME_CLOSE`): a frame that leaves the caret hidden is as
+    complete as one that shows it. **And a bell after it is not an append**:
+    `/sound`'s turn-end bell is written once the frame that ends the turn has
+    been (`src/tui/check.rs`'s `Intent::Bell` -- no cell, no caret), so a wire
+    that ends on a frame and then a `BEL` is a screen the session settled on.
+    Anything else after the close is still an append and still waited out.
+    """
+    captured = bytes(trial.session.captured).rstrip(b"\x07")
+    return captured.endswith(FRAME_END_BYTES) or captured.endswith(FRAME_CLOSE_BYTES)
 
 
 def cells_wide(text):
@@ -7664,25 +8554,44 @@ def cells_wide(text):
     return sum(cluster_width(cluster) for cluster in clusters(text))
 
 
-def draft_caret(trial):
-    """The freeform draft and the column the caret is in, or `None`.
+def choice_marked(grid, number, label):
+    """Whether the question's choice `number) label` is the marked one.
 
-    The **cursor**, not the marker. A `> ` in front of `3. Other` says the slot
-    is the marked choice, and the panel paints that marker whether or not there
-    is a draft open -- so `caret_on(trial, "3. Other")` is satisfied the instant
-    the slot is marked and says nothing about where a keystroke goes. What says
-    the draft has the keys is where the terminal was told to put its cursor: the
-    row **under** the slot, past the block's indent
-    (`src/tui/question.rs`'s `caret`).
+    Upstream marks it by its pen alone -- the whole choice in bold, every other
+    one dim, no marker glyph (`.prd/tui-phase4/receipts/f3`: "the marked choice
+    `ESC[1mESC[38;5;255m`, every other `ESC[38;5;245m`, no marker glyph") -- so
+    it is read off the style of the choice's number cell.
+    """
+    head = "    %d) " % number
+    for row in range(grid.rows):
+        text = grid.row_text(row)
+        if text.startswith(head) and (label is None or text[len(head):].startswith(label)):
+            return "1" in grid.styles[row][4].split(";")
+    return False
+
+
+def draft_caret(trial, slot):
+    """The freeform draft on choice `slot` and the column its caret is in, or `None`.
+
+    **The caret, not the marker.** The slot is marked by its pen whether or not
+    a draft is open, so the mark says nothing about where a keystroke goes.
+    What says the draft has the keys is the caret upstream draws in it: the
+    draft is typed on the slot's own row, past its number, with a reversed blank
+    cell where the next character goes (`receipts/f3`: `    4) ` and a reversed
+    blank, `    3) MariaDB please` and the reversed blank after it). `None`
+    unless exactly one such cell is on that row.
     """
     grid = trial.peek()
-    found = grid.find(FREEFORM_SLOT)
-    if found is None:
-        return None
-    row = found[0] + 1
-    if row >= grid.rows or grid.row != row:
-        return None
-    return (grid.row_text(row)[PANEL_INDENT:], grid.col)
+    head = "    %d) " % slot
+    for row in range(grid.rows):
+        text = grid.row_text(row)
+        if not (text == head.rstrip() or text.startswith(head)):
+            continue
+        carets = [col for col in range(grid.cols) if "7" in grid.styles[row][col].split(";")]
+        if len(carets) != 1:
+            return None
+        return (text[CHOICE_TEXT_COLUMN:], carets[0])
+    return None
 
 
 def tool_result_text(body, call_id):
@@ -7694,13 +8603,21 @@ def tool_result_text(body, call_id):
     the first one -- the request that *asked* the question, which carries no
     answer at all. A tool result is a `tool-result` part on a `tool` message
     (`src/gateway/protocol.rs`), and nothing else in a request is.
+
+    **A refusal's text is its `reason`**: a call the user declined is told to
+    the model as upstream's `execution-denied` output, which carries the
+    sentence under `reason` rather than `value`
+    (`.prd/tui-phase4/receipts/f2`, "Ctrl-C refuses only the call").
     """
     for message in json.loads(body).get("prompt", []):
         if message.get("role") != "tool":
             continue
         for part in message.get("content", []):
             if part.get("type") == "tool-result" and part.get("toolCallId") == call_id:
-                return part.get("output", {}).get("value")
+                output = part.get("output", {})
+                if output.get("type") == "execution-denied":
+                    return output.get("reason")
+                return output.get("value")
     return None
 
 
@@ -7761,21 +8678,35 @@ def amended_request(fixture, call_id):
 
 
 def approval_draft_caret(trial, choice):
-    """The amendment draft under `choice`, and the column the caret is in.
+    """The amendment draft on `choice`'s row, and the column its caret is in.
 
-    The **cursor**, not the marker. A `> ` in front of `1. Yes` says the choice
-    is marked and says nothing about where a keystroke goes; what says the draft
-    has the keys is where the terminal was told to put its cursor -- the row
-    under the answer, past the panel's indent (`src/tui/approval.rs`'s `caret`).
+    **The caret, not the marker.** A `❯` in front of `1  Apply once` says the
+    choice is marked and says nothing about where a keystroke goes. What says
+    the draft has the keys is the caret upstream draws in it: the draft is typed
+    on the marked answer's own row after its words and a comma, with a reversed
+    cell where the next character goes -- on the placeholder's first letter
+    while it is empty (`.prd/tui-phase4/receipts/f2`, `edit-amend-typed`: `❯ 1
+    Apply once, use capitals`; "a reverse-video first cell"). `None` unless the
+    row is there with exactly one such cell.
     """
     grid = trial.peek()
-    found = grid.find(choice)
-    if found is None:
-        return None
-    row = found[0] + 1
-    if row >= grid.rows or grid.row != row:
-        return None
-    return (grid.row_text(row)[PANEL_INDENT:].rstrip(), grid.col)
+    head = "  " + CHOICE_MARK + choice + ", "
+    for row in range(grid.rows):
+        text = grid.row_text(row)
+        if not text.startswith(head):
+            continue
+        carets = [col for col in range(grid.cols) if "7" in grid.styles[row][col].split(";")]
+        if len(carets) != 1:
+            return None
+        return (text[len(head):], carets[0])
+    return None
+
+
+# What an open amendment draft says before anything is typed into it, after
+# its answer's words (`src/tui/approval_view.rs`'s `amended_head`; upstream's
+# `approval_ui.zig:1227-1260`, in this product's name).
+AMEND_PLACEHOLDER_ALLOW = "and tell xfx what to do next"
+AMEND_PLACEHOLDER_DENY = "and tell xfx what to do differently"
 
 
 def carried_results(fixture, call_id):
@@ -7796,30 +8727,50 @@ def scenario_23(run):
     make together: the panel is a screen the user can read, the keys do what the
     screen says they do, and the ordered answer document reaches the **wire** as
     the next request's tool result.
+
+    **Restated for fx's question** (`.prd/tui-phase4/receipts/f3`). The panel's
+    choices are `1) Thorough` rather than `1. Thorough`, the marked one is told
+    apart by its bold pen rather than a `> `, and which question of the batch
+    this is is said at the right of the key help -- `Question 1 of 2`, shown
+    only with room beside the keys, so this row is driven at 120 columns, where
+    upstream shows it -- rather than after the title. `Other` opens its draft on
+    its own row, the caret a reversed cell, where it used to open one under it.
+    Once answered the question leaves its record in the document (`  1) Which
+    depth?` / `     Thorough`), so "the panel came down" is the band without a
+    panel and the record in its place.
     """
     marker = run.marker("question")
     fixture = start_fixture(run, fixtures.ask_then_finish(marker), name="question")
-    trial = run.trial("question", gateway=fixture, mode="ask").settled()
+    trial = run.trial("question", gateway=fixture, mode="ask", cols=120).settled()
     trial.send("decide for me " + run.nonce + "\r")
 
     grid = on_the_grid(trial, "Which depth?", "the first question of the batch")
     trial.grid("panel")
     for expected, why in [
-        ("1. Thorough", "the first model option is offered by number"),
-        ("2. Quick", "so is the second"),
-        ("3. " + FREEFORM_SLOT, "the synthetic freeform slot is last"),
+        ("    1) Thorough", "the first model option is offered by number"),
+        ("    2) Quick", "so is the second"),
+        ("    3) " + FREEFORM_SLOT, "the synthetic freeform slot is last"),
         ("reads every file", "the option's description is shown"),
     ]:
-        run.require(grid.find(expected) is not None, why)
+        run.require(grid.find(expected.strip()) is not None, why)
     title = grid.find("Which depth?")
     run.require(
-        grid.row_text(title[0]) == "Which depth? (1 of 2)",
-        "the batch says which question this is: %r" % grid.row_text(title[0]),
+        grid.row_text(title[0]) == "  Which depth?" and "1" in grid.styles[title[0]][2].split(";"),
+        "the question is the panel's bold title: %r" % grid.row_text(title[0]),
+    )
+    run.require(
+        (hint_text(grid) or "").endswith("Question 1 of 2"),
+        "the batch says which question this is: %r" % hint_text(grid),
     )
     run.require(grid.find("Anything else?") is None, "one question is visible at a time")
     run.require(
-        grid.row_text(grid.find("1. Thorough")[0]).startswith("> "),
-        "the caret sits on the choice Enter would take",
+        choice_marked(grid, 1, "Thorough") and not choice_marked(grid, 2, "Quick"),
+        "the mark sits on the choice Enter would take, and only there",
+    )
+    band = find_band(grid)
+    run.require(
+        band is not None and band.composer == [] and band.activity is None,
+        "the question replaced the composer and the turn's row: %r" % (band,),
     )
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
 
@@ -7830,25 +8781,29 @@ def scenario_23(run):
         grid.find("Which depth?") is None,
         "the answered question left the screen when the next one arrived",
     )
+    run.require(
+        (hint_text(grid) or "").endswith("Question 2 of 2"),
+        "and the batch moved on to its second question: %r" % hint_text(grid),
+    )
 
     trial.send(b"3")  # `Other` only opens editing
     trial.wait_until(
         "the freeform slot to open a draft with the caret in it",
-        lambda _text: draft_caret(trial) == ("", PANEL_INDENT),
+        lambda _text: draft_caret(trial, 3) == ("", CHOICE_TEXT_COLUMN),
     )
     freeform = "다시 묻지 마 — später"
     trial.send(freeform.encode("utf-8"))
     trial.wait_until(
         "the draft to hold what was typed",
-        lambda _text: draft_caret(trial) == (freeform, PANEL_INDENT + cells_wide(freeform)),
+        lambda _text: draft_caret(trial, 3) == (freeform, CHOICE_TEXT_COLUMN + cells_wide(freeform)),
     )
     grid = trial.grid("freeform")
     run.require(
-        draft_caret(trial) == (freeform, PANEL_INDENT + cells_wide(freeform)),
-        "the draft holds the text and the caret is past it: %r" % (draft_caret(trial),),
+        draft_caret(trial, 3) == (freeform, CHOICE_TEXT_COLUMN + cells_wide(freeform)),
+        "the draft holds the text and the caret is past it: %r" % (draft_caret(trial, 3),),
     )
     run.require(
-        grid.row_text(grid.find("3. " + FREEFORM_SLOT)[0]).startswith("> "),
+        choice_marked(grid, 3, None),
         "and the slot the draft belongs to is still the marked choice",
     )
     trial.send(b"\r")
@@ -7883,9 +8838,18 @@ def scenario_23(run):
         not any(marker in body for body in fixture.bodies()),
         "and it was never typed at this session: no request xfx sent carries it",
     )
+    record = rows_above_band(grid) or []
     run.require(
-        grid.find("1. Thorough") is None and grid.find("Which depth?") is None,
-        "the panel came down and is not left standing behind the answer",
+        "  1) Which depth?" in record
+        and "     Thorough" in record
+        and "  2) Anything else?" in record
+        and "     " + freeform in record,
+        "the panel came down and the document holds the answered record: %r" % (record,),
+    )
+    band = find_band(grid)
+    run.require(
+        band is not None and band.panel == [] and band.composer != [],
+        "the panel is not left standing behind the answer: %r" % (band,),
     )
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
 
@@ -7895,14 +8859,21 @@ def scenario_23(run):
 
 
 def scenario_23b(run):
-    """Escape declines the batch; Ctrl-C stops the turn the batch belonged to.
+    """Escape and Ctrl-C take a question down and stop the turn it belonged to.
 
-    The two keys that take a question down without answering it, and they are
-    **not** the same key: Escape is an answer about this call -- the byte-exact
-    sentinel, and the turn carries on to its own conclusion -- while Ctrl-C is
-    the interrupt it is everywhere else on this surface, and the calls queued
-    behind the question in that same completion are work nobody asked for any
-    more (`src/agent/machine.rs`'s `execute_tool_calls`).
+    The two keys that take a question down without answering it, and the calls
+    queued behind the question in that same completion are work nobody asked
+    for any more (`src/agent/machine.rs`'s `execute_tool_calls`).
+
+    **Restated for fx's question** (`.prd/tui-phase4/receipts/f3`: "Escape and
+    Ctrl-C cancel the turn on both ... The model is never sent the sentinel";
+    `receipts/f4`, "question cancelled by Ctrl-C"). Escape used to be an answer
+    about the call -- the byte-exact `(user cancelled the question)` sentinel,
+    and the turn carrying on to its own conclusion -- and it is upstream's
+    cancel now, the same as Ctrl-C: the question's record says `■ Cancelled`,
+    the turn asks the model for nothing more, and the model hears about it in
+    the next prompt's request, as the call's `aborted by user`. That claim
+    replaces the sentinel's; the sentinel is asserted never to reach the wire.
 
     The interrupt half is driven twice on purpose. Once answered, so the write
     behind the question is **observed to run**, and once interrupted, so the
@@ -7910,26 +8881,50 @@ def scenario_23b(run):
     about an interrupt unless the run that was not interrupted wrote it.
     """
     marker = run.marker("cancelled")
-    fixture = start_fixture(run, fixtures.ask_then_finish(marker), name="cancelled")
+    fixture = start_fixture(
+        run,
+        [fixtures.ask_then_finish(marker)[0], fixtures.content_only(marker)],
+        name="cancelled",
+    )
     trial = run.trial("cancelled", gateway=fixture, mode="ask").settled()
     trial.send("decide for me " + run.nonce + "\r")
-    on_the_grid(trial, "Which depth?", "the question Escape is about to decline")
+    on_the_grid(trial, "Which depth?", "the question Escape is about to take down")
     trial.grid("panel")
 
     trial.send(b"\x1b")
-    grid = on_the_grid(trial, marker, "the turn to carry on past the declined batch")
+    grid = on_the_grid(trial, QUESTION_STOPPED, "the question's cancelled record")
     grid = trial.grid("after")
-    carried = carried_results(fixture, "call-0")
+    run.require(grid.find("Which depth?") is None, "the panel came down on Escape")
     run.require(
-        carried == [QUESTION_CANCELLED],
-        "the model was told the cancellation, byte for byte and once: %r" % carried,
+        QUESTION_STOPPED in (rows_above_band(grid) or []),
+        "the record is the glyph and the word, nothing after them: %r" % (rows_above_band(grid),),
+    )
+    run.require(
+        fixture.request_count() == 1,
+        "Escape stopped the turn: it asked the model for nothing more (%d requests)"
+        % fixture.request_count(),
+    )
+    run.require(
+        hint_text(grid) != EXIT_ARMED,
+        "a key that took a question down armed the exit as well: %r" % hint_text(grid),
+    )
+    after = run.nonce + "-AFTER"
+    trial.send("now say it " + after + "\r")
+    grid = on_the_grid(trial, marker, "the fresh turn after the cancelled question")
+    grid = trial.grid("next-turn")
+    run.require(
+        carried_results(fixture, "call-0") == [QUESTION_ABORTED],
+        "the next request told the model the question was aborted, once: %r"
+        % carried_results(fixture, "call-0"),
+    )
+    run.require(
+        not any(QUESTION_CANCELLED in body for body in fixture.bodies()),
+        "the old cancellation sentinel reached the wire",
     )
     run.require(
         any(run.nonce in body for body in fixture.bodies()),
         "the nonce this run minted is in the request xfx sent",
     )
-    run.require(grid.find("Which depth?") is None, "the panel came down on Escape")
-    run.require(grid.find(marker) is not None, "and the turn carried on")
     run.require(
         grid.text().count(marker) == 1,
         "response-only: the marker the fixture minted appears once on the screen",
@@ -7973,8 +8968,8 @@ def scenario_23b(run):
     served.stop()
 
     # And interrupted at the same question. One key, one message: the requester
-    # answers the tool with the sentinel and hands the interrupt back, and the
-    # step is abandoned **before** the next call of that completion is admitted.
+    # answers the tool and hands the interrupt back, and the step is abandoned
+    # **before** the next call of that completion is admitted.
     stopped_marker = run.marker("after-interrupt")
     scripted = start_fixture(run, fixtures.ask_then_write(stopped_marker), name="interrupted")
     stopped = run.trial("interrupted", gateway=scripted).settled()
@@ -7983,7 +8978,7 @@ def scenario_23b(run):
     stopped.grid("question")
 
     stopped.send(b"\x03")
-    on_the_grid(stopped, INTERRUPT_NOTICE, "the interrupt to be answered on the screen")
+    on_the_grid(stopped, QUESTION_STOPPED, "the interrupt to be answered on the screen")
     grid = stopped.grid("interrupted")
     run.require(grid.find("Proceed?") is None, "the panel came down on the interrupt")
     unwritten = os.path.join(stopped.workspace, fixtures.QUESTION_FOLLOWER_PATH)
@@ -8016,6 +9011,10 @@ def scenario_23b(run):
     run.require(
         any(after in body for body in scripted.bodies()),
         "the prompt typed after the interrupt is in the request xfx sent",
+    )
+    run.require(
+        carried_results(scripted, "call-0") == [QUESTION_ABORTED],
+        "and it told the model the question was aborted: %r" % carried_results(scripted, "call-0"),
     )
     run.require(
         grid.find(stopped_marker) is not None, "and the fixture's own marker is rendered"
@@ -8059,7 +9058,7 @@ def scenario_24(run):
     # Positive control: the question is on the screen, whole, and `1` is taken.
     grid = on_the_grid(trial, PERMISSION_TITLE, "the approval frame to be committed")
     run.require(grid.find(ALWAYS_WORDING) is not None, "the always-scope is disclosed whole")
-    run.require(grid.find("3. No") is not None, "the refusal is on the screen")
+    run.require(grid.find(DONT_APPLY) is not None, "the refusal is on the screen")
     # The **tail** of the scope, which is the half a fixed two-row allotment cut
     # and the reason no ordinary screen could disclose an ordinary request.
     run.require(
@@ -8103,7 +9102,7 @@ def scenario_24(run):
         resized, PERMISSION_TITLE, "the question to be standing again after the refusal"
     )
     run.require(
-        grid.find("3. No") is not None,
+        grid.find(DONT_APPLY) is not None,
         "the refused answer left a question with no visible way to refuse it",
     )
     resized.grid("revoked")
@@ -8137,6 +9136,17 @@ def scenario_25(run):
     refused, nothing runs. The two phrases are distinct and appear nowhere else
     in the harness, so a grep across the evidence directory tells "the sentence
     reached the wire" from "the sentence was echoed on the screen".
+
+    **Restated for fx's approvals** (`.prd/tui-phase4/receipts/f2`). The draft
+    used to open on a row of its own under the answer; it is typed on the
+    answer's own row now, after its words and a comma, over upstream's
+    placeholder (`❯ 1  Apply once, and tell xfx what to do next`) with a
+    reversed cell for its caret. And the third trial's key changed meaning:
+    Ctrl-C at a question **refuses the call and the turn goes on**, where it
+    used to stop the turn (`receipts/f2`, "Ctrl-C refuses only the call") -- so
+    "the interrupted draft says nothing on the next turn" is now "the draft a
+    Ctrl-C refused out of says nothing on the turn that goes on", observed on
+    the very next request rather than on a fresh prompt's.
     """
     marker = run.marker("amendment")
     allow_phrase = "keep the header comment when you rewrite it"
@@ -8154,6 +9164,9 @@ def scenario_25(run):
     def written(trial):
         return os.path.join(trial.workspace, fixtures.AMENDMENT_PATH)
 
+    def head(choice):
+        return len("  " + CHOICE_MARK + choice + ", ")
+
     # -- trial A: allowed, with an amendment ------------------------------
     fixture, allowed = asked("allowed-with-amendment", "amend-allow")
     run.require(
@@ -8163,27 +9176,28 @@ def scenario_25(run):
     allowed.send(b"\t")
     allowed.wait_until(
         "the allow draft to open with the caret in it",
-        lambda _text: approval_draft_caret(allowed, "1. Yes") == ("", PANEL_INDENT),
+        lambda _text: approval_draft_caret(allowed, APPLY_ONCE)
+        == (AMEND_PLACEHOLDER_ALLOW, head(APPLY_ONCE)),
     )
     allowed.send(allow_phrase.encode("utf-8"))
     allowed.wait_until(
         "the draft to hold what was typed",
-        lambda _text: approval_draft_caret(allowed, "1. Yes")
-        == (allow_phrase, PANEL_INDENT + cells_wide(allow_phrase)),
+        lambda _text: approval_draft_caret(allowed, APPLY_ONCE)
+        == (allow_phrase, head(APPLY_ONCE) + cells_wide(allow_phrase)),
     )
     grid = allowed.grid("draft")
     run.require(
-        approval_draft_caret(allowed, "1. Yes")
-        == (allow_phrase, PANEL_INDENT + cells_wide(allow_phrase)),
+        approval_draft_caret(allowed, APPLY_ONCE)
+        == (allow_phrase, head(APPLY_ONCE) + cells_wide(allow_phrase)),
         "the draft holds the text and the caret is past it: %r"
-        % (approval_draft_caret(allowed, "1. Yes"),),
+        % (approval_draft_caret(allowed, APPLY_ONCE),),
     )
     run.require(
-        grid.row_text(grid.find("1. Yes")[0]).startswith("> "),
+        caret_on(allowed, APPLY_ONCE),
         "the answer the draft belongs to is still the marked choice",
     )
     run.require(
-        grid.find("3. No") is not None and grid.find(ALWAYS_WORDING) is not None,
+        grid.find(DONT_APPLY) is not None and grid.find(ALWAYS_WRITE_WORDING) is not None,
         "the draft cut an answer off the panel",
     )
     run.require(
@@ -8207,12 +9221,9 @@ def scenario_25(run):
     )
     grid = allowed.grid("answered")
     run.require(
-        grid.find(allow_phrase) is not None,
-        "the user's own sentence is not in the transcript after the panel came down",
-    )
-    run.require(
-        grid.find(AMENDMENT_PREFIX) is not None,
-        "the sentence is not labelled as the user's own",
+        grid.find(AMENDMENT_PREFIX + " " + allow_phrase) is not None,
+        "the user's own sentence is not in the transcript, labelled as the user's own, after "
+        "the panel came down: %r" % grid.text(),
     )
     run.require(
         grid.find(PERMISSION_TITLE) is None,
@@ -8241,10 +9252,6 @@ def scenario_25(run):
         "the nonce this run minted is in the request xfx sent",
     )
     run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
-    run.require(
-        grid.find(PERMISSION_TITLE) is None,
-        "the panel is still standing behind the answer",
-    )
     allowed.send(b"\x04")
     run.require(allowed.session.wait_exit() == ("exited", 0), "the amended session left at 0")
     run.require(
@@ -8257,25 +9264,26 @@ def scenario_25(run):
     refused_fixture, refused = asked("denied-with-amendment", "amend-deny")
     refused.send(b"\x1b[B\x1b[B")
     refused.wait_until(
-        "the marker to reach the refusal", lambda _t: caret_on(refused, "3. No")
+        "the marker to reach the refusal", lambda _t: caret_on(refused, DONT_APPLY)
     )
     refused.send(b"\t")
     refused.wait_until(
         "the deny draft to open with the caret in it",
-        lambda _text: approval_draft_caret(refused, "3. No") == ("", PANEL_INDENT),
+        lambda _text: approval_draft_caret(refused, DONT_APPLY)
+        == (AMEND_PLACEHOLDER_DENY, head(DONT_APPLY)),
     )
     refused.send(deny_phrase.encode("utf-8"))
     refused.wait_until(
         "the deny draft to hold what was typed",
-        lambda _text: approval_draft_caret(refused, "3. No")
-        == (deny_phrase, PANEL_INDENT + cells_wide(deny_phrase)),
+        lambda _text: approval_draft_caret(refused, DONT_APPLY)
+        == (deny_phrase, head(DONT_APPLY) + cells_wide(deny_phrase)),
     )
     grid = refused.grid("deny-draft")
     run.require(
-        approval_draft_caret(refused, "3. No")
-        == (deny_phrase, PANEL_INDENT + cells_wide(deny_phrase)),
+        approval_draft_caret(refused, DONT_APPLY)
+        == (deny_phrase, head(DONT_APPLY) + cells_wide(deny_phrase)),
         "the deny draft holds the text and the caret is past it: %r"
-        % (approval_draft_caret(refused, "3. No"),),
+        % (approval_draft_caret(refused, DONT_APPLY),),
     )
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
     run.require(refused.modes().is_raw(), "the terminal is raw while the deny draft has the keys")
@@ -8289,7 +9297,7 @@ def scenario_25(run):
     )
     grid = refused.grid("refused")
     run.require(
-        grid.find(deny_phrase) is not None,
+        grid.find(AMENDMENT_PREFIX + " " + deny_phrase) is not None,
         "a refusal's own sentence is not in the transcript after the panel came down",
     )
     run.require(
@@ -8325,55 +9333,62 @@ def scenario_25(run):
     )
     refused_fixture.stop()
 
-    # -- Ctrl-C at a filled draft says nothing on the next turn -----------
+    # -- Ctrl-C at a filled draft says nothing on the turn that goes on ------
     cancelled_fixture, cancelled = asked("cancelled-draft", "amend-cancel")
     cancelled.send(b"\t")
     cancelled.wait_until(
         "the draft to open",
-        lambda _text: approval_draft_caret(cancelled, "1. Yes") == ("", PANEL_INDENT),
+        lambda _text: approval_draft_caret(cancelled, APPLY_ONCE)
+        == (AMEND_PLACEHOLDER_ALLOW, head(APPLY_ONCE)),
     )
     cancelled.send("never sent".encode("utf-8"))
     cancelled.wait_until(
         "the draft to hold what was typed",
-        lambda _text: approval_draft_caret(cancelled, "1. Yes") is not None
-        and approval_draft_caret(cancelled, "1. Yes")[0] == "never sent",
+        lambda _text: approval_draft_caret(cancelled, APPLY_ONCE) is not None
+        and approval_draft_caret(cancelled, APPLY_ONCE)[0] == "never sent",
     )
     cancelled.grid("filled")
     cancelled.send(b"\x03")
-    on_the_grid(cancelled, INTERRUPT_NOTICE, "the interrupt to be answered on the screen")
+    grid = on_the_grid(cancelled, marker, "the turn to go on past the call Ctrl-C refused")
+    grid = cancelled.grid("after-ctrl-c")
     run.require(
         not os.path.exists(written(cancelled)),
-        "the interrupted call wrote its file anyway",
+        "the refused call wrote its file anyway",
     )
-
-    after = run.nonce + "-AFTER"
-    cancelled.send("say it again " + after + "\r")
-    on_the_grid(cancelled, marker, "the fresh turn after the interrupt")
-    grid = cancelled.grid("after-interrupt")
+    run.require(
+        grid.find("Denied file") is not None,
+        "the call Ctrl-C refused says so in its row: %r" % grid.text(),
+    )
+    body = amended_request(cancelled_fixture, "call-0")
+    run.require(
+        body is not None and "not permitted" in (tool_result_text(body, "call-0") or ""),
+        "the model was told the call was refused: %r"
+        % (tool_result_text(body, "call-0") if body else None),
+    )
     run.require(
         not any("never sent" in captured for captured in cancelled_fixture.bodies()),
-        "a draft the user interrupted out of reached the wire on the next turn",
+        "a draft the user refused out of reached the wire on the turn that went on",
     )
     # **The display half of the same drop.** Showing it would tell the user
     # something was said that never was. The draft *was* on the screen before
-    # the interrupt (`grid-01-filled`), which is what makes this absence an
+    # the key (`grid-01-filled`), which is what makes this absence an
     # observation rather than a phrase that was never rendered at all.
     run.require(
         grid.find("never sent") is None,
-        "the transcript claims a sentence was delivered that the interrupt dropped",
+        "the transcript claims a sentence was delivered that the key dropped",
     )
     run.require(
         grid.find(AMENDMENT_PREFIX) is None,
-        "an interrupted amendment was labelled as delivered: %r" % grid.text(),
+        "a dropped amendment was labelled as delivered: %r" % grid.text(),
     )
     run.require(
-        any(after in captured for captured in cancelled_fixture.bodies()),
-        "the prompt typed after the interrupt is in the request xfx sent",
+        any(run.nonce in captured for captured in cancelled_fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
     )
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
     cancelled.send(b"\x04")
     run.require(
-        cancelled.session.wait_exit() == ("exited", 0), "the interrupted session left at 0"
+        cancelled.session.wait_exit() == ("exited", 0), "the refused session left at 0"
     )
     cancelled_fixture.stop()
 
@@ -8412,13 +9427,13 @@ def scenario_26(run):
       be blind to a line the growth had already carried into scrollback.
     * a real approval panel -- not a mockup, `edit_then_finish` answered by
       denying it -- opens and closes within the band's own owned region
-      (`Geometry::panel_first`, `src/tui/layout.rs`: between the rule under the
-      composer and the bottom rule over the hint), and the three lines from the
-      stage before are still in the combined document, once each, in order,
+      (`Geometry::panel_first`, `src/tui/layout.rs`: between the rule that
+      heads it and the bottom rule over its key help), and the three lines from
+      the stage before are still in the combined document, once each, in order,
       behind it. What is asserted about the band is its structure around the
-      panel -- composer above the panel's rule, activity row above the
-      composer, the band's top directly under the document's last row -- and
-      that closing it gives the rows back with nothing left below.
+      panel -- the question in place of the composer and the turn's row, the
+      band's top directly under the document's blank row -- and that closing it
+      gives the rows back with nothing left below.
     * the finish is ordinary: the draft is cleared before `C-D`, the idle
       screen is watched rather than assumed quiet, and the terminal comes back
       byte for byte.
@@ -8433,13 +9448,15 @@ def scenario_26(run):
     row with the blank rule row and the hint right below it; a three-row paste
     grows the band **downward** from that same first row (rule and hint pushed
     down by two); the undo puts the rule and the hint back and leaves nothing
-    painted below them; and the panel opens between the rule under the
-    composer and the bottom rule, with the activity row above the composer, the
-    band's top directly under the document's last row, and -- since this panel
-    does not fit under a floating band -- the hint on the screen's last row
-    with the document carried into scrollback rather than painted over. Closing
-    it gives the panel's rows back: one composer row, its blank rule row and
-    the hint, with nothing left below.
+    painted below them; and the panel opens between the rule that heads it and
+    the bottom rule -- **in place of the composer and the turn's row**, as
+    upstream's question replaces them (`src/tui/shell.rs`'s `fit`;
+    `render_input.zig:705`), where it used to open under the composer with the
+    activity row above it -- the band's top directly under the document's blank
+    row, and, since this panel does not fit under a floating band, its key help
+    on the screen's last row with the document carried into scrollback rather
+    than painted over. Closing it gives the panel's rows back: one composer
+    row, its blank rule row and the hint, with nothing left below.
     `20-alternate-screen-approval` is the case a panel this size never reaches:
     a change too large for the band to hold at all leaves the primary plane
     instead of growing further into it, a different mechanism, out of scope
@@ -8460,13 +9477,12 @@ def scenario_26(run):
       is typed again until the question line itself is sent and submitted
       whole before any wait for the panel begins -- there is no draft standing
       in the composer for this scenario to observe yielding rows at all. That
-      absence is `26b-composer-yield-to-panel`'s own scope: a draft grown past
-      what a panel this size and this composer can both fit is held pending
-      with `fixture_server.Fixture`'s `release_when` gate, pasted and read off
-      the grid while the request that would open the panel is provably still
-      unanswered, and only then released -- so the panel's growth is read
-      against a composer the harness knows was already tall, not one raced
-      into being tall at the same moment.
+      absence is `26b-composer-yield-to-panel`'s own scope: a tall draft is
+      held pending with `fixture_server.Fixture`'s `release_when` gate, pasted
+      and read off the grid while the request that would open the panel is
+      provably still unanswered, and only then released -- so the question is
+      read against a composer the harness knows was already tall, not one
+      raced into being tall at the same moment.
     """
     doc1 = run.marker("doc-one")
     doc2 = run.marker("doc-two")
@@ -8606,30 +9622,43 @@ def scenario_26(run):
     # of stage 1 surviving in the combined document behind it.
     run.require(read(trial.notes) == "alpha\n", "the notes are unedited before any panel asked")
     trial.send("edit the notes " + run.nonce + "\r")
-    trial.wait_for("[tool] read_file ok")
+    trial.wait_for(READ_NOTES)
     panel = on_the_grid(trial, PERMISSION_TITLE, "the approval panel to be committed")
     trial.grid("panel-grown")
-    run.require(panel.find("3. No") is not None, "the refusal is on the screen")
+    run.require(panel.find(DONT_APPLY) is not None, "the refusal is on the screen")
     run.require(
         panel.find(ALWAYS_WORDING) is not None,
         "the always-scope is disclosed whole",
     )
+    # **Restated for fx's question** (`src/tui/shell.rs`'s `fit`, "A question
+    # takes them all"; `render_input.zig:705`; `.prd/tui-phase4/receipts/f1`).
+    # The panel used to open under the composer with the turn's row above it;
+    # upstream's question replaces both, so the band is the panel between its
+    # two rules and its key help, and its top is the rule that heads it. A
+    # file change has no row of its own until it is decided (`receipts/f1`:
+    # "A file change has no row until it is decided"), so the document's last
+    # written row is the read's.
     panel_band = find_band(panel)
+    titled = [text for text in (panel_rows_text(panel) or []) if PERMISSION_TITLE in text]
     run.require(
         panel_band is not None
-        and PERMISSION_TITLE in (panel_rows_text(panel) or [""])[0]
-        and panel_band.composer == [panel_band.picker_rule - 1]
-        and panel_band.activity is not None
-        and panel_band.composer[0] == panel_band.activity + 2
+        and len(titled) == 1
+        and panel_band.composer == []
+        and panel_band.activity is None
+        and is_rule(panel, panel_band.picker_rule)
+        and is_rule(panel, panel_band.divider)
+        and panel_band.hint == panel_band.divider + 1
         and panel_band.hint == panel.rows - 1,
-        "the panel opens inside the band -- under the composer, between its two rules -- "
-        "with the activity row above the composer and the hint on the last row: %r"
-        % (panel_band,),
+        "the panel opens as the band -- between its two rules, the question in place of the "
+        "composer and the turn's row, its key help on the last row: %r" % (panel_band,),
     )
     run.require(
-        panel_band is not None and panel.row_text(panel_band.top - 1) == "[tool] edit_file running",
-        "the band's top is directly under the document's last row, which it did not paint "
-        "over: %r" % (panel.row_text(panel_band.top - 1) if panel_band else None,),
+        panel_band is not None
+        and panel.row_text(panel_band.top - 1) == ""
+        and panel.row_text(panel_band.top - 2) == "\u2514 " + READ_NOTES,
+        "the band's top is directly under the document's blank row, its last written row the "
+        "read's, which it did not paint over: %r"
+        % ([panel.row_text(row) for row in range(max(panel_band.top - 2, 0), panel_band.top)] if panel_band else None,),
     )
     run.require(
         survives(panel.document_text(), (doc1, doc2, doc3)),
@@ -8737,11 +9766,10 @@ def scenario_26(run):
 
 
 def scenario_26b(run):
-    """A tall draft really yields rows to an inline panel, and gets them back.
+    """A tall draft really yields to an inline question, and gets its rows back.
 
-    The gap `26`'s own docstring names: its panel opens against a one-row
-    composer, so the divider never has a reason to move and `shell.rs::fit`'s
-    "the composer gives way to the question, one row at a time" never runs.
+    The gap `26`'s own docstring names: its panel opens against an empty
+    composer, so nothing standing in the composer has a reason to give way.
     Reaching it needs a draft standing in the composer at the moment the panel
     would open -- and a wait built only from frames already on the wire
     (`on_the_grid`) cannot itself prove a paste landed *before* a race with the
@@ -8753,30 +9781,24 @@ def scenario_26b(run):
     off the committed grid, and only then the gate opened -- a real barrier
     ordering the two rather than a sleep racing them.
 
-    The panel's own height is fixed rather than discovered: a 150-byte
-    replacement sits below `permission::authority`'s `MAX_EXCERPT_BYTES` (160)
-    -- the byte count `ApprovalSurface::for_request` admits before it routes a
-    change to the alternate screen instead (`20-alternate-screen-approval`'s
-    surface, out of scope here), and at 80 columns its quoted before/after
-    wrap to a fixed fourteen-row panel -- measured directly off this fixture's
-    own grid rather than hand-derived from `approval.rs`'s wrapping.
+    A 150-byte replacement sits below `permission::authority`'s
+    `MAX_EXCERPT_BYTES` (160) -- the byte count `ApprovalSurface::for_request`
+    admits before it routes a change to the alternate screen instead
+    (`20-alternate-screen-approval`'s surface, out of scope here) -- so the
+    question is asked in the band, on the plane the draft is on.
 
-    **Restated for the fx band** (`a50f8a0`, `fcc8e44`, `ca044a1`). This
-    scenario used to read the yield off a divider above the composer, at
-    literal rows: a ten-row draft under a divider on row 12, a panel above
-    the divider leaving the composer six rows under a divider on row 16. The
-    panel now sits **under** the composer, between two rules, the activity
-    row sits directly above the composer (its blank row dropped on a screen
-    too short for it), and there is no divider above the draft at all. The row
-    budget is the same kind of fact -- fixed by this trial's scripted content,
-    not by the environment: one row of document, the activity row, the
-    composer, the rule heading the panel, fourteen panel rows, the bottom rule
-    and the hint, so `24 - 1 - 1 - 1 - 14 - 1 - 1` = **five** composer rows
-    survive the yield, the first of them `┃↑` because the draft's head is
-    scrolled out of the window. The claims are the same three: the tall draft
-    is really standing before the panel, it really gives way to the panel (ten
-    rows down to five, the tail shown unedited), and it really gets all ten
-    rows back once the panel is gone.
+    **Restated for fx's question** (`src/tui/shell.rs`'s `fit`, "A question
+    takes them all -- a permission question and the model's own batch alike:
+    upstream's question replaces the composer rather than sitting under it";
+    `render_input.zig:705`; `.prd/tui-phase4/receipts/f3`, "the composer gives
+    the question its rows"). This row used to watch the draft give way one row
+    at a time -- ten rows down to the five a fourteen-row panel left it, the
+    tail shown. Upstream's question takes the composer's rows **whole**: while
+    it is up there is no composer row and no row of the draft on the screen,
+    and the turn's own row is off the band too. The claims are the same three
+    in that form: the tall draft is really standing before the question, it
+    really gives the question the footer -- not one row of it left painted --
+    and it really gets all ten rows back, unedited, once the question is gone.
     """
     finish_marker = run.marker("finish")
     before, after = "a" * 150, "b" * 150
@@ -8799,7 +9821,7 @@ def scenario_26b(run):
     from_a_known_composer(run, trial, "yield")
 
     trial.send("edit the notes " + run.nonce + "\r")
-    trial.wait_for("[tool] read_file ok")
+    trial.wait_for(READ_NOTES)
     trial.wait_until(
         "the edit call's own request to be captured and held",
         lambda _t: fixture.request_count() == 2,
@@ -8838,58 +9860,34 @@ def scenario_26b(run):
     release.set()
     panel = on_the_grid(trial, PERMISSION_TITLE, "the panel to be committed once the held reply is released")
     trial.grid("panel-open-over-tall-draft")
-    run.require(panel.find("1. Yes") is not None, "the first choice is offered")
-    run.require(panel.find("3. No") is not None, "the refusal is offered")
+    run.require(panel.find(APPLY_ONCE) is not None, "the first choice is offered")
+    run.require(panel.find(DONT_APPLY) is not None, "the refusal is offered")
     run.require(panel.find(ALWAYS_WORDING) is not None, "the second choice is offered")
     # The **tail** of the scope, separately from the second choice's own fixed
-    # prefix (`ALWAYS_WORDING`): a screen could disclose "2. Yes, and don't ask
-    # again for this request" and still have cut the clause that says what
-    # "always" buys, the same distinction `24-approval-readiness` draws for the
-    # identical reason.
+    # prefix (`ALWAYS_WORDING`): a screen could disclose the second choice and
+    # still have cut the clause that says what "always" buys, the same
+    # distinction `24-approval-readiness` draws for the identical reason.
     run.require(
         panel.find("of this saved session") is not None
         or panel.find("the approval ends with this command") is not None,
         "the scope's own tail is on the screen, not just the choice's fixed prefix",
     )
-
-    title_row = panel.find(PERMISSION_TITLE)[0]
     panel_band = find_band(panel)
-    # The activity row is *found* -- by `find_band`, up from the hint, as the
-    # row directly above the composer in `ACTIVITY_ROW`'s shape (either face of
-    # its blinking marker) -- and it says the tool is running.
-    activity_row = panel_band.activity if panel_band is not None else None
-    run.require(
-        activity_row is not None and panel.row_text(activity_row)[2:].startswith("Running ("),
-        "the band's activity row says the edit_file call is running: %r"
-        % (panel.row_text(activity_row) if activity_row is not None else None,),
-    )
-    # This fixture's own row budget, zero-based, top to bottom: one row of
-    # document, one activity row, five visible composer rows, the rule heading
-    # the panel, fourteen panel rows, the bottom rule and the hint --
-    # 1+1+5+1+14+1+1 == 24 -- so every one of them lands on a fixed row.
     run.require(
         panel_band is not None
-        and activity_row == 1
-        and panel_band.composer == [2, 3, 4, 5, 6]
-        and panel_band.picker_rule == 7
-        and title_row == 8
-        and panel_band.panel == list(range(8, 22))
-        and panel_band.divider == 22
-        and panel_band.hint == 23,
-        "the activity row, the yielded composer, the panel between its rules and the hint "
-        "sit where this fixture's own row budget puts them: %r (title %r)" % (panel_band, title_row),
+        and panel_band.composer == []
+        and panel_band.activity is None
+        and is_rule(panel, panel_band.picker_rule)
+        and any(PERMISSION_TITLE in text for text in (panel_rows_text(panel) or []))
+        and is_rule(panel, panel_band.divider)
+        and panel_band.hint == panel_band.divider + 1,
+        "the question has the footer to itself -- its rules, its rows and its key help, no "
+        "composer row and no activity row: %r" % (panel_band,),
     )
-    composer_visible_open = len(panel_band.composer) if panel_band is not None else None
+    left = [line for line in draft_lines if panel.find(line) is not None]
     run.require(
-        composer_visible_open == 5 and composer_scrolled(panel),
-        "the composer's visible rows reduced from ten to the five this panel leaves it, the "
-        "draft's head scrolled out of the window: %r" % composer_visible_open,
-    )
-    tail = draft_lines[-5:]
-    shown = composer_rows_text(panel)
-    run.require(
-        shown == tail,
-        "the draft's own tail is what the shrunk window shows, in order and unedited: %r vs %r" % (shown, tail),
+        not left and panel.find(RAIL + "↑") is None,
+        "the draft gave the question every row it had -- none of it is left painted: %r" % left,
     )
 
     trial.send(b"3")  # deny
@@ -8995,9 +9993,16 @@ WENT_DARK = b"\x1b[?997;1n"
 # no worker, no activity row painting over the bottom of the document.
 NOTICE_COMMAND = "/version"
 
-# What its answer starts with (`src/interactive.rs`'s `version_line`). A prefix,
-# because the version and the channel are the build's and not this file's.
-NOTICE_PREFIX = "xfx "
+# What its answer starts with: upstream's `* version: 0.0.13`, the bare version
+# under the notice's topic (`src/tui/shell.rs`'s `version`, `app_commands.zig:2153-
+# 2160`; `.prd/tui-phase4/receipts/c3`). A prefix, because the version is the
+# build's and not this file's.
+NOTICE_PREFIX = "* version: "
+
+# The warning grey a cancelled line's `■` is painted in, in each palette
+# (`src/tui/theme.rs`'s `WARNING`, `DARK`/`LIGHT` at index 9).
+RETINT_DARK_WARNING = "\x1b[38;5;252m"
+RETINT_LIGHT_WARNING = "\x1b[38;5;238m"
 
 
 def cell_attribute(grid, needle):
@@ -9019,9 +10024,9 @@ def own_line_row(grid, text):
     """The row whose **whole** text is `text`, or `None`.
 
     An equality rather than a search, because the row this is used for is the
-    card a submitted command is echoed in, and the screen also carries a notice
-    with the same word in it. A reader that matched a substring could read the
-    colour of xfx's line and report it as the user's.
+    card a submitted prompt is echoed in, and the screen also carries other
+    rows with the same words in them. A reader that matched a substring could
+    read the colour of xfx's line and report it as the user's.
     """
     for row in range(grid.rows):
         if grid.row_text(row) == text:
@@ -9032,20 +10037,19 @@ def own_line_row(grid, text):
 def notice_row(grid):
     """The row xfx answered [`NOTICE_COMMAND`] on, or `None`.
 
-    Read as "the first written row under the command's card" rather than by
-    searching for its text: the band's own hint row also carries the word this
-    line starts with, and a top-down search for a prefix would compare the
-    colour of the band with the colour a document row is owed. **Restated for
-    the fx card** (`3efe232`): the echo is `┃ /version` with a blank row under
-    it now, where it used to be the bare command directly above the answer.
+    Read off the document above the band, as the one row its notice's own
+    topic opens (`* version: `). **Restated for fx's dispatch**
+    (`.prd/tui-phase4/receipts/c0`, `version`: "There is no echo of `/version`
+    on either"): this used to be the first written row under the command's
+    card, read that way because the answer opened with the word the band's
+    hint row also carries. A slash command leaves no card now, and its answer
+    opens with a topic nothing else on the screen does -- the hint row
+    included -- so the row is found by it, and only above the band.
     """
-    echo = own_line_row(grid, RAIL + " " + NOTICE_COMMAND)
-    if echo is None:
-        return None
     band = find_band(grid)
     limit = band.top if band is not None else grid.rows
-    for row in range(echo + 1, limit):
-        if grid.row_text(row).strip():
+    for row in range(limit):
+        if grid.row_text(row).startswith(NOTICE_PREFIX):
             return row
     return None
 
@@ -9189,6 +10193,12 @@ def scenario_27(run):
     `Palette::document_retint` moves. So the report must move all three, leave
     the answer plain (a re-tint that painted text it never coloured fails), and
     leave the user's own words in the card uncoloured.
+
+    **Restated for fx's dispatch and interrupt** (`.prd/tui-phase4/receipts/c0`,
+    `receipts/c3`, `receipts/f4`): `/version` answers `* version: <v>` and
+    leaves no card of its own, so the screen holds one card -- the prompt's --
+    where it held two; and the line an interrupt writes after the report is
+    upstream's cancelled line, read in its own two greys.
     """
     first, second = run.marker("first"), run.marker("second")
 
@@ -9226,7 +10236,7 @@ def scenario_27(run):
     )
 
     before = trial.grid("dark-before-the-report")
-    echo = own_line_row(before, RAIL + " " + NOTICE_COMMAND)
+    echo = own_line_row(before, RAIL + " say " + run.nonce)
     run.require(echo is not None, "the user's own submitted line is on the screen, as its card")
     run.require(
         plain_marker(before, first) and plain_marker(before, second),
@@ -9238,8 +10248,8 @@ def scenario_27(run):
         "xfx's own line is in the dark notice grey (%r)" % notice_attribute(before),
     )
     run.require(
-        len(rail_attributes(before)) == 2 and set(rail_attributes(before)) == {RETINT_DARK_BODY},
-        "both cards' rails are in the dark body grey (%r)" % rail_attributes(before),
+        len(rail_attributes(before)) == 1 and set(rail_attributes(before)) == {RETINT_DARK_BODY},
+        "the card's rail is in the dark body grey (%r)" % rail_attributes(before),
     )
     run.require(
         summary_attribute(before) == RETINT_DARK_DIM,
@@ -9266,8 +10276,8 @@ def scenario_27(run):
         "xfx's own line moved to the light notice grey (%r)" % notice_attribute(after),
     )
     run.require(
-        len(rail_attributes(after)) == 2 and set(rail_attributes(after)) == {RETINT_LIGHT_BODY},
-        "both rails moved to the light body grey (%r)" % rail_attributes(after),
+        len(rail_attributes(after)) == 1 and set(rail_attributes(after)) == {RETINT_LIGHT_BODY},
+        "the rail moved to the light body grey (%r)" % rail_attributes(after),
     )
     run.require(
         summary_attribute(after) == RETINT_LIGHT_DIM,
@@ -9462,8 +10472,11 @@ def scenario_27(run):
     # palette halves of the claim move to the rows that carry one: what is
     # already on the screen (the card's rail and the welcome line) is re-tinted
     # while the tail is still inside the product, and xfx's own line written
-    # **after** the report -- the interrupt notice -- is in the light notice
-    # grey, the palette now in force.
+    # **after** the report -- the cancelled line the interrupt leaves
+    # (`receipts/f4`), its `■` in the warning grey and its word in the body
+    # grey (`src/tui/shell.rs`'s `cancelled_line`) -- is in the light palette's,
+    # the palette now in force. It used to be a `stopping the turn` notice in
+    # the notice grey; the claim is the same, read on fx's line.
     head, tail = run.marker("head"), run.marker("tail")
     paced = (
         head
@@ -9530,14 +10543,19 @@ def scenario_27(run):
     pending.send(b"\x03")
     pending.wait_until(
         "xfx's own interrupt line on the committed grid",
-        lambda _t: pending.peek().find("stopping the turn") is not None,
+        lambda _t: pending.peek().find(CANCELLED_TURN) is not None,
     )
     stopped = pending.grid("stream-interrupted")
-    found = stopped.find("stopping the turn")
+    found = stopped.find(CANCELLED_TURN)
+    painted = (
+        (stopped.attrs[found[0]][found[1]], stopped.attrs[found[0]][found[1] + 2])
+        if found
+        else None
+    )
     run.require(
-        found is not None and stopped.attrs[found[0]][0] == RETINT_LIGHT_NOTICE,
-        "xfx's own line written after the report is in the light notice grey, the palette "
-        "now in force (%r)" % (stopped.attrs[found[0]][0] if found else None,),
+        painted == (RETINT_LIGHT_WARNING, RETINT_LIGHT_BODY),
+        "xfx's own line written after the report is in the light palette's greys, the "
+        "palette now in force (%r)" % (painted,),
     )
     pending.send(b"\x03")
     run.require(
