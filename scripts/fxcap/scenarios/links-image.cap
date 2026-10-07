@@ -1,0 +1,23 @@
+# The image badge as a link to its file (`image_attachments.zig:1336-1340`):
+# in the composer once attached, on the card once sent, and on the card a
+# relaunch replays.
+models models-image.json
+gateway image-turns.json
+work image-ws
+wait 4
+type /image shot.png
+key Enter
+wait 2
+snap attached
+type  what is in this image?
+key Enter
+wait 5
+snap sent
+keep
+type /quit
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 6
+snap resumed

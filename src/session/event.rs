@@ -211,9 +211,21 @@ pub enum SessionEvent {
         workspace_root: String,
     },
     /// A preference changed for later turns. Absent fields are unchanged.
+    ///
+    /// The last three are the session's effort and speed switches -- what
+    /// upstream's `session.json` carries beside the model (`effort`,
+    /// `fast_mode`, `ultrafast_mode`) and what its resume restores
+    /// (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`).
+    /// Written as a group, and absent from logs written before they existed.
     PreferencesChanged {
         model: Option<String>,
         permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fast_mode: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ultrafast_mode: Option<bool>,
     },
     /// Which project-instruction files were in force for the turn that follows.
     ///
@@ -315,8 +327,9 @@ pub enum SessionEvent {
     /// running totals; absent is "the provider did not say", not zero.
     ///
     /// The two totals are the **answering step's**, as they always were, and
-    /// mean what they always meant: the context meter and a replayed turn's
-    /// summary row read them. What `/usage` reads is beside them -- one entry
+    /// mean what they always meant: the context meter reads them, and so does
+    /// a replayed turn's summary row on a frame from before
+    /// `turn_output_tokens`. What `/usage` reads is beside them -- one entry
     /// per model request the turn made ([`RequestUsage`]), and what the turn
     /// changed on disk -- because a turn of three steps is three requests, and
     /// upstream bills, counts and windows each one
@@ -331,6 +344,16 @@ pub enum SessionEvent {
     UsageRecorded {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
+        /// Out as the turn's summary row said it: every request the turn made,
+        /// each at what the provider reported or at the estimate of what it
+        /// streamed (`crate::agent::tokens`). Kept because a replay cannot
+        /// work it out again -- a lost attempt's text and every request's
+        /// reasoning are in no other frame -- and upstream keeps its summary
+        /// with the turn for the same reason (`turn_summary`,
+        /// `vercel-labs/fx@c1db9191 src/core/session/session_event.zig:107`).
+        /// Absent on a frame written before it was.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_output_tokens: Option<u64>,
         /// Every model request the turn completed, in order. Empty only on a
         /// frame written before requests were recorded, or on one that says
         /// the turn's only request was cut off (`unaccounted`): a turn that
@@ -709,6 +732,9 @@ mod tests {
             SessionEvent::PreferencesChanged {
                 model: Some("m2".to_string()),
                 permission_mode: None,
+                effort: Some("low".to_string()),
+                fast_mode: Some(true),
+                ultrafast_mode: Some(false),
             },
             SessionEvent::ProjectContextRecorded {
                 sources: Vec::new(),
@@ -742,6 +768,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -837,6 +864,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(11),
                 output_tokens: Some(7),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -849,12 +877,40 @@ mod tests {
     }
 
     #[test]
+    fn a_usage_frame_keeps_what_the_turn_summary_said_beside_the_answering_step() {
+        let frame = envelope(
+            4,
+            SessionEvent::UsageRecorded {
+                input_tokens: Some(1300),
+                output_tokens: Some(40),
+                turn_output_tokens: Some(80),
+                requests: Vec::new(),
+                unaccounted: false,
+                lines_added: 0,
+                lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(r#""input_tokens":1300,"output_tokens":40,"turn_output_tokens":80}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+    }
+
+    #[test]
     fn a_usage_frame_keeps_each_request_and_what_the_turn_changed() {
         let frame = envelope(
             4,
             SessionEvent::UsageRecorded {
                 input_tokens: Some(52000),
                 output_tokens: Some(3100),
+                turn_output_tokens: None,
                 requests: vec![RequestUsage {
                     at_ms: 1_700_000_000_123,
                     duration_ms: 812,

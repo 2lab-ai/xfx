@@ -2256,6 +2256,7 @@ mod tests {
                 SessionEvent::UsageRecorded {
                     input_tokens: Some(1200),
                     output_tokens: Some(40),
+                    turn_output_tokens: None,
                     requests: Vec::new(),
                     unaccounted: false,
                     lines_added: 0,

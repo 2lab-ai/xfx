@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-b12eb45 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mshow me the links[0m
+
+  Here are the links.
+
+  See [4m[38;5;75m]8;id=fx-1;https://example.com/docs\the docs[0m]8;;\ and [4m[38;5;75m]8;id=fx-2;https://example.org/path\https://example.org/path[0m]8;;\ for more.
+
+  Mail [4m[38;5;75m]8;id=fx-3;mailto:someone@example.com\someone@example.com[0m]8;;\ or visit [4m[38;5;75m]8;id=fx-4;https://example.net/a\https://example.net/a[0m]8;;\.
+
+  Run [38;5;245m]8;id=fx-5;https://example.com/code\https://example.com/code[39m]8;;\ locally.
+
+  Also [4m[38;5;75mreadme[0m, [4m[38;5;75mscript[0m and [4m[38;5;75mftp[0m.
+
+  A long one: [4m[38;5;75m]8;id=fx-9;https://example.com/wrap\this link text wraps across the edge of the row because it is very long indeed and it keeps going on past[0m]8;;\
+  [4m[38;5;75m]8;id=fx-9;https://example.com/wrap\the right edge[0m]8;;\ then text.
+
+  ┌──────┬──────┐
+  │ [1mName[0m │ [1mLink[0m │
+  ├──────┼──────┤
+  │ docs │ [4m[38;5;75m]8;id=fx-10;https://example.com/table\site[0m]8;;\ │
+  └──────┴──────┘
+
+  Done.
+
+[38;5;245m  1s (↑5 ↓40)[39m
+
+[38;5;255m┃[39m [1mand one more[0m
+
+  Again: [4m[38;5;75m]8;id=fx-11;https://example.com/second\second[0m]8;;\.
+
+[38;5;245m  0s (↑3 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+

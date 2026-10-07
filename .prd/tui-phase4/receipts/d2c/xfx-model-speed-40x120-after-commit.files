@@ -1,0 +1,13 @@
+=== ~/.xfx/settings.json (184 bytes)
+{
+  "effort": "high",
+  "fast_mode": false,
+  "fast_mode_model_bound": true,
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "ultrafast_mode": true
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

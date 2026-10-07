@@ -79,8 +79,8 @@ use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSend
 
 use super::approval::{ControlChannel, Deferred, TuiPrompter};
 use super::bridge::{
-    self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
-    UiEventSink,
+    self, Cancellation, ModelAnswer, ModelChange, SpeedChange, TurnCancel, TurnControl, TurnWork,
+    UiEvent, UiEventSink,
 };
 use super::compaction::{Feedback, Update};
 use super::notice::Notice;
@@ -99,7 +99,7 @@ use crate::interactive::{
 use crate::output::StatusSnapshot;
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
-    CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
+    CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
@@ -138,6 +138,26 @@ const NO_RUNTIME: &str = "xfx cannot start the async runtime, so no turn can run
 
 /// What a panic that carried something other than text is reported as.
 const UNKNOWN_PANIC: &str = "a turn panicked with a payload that is not text";
+
+/// Why a turn in Ultra mode was not sent: upstream refuses the request
+/// (`error.UltrafastUnavailable`, `model_capabilities.zig:209-224`) rather
+/// than send it at a speed the user did not choose. xfx's words, with the way
+/// out in them.
+const ULTRAFAST_UNAVAILABLE: &str =
+    "Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it";
+
+/// What a turn in Ultra mode says, once, when a response's finish did not
+/// confirm the Ultra tier (`orchestrator.zig:8015-8022`): upstream's words,
+/// as answer prose ahead of the answer ([`UiEvent::Operational`]).
+const ULTRAFAST_UNCONFIRMED: &str = "Ultrafast was requested, but Gateway did not confirm it was \
+     served; this response may have used a standard or lower tier.\n";
+
+/// What a turn in Fast mode says, once, when Fast cannot be asked for because
+/// the catalog that would say the model offers it could not be read
+/// (`orchestrator.zig:7253-7262`): upstream's words. A catalog that was read
+/// and does not offer Fast for the model says nothing, as upstream's does not.
+const FAST_UNAVAILABLE: &str =
+    "Fast mode is unavailable for this model right now; continuing at standard speed.\n";
 
 /// Why a submission was not accepted.
 #[derive(Debug, PartialEq, Eq)]
@@ -1092,6 +1112,13 @@ impl Resumption {
         &self.session.state().model
     }
 
+    /// The effort and the speed switches the session last recorded, if it
+    /// recorded any (`restoreRuntimePreferences`,
+    /// `app_session_runtime.zig:6126-6175`).
+    pub(crate) fn settings(&self) -> Option<&crate::provider::effort::TurnSettings> {
+        self.session.state().turn_settings.as_ref()
+    }
+
     /// What the session replays as on the screen it continues on
     /// ([`super::hydration`]): read off the state this value already holds, so
     /// the launch builds it with no read of its own.
@@ -1177,12 +1204,13 @@ struct Runtime {
     /// because its fetcher is that provider's endpoint and its model is that
     /// provider's model.
     selector: ModelSelector,
-    /// The session's reasoning effort: one value for every model, carried
-    /// across a model change and a provider switch alike, as upstream's
-    /// `app.effort` is (`crate::provider::effort`). Whether a turn *sends* it
-    /// is decided per turn, against the catalog's row for the model in force
-    /// ([`Runtime::request_options`]).
-    effort: crate::provider::effort::Effort,
+    /// The session's reasoning effort and its Fast and Ultra switches
+    /// (`crate::provider::effort`): the effort carried across a model change
+    /// and a provider switch alike, as upstream's `app.effort` is, and the
+    /// switches off whenever the model changes. Whether a turn *sends* any of
+    /// them is decided per turn, against the catalog's row for the model in
+    /// force ([`Runtime::request_options`]).
+    settings: crate::provider::effort::TurnSettings,
     /// Where the conversation's last reply is published for `/copy`
     /// ([`Runtime::publish_reply`]).
     reply: LastReply,
@@ -1265,7 +1293,11 @@ impl Runtime {
     ) -> Self {
         let selector = ModelSelector::new(&config);
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
-        let effort = config.effort.clone();
+        let settings = crate::provider::effort::TurnSettings {
+            effort: config.effort.clone(),
+            fast: config.fast_mode,
+            ultrafast: config.ultrafast_mode,
+        };
         let config_mode = config.permission_mode;
         let workspace =
             WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
@@ -1279,7 +1311,7 @@ impl Runtime {
             prompter,
             questioner,
             selector,
-            effort,
+            settings,
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
@@ -1694,16 +1726,31 @@ impl Runtime {
             session: resumed.session,
             scope,
         };
+        // The selection this session was configured with, before the resume
+        // moves it: what a restored Fast binding is judged against
+        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+        let configured = (self.model().to_string(), self.settings.fast);
         if self.config.sources.model == crate::config::SettingSource::CompiledDefault
             && self.model() != resumption.model()
         {
             self.config.model = resumption.model().to_string();
             self.selector = ModelSelector::new(&self.config);
         }
-        let replay = super::hydration::Hydration::of(
+        // The effort and the switches the session recorded, as upstream's
+        // resume restores them (`restoreRuntimePreferences`,
+        // `app_session_runtime.zig:6126-6175`); a session that never recorded
+        // them keeps the ones in force.
+        let mut keeps_fast_binding = configured.0 == resumption.model();
+        if let Some(settings) = resumption.session.state().turn_settings.clone() {
+            keeps_fast_binding = keeps_fast_binding && configured.1 == settings.fast;
+            self.settings = settings;
+        }
+        let mut replay = super::hydration::Hydration::of(
             resumption.session.state(),
             Some(self.model().to_string()),
         );
+        replay.settings = Some(self.settings.clone());
+        replay.keeps_fast_binding = keeps_fast_binding;
         self.conversation = None;
         self.resume(resumption, mirror);
         self.publish_reply();
@@ -1799,6 +1846,9 @@ impl Runtime {
                 .commit(SessionEvent::PreferencesChanged {
                     model: model_changed.then_some(model),
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
                 });
         }
         // A resumed session's clock is its own: from when it was created.
@@ -1865,9 +1915,21 @@ impl Runtime {
         // warning already shown: it stays shown.
         let mode = self.config.permission_mode;
         let acknowledged = self.config.yolo_acknowledged || reloaded.yolo_acknowledged;
+        // The switches go off with the model the switch replaces, as upstream's
+        // go off on any model change, and the profile is told so -- a launch
+        // that read them back would otherwise be in Fast on a model that was
+        // never asked for it. The effort stays: it is the session's.
+        let switches_were_on = self.settings.fast || self.settings.ultrafast;
+        self.settings.fast = false;
+        self.settings.ultrafast = false;
         self.config = reloaded;
         self.config.permission_mode = mode;
         self.config.yolo_acknowledged = acknowledged;
+        if switches_were_on {
+            // Best effort: the switch has been made, and a profile that kept
+            // a stale `fast_mode` is read with the binding it carries.
+            let _ = self.save_speed("provider");
+        }
         // The directories too: the file was read again, and what it saves
         // for this workspace is what a turn runs in.
         self.workspace = WorkspaceAccess::load(
@@ -1904,14 +1966,13 @@ impl Runtime {
         }
     }
 
-    /// The configured provider's catalog, bounded to what the UI will render.
+    /// The configured provider's catalog, every row in the menu's order
+    /// ([`in_menu_order`]).
     ///
     /// **Once per provider.** `ensure_catalog` attempts a load only from
     /// `NotLoaded`, so a failure is remembered: a second `/model` on a daemon
     /// that is not there reports the same reason without opening a second
-    /// socket. The bound is applied here rather than at the painter because it
-    /// is the *event* that should not carry ten thousand rows across a channel
-    /// the UI drains one frame at a time.
+    /// socket.
     async fn catalog(&mut self) -> CatalogAnswer {
         from_state(self.selector.ensure_catalog().await)
     }
@@ -1926,8 +1987,8 @@ impl Runtime {
         unasked && !matches!(self.selector.catalog(), CatalogState::NotLoaded)
     }
 
-    /// What the UI is told about the catalog as it stands: its rows, bounded
-    /// and in the menu's order; no rows, for a provider with none; or that it
+    /// What the UI is told about the catalog as it stands: its rows, every one
+    /// in the menu's order; no rows, for a provider with none; or that it
     /// could not be read, and whether asking again could help.
     fn catalog_event(&self) -> UiEvent {
         catalog_event_of(self.config.provider, &self.selector)
@@ -1936,15 +1997,52 @@ impl Runtime {
     /// What every request of the next turn asks for beside its prompt: the
     /// session's effort, **if** the catalog lists it for the model in force
     /// (`Effort::for_request`; `resolveProviderOptionsForCapabilities`,
-    /// `model_capabilities.zig:194-206`). A model the catalog does not
-    /// describe -- not listed, or no catalog read -- is sent none, which is
-    /// upstream's fallback (`capabilitiesForModel` knows no levels).
-    fn request_options(&self) -> crate::gateway::protocol::RequestOptions {
-        crate::gateway::protocol::RequestOptions {
-            reasoning: self
-                .effort
-                .for_request(self.selector.entry(self.selector.model())),
+    /// `model_capabilities.zig:194-206`), and Fast, if the row offers it. A
+    /// model the catalog does not describe -- not listed, or no catalog read --
+    /// is sent neither, which is upstream's fallback (`capabilitiesForModel`
+    /// knows no levels and no Fast).
+    ///
+    /// **Ultra is the exception, and it is a refusal rather than a silent
+    /// downgrade** (`resolveUltrafastProviderOptions`, `:209-224`: "unsupported
+    /// or unknown capabilities must not silently downgrade before sending"):
+    /// a session in Ultra mode whose model is not an OpenAI one the Gateway's
+    /// catalog offers it for does not send the turn at all, and says why.
+    fn request_options(&self) -> Result<crate::gateway::protocol::RequestOptions, String> {
+        let entry = self.selector.entry(self.selector.model());
+        let ultrafast = self.settings.ultrafast;
+        if ultrafast
+            && !(self.config.provider == ProviderId::Gateway
+                && self.selector.model().starts_with("openai/")
+                && entry.is_some_and(|entry| entry.facts.ultrafast))
+        {
+            return Err(ULTRAFAST_UNAVAILABLE.to_string());
         }
+        Ok(crate::gateway::protocol::RequestOptions {
+            reasoning: self.settings.effort.for_request(entry),
+            fast: !ultrafast && self.settings.fast && entry.is_some_and(|entry| entry.facts.fast),
+            ultrafast,
+        })
+    }
+
+    /// Writes the session's effort and switches into its log, where a resume
+    /// reads them back -- once per change, as a group.
+    fn record_settings(&mut self) {
+        let settings = self.settings.clone();
+        let Some(conversation) = self.conversation.as_mut() else {
+            return;
+        };
+        if conversation.recorder.state().turn_settings.as_ref() == Some(&settings) {
+            return;
+        }
+        conversation
+            .recorder
+            .commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: None,
+                effort: Some(settings.effort.label().to_string()),
+                fast_mode: Some(settings.fast),
+                ultrafast_mode: Some(settings.ultrafast),
+            });
     }
 
     /// What `/model <query>` means, with the line shell's own meaning.
@@ -1986,10 +2084,86 @@ impl Runtime {
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        effort: None,
+                        fast_mode: None,
+                        ultrafast_mode: None,
                     });
             }
         }
         outcome
+    }
+
+    /// The three speed keys as the session stands, as upstream writes them:
+    /// the binding always `true`, because an interactive change is always made
+    /// for the model in force.
+    fn speed_preferences(&self) -> [(&'static [&'static str], serde_json::Value); 3] {
+        [
+            (
+                &[crate::config::FAST_MODE_KEY],
+                serde_json::Value::Bool(self.settings.fast),
+            ),
+            (
+                &[crate::config::ULTRAFAST_MODE_KEY],
+                serde_json::Value::Bool(self.settings.ultrafast),
+            ),
+            (
+                &[crate::config::FAST_MODE_MODEL_BOUND_KEY],
+                serde_json::Value::Bool(true),
+            ),
+        ]
+    }
+
+    /// Saves the speed switches (`/fast`, `/ultrafast`) with what upstream
+    /// writes beside them (`applyFastMode`, `applyUltrafastMode`,
+    /// `session_commands.zig:781-790`, `:839-848`): the provider and the model
+    /// in force -- under an `XFX_MODEL`, that model, as upstream writes
+    /// `provider_runtime.model(app)` -- and the binding. Says what upstream's
+    /// commit report keeps when the caller has announced the change
+    /// (`reportUserSettingsCommit`, `:27-85`): that a layer above the profile
+    /// will still choose a fresh session's model, or that the write failed.
+    /// `topic` is upstream's label for the write.
+    /// What a write of the model and the speed switches beside it -- and the
+    /// effort, when `effort` says one was written -- says when a layer above
+    /// the profile will still decide any of them for a fresh session: each,
+    /// in upstream's order (`appendShadowedUserSources`,
+    /// `session_commands.zig:170-186` -- `model`, `effort`, `fast_mode`,
+    /// `ultrafast_mode`).
+    fn saved_model_and_speed(&self, effort: bool) -> Option<String> {
+        let sources = &self.config.sources;
+        let mut fields = vec![("model", sources.model)];
+        if effort {
+            fields.push(("effort", sources.effort));
+        }
+        fields.push(("fast_mode", sources.fast_mode));
+        fields.push(("ultrafast_mode", sources.ultrafast_mode));
+        crate::provider::profile::saved_but_any_shadowed(&fields)
+    }
+
+    fn save_speed(&self, topic: &'static str) -> Option<super::notice::Notice> {
+        let path = self.config.user_settings_path.as_ref()?;
+        let provider = self.config.provider;
+        let model_key = [crate::config::MODELS_KEY, provider.label()];
+        let provider_key = [crate::config::PROVIDER_KEY];
+        let mut preferences: Vec<(&[&str], serde_json::Value)> = vec![
+            (
+                &model_key,
+                serde_json::Value::String(self.model().to_string()),
+            ),
+            (
+                &provider_key,
+                serde_json::Value::String(provider.label().to_string()),
+            ),
+        ];
+        preferences.extend(self.speed_preferences());
+        match crate::provider::profile::write_preferences(path, &preferences) {
+            Ok(()) => self
+                .saved_model_and_speed(false)
+                .map(|said| super::notice::Notice::neutral(topic, said)),
+            Err(err) => Some(super::notice::Notice::error(
+                topic,
+                format!("active for this process but not saved to user settings ({err})"),
+            )),
+        }
     }
 
     /// Records `model` as the configured provider's in the profile
@@ -2015,27 +2189,42 @@ impl Runtime {
     /// with no home has no profile to write and says nothing about one.
     fn save_change(
         &self,
+        provider: ProviderId,
         model: &str,
         effort: Option<&crate::provider::effort::Effort>,
         picker: bool,
     ) -> Option<super::notice::Notice> {
         let path = self.config.user_settings_path.as_ref()?;
         let topic = if picker { "model picker" } else { "model" };
-        let model_key = [crate::config::MODELS_KEY, self.config.provider.label()];
+        let model_key = [crate::config::MODELS_KEY, provider.label()];
+        let provider_key = [crate::config::PROVIDER_KEY];
         let effort_key = [crate::config::EFFORT_KEY];
         let mut preferences: Vec<(&[&str], serde_json::Value)> =
             vec![(&model_key, serde_json::Value::String(model.to_string()))];
+        // And the provider, as upstream's patch carries it (`selectModelFromPicker`,
+        // `setResolvedModel`, `session_commands.zig:894-896`, `:1180-1181`) --
+        // but not for a change chosen under a provider a switch has since
+        // replaced, which would write the old provider back over the switch.
+        if provider == self.config.provider {
+            preferences.push((
+                &provider_key,
+                serde_json::Value::String(provider.label().to_string()),
+            ));
+        }
         if let Some(effort) = effort {
             preferences.push((
                 &effort_key,
                 serde_json::Value::String(effort.label().to_string()),
             ));
         }
+        // The switches with it, as upstream writes them beside every model
+        // change (`persistPreferenceTargets`; `fx-model-router-*` dumps:
+        // `"fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true`).
+        preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => {
-                crate::provider::profile::saved_but_shadowed("model", self.config.sources.model)
-                    .map(|said| super::notice::Notice::neutral(topic, said))
-            }
+            Ok(()) => self
+                .saved_model_and_speed(effort.is_some())
+                .map(|said| super::notice::Notice::neutral(topic, said)),
             Err(err) => Some(super::notice::Notice::error(
                 topic,
                 format!("active for this process but not saved to user settings ({err})"),
@@ -2100,25 +2289,25 @@ fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
 
 fn from_state(state: &CatalogState) -> CatalogAnswer {
     match state {
-        CatalogState::Loaded(entries) => CatalogAnswer::Rows(bounded(entries)),
+        CatalogState::Loaded(entries) => CatalogAnswer::Rows(in_menu_order(entries)),
         CatalogState::Failed(reason) => CatalogAnswer::Unread(reason.clone()),
         CatalogState::Unavailable | CatalogState::NotLoaded => CatalogAnswer::NoneAdvertised,
     }
 }
 
-/// The rows of `entries` a UI will actually be given.
+/// The rows of `entries` a UI is given: **every one**, in the order the menu
+/// lists them ([`crate::provider::model::picker_order`]).
 ///
-/// Bounded at the **event** rather than at the painter, because the cost being
-/// avoided is a ten-thousand-row list crossing a channel the UI drains one
-/// frame at a time. A named function rather than a `take` inline so that "the
-/// browser is bounded" is a claim a test can make without a daemon.
-fn bounded(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
-    // Ordered first, so the rows the bound keeps are the ones the menu would
-    // have put on top.
+/// Every one, because the band resolves a typed `/model <query>` against
+/// these rows by the selector's own rule and announces what it finds -- and a
+/// band holding fewer rows than the selector could resolve a query to a
+/// different model than the one the runtime would have chosen. Upstream's
+/// menu lists the whole catalog too. What bounds the list is the catalog
+/// document itself: it is read through a 1 MiB cap
+/// (`provider::model`'s `MAX_CATALOG_BODY_BYTES`), so no daemon can make this
+/// event unbounded.
+fn in_menu_order(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
     crate::provider::model::picker_order(entries)
-        .into_iter()
-        .take(MAX_RENDERED_MODELS)
-        .collect()
 }
 
 /// Runs work until the UI says to stop, or until it is gone, and says which
@@ -2166,6 +2355,7 @@ async fn turn_loop(
                 // Nothing is running, so the turn after this moment is the next
                 // one: the change is made now.
                 Some(TurnControl::Model(change)) => Taken::Model(change),
+                Some(TurnControl::Speed(change)) => Taken::Speed(change),
                 // Nothing is running, so nothing is changing the files: the
                 // undo is done now, as upstream's always is.
                 Some(TurnControl::Undo { through }) => Taken::Undo(through),
@@ -2218,6 +2408,10 @@ async fn turn_loop(
                     Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
                     Ended::Turn => {}
                 }
+                continue;
+            }
+            Taken::Speed(change) => {
+                change_speed(&mut state, change, events).await;
                 continue;
             }
             Taken::Undo(through) => {
@@ -2404,6 +2598,8 @@ enum Taken {
     Reset(usize),
     /// `/model`, between turns: applied now.
     Model(ModelChange),
+    /// `/fast` or `/ultrafast on|off`, between turns: applied now.
+    Speed(SpeedChange),
     /// `/undo`, between turns: done now, as of the position it was typed at.
     Undo(crate::tools::undo::Mark),
     /// A message that means nothing here.
@@ -2966,11 +3162,70 @@ async fn change_model(
 ) -> Ended {
     // `/settings`' effort row: the effort is the session's from here on, and
     // that is all -- the band chose it, wrote it and said so
-    // ([`ModelChange::effort_only`]).
+    // ([`ModelChange::effort_only`]). Recorded in the session, where a resume
+    // reads it back. Whatever the provider: the effort is global.
     if change.effort_only {
         if let Some(effort) = change.effort {
-            state.effort = effort;
+            state.settings.effort = effort;
+            state.record_settings();
             state.publish();
+        }
+        return Ended::Turn;
+    }
+    // **Chosen under another provider**: put aside while a `/provider` switch
+    // ran, and read after it. Upstream refuses the switch while work is busy
+    // and applies a model change at once, so its end state is the change made
+    // for the provider it was chosen under and then the switch -- which is
+    // what this leaves: that provider's model saved, the effort (global) taken,
+    // and the provider now in force, its model and its switches untouched. The
+    // band said `Switched to` the moment it was chosen, so it is told why the
+    // footer still names this provider's model. A query nobody resolved cannot
+    // be resolved against a catalog that has gone, and is dropped with a word.
+    if change.provider != state.config.provider {
+        let notice = if change.announced {
+            if change.effort.is_some() {
+                state.settings.effort = change.effort.clone().unwrap_or_default();
+                state.record_settings();
+            }
+            state
+                .save_change(
+                    change.provider,
+                    &change.name,
+                    change.effort.as_ref(),
+                    change.picker,
+                )
+                .or_else(|| {
+                    Some(super::notice::Notice::warning(
+                        "model",
+                        format!(
+                            "saved for {}; the provider changed to {} before it could be applied",
+                            change.provider.label(),
+                            state.config.provider.label()
+                        ),
+                    ))
+                })
+        } else {
+            Some(super::notice::Notice::warning(
+                "model",
+                format!(
+                    "not applied: the provider changed to {} before it could be",
+                    state.config.provider.label()
+                ),
+            ))
+        };
+        bridge::send_terminal(
+            events,
+            UiEvent::ModelAnswered {
+                model: state.model().to_string(),
+                settings: state.settings.clone(),
+                outcome: ModelAnswer::Unchanged,
+                next_turn: change.next_turn,
+                announced: true,
+            },
+        )
+        .await;
+        if let Some(notice) = notice {
+            bridge::send_terminal(events, UiEvent::Notice(notice)).await;
         }
         return Ended::Turn;
     }
@@ -2996,15 +3251,28 @@ async fn change_model(
     } else {
         state.use_model(&change.name)
     };
-    // The effort goes with the model it was chosen for, and only when the
-    // model was taken: a refusal changed nothing.
+    // The effort and the speed go with the model they were chosen for, and
+    // only when the model was taken: a refusal changed nothing. A picker's
+    // choice is held to what the model's row offers (`selectModelFromPicker`);
+    // a query turns both switches off when it changed the model
+    // (`setResolvedModel`).
     let effort = match &outcome {
         ModelOutcome::Selected { .. } | ModelOutcome::Unchanged { .. } => change.effort.clone(),
         ModelOutcome::Refused { .. } | ModelOutcome::Reported { .. } => None,
     };
-    if let Some(effort) = &effort {
-        state.effort = effort.clone();
-    }
+    let after = match &outcome {
+        ModelOutcome::Refused { .. } | ModelOutcome::Reported { .. } => state.settings.clone(),
+        _ if change.picker => {
+            let entry = state.selector.entry(state.selector.model());
+            state
+                .settings
+                .after_pick(effort.as_ref(), change.speed, entry)
+        }
+        ModelOutcome::Selected { .. } => state.settings.after_query(true),
+        ModelOutcome::Unchanged { .. } => state.settings.after_query(false),
+    };
+    state.settings = after;
+    state.record_settings();
     state.publish();
     let (answered, chosen) = match outcome {
         ModelOutcome::Selected {
@@ -3020,7 +3288,14 @@ async fn change_model(
     // Written for an unchanged model too, as upstream writes it
     // (`setResolvedModel` persists whatever it resolved): the operator named
     // this model, and the profile is where a later launch reads that.
-    let saved = chosen.and_then(|model| state.save_change(&model, effort.as_ref(), change.picker));
+    let saved = chosen.and_then(|model| {
+        state.save_change(
+            state.config.provider,
+            &model,
+            effort.as_ref(),
+            change.picker,
+        )
+    });
     bridge::send_terminal(
         events,
         UiEvent::ModelAnswered {
@@ -3028,7 +3303,7 @@ async fn change_model(
             // rather than echoed from the request: on a refusal that is the
             // standing model, and it is the one the band must show.
             model: state.model().to_string(),
-            effort: state.effort.clone(),
+            settings: state.settings.clone(),
             outcome: answered,
             next_turn: change.next_turn,
             announced: change.announced,
@@ -3075,6 +3350,12 @@ async fn apply_deferred(
                     run_undo(state, events, through, after_reset).await;
                     continue;
                 }
+                // The same for a speed: it needs no socket, and the band has
+                // said it already.
+                Deferred::Speed(change) => {
+                    change_speed(state, change, events).await;
+                    continue;
+                }
                 Deferred::Model(change) => change,
             };
             if ended == Ended::Session && !change.announced {
@@ -3090,6 +3371,27 @@ async fn apply_deferred(
                 (Ended::Turn, Ended::Turn) => Ended::Turn,
             };
         }
+    }
+}
+
+/// Applies one `/fast` or `/ultrafast on|off` ([`TurnControl::Speed`]): the
+/// switches as the band decided them, recorded in the session log and saved,
+/// with nothing said unless the save failed -- the band has said `fast: on`
+/// already, as upstream says it the moment the command is given.
+///
+/// A change the band decided under another provider is dropped: a
+/// `/provider` switch took the switches off with the model it replaced, and
+/// the band's own record of them went off with the same switch.
+async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<UiEvent>) {
+    if change.provider != state.config.provider {
+        return;
+    }
+    state.settings.fast = change.fast && !change.ultrafast;
+    state.settings.ultrafast = change.ultrafast;
+    state.record_settings();
+    state.publish();
+    if let Some(notice) = state.save_speed(change.topic) {
+        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
     }
 }
 
@@ -3256,10 +3558,11 @@ async fn raced_against_control<F: Future>(
                     // later prompt to belong to.
                     stop(usize::MAX);
                 }
-                // `/model` while this work runs: for the turn after it, so put
-                // aside until it is over ([`ControlChannel::defer`]). Nothing
-                // here stops.
+                // `/model`, `/fast` or `/ultrafast` while this work runs: for
+                // the turn after it, so put aside until it is over
+                // ([`ControlChannel::defer`]). Nothing here stops.
                 Some(TurnControl::Model(change)) => control.defer(change),
+                Some(TurnControl::Speed(change)) => control.defer_speed(change),
                 // `/undo` while this work runs: put aside the same way
                 // ([`TurnControl::Undo`] says why not at once), and marked when
                 // a reset has already been read here -- that undo was typed in
@@ -3448,7 +3751,7 @@ async fn one_turn(
     // the turn's own cancellation so a Ctrl-C does not wait out a slow
     // Gateway, and told to the UI, whose footer and columns read the same rows.
     // A session in the default asks for nothing and costs no socket.
-    if !state.effort.is_default() {
+    if !state.settings.effort.is_default() || state.settings.fast || state.settings.ultrafast {
         let fresh = tokio::select! {
             biased;
             () = turn.token.cancelled() => false,
@@ -3497,7 +3800,21 @@ async fn one_turn(
         // for its conclusion to say (`compactionErrorHandled`).
         return None;
     }
-    let options = state.request_options();
+    let options = match state.request_options() {
+        Ok(options) => options,
+        Err(refusal) => return Some(refusal),
+    };
+    // Fast asked for and dropped because the catalog is down: said once, at
+    // the top of the answer, as upstream says it before the request.
+    if fast_unavailable(state) {
+        let _ = bridge::send_ui(
+            events,
+            &turn.token,
+            UiEvent::Operational(FAST_UNAVAILABLE.to_string()),
+        )
+        .await;
+    }
+    let ultrafast = options.ultrafast;
     state
         .provider
         .as_ref()
@@ -3589,7 +3906,10 @@ async fn one_turn(
         events: events.clone(),
         token: turn.token.clone(),
     };
-    let outcome = run_turn_saved(request, context, &provider, &mut sink, &mut journal).await;
+    // And, in Ultra, whether each response was served at it
+    // ([`ServedUltra`]).
+    let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
+    let outcome = run_turn_saved(request, context, &served, &mut sink, &mut journal).await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -3599,12 +3919,13 @@ async fn one_turn(
     // time would be asking a question the user has already answered.
     record_grants(conversation);
 
-    // What the turn spent, from the **completed** turn's own outcome
+    // What the turn's answer read, from the **completed** turn's own outcome
     // (`agent::TurnOutcome::usage`, the same value the session log records at
     // `agent::machine`'s `UsageRecorded`). Only a turn that finished has one: a
     // turn that failed mid-stream has no total to report, and inventing one
     // from the deltas that did arrive would put a number on the hint row that
-    // no provider ever said.
+    // no provider ever said. What it wrote reached the band request by
+    // request, as the machine settled each one (`UiEvent::Output`).
     //
     // Best effort, like the history notices above: the conclusion below is what
     // the turn owes, and a meter is worth less than the answer it measures.
@@ -3614,7 +3935,6 @@ async fn one_turn(
             &turn.token,
             UiEvent::Usage {
                 input: finished.usage.input_tokens,
-                output: finished.usage.output_tokens,
             },
         )
         .await;
@@ -3630,6 +3950,73 @@ async fn one_turn(
             .failure()
             .map(|problem| format!("xfx: {problem}")),
         Err(err) => Some(err.to_string()),
+    }
+}
+
+/// Whether a turn in Fast mode goes at standard speed because the catalog
+/// that would say the model offers Fast could not be read
+/// (`orchestrator.zig:7253-7262`, `isModelCacheFailed`).
+fn fast_unavailable(state: &Runtime) -> bool {
+    state.settings.fast
+        && !state.settings.ultrafast
+        && state.request_options().is_ok_and(|options| !options.fast)
+        && matches!(state.selector.catalog(), CatalogState::Failed(_))
+}
+
+/// The provider a turn streams from, saying once per turn -- when the turn is
+/// in Ultra mode -- that a response's finish did not confirm the Ultra tier
+/// (`orchestrator.zig:8015-8022`; the tier is the Gateway's own word,
+/// [`crate::gateway::protocol::Completion::service_tier`]). After the
+/// response, as upstream checks it once the stream has completed, so the
+/// sentence lands ahead of the line the answer's presenter still holds.
+struct ServedUltra<'a> {
+    provider: &'a dyn crate::gateway::Provider,
+    ultrafast: bool,
+    said: std::cell::Cell<bool>,
+    events: Sender<UiEvent>,
+    cancel: tokio_util::sync::CancellationToken,
+}
+
+impl<'a> ServedUltra<'a> {
+    fn new(
+        provider: &'a dyn crate::gateway::Provider,
+        ultrafast: bool,
+        events: Sender<UiEvent>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        Self {
+            provider,
+            ultrafast,
+            said: std::cell::Cell::new(false),
+            events,
+            cancel,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::gateway::Provider for ServedUltra<'_> {
+    async fn stream(
+        &self,
+        request: &crate::gateway::protocol::CompletionRequest,
+        deltas: &mut dyn crate::gateway::DeltaSink,
+    ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
+        let settled = self.provider.stream(request, deltas).await;
+        if let Ok(completion) = &settled {
+            let confirmed =
+                completion.service_tier == Some(crate::gateway::protocol::ServiceTier::Ultrafast);
+            if self.ultrafast && !confirmed && !self.said.replace(true) {
+                // Best effort, as the network record is: a turn already
+                // cancelled or a UI already gone loses a sentence nobody sees.
+                let _ = bridge::send_ui(
+                    &self.events,
+                    &self.cancel,
+                    UiEvent::Operational(ULTRAFAST_UNCONFIRMED.to_string()),
+                )
+                .await;
+            }
+        }
+        settled
     }
 }
 
@@ -3709,6 +4096,7 @@ mod tests {
         AllowSource, ApprovalAnswer, Grant, MutationKind, MutationPlan, PolicyDecision, Preimage,
         ProposedAction, TargetScope,
     };
+    use crate::provider::effort::TurnSettings;
     use crate::provider::Wire;
     use crate::tools::undo::Mark;
 
@@ -5327,6 +5715,7 @@ mod tests {
         recorder.commit(SessionEvent::UsageRecorded {
             input_tokens: Some(1200),
             output_tokens: Some(40),
+            turn_output_tokens: None,
             requests: vec![crate::session::RequestUsage {
                 at_ms: 2_000,
                 duration_ms: 700,
@@ -5424,6 +5813,7 @@ mod tests {
         recorder.commit(SessionEvent::UsageRecorded {
             input_tokens: Some(1200),
             output_tokens: Some(40),
+            turn_output_tokens: None,
             requests: vec![crate::session::RequestUsage {
                 at_ms: 2_000,
                 duration_ms: 700,
@@ -6277,9 +6667,11 @@ mod tests {
             ModelChange {
                 name: name.to_string(),
                 effort: None,
+                speed: None,
                 picker: false,
                 announced: false,
                 next_turn,
+                provider: ProviderId::Gateway,
                 effort_only: false,
             },
         )
@@ -6367,6 +6759,8 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
                 effort_only: false,
             },
         );
@@ -6374,7 +6768,10 @@ mod tests {
             said,
             [UiEvent::ModelAnswered {
                 model: "openai/gpt-6-astra".to_string(),
-                effort: low.clone(),
+                settings: TurnSettings {
+                    effort: low.clone(),
+                    ..TurnSettings::default()
+                },
                 // The fixture's Gateway has no credential, so no catalog to
                 // check against: applied, and no caveat.
                 outcome: ModelAnswer::Applied { unverified: None },
@@ -6382,11 +6779,14 @@ mod tests {
                 announced: true,
             }]
         );
-        assert_eq!(state.effort, low);
+        assert_eq!(state.settings.effort, low);
         assert_eq!(
             settings(home.path()),
             serde_json::json!({"theme": "dark", "effort": "low",
-                               "models": {"gateway": "openai/gpt-6-astra"}})
+                               "models": {"gateway": "openai/gpt-6-astra"},
+                               "provider": "gateway",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
         );
         // The next launch starts in it.
         let reloaded = config(home.path(), workspace.path());
@@ -6396,10 +6796,13 @@ mod tests {
         // A router-form change leaves the effort as it is, and does not write
         // it: it changed only the model (`setResolvedModel`).
         let said = ran_model(&mut state, "acme/one", false);
-        let UiEvent::ModelAnswered { effort, .. } = &said[0] else {
+        let UiEvent::ModelAnswered { settings: kept, .. } = &said[0] else {
             panic!("{said:?}");
         };
-        assert_eq!(effort, &low, "a model change dropped the session's effort");
+        assert_eq!(
+            kept.effort, low,
+            "a model change dropped the session's effort"
+        );
         assert_eq!(settings(home.path())["effort"], "low");
         assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
     }
@@ -6424,14 +6827,22 @@ mod tests {
             ModelChange {
                 name: "something/else".to_string(),
                 effort: Some(high.clone()),
+                speed: None,
                 picker: false,
                 announced: true,
                 next_turn: false,
+                // Whatever provider it names: the effort is global.
+                provider: ProviderId::Llmux,
                 effort_only: true,
             },
         );
         assert!(said.is_empty(), "{said:?}");
-        assert_eq!(state.effort, high);
+        assert_eq!(state.settings.effort, high);
+        assert_eq!(
+            recorded(&state).map(|settings| settings.effort),
+            Some(high.clone()),
+            "a resume would not read it back"
+        );
         assert_eq!(state.model(), model, "the model moved");
         assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
     }
@@ -6481,9 +6892,9 @@ mod tests {
         // the level for a model that lists it, and nothing for a model that
         // does not -- or that no catalog read describes.
         let (_home, _workspace, mut state) = recording();
-        let options = |state: &Runtime| state.request_options().reasoning;
+        let options = |state: &Runtime| state.request_options().expect("no Ultra").reasoning;
         assert_eq!(options(&state), None, "the default asks for nothing");
-        state.effort = crate::provider::effort::Effort::Named("high".to_string());
+        state.settings.effort = crate::provider::effort::Effort::Named("high".to_string());
         assert_eq!(options(&state), None, "no catalog describes the model");
         let model = state.model().to_string();
         state
@@ -6519,6 +6930,8 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            speed: None,
+            provider: ProviderId::Gateway,
             effort_only: false,
         };
         control_tx
@@ -6563,6 +6976,8 @@ mod tests {
             picker: true,
             announced: true,
             next_turn: true,
+            speed: None,
+            provider: ProviderId::Gateway,
             effort_only: false,
         });
         control.defer(ModelChange {
@@ -6571,6 +6986,8 @@ mod tests {
             picker: false,
             announced: false,
             next_turn: true,
+            speed: None,
+            provider: ProviderId::Gateway,
             effort_only: false,
         });
         let ended = on_a_runtime(apply_deferred(
@@ -6592,6 +7009,304 @@ mod tests {
             events_rx.try_recv().is_err(),
             "the unresolved one was applied"
         );
+    }
+
+    /// One catalog row offering `efforts`, and Fast and Ultra as told.
+    fn sped(id: &str, efforts: &[&str], fast: bool, ultrafast: bool) -> CatalogEntry {
+        let mut entry = leveled(id, efforts);
+        entry.facts.fast = fast;
+        entry.facts.ultrafast = ultrafast;
+        entry
+    }
+
+    /// The capture harness's rows with their speeds.
+    fn speed_catalog() -> Vec<CatalogEntry> {
+        vec![
+            sped("openai/gpt-6-astra", &["low", "high"], true, true),
+            sped("anthropic/claude-opus-5", &["low", "max"], true, false),
+            published("fake/model-a"),
+        ]
+    }
+
+    /// What the session log holds as the effort and the switches.
+    fn recorded(state: &Runtime) -> Option<TurnSettings> {
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .turn_settings
+            .clone()
+    }
+
+    #[test]
+    fn a_pick_keeps_the_speed_its_row_offers_and_a_query_turns_both_off() {
+        // `selectModelFromPicker` and `setResolvedModel`
+        // (`session_commands.zig:886-915`, `:1168-1190`), recorded in the
+        // session and saved beside the model.
+        let (home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        let low = crate::provider::effort::Effort::Named("low".to_string());
+        let picked =
+            |name: &str, effort: Option<crate::provider::effort::Effort>, speed| ModelChange {
+                name: name.to_string(),
+                effort,
+                speed,
+                picker: true,
+                announced: true,
+                next_turn: false,
+                provider: ProviderId::Gateway,
+                effort_only: false,
+            };
+        ran_change(
+            &mut state,
+            picked(
+                "openai/gpt-6-astra",
+                Some(low.clone()),
+                Some(crate::provider::effort::Speed::Ultrafast),
+            ),
+        );
+        let ultra = TurnSettings {
+            effort: low.clone(),
+            fast: false,
+            ultrafast: true,
+        };
+        assert_eq!(state.settings, ultra);
+        assert_eq!(recorded(&state), Some(ultra));
+        let saved = settings(home.path());
+        assert_eq!(
+            (
+                &saved["ultrafast_mode"],
+                &saved["fast_mode"],
+                &saved["fast_mode_model_bound"]
+            ),
+            (
+                &serde_json::json!(true),
+                &serde_json::json!(false),
+                &serde_json::json!(true)
+            )
+        );
+        // Ultra on a row that does not offer it is no speed at all, and the
+        // session's Fast stands only where the row offers it.
+        ran_change(
+            &mut state,
+            picked(
+                "anthropic/claude-opus-5",
+                None,
+                Some(crate::provider::effort::Speed::Ultrafast),
+            ),
+        );
+        assert!(!state.settings.ultrafast && !state.settings.fast);
+        state.settings.fast = true;
+        ran_change(&mut state, picked("openai/gpt-6-astra", None, None));
+        assert!(
+            state.settings.fast,
+            "no speed column keeps Fast where it is offered"
+        );
+        ran_change(&mut state, picked("fake/model-a", None, None));
+        assert!(!state.settings.fast, "a row with no Fast");
+        // A query that changes the model turns both off.
+        state.settings.fast = true;
+        ran_model(&mut state, "opus", false);
+        assert_eq!(state.model(), "anthropic/claude-opus-5");
+        assert!(!state.settings.fast);
+        assert_eq!(recorded(&state).map(|settings| settings.fast), Some(false));
+    }
+
+    #[test]
+    fn a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not() {
+        let (home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+            &events_tx,
+        ));
+        assert!(state.settings.fast && !state.settings.ultrafast);
+        assert_eq!(recorded(&state).map(|settings| settings.fast), Some(true));
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
+        assert!(
+            events_rx.try_recv().is_err(),
+            "a save that landed says nothing"
+        );
+        // Decided under the provider a switch replaced: dropped, because the
+        // switches went off with the model the switch replaced.
+        on_a_runtime(change_speed(
+            &mut state,
+            SpeedChange {
+                fast: false,
+                ultrafast: true,
+                topic: "ultrafast",
+                provider: ProviderId::Llmux,
+            },
+            &events_tx,
+        ));
+        assert!(state.settings.fast && !state.settings.ultrafast);
+    }
+
+    #[test]
+    fn ultra_is_sent_only_through_the_gateway_to_an_openai_row_that_offers_it() {
+        // `resolveUltrafastProviderOptions` (`model_capabilities.zig:209-224`):
+        // no silent downgrade -- a turn in Ultra that cannot be sent in it is
+        // refused. Fast is sent only where the row offers it
+        // (`resolveProviderOptionsForCapabilities`, `:203`).
+        let (_home, _workspace, mut state) = recording();
+        state.settings.ultrafast = true;
+        assert_eq!(
+            state.request_options(),
+            Err(ULTRAFAST_UNAVAILABLE.to_string()),
+            "no row in hand"
+        );
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        state.use_model("openai/gpt-6-astra");
+        let options = state.request_options().expect("offered");
+        assert!(options.ultrafast && !options.fast);
+        state.use_model("anthropic/claude-opus-5");
+        assert_eq!(
+            state.request_options(),
+            Err(ULTRAFAST_UNAVAILABLE.to_string())
+        );
+        state.settings.ultrafast = false;
+        state.settings.fast = true;
+        assert!(state.request_options().expect("no Ultra").fast);
+        state.use_model("fake/model-a");
+        assert!(
+            !state.request_options().expect("no Ultra").fast,
+            "not offered"
+        );
+        // Through llmux, no Ultra at all: the daemon reads no speed.
+        state.use_model("openai/gpt-6-astra");
+        state.settings.ultrafast = true;
+        state.config.provider = ProviderId::Llmux;
+        assert_eq!(
+            state.request_options(),
+            Err(ULTRAFAST_UNAVAILABLE.to_string())
+        );
+    }
+
+    #[test]
+    fn a_change_chosen_under_another_provider_is_saved_for_it_and_lands_on_no_selector() {
+        // Put aside while `/provider` switched: upstream refuses the switch
+        // while work runs, so its end state is the change made for the old
+        // provider and then the switch. The new provider's model is untouched.
+        let (home, _workspace, mut state) = recording();
+        let before = state.model().to_string();
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "fable".to_string(),
+                effort: Some(high.clone()),
+                speed: None,
+                picker: true,
+                announced: true,
+                next_turn: true,
+                provider: ProviderId::Llmux,
+                effort_only: false,
+            },
+        );
+        assert_eq!(
+            state.model(),
+            before,
+            "it landed on this provider's selector"
+        );
+        assert_eq!(settings(home.path())["models"]["llmux"], "fable");
+        assert_eq!(state.settings.effort, high, "the effort is the session's");
+        assert!(
+            matches!(&said[0], UiEvent::ModelAnswered { model, outcome: ModelAnswer::Unchanged, .. }
+                if *model == before),
+            "{said:?}"
+        );
+        assert!(
+            matches!(&said[1], UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Warning),
+            "the band said `Switched to fable` and is owed why the footer did not: {said:?}"
+        );
+        // One the band never resolved cannot be resolved against a catalog
+        // that has gone: dropped, with a word.
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "fab".to_string(),
+                effort: None,
+                speed: None,
+                picker: false,
+                announced: false,
+                next_turn: true,
+                provider: ProviderId::Llmux,
+                effort_only: false,
+            },
+        );
+        assert_eq!(state.model(), before);
+        assert!(
+            matches!(&said[1], UiEvent::Notice(notice) if notice.tone == super::super::notice::Tone::Warning),
+            "{said:?}"
+        );
+        assert_eq!(settings(home.path())["models"]["llmux"], "fable");
+    }
+
+    #[test]
+    fn a_resume_puts_back_the_effort_and_the_speed_the_session_recorded() {
+        // `restoreRuntimePreferences` (`app_session_runtime.zig:6126-6175`).
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let chosen = TurnSettings {
+            effort: crate::provider::effort::Effort::Named("max".to_string()),
+            fast: true,
+            ultrafast: false,
+        };
+        let saved = {
+            let store = open_store(&config).expect("a store");
+            let mut conversation = open_conversation(
+                &store,
+                &config,
+                &config.model,
+                PermissionSession::new(config.permission_mode),
+                None,
+                &CancelToken::new(),
+            )
+            .expect("open a conversation");
+            conversation.recorder.commit(SessionEvent::UserMessage {
+                text: "first question alpha".to_string(),
+            });
+            conversation
+                .recorder
+                .commit(SessionEvent::PreferencesChanged {
+                    model: None,
+                    permission_mode: None,
+                    effort: Some("max".to_string()),
+                    fast_mode: Some(true),
+                    ultrafast_mode: Some(false),
+                });
+            conversation.recorder.id().clone()
+        };
+        // At launch, through the resumption.
+        let resumed =
+            Resumption::open(&config, &crate::session::Selector::Id(saved.clone())).expect("opens");
+        assert_eq!(resumed.settings(), Some(&chosen));
+        drop(resumed);
+        // From the picker, into a runtime in other settings.
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        assert_eq!(state.settings, TurnSettings::default());
+        let replay = state
+            .resume_by_id(saved.as_str(), &CancelToken::new())
+            .expect("resumed");
+        assert_eq!(state.settings, chosen);
+        assert_eq!(replay.settings, Some(chosen));
+        // The runtime was in Normal: the session's Fast is not the configured
+        // selection, so it comes back unbound (`restoredFastModeModelBound`).
+        assert!(!replay.keeps_fast_binding);
     }
 
     /// Runs one tool call through the conversation's own tools, as a turn's
@@ -6888,7 +7603,10 @@ mod tests {
             said,
             [UiEvent::ModelAnswered {
                 model: "acme/one".to_string(),
-                effort: crate::provider::effort::Effort::Auto,
+                settings: TurnSettings {
+                    effort: crate::provider::effort::Effort::Auto,
+                    ..TurnSettings::default()
+                },
                 outcome: ModelAnswer::Applied { unverified: None },
                 next_turn: false,
                 announced: false,
@@ -6898,7 +7616,10 @@ mod tests {
         assert_eq!(
             settings(home.path()),
             serde_json::json!({"permission_mode": "ask",
-                               "models": {"llmux": "fable", "gateway": "acme/one"}})
+                               "models": {"llmux": "fable", "gateway": "acme/one"},
+                               "provider": "gateway",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
         );
         // Round trip: the next launch reads it, from the profile.
         let reloaded = config(home.path(), workspace.path());
@@ -6916,7 +7637,10 @@ mod tests {
             said,
             [UiEvent::ModelAnswered {
                 model: "acme/one".to_string(),
-                effort: crate::provider::effort::Effort::Auto,
+                settings: TurnSettings {
+                    effort: crate::provider::effort::Effort::Auto,
+                    ..TurnSettings::default()
+                },
                 outcome: ModelAnswer::Unchanged,
                 next_turn: true,
                 announced: false,
@@ -6924,7 +7648,103 @@ mod tests {
         );
         assert_eq!(
             settings(home.path()),
-            serde_json::json!({"models": {"gateway": "acme/one"}})
+            serde_json::json!({"models": {"gateway": "acme/one"}, "provider": "gateway",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+    }
+
+    #[test]
+    fn a_speed_change_saves_what_upstream_saves_beside_it_under_a_model_override() {
+        // `applyFastMode` (`session_commands.zig:781-790`): the provider, the
+        // model in force -- here the one `XFX_MODEL` pinned, as upstream writes
+        // `provider_runtime.model(app)` -- and the switches with the binding;
+        // and the commit report keeps the shadowing suffix
+        // (`appendShadowedUserSource`, `:225-240`).
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_MODEL".to_string(), "pinned/model".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+            &events_tx,
+        ));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "pinned/model"}, "provider": "gateway",
+                               "fast_mode": true, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        assert_eq!(
+            events_rx.try_recv().ok(),
+            Some(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "fast",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override"
+            )))
+        );
+    }
+
+    #[test]
+    fn a_save_names_every_field_this_workspaces_entry_still_decides_in_upstreams_order() {
+        // `appendShadowedUserSources` (`session_commands.zig:170-186`): one
+        // header, then `model`, `effort`, `fast_mode`, `ultrafast_mode` -- each
+        // the save wrote and a layer above the profile still decides.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().canonicalize().expect("a workspace");
+        crate::provider::profile::write_preference(
+            &home.path().join(".xfx").join("settings.json"),
+            &["workspaces"],
+            serde_json::json!({root.to_string_lossy(): {
+                "effort": "high", "fast_mode": true, "ultrafast_mode": false
+            }}),
+        )
+        .expect("seed");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let shadow = "saved to user settings (scope=user); fresh sessions here use \
+                      higher-precedence ";
+
+        assert_eq!(
+            state.save_speed("fast"),
+            Some(super::super::notice::Notice::neutral(
+                "fast",
+                format!("{shadow}fast_mode=user_workspace, ultrafast_mode=user_workspace")
+            ))
+        );
+        let high = crate::provider::effort::Effort::parse("high").expect("an effort");
+        assert_eq!(
+            state.save_change(ProviderId::Gateway, "fake/model-a", Some(&high), false),
+            Some(super::super::notice::Notice::neutral(
+                "model",
+                format!(
+                    "{shadow}effort=user_workspace, fast_mode=user_workspace, \
+                     ultrafast_mode=user_workspace"
+                )
+            ))
+        );
+        // No effort written, none named.
+        assert_eq!(
+            state.save_change(ProviderId::Gateway, "fake/model-a", None, true),
+            Some(super::super::notice::Notice::neutral(
+                "model picker",
+                format!("{shadow}fast_mode=user_workspace, ultrafast_mode=user_workspace")
+            ))
         );
     }
 
@@ -7272,10 +8092,13 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_a_ui_is_given_is_bounded_at_the_event() {
-        // A daemon may advertise any number of models; the browser renders at
-        // most `MAX_RENDERED_MODELS` of them, and the cut is made before the
-        // list crosses the channel rather than at the painter.
+    fn the_ui_is_given_every_row_so_the_band_and_the_selector_resolve_alike() {
+        // It used to be cut at `MAX_RENDERED_MODELS`, and then a band
+        // resolving `/model <query>` over 100 rows could announce a model the
+        // selector -- over all of them -- would not have chosen. Every row
+        // crosses now, in the menu's order; the catalog document's own 1 MiB
+        // cap is what bounds it.
+        use crate::provider::model::MAX_RENDERED_MODELS;
         let many: Vec<CatalogEntry> = (0..MAX_RENDERED_MODELS + 50)
             .map(|index| CatalogEntry {
                 id: format!("model-{index}"),
@@ -7286,12 +8109,16 @@ mod tests {
                 facts: Default::default(),
             })
             .collect();
-        let shown = bounded(&many);
-        assert_eq!(shown.len(), MAX_RENDERED_MODELS);
+        let shown = in_menu_order(&many);
+        assert_eq!(shown.len(), MAX_RENDERED_MODELS + 50);
         assert_eq!(shown[0].id, "model-0", "the provider's own order is kept");
-        // A catalog inside the bound is not cut at all.
-        assert_eq!(bounded(&many[..3]).len(), 3);
-        assert_eq!(bounded(&[]).len(), 0);
+        // The 150th row is reachable by the rule both sides use.
+        let last = format!("model-{}", MAX_RENDERED_MODELS + 49);
+        assert_eq!(
+            crate::provider::model::resolve_in_order(&shown, &last),
+            last
+        );
+        assert_eq!(in_menu_order(&[]).len(), 0);
     }
 
     #[test]
@@ -7673,6 +8500,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         }
     }
 
@@ -7687,7 +8515,88 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         }
+    }
+
+    #[test]
+    fn a_turn_in_ultra_says_once_when_a_response_was_not_served_at_it() {
+        // `orchestrator.zig:8015-8022`: checked per response, said once per
+        // turn, and only in Ultra; a confirmed tier says nothing.
+        let served = |tier| Completion {
+            service_tier: tier,
+            ..answers("x")
+        };
+        let said = |ultrafast: bool, steps: Vec<Completion>| {
+            let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+            let provider = ScriptedProvider::new(steps.clone());
+            let watched = ServedUltra::new(
+                &provider,
+                ultrafast,
+                events_tx,
+                tokio_util::sync::CancellationToken::new(),
+            );
+            let request = crate::gateway::protocol::CompletionRequest {
+                model: "openai/gpt-6-astra".to_string(),
+                messages: vec![crate::gateway::protocol::Message::user("go")],
+                tools: Vec::new(),
+                tool_choice: crate::gateway::protocol::ToolChoice::Auto,
+            };
+            struct Quiet;
+            impl crate::gateway::DeltaSink for Quiet {
+                fn text_delta(&mut self, _text: &str) -> io::Result<()> {
+                    Ok(())
+                }
+            }
+            for _ in &steps {
+                on_a_runtime(crate::gateway::Provider::stream(
+                    &watched, &request, &mut Quiet,
+                ))
+                .expect("answered");
+            }
+            let mut said = Vec::new();
+            while let Ok(event) = events_rx.try_recv() {
+                said.push(event);
+            }
+            said
+        };
+        use crate::gateway::protocol::ServiceTier;
+        assert_eq!(
+            said(
+                true,
+                vec![served(None), served(Some(ServiceTier::Priority))]
+            ),
+            [UiEvent::Operational(ULTRAFAST_UNCONFIRMED.to_string())],
+            "once per turn"
+        );
+        assert!(said(true, vec![served(Some(ServiceTier::Ultrafast))]).is_empty());
+        assert!(said(false, vec![served(None)]).is_empty(), "not in Ultra");
+        assert!(ULTRAFAST_UNCONFIRMED.starts_with(
+            "Ultrafast was requested, but Gateway did not confirm it was served; this response \
+             may have used a standard or lower tier."
+        ));
+    }
+
+    #[test]
+    fn fast_with_no_catalog_to_offer_it_is_dropped_and_said_only_when_the_catalog_is_down() {
+        // `orchestrator.zig:7253-7262`: a catalog that could not be read is
+        // the case worth a word; one that was read and does not offer Fast for
+        // the model drops it quietly.
+        let (_home, _workspace, mut state) = recording();
+        state.settings.fast = true;
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+        assert!(!state.request_options().expect("no Ultra").fast);
+        assert!(fast_unavailable(&state));
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("other/model")]));
+        assert!(!fast_unavailable(&state));
+        assert_eq!(
+            FAST_UNAVAILABLE,
+            "Fast mode is unavailable for this model right now; continuing at standard speed.\n"
+        );
     }
 
     fn call(id: &str, name: &str, input: serde_json::Value) -> ToolCall {
