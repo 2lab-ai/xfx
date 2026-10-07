@@ -2396,6 +2396,11 @@ impl Runtime {
                     ultrafast_mode: None,
                 });
         }
+        // And the switches that went off above, into the same log: a resume
+        // restores the session's settings from it (`Runtime::resume_by_id`),
+        // and one that still said Fast would turn it back on for a model
+        // that was never asked for it.
+        self.record_settings();
         // The bills the Gateway still owes this session are asked with the
         // Gateway's credential, and only while it is the provider: upstream
         // drops its asking credential on a switch to a provider that is not
@@ -10270,6 +10275,10 @@ mod tests {
             .id()
             .clone();
         runtime.began_ms = 1_234;
+        // In Fast, and the log says so: the switch turns it off with the
+        // model it replaces, and a resume reads the log's.
+        runtime.settings.fast = true;
+        runtime.record_settings();
 
         let mut after = before.clone();
         after.provider = ProviderId::Llmux;
@@ -10292,6 +10301,16 @@ mod tests {
         assert_eq!(kept.recorder.state().provider.as_deref(), Some("llmux"));
         assert_eq!(kept.recorder.state().model, "fable");
         assert_eq!(runtime.began_ms, 1_234, "the switch restarted the clock");
+        assert!(!runtime.settings.fast);
+        assert_eq!(
+            kept.recorder
+                .state()
+                .turn_settings
+                .as_ref()
+                .map(|settings| settings.fast),
+            Some(false),
+            "the log kept Fast on across the switch, for a resume to restore"
+        );
         assert_eq!(
             runtime.config.llmux_url.as_deref(),
             Some("http://127.0.0.1:3456"),
