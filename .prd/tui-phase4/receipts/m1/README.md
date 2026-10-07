@@ -16,13 +16,15 @@ FXCAP_SCENARIOS=<this dir>/scenarios                                   scripts/f
 
 Both servers are upstream's own e2e fixture, `vercel-labs/fx@c1db9191
 tests/e2e/fixtures/mcp-legacy-stdio.mjs`, byte-identical copy, run with `bun`
-by absolute path (not copied here; `<fixtures>/mcp-legacy-stdio.mjs`).
+by absolute path. It is not copied into this repository: to retake these, put
+that file in the scenario directory and write its absolute path where the
+scenarios and `scenarios/mcp-ws/.mcp.json` say `<fixtures>/mcp-legacy-stdio.mjs`.
 
 The fx captures of `mcp-empty` and `mcp-fixture` are the research captures
 (`research/media-ext/cap/`, same binary, same scenarios); `mcp-wire` was taken
-on both sides in this unit. The xfx binary is `target/debug/xfx` at the commit
-this README lands in (its banner prints the revision of the plan head it was
-branched from). Same driver guards as every receipt: isolated tmux socket,
+on both sides in this unit. The xfx binary is `target/debug/xfx` built at
+`cda5004` -- the unit with `plan/tui-phase4` `276e805` merged, which is what
+its banner says -- and every xfx file here was retaken with it. Same driver guards as every receipt: isolated tmux socket,
 empty `HOME`, fake key, loopback fake gateway, browser/clipboard/sound shims.
 
 **Sanitized after comparison**, the same way on both sides: the session
@@ -59,8 +61,8 @@ fx sends `{"elicitation":{"form":{},"url":{}}}`: xfx answers no elicitation
 request, so it does not claim to (`elicitation.zig:109-130`).
 
 `wire-bodies-compare.txt` and `wire-fixture-bodies-compare.txt` (every
-completion request, fx's title and classifier requests set aside -- xfx sends
-neither): the `<mcp_servers>` system block is identical in every request
+completion request; the title requests, the same on both sides, and fx's
+classifier request, which xfx does not send, set aside): the `<mcp_servers>` system block is identical in every request
 (including `<server name="proj" state="disabled" />` for the rejected project
 server); the meta-tools are advertised from the first request and
 `mcp_fixture_echo` from the step after `capability_search` selected it, with
@@ -89,5 +91,5 @@ differences, both deliberate:
 | menu `a` | the add form, its preview and argument screens | composes `/mcp add ` in the composer |
 | menu `s`, `/mcp auth`, `/mcp logout`, `/mcp add slack`, HTTP OAuth | browser sign-in and token storage | gated (G): upstream's own words for a leaf that is unavailable -- `Interactive MCP authentication is unavailable here.`, `MCP logout is unavailable here.` -- identical on screen (`auth-*`, `logout-*`, the menu feedback) |
 | Ctrl-C / Ctrl-D at the trust prompt | consumed by the prompt (`app_input_runtime.zig:884-937`) | pass through to the shell's own handling |
-| meta-tools outside the TUI | everywhere | only where an MCP client runs (the TUI); `xfx ask` advertises the nine built-ins |
+| meta-tools outside the TUI | `fx ask` advertises them too, when its mode allows `mcp_features` and no rule denies it (`cli_ask.zig:4116-4117`) | only where an MCP client runs (the TUI); `xfx ask` starts no MCP server and advertises the nine built-ins |
 | settings backups | `settings.json.backup.*`, five kept (`settings_store.zig:20`, `:668-700`) | none: xfx's settings writer keeps none for any key, trust choices included |

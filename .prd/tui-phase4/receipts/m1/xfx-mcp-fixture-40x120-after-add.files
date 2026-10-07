@@ -1,14 +1,14 @@
 === ~/.xfx/history.jsonl (1586 bytes)
-{"schema_version":1,"timestamp_ms":1791355164430,"workspace_root":"<scratch>/work","text":"/mcp list"}
-{"schema_version":1,"timestamp_ms":1791355166323,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs"}
-{"schema_version":1,"timestamp_ms":1791355170448,"workspace_root":"<scratch>/work","text":"/mcp"}
-{"schema_version":1,"timestamp_ms":1791355176632,"workspace_root":"<scratch>/work","text":"/mcp list"}
-{"schema_version":1,"timestamp_ms":1791355178523,"workspace_root":"<scratch>/work","text":"/mcp resource list fixture"}
-{"schema_version":1,"timestamp_ms":1791355180641,"workspace_root":"<scratch>/work","text":"/mcp resource read fixture legacy://alpha"}
-{"schema_version":1,"timestamp_ms":1791355182723,"workspace_root":"<scratch>/work","text":"/mcp prompt list fixture"}
-{"schema_version":1,"timestamp_ms":1791355184783,"workspace_root":"<scratch>/work","text":"/mcp prompt get fixture review {\"tone\":\"brief\"}"}
-{"schema_version":1,"timestamp_ms":1791355186842,"workspace_root":"<scratch>/work","text":"/mcp auth fixture"}
-{"schema_version":1,"timestamp_ms":1791355187914,"workspace_root":"<scratch>/work","text":"/mcp logout fixture"}
+{"schema_version":1,"timestamp_ms":1791357312176,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1791357314077,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs"}
+{"schema_version":1,"timestamp_ms":1791357318147,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1791357324297,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1791357326225,"workspace_root":"<scratch>/work","text":"/mcp resource list fixture"}
+{"schema_version":1,"timestamp_ms":1791357328302,"workspace_root":"<scratch>/work","text":"/mcp resource read fixture legacy://alpha"}
+{"schema_version":1,"timestamp_ms":1791357330412,"workspace_root":"<scratch>/work","text":"/mcp prompt list fixture"}
+{"schema_version":1,"timestamp_ms":1791357332505,"workspace_root":"<scratch>/work","text":"/mcp prompt get fixture review {\"tone\":\"brief\"}"}
+{"schema_version":1,"timestamp_ms":1791357334802,"workspace_root":"<scratch>/work","text":"/mcp auth fixture"}
+{"schema_version":1,"timestamp_ms":1791357336065,"workspace_root":"<scratch>/work","text":"/mcp logout fixture"}
 
 === ~/.xfx/history.lock (0 bytes)
 === ~/.xfx/mcp.json (301 bytes)

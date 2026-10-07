@@ -1,33 +1,33 @@
-pairs: [('002-completion.json', '001-completion.json'), ('003-completion.json', '002-completion.json'), ('005-completion.json', '003-completion.json'), ('006-completion.json', '004-completion.json'), ('007-completion.json', '005-completion.json')]
-002-completion.json vs 001-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features']
-   capability_search differs in ['description']
+pairs: [('002-completion.json', '002-completion.json'), ('003-completion.json', '003-completion.json'), ('005-completion.json', '004-completion.json'), ('006-completion.json', '005-completion.json'), ('007-completion.json', '006-completion.json')]
+002-completion.json vs 002-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features']
    mcp_select_tool differs in ['inputSchema']
      fx : {"type": "object", "properties": {"name": {"type": "string", "description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool."}}, "required": ["name"]}
      xfx: {"additionalProperties": false, "properties": {"name": {"description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool.", "type": "string"}}, "required": ["name"], "type": "object"}
+   capability_search differs in ['description']
    mcp block same: True 1 1
    tool results same: True 0 0
-003-completion.json vs 002-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
+003-completion.json vs 003-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
    capability_search differs in ['description']
    mcp_select_tool differs in ['inputSchema']
      fx : {"type": "object", "properties": {"name": {"type": "string", "description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool."}}, "required": ["name"]}
      xfx: {"additionalProperties": false, "properties": {"name": {"description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool.", "type": "string"}}, "required": ["name"], "type": "object"}
    mcp block same: True 1 1
    tool results same: True 1 1
-005-completion.json vs 003-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
+005-completion.json vs 004-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
    capability_search differs in ['description']
    mcp_select_tool differs in ['inputSchema']
      fx : {"type": "object", "properties": {"name": {"type": "string", "description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool."}}, "required": ["name"]}
      xfx: {"additionalProperties": false, "properties": {"name": {"description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool.", "type": "string"}}, "required": ["name"], "type": "object"}
    mcp block same: True 1 1
    tool results same: True 2 2
-006-completion.json vs 004-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
+006-completion.json vs 005-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
    capability_search differs in ['description']
    mcp_select_tool differs in ['inputSchema']
      fx : {"type": "object", "properties": {"name": {"type": "string", "description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool."}}, "required": ["name"]}
      xfx: {"additionalProperties": false, "properties": {"name": {"description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool.", "type": "string"}}, "required": ["name"], "type": "object"}
    mcp block same: True 1 1
    tool results same: True 3 3
-007-completion.json vs 005-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
+007-completion.json vs 006-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features', 'mcp_fixture_echo']
    capability_search differs in ['description']
    mcp_select_tool differs in ['inputSchema']
      fx : {"type": "object", "properties": {"name": {"type": "string", "description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool."}}, "required": ["name"]}
