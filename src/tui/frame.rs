@@ -1713,6 +1713,20 @@ impl Band {
     /// here uses ([`scroll_one`]): `CUP` to the bottom row, then one linefeed
     /// per row.
     ///
+    /// **One synchronized update, the linefeeds inside it, and the cursor left
+    /// hidden** -- upstream's handoff is a frame of its own
+    /// (`buildAndFlushFrame` with `.synchronized_update`,
+    /// `transcript/runtime.zig:4904-4935`). Its scroll is movement bytes, which
+    /// follow the `?2026h` (`render_engine/terminal_diff.zig:611-616`; only a
+    /// reset by `RIS` goes before it, `:1318-1327`), and its cursor target is
+    /// hidden (`transcript/runtime.zig:4927`), so it ends on `?2026l` with no
+    /// `?25h` (`terminal_diff.zig:643-644`). A terminal that honours the mode
+    /// presents the erase and the scroll as one change rather than the band
+    /// erased and then the rows climbing; the fresh session's frame shows the
+    /// cursor again. The welcome line and that frame are two vectors here and
+    /// one update upstream (`.prd/tui-phase4/receipts/t4/`), because every
+    /// append in this crate is its own vector ahead of the band's.
+    ///
     /// **Nothing is recorded until the write lands**, as everywhere else here.
     /// Once it has, the band knows exactly what is on the screen -- nothing --
     /// so the shadow is blank, the band has painted nowhere, the document has
@@ -1744,6 +1758,7 @@ impl Band {
         let mut script = check::Script::new(geometry);
         let mut footprint = Vec::with_capacity(2);
         self.buffer.clear();
+        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         let first_blank = carried.saturating_add(1);
         let mut caret = (rows, 1);
         if first_blank <= rows {
@@ -1771,6 +1786,7 @@ impl Band {
             });
             caret = (rows, 1);
         }
+        self.buffer.extend_from_slice(END_FRAME_HIDDEN.as_bytes());
         #[cfg(test)]
         if let Some(tamper) = self.tamper {
             tamper(&mut self.buffer);
@@ -1787,9 +1803,9 @@ impl Band {
                 check::Intent::Document {
                     script: &script,
                     caret: Some(caret),
-                    // Linefeeds and an erase: nothing about the cursor, as the
-                    // carry and the append declare.
-                    cursor_visible: None,
+                    // Hidden, and left hidden for the frame that follows to
+                    // show: the one thing about the cursor this vector says.
+                    cursor_visible: Some(false),
                     title: self.shown_title.as_deref(),
                 },
                 check::Footprint::new(check::PlaneKind::Primary, footprint),
@@ -5992,9 +6008,15 @@ mod tests {
 
         band.hand_off(&mut screen, u32::MAX, 0, &geometry())
             .expect("the handoff");
+        // One synchronized update, the linefeeds inside it, and the cursor
+        // hidden and left hidden: upstream's handoff frame in its bracketing
+        // (`.prd/tui-phase4/receipts/t4/fx-reset-wire-24x80-clear.wire`).
         assert_eq!(
             String::from_utf8(screen.written).expect("utf-8"),
-            format!("\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(21))
+            format!(
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+                "\n".repeat(21)
+            )
         );
         // The screen is blank and the band knows it: painted nowhere, no
         // document row to carry or recolour, and a `CUP` owed.
@@ -6033,7 +6055,10 @@ mod tests {
             .expect("the handoff");
         assert_eq!(
             String::from_utf8(screen.written).expect("utf-8"),
-            format!("\u{1b}[6;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(5))
+            format!(
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[6;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+                "\n".repeat(5)
+            )
         );
     }
 
