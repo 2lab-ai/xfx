@@ -1,0 +1,20 @@
+# A command that runs past its deadline (D1 round 6): the row, Ctrl-O live,
+# and what the model was sent. fx's `shell` takes a per-call `timeout_ms`, so
+# its command is given one second; xfx's `terminal` has a fixed two-minute
+# ceiling, so its command runs past that.
+fx: gateway timeout-fx.json
+xfx: gateway timeout-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 4
+type run the slow one
+key Enter
+fx: wait 4
+xfx: wait 125
+snap live
+key C-o
+wait 1.5
+snap live-ctrl-o
+key Escape
+wait 1
+gwlog

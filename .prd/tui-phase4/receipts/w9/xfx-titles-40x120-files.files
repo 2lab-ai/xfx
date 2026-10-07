@@ -1,24 +1,24 @@
 === ~/.xfx/history.jsonl (423 bytes)
-{"schema_version":1,"timestamp_ms":1791348155257,"workspace_root":"<scratch>/work","text":"fix the renderer loop, it redraws every row twice"}
-{"schema_version":1,"timestamp_ms":1791348159303,"workspace_root":"<scratch>/work","text":"/new"}
-{"schema_version":1,"timestamp_ms":1791348161330,"workspace_root":"<scratch>/work","text":"/resume"}
+{"schema_version":1,"timestamp_ms":1791350790409,"workspace_root":"<scratch>/work","text":"fix the renderer loop, it redraws every row twice"}
+{"schema_version":1,"timestamp_ms":1791350794554,"workspace_root":"<scratch>/work","text":"/new"}
+{"schema_version":1,"timestamp_ms":1791350796592,"workspace_root":"<scratch>/work","text":"/resume"}
 
 === ~/.xfx/history.lock (0 bytes)
-=== ~/.xfx/sessions/1791348155258-1f1e282fe1b6c17b/events.jsonl (2044 bytes)
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":1,"event_id":"9646024c7f542930b14a94d6b399a6af","timestamp_ms":1791348155262,"event":{"kind":"session_started","id":"1791348155258-1f1e282fe1b6c17b","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":2,"event_id":"b097fded292c5870e00e6336ce77f24e","timestamp_ms":1791348155299,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":3,"event_id":"be203fbe640bdd9e7d3a6ab39072e654","timestamp_ms":1791348155312,"event":{"kind":"user_message","text":"fix the renderer loop, it redraws every row twice"}}
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":4,"event_id":"548e8d7bca1daeba92616f390e9b0a54","timestamp_ms":1791348155381,"event":{"kind":"assistant_message","text":"The renderer answer.","tool_calls":[]}}
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":5,"event_id":"890812c402de47c4dcf77bdce2b1c697","timestamp_ms":1791348155395,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1791348155381,"duration_ms":53,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":6,"event_id":"cac6eaa5f98830a6ff2dd4e188abce3b","timestamp_ms":1791348155414,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
-{"schema_version":1,"log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","seq":7,"event_id":"4be50f945844748e7d7f22bed31b6cdd","timestamp_ms":1791348155427,"event":{"kind":"session_renamed","title":"Fix the renderer loop","source":"generated"}}
+=== ~/.xfx/sessions/1791350790410-eb1a2cb06fbb2830/events.jsonl (2044 bytes)
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":1,"event_id":"333ac2be9dcd2bc805b6afaa69a715a5","timestamp_ms":1791350790413,"event":{"kind":"session_started","id":"1791350790410-eb1a2cb06fbb2830","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":2,"event_id":"f1de20a04b3d309341f68e0404293211","timestamp_ms":1791350790432,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":3,"event_id":"b1b2379d12b308facdfae4753906900f","timestamp_ms":1791350790445,"event":{"kind":"user_message","text":"fix the renderer loop, it redraws every row twice"}}
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":4,"event_id":"ed2b52455026f985741c0b8e8bb395a7","timestamp_ms":1791350790518,"event":{"kind":"assistant_message","text":"The renderer answer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":5,"event_id":"f83b6d36b46279c8a553444b64e80bd2","timestamp_ms":1791350790537,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1791350790518,"duration_ms":57,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":6,"event_id":"4b6410b8beccbd6e74928ba7d49d8747","timestamp_ms":1791350790557,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","seq":7,"event_id":"a9f814c8d18ca3f3c3b664be8bdc2f79","timestamp_ms":1791350790574,"event":{"kind":"session_renamed","title":"Fix the renderer loop","source":"generated"}}
 
-=== ~/.xfx/sessions/1791348155258-1f1e282fe1b6c17b/session.json (631 bytes)
-{"schema_version":1,"storage_format":"event_log_v1","id":"1791348155258-1f1e282fe1b6c17b","log_generation":"fc4f57c5aca334b273eff3d4a71f76f4","created_at_ms":1791348155262,"updated_at_ms":1791348155427,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"Fix the renderer loop","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":7,"event_log_bytes":2044,"event_log_sha256":"22ed0e9cf9bf314bb2fd25d01567227d47614cbaf366ca9534ca0470bae01f5a"}
+=== ~/.xfx/sessions/1791350790410-eb1a2cb06fbb2830/session.json (631 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791350790410-eb1a2cb06fbb2830","log_generation":"56d06faa9918bc494c5294ecf5e6ae5f","created_at_ms":1791350790413,"updated_at_ms":1791350790574,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"Fix the renderer loop","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":7,"event_log_bytes":2044,"event_log_sha256":"62799894e9737a8e82960143a1d4732dfcae38c3c4f7eb6670ed1af3be330128"}
 
 === ~/.xfx/settings.json (34 bytes)
 {"statusLine": {"session": true}}
 
 === ~/.xfx/usage.json (41 bytes)
-{"tracking_started_at_ms":1791348155395}
+{"tracking_started_at_ms":1791350790537}
 

@@ -18,6 +18,8 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> <size>
 | `resume-tools.cap` | 40x120 | The F1 tool-group turns in `ask` mode (`toolgroup-*.json`, `toolgroup-ws`): a group with every outcome form (Read, Matched, Searched, Ran, `Edited a.txt +1 / -1`, `Denied file`, `Failed missing.txt`, `Exited 3`), the closing answer and its summary; a turn stopped with Escape at a write's approval; a turn stopped with Ctrl-C while `sleep 4` runs. Ctrl-O on the live session, paged up to its first call (`live-ctrl-o`, `-up1` … `-up3`); then `/new`, `/resume`, Enter, and Ctrl-O on the replay, paged up to the resume notice (`ctrl-o`, `-up1`, `-up2`). |
 | `resume-paging.cap` | 24x80 | Eighteen sessions (`question one` ... `question eighteen`), then `/resume`: the first page (seventeen), Down fourteen, fifteen, sixteen (the last loaded session -- the next page loads), seventeen; Tab; Shift-Tab and `ve`; Down three. |
 | `read-failures.cap` | 40x120 | One turn of four failed calls (`read-failures-turns.json`, `toolgroup-ws`): `read_file` on the directory `src`, `read_file` on `  missing.txt  ` (spaces kept), `glob_files` and `grep_files` under the missing root `nope`; the rows, Ctrl-O paged up, then `/new`, `/resume` and Ctrl-O again; `gwlog` keeps what the model was sent. |
+| `search-roots.cap` | 40x120 | One turn: `glob_files` `*.txt` and `*.rs` with `path: a.txt`, `grep_files` `alpha` with `path: a.txt` (`search-roots-turns.json`, `toolgroup-ws`); the rows, Ctrl-O, `gwlog`. |
+| `timeout.cap` | 40x120 | One command past its deadline in full access: fx's `shell` given `timeout_ms: 1000` over `echo started; sleep 5` (`timeout-fx.json`), xfx's `terminal` over `echo started; sleep 130`, past its fixed 120 s (`timeout-xfx.json`); the row, Ctrl-O, `gwlog`. |
 | `rename-midturn.cap` | 40x120 | A turn that streams ten chunks half a second apart; `/rename Counted mid turn` while it streams; the screen and the window title then, after the turn, and on a relaunch on the latest session. |
 
 Turns are `scenarios/resume-turns.json`, `slow-line-turn.json`, the F1
@@ -45,6 +47,22 @@ Re-checked at the end of the round on `afd5c83` (plan `b887a7f`): xfx's
 `resume`, `resume-tools`, `resume-paging` and `rename-midturn` retaken, and
 every snap is the receipt's but for session ids, wall-clock stamps and
 seconds, and how many tokens had streamed at the snap.
+
+Round 6 (on `7f3587b`, plan `60fe9c6` merged; banner `v0.1.0-7f3587b`;
+load averages 60-90, every take checked for its prompts): `search-roots` on
+both -- `live` and `live-ctrl-o` identical but the summary's seconds, and
+the three results sent to the model identical (`*-search-roots-40x120-
+bodies`): a glob over a file matches its name or answers no matches, a grep
+of it searches it. `timeout` on both: the row `Timed out <command>` and
+Ctrl-O's `│ started` / `│ timed out` on both; fx's two extra rows
+(`yield_time_ms`, `timeout_ms`) and the model's text (fx's `shell` answers
+its JSON status record, `"error":"TimeoutExpired"`; xfx its sentence) are
+the `shell` tool's schema, a tool-set difference. `resume-tools` retaken on
+xfx and held to round 5's fx side: `end`, `resumed` (but the seconds) and
+`ctrl-o-up2` identical, and the replayed edit's line is now fx's on both,
+`│  edited a.txt (41 bytes)`. The `*-bodies` directories are what each
+binary sent the fake gateway, as `gwlog` keeps them (the key is the
+harness's fake one).
 
 Round 5 (fx side and the comparison below on `13ad255` with the
 full-transcript wrap that followed it, plan `20d1482` merged; xfx's side
@@ -223,8 +241,8 @@ Every comparison of the first round holds on this tree, the same way:
   (`read_file cannot read \`dir\`: it is a directory; use list_files`).
   The same preflight sentence is fx's for `glob_files`, `grep_files` and
   `list_files` too; those keep xfx's `… refused the path: …`.
-- **`resume-tools/ctrl-o`, the edit's result line** is each tool's own
-  (`edited a.txt (41 bytes)` against `Edited a.txt`).
+- **`resume-tools/ctrl-o`, the edit's result line** is fx's on both since
+  round 6 (`edited a.txt (41 bytes)`).
 - **`resume-tools`, the approval snaps** (`cmd-ask`, `edit-ask`,
   `write-ask`, `exit-ask`) and `live.full`: there to show that each key
   reached the prompt it was meant for; the panels and the live screens are

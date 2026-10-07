@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7f3587b [debug] · Run /help for commands
+
+┃ run the slow one
+
+● 1 tool call · 1 command · 1 timed out
+└ Timed out echo started; sleep 130
+
+  Done.
+
+  2m 1s (↑4 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

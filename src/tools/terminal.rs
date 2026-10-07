@@ -57,7 +57,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// How long a command its turn stopped is given to end on the `SIGTERM` it is
 /// sent first, before the group is killed: upstream's
 /// `foreground_target_termination_grace_ms` (`vercel-labs/fx@c1db9191
-/// src/core/execution/command_runner.zig:85`).
+/// src/core/execution/command_runner.zig:85`), the supervisor's grace a
+/// captured command runs under (`executeProcessWithDetachedSession`, the
+/// `.foreground_supervisor` protocol, `:1434`) -- the parent's own
+/// escalation, 800 ms (`updateTerminationSignal`, `:3404-3408`), comes after
+/// it. A timeout gets no grace (`:3395-3400`).
 const TERMINATION_GRACE: Duration = Duration::from_millis(700);
 
 /// How long xfx will wait for a killed command's pipes to close.
@@ -305,14 +309,22 @@ impl Outcome {
         match self.ending {
             Ending::Exited(code) => out.push_str(&format!("<exit_code>{code}</exit_code>\n")),
             Ending::Signalled(signal) => out.push_str(&format!("<signal>{signal}</signal>\n")),
+            // Killed at once, as upstream kills one past its deadline (a
+            // timeout is a force stop, `updateTerminationSignal`,
+            // `vercel-labs/fx@c1db9191 src/core/execution/command_runner.zig:
+            // 3395-3400`), and shown as upstream's full transcript shows it:
+            // what it wrote, then `timed out` (`fx-timeout-40x120-live-ctrl-o`).
             Ending::TimedOut { ms, stranded } => {
+                out.push_str("<timed_out/>\n");
+                out.push_str(&streams);
                 return ToolResult::failure(format!(
                     "terminal timed out: `{}` ran longer than {ms} ms and was killed\n{}{}",
                     framed(plan.command()),
-                    self.streams(),
+                    streams,
                     stranded_notice(stranded)
                 ))
                 .ending(CallOutcome::TimedOut)
+                .presenting(out);
             }
             // Stopped by the user under its turn: upstream's answer for the
             // call, `aborted by user` and nothing of the command's output
