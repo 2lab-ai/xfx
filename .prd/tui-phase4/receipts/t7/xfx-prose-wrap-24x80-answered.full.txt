@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-2a4aa7f [debug] · Run /help for commands
+x𝒇x v0.1.0-db3662d [debug] · Run /help for commands
 
 ┃ show me the wrap
 
@@ -15,8 +15,6 @@ x𝒇x v0.1.0-2a4aa7f [debug] · Run /help for commands
 
   Overflow path at 78 columns: the wrap keeps each word whole and moves
   it finale.
-
-
 
   Mid-paragraph overflow: the wrap keeps each word whole and moves it down when
   it does not fit what is left of the row so a reader sees whole words on every

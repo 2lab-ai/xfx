@@ -1,6 +1,6 @@
 # T7 receipt: the answer wraps by fx's assistant wrap, fx c1db919 beside xfx
 
-Captured on 2026-10-07 with the repository's harness. Each run had its own tmux socket, an empty HOME, the fake key, and a loopback fake gateway; all ten snaps below come from **one run** (both binaries, both sizes, started together).
+Captured on 2026-10-07 with the repository's harness. Each run had its own tmux socket, an empty HOME, the fake key, and a loopback fake gateway. The eight `prose-wrap` snaps come from one run (both binaries, both sizes, started together); the two `fast-unconfirmed` snaps from a second run of both binaries a minute later -- in the first, at a load average near 89, xfx's screen showed `✗ usage: /ultrafast [on|off|status]` and no turn, which is what a two-line draft `/ultrafast on` + `say something` gives when the first Enter lands as a line break (see the waits below; the scenario's 2.5 s waits are D2c's, unchanged).
 
 ```
 scripts/fxcap/capture.sh {fx,xfx} prose-wrap       40x120 <dir>   # new in this unit
@@ -8,7 +8,7 @@ scripts/fxcap/capture.sh {fx,xfx} prose-wrap       24x80  <dir>
 scripts/fxcap/capture.sh {fx,xfx} fast-unconfirmed 40x120 <dir>   # D2c's, unchanged, retaken
 ```
 
-`fx` is the c1db919 build. `xfx` is `target/debug/xfx` at `2a4aa7f` (the banner's revision): this branch's port (`b2910c0`) after merging `plan/tui-phase4` at `33b963f` (merge `3febdbf`). `before-13dac71-*` is the same `prose-wrap` scenario at 24x80 on a debug build of `13dac71` -- `plan/tui-phase4` before this unit, built from an export of that commit, so its banner has no revision -- taken the same session for the comparison below.
+`fx` is the c1db919 build. `xfx` is `target/debug/xfx` at `db3662d` (the banner's revision): this branch's port (`b2910c0`, `2a4aa7f`) after merging `plan/tui-phase4` at `20d1482` (merges `3febdbf`, `a49a3e3`, `db3662d`). An earlier take at `2a4aa7f` (plan `33b963f`) was committed in `18740e1` and is replaced here; its counts were the same, and its 24x80 history differed in blank rows only (below). `before-13dac71-*` is the same `prose-wrap` scenario at 24x80 on a debug build of `13dac71` -- `plan/tui-phase4` before this unit, built from an export of that commit, so its banner has no revision -- taken the same session for the comparison below.
 
 `prose-wrap` (`scripts/fxcap/scenarios/prose-wrap.cap`, turns `prose-wrap-turns.json`) is one answer whose paragraphs are each aimed at one rule at one content width -- 118 cells (120 columns less the answer's two-column gutter) or 78 (80 less it) -- and arrives in 37-byte chunks cut inside words and across line ends. The answer is longer than either screen, so each size has the visible screen (`answered`) and the whole history (`answered.full`, `capture-pane -S -`). Its waits are long (10 s before typing, 1 s before Enter) because the machine was loaded: on a first attempt with 4 s, xfx's composer showed the prompt with an empty second row under it and no turn was sent -- the Enter landed as a line break, consistent with keys typed before the binary was in raw mode.
 
@@ -23,13 +23,13 @@ Each snap has a `.txt` and an `.ansi` (`capture-pane -e`, OSC 8 kept by tmux 3.7
 | `prose-wrap 40x120 answered` | **27 of 27** | none |
 | `prose-wrap 40x120 answered.full` | **32 of 32** | none |
 | `prose-wrap 24x80 answered` | **16 of 16** | none |
-| `prose-wrap 24x80 answered.full` | **42 of 42** | xfx's history holds two blank rows fx's does not, after `Overflow path at 78 columns: ...` (xfx rows 18-19). **Not this unit's**: `before-13dac71` has the same two rows, after the same paragraph -- see below |
+| `prose-wrap 24x80 answered.full` | **42 of 42** | none, blank rows included. The `2a4aa7f` take's xfx history held two blank rows fx's does not, after `Overflow path at 78 columns: ...`; so does `before-13dac71`'s, after the same paragraph -- see below |
 | `fast-unconfirmed 40x120 turn` | **8 of 8** | none. D2c's was 6 of 8: xfx's `... a standard or lower` / `tier.` is now fx's `... a standard or` / `lower tier.` |
 | `before-13dac71 prose-wrap 24x80 answered.full` (vs fx's) | 30 of 42 | the rows this unit changes, listed below |
 
 ## Each rule, where it shows
 
-Row numbers are fx's `.full.txt` rows; xfx's are the same at 120 columns, and at 80 the same up to row 17 and two more after it.
+Row numbers are fx's `.full.txt` rows, and xfx's are the same.
 
 | Rule (fx `assistant_wrap.zig`) | 40x120 (118 cells) | 24x80 (78 cells) |
 |---|---|---|
@@ -49,8 +49,8 @@ Row numbers are fx's `.full.txt` rows; xfx's are the same at 120 columns, and at
 
 ## What does not match, and why
 
-- **Two blank rows in xfx's 24x80 history** (`answered.full`, rows 18-19). Present on `13dac71` too (`before-13dac71`, rows 18-19, after the same paragraph), so it is not the wrap's. Both appear while the answer streams past the bottom of a 24-row screen, where the floating band stops floating; fx's history has none. Recorded here, not fixed in this unit.
-- **The banner**: xfx's brand line (WU-A).
+- **The banner**: xfx's brand line (WU-A). Nothing else.
+- **Two blank rows in xfx's 24x80 history, seen before the last merges.** At `2a4aa7f` (plan `33b963f`) and on `13dac71` (`before-13dac71`, rows 18-19) xfx's history held two blank rows fx's does not, after the `Overflow path at 78 columns` paragraph -- while the answer streams past the bottom of a 24-row screen, where the band stops floating. Not this unit's: the `13dac71` build has them. Not seen at `db3662d` in two takes (the one kept and one more); between the two, plan's `7347b22` merged D4d's change to the rows an append scrolls off and gives back (`Append::release`). One take each, so this is a record, not a proof that it is gone.
 
 ## Not in the scenario
 

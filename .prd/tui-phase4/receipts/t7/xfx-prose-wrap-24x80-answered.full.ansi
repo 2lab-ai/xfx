@@ -1,4 +1,4 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-2a4aa7f [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-db3662d [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;255m┃[39m [1mshow me the wrap[0m
 
@@ -15,8 +15,6 @@
 
   Overflow path at 78 columns: the wrap keeps each word whole and moves
   it finale.
-
-
 
   Mid-paragraph overflow: the wrap keeps each word whole and moves it down when
   it does not fit what is left of the row so a reader sees whole words on every
