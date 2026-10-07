@@ -5833,8 +5833,12 @@ def scenario_10b(run):
         "the steer reached the model behind the read it followed, in place of the cut step: %r"
         % (message_parts(bodies[2]) if len(bodies) > 2 else None,),
     )
+    # The result's own words are the tool's (`edited notes.txt (5 bytes)`, fx's
+    # since D1 round 6); what this row owns is that the answer's result is the
+    # one the next request carries, and that it is not a refusal.
+    answered_result = tool_result_text(bodies[3], "call-2") if len(bodies) > 3 else None
     run.require(
-        len(bodies) > 3 and tool_result_text(bodies[3], "call-2") == "Edited notes.txt",
+        answered_result is not None and "not permitted" not in answered_result,
         "and the answered edit's result came after it: %r"
         % (message_parts(bodies[3]) if len(bodies) > 3 else None,),
     )
@@ -6227,13 +6231,15 @@ def band_is_idle(grid):
     marker dark for half of every second cannot make a running turn read idle.
 
     **And the caret must be in the composer.** On a floating band an append
-    lands on the rows the band has just moved down from (`fcc8e44`), so for
-    the moment between an answer's line reaching the terminal and the next
-    frame, that line sits where the activity row was: the screen shows no
-    activity row while the turn is still running. Every band frame ends by
-    putting the caret back in the composer and an append leaves it in the
-    document, so a caret outside the composer is that in-between screen and is
-    not read as idle.
+    lands on the rows the band has just moved down from (`fcc8e44`). Since T8 a
+    frame carries its document growth inside the same synchronized update as
+    the band (`fix/tui-sync-appends`, upstream's `composeWireFrame`), so no
+    complete frame shows the line without the band that follows it -- but an
+    update whose band part was refused ends with the caret wherever the
+    document's last row left it (`src/tui/frame.rs`'s `END_FRAME_HIDDEN`). Every
+    band frame ends by putting the caret back in the composer, so a caret
+    outside it is still a screen the session has not settled on, and is not
+    read as idle.
     """
     band = find_band(grid)
     if band is None:
@@ -8543,14 +8549,16 @@ def on_the_grid(trial, needle, what=None):
     the stream as one run of bytes. `peek` feeds the emulator as far as the last
     **complete** frame, which is the only place a screen is a screen.
 
-    **And the wire must end on that frame.** A document append is written
-    outside any frame and owes the frame after it (`shell.rs`'s `owed`), and on
-    a floating band it lands on the rows the band has just moved down from
-    (`fcc8e44`) -- so between an appended line and the repaint it owes, the
-    screen holds the new line *and* the band as it was before it (an
-    interrupt's notice above a question panel that is about to come down). A
-    needle read in that interval is real, but the screen around it is not one
-    the session settled on.
+    **And the wire must end on that frame.** Bytes after a frame's close are a
+    screen still being written: the exit's restore, a write outside the band's
+    updates, or the head of the next update before its close has arrived. Since
+    T8 a document append is inside the update that carries it
+    (`fix/tui-sync-appends`), so this rarely waits -- but it was written when
+    an append was its own write ahead of the band, which put the new line on
+    the screen with the band as it was before it (an interrupt's notice above
+    a question panel about to come down), and a needle read there is real
+    while the screen around it is not one the session settled on. Kept, so
+    that a build that split them again is waited out rather than read.
     """
     trial.wait_until(
         what or "%r to be on the screen" % needle,
