@@ -4730,6 +4730,41 @@ mod tests {
     }
 
     #[test]
+    fn a_checkpoint_written_inside_a_turn_covers_the_turns_before_it_and_the_turn_goes_on() {
+        // What a compaction between a turn's steps writes
+        // (`crate::tui::worker`'s `TurnCompactor`): the second turn's prompt
+        // (frame 5), a checkpoint covering the first turn, then the rest of
+        // the second turn.
+        let mut events = two_turns();
+        events.truncate(5);
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let open = reduce(events.clone()).expect("a checkpoint inside a turn");
+        // The turn in progress goes on without the turns before it.
+        assert_eq!(
+            open.history_messages_before_open(Wire::VercelGateway)
+                .messages,
+            vec![Message::user(super::super::checkpoint::render(
+                &compacted_first()
+            ))]
+        );
+        events.push(answer("TWO"));
+        events.push(concluded());
+        let state = reduce(events).expect("the turn's later frames are taken");
+        assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(1));
+        assert_eq!(
+            state.history_messages(Wire::VercelGateway).messages,
+            vec![
+                Message::user(super::super::checkpoint::render(&compacted_first())),
+                Message::user("two"),
+                Message::assistant(Some("TWO"), Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
     fn a_checkpoint_that_covers_part_of_a_turn_or_none_is_refused() {
         // Frame 3 is inside the first turn, whose conclusion is frame 4.
         let mut part = two_turns();
