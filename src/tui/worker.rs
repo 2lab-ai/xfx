@@ -2141,75 +2141,26 @@ impl Runtime {
 
     /// The three speed keys as the session stands, as upstream writes them:
     /// the binding always `true`, because an interactive change is always made
-    /// for the model in force.
+    /// for the model in force ([`super::speed_save::switches`]).
     fn speed_preferences(&self) -> [(&'static [&'static str], serde_json::Value); 3] {
-        [
-            (
-                &[crate::config::FAST_MODE_KEY],
-                serde_json::Value::Bool(self.settings.fast),
-            ),
-            (
-                &[crate::config::ULTRAFAST_MODE_KEY],
-                serde_json::Value::Bool(self.settings.ultrafast),
-            ),
-            (
-                &[crate::config::FAST_MODE_MODEL_BOUND_KEY],
-                serde_json::Value::Bool(true),
-            ),
-        ]
+        super::speed_save::switches(self.settings.fast, self.settings.ultrafast)
     }
 
-    /// Saves the speed switches (`/fast`, `/ultrafast`) with what upstream
-    /// writes beside them (`applyFastMode`, `applyUltrafastMode`,
-    /// `session_commands.zig:781-790`, `:839-848`): the provider and the model
-    /// in force -- under an `XFX_MODEL`, that model, as upstream writes
-    /// `provider_runtime.model(app)` -- and the binding. Says what upstream's
-    /// commit report keeps when the caller has announced the change
-    /// (`reportUserSettingsCommit`, `:27-85`): that a layer above the profile
-    /// will still choose a fresh session's model, or that the write failed.
+    /// Saves the speed switches with what upstream writes beside them, for
+    /// the provider and the model in force -- under an `XFX_MODEL`, that model
+    /// -- and says what upstream's report keeps ([`super::speed_save::save`]).
     /// `topic` is upstream's label for the write.
-    /// What a write of the model and the speed switches beside it -- and the
-    /// effort, when `effort` says one was written -- says when a layer above
-    /// the profile will still decide any of them for a fresh session: each,
-    /// in upstream's order (`appendShadowedUserSources`,
-    /// `session_commands.zig:170-186` -- `model`, `effort`, `fast_mode`,
-    /// `ultrafast_mode`).
-    fn saved_model_and_speed(&self, effort: bool) -> Option<String> {
-        let sources = &self.config.sources;
-        let mut fields = vec![("model", sources.model)];
-        if effort {
-            fields.push(("effort", sources.effort));
-        }
-        fields.push(("fast_mode", sources.fast_mode));
-        fields.push(("ultrafast_mode", sources.ultrafast_mode));
-        crate::provider::profile::saved_but_any_shadowed(&fields)
-    }
-
     fn save_speed(&self, topic: &'static str) -> Option<super::notice::Notice> {
         let path = self.config.user_settings_path.as_ref()?;
-        let provider = self.config.provider;
-        let model_key = [crate::config::MODELS_KEY, provider.label()];
-        let provider_key = [crate::config::PROVIDER_KEY];
-        let mut preferences: Vec<(&[&str], serde_json::Value)> = vec![
-            (
-                &model_key,
-                serde_json::Value::String(self.model().to_string()),
-            ),
-            (
-                &provider_key,
-                serde_json::Value::String(provider.label().to_string()),
-            ),
-        ];
-        preferences.extend(self.speed_preferences());
-        match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => self
-                .saved_model_and_speed(false)
-                .map(|said| super::notice::Notice::neutral(topic, said)),
-            Err(err) => Some(super::notice::Notice::error(
-                topic,
-                format!("active for this process but not saved to user settings ({err})"),
-            )),
-        }
+        super::speed_save::save(
+            path,
+            self.config.provider,
+            self.model(),
+            self.settings.fast,
+            self.settings.ultrafast,
+            &self.config.sources,
+            topic,
+        )
     }
 
     /// Records `model` as the configured provider's in the profile
@@ -2268,8 +2219,7 @@ impl Runtime {
         // `"fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true`).
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => self
-                .saved_model_and_speed(effort.is_some())
+            Ok(()) => super::speed_save::shadowed(&self.config.sources, effort.is_some())
                 .map(|said| super::notice::Notice::neutral(topic, said)),
             Err(err) => Some(super::notice::Notice::error(
                 topic,
@@ -2439,7 +2389,7 @@ async fn turn_loop(
                 continue;
             }
             Taken::Speed(change) => {
-                change_speed(&mut state, change, events).await;
+                change_speed(&mut state, change);
                 continue;
             }
             Taken::Undo(through) => {
@@ -3302,6 +3252,29 @@ async fn change_model(
     state.settings = after;
     state.record_settings();
     state.publish();
+    // The effort a pick writes beside the model: the one it chose, or -- for
+    // a pick that kept the session's, as `/settings`' model list does -- the
+    // session's, for a model whose row lists levels (`selectModelFromPicker`
+    // sets `patch.effort` whenever `reasoning_efforts` is not empty, with the
+    // effort it was given or `app.effort`, `session_commands.zig:892-901`;
+    // `applyInlineSettingsModelSelection`, `app_input_runtime.zig:2517-2529`).
+    // A query writes none (`setResolvedModel`, `:1172-1188`).
+    let effort = match effort {
+        Some(chosen) => Some(chosen),
+        None if change.picker
+            && matches!(
+                outcome,
+                ModelOutcome::Selected { .. } | ModelOutcome::Unchanged { .. }
+            )
+            && state
+                .selector
+                .entry(state.selector.model())
+                .is_some_and(|entry| !entry.efforts.is_empty()) =>
+        {
+            Some(state.settings.effort.clone())
+        }
+        None => None,
+    };
     let (answered, chosen) = match outcome {
         ModelOutcome::Selected {
             unverified, model, ..
@@ -3381,7 +3354,7 @@ async fn apply_deferred(
                 // The same for a speed: it needs no socket, and the band has
                 // said it already.
                 Deferred::Speed(change) => {
-                    change_speed(state, change, events).await;
+                    change_speed(state, change);
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -3403,14 +3376,22 @@ async fn apply_deferred(
 }
 
 /// Applies one `/fast` or `/ultrafast on|off` ([`TurnControl::Speed`]): the
-/// switches as the band decided them, recorded in the session log and saved,
-/// with nothing said unless the save failed -- the band has said `fast: on`
-/// already, as upstream says it the moment the command is given.
+/// switches as the band decided them, recorded in the session log and saved
+/// again, saying nothing.
+///
+/// **The band has saved it and said how that went** already, above its
+/// `* fast: on`, as upstream persists before it announces
+/// ([`super::speed_save`]). The write here is the file's order rather than a
+/// second report: this thread writes the model changes, and one put aside
+/// behind a turn is saved when the turn ends, with the switches as they then
+/// stand -- so a `/fast` typed after it has to be written after it too, or
+/// the profile would end on the switches the model change turned off. Its
+/// outcome is the band's write's, said once.
 ///
 /// A change the band decided under another provider is dropped: a
 /// `/provider` switch took the switches off with the model it replaced, and
 /// the band's own record of them went off with the same switch.
-async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<UiEvent>) {
+fn change_speed(state: &mut Runtime, change: SpeedChange) {
     if change.provider != state.config.provider {
         return;
     }
@@ -3418,9 +3399,7 @@ async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<
     state.settings.ultrafast = change.ultrafast;
     state.record_settings();
     state.publish();
-    if let Some(notice) = state.save_speed(change.topic) {
-        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
-    }
+    let _ = state.save_speed(change.topic);
 }
 
 /// `/undo`, and what became of it (`commandUndoLast`,
@@ -6977,6 +6956,59 @@ mod tests {
     }
 
     #[test]
+    fn every_pick_writes_upstreams_fields_and_a_row_with_levels_takes_the_sessions_effort() {
+        // `selectModelFromPicker` (`session_commands.zig:886-915`), the one
+        // path a menu row, the column, `/model <id> <effort>`, a `C-p` row and
+        // `/settings`' model list (`applyInlineSettingsModelSelection`,
+        // `app_input_runtime.zig:2517-2529`) all reach: the provider, the
+        // model, the switches and the binding -- and the effort whenever the
+        // model's row lists levels, the session's when the pick chose none.
+        let (home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        state.settings.effort = crate::provider::effort::Effort::Named("max".to_string());
+        let kept = |name: &str| ModelChange {
+            name: name.to_string(),
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: false,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        };
+        let said = ran_change(&mut state, kept("anthropic/claude-opus-5"));
+        assert!(
+            said.iter()
+                .all(|event| !matches!(event, UiEvent::Notice(_))),
+            "{said:?}"
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "anthropic/claude-opus-5"},
+                               "provider": "gateway", "effort": "max",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        // A row with no levels takes no effort, so none is written; the one
+        // already there stays.
+        std::fs::remove_file(home.path().join(".xfx").join("settings.json")).expect("emptied");
+        ran_change(&mut state, kept("fake/model-a"));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "fake/model-a"},
+                               "provider": "gateway",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        // And a query writes none either (`setResolvedModel`).
+        std::fs::remove_file(home.path().join(".xfx").join("settings.json")).expect("emptied");
+        ran_model(&mut state, "openai/gpt-6-astra", false);
+        assert_eq!(settings(home.path()).get("effort"), None);
+    }
+
+    #[test]
     fn a_pick_keeps_the_speed_its_row_offers_and_a_query_turns_both_off() {
         // `selectModelFromPicker` and `setResolvedModel`
         // (`session_commands.zig:886-915`, `:1168-1190`), recorded in the
@@ -7055,8 +7087,7 @@ mod tests {
     #[test]
     fn a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not() {
         let (home, _workspace, mut state) = recording();
-        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -7064,18 +7095,13 @@ mod tests {
                 topic: "fast",
                 provider: ProviderId::Gateway,
             },
-            &events_tx,
-        ));
+        );
         assert!(state.settings.fast && !state.settings.ultrafast);
         assert_eq!(recorded(&state).map(|settings| settings.fast), Some(true));
         assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
-        assert!(
-            events_rx.try_recv().is_err(),
-            "a save that landed says nothing"
-        );
         // Decided under the provider a switch replaced: dropped, because the
         // switches went off with the model the switch replaced.
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: false,
@@ -7083,9 +7109,48 @@ mod tests {
                 topic: "ultrafast",
                 provider: ProviderId::Llmux,
             },
-            &events_tx,
-        ));
+        );
         assert!(state.settings.fast && !state.settings.ultrafast);
+    }
+
+    #[test]
+    fn a_speed_the_band_saved_before_a_model_change_this_thread_saves_later_is_still_the_files() {
+        // A `/model` put aside behind a turn, then `/fast`: the band writes
+        // the speed at once (`super::speed_save`), the model change is saved
+        // when the turn ends with the switches it turned off -- and the
+        // speed, applied after it, is written again so the file ends where
+        // the commands did.
+        let (home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        assert_eq!(
+            super::super::speed_save::save(
+                &path,
+                ProviderId::Gateway,
+                "acme/two",
+                true,
+                false,
+                &state.config.sources,
+                "fast",
+            ),
+            None
+        );
+        ran_model(&mut state, "acme/two", false);
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(false));
+        change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "acme/two"}, "provider": "gateway",
+                               "fast_mode": true, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
     }
 
     #[test]
@@ -7694,8 +7759,7 @@ mod tests {
         let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
-        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -7703,21 +7767,22 @@ mod tests {
                 topic: "fast",
                 provider: ProviderId::Gateway,
             },
-            &events_tx,
-        ));
+        );
         assert_eq!(
             settings(home.path()),
             serde_json::json!({"models": {"gateway": "pinned/model"}, "provider": "gateway",
                                "fast_mode": true, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
         );
+        // What the band's write of the same change says, above its `* fast:
+        // on` (`super::speed_save`).
         assert_eq!(
-            events_rx.try_recv().ok(),
-            Some(UiEvent::Notice(super::super::notice::Notice::neutral(
+            state.save_speed("fast"),
+            Some(super::super::notice::Notice::neutral(
                 "fast",
                 "saved to user settings (scope=user); fresh sessions here use \
                  higher-precedence model=process_override"
-            )))
+            ))
         );
     }
 

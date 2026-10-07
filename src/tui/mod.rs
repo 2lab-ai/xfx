@@ -757,6 +757,7 @@ mod settings;
 mod shell;
 mod signals;
 mod sound;
+mod speed_save;
 mod statusline;
 mod term;
 mod theme;

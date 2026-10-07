@@ -836,6 +836,19 @@ pub(crate) struct Shell {
     enqueued: usize,
     /// How many of them have reached the transcript.
     emitted: usize,
+    /// How each speed save the band started went, by its id, once the writer
+    /// has answered: what to say above the announcement its [`Mark::Saving`]
+    /// holds ([`super::speed_save`]).
+    speed_said: std::collections::BTreeMap<u64, Option<notice::Notice>>,
+    /// Text the pacer released while a [`Mark::Saving`] at or before its
+    /// position was still waiting for its write: the emission and the queue
+    /// bytes it carried, released again the moment the write answers, so
+    /// nothing the stream said after the command is written before what the
+    /// command said.
+    stalled: Option<(String, usize)>,
+    /// Whether a mark is being run, so a notice it writes is written rather
+    /// than held behind a save ([`Self::write_notice`]).
+    running_mark: bool,
     /// Where a submitted line goes.
     work: WorkHandle,
     /// What the keystroke before this one was, for the two keys whose second
@@ -1249,6 +1262,9 @@ pub(crate) struct Shell {
     /// `/sound`'s two switches, the bells they owe the loop, and the saves
     /// that keep them ([`super::sound`]).
     sound: Sound,
+    /// `/fast` and `/ultrafast` saves, written on a thread of their own and
+    /// said before their announcement ([`super::speed_save`]).
+    speed_saves: super::speed_save::Saves,
     /// What the terminal writer has done this session, for `/stats`.
     ///
     /// Counted by the loop that does the writing (`super::event_loop`), which
@@ -1479,6 +1495,13 @@ enum Mark {
     /// The turn is over: whatever of its group is still running was stopped
     /// with it, and the group is closed.
     TurnOver,
+    /// A `/fast` or `/ultrafast` change, said once its save has answered:
+    /// what the save came to -- a layer above the profile, or the failure --
+    /// and then `then`, the change itself, as upstream persists before it
+    /// announces (`applyFastMode`, `session_commands.zig:781-797`). Until the
+    /// write answers ([`Shell::speed_said`]) it holds everything behind it,
+    /// the stream included, so the order said is the order given.
+    Saving { id: u64, then: notice::Notice },
 }
 
 /// The answer being written: whether its prose block is open, and the line
@@ -1794,6 +1817,9 @@ impl Shell {
             marks: VecDeque::new(),
             enqueued: 0,
             emitted: 0,
+            speed_said: std::collections::BTreeMap::new(),
+            stalled: None,
+            running_mark: false,
             work,
             gestures: Gestures::default(),
             notice: None,
@@ -1895,7 +1921,8 @@ impl Shell {
                 .as_deref()
                 .and_then(std::path::Path::parent)
                 .map(std::path::Path::to_path_buf),
-            sound: Sound::new(config.notifications, settings),
+            sound: Sound::new(config.notifications, settings.clone()),
+            speed_saves: super::speed_save::Saves::new(settings, config.sources),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
             usage_menu: None,
@@ -2733,6 +2760,8 @@ impl Shell {
         // a tool group. None of it belongs above the session that replaces it.
         self.pacer.forget();
         self.marks.clear();
+        self.stalled = None;
+        self.speed_said.clear();
         self.emitted = self.enqueued;
         self.markdown.reset();
         self.answer = Answer::default();
@@ -3740,7 +3769,7 @@ impl Shell {
                 changes,
             } => self.full.tool_finished(id, *ok, detail, *outcome, *changes),
             Mark::TurnOver => self.full.turn_over(),
-            Mark::Notice(_) | Mark::EndOfLine | Mark::Operational(_) => {}
+            Mark::Notice(_) | Mark::EndOfLine | Mark::Operational(_) | Mark::Saving { .. } => {}
         }
     }
 
@@ -5344,6 +5373,59 @@ impl Shell {
         }
     }
 
+    /// Takes how each speed save went, and says what was waiting for it.
+    fn settle_speed_saves(&mut self) {
+        let mut answered = false;
+        while let Some(saved) = self.speed_saves.saved() {
+            answered |= self.speed_saved(saved);
+        }
+        if answered {
+            self.resume_after_saves();
+        }
+    }
+
+    /// Files one save's answer under its mark, and says whether one was
+    /// waiting for it: a mark a reset dropped has nothing to say it to.
+    fn speed_saved(&mut self, saved: super::speed_save::Saved) -> bool {
+        let waiting = self
+            .marks
+            .iter()
+            .any(|(_, mark)| matches!(mark, Mark::Saving { id, .. } if *id == saved.id));
+        if waiting {
+            self.speed_said.insert(saved.id, saved.said);
+        }
+        waiting
+    }
+
+    /// Runs what a save held, and lets the text it stopped go on.
+    fn resume_after_saves(&mut self) {
+        self.run_due_marks();
+        if let Some((text, carried)) = self.stalled.take() {
+            self.release(text, carried);
+        }
+    }
+
+    /// The exit's: waits for every save still being written -- a settings
+    /// write, two `fsync`s -- so what was said for it is said before the band
+    /// comes down. One that never answers is said without its report.
+    fn finish_speed_saves(&mut self) {
+        const LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
+        while let Some(id) = self.marks.iter().find_map(|(_, mark)| match mark {
+            Mark::Saving { id, .. } if !self.speed_said.contains_key(id) => Some(*id),
+            _ => None,
+        }) {
+            match self.speed_saves.wait(LIMIT) {
+                Some(saved) => {
+                    let _ = self.speed_saved(saved);
+                }
+                None => {
+                    self.speed_said.insert(id, None);
+                }
+            }
+        }
+        self.resume_after_saves();
+    }
+
     /// What `/credits` found, under its topic: neutral for the fields or the
     /// word that there were none, an error for a failure
     /// (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
@@ -6356,12 +6438,30 @@ impl Shell {
     }
 
     /// Records a document write at the stream position it was issued at.
+    ///
+    /// A speed save always waits in the queue: its write has not answered by
+    /// the time it is marked ([`Mark::Saving`]).
     fn mark(&mut self, mark: Mark) {
-        if self.pacer.pending() == 0 && self.marks.is_empty() {
+        if self.pacer.pending() == 0
+            && self.marks.is_empty()
+            && !matches!(mark, Mark::Saving { .. })
+        {
             self.run_mark(mark);
             return;
         }
         self.marks.push_back((self.enqueued, mark));
+    }
+
+    /// Whether `mark` is a speed save whose write has not answered yet.
+    fn waiting(&self, mark: &Mark) -> bool {
+        matches!(mark, Mark::Saving { id, .. } if !self.speed_said.contains_key(id))
+    }
+
+    /// Whether anything is held behind a speed save still being written.
+    fn held_by_save(&self) -> bool {
+        self.marks
+            .iter()
+            .any(|(_, mark)| matches!(mark, Mark::Saving { .. }))
     }
 
     /// Releases what this moment of the clock is worth, and runs whatever that
@@ -6372,6 +6472,12 @@ impl Shell {
     /// what it does is put text into the transcript and ask for the frame that
     /// owes.
     fn pace(&mut self, now: Instant) {
+        // Text held behind a save still being written: the pacer waits with
+        // it, so what it releases next follows what it already released.
+        if self.stalled.is_some() {
+            self.run_due_marks();
+            return;
+        }
         let before = self.pacer.pending();
         if let Some(chunk) = self.pacer.tick(now) {
             let consumed = before.saturating_sub(self.pacer.pending());
@@ -6403,6 +6509,18 @@ impl Shell {
             if body.is_empty() {
                 return;
             }
+            // A save the stream has reached and whose write has not answered:
+            // the rest waits for it ([`Self::stalled`]).
+            if self
+                .marks
+                .front()
+                .is_some_and(|(at, mark)| *at <= self.emitted && self.waiting(mark))
+            {
+                let held = body.len();
+                let (text, carried) = self.stalled.take().unwrap_or_default();
+                self.stalled = Some((format!("{text}{reopen}{body}"), carried + held));
+                return;
+            }
             // How far this piece may go. Zero is impossible: it would mean a
             // mark at the position already reached, and the line above has just
             // run every one of those.
@@ -6432,6 +6550,7 @@ impl Shell {
     /// taken, and once more after the drain, for the session that had nothing
     /// left to drain and a queue to empty anyway.
     pub(crate) fn flush_paced(&mut self) {
+        self.finish_speed_saves();
         let before = self.pacer.pending();
         if let Some(chunk) = self.pacer.drain() {
             // Through the same splitter a tick's release goes through, so an
@@ -6451,7 +6570,7 @@ impl Shell {
         while self
             .marks
             .front()
-            .is_some_and(|(at, _)| *at <= self.emitted)
+            .is_some_and(|(at, mark)| *at <= self.emitted && !self.waiting(mark))
         {
             let Some((_, mark)) = self.marks.pop_front() else {
                 return;
@@ -6462,6 +6581,21 @@ impl Shell {
 
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
+        // A speed save that has answered: what it came to, then the change.
+        if let Mark::Saving { id, then } = mark {
+            if let Some(said) = self.speed_said.remove(&id).flatten() {
+                self.run_mark(Mark::Notice(said));
+            }
+            self.run_mark(Mark::Notice(then));
+            return;
+        }
+        let running = std::mem::replace(&mut self.running_mark, true);
+        self.run_one_mark(mark);
+        self.running_mark = running;
+    }
+
+    /// [`Self::run_mark`], for every mark but a save.
+    fn run_one_mark(&mut self, mark: Mark) {
         // Anything that is not the answer ends the answer's block. A notice
         // ends only the rows already written: the line the presenter is still
         // holding goes on under it ([`Self::write_notice`]). Operational text
@@ -6514,6 +6648,8 @@ impl Shell {
                 let _ = self.settle_group();
                 self.abandoned.clear();
             }
+            // Run by [`Self::run_mark`] itself.
+            Mark::Saving { .. } => {}
         }
     }
 
@@ -6655,6 +6791,14 @@ impl Shell {
     /// **Under an open tool group it is one of the group's last rows**
     /// ([`Self::trail_group`]), and the group goes on growing above it.
     fn write_notice(&mut self, notice: &notice::Notice) {
+        // Said straight away everywhere but behind a speed save still being
+        // written, where it waits its turn: upstream says the save's report
+        // and the change before anything typed after them.
+        if !self.running_mark && self.held_by_save() {
+            self.marks
+                .push_back((self.enqueued, Mark::Notice(notice.clone())));
+            return;
+        }
         self.full.notice(notice);
         if self.group.drawn() {
             self.trail_group(Trailed::Notice(notice.clone()));
@@ -6875,6 +7019,8 @@ impl Shell {
         self.settle_usage();
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
+        // And how a `/fast` or `/ultrafast` save went.
+        self.settle_speed_saves();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -9710,10 +9856,12 @@ impl Shell {
     /// decides it has been read ([`Self::held_speed`]).
     ///
     /// **Decided here, on the band**, where the catalog rows and the
-    /// announcement are, so it is said the moment it is given, as upstream's
-    /// is -- a turn streaming or not; the runtime is handed the switches as
-    /// they are to be ([`TurnControl::Speed`]) and applies them before the
-    /// next turn. Only the commands a row decides wait for one: Fast on and
+    /// announcement are, so it is in force and saved the moment it is given,
+    /// as upstream's is -- a turn streaming or not -- and said as soon as the
+    /// save has answered, after what the save came to, as upstream persists
+    /// before it announces ([`Self::announce_saved`]); the runtime is handed
+    /// the switches as they are to be ([`TurnControl::Speed`]) and applies
+    /// them before the next turn. Only the commands a row decides wait for one: Fast on and
     /// Ultra on. Off needs no row, and neither does what was asked for -- but
     /// they wait behind one that is held, so the order given is the order said.
     fn speed_command(&mut self, command: SpeedCommand) {
@@ -9742,8 +9890,8 @@ impl Shell {
         }
     }
 
-    /// One speed command against the model in force's row, said and handed
-    /// to the runtime (`applyFastMode`, `applyUltrafastMode`,
+    /// One speed command against the model in force's row: saved, said, and
+    /// handed to the runtime (`applyFastMode`, `applyUltrafastMode`,
     /// `session_commands.zig:753-859`).
     fn decide_speed(&mut self, command: SpeedCommand) {
         let entry = self.catalog_row(&self.model).cloned();
@@ -9783,7 +9931,16 @@ impl Shell {
                 },
             ),
         };
-        self.announce(notice::Notice::neutral(topic, said));
+        self.announce_saved(
+            super::speed_save::Order {
+                provider: self.provider,
+                model: self.model.clone(),
+                fast: self.settings.fast,
+                ultrafast: self.settings.ultrafast,
+                topic,
+            },
+            notice::Notice::neutral(topic, said),
+        );
         self.render.request(Reason::Footer);
         self.work.control(TurnControl::Speed(SpeedChange {
             fast: self.settings.fast,
@@ -9791,6 +9948,27 @@ impl Shell {
             topic,
             provider: self.provider,
         }));
+    }
+
+    /// Saves a speed change and says it the way upstream does: the save
+    /// first -- its report, when it has one -- then `announcement`
+    /// (`applyFastMode`, `session_commands.zig:781-797`; `applyUltrafastMode`,
+    /// `:839-859`). The write is the writer thread's ([`super::speed_save`]);
+    /// until it answers the announcement holds its place, and everything
+    /// after it waits behind it ([`Mark::Saving`]). With no settings file
+    /// there is nothing to wait for.
+    fn announce_saved(&mut self, order: super::speed_save::Order, announcement: notice::Notice) {
+        match self.speed_saves.start(order) {
+            super::speed_save::Started::Writing(id) => self.mark(Mark::Saving {
+                id,
+                then: announcement,
+            }),
+            super::speed_save::Started::Nowhere => self.announce(announcement),
+            super::speed_save::Started::Failed(failure) => {
+                self.announce(failure);
+                self.announce(announcement);
+            }
+        }
     }
 
     /// The colour Ultra's `⚡︎` is said in, as the launch read the terminal
@@ -9997,6 +10175,8 @@ impl Shell {
         // emission will reach.
         self.pacer.forget();
         self.marks.clear();
+        self.stalled = None;
+        self.speed_said.clear();
         self.emitted = self.enqueued;
         self.markdown.reset();
         self.answer = Answer::default();
@@ -20803,6 +20983,134 @@ mod tests {
         );
         assert!(!shell.settings.fast && !shell.settings.ultrafast);
         assert!(shell.hint().ends_with("grok-4.7"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn a_speed_change_is_said_once_saved_with_the_saves_report_above_it_and_what_followed_behind() {
+        // Upstream persists, then announces (`applyFastMode`,
+        // `session_commands.zig:781-797`): under a layer above the profile its
+        // `saved ... higher-precedence model=...` is the line above `* fast:
+        // on`. The write is the writer thread's, so the band says nothing until
+        // it answers -- and what was typed after it waits behind it, the
+        // usage line written straight away elsewhere included.
+        let mut shell = speed_shell();
+        shell.shell.speed_saves = super::super::speed_save::Saves::by_hand();
+        shell.shell.use_model("anthropic/claude-opus-5");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/fast\r");
+        assert!(shell.document().is_empty(), "said before it was saved");
+        // In force at once, as upstream's is: the runtime has it and the
+        // footer shows it.
+        assert!(speed_change(&mut shell).fast);
+        assert!(
+            shell.hint().ends_with("opus 5 \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        assert_eq!(
+            shell.shell.speed_saves.orders(),
+            [(
+                1,
+                super::super::speed_save::Order {
+                    provider: ProviderId::Gateway,
+                    model: "anthropic/claude-opus-5".to_string(),
+                    fast: true,
+                    ultrafast: false,
+                    topic: "fast",
+                }
+            )]
+        );
+        shell.route_bytes(b"/ultrafast\r");
+        shell.route_bytes(b"/ultrafast bogus\r");
+        shell.settle_band(Instant::now());
+        assert!(shell.document().is_empty(), "{:?}", shell.document());
+        let shadow = notice::Notice::neutral(
+            "fast",
+            "saved to user settings (scope=user); fresh sessions here use \
+             higher-precedence model=process_override",
+        );
+        shell.shell.speed_saves.deliver(1, Some(shadow.clone()));
+        shell.settle_band(Instant::now());
+        let mut expected = said(shadow);
+        expected.extend(said(notice::Notice::neutral("fast", "on")));
+        expected.extend(said(notice::Notice::neutral("ultrafast", "requested: off")));
+        expected.extend(said(notice::Notice::error(
+            "",
+            "usage: /ultrafast [on|off|status]",
+        )));
+        assert_eq!(shell.document(), expected);
+        // A save with nothing to report is the change alone; with nowhere to
+        // save to, it is said at once.
+        shell.route_bytes(b"/fast\r");
+        shell.shell.speed_saves.deliver(2, None);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("fast", "off"))
+        );
+        shell.shell.speed_saves = super::super::speed_save::Saves::new(None, Default::default());
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("fast", "on"))
+        );
+    }
+
+    #[test]
+    fn a_speed_change_mid_answer_holds_the_text_after_it_until_its_save_answers() {
+        // The answer's text before the command, the change, the text after
+        // it: the order the stream and the command came in, whatever the
+        // write took.
+        let mut shell = running("say something");
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: speed_rows(),
+        });
+        shell.shell.use_model("anthropic/claude-opus-5");
+        let _ = change(&mut shell);
+        shell.shell.speed_saves = super::super::speed_save::Saves::by_hand();
+        let _ = shell.take_pending();
+        // Two paragraphs, so the presenter has seen the end of the first.
+        shell.apply(UiEvent::Delta(
+            "MARKER-BEFORE line\n\nnext paragraph\n\n".to_string(),
+        ));
+        shell.route_bytes(b"/fast\r");
+        assert!(speed_change(&mut shell).fast, "decided against opus' row");
+        shell.apply(UiEvent::Delta(
+            "MARKER-AFTER line\n\nlast paragraph\n\n".to_string(),
+        ));
+        let start = Instant::now();
+        let paced = shell.paced(start, 2_000).join("\n");
+        assert!(paced.contains("MARKER-BEFORE"), "{paced}");
+        assert!(!paced.contains("MARKER-AFTER"), "{paced}");
+        assert!(!paced.contains("fast: on"), "{paced}");
+        shell.shell.speed_saves.deliver(1, None);
+        let rest = shell
+            .paced(start + Duration::from_millis(2_000), 2_000)
+            .join("\n");
+        let (on, after) = (
+            rest.find("fast: on").unwrap_or_else(|| panic!("{rest}")),
+            rest.find("MARKER-AFTER")
+                .unwrap_or_else(|| panic!("{rest}")),
+        );
+        assert!(on < after, "{rest}");
+    }
+
+    #[test]
+    fn the_exit_waits_for_a_speed_save_and_says_it() {
+        let mut shell = speed_shell();
+        shell.shell.speed_saves = super::super::speed_save::Saves::by_hand();
+        shell.shell.use_model("anthropic/claude-opus-5");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/fast\r");
+        shell.shell.speed_saves.deliver(1, None);
+        // Answered but not yet taken: the exit takes it.
+        assert_eq!(
+            shell.released(),
+            said(notice::Notice::neutral("fast", "on"))
+        );
     }
 
     #[test]
