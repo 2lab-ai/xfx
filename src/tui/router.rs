@@ -114,6 +114,10 @@ pub(crate) trait CommandHandlers {
     /// when there was none. Empty opens the settings menu; anything else is
     /// its usage line, because xfx answers none of upstream's argument forms.
     fn settings(&mut self, argument: &str);
+    /// `/workspace`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which opens the picker. What the rest may be is
+    /// `crate::workspace::access::parse`'s to say, its refusal included.
+    fn workspace(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -209,6 +213,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Status => handlers.status(),
         Slash::Statusline => handlers.statusline(argument),
         Slash::Settings => handlers.settings(argument),
+        Slash::Workspace => handlers.workspace(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -324,6 +329,9 @@ mod tests {
         fn settings(&mut self, argument: &str) {
             self.calls.push(format!("settings {argument}"));
         }
+        fn workspace(&mut self, argument: &str) {
+            self.calls.push(format!("workspace {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -361,6 +369,7 @@ mod tests {
             ("/allowlist", "allowlist "),
             ("/settings", "settings "),
             ("/undo", "undo"),
+            ("/workspace", "workspace "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -450,6 +459,21 @@ mod tests {
                 argument: "bogus words".to_string()
             }
         );
+        // Every form `/workspace` is typed in reaches its one handler, a path
+        // with spaces whole; what each means -- `bogus` is the usage line --
+        // is the handler's (`parseWorkspaceCommand`, `app_commands.zig:198-216`).
+        for (line, call) in [
+            ("/workspace", "workspace "),
+            ("/workspace   ", "workspace "),
+            ("/workspace list", "workspace list"),
+            ("/workspace add ../a b", "workspace add ../a b"),
+            ("/workspace remove /x", "workspace remove /x"),
+            ("/workspace clear", "workspace clear"),
+            ("/workspace bogus", "workspace bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
         // Every form `/sound` is typed in reaches its one handler, the words
         // it does not know included: refusing them is the handler's, with the
         // usage line (`app_commands.zig:3984-3988`), not this module's with

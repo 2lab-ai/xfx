@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-1aa1153 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* workspace: primary=<scratch>/work[39m
+  [38;5;250msaved_suppressed=false limit=16[39m
+  [38;5;250madditional directories: (none)[39m
+
+[38;5;252m✗ [38;5;250musage: /workspace [add PATH|remove PATH|clear][39m
+
+[38;5;252m✗ workspace:[38;5;250m Workspace update rejected: directory does not exist[39m
+
+[38;5;252m✗ workspace:[38;5;250m Workspace update rejected: path is invalid[39m
+
+[38;5;250m* workspace: primary=<scratch>/work[39m
+  [38;5;250msaved_suppressed=false limit=16[39m
+  [38;5;250madd ../extra saved_changed=true runtime_changed=true launch_flag_can_restore=false[39m
+  [38;5;250madditional directories:[39m
+  [38;5;250m - <scratch>/extra saved=true command_line=false available=true active=true[39m
+
+[38;5;255m┃[39m /workspace remove <scratch>/extra
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

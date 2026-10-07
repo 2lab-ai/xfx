@@ -28,7 +28,7 @@ use super::rules::{RuleAction, RuleSet};
 
 use super::authority::{
     issue, ApprovalDiff, AuthorityError, AuthorityLedger, CommandPlan, ExecutionAuthority,
-    MutationPlan, TargetScope,
+    MutationPlan,
 };
 use super::command::CommandEffect;
 
@@ -366,19 +366,19 @@ impl ProposedAction<'_> {
     ///
     /// `auto` has no human to consult, so the only actions it can admit are the
     /// ones whose *structure* already bounds them: a write of bounded size to a
-    /// path inside the workspace the user is already sitting in, or a command
+    /// path inside a root the user put the session in -- the workspace or an
+    /// added one, alike ([`super::TargetScope`]) -- that is not a file deciding what
+    /// runs later ([`MutationPlan::sensitive_auto_write_target`]), or a command
     /// the grammar reduced to a read-only argv.
     fn auto_admission(&self) -> Result<(), String> {
         match self {
-            Self::Mutation(plan) => {
-                if plan.scope() != TargetScope::PrimaryWorkspace {
-                    return Err(format!(
-                        "auto mode only changes files inside the workspace; `{}` is in an additional root that `--add-dir` opened for reading",
-                        plan.display()
-                    ));
-                }
-                Ok(())
-            }
+            Self::Mutation(plan) => match plan.sensitive_auto_write_target() {
+                Some(sequence) => Err(format!(
+                    "auto mode does not change `{}` on its own because `{sequence}` decides what runs later; ask the user to approve it",
+                    plan.display()
+                )),
+                None => Ok(()),
+            },
             Self::Command(plan) => match plan.effect() {
                 CommandEffect::DirectReadOnly { .. } => Ok(()),
                 CommandEffect::Denied(effect) => Err(format!(
@@ -1293,7 +1293,7 @@ impl Default for PermissionSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permission::authority::{MutationKind, Preimage};
+    use crate::permission::authority::{MutationKind, Preimage, TargetScope};
     use std::path::PathBuf;
 
     fn write_plan(scope: TargetScope) -> MutationPlan {
@@ -1309,24 +1309,105 @@ mod tests {
     }
 
     #[test]
-    fn auto_admits_a_workspace_write_and_refuses_an_added_root() {
+    fn auto_admits_a_write_in_an_added_root_as_it_does_in_the_workspace() {
+        // Upstream's rule: an active added root is a root the target is
+        // *contained* in, and a contained target bypasses review in auto
+        // (`vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:665-679`;
+        // the e2e `write_trusted_added`, `expectedReview: false`,
+        // `tests/e2e/file-tool-paths.test.ts:1170-1179`).
         let session = PermissionSession::new(PermissionMode::Auto);
-        let inside = write_plan(TargetScope::PrimaryWorkspace);
-        assert_eq!(
-            session.evaluate(ProposedAction::Mutation(&inside)),
-            PolicyDecision::Allow {
-                source: AllowSource::AutoMode
-            }
-        );
+        for scope in [TargetScope::PrimaryWorkspace, TargetScope::AdditionalRoot] {
+            assert_eq!(
+                session.evaluate(ProposedAction::Mutation(&write_plan(scope))),
+                PolicyDecision::Allow {
+                    source: AllowSource::AutoMode
+                },
+                "{scope:?}"
+            );
+        }
+    }
 
-        let outside = write_plan(TargetScope::AdditionalRoot);
-        let PolicyDecision::Deny { cause, reason } =
-            session.evaluate(ProposedAction::Mutation(&outside))
-        else {
-            panic!("auto must not write into an added root");
-        };
-        assert_eq!(cause, DenyCause::NotAutoAdmissible);
-        assert!(reason.contains("--add-dir"), "{reason}");
+    #[test]
+    fn auto_does_not_change_a_login_or_git_configuration_file_in_any_root() {
+        // Upstream sends these to its reviewer even inside a root
+        // (`sensitiveAutoWriteTarget`, `tool_admission.zig:680-694`). xfx's
+        // auto has no reviewer, so "review" is a refusal: the user can still
+        // approve it in `ask`. Without this, `/workspace add ~` would let auto
+        // rewrite `~/.zshrc`, which upstream never does unreviewed.
+        let session = PermissionSession::new(PermissionMode::Auto);
+        for target in [
+            "/home/u/.zshrc",
+            "/home/u/.bashrc",
+            "/home/u/.bash_profile",
+            "/home/u/.profile",
+            "/home/u/.ssh/authorized_keys",
+            "/home/u/.ssh/config",
+            "/home/u/.config/autostart/x.desktop",
+            "/home/u/.config/fish/config.fish",
+            "/Users/u/Library/LaunchAgents/x.plist",
+            "/Library/LaunchDaemons/x.plist",
+            "/w/repo/.git/hooks/pre-commit",
+            "/w/repo/.git/config",
+            "/w/repo/.git/config.worktree",
+            // APFS is case-insensitive by default, so is this.
+            "/home/u/.ZSHRC",
+        ] {
+            for scope in [TargetScope::PrimaryWorkspace, TargetScope::AdditionalRoot] {
+                let plan = MutationPlan::new(
+                    MutationKind::Write,
+                    PathBuf::from(target),
+                    target.to_string(),
+                    scope,
+                    Preimage::Absent,
+                    b"x".to_vec(),
+                );
+                let PolicyDecision::Deny { cause, reason } =
+                    session.evaluate(ProposedAction::Mutation(&plan))
+                else {
+                    panic!("auto changed {target} in {scope:?}");
+                };
+                assert_eq!(cause, DenyCause::NotAutoAdmissible, "{target}");
+                assert!(reason.contains("ask the user"), "{reason}");
+            }
+        }
+        // The sequence has to be whole and in order: these are ordinary files.
+        for target in [
+            "/w/zshrc",
+            "/w/.zshrc.bak",
+            "/w/config/.ssh",
+            "/w/hooks/.git",
+            "/w/.git-config",
+        ] {
+            let plan = MutationPlan::new(
+                MutationKind::Write,
+                PathBuf::from(target),
+                target.to_string(),
+                TargetScope::AdditionalRoot,
+                Preimage::Absent,
+                b"x".to_vec(),
+            );
+            assert_eq!(
+                session.evaluate(ProposedAction::Mutation(&plan)),
+                PolicyDecision::Allow {
+                    source: AllowSource::AutoMode
+                },
+                "{target}"
+            );
+        }
+        // And `ask` is unchanged: a human can still say yes to one.
+        let ask = PermissionSession::new(PermissionMode::Ask);
+        let plan = MutationPlan::new(
+            MutationKind::Write,
+            PathBuf::from("/home/u/.zshrc"),
+            ".zshrc".to_string(),
+            TargetScope::AdditionalRoot,
+            Preimage::Absent,
+            b"x".to_vec(),
+        );
+        assert_eq!(
+            ask.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
     }
 
     #[test]
