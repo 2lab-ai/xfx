@@ -1,0 +1,8 @@
+[fakegw] listening 65076
+[fakegw] GET /codex/models bearer=yes
+[fakegw] codex title
+[fakegw] codex /codex/responses -> tool read_file
+[fakegw] codex /codex/responses -> text
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] completion /v4/ai/language-model -> text

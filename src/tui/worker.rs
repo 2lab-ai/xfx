@@ -1440,8 +1440,9 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
     /// When the session `/usage` calls the session began, for its wall clock:
-    /// this runtime's start, the moment `/new` or a provider switch dropped
-    /// the conversation, or the resumed session's own creation.
+    /// this runtime's start, the moment `/new` dropped the conversation, or
+    /// the resumed session's own creation. A provider switch keeps the
+    /// conversation and so the clock.
     ///
     /// Upstream's session exists from launch and its clock with it (`reset`,
     /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
@@ -1458,7 +1459,8 @@ struct Runtime {
     credits: CreditsBoard,
     /// Where the band asks for the session's title ([`super::titles::TitleDesk`]):
     /// this side publishes where to ask ([`Runtime::publish`]), moves the
-    /// lineage on a resume and a provider switch, and settles every answer.
+    /// lineage on a resume, and settles every answer. A provider switch keeps
+    /// the conversation and so the lineage.
     titles: super::titles::TitleDesk,
     /// Where the answers arrive: read between pieces of work by [`turn_loop`],
     /// and lent to the turn that is running ([`run_turn`]).
@@ -1774,8 +1776,9 @@ impl Runtime {
     /// `:1479-1481`). The gate's half the band would have read is read from
     /// the conversation itself: no title on record, none come back for it,
     /// and no turn in it (`session_untitled`, `app_session_runtime.zig:3674-3675`).
-    /// After a provider switch that is a conversation not yet opened; after a
-    /// resume, the resumed one, whose turns ask nothing.
+    /// After a provider switch that is the conversation it kept, which asks
+    /// only if no turn has run in it; after a resume, the resumed one, whose
+    /// turns ask nothing.
     fn worked_through(&mut self, worked: usize) {
         let Some(excerpt) = self.titles.worked_through(worked) else {
             return;
@@ -1955,8 +1958,10 @@ impl Runtime {
     /// `/undo` against the conversation as it stands: its newest change as of
     /// `through` taken back ([`crate::tools::mutate::undo_through`]), or
     /// nothing when there is no conversation -- a session that has asked
-    /// nothing has changed nothing, and one `/new` or a provider switch
-    /// dropped took its changes with it.
+    /// nothing has changed nothing, and one `/new` dropped took its changes
+    /// with it. A provider switch keeps them, as upstream's keeps its tracker
+    /// (`runProviderCommand`, `app_auth_runtime.zig:387`, never reaches the
+    /// clear at `app_session_runtime.zig:1999`).
     fn undo(&self, through: crate::tools::undo::Mark) -> crate::tools::undo::Undone {
         self.conversation
             .as_ref()
@@ -2322,11 +2327,23 @@ impl Runtime {
     /// outranks the profile still outranks it and the session says what it will
     /// really do rather than what the write intended.
     ///
-    /// The bundle and the conversation are dropped **here and not earlier**, so
-    /// a transaction that failed anywhere above leaves a working session alone.
-    /// They are dropped rather than kept because a conversation carried across a
-    /// switch would replay one provider's history into another's wire format,
-    /// and a bundle is a connection to an endpoint that is no longer configured.
+    /// The bundle is dropped **here and not earlier**, so a transaction that
+    /// failed anywhere above leaves a working session alone; it is a connection
+    /// to an endpoint that is no longer configured.
+    ///
+    /// **The conversation is kept**, as upstream's `/provider` keeps its
+    /// session (`app.provider_selection.adoptOwned`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_auth_runtime.zig:1377-1381`, touches nothing of it):
+    /// its log, its grants, its read proofs and its `/undo` journal go on, and
+    /// the next turn replays its history in the new provider's wire. That is
+    /// safe because the history is never one wire's bytes: it is rebuilt from
+    /// the log for every request ([`crate::session::DurableState::history_messages`]),
+    /// a step's replay state goes only to the wire that sealed it -- upstream's
+    /// `projectProviderReplay`, `types.zig:1548-1563` -- and a call id the new
+    /// wire cannot take goes under a portable alias
+    /// ([`crate::gateway::tool_call_ids`]). The switch itself is written into
+    /// the log, provider and model both, as upstream's patch writes them
+    /// (`commitRuntimePreferences`, `app_session_runtime.zig:3539-3550`).
     fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
         // **Except the session's permission mode**, which is not what the file
         // says but what the person last chose: `/permissions` and Shift-Tab
@@ -2365,12 +2382,38 @@ impl Runtime {
         // again ([`turn_loop`]).
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
-        self.conversation = None;
+        let provider = self.config.provider.label().to_string();
+        let model = self.model().to_string();
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation
+                .recorder
+                .commit(SessionEvent::PreferencesChanged {
+                    model: Some(model),
+                    permission_mode: None,
+                    provider: Some(provider),
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
+                });
+        }
+        // And the switches that went off above, into the same log: a resume
+        // restores the session's settings from it (`Runtime::resume_by_id`),
+        // and one that still said Fast would turn it back on for a model
+        // that was never asked for it.
+        self.record_settings();
+        // The bills the Gateway still owes this session are asked with the
+        // Gateway's credential, and only while it is the provider: upstream
+        // drops its asking credential on a switch to a provider that is not
+        // the Gateway and starts again with the new one on a switch to it
+        // (`reconcileGatewayCredential`, `app_auth_runtime.zig:2039-2070`).
+        // Forgotten here, the requests stay pending in the log, and the asking
+        // after this work ([`Runtime::ask_for_bills`]) starts again on the
+        // Gateway.
         self.bills.forget();
-        self.titles.next_lineage();
-        self.conversation_lineage = None;
-        self.drop_pending_title();
-        self.began_ms = crate::session::event::system_now_ms();
+        // The title machinery's lineage stays where it is, and so does a
+        // title waiting for the conversation to open: the conversation the
+        // band shows is the one it showed before the switch, as upstream's
+        // session is (a question out runs on and is answered into it).
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
@@ -2934,8 +2977,8 @@ async fn turn_loop(
             }
         };
         // After **every** piece of work rather than in the arms that change
-        // the conversation: a provider switch replaces it, and a piece of work
-        // added later that does either is covered without remembering to be.
+        // the conversation: a resume replaces it, and a piece of work added
+        // later that does either is covered without remembering to be.
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
@@ -4003,6 +4046,10 @@ async fn run_setup(
                 },
             )
             .await;
+            // The new provider's catalog is read in the background as the
+            // loop takes its next piece of work ([`begin_catalog_read`]), as
+            // upstream's switch reads the target's: the conversation goes on,
+            // and the meter measures its tokens against the new window.
             bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
             ended
         }
@@ -4984,7 +5031,9 @@ async fn one_turn(
         .recorder
         .state()
         .history_messages(state.config.provider.wire());
-    for notice in &replay.notices {
+    // Once each for the conversation ([`Conversation::unsaid`]): the history
+    // is rebuilt for every turn, and so are these.
+    for notice in conversation.unsaid(replay.notices) {
         // Best effort by construction: a notice about the history is worth
         // less than the turn it precedes, and the only ways this fails are a
         // turn that was cancelled before it began and a UI that is gone --
@@ -4992,7 +5041,8 @@ async fn one_turn(
         // A warning under `session`: the turn goes ahead, without what the
         // history could not carry. The store's sentence is the line shell's
         // too, so its `xfx: ` comes off here where the glyph says it.
-        let notice = super::notice::Notice::warning("session", super::notice::unattributed(notice));
+        let notice =
+            super::notice::Notice::warning("session", super::notice::unattributed(&notice));
         let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice)).await;
     }
 
@@ -10166,12 +10216,15 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_switch_drops_the_old_bundle_and_the_conversation() {
-        // Step (g), and the two things it must not keep. A conversation carried
-        // across a switch would replay one provider's history into another's
-        // wire format; a bundle is a connection to an endpoint that is no longer
-        // configured. `ready()` builds whatever it does not have, so dropping
-        // them here is exactly what makes the next prompt select the new one.
+    fn a_provider_switch_drops_the_old_bundle_and_keeps_the_conversation() {
+        // Step (g). The bundle goes: it is a connection to an endpoint that is
+        // no longer configured, and `ready()` builds whatever it does not
+        // have, so dropping it is exactly what makes the next prompt select
+        // the new one. **Changed claim**: the conversation stays, as
+        // upstream's session does across `/provider` (`app_auth_runtime.zig:
+        // 1377-1381`), with the switch written into its log, provider and
+        // model both (`app_session_runtime.zig:3539-3550`), and its clock
+        // where it was.
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A credential, because a bundle cannot be selected without one and the
@@ -10214,6 +10267,19 @@ mod tests {
             .expect("open a conversation"),
         );
 
+        let id = runtime
+            .conversation
+            .as_ref()
+            .expect("opened")
+            .recorder
+            .id()
+            .clone();
+        runtime.began_ms = 1_234;
+        // In Fast, and the log says so: the switch turns it off with the
+        // model it replaces, and a resume reads the log's.
+        runtime.settings.fast = true;
+        runtime.record_settings();
+
         let mut after = before.clone();
         after.provider = ProviderId::Llmux;
         after.model = "fable".to_string();
@@ -10227,9 +10293,23 @@ mod tests {
             runtime.provider.is_none(),
             "the old bundle survived the swap"
         );
-        assert!(
-            runtime.conversation.is_none(),
-            "the old conversation survived the swap"
+        let kept = runtime
+            .conversation
+            .as_ref()
+            .expect("the switch dropped the conversation");
+        assert_eq!(kept.recorder.id(), &id, "the switch opened another session");
+        assert_eq!(kept.recorder.state().provider.as_deref(), Some("llmux"));
+        assert_eq!(kept.recorder.state().model, "fable");
+        assert_eq!(runtime.began_ms, 1_234, "the switch restarted the clock");
+        assert!(!runtime.settings.fast);
+        assert_eq!(
+            kept.recorder
+                .state()
+                .turn_settings
+                .as_ref()
+                .map(|settings| settings.fast),
+            Some(false),
+            "the log kept Fast on across the switch, for a resume to restore"
         );
         assert_eq!(
             runtime.config.llmux_url.as_deref(),
@@ -10392,12 +10472,12 @@ mod tests {
     }
 
     #[test]
-    fn a_conversation_rebuilt_after_a_provider_switch_can_still_ask() {
-        // `adopt` drops the conversation on purpose, and `ready()` builds
-        // whatever it does not have. A requester attached only at the first
-        // `ready` would leave every session that switched provider -- or typed
-        // `/new`, which drops the same field -- unable to ask, and the failure
-        // would look like a model that stopped using the tool.
+    fn a_conversation_kept_across_a_provider_switch_or_rebuilt_after_new_can_still_ask() {
+        // `adopt` keeps the conversation, tools and requester with it, and
+        // `ready()` builds whatever it does not have -- after `/new`, which
+        // drops the field. A requester attached only at the first `ready`
+        // would leave such a session unable to ask, and the failure would
+        // look like a model that stopped using the tool.
         let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
         state.ready(&CancelToken::new()).expect("a conversation");
 
@@ -10406,11 +10486,19 @@ mod tests {
         after.model = "fable".to_string();
         after.llmux_url = Some("http://127.0.0.1:3456".to_string());
         state.adopt(after);
+        state.ready(&CancelToken::new()).expect("a conversation");
         assert!(
-            state.conversation.is_none(),
-            "the switch kept the old conversation, so the rebuild is not what is measured"
+            state
+                .conversation
+                .as_ref()
+                .expect("kept")
+                .tools
+                .questioner()
+                .is_some(),
+            "the conversation kept across the switch has nobody to ask"
         );
 
+        state.conversation = None;
         state.ready(&CancelToken::new()).expect("a conversation");
         assert!(
             state
@@ -11589,8 +11677,8 @@ mod tests {
 
     #[test]
     fn a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next() {
-        // A `/new` moves the lineage on at the keystroke; a resume and a
-        // provider switch move it in the runtime. The question runs on, and
+        // A `/new` moves the lineage on at the keystroke; a resume moves it
+        // in the runtime. The question runs on, and
         // its answer is about the conversation let go of: dropped
         // (`session_changed`, `pollSessionTitleGeneration`,
         // `app_session_runtime.zig:3720-3728`), which `/trace` says over the
@@ -11613,49 +11701,39 @@ mod tests {
             .expect("the next conversation");
         assert!(rename_frames(&state).is_empty());
 
-        // A provider switch's own lineage change, with the question still
-        // out when it is made.
-        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        // **Changed claim**: a provider switch is no longer one. It keeps
+        // the conversation, as upstream's `/provider` keeps its session
+        // (`app_auth_runtime.zig:1377-1381`), so the question out when it is
+        // made is answered into that conversation.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Still mine"));
         state.ready(&CancelToken::new()).expect("a conversation");
         assert!(state.titles.ask("fix the renderer"));
         let reloaded = state.config.clone();
         let _ = state.adopt(reloaded);
         let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
-        assert_eq!(state.title_arrived(&titled, false), None);
-        let record = state.titles.generation();
-        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
-        assert_eq!(record.reason, Some("session_changed"));
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Still mine")
+        );
+        let recorded = state.conversation.as_ref().expect("kept").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Still mine"));
 
-        // One that came back and was read before the lineage moved is
-        // dropped by its lineage too.
-        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
-        state.ready(&CancelToken::new()).expect("a conversation");
-        assert!(state.titles.ask("fix the renderer"));
-        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
-        assert!(state.titles.settle(&titled));
-        let reloaded = state.config.clone();
-        let _ = state.adopt(reloaded);
-        assert_eq!(state.title_arrived(&titled, true), None);
-        let record = state.titles.generation();
-        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
-        assert_eq!(record.reason, Some("session_changed"));
-
-        // And one that was waiting for a conversation not yet open when a
-        // switch let it go: dropped too, not forgotten with `/trace` still
-        // calling it installed.
-        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Never opened"));
+        // And one that was waiting for a conversation not yet open when the
+        // switch was made goes on waiting for it, and is written when it
+        // opens.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Opened later"));
         assert!(state.titles.ask("fix the renderer"));
         let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
         assert_eq!(
             state.title_arrived(&titled, false).as_deref(),
-            Some("Never opened"),
+            Some("Opened later"),
             "the band was not shown it"
         );
         let reloaded = state.config.clone();
         let _ = state.adopt(reloaded);
-        let record = state.titles.generation();
-        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
-        assert_eq!(record.reason, Some("session_changed"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Opened later"));
     }
 
     #[test]
@@ -11663,11 +11741,10 @@ mod tests {
         // Upstream holds a prompt while its provider is prepared and asks
         // when it finalizes it, of the session in force then
         // (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`,
-        // `:1479-1481`). After xfx's provider switch that is a conversation
-        // not yet opened: asked.
+        // `:1479-1481`). A provider switch keeps the conversation, so a
+        // prompt held for one made before any conversation was opened is
+        // that conversation's first: asked.
         let (_home, _workspace, mut state) = titled_runtime(|_| generated("New provider"));
-        state.ready(&CancelToken::new()).expect("a conversation");
-        concluded(&mut state, "a turn in the conversation the switch drops");
         state.titles.switching(1);
         assert!(state.titles.defer("fix the renderer", Some(2)));
         state.worked_through(0);
@@ -11677,10 +11754,23 @@ mod tests {
         state.worked_through(1);
         assert!(
             state.titles.running(),
-            "the fresh conversation's prompt asked nothing"
+            "the first prompt after the switch asked nothing"
         );
         let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
         assert_eq!(titled.lineage, state.titles.lineage());
+
+        // And one held for a switch of a conversation that has turns is not
+        // its first prompt: nothing asked (`session_untitled`,
+        // `app_session_runtime.zig:3674-3675`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Not asked"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "a turn in the conversation the switch keeps");
+        state.titles.switching(1);
+        assert!(state.titles.defer("fix the renderer", Some(2)));
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        state.worked_through(1);
+        assert!(!state.titles.running(), "a conversation with turns asked");
 
         // After a resume it is the resumed conversation, whose turns ask
         // nothing (`session_untitled`, `app_session_runtime.zig:3674-3675`).

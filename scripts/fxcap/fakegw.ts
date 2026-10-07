@@ -34,6 +34,21 @@
 // keeps the one its first prompt gives it. Its log line names the model asked
 // (`ai-language-model-id`) -- never the bearer.
 // Every request body is written to <bodies-dir>/NNN-<kind>.json when a bodies dir is given.
+//
+// The same port is also a llmux daemon and a Codex subscription endpoint, so a capture can switch
+// provider mid-session and read what the next request carried (`/provider`):
+//   llmux (xfx): GET / answers `llmux` and GET /models (exactly) a one-model catalog,
+//     `fake/model-a` -- the two probes `xfx setup llmux` makes; POST /v1/messages takes the next
+//     turn as Anthropic SSE.
+//   Codex (fx): GET /codex/models a catalog of `gpt-5.6-sol` and the reviewer `gpt-5.6-luna`, in
+//     the shape fx's codex reader takes; POST /codex/responses the next turn as Responses SSE (fx's own e2e shapes,
+//     tests/e2e/tui-auth-source-selection.test.ts:84-118, :142-176), and a title request a
+//     completed empty response.
+//   A turn's `thinking: {text, signature}` is the reasoning each of those two wires seals: a signed
+//   `thinking` block ahead of the text on llmux, a `reasoning` item whose `encrypted_content` is the
+//   signature on Codex. The Gateway's stream ignores it.
+// Turns are one queue, consumed in order whichever wire asks; bodies are kept as NNN-llmux.json and
+// NNN-codex.json.
 const port = Number(process.argv[2] ?? 0);
 const script: any[] = JSON.parse(await Bun.file(process.argv[3]).text());
 const bodies = process.argv[4];
@@ -104,6 +119,47 @@ const server = Bun.serve({
   idleTimeout: 0,
   async fetch(req) {
     const url = new URL(req.url);
+    if (req.method === "GET" && url.pathname === "/") {
+      log("GET / (llmux probe)");
+      return new Response("llmux");
+    }
+    if (req.method === "GET" && url.pathname === "/models") {
+      log("GET /models (llmux catalog)");
+      return Response.json({ models: [{ id: "fake/model-a", name: "fake/model-a", aliases: [], group: "anthropic", efforts: [], max_context: 200000 }] });
+    }
+    if (req.method === "GET" && url.pathname === "/codex/models") {
+      log(`GET /codex/models bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}`);
+      // `gpt-5.6-luna` too: fx refuses a Codex catalog without its permission reviewer
+      // (`reviewer_model`, src/gateway/openai_codex_models.zig:20, :128-137).
+      const row = (slug: string, context_window: number) => ({
+        slug, visibility: "list", supported_in_api: true, supported_reasoning_levels: [{ effort: "high" }],
+        additional_speed_tiers: [], input_modalities: ["text"], context_window,
+      });
+      return Response.json({ models: [row("gpt-5.6-sol", 272000), row("gpt-5.6-luna", 128000)] });
+    }
+    if (req.method === "POST" && url.pathname === "/v1/messages") {
+      const body = await req.text();
+      await keep("llmux", body);
+      const turn = script.shift();
+      log(`llmux ${url.pathname} -> ${turn ? describe(turn) : "EMPTY"}`);
+      if (!turn) return new Response("unexpected request", { status: 500 });
+      if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
+      return anthropic(turn);
+    }
+    if (req.method === "POST" && url.pathname === "/codex/responses") {
+      const body = await req.text();
+      if (body.includes("Generate a short title")) {
+        log("codex title");
+        await keep("codex-title", body);
+        return responses([{ type: "response.completed", response: { id: "title", status: "completed", usage: { input_tokens: 1, output_tokens: 1 } } }]);
+      }
+      await keep("codex", body);
+      const turn = script.shift();
+      log(`codex ${url.pathname} -> ${turn ? describe(turn) : "EMPTY"}`);
+      if (!turn) return new Response("unexpected request", { status: 500 });
+      if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
+      return responses(responsesEvents(turn));
+    }
     if (req.method === "GET") {
       // The model catalog: FAKEGW_MODELS names a scenario file to serve
       // (`capture.sh`'s `models` verb), so both binaries list the same one.
@@ -177,6 +233,65 @@ const server = Bun.serve({
   },
 });
 log(`listening ${server.port}`);
+
+function describe(turn: any) {
+  return turn.tool || turn.tools ? "tool " + (turn.tools ?? [turn.tool]).map((t: any) => t.name).join(",") : "text";
+}
+
+// A turn as the Anthropic Messages stream a llmux daemon writes (the frames of
+// tests/support/fake_llmux.rs): an optional signed thinking block, the text, the tool calls.
+function anthropic(turn: any) {
+  const frames: string[] = [];
+  const event = (name: string, payload: object) => frames.push(`event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`);
+  event("message_start", { type: "message_start", message: { id: "msg_fake", type: "message", role: "assistant", model: "fake", content: [], stop_reason: null, usage: { input_tokens: 1200, output_tokens: 1 } } });
+  let index = 0;
+  if (turn.thinking) {
+    event("content_block_start", { type: "content_block_start", index, content_block: { type: "thinking", thinking: "" } });
+    event("content_block_delta", { type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: turn.thinking.text } });
+    event("content_block_delta", { type: "content_block_delta", index, delta: { type: "signature_delta", signature: turn.thinking.signature } });
+    event("content_block_stop", { type: "content_block_stop", index });
+    index += 1;
+  }
+  if (turn.chunks?.length) {
+    event("content_block_start", { type: "content_block_start", index, content_block: { type: "text", text: "" } });
+    for (const c of turn.chunks) event("content_block_delta", { type: "content_block_delta", index, delta: { type: "text_delta", text: c } });
+    event("content_block_stop", { type: "content_block_stop", index });
+    index += 1;
+  }
+  const tools = turn.tools ?? (turn.tool ? [turn.tool] : []);
+  tools.forEach((t: any, i: number) => {
+    event("content_block_start", { type: "content_block_start", index, content_block: { type: "tool_use", id: t.id ?? `toolu_${seq}_${i}`, name: t.name } });
+    event("content_block_delta", { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: JSON.stringify(t.input) } });
+    event("content_block_stop", { type: "content_block_stop", index });
+    index += 1;
+  });
+  event("message_delta", { type: "message_delta", delta: { stop_reason: tools.length ? "tool_use" : "end_turn", stop_sequence: null }, usage: { input_tokens: 1200, output_tokens: 40 } });
+  event("message_stop", { type: "message_stop" });
+  return new Response(frames.join(""), { headers: { "content-type": "text/event-stream" } });
+}
+
+// A turn as the Responses stream fx's codex reader takes: text deltas, function calls, completed.
+function responsesEvents(turn: any) {
+  const events: object[] = [];
+  if (turn.thinking) {
+    events.push({ type: "response.output_item.done", output_index: 0, item: { id: "rs_fake", type: "reasoning", summary: [{ type: "summary_text", text: turn.thinking.text }], encrypted_content: turn.thinking.signature } });
+  }
+  for (const c of turn.chunks ?? []) events.push({ type: "response.output_text.delta", delta: c });
+  // Each output item has its own index: fx refuses two kinds at one
+  // (`check_output_kind`, src/gateway/responses_protocol.zig:1070-1078).
+  const first = turn.thinking ? 1 : 0;
+  const tools = turn.tools ?? (turn.tool ? [turn.tool] : []);
+  tools.forEach((t: any, i: number) => {
+    events.push({ type: "response.output_item.added", output_index: first + i, item: { type: "function_call", call_id: t.id ?? `call_${seq}_${i}`, name: t.name } });
+    events.push({ type: "response.function_call_arguments.done", output_index: first + i, arguments: JSON.stringify(t.input) });
+  });
+  events.push({ type: "response.completed", response: { id: `response-${seq}`, status: "completed", usage: { input_tokens: 1200, output_tokens: 40 } } });
+  return events;
+}
+
+function responses(events: object[]) {
+  return new Response(events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+}
 
 function sse(events: object[], delayMs: number, hangMs: number) {
   const enc = new TextEncoder();
