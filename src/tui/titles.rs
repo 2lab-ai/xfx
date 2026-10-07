@@ -486,8 +486,8 @@ impl TitleDesk {
     /// Lets go of the conversation questions were about: anything asked from
     /// here on is about the next one. Answers the new lineage.
     ///
-    /// **The question out runs on**, as upstream's task does across a reset,
-    /// a resume or a provider switch -- only the exit stops it ([`Self::stop`])
+    /// **The question out runs on**, as upstream's task does across a reset
+    /// or a resume -- only the exit stops it ([`Self::stop`])
     /// -- and until its answer is read no other is asked (`task_running`,
     /// `session_title_generation.zig:40-46`). Its answer is about the
     /// conversation let go of, and is dropped (`session_changed`,
