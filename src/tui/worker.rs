@@ -3824,12 +3824,13 @@ async fn one_turn(
     // time would be asking a question the user has already answered.
     record_grants(conversation);
 
-    // What the turn spent, from the **completed** turn's own outcome
+    // What the turn's answer read, from the **completed** turn's own outcome
     // (`agent::TurnOutcome::usage`, the same value the session log records at
     // `agent::machine`'s `UsageRecorded`). Only a turn that finished has one: a
     // turn that failed mid-stream has no total to report, and inventing one
     // from the deltas that did arrive would put a number on the hint row that
-    // no provider ever said.
+    // no provider ever said. What it wrote reached the band request by
+    // request, as the machine settled each one (`UiEvent::Output`).
     //
     // Best effort, like the history notices above: the conclusion below is what
     // the turn owes, and a meter is worth less than the answer it measures.
@@ -3839,7 +3840,6 @@ async fn one_turn(
             &turn.token,
             UiEvent::Usage {
                 input: finished.usage.input_tokens,
-                output: finished.usage.output_tokens,
             },
         )
         .await;
@@ -5620,6 +5620,7 @@ mod tests {
         recorder.commit(SessionEvent::UsageRecorded {
             input_tokens: Some(1200),
             output_tokens: Some(40),
+            turn_output_tokens: None,
             requests: vec![crate::session::RequestUsage {
                 at_ms: 2_000,
                 duration_ms: 700,
@@ -5717,6 +5718,7 @@ mod tests {
         recorder.commit(SessionEvent::UsageRecorded {
             input_tokens: Some(1200),
             output_tokens: Some(40),
+            turn_output_tokens: None,
             requests: vec![crate::session::RequestUsage {
                 at_ms: 2_000,
                 duration_ms: 700,

@@ -4412,6 +4412,67 @@ fn status_counts_the_turn_the_live_conversation_just_held() {
     assert_eq!(gateway.request_count(), 1, "a command reached the provider");
 }
 
+#[test]
+fn a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed() {
+    // Upstream's summary row sums out over every request a turn made, each at
+    // what the provider reported for it (`vercel-labs/fx@c1db9191
+    // src/core/agent/runtime/telemetry.zig:136-168`), and a resumed session
+    // shows the summary the turn saved (`app_session_runtime.zig:4776-4778`):
+    // fx's `allowlist-turn` reads `↓80` under a turn of two requests. Red
+    // before: `↓40`, the answering request's count alone, live and resumed.
+    use support::fake_gateway::{finish_with_usage, sse_body, text_delta, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish_with_usage("tool-calls", 1200, 40),
+        ])),
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", "MARKER-READ"),
+            finish_with_usage("stop", 1300, 40),
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "one\n").expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut live = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    live.wait_for(READY);
+    // `read it` is two spans of one token each: in is 2, whatever the
+    // requests said they read.
+    live.type_bytes(b"read it\r");
+    on_screen(
+        &live,
+        (40, 120),
+        &["MARKER-READ", "(\u{2191}2 \u{2193}80)"],
+        &[],
+    );
+    wait_for_the_turn_to_conclude(&sandbox);
+    live.type_bytes(b"/quit\r");
+    assert_eq!(live.wait_exit().code(), Some(0));
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.arg("--resume").arg(&ids[0]);
+    let mut resumed = Session::spawn_without_taking_the_terminal(&pty, command);
+    resumed.wait_for(READY);
+    on_screen(
+        &resumed,
+        (40, 120),
+        &["MARKER-READ", "(\u{2191}2 \u{2193}80)"],
+        &[],
+    );
+    resumed.type_bytes(b"/quit\r");
+    assert_eq!(resumed.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 2, "{:?}", gateway.requests());
+}
+
 /// `minutes` before now as the Gateway writes a time: `YYYY-MM-DDTHH:MM:SSZ`.
 fn iso_utc_minutes_ago(minutes: u64) -> String {
     let seconds = std::time::SystemTime::now()

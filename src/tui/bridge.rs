@@ -273,16 +273,19 @@ pub(crate) enum UiEvent {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
     },
-    /// What a **completed** turn spent.
+    /// What a **completed** turn's answering request read: the context
+    /// meter's numerator.
     ///
-    /// Both halves optional because a provider really may publish neither
+    /// Optional because a provider really may not publish it
     /// (`gateway::protocol::Usage::input_tokens` is an `Option`), and an absent
     /// number must stay absent: a meter that showed nought per cent for a turn
     /// nobody measured would be reporting a measurement that was never taken.
-    Usage {
-        input: Option<u64>,
-        output: Option<u64>,
-    },
+    /// What the turn wrote is not here: that is every request's, and arrives
+    /// as each one ends ([`Self::Output`]).
+    Usage { input: Option<u64> },
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]).
+    Output(crate::agent::tokens::Progress),
     /// A request failed in a way the turn replays, and the next attempt goes
     /// after `delay` (`crate::output::EventSink::retrying`).
     ///
@@ -569,8 +572,9 @@ impl UiEvent {
             },
             // A provider tag and a category. Nothing here is text.
             Self::CatalogUnread { provider, retry } => Self::CatalogUnread { provider, retry },
-            // Two numbers. There is nothing here a terminal can be made to obey.
-            Self::Usage { input, output } => Self::Usage { input, output },
+            // Numbers. There is nothing here a terminal can be made to obey.
+            Self::Usage { input } => Self::Usage { input },
+            Self::Output(progress) => Self::Output(progress),
             // A count. There is nothing here a terminal can be made to obey.
             Self::Fresh { through } => Self::Fresh { through },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
@@ -1517,6 +1521,14 @@ impl EventSink for UiEventSink {
         if self.retried.take().is_some() {
             let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
         }
+    }
+
+    /// The turn's out, for the activity row and the summary under the answer,
+    /// through the same permit as the deltas it is counted beside -- so it
+    /// arrives after the text of the request it settles and before the next
+    /// one's. Its failure dropped, as the hook's contract says.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = self.send(UiEvent::Output(progress));
     }
 }
 
@@ -2522,11 +2534,8 @@ mod tests {
         // The drain leaves on exactly the two events a turn cannot continue
         // past. A catalog or a usage number that answered `true` would end the
         // drain while the worker still owed its conclusion.
-        assert!(!UiEvent::Usage {
-            input: Some(1),
-            output: Some(2)
-        }
-        .is_terminal());
+        assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
+        assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()

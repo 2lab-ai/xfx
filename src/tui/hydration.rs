@@ -101,8 +101,10 @@ pub(crate) enum HydratedStep {
 /// How a turn ended, as far as its summary row is concerned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Ending {
-    /// It concluded: the summary row, from how long it took and what the
-    /// provider said it wrote (`None` when it said nothing).
+    /// It concluded: the summary row, from how long it took and the out its
+    /// live summary said, as the log kept it
+    /// ([`crate::session::TurnTiming::output_tokens`]). `None` where the log
+    /// kept no count at all, and the replay estimates the text it has instead.
     Concluded { seconds: u64, output: Option<u64> },
     /// It stopped, for this reason -- the sentence the live turn ended on.
     Interrupted(String),

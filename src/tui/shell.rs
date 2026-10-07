@@ -120,6 +120,7 @@ use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
 use super::workspace_menu::{self, MenuAction as WorkspaceAction};
+use crate::agent::tokens::{Estimator, Progress};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
@@ -1489,47 +1490,20 @@ struct Answer {
     held: usize,
 }
 
-/// Upstream's streaming token estimate (`token_estimate.zig:5-31`): a
-/// whitespace-separated span of `n` bytes is `ceil(n / 4)` tokens, and the
-/// count is the same however the text was cut into chunks.
-#[derive(Debug, Default, Clone, Copy)]
-struct Estimator {
-    settled: u64,
-    span: u64,
-}
-
-impl Estimator {
-    fn consume(&mut self, text: &str) {
-        for byte in text.bytes() {
-            if byte.is_ascii_whitespace() {
-                self.settled = self.settled.saturating_add(span_tokens(self.span));
-                self.span = 0;
-            } else {
-                self.span = self.span.saturating_add(1);
-            }
-        }
-    }
-
-    fn estimate(&self) -> u64 {
-        self.settled.saturating_add(span_tokens(self.span))
-    }
-}
-
-fn span_tokens(span: u64) -> u64 {
-    span / 4 + u64::from(!span.is_multiple_of(4))
-}
-
 /// What the summary under a turn's answer says: how long the turn took and the
-/// tokens it moved (`transcript/runtime.zig:540-547`). In is the prompt's
-/// estimate, as upstream counts it (`telemetry.zig:87-96`); out is what the
-/// provider reported, or the estimate of what streamed when it reported
-/// nothing.
+/// tokens it moved (`transcript/runtime.zig:540-547`), by upstream's rule
+/// ([`crate::agent::tokens`]). In is the prompt's estimate, fixed when the
+/// turn begins; out is the turn's own count over the requests that have ended
+/// ([`Progress::Settled`]), plus the open request's estimate -- its answer
+/// text, counted here as it arrives, and what it is writing that is not shown
+/// ([`Progress::Unshown`]).
 #[derive(Debug, Default)]
 struct Tally {
     started: Option<Instant>,
     input: u64,
-    output: Option<u64>,
+    settled: u64,
     streamed: Estimator,
+    unshown: u64,
 }
 
 impl Tally {
@@ -1541,12 +1515,32 @@ impl Tally {
         };
     }
 
+    /// What the turn has moved so far (`tokenProgress`,
+    /// `telemetry.zig:157-163`).
+    fn output(&self) -> u64 {
+        self.settled
+            .saturating_add(self.streamed.estimate())
+            .saturating_add(self.unshown)
+    }
+
+    fn progressed(&mut self, progress: Progress) {
+        match progress {
+            // A request ended, and the turn's count already holds what it
+            // wrote: the answer counted here belonged to it.
+            Progress::Settled(total) => {
+                self.settled = total;
+                self.streamed = Estimator::default();
+                self.unshown = 0;
+            }
+            Progress::Unshown(estimate) => self.unshown = estimate,
+        }
+    }
+
     fn line(&self, now: Instant) -> String {
         let seconds = self.started.map_or(0, |started| {
             now.saturating_duration_since(started).as_secs()
         });
-        let output = self.output.unwrap_or_else(|| self.streamed.estimate());
-        summary_line(seconds, self.input, output)
+        summary_line(seconds, self.input, self.output())
     }
 }
 
@@ -2844,7 +2838,9 @@ impl Shell {
         self.run_mark(Mark::TurnOver);
         match turn.ending {
             // In is the prompt's estimate, as a live turn's is; out is what
-            // the provider said, or the estimate of what it wrote.
+            // the live summary said, as the log kept it -- every request's,
+            // which a replay cannot count again -- or, from a log that kept
+            // no count, the estimate of the text replayed here.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
                 input.consume(&turn.sent);
@@ -3232,13 +3228,13 @@ impl Shell {
                 self.render.request(Reason::Footer);
             }
             // The numerator, and only the numerator: see [`Self::context_used`]
-            // for why the output half is deliberately dropped here rather than
-            // added to it.
-            UiEvent::Usage { input, output } => {
+            // for why the output half is deliberately left out of it.
+            UiEvent::Usage { input } => {
                 self.context_used = input;
-                if let Some(output) = output {
-                    self.tally.output = Some(self.tally.output.unwrap_or(0).saturating_add(output));
-                }
+                self.render.request(Reason::Footer);
+            }
+            UiEvent::Output(progress) => {
+                self.tally.progressed(progress);
                 self.render.request(Reason::Footer);
             }
             // The turn has stopped and is waiting for a person. Everything
@@ -7140,10 +7136,7 @@ impl Shell {
         {
             self.phase = (self.phase + 1) % PHASES;
         }
-        let output = self
-            .tally
-            .output
-            .unwrap_or_else(|| self.tally.streamed.estimate());
+        let output = self.tally.output();
         let colours = super::activity::Colours {
             label: self.palette.activity(),
             dim: self.palette.dim(),
@@ -10053,7 +10046,8 @@ impl Shell {
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Retrying { .. }
-            | UiEvent::Usage { .. } => true,
+            | UiEvent::Usage { .. }
+            | UiEvent::Output(_) => true,
             // A question the cancelled turn asked before it heard about the
             // cancellation. **Refused on the user's behalf rather than
             // dropped**: the prompter parks on the session's root and the
@@ -18954,10 +18948,8 @@ mod tests {
             let _ = live.picks_up();
             live.apply(UiEvent::TurnStarted);
             live.apply(UiEvent::Delta(answer.to_string()));
-            live.apply(UiEvent::Usage {
-                input: Some(6),
-                output: Some(40),
-            });
+            live.apply(UiEvent::Output(Progress::Settled(40)));
+            live.apply(UiEvent::Usage { input: Some(6) });
             live.apply(UiEvent::TurnEnded { failure: None });
             live.shell.flush_paced();
         }
@@ -21241,10 +21233,8 @@ mod tests {
             serde_json::json!({"path": "notes.txt"}),
         ));
         shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
-        shell.apply(UiEvent::Usage {
-            input: Some(9_000),
-            output: Some(40),
-        });
+        shell.apply(UiEvent::Output(Progress::Settled(40)));
+        shell.apply(UiEvent::Usage { input: Some(9_000) });
         shell.apply(UiEvent::TurnEnded {
             failure: Some("xfx: interrupted".to_string()),
         });
@@ -21290,10 +21280,7 @@ mod tests {
             let _ = shell.take_title();
             turn_running(&mut shell, b"ask something\r");
             let _turn = shell.picks_up();
-            shell.apply(UiEvent::Usage {
-                input: Some(1_234),
-                output: None,
-            });
+            shell.apply(UiEvent::Usage { input: Some(1_234) });
             shell.apply(UiEvent::Delta("half an answer".to_string()));
             shell.route_bytes(command);
             let controls: Vec<_> = std::iter::from_fn(|| shell.controlled()).collect();
@@ -21664,6 +21651,42 @@ mod tests {
             document,
             ["  MARKER-TURN-ONE", "", "  0s (\u{2191}0 \u{2193}4)", ""],
             "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_rows_out_is_every_settled_request_and_the_open_one_as_it_streams() {
+        // Upstream's live count is the settled sum plus the open request's
+        // estimate (`tokenProgress`, `telemetry.zig:157-163`), and the summary
+        // is the same count once the last request has settled: fx's
+        // `allowlist-turn`, two requests of 40, is `↓80`. Red before: the
+        // band kept the provider's answering count alone, `↓40`.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"run the command\r");
+        let out = |shell: &mut Fixture, at: u64| {
+            shell.settle_band(started + Duration::from_millis(at));
+            let row = shell.activity_row.clone().expect("a running turn");
+            let row = colourless(&row);
+            row[row.find('\u{2193}').expect("an out count")..].to_string()
+        };
+        // The call's request, reporting 40 for what it wrote.
+        shell.apply(UiEvent::Output(Progress::Settled(40)));
+        assert_eq!(out(&mut shell, 10), "\u{2193}40)");
+        // The answer's request, streaming: its text is counted here as it
+        // arrives, what it is writing unseen as the turn says.
+        shell.apply(UiEvent::Delta("Ran it. ".to_string()));
+        assert_eq!(out(&mut shell, 20), "\u{2193}42)");
+        shell.apply(UiEvent::Output(Progress::Unshown(3)));
+        assert_eq!(out(&mut shell, 30), "\u{2193}45)");
+        // It settles at what the provider said: the estimate gives way.
+        shell.apply(UiEvent::Output(Progress::Settled(80)));
+        assert_eq!(out(&mut shell, 40), "\u{2193}80)");
+        shell.apply(UiEvent::Usage { input: Some(1_300) });
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let summary = shell.released();
+        assert!(
+            summary.contains(&"  0s (\u{2191}4 \u{2193}80)".to_string()),
+            "{summary:?}"
         );
     }
 
@@ -24751,7 +24774,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(50_000),
-            output: Some(10),
         });
         assert!(shell.shell.context_meter().is_some(), "the meter was armed");
 
@@ -24849,7 +24871,6 @@ mod tests {
         bare.shell.model = "fable".to_string();
         bare.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(bare.shell.context_meter(), Some((12_345, None)));
         let row = bare.hint();
@@ -24859,7 +24880,6 @@ mod tests {
         // Both, and exactly one segment.
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         let row = shell.hint();
@@ -24867,10 +24887,7 @@ mod tests {
         assert_eq!(row.matches('%').count(), 1, "{row}");
 
         // A measurement of nought is no meter either (`render.zig:441`).
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(0),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(0) });
         assert_eq!(shell.shell.context_meter(), None);
     }
 
@@ -24891,7 +24908,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(30_000),
-            output: Some(20_000),
         });
         assert_eq!(
             shell.shell.context_meter(),
@@ -24909,10 +24925,7 @@ mod tests {
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
-        shell.shell.apply(UiEvent::Usage {
-            input: None,
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: None });
         assert_eq!(shell.shell.context_meter(), None);
         assert!(!shell.hint().contains('%'), "{}", shell.hint());
     }
@@ -24930,10 +24943,7 @@ mod tests {
                 entry("large", Some(900_000), &[]),
             ],
         });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(4_000),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(4_000) });
         shell.shell.model = "small".to_string();
         assert_eq!(shell.shell.context_meter(), Some((4_000, Some(8_000))));
         shell.shell.model = "vendor/large".to_string();
@@ -24970,7 +24980,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         assert!(shell.hint().contains("12k/200k"), "{}", shell.hint());
@@ -24998,10 +25007,7 @@ mod tests {
         // After the runtime has said the conversation is gone: a measurement
         // arriving before that is the old conversation's.
         shell.shell.apply(UiEvent::Fresh { through: 0 });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(7),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(7) });
         assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
     }
 
@@ -25487,10 +25493,7 @@ mod tests {
         assert_eq!(shell.hint(), IDLE_HINT, "a meter before a measurement");
         // The Gateway publishes no window, so the numerator stands alone
         // (`fx-statusline-turn-40x120-after-turn`: `· 1k ·`).
-        shell.apply(UiEvent::Usage {
-            input: Some(1_200),
-            output: None,
-        });
+        shell.apply(UiEvent::Usage { input: Some(1_200) });
         assert_eq!(shell.hint(), format!("{IDLE_HINT} \u{b7} 1k"));
 
         // Again, and it is off, kept off, and gone from the row.
@@ -25535,10 +25538,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 160);
         shell.session_title = Some("say the marker".to_string());
-        shell.apply(UiEvent::Usage {
-            input: Some(1_200),
-            output: None,
-        });
+        shell.apply(UiEvent::Usage { input: Some(1_200) });
         assert_eq!(shell.hint(), IDLE_HINT, "a segment was on by default");
 
         let workspace = shell.workspace.to_string_lossy().into_owned();
@@ -29622,7 +29622,6 @@ mod tests {
         let mut shell = with_a_turn();
         shell.apply(UiEvent::Usage {
             input: Some(90_000),
-            output: Some(10),
         });
         assert_eq!(shell.shell.context_used, Some(90_000));
         shell.route_bytes(b"/compact\r");
