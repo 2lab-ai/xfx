@@ -36,9 +36,20 @@
 //! store keeps no preview, so a word only the conversation contains finds
 //! nothing here.
 //!
-//! The list is read whole, up to the store's own listing cap
-//! ([`crate::session::store::MAX_LIST_LIMIT`]), so there is never a page to
-//! load and the picker never shows upstream's `↓ Load more` row.
+//! # Pages
+//!
+//! Upstream lists a page at a time -- as many sessions as the screen has rows
+//! less seven, and never fewer than ten (`resumePageLimitForRows`,
+//! `app_session_runtime.zig:1188-1193`) -- with `↓ Load more` under the last
+//! one while there are more (`composeLoadMoreRow`,
+//! `resume_menu_presentation.zig:417-436`). Walking onto the last loaded
+//! session loads the next page (`maybePrefetchMoreSessions`, `:2808-2820`), as
+//! Enter on the row does (`loadMoreSessionPicker`). The search and the header's
+//! count are about the loaded pages only; a scope change starts from one page
+//! again. xfx's runtime reads the list whole, up to the store's listing cap
+//! ([`crate::session::store::MAX_LIST_LIMIT`]), so a page is loaded here, at
+//! once -- the `↓ Loading more…` upstream shows while its next page is read
+//! has nothing to wait for.
 
 use super::picker::{cells, edge_start, pad_to};
 use super::theme::Palette;
@@ -82,6 +93,17 @@ const EMPTY: &str = "No sessions found.";
 
 /// What a compact row with a failure under it ends with (`:483`).
 const RETRY: &str = " \u{b7} retry";
+
+/// The row under the last loaded session while there are more (`:432`).
+const LOAD_MORE: &str = "\u{2193} Load more";
+
+/// The fewest sessions a page holds (`default_resume_page_limit`,
+/// `session_store.zig:423`).
+const LEAST_PAGE: usize = 10;
+
+/// The rows a page leaves to the composer, the rules, the hint row, the
+/// header, the gap and the load-more row (`resumePageLimitForRows`).
+const PAGE_CHROME_ROWS: u16 = 7;
 
 const ELLIPSIS: &str = "\u{2026}";
 
@@ -250,16 +272,26 @@ impl SessionAction {
     }
 }
 
-/// The picker's shape for one row budget (`SessionMenuLayout`, `:24-196`),
-/// for a list that is never paged.
+/// How many sessions a page holds on a screen `terminal_rows` tall
+/// (`resumePageLimitForRows`, `app_session_runtime.zig:1188-1193`).
+pub(crate) fn page_for(terminal_rows: u16) -> usize {
+    usize::from(terminal_rows.saturating_sub(PAGE_CHROME_ROWS)).max(LEAST_PAGE)
+}
+
+/// The picker's shape for one row budget (`SessionMenuLayout`, `:24-196`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Layout {
     rows: u16,
     header: bool,
     /// The row the first session is on, counted from the picker's top.
     first_row: u16,
-    /// How many sessions are in view.
+    /// How many rows the mark moves over in view: the sessions, and the
+    /// load-more row when there is one (`visible_items`).
     visible: usize,
+    /// How many sessions are in view (`visible_session_items`).
+    sessions: usize,
+    /// The row `↓ Load more` is on, while there is a page to load.
+    load_more_row: Option<u16>,
     /// The row a failed resume is said on, when it is said on a row of its own.
     feedback_row: Option<u16>,
     /// Whether it is said at the end of the marked row instead.
@@ -283,13 +315,18 @@ pub(crate) struct SessionPicker {
     /// The session an Enter has asked the runtime for, until it answers. A
     /// second Enter meanwhile asks for nothing.
     pending: Option<String>,
+    /// How many sessions a page holds ([`page_for`]).
+    page: usize,
+    /// How many of the scope's sessions are loaded: whole pages.
+    loaded: usize,
 }
 
 impl SessionPicker {
     /// A picker on the current workspace, waiting for its listing, searching
     /// for `query` (`openSessionPickerWithScope`: the query is seeded from the
-    /// composer).
-    pub(crate) fn open(query: &str) -> Self {
+    /// composer), in pages of `page` sessions ([`page_for`]).
+    pub(crate) fn open(query: &str, page: usize) -> Self {
+        let page = page.max(1);
         Self {
             scope: Scope::Current,
             load: Load::Loading,
@@ -298,12 +335,16 @@ impl SessionPicker {
             query: query.to_string(),
             failure: None,
             pending: None,
+            page,
+            loaded: page,
         }
     }
 
-    /// The listing the runtime read, or `None` when it could not read one.
+    /// The listing the runtime read, or `None` when it could not read one: its
+    /// first page.
     pub(crate) fn listed(&mut self, listing: Option<Listing>) {
         self.load = listing.map_or(Load::Failed, Load::Ready);
+        self.loaded = self.page;
         self.reset();
     }
 
@@ -323,40 +364,99 @@ impl SessionPicker {
         self.failure = None;
     }
 
-    /// The other scope, from the top (`toggleSessionPickerScope`, which
-    /// re-opens the picker on it).
+    /// The other scope, from the top and from its first page
+    /// (`toggleSessionPickerScope`, which re-opens the picker on it).
     pub(crate) fn toggle_scope(&mut self) {
         self.scope = match self.scope {
             Scope::Current => Scope::All,
             Scope::All => Scope::Current,
         };
+        self.loaded = self.page;
         self.reset();
     }
 
-    /// Moves the mark one session, **stopping** at either end rather than
-    /// wrapping (`moveVisibleItems`, `:538-552`), and scrolls a window of
-    /// `visible` sessions only as far as keeps it in view. `false` when there
-    /// is no listing to move in.
+    /// Moves the mark one row, **stopping** at either end rather than
+    /// wrapping (`moveVisibleItems`, `:538-552`) -- the load-more row is the
+    /// last one while there is a page to load -- and scrolls a window of
+    /// `visible` rows only as far as keeps it in view. A mark that reaches the
+    /// last loaded session loads the next page (`maybePrefetchMoreSessions`).
+    /// `false` when there is no listing to move in.
     pub(crate) fn step(&mut self, down: bool, visible: u16) -> bool {
         self.step_by(if down { 1 } else { -1 }, visible)
     }
 
-    /// Moves the mark `delta` sessions, stopping at either end, as
-    /// [`Self::step`] does one.
+    /// Moves the mark `delta` rows, stopping at either end, as
+    /// [`Self::step`] does one -- and loads the next page as it does.
     pub(crate) fn step_by(&mut self, delta: i64, visible: u16) -> bool {
         let Load::Ready(_) = &self.load else {
             return false;
         };
         self.failure = None;
-        let count = self.items().len();
-        if count == 0 {
+        let rows = self.items().len() + usize::from(self.more());
+        if rows == 0 {
             return true;
         }
-        let current = i64::try_from(self.selected.min(count - 1)).unwrap_or(i64::MAX);
-        let last = i64::try_from(count - 1).unwrap_or(i64::MAX);
+        let current = i64::try_from(self.selected.min(rows - 1)).unwrap_or(i64::MAX);
+        let last = i64::try_from(rows - 1).unwrap_or(i64::MAX);
         self.selected = usize::try_from(current.saturating_add(delta).clamp(0, last)).unwrap_or(0);
-        self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
+        self.follow(visible);
+        if self.more() && self.selected + 1 >= self.items().len() {
+            self.load_more(visible);
+        }
         true
+    }
+
+    /// Whether the mark is on `↓ Load more` (`isLoadMoreSelected`).
+    pub(crate) fn on_load_more(&self) -> bool {
+        matches!(self.load, Load::Ready(_)) && self.more() && self.selected == self.items().len()
+    }
+
+    /// Loads the next page (`scheduleMoreSessions` and
+    /// `applySessionPickerCatalogPage`, `app_session_runtime.zig:2784-2806`,
+    /// `:708-783`). A mark that was on the load-more row moves to the first
+    /// session the page added, or stays on the row -- or on the last session
+    /// once there is none -- when the search finds none of them
+    /// (`selectionAfterLoadedPage`, `:785-793`).
+    pub(crate) fn load_more(&mut self, visible: u16) {
+        let before = self.items().len();
+        let on_the_row = self.selected == before;
+        self.loaded = self.loaded.saturating_add(self.page);
+        if on_the_row {
+            let now = self.items().len();
+            self.selected = if now > before {
+                before
+            } else if self.more() {
+                now
+            } else {
+                now.saturating_sub(1)
+            };
+        }
+        self.follow(visible);
+    }
+
+    /// Keeps the marked row in a window of `visible` rows
+    /// (`syncWindowStart`, `:554-570`): the load-more row is one of them, and
+    /// with the mark on it the window ends on the last loaded session.
+    fn follow(&mut self, visible: u16) {
+        let count = self.items().len();
+        let sessions = usize::from(visible).saturating_sub(usize::from(self.more() && visible > 0));
+        self.window_start = if count == 0 || sessions == 0 {
+            0
+        } else if self.selected >= count {
+            count.saturating_sub(sessions)
+        } else {
+            edge_start(
+                self.window_start,
+                count,
+                self.selected,
+                u16::try_from(sessions).unwrap_or(u16::MAX),
+            )
+        };
+    }
+
+    /// Whether the scope has sessions past the pages loaded.
+    fn more(&self) -> bool {
+        self.scope_sessions().len() > self.loaded
     }
 
     /// The marked session's id, when there is a listed one to resume and no
@@ -382,17 +482,22 @@ impl SessionPicker {
         self.failure = Some((id, failure));
     }
 
-    /// What the picker lists: the scope's sessions the search finds.
-    fn items(&self) -> Vec<&ListedSession> {
+    /// The scope's sessions, every page.
+    fn scope_sessions(&self) -> &[ListedSession] {
         let Load::Ready(listing) = &self.load else {
-            return Vec::new();
+            return &[];
         };
-        let sessions = match self.scope {
+        match self.scope {
             Scope::Current => &listing.current,
             Scope::All => &listing.all,
-        };
-        sessions
+        }
+    }
+
+    /// What the picker lists: the loaded sessions the search finds.
+    fn items(&self) -> Vec<&ListedSession> {
+        self.scope_sessions()
             .iter()
+            .take(self.loaded)
             .filter(|session| session.matches(&self.query))
             .collect()
     }
@@ -404,13 +509,15 @@ impl SessionPicker {
         }
     }
 
-    /// The picker's shape in `budget` rows (`SessionMenuLayout.build`).
-    fn layout(&self, count: usize, budget: u16) -> Layout {
+    /// The picker's shape in `budget` rows for `count` sessions, with the
+    /// load-more row under them when `more` (`SessionMenuLayout.build`).
+    fn layout(&self, count: usize, more: bool, budget: u16) -> Layout {
         if budget == 0 {
             return Layout::default();
         }
         let failed = self.failure.is_some();
-        if !matches!(self.load, Load::Ready(_)) || count == 0 {
+        let rows = count + usize::from(more);
+        if !matches!(self.load, Load::Ready(_)) || rows == 0 {
             // A header, the gap, and the one row that says why there is
             // nothing to list -- the last row of whatever was given.
             return Layout {
@@ -423,6 +530,7 @@ impl SessionPicker {
             return Layout {
                 rows: 1,
                 visible: 1,
+                sessions: usize::from(count > 0),
                 ..Layout::default()
             };
         }
@@ -432,6 +540,7 @@ impl SessionPicker {
                 header: true,
                 first_row: 1,
                 visible: 1,
+                sessions: 1,
                 feedback_inline: true,
                 ..Layout::default()
             };
@@ -442,9 +551,25 @@ impl SessionPicker {
                 header: true,
                 first_row: 1,
                 visible: 1,
+                sessions: 1,
                 feedback_row: Some(2),
                 ..Layout::default()
             };
+        }
+        if failed && more && budget <= 5 {
+            return Layout {
+                rows: budget,
+                header: true,
+                first_row: 2,
+                visible: 2,
+                sessions: 1,
+                load_more_row: Some(budget - 1),
+                feedback_row: Some(1),
+                feedback_inline: false,
+            };
+        }
+        if more {
+            return self.paged(count, budget, failed);
         }
         if budget == 2 {
             return Layout {
@@ -452,6 +577,7 @@ impl SessionPicker {
                 header: true,
                 first_row: 1,
                 visible: 1,
+                sessions: 1,
                 ..Layout::default()
             };
         }
@@ -464,6 +590,42 @@ impl SessionPicker {
             header: true,
             first_row,
             visible,
+            sessions: visible,
+            load_more_row: None,
+            feedback_row: failed.then_some(1),
+            feedback_inline: false,
+        }
+    }
+
+    /// The shape with a page still to load (`buildPaged`, `:155-192`): the
+    /// sessions that fit above one last row, and `↓ Load more` on it.
+    fn paged(&self, count: usize, budget: u16, failed: bool) -> Layout {
+        if budget == 2 {
+            // One row under the header: the session, or the load-more row
+            // when that is what is marked.
+            let on_the_row = self.selected >= count;
+            return Layout {
+                rows: 2,
+                header: true,
+                first_row: 1,
+                visible: 1,
+                sessions: usize::from(!on_the_row),
+                load_more_row: on_the_row.then_some(1),
+                feedback_row: None,
+                feedback_inline: false,
+            };
+        }
+        let first_row = HEADER_ROWS + GAP_ROWS;
+        let room = usize::from(budget.saturating_sub(first_row).saturating_sub(1));
+        let sessions = count.min(room).min(MOST_ITEMS - 1);
+        let load_more_row = first_row + u16::try_from(sessions).unwrap_or(u16::MAX);
+        Layout {
+            rows: budget.min(load_more_row + 1),
+            header: true,
+            first_row,
+            visible: sessions + 1,
+            sessions,
+            load_more_row: Some(load_more_row),
             feedback_row: failed.then_some(1),
             feedback_inline: false,
         }
@@ -474,15 +636,19 @@ impl SessionPicker {
     pub(crate) fn height(&self, terminal_rows: u16, input_extra: u16) -> u16 {
         self.layout(
             self.items().len(),
+            self.more(),
             super::help_menu::row_budget(terminal_rows, input_extra),
         )
         .rows
     }
 
-    /// How many sessions are in view in `max_rows` rows, and never fewer than
-    /// one: the window a move scrolls against.
+    /// How many rows the mark moves over in view in `max_rows` rows -- the
+    /// sessions, and the load-more row -- and never fewer than one: the
+    /// window a move scrolls against (`visibleNavigationItemsForBudget`).
     pub(crate) fn visible_items(&self, max_rows: u16) -> u16 {
-        let visible = self.layout(self.items().len(), max_rows).visible;
+        let visible = self
+            .layout(self.items().len(), self.more(), max_rows)
+            .visible;
         u16::try_from(visible.max(1)).unwrap_or(u16::MAX)
     }
 
@@ -490,7 +656,8 @@ impl SessionPicker {
     /// (`composeSessionMenuRow`, `:206-254`).
     pub(crate) fn rows(&self, cols: u16, max_rows: u16, palette: Palette) -> Vec<String> {
         let items = self.items();
-        let layout = self.layout(items.len(), max_rows);
+        let more = self.more();
+        let layout = self.layout(items.len(), more, max_rows);
         let mut rows = vec![String::new(); usize::from(layout.rows)];
         if layout.rows == 0 {
             return rows;
@@ -498,7 +665,7 @@ impl SessionPicker {
         if layout.header {
             rows[0] = self.header(items.len(), cols, palette);
         }
-        if !matches!(self.load, Load::Ready(_)) || items.is_empty() {
+        if !matches!(self.load, Load::Ready(_)) || (items.is_empty() && !more) {
             let last = usize::from(layout.rows) - 1;
             if !(layout.header && last == 0) {
                 rows[last] = state_row(self.state_message(), cols, palette);
@@ -508,19 +675,29 @@ impl SessionPicker {
         if let (Some(row), Some((_, failure))) = (layout.feedback_row, self.failure.as_ref()) {
             rows[usize::from(row)] = failure_row(*failure, cols, palette);
         }
+        let navigation = items.len() + usize::from(more);
+        let selected = self.selected.min(navigation - 1);
+        if let Some(row) = layout.load_more_row.filter(|row| *row < layout.rows) {
+            rows[usize::from(row)] = load_more_row(selected == items.len(), cols, palette);
+        }
+        if items.is_empty() || layout.sessions == 0 {
+            return rows;
+        }
         let columns = Columns::of(&items, self.now_ms());
-        let selected = self.selected.min(items.len() - 1);
-        let start = if items.len() <= layout.visible {
+        // `sessionWindowStart`, `:256-267`.
+        let start = if selected >= items.len() {
+            items.len().saturating_sub(layout.sessions)
+        } else if items.len() <= layout.sessions {
             0
         } else {
             edge_start(
                 self.window_start,
                 items.len(),
                 selected,
-                u16::try_from(layout.visible).unwrap_or(u16::MAX),
+                u16::try_from(layout.sessions).unwrap_or(u16::MAX),
             )
         };
-        for offset in 0..layout.visible {
+        for offset in 0..layout.sessions {
             let index = start + offset;
             let Some(session) = items.get(index) else {
                 break;
@@ -669,6 +846,25 @@ fn title_row(
         row.push_str(&turns);
         row.push_str(palette.reset());
     }
+    row
+}
+
+/// `↓ Load more`, in the marked row's style when it is marked
+/// (`composeLoadMoreRow`, `:417-436`).
+fn load_more_row(marked: bool, cols: u16, palette: Palette) -> String {
+    let width = usize::from(cols);
+    let indent = if width <= 4 { 0 } else { INDENT.len() };
+    let mut row = INDENT[..indent].to_string();
+    row.push_str(if marked {
+        palette.subtitle()
+    } else {
+        palette.dim()
+    });
+    row.push_str(&super::picker::ellipsized(
+        LOAD_MORE,
+        width.saturating_sub(indent),
+    ));
+    row.push_str(palette.reset());
     row
 }
 
@@ -836,7 +1032,7 @@ mod tests {
     }
 
     fn ready(listing: Listing) -> SessionPicker {
-        let mut picker = SessionPicker::open("");
+        let mut picker = SessionPicker::open("", page_for(40));
         picker.listed(Some(listing));
         picker
     }
@@ -854,6 +1050,172 @@ mod tests {
             rest = characters.as_str();
         }
         out
+    }
+
+    /// `n` sessions in the current workspace, `question 1` the newest.
+    fn many(n: usize) -> Listing {
+        let current: Vec<ListedSession> = (1..=n)
+            .map(|i| {
+                session(
+                    &format!("s{i}"),
+                    Some(&format!("question {i}")),
+                    "/x/work",
+                    0,
+                )
+            })
+            .collect();
+        Listing {
+            all: current.clone(),
+            current,
+            now_ms: NOW,
+        }
+    }
+
+    fn texts(picker: &SessionPicker, rows: u16) -> Vec<String> {
+        picker
+            .rows(80, rows, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect()
+    }
+
+    #[test]
+    fn a_page_is_the_screen_less_seven_rows_and_never_fewer_than_ten() {
+        // `resumePageLimitForRows`, `app_session_runtime.zig:1188-1193`.
+        assert_eq!(page_for(24), 17);
+        assert_eq!(page_for(40), 33);
+        assert_eq!(page_for(14), 10);
+        assert_eq!(page_for(0), 10);
+    }
+
+    #[test]
+    fn more_sessions_than_a_page_end_on_load_more_and_reaching_the_last_loads_the_next() {
+        // `fx-resume-paging-24x80`: eighteen sessions, pages of seventeen, a
+        // band of fourteen rows -- the header, the gap, eleven sessions and
+        // `↓ Load more`.
+        let mut picker = SessionPicker::open("", page_for(24));
+        picker.listed(Some(many(18)));
+        let rows = texts(&picker, 14);
+        assert_eq!(rows.len(), 14);
+        assert!(
+            rows[0].starts_with("Sessions 17  [Current workspace]"),
+            "{rows:?}"
+        );
+        assert!(rows[2].starts_with("  question 1 "), "{rows:?}");
+        assert!(rows[12].starts_with("  question 11 "), "{rows:?}");
+        assert_eq!(rows[13], "  \u{2193} Load more");
+        // Dim until marked, and in the marked row's style once it is.
+        assert_eq!(
+            picker.rows(80, 14, PALETTE)[13],
+            format!("  {DIM}\u{2193} Load more{RESET}")
+        );
+
+        // Down fourteen: the window follows, the load-more row stays last.
+        let visible = picker.visible_items(14);
+        assert_eq!(visible, 12);
+        for _ in 0..14 {
+            picker.step(true, visible);
+        }
+        let rows = texts(&picker, 14);
+        assert!(rows[2].starts_with("  question 5 "), "{rows:?}");
+        assert!(rows[12].starts_with("  question 15 "), "{rows:?}");
+        assert_eq!(rows[13], "  \u{2193} Load more");
+
+        // One more reaches the last loaded session: the next page loads, the
+        // count says so and the load-more row is gone.
+        picker.step(true, visible);
+        picker.step(true, visible);
+        // The window stays where the mark had it and gains the row the
+        // load-more row gave up (`fx-resume-paging-24x80-down16-loaded`).
+        let rows = texts(&picker, 14);
+        assert!(rows[0].starts_with("Sessions 18 "), "{rows:?}");
+        assert_eq!(rows.len(), 14, "{rows:?}");
+        assert!(rows[2].starts_with("  question 7 "), "{rows:?}");
+        assert!(rows[13].starts_with("  question 18 "), "{rows:?}");
+        // And it stops on the last.
+        picker.step(true, visible);
+        picker.step(true, visible);
+        assert_eq!(picker.selected().as_deref(), Some("s18"));
+    }
+
+    #[test]
+    fn the_search_and_a_scope_change_keep_to_the_pages_loaded() {
+        // `fx-resume-paging-24x80-query-ve`: five of the seventeen loaded
+        // match, and the load-more row stays under them.
+        let mut picker = SessionPicker::open("", page_for(24));
+        let mut listing = many(18);
+        for (session, word) in listing.current.iter_mut().zip([
+            "seventeen",
+            "twelve",
+            "eleven",
+            "seven",
+            "five",
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "f",
+            "g",
+            "h",
+            "i",
+            "j",
+            "k",
+            "l",
+            "eighteen-ve",
+        ]) {
+            session.title = Some(format!("question {word}"));
+        }
+        picker.listed(Some(listing));
+        picker.set_query("ve");
+        let rows = texts(&picker, 14);
+        assert!(rows[0].starts_with("Sessions 5 "), "{rows:?}");
+        assert_eq!(rows.len(), 8, "{rows:?}");
+        assert_eq!(rows[7], "  \u{2193} Load more");
+        // The scope's other tab starts from one page again.
+        picker.set_query("");
+        let visible = picker.visible_items(14);
+        for _ in 0..17 {
+            picker.step(true, visible);
+        }
+        assert!(texts(&picker, 14)[0].starts_with("Sessions 18 "));
+        picker.toggle_scope();
+        assert!(texts(&picker, 14)[0].starts_with("Sessions 17 "));
+    }
+
+    #[test]
+    fn enter_on_load_more_loads_the_page_and_marks_its_first_session() {
+        // The mark only rests on the row when a page the walk loaded held
+        // nothing the search finds; Enter there loads the next and marks the
+        // first session it added (`selectionAfterLoadedPage`,
+        // `app_session_runtime.zig:785-793`).
+        let mut picker = SessionPicker::open("alpha", 1);
+        let mut listing = many(3);
+        for (session, title) in
+            listing
+                .current
+                .iter_mut()
+                .zip(["alpha one", "beta two", "alpha three"])
+        {
+            session.title = Some(title.to_string());
+        }
+        picker.listed(Some(listing));
+        let visible = picker.visible_items(14);
+        picker.step(true, visible);
+        assert!(picker.on_load_more());
+        assert_eq!(texts(&picker, 14)[3], "  \u{2193} Load more");
+        assert_eq!(
+            picker.selected(),
+            None,
+            "the row is not a session to resume"
+        );
+        assert_eq!(
+            picker.rows(80, 14, PALETTE)[3],
+            format!("  {BRIGHT}\u{2193} Load more{RESET}")
+        );
+        picker.load_more(visible);
+        assert_eq!(picker.selected().as_deref(), Some("s3"));
+        assert!(!picker.on_load_more());
     }
 
     #[test]
@@ -1033,13 +1395,13 @@ mod tests {
 
     #[test]
     fn a_picker_waiting_for_its_listing_says_so_and_one_that_failed_says_that() {
-        let loading = SessionPicker::open("");
+        let loading = SessionPicker::open("", page_for(40));
         assert_eq!(
             plain(&loading.rows(120, 22, PALETTE)[2]),
             "  Loading sessions\u{2026}"
         );
         assert_eq!(loading.selected(), None);
-        let mut failed = SessionPicker::open("");
+        let mut failed = SessionPicker::open("", page_for(40));
         failed.listed(None);
         assert_eq!(
             plain(&failed.rows(120, 22, PALETTE)[2]),

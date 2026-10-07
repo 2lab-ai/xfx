@@ -1176,13 +1176,9 @@ fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
     // discards a stop sent there.
     let session = in_its_own_process_group(&sandbox, &pty);
 
-    session.signal(Signal::TSTP);
     assert!(
         matches!(
-            session.wait_state("the child to stop", |state| matches!(
-                state,
-                Wait::Stopped(_)
-            )),
+            session.stop_with(Signal::TSTP, "the child to stop"),
             Wait::Stopped(_)
         ),
         "a stop aimed at a starting session was swallowed"
@@ -1222,12 +1218,8 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     let before = modes(&pty);
     let session = started(&sandbox, &pty);
 
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw()),
         "only raise(SIGSTOP) after SIG_DFL produces a genuine stop"
     );
@@ -1288,12 +1280,8 @@ fn a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced() {
     let session = started(&sandbox, &pty);
     session.wait_for(TITLE);
 
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     session.wait_for(ABNORMAL_RESTORE);
@@ -1347,12 +1335,8 @@ fn a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back() 
     let session = in_its_own_process_group(&sandbox, &pty);
 
     session.wait_for(PROBE);
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     assert_eq!(before, modes(&pty), "a stopped job left the terminal raw");
@@ -1541,6 +1525,109 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
         launch.matches('\n').count(),
         1,
         "the push was not the row the terminal reported: {text:?}"
+    );
+}
+
+#[test]
+fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
+    // `app_lifecycle.zig:944-948`: a cursor past the first column is on a
+    // line the shell left unfinished, so the launch starts on the row under
+    // it -- and with `startup_scrollback` on, that line goes into scrollback
+    // with the rest instead of being written over by the welcome line.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(format!(
+        "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
+        env!("CARGO_BIN_EXE_xfx")
+    ));
+    sandbox.apply_env(&mut command);
+    command.env("XFX_TUI", "1");
+
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    // Row 1, column 20: just past the marker the shell printed.
+    session.type_bytes(b"\x1b[1;20R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let announced = text.find(READY).expect("the session's announce");
+    let after = &text[announced..];
+    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
+    let push_end = launch
+        .match_indices("\u{1b}[24;1H")
+        .nth(1)
+        .map_or(launch.len(), |(at, _)| at);
+    let push = &launch[..push_end];
+    let to_bottom = push
+        .find("\u{1b}[24;1H")
+        .unwrap_or_else(|| panic!("the unfinished line was not pushed away: {text:?}"));
+    let newline = push
+        .find('\n')
+        .unwrap_or_else(|| panic!("nothing scrolled: {text:?}"));
+    assert!(to_bottom < newline, "{text:?}");
+    assert_eq!(
+        push.matches('\n').count(),
+        1,
+        "the push was not the one row the line is on: {text:?}"
+    );
+}
+
+#[test]
+fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
+    // `prepareStartupViewport` with `startup_scrollback` off
+    // (`app_lifecycle.zig:966-988`): nothing is pushed while eleven rows are
+    // left under the cursor, and the session's first row is the cursor's own
+    // -- row 2, under the line the shell printed -- rather than row 1.
+    let sandbox = Sandbox::new();
+    let profile = sandbox.settings_path();
+    std::fs::create_dir_all(profile.parent().expect("a profile dir")).expect("the profile dir");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            profile.parent().expect("a profile dir"),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .expect("tighten the profile dir");
+    }
+    std::fs::write(&profile, "{\"startup_scrollback\":false}").expect("the profile");
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(format!(
+        "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
+        env!("CARGO_BIN_EXE_xfx")
+    ));
+    sandbox.apply_env(&mut command);
+    command.env("XFX_TUI", "1");
+
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let announced = text.find(READY).expect("the session's announce");
+    let after = &text[announced..];
+    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
+    assert!(
+        !launch.contains('\n'),
+        "the launch pushed the shell's output away: {text:?}"
+    );
+    // The welcome line is the document's first row, and it is row 2.
+    assert!(
+        launch.contains("\u{1b}[2;1H"),
+        "the welcome line is not on the cursor's row: {launch:?}"
+    );
+    assert!(
+        !launch.contains("\u{1b}[1;1H"),
+        "the session wrote on the shell's row: {launch:?}"
     );
 }
 
@@ -2747,13 +2834,16 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
         |text| composer(text) == "\u{2503} half typed",
     );
 
-    // Up, from the only row a one-row draft has.
-    session.type_bytes(b"\x1b[A");
+    // Up, from the only row a one-row draft has: the first takes the caret
+    // to the draft's start, and the second recalls
+    // (`input_completion_runtime.zig:265-284`).
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the newest submitted line to come back", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
-    // Up again, which walks on.
-    session.type_bytes(b"\x1b[A");
+    // Up again, twice -- the recalled line's caret is at its end -- which
+    // walks on.
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the line before it to come back", |text| {
         composer(text) == "\u{2503} alpha prompt"
     });
@@ -2770,7 +2860,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
 
     // An edit ends the walk: the next step back is the newest line again, and
     // what it comes back to is the text the edit left behind.
-    session.type_bytes(b"\x1b[A");
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("a second walk to reach the newest line", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
@@ -2778,7 +2868,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the recalled line to take the keystroke", |text| {
         composer(text) == "\u{2503} bravo prompt!"
     });
-    session.type_bytes(b"\x1b[A");
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the walk to start from the newest line again", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
@@ -4161,15 +4251,24 @@ fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
         .rfind("Run /help for commands")
         .expect("the fresh welcome");
     session.type_bytes(b"second\r");
-    let text = session.wait_for("MARKER-AFTER-THE-RESET");
-    // No cancelled notice and no summary of the cancelled turn reached the
-    // fresh screen: upstream's reset says nothing.
-    let after = &text[reset_at..];
-    assert!(!after.contains("interrupted"), "{after:?}");
-    assert!(!after.contains("FIRST-TURN-RUNNING"), "{after:?}");
+    session.wait_for("MARKER-AFTER-THE-RESET");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+    // No cancelled notice -- neither the line a stop writes nor the failure
+    // the cancelled turn concluded with -- and nothing of the cancelled turn
+    // reached the fresh screen: upstream's reset says nothing. Absences, so
+    // asked of everything the terminal will ever receive
+    // ([`Session::settled_text`]) rather than of a snapshot taken while the
+    // runtime was still draining the turn the reset cancelled.
+    let settled = session.settled_text();
+    let after = &settled[reset_at..];
+    for stray in [CANCELLED, "interrupted", "FIRST-TURN-RUNNING"] {
+        assert!(
+            !after.contains(stray),
+            "{stray:?} after the reset: {after:?}"
+        );
+    }
     assert_eq!(
         user_messages(&gateway.requests()[1].json()),
         vec!["second".to_string()],
@@ -5906,10 +6005,7 @@ fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() 
         "the plane was not taken once before the stop: {before_stop:?}"
     );
 
-    session.signal(Signal::TSTP);
-    session.wait_state("the child to really stop", |state| {
-        matches!(state, Wait::Stopped(_))
-    });
+    session.stop_with(Signal::TSTP, "the child to really stop");
     // The handler gave the plane back on its way down: that is what makes the
     // retake below necessary rather than decorative.
     assert_eq!(
@@ -5976,10 +6072,7 @@ fn a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on() 
         "the plane was not taken once before the stop"
     );
 
-    session.signal(Signal::STOP);
-    session.wait_state("the child to really stop", |state| {
-        matches!(state, Wait::Stopped(_))
-    });
+    session.stop_with(Signal::STOP, "the child to really stop");
     // The discriminating fact: no handler ran, so nothing gave the plane back.
     assert!(
         !session.text().contains(LEAVES_ALTERNATE),
@@ -9834,11 +9927,40 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     let concluded = &frames[asked + 1]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
-    assert_eq!(concluded["outcome"]["reason"], "the turn was cancelled");
+    // The sentence the user was shown, and whose stop it was in a field of
+    // its own, as upstream's (`event.interrupted.cancellation_origin ===
+    // "compaction"`, `tui-compaction-activity.test.ts:471`): that field,
+    // not the sentence, is how a resume tells it from the turn's own stop.
+    assert_eq!(
+        concluded["outcome"]["reason"],
+        "Compaction cancelled. Try /compact again when ready."
+    );
+    assert_eq!(concluded["outcome"]["cancellation_origin"], "compaction");
+    // And stopped, as upstream's compaction stop is (`terminal_reason`'s
+    // default, `persistCompactionInterruptedTurnOnce`).
+    assert_eq!(concluded["outcome"]["terminal_reason"], "cancelled");
     // Nothing about it in the document.
     on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Nor on a resume of it: the stopped turn replays as its card alone, as
+    // upstream's does (`tui-compaction-activity.test.ts:481-488`) -- no
+    // `■ Cancelled`, no `✗ system`.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    on_screen(
+        &second,
+        (40, 120),
+        &["second question", "MARKER-ONE"],
+        &["Cancelled", "\u{2717} system"],
+    );
+    second.type_bytes(b"/quit\r");
+    assert_eq!(second.wait_exit().code(), Some(0));
 }
 
 #[test]

@@ -551,6 +551,10 @@ mod tests {
 
         fn ran(self) -> Self {
             self.commit(SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "call-1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

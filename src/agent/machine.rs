@@ -51,18 +51,19 @@ use std::path::PathBuf;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use super::steering::Steering;
+use super::tokens::{self, Progress, Streamed};
 use crate::gateway::protocol::{
     Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message,
     ResultStatus, ToolChoice,
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
-
-use super::steering::Steering;
-use crate::session::{RecordedToolCall, RequestUsage, SessionEvent, TurnConclusion};
-
-use super::tokens::{self, Progress, Streamed};
-use crate::tools::{LineChanges, Registry};
+use crate::session::{
+    CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent,
+    TerminalReason, ToolEnding, TurnConclusion,
+};
+use crate::tools::{LineChanges, Outcome, Registry};
 use crate::workspace::ProjectContext;
 
 use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
@@ -127,6 +128,20 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
     });
+}
+
+/// What a result's row said beyond `ok`, as the log keeps it: nothing for a
+/// call that simply finished, which is what an older log's reader assumes.
+fn recorded_ending(outcome: Outcome) -> Option<ToolEnding> {
+    match outcome {
+        Outcome::Finished => None,
+        Outcome::Unchanged => Some(ToolEnding::Unchanged),
+        Outcome::Denied => Some(ToolEnding::Denied),
+        Outcome::Exited(code) => Some(ToolEnding::Exited { code }),
+        Outcome::Signalled(signal) => Some(ToolEnding::Signalled { signal }),
+        Outcome::TimedOut => Some(ToolEnding::TimedOut),
+        Outcome::Cancelled => Some(ToolEnding::Cancelled),
+    }
 }
 
 pub fn allows_step(limit: u32, step: u32) -> bool {
@@ -501,6 +516,16 @@ impl TurnMachine {
                 },
                 Err(err) => TurnConclusion::Interrupted {
                     reason: err.to_string(),
+                    // A stop is the one interruption upstream calls
+                    // cancelled; every other is a failure
+                    // (`persistFailedPartialTurnOnce`,
+                    // `runtime/interruption.zig:254`).
+                    terminal_reason: Some(if matches!(err, TurnError::Cancelled) {
+                        TerminalReason::Cancelled
+                    } else {
+                        TerminalReason::Failed
+                    }),
+                    cancellation_origin: CancellationOrigin::Turn,
                 },
             },
         });
@@ -841,11 +866,25 @@ impl TurnMachine {
                 })
                 .map_err(TurnError::Sink)?;
 
+            // With what the row said beyond `ok`, so a resumed session's row
+            // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
+                created_at_ms: Some(crate::session::event::system_now_ms()),
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,
                 output: result.output.clone(),
+                ending: recorded_ending(result.outcome),
+                lines: result.changes.map(|changes| LineCounts {
+                    added: changes.added as u64,
+                    removed: changes.removed as u64,
+                }),
+                change: result.change.as_deref().map(|change| RecordedChange {
+                    before: change.before.clone(),
+                    after: change.after.clone(),
+                    first_line: change.first_line as u64,
+                    lines_below: change.lines_below as u64,
+                }),
             });
             let images: Vec<crate::image::ToolImage> = result
                 .image

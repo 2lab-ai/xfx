@@ -31,8 +31,9 @@ pub mod prompt_history;
 pub mod store;
 
 pub use event::{
-    new_identifier, EventEnvelope, FrameError, RecordedImage, RecordedToolCall, RequestUsage,
-    SessionEvent, TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
+    new_identifier, CancellationOrigin, EventEnvelope, FrameError, LineCounts, RecordedChange,
+    RecordedImage, RecordedToolCall, RequestUsage, SessionEvent, TerminalReason, ToolEnding,
+    TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
 };
 pub use store::{
     turn_messages, validate_title, workspace_key, Checkpoint, Clock, DurableState, HistoryTurn,
