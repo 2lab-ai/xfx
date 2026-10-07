@@ -1,0 +1,40 @@
+
+  2026-10-07 05:42:21.834 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  system prompt: ready · 5900 bytes
+  tools: 15 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +7
+  more)
+  skills: loading
+  mcp: none
+
+  2026-10-07 05:42:25.982 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 28ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 05:42:27.248 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 218ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-07 05:42:25.932 UTC · Prompt
+┃ run the slow one
+
+  2026-10-07 05:42:25.993 UTC · Tool
+● 1 tool call · 1 command · 1 timed out
+└ Timed out echo started; sleep 5
+│  action: run
+│  yield_time_ms: 30000
+│  timeout_ms: 1000
+│ started
+│ timed out
+
+  2026-10-07 05:42:27.248 UTC · Response
+  Done.
+
+  2026-10-07 05:42:27.246 UTC · Usage
+  1s (↑4 ↓80)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+full access · model-a
