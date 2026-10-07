@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ look: small pasted words
+
+  Got it.
+
+  0s (↑8 ↓40)
+
+┃ first line
+┃
+┃ third line
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

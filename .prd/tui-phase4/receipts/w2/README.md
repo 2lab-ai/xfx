@@ -408,6 +408,43 @@ All 22 snaps (11 at each size) are identical in `.txt`, `.ansi` and
 as fx's `formatPlaceholder` does (`pasted_blocks.zig:59-62`); `paste-block-undo`
 retaken on xfx is identical to fx in all eight snaps.
 
+## Round 9: a prompt's card shows its pasted text
+
+xfx `target/debug/xfx` at `307778a` (banner `v0.1.0-307778a`), fx the
+c1db919 build. New: `paste-card.cap` (turns `paste-card-turns.json`) -- `look: `
+and a short paste, sent; a short paste of three lines, the second empty,
+sent; a paste of 1103 characters on four lines, the third empty -- a block
+in the composer, `[Pasted text #1, 4 lines]` -- sent; then the session
+resumed.
+
+fx's card is the prompt as it was submitted: the composer's text with every
+block expanded (`expanded.text`, `input_submit_runtime.zig:705-706`, carried
+as `visual_text` into `enqueuePromptForSubmit`, `:815-861`) and the card
+built from it (`transcript/store.zig:2814-2820`,
+`render_engine/transcript_blocks.zig:1882-1891`). Nothing is truncated or
+collapsed: every line of it is rows of its own, an empty line a row with
+the rail alone (`collectLogicalLinesWithFirstPrefix`,
+`user_message_card.zig:348-383`), and only a card **waiting** in the band is
+cut to the rows that fit (`buildUserPromptCardTailForTerminalPresentationInterruptible`,
+`:145-166`; xfx's waiting banner keeps its two rows and `…`, as before). The
+turn's estimate counts the same text (`TurnSummaryAccumulator.init(.., job.prompt)`,
+`orchestrator.zig:5482-5485`). xfx's card, its estimate and a steer's card
+kept the composer's summary; all three are the prompt as sent now. A replayed
+card already was -- the log holds the prompt.
+
+| snap | both |
+|---|---|
+| `small` | `┃ look: small pasted words`, `Got it.`, `0s (↑8 ↓40)` |
+| `multi-composer` | the three lines in the composer, the second the rail alone |
+| `multi` | the card the same: `┃ first line`, `┃`, `┃ third line`; `0s (↑6 ↓40)` |
+| `large-composer` | `┃ [Pasted text #1, 4 lines]` |
+| `large` | the card is the 1103 characters: four rows of `a`, four of `b`, a rail alone, three of `c`; `0s (↑275 ↓40)` |
+| `resumed` | `* session resumed: look: small pasted words` and the three cards as they were |
+
+Every `.txt` and `.ansi` is identical after the banner; the requests carry
+the same text on both (`gwlog`: 24, 22 and 1103 characters). The card's wrap
+is the card's own (`wrapCut`, T10's), unchanged here.
+
 ## Differences, and why
 
 - **Where a clipboard badge's link goes** (round 4): fx's copy is in the
