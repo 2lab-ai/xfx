@@ -1,0 +1,54 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "run it"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool-call",
+     "toolCallId": "call_2_0",
+     "toolName": "shell",
+     "input": {
+      "request": {
+       "action": "run",
+       "command": "sleep 4; echo done",
+       "yield_time_ms": 30000
+      }
+     }
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "content": [
+    {
+     "type": "tool-result",
+     "toolCallId": "call_2_0",
+     "toolName": "shell",
+     "output": {
+      "type": "text",
+      "value": "{\"session_id\":null,\"state\":\"completed\",\"backend\":\"captured\",\"persistence\":\"process\",\"output_truncated\":false,\"output_incomplete\":false,\"output_terminal_safe\":true,\"full_output_handle\":\"fx-command-replay-cfb071aa3a20cb93bfae5dd38c5a68b5-64a9ff181193209d.bin\",\"exit_code\":0,\"signal\":null,\"termination_indeterminate\":false,\"duration_ms\":4031,\"accepted_bytes\":null,\"error\":null,\"retry_guidance\":null,\"output_delta\":\"done\\n\"}"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<user_steering>\nApply this live user update to the current task. Continue working unless the user asks you to stop, the task is complete, or a genuine blocker prevents progress.\n\nchange tone and keep it short\n</user_steering>"
+    }
+   ]
+  }
+ ]
+}

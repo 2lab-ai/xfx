@@ -310,6 +310,15 @@ pub enum SessionEvent {
     /// prompt puts the sentence behind the result it was about. It is context,
     /// never authority: nothing reads it to widen a grant or re-run a call.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the running turn, which the turn took at
+    /// one of its boundaries (`crate::agent::steering`).
+    ///
+    /// A step of the open turn, not a [`Self::UserMessage`], for the reason
+    /// [`Self::ToolFeedback`] is one: the turn goes on after it. The person's
+    /// words as typed -- what upstream's history keeps and replays
+    /// (`execution_memory.zig:28-43`) -- rather than the wrapper the model was
+    /// given live. Added under schema 1 for the reason given there.
+    Steered { text: String },
     /// An approval the user gave for the rest of the session.
     PermissionGrantRecorded { tool: String, target: String },
     /// `/permissions reset`: every approval recorded before this one is
@@ -442,6 +451,7 @@ impl SessionEvent {
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",
+            Self::Steered { .. } => "steered",
             Self::PermissionGrantRecorded { .. } => "permission_grant_recorded",
             Self::PermissionGrantsCleared => "permission_grants_cleared",
             Self::UsageRecorded { .. } => "usage_recorded",
@@ -759,6 +769,9 @@ mod tests {
             SessionEvent::ToolFeedback {
                 call_id: "c".to_string(),
                 text: "say it differently".to_string(),
+            },
+            SessionEvent::Steered {
+                text: "change tone".to_string(),
             },
             SessionEvent::PermissionGrantRecorded {
                 tool: "t".to_string(),

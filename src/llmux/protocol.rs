@@ -296,7 +296,7 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 call_id,
                 tool: _,
                 output,
-                error,
+                status,
                 images,
             } => {
                 // A result with images is Anthropic's content array -- its text,
@@ -325,8 +325,12 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 ]);
                 // Anthropic's own flag for a result that is an error
                 // (`tool_result.is_error`), written only when it is one, so
-                // every other result is the bytes it always was.
-                if *error {
+                // every other result is the bytes it always was. A refusal is
+                // one too: the Messages tool result has no word for a denial
+                // of its own, and llmux reads exactly this boolean
+                // (`2lab-ai/llmux src/provider/responses_request.rs:1148-1151`).
+                // What it was refused for is the content.
+                if *status != crate::gateway::protocol::ResultStatus::Success {
                     if let Value::Object(map) = &mut block {
                         map.insert("is_error".to_string(), Value::Bool(true));
                     }
@@ -495,6 +499,14 @@ mod tests {
                 "is_error": true
             })]
         );
+        // A refusal too: the Messages tool result has no denial of its own.
+        let refused = map_message(&crate::gateway::protocol::Message::tool_ended(
+            "toolu_1",
+            "write_file",
+            "write_file was not permitted: no",
+            crate::gateway::protocol::ResultStatus::Denied,
+        ));
+        assert_eq!(refused.results[0]["is_error"], json!(true));
         let ordinary = map_message(&crate::gateway::protocol::Message::tool_result(
             "toolu_1", "terminal", "ok",
         ));

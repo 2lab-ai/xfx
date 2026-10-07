@@ -389,7 +389,8 @@ fn turn_cost(turn: &HistoryTurn) -> usize {
                 .saturating_add(text_tokens(tool))
                 .saturating_add(text_tokens(output))
                 .saturating_add(8),
-            crate::session::TurnStep::ToolFeedback { text, .. } => text_tokens(text),
+            crate::session::TurnStep::ToolFeedback { text, .. }
+            | crate::session::TurnStep::Steered { text } => text_tokens(text),
         });
     }
     total
@@ -470,7 +471,7 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
                         call_id,
                         tool,
                         output,
-                        error,
+                        status,
                         ..
                     } = part
                     {
@@ -478,7 +479,8 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
                             call_id,
                             name: tool,
                             output,
-                            failed: error,
+                            // A refusal did not succeed either.
+                            failed: status != crate::gateway::protocol::ResultStatus::Success,
                         });
                     }
                 }
