@@ -14,14 +14,14 @@
 //!   `char`, because a combining accent and a ZWJ family are one thing to the
 //!   person typing and to the terminal drawing them
 //!   (`text_boundaries.zig` tests `:184-199`). It is also an obligation this
-//!   module owes [`wrap::cursor_point`], which **panics** on an offset that is
+//!   module owes [`wrap::composer_point`], which **panics** on an offset that is
 //!   not even a `char` boundary and reports a column inside a glyph for one
 //!   that splits a cluster: the caret is only honest if the offset is.
 //! * **Lines and rows are different things, and both are needed.** A *line* is
 //!   what the newlines in the text delimit, and it is what `Home`, `End` and
 //!   the two kills work on -- `C-a` on a wrapped paragraph goes to the start of
 //!   the paragraph, which is what every line editor a terminal user has ever
-//!   used does. A *row* is what [`wrap::wrap`] produces for the width the band
+//!   used does. A *row* is what [`wrap::composer`] produces for the width the band
 //!   has, and it is what `Up` and `Down` work on, because those are movements
 //!   on the screen and the screen is rows.
 //! * **Vertical motion remembers the column it wanted.** Walking down through a
@@ -41,10 +41,11 @@
 //! breaks and tabs, and both are text rather than bytes the terminal would
 //! obey. That is what makes submitting a composer into the transcript safe: an
 //! `ESC [ 2 J` cannot be in it to be written back. A pasted **tab** is the one
-//! control the composer both holds and shows: [`wrap::TAB_WIDTH`] measures it
-//! at four cells and the row this module hands the painter has it expanded to
-//! that many spaces, so pasted indentation is sent whole *and* drawn, and the
-//! caret sits on the glyph it belongs to rather than four columns from it.
+//! control the composer both holds and shows: it advances to the next tab stop
+//! ([`wrap::composer_tab`]) and the row this module hands the painter has it
+//! expanded to that many spaces, so pasted indentation is sent whole *and*
+//! drawn, and the caret sits on the glyph it belongs to rather than columns
+//! from it.
 //!
 //! # What a block is
 //!
@@ -624,17 +625,31 @@ impl Editor {
     /// (`super::frame::row_text` strips it, and a row that arrives already
     /// stripped is one the two modules cannot disagree about).
     pub(crate) fn rows(&self, cols: u16) -> Vec<String> {
-        wrap::wrap(&self.text, cols.max(1))
+        self.layout(cols)
             .into_iter()
             .map(|row| {
-                // Expanded here rather than at the painter, because the wrap
-                // that produced this row already measured the tab at
-                // `wrap::TAB_WIDTH` cells: a row handed over with the control
-                // still in it would be a row the terminal indents by its own
-                // tab stop, which is not the number the caret was placed from.
-                wrap::expand_tabs(body(&self.text[row.start..row.end])).into_owned()
+                // Expanded here rather than at the painter, because the layout
+                // that produced this row already measured each tab at its tab
+                // stop (`wrap::composer_tab`): a row handed over with the
+                // control still in it would be a row the terminal indents by
+                // its own tab stop, which is not the number the caret was
+                // placed from.
+                wrap::composer_expand(body(&self.text[row.start..row.end]), cols).into_owned()
             })
             .collect()
+    }
+
+    /// The composer's rows for a text width of `cols`: upstream's composer
+    /// layout ([`wrap::composer`]), with the draft's blocks and badges as the
+    /// units it never breaks.
+    fn layout(&self, cols: u16) -> Vec<Row> {
+        let units: Vec<std::ops::Range<usize>> = self
+            .entities
+            .spans()
+            .iter()
+            .map(|span| span.start..span.end)
+            .collect();
+        wrap::composer(&self.text, cols.max(1), &units)
     }
 
     /// The same rows with the selection marked: `open` before each run of
@@ -661,13 +676,14 @@ impl Editor {
                 .find(|(span, _)| span.contains(&at))
                 .map(|(_, link)| link.as_str())
         };
-        wrap::wrap(&self.text, cols.max(1))
+        self.layout(cols)
             .into_iter()
             .map(|row| {
                 let body = body(&self.text[row.start..row.end]);
                 let mut out = String::with_capacity(body.len() + open.len() + close.len());
                 let mut inside = false;
                 let mut linked: Option<&str> = None;
+                let mut used = 0u16;
                 for (offset, cluster) in body.grapheme_indices(true) {
                     let at = row.start + offset;
                     let wanted = selected.as_ref().is_some_and(|range| range.contains(&at));
@@ -680,7 +696,14 @@ impl Editor {
                         out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
                         linked = link;
                     }
-                    out.push_str(&wrap::expand_tabs(cluster));
+                    if cluster == "\t" {
+                        let cells = wrap::composer_tab(used, cols);
+                        out.extend(std::iter::repeat_n(' ', usize::from(cells)));
+                        used = used.saturating_add(cells);
+                    } else {
+                        out.push_str(cluster);
+                        used = used.saturating_add(wrap::width(cluster));
+                    }
                 }
                 if inside {
                     out.push_str(close);
@@ -722,8 +745,8 @@ impl Editor {
     /// coordinate* is made, clamped to the rows the band really has
     /// (`super::shell::Shell::cursor`).
     pub(crate) fn point(&self, cols: u16) -> (usize, u16) {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        wrap::cursor_point(&self.text, &rows, self.cursor)
+        let rows = self.layout(cols);
+        wrap::composer_point(&self.text, &rows, self.cursor, cols.max(1))
     }
 
     /// Moves the caret, and forgets the column vertical motion was aiming for.
@@ -833,8 +856,8 @@ impl Editor {
     /// forgetting the column there would make the next `Down` aim at wherever
     /// the caret happened to be.
     fn move_by_row(&mut self, step: Step, cols: u16) {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        let (row, column) = wrap::cursor_point(&self.text, &rows, self.cursor);
+        let rows = self.layout(cols);
+        let (row, column) = wrap::composer_point(&self.text, &rows, self.cursor, cols.max(1));
         let target = self.sticky.unwrap_or(column);
         self.sticky = Some(target);
         let wanted = match step {
@@ -845,7 +868,7 @@ impl Editor {
             return;
         };
         let last = wanted + 1 == rows.len();
-        let landed = self.offset_on(&rows[wanted], last, target);
+        let landed = self.offset_on(&rows[wanted], last, target, cols.max(1));
         self.cursor = self.beside(landed);
         self.anchor = None;
     }
@@ -878,8 +901,8 @@ impl Editor {
     /// page down -- and a page never turns into a history step there, which is
     /// the difference from the arrows.
     pub(crate) fn move_rows(&mut self, step: Step, count: usize, cols: u16) -> bool {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        let (row, column) = wrap::cursor_point(&self.text, &rows, self.cursor);
+        let rows = self.layout(cols);
+        let (row, column) = wrap::composer_point(&self.text, &rows, self.cursor, cols.max(1));
         let target = self.sticky.unwrap_or(column);
         self.sticky = Some(target);
         let wanted = match step {
@@ -890,7 +913,7 @@ impl Editor {
             return false;
         }
         let last = wanted + 1 == rows.len();
-        let landed = self.offset_on(&rows[wanted], last, target);
+        let landed = self.offset_on(&rows[wanted], last, target, cols.max(1));
         self.cursor = self.beside(landed);
         self.anchor = None;
         true
@@ -903,8 +926,8 @@ impl Editor {
     /// What the `@` file picker is placed by: its rows start under the `@`
     /// (`picker_start_col`, `input_presentation.zig:377-380`).
     pub(crate) fn point_of(&self, offset: usize, cols: u16) -> (usize, u16) {
-        let rows = wrap::wrap(&self.text, cols.max(1));
-        wrap::cursor_point(&self.text, &rows, offset.min(self.text.len()))
+        let rows = self.layout(cols);
+        wrap::composer_point(&self.text, &rows, offset.min(self.text.len()), cols.max(1))
     }
 
     /// Where the caret is, as a byte offset into [`Self::text`].
@@ -988,29 +1011,44 @@ impl Editor {
         self.replace(at, self.cursor, "\n", at + 1)
     }
 
-    /// The offset on `row` at `target` cells from its left edge, or as close to
-    /// it as the row reaches.
-    fn offset_on(&self, row: &Row, last: bool, target: u16) -> usize {
+    /// The offset on `row` that a vertical move aiming at `target` cells lands
+    /// on: of the places the caret may stand there, the rightmost one at or
+    /// left of `target`, the later of two at one column (`TargetBuilder`,
+    /// `visual_layout.zig:631-657`). The places are the starts of the row's
+    /// units -- a cluster, a tab, a block or a badge whole -- and its end when
+    /// a line break or the end of the text ended it. A row a **soft wrap**
+    /// ended has no place past its last unit: that offset is the following
+    /// row's first column ([`wrap::composer_point`]), so a caret put there
+    /// would be a row below the one asked for. A wide glyph `target` falls
+    /// inside of lands the caret in front of it.
+    fn offset_on(&self, row: &Row, last: bool, target: u16, cols: u16) -> usize {
         let text = &self.text[row.start..row.end];
-        let body = body(text);
-        // The far end of the row, which is not always the end of its bytes. A
-        // row a *soft wrap* ended has no column past its last cluster: the
-        // offset the next cluster begins at is the following row's first
-        // column (`wrap::cursor_point`), so a caret placed there would be a row
-        // below the one that was asked for.
-        let limit = if body.len() == text.len() && !last {
-            row.end - body.graphemes(true).next_back().map_or(0, str::len)
-        } else {
-            row.start + body.len()
-        };
+        let end = row.start + body(text).len();
+        let soft = end == row.end && !last;
+        let mut best = row.start;
         let mut used = 0u16;
-        for (index, cluster) in body.grapheme_indices(true) {
-            if used >= target {
-                return (row.start + index).min(limit);
-            }
-            used = used.saturating_add(wrap::width(cluster));
+        let mut at = row.start;
+        while at < end && used <= target {
+            best = at;
+            let (next, cells) = match self.entities.spans().iter().find(|span| span.start == at) {
+                Some(span) => (span.end, wrap::width(&self.text[span.start..span.end])),
+                None => {
+                    let cluster = self.text[at..end].graphemes(true).next().unwrap_or("");
+                    let cells = if cluster == "\t" {
+                        wrap::composer_tab(used, cols)
+                    } else {
+                        wrap::width(cluster)
+                    };
+                    (at + cluster.len().max(1), cells)
+                }
+            };
+            used = used.saturating_add(cells);
+            at = next;
         }
-        limit
+        if !soft && at >= end && used <= target {
+            best = end;
+        }
+        best
     }
 
     /// The start of the line the caret is on: the byte after the break above
@@ -1523,7 +1561,9 @@ mod tests {
         assert!(!draft.select_all(), "selecting all twice changed something");
         let rows = draft.painted_rows(80, "<", ">");
         assert_eq!(rows.len(), 1);
-        assert!(rows[0].starts_with("<a    b "), "{rows:?}");
+        // The tab after `a` advances to the screen's ninth column: five cells
+        // (`tabAdvance`, `visual_layout.zig:714-723`).
+        assert!(rows[0].starts_with("<a     b "), "{rows:?}");
         assert!(rows[0].ends_with(" c>"), "{rows:?}");
         let delta = draft.insert("z").expect("an edit");
         assert_eq!(draft.text(), "z");
@@ -1595,18 +1635,20 @@ mod tests {
     }
 
     #[test]
-    fn a_badge_wrapped_across_rows_is_closed_on_each_and_opened_on_the_next() {
-        // `user_message_card.zig:354-379` balances a badge across narrow rows.
+    fn a_badge_wider_than_its_row_is_one_unit_on_one_row() {
+        // Upstream's composer never breaks a badge: one wider than the row
+        // takes the row whole (`oversized_empty_row`, `visual_layout.zig:251-255`;
+        // `:1083-1114`) and the painter cuts what does not fit. A link opened
+        // on a row is closed on it, as everywhere else.
         let mut draft = Editor::new();
         attach(&mut draft, 1, "/tmp/a.png");
+        draft.insert("x").expect("an edit");
         let a = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\";
         assert_eq!(
             draft.painted_rows(5, "<", ">"),
-            [
-                format!("{a}[Imag{LINK_CLOSE}"),
-                format!("{a}e 1]{LINK_CLOSE}")
-            ]
+            [format!("{a}[Image 1]{LINK_CLOSE}"), "x".to_string()]
         );
+        assert_eq!(draft.point(5), (1, 1));
     }
 
     #[test]
@@ -2058,13 +2100,15 @@ mod tests {
     fn a_pasted_tab_is_the_same_run_of_cells_measured_and_painted() {
         // Phase 1 kept a tab in the text and drew nothing for it, so the caret
         // sat a column away from where the text was. One width, and the
-        // painter uses the same one.
+        // painter uses the same one: the advance to the next tab stop, every
+        // eighth column of the screen with the gutter counted (`tabAdvance`,
+        // `visual_layout.zig:714-723`; `fx-composer-wrap-24x80-tabs`). After
+        // `a` at column 3 of the screen, the stop is column 9.
         let editor = editor("a\tb");
-        let cells = usize::from(wrap::TAB_WIDTH);
-        assert_eq!(editor.rows(80), vec![format!("a{}b", " ".repeat(cells))]);
+        assert_eq!(editor.rows(78), vec![format!("a{}b", " ".repeat(5))]);
         assert_eq!(
-            editor.point(80),
-            (0, 1 + wrap::TAB_WIDTH + 1),
+            editor.point(78),
+            (0, 1 + 5 + 1),
             "the caret is not past the cells the tab paints"
         );
     }

@@ -2680,8 +2680,7 @@ impl Shell {
         if !text.is_char_boundary(start) {
             return PROMPT_CELLS;
         }
-        let rows = super::wrap::wrap(text, self.text_cols());
-        let (_, at) = super::wrap::cursor_point(text, &rows, start);
+        let (_, at) = self.editor.point_of(start, self.text_cols());
         PROMPT_CELLS.saturating_add(at)
     }
 
@@ -5052,10 +5051,9 @@ impl Shell {
     /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
     /// break after it).
     fn column_anchor(&self, offset: usize) -> u16 {
-        let text = self.editor.text();
-        let rows = super::wrap::wrap(text, self.text_cols());
-        let (row, cells) = super::wrap::cursor_point(text, &rows, offset);
-        let (caret_row, _) = super::wrap::cursor_point(text, &rows, self.editor.caret());
+        let cols = self.text_cols();
+        let (row, cells) = self.editor.point_of(offset, cols);
+        let (caret_row, _) = self.editor.point(cols);
         if row != caret_row {
             return PROMPT_CELLS;
         }
