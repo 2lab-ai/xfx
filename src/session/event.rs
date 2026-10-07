@@ -299,6 +299,27 @@ impl TurnConclusion {
     }
 }
 
+/// Who gave a session the title a [`SessionEvent::SessionRenamed`] records.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSource {
+    /// The user, with `/rename`. Not written: a rename frame without a
+    /// source is the user's, as every one written before this field was.
+    #[default]
+    User,
+    /// A model, asked for one from the session's first prompt
+    /// (`crate::tui::titles`).
+    Generated,
+}
+
+impl TitleSource {
+    /// For `skip_serializing_if`: the user's is the frame `/rename` always
+    /// wrote, byte for byte.
+    pub fn is_user(&self) -> bool {
+        *self == Self::User
+    }
+}
+
 /// Everything a session is allowed to remember.
 ///
 /// The set is closed, and has no field for xfx's own Gateway credential, no
@@ -446,18 +467,6 @@ pub enum SessionEvent {
         /// for the full transcript of a resumed session.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<RecordedChange>,
-        /// When the result was recorded, as upstream keeps each persisted
-        /// result's own moment (`PersistedToolResult.created_at_ms`,
-        /// `vercel-labs/fx@c1db9191 src/core/agent/execution_memory.zig:52`)
-        /// and stamps a resumed call's full-transcript entry with it
-        /// (`transcript/runtime.zig:5826`). Upstream's is the turn's end,
-        /// because it writes a turn's results only then
-        /// (`buildNormalExecutionMemory`, `execution_memory.zig:421`, from
-        /// `orchestrator.zig:9260`); xfx writes each as it comes back, so
-        /// this is that moment. Absent in a log written before the field,
-        /// whose calls a resume stamps with their turn's start.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -558,7 +567,8 @@ pub enum SessionEvent {
     },
     /// The turn ended. Exactly one per opened turn.
     TurnConcluded { outcome: TurnConclusion },
-    /// The user named the session (`/rename <title>`).
+    /// The session was named: by the user (`/rename <title>`), or by a model
+    /// asked for a title from its first prompt (`source`).
     ///
     /// A title the user chose outranks the one a listing derives from the
     /// first prompt, and the last of these in a log is the one in force
@@ -572,7 +582,24 @@ pub enum SessionEvent {
     /// Written under schema 1 for the reason [`Self::ToolFeedback`] is: a new
     /// binary reads every old log, and an older one refuses a log that holds
     /// this frame rather than half-reading it.
-    SessionRenamed { title: String },
+    ///
+    /// **A generated title is this frame with a `source`, not a frame of its
+    /// own.** Upstream installs one through the same `renameConversation` a
+    /// `/rename` goes through (`installGeneratedTitle`,
+    /// `src/core/session/session_title_generation.zig:378-394`), so a session
+    /// has one title fact and the last one written is in force -- and the
+    /// runtime writes a generated one only while the log holds no title at
+    /// all, so a user's is never overwritten by one. A field rather than a
+    /// variant for [`Self::UsageRecorded`]'s reason: a binary that knows
+    /// `session_renamed` and not `source` ignores the field and shows the
+    /// title, where a new variant would make it refuse the whole log for a
+    /// cosmetic fact; and a user's rename, which carries no source, encodes
+    /// to exactly the bytes it always did.
+    SessionRenamed {
+        title: String,
+        #[serde(default, skip_serializing_if = "TitleSource::is_user")]
+        source: TitleSource,
+    },
     /// The conversation was compacted (`/compact`, or a turn that reached the
     /// automatic compaction point): every turn opened at or before
     /// `covers_through_seq` is replaced, in what the model reads from here on,
@@ -923,7 +950,6 @@ mod tests {
         let frame = envelope(
             1,
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -940,7 +966,6 @@ mod tests {
     #[test]
     fn a_result_keeps_how_its_row_ended_and_an_older_or_newer_one_still_reads() {
         let result = SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: "c".to_string(),
             tool: "terminal".to_string(),
             ok: true,
@@ -977,30 +1002,15 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
-                created_at_ms: None,
                 ..
             }
         ));
-        // When it was recorded, written beside the rest when known.
-        let stamped = SessionEvent::ToolResult {
-            call_id: "c".to_string(),
-            tool: "t".to_string(),
-            ok: true,
-            output: "o".to_string(),
-            ending: None,
-            lines: None,
-            change: None,
-            created_at_ms: Some(1_790_899_201_000),
-        };
-        let encoded = serde_json::to_string(&stamped).expect("encodes");
-        assert!(
-            encoded.ends_with(r#","created_at_ms":1790899201000}"#),
-            "{encoded}"
-        );
-        assert_eq!(
-            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
-            stamped
-        );
+        // A field this build does not write -- an earlier build of this
+        // branch's `created_at_ms` -- is no reason to refuse the frame.
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","created_at_ms":1790899201000}"#,
+        )
+        .is_ok());
         // A kind a later build adds is not a reason to refuse the log.
         let newer: SessionEvent = serde_json::from_str(
             r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","ending":{"kind":"paused","for":3}}"#,
@@ -1141,7 +1151,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -1182,6 +1191,7 @@ mod tests {
             },
             SessionEvent::SessionRenamed {
                 title: "My Title".to_string(),
+                source: TitleSource::User,
             },
         ];
         for event in events {
@@ -1237,6 +1247,7 @@ mod tests {
             7,
             SessionEvent::SessionRenamed {
                 title: "My Title".to_string(),
+                source: TitleSource::User,
             },
         );
         let encoded = frame.encode().expect("encodes");
@@ -1248,6 +1259,64 @@ mod tests {
             EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
             frame
         );
+    }
+
+    #[test]
+    fn a_generated_title_is_a_rename_that_says_where_it_came_from() {
+        let frame = envelope(
+            8,
+            SessionEvent::SessionRenamed {
+                title: "Fix the renderer".to_string(),
+                source: TitleSource::Generated,
+            },
+        );
+        let encoded = frame.encode().expect("encodes");
+        assert!(
+            encoded.contains(
+                r#""event":{"kind":"session_renamed","title":"Fix the renderer","source":"generated"}}"#
+            ),
+            "{encoded}"
+        );
+        assert_eq!(
+            EventEnvelope::decode(encoded.trim_end()).expect("decodes"),
+            frame
+        );
+        // A rename frame written before the field existed is the user's.
+        let older = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":7,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"session_renamed","title":"My Title"}}"#;
+        assert_eq!(
+            EventEnvelope::decode(older)
+                .expect("an older rename decodes")
+                .event,
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+                source: TitleSource::User,
+            }
+        );
+    }
+
+    #[test]
+    fn a_rename_frame_with_a_field_this_build_does_not_know_still_opens() {
+        // What a binary from before `source` meets in a log this one wrote: a
+        // field it has no slot for, in a variant it knows. It is skipped, so
+        // that binary opens the log and shows the title -- the compatibility
+        // the generated title's shape was chosen for. Proven on this build
+        // with a field it does not know either, which is the same derive.
+        let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":7,"event_id":"11111111111111111111111111111111","timestamp_ms":1700000000000,"event":{"kind":"session_renamed","title":"My Title","origin_of_a_later_build":"x"}}"#;
+        assert_eq!(
+            EventEnvelope::decode(line)
+                .expect("an unknown field in a known variant is skipped")
+                .event,
+            SessionEvent::SessionRenamed {
+                title: "My Title".to_string(),
+                source: TitleSource::User,
+            }
+        );
+        // And a source this build does not know is not read as the user's.
+        let unknown = line.replace(
+            r#""origin_of_a_later_build":"x""#,
+            r#""source":"somebody_else""#,
+        );
+        assert!(EventEnvelope::decode(&unknown).is_err());
     }
 
     #[test]

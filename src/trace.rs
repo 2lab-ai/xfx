@@ -443,6 +443,65 @@ pub struct Screen<'a> {
     pub network: &'a [Entry],
 }
 
+/// Where generating a session's title stands
+/// (`TitleGenerationLoad.Status`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:1120`, and the running task).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TitleStatus {
+    /// Nothing has been asked.
+    #[default]
+    None,
+    /// A question is out.
+    Running,
+    /// The last one came back with a title.
+    Installed,
+    /// It came back with a title the session was not given.
+    Dropped,
+    /// It came back with none.
+    Failed,
+}
+
+impl TitleStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Running => "running",
+            Self::Installed => "installed",
+            Self::Dropped => "dropped",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// The question out, or how the last one went
+/// (`TitleGenerationLoad.LastResult`, `app_session_runtime.zig:1083-1118`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TitleGeneration {
+    pub status: TitleStatus,
+    /// The session it was about, when that is known.
+    pub session: Option<String>,
+    pub model: Option<String>,
+    /// Upstream's name for why it gave no title, or why the title was not
+    /// given (`@tagName(FailureReason)`).
+    pub reason: Option<&'static str>,
+    /// What kind of failure, never its text.
+    pub detail: Option<String>,
+    /// From the question to its answer, or so far for one still out.
+    pub elapsed_ms: Option<i64>,
+}
+
+/// What `## Session Title` says (`writeSessionTitleSummary`,
+/// `app_commands.zig:2779-2816`): the TUI's alone, the surface that asks a
+/// model for a title.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TitleTrace {
+    /// The `/settings` switch.
+    pub setting: bool,
+    /// The title the session is shown under, when it has one.
+    pub title: Option<String>,
+    pub generation: TitleGeneration,
+}
+
 /// Everything one report is made of.
 #[derive(Debug, Clone, Copy)]
 pub struct Report<'a> {
@@ -457,6 +516,9 @@ pub struct Report<'a> {
     /// What compactions did, oldest first
     /// ([`crate::agent::compaction_trace::snapshot`]).
     pub compaction: &'a [crate::agent::compaction_trace::Event],
+    /// `## Session Title`; `None` on the line shell, which asks no model for
+    /// a title.
+    pub title: Option<&'a TitleTrace>,
 }
 
 /// The most bytes of a call's arguments the report quotes
@@ -500,6 +562,9 @@ impl Report<'_> {
         self.configuration(&mut out);
         self.problems(&mut out);
         compaction(&mut out, self.compaction);
+        if let Some(title) = self.title {
+            session_title(&mut out, title);
+        }
         if let Some(screen) = self.screen {
             network_calls(&mut out, screen.network);
         }
@@ -562,8 +627,12 @@ impl Report<'_> {
             Session::Read { dir, state, .. } => {
                 let _ = writeln!(out, "session_id: {}", state.id);
                 let _ = writeln!(out, "session_dir: {}", dir.display());
-                if let Some(title) = state.title() {
-                    let _ = writeln!(out, "session_title: {}", one_line(&mask_secrets(&title)));
+                // Upstream says the title in `## Session Title` and not here;
+                // the line shell has no such section, so it says it here.
+                if self.title.is_none() {
+                    if let Some(title) = state.title() {
+                        let _ = writeln!(out, "session_title: {}", one_line(&mask_secrets(&title)));
+                    }
                 }
                 let _ = writeln!(out, "history_turns: {}", state.turns.len());
                 let _ = writeln!(
@@ -697,6 +766,27 @@ impl Report<'_> {
                 .collect();
             for call in failed.iter().rev().take(TOOL_PROBLEMS) {
                 let _ = writeln!(out, "- tool {}", call.compact());
+            }
+        }
+        // `writeProblemsSummary`'s title line (`app_commands.zig:2596-2611`).
+        if let Some(title) = self.title {
+            let generation = &title.generation;
+            if matches!(
+                generation.status,
+                TitleStatus::Failed | TitleStatus::Dropped
+            ) {
+                let _ = write!(
+                    out,
+                    "- session title generation {}",
+                    generation.status.label()
+                );
+                if let Some(reason) = generation.reason {
+                    let _ = write!(out, " reason={reason}");
+                }
+                if let Some(detail) = &generation.detail {
+                    let _ = write!(out, " detail={detail}");
+                }
+                out.push('\n');
             }
         }
         if let Some(screen) = self.screen {
@@ -974,6 +1064,43 @@ fn compaction(out: &mut String, events: &[crate::agent::compaction_trace::Event]
         out.push_str(visible);
         out.push_str(if cut { " ...\n" } else { "\n" });
     }
+}
+
+/// `## Session Title` (`writeSessionTitleSummary`, `app_commands.zig:2779-2816`):
+/// the switch, the title the session is shown under, and the question out or
+/// how the last one went -- so a shared report says why a session has no
+/// generated title.
+fn session_title(out: &mut String, title: &TitleTrace) {
+    out.push_str("\n## Session Title\n");
+    let _ = writeln!(
+        out,
+        "setting: {}",
+        if title.setting { "true" } else { "false" }
+    );
+    match &title.title {
+        Some(shown) => {
+            let _ = writeln!(out, "title: {}", one_line(&mask_secrets(shown)));
+        }
+        None => out.push_str("title: (none)\n"),
+    }
+    let generation = &title.generation;
+    let _ = write!(out, "generation: status={}", generation.status.label());
+    if let Some(session) = &generation.session {
+        let _ = write!(out, " session={session}");
+    }
+    if let Some(model) = &generation.model {
+        let _ = write!(out, " model={model}");
+    }
+    if let Some(reason) = generation.reason {
+        let _ = write!(out, " reason={reason}");
+    }
+    if let Some(detail) = &generation.detail {
+        let _ = write!(out, " detail={detail}");
+    }
+    if let Some(elapsed) = generation.elapsed_ms.filter(|elapsed| *elapsed >= 0) {
+        let _ = write!(out, " elapsed={elapsed}ms");
+    }
+    out.push('\n');
 }
 
 /// `## Network Calls` (`writeNetworkCallsSummary`, `app_commands.zig:3005-3126`):
@@ -2255,6 +2382,7 @@ mod tests {
             session,
             screen,
             compaction: &[],
+            title: None,
         }
         .render()
     }
@@ -2346,7 +2474,6 @@ mod tests {
                     wire: None,
                 },
                 SessionEvent::ToolResult {
-                    created_at_ms: None,
                     call_id: "call-1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
@@ -2356,7 +2483,6 @@ mod tests {
                     change: None,
                 },
                 SessionEvent::ToolResult {
-                    created_at_ms: None,
                     call_id: "call-2".to_string(),
                     tool: "terminal".to_string(),
                     ok: false,
@@ -2515,6 +2641,94 @@ mod tests {
     }
 
     #[test]
+    fn the_tui_says_how_its_session_title_was_asked_for_in_upstreams_section() {
+        // `writeSessionTitleSummary` (`app_commands.zig:2779-2816`), after
+        // `## Problems` and `## Context Compaction` as upstream orders them
+        // (`buildTraceReport`, `:2266-2270`), and the problem line a failed one adds
+        // (`writeProblemsSummary`, `:2596-2611`).
+        let (_home, _workspace, config) = configured("value-of-the-credential");
+        let status = crate::interactive::status_snapshot(&config, &config.model, None);
+        let settings = Settings::of(&config);
+        let report = |title: &TitleTrace| {
+            Report {
+                generated_ms: NOW,
+                status: &status,
+                effort: None,
+                settings: &settings,
+                session: Session::None,
+                screen: None,
+                compaction: &[],
+                title: Some(title),
+            }
+            .render()
+        };
+        let failed = TitleTrace {
+            setting: true,
+            title: None,
+            generation: TitleGeneration {
+                status: TitleStatus::Failed,
+                session: Some("1791-abc".to_string()),
+                model: Some("openai/gpt-5.6-luna".to_string()),
+                reason: Some("transport_error"),
+                detail: Some("Connect".to_string()),
+                elapsed_ms: Some(42),
+            },
+        };
+        let text = report(&failed);
+        assert_eq!(
+            sections(&text),
+            [
+                "## Summary",
+                "## Current State",
+                "## Configuration",
+                "## Problems",
+                "## Context Compaction",
+                "## Session Title",
+                "## Tool Calls",
+                "## Permissions",
+                "## Session Log",
+            ]
+        );
+        for line in [
+            "setting: true",
+            "title: (none)",
+            "generation: status=failed session=1791-abc model=openai/gpt-5.6-luna \
+             reason=transport_error detail=Connect elapsed=42ms",
+            "- session title generation failed reason=transport_error detail=Connect",
+        ] {
+            assert!(text.lines().any(|row| row == line), "{line}\n{text}");
+        }
+        // Installed: no problem, the title shown, masked like any text.
+        let installed = TitleTrace {
+            setting: false,
+            title: Some("Rotate TOKEN=abc123".to_string()),
+            generation: TitleGeneration {
+                status: TitleStatus::Installed,
+                ..TitleGeneration::default()
+            },
+        };
+        let text = report(&installed);
+        assert!(text.lines().any(|row| row == "setting: false"), "{text}");
+        assert!(
+            text.lines()
+                .any(|row| row == "title: Rotate TOKEN=[redacted]"),
+            "{text}"
+        );
+        assert!(
+            text.lines()
+                .any(|row| row == "generation: status=installed"),
+            "{text}"
+        );
+        assert!(!text.contains("session title generation"), "{text}");
+        // Nothing asked yet.
+        let text = report(&TitleTrace::default());
+        assert!(
+            text.lines().any(|row| row == "generation: status=none"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn a_key_block_the_screen_gave_several_rows_is_masked_whole() {
         let key = "PRIVATE KEY";
         let rows = vec![
@@ -2585,6 +2799,7 @@ mod tests {
             session: Session::None,
             screen: None,
             compaction: &events,
+            title: None,
         }
         .render();
         let section = report
@@ -2641,6 +2856,7 @@ mod tests {
             session: Session::None,
             screen: None,
             compaction: &[],
+            title: None,
         }
         .render();
         assert!(

@@ -19,9 +19,6 @@
 
 ┃ run the long one
 
-
-
-
 ● 1 tool call · 1 command · 1 cancelled
 └ Cancelled sleep 4
 
@@ -30,6 +27,9 @@
 ┃
 
 ask · model-a
+
+
+
 
 
 

@@ -1,6 +1,6 @@
-x𝒇x v0.1.0-eab9e5b [debug] · Run /help for commands
+x𝒇x v0.1.0-dd69754 [debug] · Run /help for commands
 
-┃ look [Pasted text #2, 1 lines]
+┃ look [Pasted text #2, 1 line]
 
 auto · model-a
 

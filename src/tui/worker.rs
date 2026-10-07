@@ -301,6 +301,11 @@ pub(crate) struct WorkHandle {
     spend: SessionSpend,
     /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
     credits: CreditsBoard,
+    /// Where a fresh session's title is asked for, at submit, and the
+    /// `/settings` switch that decides whether it is
+    /// ([`super::titles::TitleDesk`]): shared with the runtime, which
+    /// publishes where to ask and settles every answer.
+    titles: super::titles::TitleDesk,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -631,6 +636,75 @@ impl WorkHandle {
         self.credits.read()
     }
 
+    /// Whether a fresh session's first prompt asks for a title, as the band
+    /// last set it.
+    pub(crate) fn session_titles(&self) -> bool {
+        self.titles.on()
+    }
+
+    /// Turns title generation on or off, in force for the next prompt that
+    /// would ask, whatever the runtime is doing.
+    pub(crate) fn set_session_titles(&self, on: bool) {
+        self.titles.set_on(on);
+    }
+
+    /// Asks a model for the session's title from `excerpt`, at the keystroke
+    /// that submitted it ([`super::titles::TitleDesk::ask`]). The band has
+    /// checked its half of the gate; the desk checks the rest.
+    pub(crate) fn ask_title(&self, excerpt: &str) -> bool {
+        self.titles.ask(excerpt)
+    }
+
+    /// The conversation the band shows was let go of -- `/new`, `/clear`,
+    /// `/reset` -- at the keystroke: one asked from here on is about the
+    /// next, and a question about this one runs on to an answer that is
+    /// dropped ([`super::titles::TitleDesk::next_lineage`]).
+    pub(crate) fn new_title_lineage(&self) {
+        self.titles.next_lineage();
+    }
+
+    /// Holds `excerpt` for the runtime when a switch the band handed it is
+    /// still to be made ([`Self::submit_switch`],
+    /// [`super::titles::TitleDesk::defer`]), and says whether it did: the
+    /// band then asks nothing at the keystroke. `at` is the prompt's position
+    /// in the queue ([`Self::accepted`] once it was taken), or `None` for a
+    /// steer.
+    pub(crate) fn defer_title(&self, excerpt: &str, at: Option<usize>) -> bool {
+        self.titles.defer(excerpt, at)
+    }
+
+    /// [`Self::submit`] for a switch of the conversation -- a resume or a
+    /// provider switch -- which a prompt submitted behind it waits for before
+    /// anything is asked about its title ([`Self::defer_title`]). The
+    /// position is recorded first: the runtime may make the switch before
+    /// this returns.
+    pub(crate) fn submit_switch(&self, work: TurnWork) -> Result<(), Rejected> {
+        let before = self.titles.switching(self.accepted() + 1);
+        let submitted = self.submit(work);
+        if submitted.is_err() {
+            self.titles.switch_refused(before);
+        }
+        submitted
+    }
+
+    /// How title generation stands, for `/trace`.
+    pub(crate) fn title_generation(&self) -> crate::trace::TitleGeneration {
+        self.titles.generation()
+    }
+
+    /// The desk the band asks at, for a case that has to see it.
+    #[cfg(test)]
+    pub(crate) fn title_desk(&self) -> &super::titles::TitleDesk {
+        &self.titles
+    }
+
+    /// Puts `desk` in the handle's place, for a case that answers its own
+    /// questions.
+    #[cfg(test)]
+    pub(crate) fn titles_for_tests(&mut self, desk: super::titles::TitleDesk) {
+        self.titles = desk;
+    }
+
     /// Stands in for the runtime's publication of what `/credits` asks.
     #[cfg(test)]
     pub(crate) fn publish_credits(
@@ -695,6 +769,7 @@ impl WorkHandle {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::titles::TitleDesk::new(true).0,
             },
             work_rx,
             control_rx,
@@ -1061,6 +1136,10 @@ pub(crate) fn spawn(
     // first publication asks what that publication would say.
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
+    // One desk for the session, the switch from the profile: the band asks
+    // there at submit, the runtime publishes where to and settles answers.
+    let (titles, title_answers) = super::titles::TitleDesk::new(config.session_titles);
+    let loops_titles = titles.clone();
     let session_cancel = cancel.clone();
     let stop = cancel.mirror();
     let steering = Steering::new();
@@ -1097,6 +1176,8 @@ pub(crate) fn spawn(
         state.rules = loops_rules;
         state.spend = publishes_spend;
         state.credits = publishes_credits;
+        state.titles = loops_titles;
+        state.title_answers = Some(title_answers);
         if let Some(resumed) = resumed {
             state.resume(resumed, &session_cancel.mirror());
             state.ask_for_bills();
@@ -1145,6 +1226,7 @@ pub(crate) fn spawn(
                 saved_rules,
                 spend,
                 credits,
+                titles,
             },
             resumable: None,
         },
@@ -1368,6 +1450,19 @@ struct Runtime {
     /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     credits: CreditsBoard,
+    /// Where the band asks for the session's title ([`super::titles::TitleDesk`]):
+    /// this side publishes where to ask ([`Runtime::publish`]), moves the
+    /// lineage on a resume and a provider switch, and settles every answer.
+    titles: super::titles::TitleDesk,
+    /// Where the answers arrive: read between pieces of work by [`turn_loop`],
+    /// and lent to the turn that is running ([`run_turn`]).
+    title_answers: Option<super::titles::Answers>,
+    /// The lineage of the conversation that is open, set when it is opened
+    /// ([`Runtime::opened`]).
+    conversation_lineage: Option<u64>,
+    /// A generated title of the lineage in force whose conversation is not
+    /// open yet: written the moment it is ([`Runtime::install_pending_title`]).
+    pending_title: Option<super::titles::Titled>,
     /// The directories `/workspace` saved for this workspace, each as the real
     /// path it was when it was read: at launch, from the profile, and after
     /// each change, from what the change read back.
@@ -1425,6 +1520,7 @@ impl Runtime {
         let workspace =
             WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
         let config_rules = config.permission.effective().clone();
+        let (titles, title_answers) = super::titles::TitleDesk::new(config.session_titles);
         Self {
             config,
             env,
@@ -1447,6 +1543,10 @@ impl Runtime {
             began_ms: crate::session::event::system_now_ms(),
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
+            titles,
+            title_answers: Some(title_answers),
+            conversation_lineage: None,
+            pending_title: None,
             workspace,
             fixed_tokens: Arc::new(AtomicUsize::new(0)),
         }
@@ -1501,6 +1601,7 @@ impl Runtime {
             started_at_ms: Some(self.began_ms),
         });
         self.credits.publish(crate::credits::question(&self.config));
+        self.titles.publish_asker(self.title_asker());
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1635,6 +1736,141 @@ impl Runtime {
         self.publish();
     }
 
+    /// Where a title is asked from now: the Gateway with its key, or nobody
+    /// (`sessionTitleModel`, `vercel-labs/fx@c1db9191 src/main.zig:471-475`:
+    /// the Gateway names a title model, a configured provider -- llmux's
+    /// place here -- names none), at the endpoint every turn goes to
+    /// (`Bundle::select`).
+    fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
+        if self.config.provider != ProviderId::Gateway {
+            return None;
+        }
+        let credential = self.config.credential.clone()?;
+        let endpoint = crate::gateway::Endpoint::from_process().ok()?;
+        Some((endpoint, credential))
+    }
+
+    /// Drops a title that came back for a conversation not yet opened, now
+    /// that it never will be (`session_changed`,
+    /// `app_session_runtime.zig:3720-3728`).
+    fn drop_pending_title(&mut self) {
+        if self.pending_title.take().is_some() {
+            self.titles.record_dropped("session_changed");
+        }
+    }
+
+    /// The runtime has got past `worked` pieces of work, and asks for the
+    /// session's title from a prompt the band held for a switch it has now
+    /// made ([`super::titles::TitleDesk::worked_through`]) -- **of the
+    /// conversation that prompt will run in**, as upstream's finalized prompt
+    /// is snapshotted against the session in force then
+    /// (`finalizePendingSubmission` -> `snapshotPrompt`, `src/main.zig:1238-1266`,
+    /// `:1479-1481`). The gate's half the band would have read is read from
+    /// the conversation itself: no title on record, none come back for it,
+    /// and no turn in it (`session_untitled`, `app_session_runtime.zig:3674-3675`).
+    /// After a provider switch that is a conversation not yet opened; after a
+    /// resume, the resumed one, whose turns ask nothing.
+    fn worked_through(&mut self, worked: usize) {
+        let Some(excerpt) = self.titles.worked_through(worked) else {
+            return;
+        };
+        let untitled = self.pending_title.is_none()
+            && self.conversation.as_ref().is_none_or(|conversation| {
+                let state = conversation.recorder.state();
+                state.renamed.is_none() && state.turns.is_empty()
+            });
+        if untitled {
+            self.titles.ask(&excerpt);
+        }
+    }
+
+    /// Records that a conversation was just opened, in the lineage in force,
+    /// and writes the title waiting for it, if one is -- one the band was
+    /// shown when it came back.
+    fn opened(&mut self) {
+        self.conversation_lineage = Some(self.titles.lineage());
+        self.publish_title_session();
+        if let Some(titled) = self.pending_title.take() {
+            let _ = self.install_title(&titled);
+        }
+    }
+
+    /// Tells the desk which session is open, for `/trace`'s `session=`
+    /// ([`super::titles::TitleDesk::publish_session`]).
+    fn publish_title_session(&self) {
+        self.titles.publish_session(
+            self.conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.id().as_str()),
+        );
+    }
+
+    /// Takes one answer off the books and gives the session its title when it
+    /// is one to give, answering the title the band is to show
+    /// (`pollSessionTitleGeneration`, `app_session_runtime.zig:3706-3779`).
+    ///
+    /// `settled` when the turn that read it has settled it already
+    /// ([`titled_while`]). An answer to a question that is not the one out is
+    /// no answer.
+    fn title_arrived(&mut self, titled: &super::titles::Titled, settled: bool) -> Option<String> {
+        if !settled && !self.titles.settle(titled) {
+            return None;
+        }
+        self.install_title(titled)
+    }
+
+    /// Gives the session `titled`'s title if it is still one to give.
+    ///
+    /// **About a conversation let go of** -- an older lineage than the one in
+    /// force -- it is dropped (`session_changed`). **About the one in force,
+    /// whose conversation is not open yet** -- the first prompt has not
+    /// started its turn, or the band has already let the open one go -- it
+    /// waits for that conversation ([`Self::pending_title`]) and the band is
+    /// shown it now: the conversation it waits for is the one the band shows,
+    /// and a title that has none yet is no title of the user's. Otherwise
+    /// upstream's rule decides (`installGeneratedTitle`,
+    /// `session_title_generation.zig:378-394`; v2's,
+    /// `session_adapter.zig:1675-1697`): the title on record must be none, or
+    /// the one derived from the first prompt -- which upstream writes down at
+    /// the first turn's commit (`session_adapter.zig:1300-1310`) and xfx
+    /// derives where it reads it ([`crate::session::DurableState::derived_title`]).
+    /// Anything else is a title the user chose (`user_title_present`).
+    fn install_title(&mut self, titled: &super::titles::Titled) -> Option<String> {
+        let title = titled.title()?;
+        let current = self.titles.lineage();
+        if titled.lineage < current {
+            self.titles.record_dropped("session_changed");
+            return None;
+        }
+        if self.conversation_lineage != Some(current) || self.conversation.is_none() {
+            self.pending_title = Some(titled.clone());
+            return Some(title.to_string());
+        }
+        let conversation = self.conversation.as_mut()?;
+        let state = conversation.recorder.state();
+        if let Some(on_record) = &state.renamed {
+            if state.derived_title().as_deref() != Some(on_record.as_str()) {
+                self.titles.record_dropped("user_title_present");
+                return None;
+            }
+        }
+        if crate::session::validate_title(title) != Ok(title) {
+            self.titles.record_dropped("install_failed");
+            return None;
+        }
+        conversation.recorder.commit(SessionEvent::SessionRenamed {
+            title: title.to_string(),
+            source: crate::session::TitleSource::Generated,
+        });
+        if conversation.recorder.failure().is_some() {
+            self.titles.record_dropped("install_failed");
+            return None;
+        }
+        // `/status` and `/trace` read the session's title from its log.
+        self.publish();
+        Some(title.to_string())
+    }
+
     fn publish_reply(&self) {
         self.reply.publish(
             self.conversation
@@ -1669,6 +1905,7 @@ impl Runtime {
                 Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
+            self.opened();
         }
         // **The scope this turn runs in**, made now from the saved directories
         // that are still themselves ([`Runtime::workspace`]): a `/workspace`
@@ -1702,6 +1939,7 @@ impl Runtime {
                 Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
+            self.opened();
         }
         self.conversation
             .as_mut()
@@ -1991,6 +2229,11 @@ impl Runtime {
     /// reads what this one really used.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
         self.bills.forget();
+        // Another conversation: a question about the one it replaces runs on
+        // to an answer that is dropped, and one already back and waiting for
+        // that conversation to open is dropped now.
+        self.titles.next_lineage();
+        self.drop_pending_title();
         let mut conversation = bind_conversation(
             &self.store,
             resumed.session,
@@ -2024,6 +2267,8 @@ impl Runtime {
         // A resumed session's clock is its own: from when it was created.
         self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
+        self.conversation_lineage = Some(self.titles.lineage());
+        self.publish_title_session();
     }
 
     /// The session this runtime's conversation is recorded in, when it holds
@@ -2116,6 +2361,9 @@ impl Runtime {
         self.provider = None;
         self.conversation = None;
         self.bills.forget();
+        self.titles.next_lineage();
+        self.conversation_lineage = None;
+        self.drop_pending_title();
         self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
@@ -2200,6 +2448,9 @@ impl Runtime {
             reasoning: self.settings.effort.for_request(entry),
             fast: !ultrafast && self.settings.fast && entry.is_some_and(|entry| entry.facts.fast),
             ultrafast,
+            // A turn's answer is never capped; only a title's is
+            // (`crate::tui::titles::options`).
+            max_output_tokens: None,
         })
     }
 
@@ -2467,6 +2718,11 @@ async fn turn_loop(
     // at once, every time, so an arm left on it would spin this loop.
     let mut changes_open = true;
     loop {
+        // Before anything else is taken: a switch the runtime has got past --
+        // made, or dropped unstarted by an interrupt -- gives back the prompt
+        // the band held for it, which asks now, ahead of its own turn
+        // ([`Runtime::worked_through`]).
+        state.worked_through(queue.taken);
         // **The catalog, read in the background** whenever the session holds
         // none and is not reading one: at launch, as upstream reads it on a
         // thread of its own once the session is up (`app.startModelCacheWarmup()`,
@@ -2538,6 +2794,9 @@ async fn turn_loop(
             // The catalog read in the background, answered while nothing
             // needed it yet: taken now, the UI having been told already.
             () = state.selector.settle_load(), if state.selector.is_loading() => Taken::Catalog,
+            // A session title, written down and shown between pieces of work
+            // for the reason a bill is: the recorder that owns the log.
+            titled = next_title(&mut state.title_answers) => Taken::Title(titled),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -2584,6 +2843,12 @@ async fn turn_loop(
                 continue;
             }
             Taken::Catalog => continue,
+            Taken::Title(titled) => {
+                if let Some(title) = state.title_arrived(&titled, false) {
+                    bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
+                }
+                continue;
+            }
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
                 // Not a terminal event -- nothing is waiting on one for a
@@ -2728,10 +2993,28 @@ async fn turn_loop(
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
     state.bills.forget();
+    // The band moved the title lineage on at the keystroke
+    // ([`WorkHandle::new_title_lineage`]): what was asked about this
+    // conversation is cancelled already, and what was asked since is the next
+    // one's.
+    state.conversation_lineage = None;
     state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
+    // A title the conversation that starts now already has: asked by a prompt
+    // typed after the reset, answered while the old conversation's work still
+    // ran. The band set aside everything before the fence, so it is told
+    // after it; the log takes it when the conversation opens.
+    let waiting = state
+        .pending_title
+        .as_ref()
+        .filter(|titled| titled.lineage == state.titles.lineage())
+        .and_then(|titled| titled.title())
+        .map(str::to_string);
+    if let Some(title) = waiting {
+        bridge::send_terminal(events, UiEvent::SessionTitled(title)).await;
+    }
 }
 
 /// Applies every authority change still waiting, then names the session to
@@ -2747,6 +3030,9 @@ fn settled(mut state: Runtime, changes: &mut UnboundedReceiver<Change>) -> Optio
     while let Ok(change) = changes.try_recv() {
         let _ = state.change_permissions(change);
     }
+    // A title still being asked for is not waited for (`requestStop`,
+    // `app_session_runtime.zig:3950`).
+    state.titles.stop();
     state.resumable()
 }
 
@@ -2783,6 +3069,8 @@ enum Taken {
     /// The catalog read in the background has answered, and its answer is
     /// taken.
     Catalog,
+    /// What a model said the session is called.
+    Title(super::titles::Titled),
     /// The session is over.
     Shutdown,
 }
@@ -2914,22 +3202,43 @@ async fn run_turn(
     let steering = state.steering.clone();
     steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
+    // The title answers, held by the turn while it holds the runtime: the
+    // first prompt's question is asked as it is submitted, and an answer that
+    // waited for the turn to end would keep the window on the workspace's
+    // name for as long as the turn took.
+    let mut answers = state.title_answers.take();
+    let desk = state.titles.clone();
+    let shown = desk.lineage();
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, images, events, &turn, control,
     )))
     .catch_unwind();
+    let body = titled_while(body, answers.as_mut(), &desk, shown, control, events);
     // Both halves of one keystroke, and they have to happen **together, at the
     // moment the cancellation arrives**: the turn stops, and everything queued
     // behind it is dropped. Doing the second half after the body finished would
     // be too late for the case that matters most -- a provider that has gone
     // quiet without hanging up never lets the body finish at all, and the queue
     // would sit there claiming a place the band is still announcing.
-    let (caught, ended) = raced_against_control(body, control, |through| {
+    let ((caught, titled), ended) = raced_against_control(body, control, |through| {
         turn.cancel();
         queue.abandon(through);
     })
     .await;
     steering.close();
+    if answers.is_some() {
+        state.title_answers = answers;
+    }
+    // The titles that came back while the turn ran, written down now that the
+    // turn has let go of the log -- into the conversation they are about,
+    // when it is still the one the band shows. A `/new` typed during the turn
+    // moved the lineage on at the keystroke: a title about the conversation
+    // it let go of is dropped here, and one a prompt typed after it asked
+    // waits for the conversation that `/new` starts, and the band is told of
+    // it after the fence ([`drop_conversation`]).
+    for titled in &titled {
+        let _ = state.title_arrived(titled, true);
+    }
     // **Before the conclusion goes**, so that a `/copy` typed once the UI has
     // shown this turn ending copies this turn's reply. Published again after
     // the work is over ([`turn_loop`]), which is the copy that covers every
@@ -3965,6 +4274,10 @@ impl TurnJournal for StoppedAtApproval<'_> {
 
     // Every method the trait has, forwarded (the trait has no defaults, so a
     // method added to it stops this from compiling until it is).
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str) {
+        self.inner.presented(call_id, tool, text);
+    }
+
     fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
         self.inner.attach_images(images)
     }
@@ -4214,6 +4527,81 @@ async fn run_catalog(
     let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
     bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
     ended
+}
+
+/// Runs `body` while reading the session-title answers the turn holds, and
+/// gives back the ones that came.
+///
+/// Each is settled as it comes ([`super::titles::TitleDesk::settle`]), so the
+/// band sees no question out once it is answered -- as upstream's poll takes
+/// a finished task at once, whatever its worker is doing
+/// (`src/main.zig:3140-3143`) -- and one that carries a title about the
+/// conversation the turn is in is shown at once: the band is told, and the
+/// runtime writes it into the log once the body has let go of it
+/// ([`run_turn`]). The band can be told before the log has it because nothing
+/// in the turn can give the session a title first: a `/rename` is work, and
+/// waits for the turn -- and one that comes after a `/rename` the turn put
+/// aside is dropped here, as upstream's finds the user's title on record. One
+/// about a conversation the band has let go of is shown to nobody, and
+/// dropped once the turn is over ([`run_turn`]).
+///
+/// **The answers are read before the body, never after it**, so the body is
+/// polled at most once each time this is: a turn's call yields once when it
+/// is done so that [`raced_against_control`], above this, reads a Ctrl-C the
+/// call's question took before the turn goes on (`crate::agent::machine`'s
+/// `yield_once`). Read after the body, an answer that came while the call had
+/// the thread sent this loop round to poll the body again, straight past
+/// that yield -- and the turn asked for its next step with the stop unread.
+async fn titled_while<F: Future>(
+    body: F,
+    answers: Option<&mut super::titles::Answers>,
+    desk: &super::titles::TitleDesk,
+    shown: u64,
+    control: &ControlChannel,
+    events: &Sender<UiEvent>,
+) -> (F::Output, Vec<super::titles::Titled>) {
+    tokio::pin!(body);
+    let Some(answers) = answers else {
+        return (body.await, Vec::new());
+    };
+    let mut kept = Vec::new();
+    loop {
+        tokio::select! {
+            biased;
+            titled = answers.next() => {
+                if !desk.settle(&titled) {
+                    continue;
+                }
+                // A `/rename` typed during the turn is put aside until it
+                // ends, and upstream would have written it at the keystroke:
+                // a title that comes after it finds the user's on record
+                // (`installGeneratedTitle`, `session_title_generation.zig:378-394`).
+                if titled.lineage == shown && titled.title().is_some() && control.renaming() {
+                    desk.record_dropped("user_title_present");
+                    continue;
+                }
+                if titled.lineage == shown {
+                    if let Some(title) = titled.title() {
+                        // Not through the turn's token: a turn stopped after
+                        // the title came still leaves the session titled.
+                        bridge::send_terminal(events, UiEvent::SessionTitled(title.to_string()))
+                            .await;
+                    }
+                }
+                kept.push(titled);
+            }
+            output = &mut body => return (output, kept),
+        }
+    }
+}
+
+/// The next session-title answer, or never while the answers are lent to a
+/// turn: an arm [`turn_loop`]'s `select!` can always carry.
+async fn next_title(answers: &mut Option<super::titles::Answers>) -> super::titles::Titled {
+    match answers.as_mut() {
+        Some(answers) => answers.next().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// Runs `body` while still listening to the UI, and says what ended.
@@ -4847,6 +5235,7 @@ mod tests {
     };
     use crate::provider::effort::TurnSettings;
     use crate::provider::Wire;
+    use crate::session::TurnConclusion;
     use crate::tools::undo::Mark;
 
     /// A configuration from a home and a workspace that exist and hold no
@@ -4966,6 +5355,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -5032,6 +5422,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -5077,6 +5468,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -5440,6 +5832,7 @@ mod tests {
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
             credits: CreditsBoard::default(),
+            titles: super::super::titles::TitleDesk::new(true).0,
         };
         drop(work_rx);
         assert_eq!(
@@ -6885,7 +7278,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -6925,7 +7317,7 @@ mod tests {
                     HydratedStep::Text(text)
                     | HydratedStep::Feedback(text)
                     | HydratedStep::Steer(text) => all.push_str(text),
-                    HydratedStep::ToolStart { id, shown, .. } => {
+                    HydratedStep::ToolStart { id, shown } => {
                         all.push_str(id);
                         all.push_str(shown.target.as_deref().unwrap_or(""));
                     }
@@ -7315,6 +7707,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                titles: super::super::titles::TitleDesk::new(true).0,
             },
             resumable: None,
         };
@@ -7466,6 +7859,9 @@ mod tests {
             fn change_made(&mut self, call_id: &str, _change: &crate::permission::ApprovalDiff) {
                 self.1.push(format!("change {call_id}"));
             }
+            fn presented(&mut self, call_id: &str, _tool: &str, _text: &str) {
+                self.1.push(format!("presented {call_id}"));
+            }
             fn attach_images(
                 &mut self,
                 images: &[crate::image::Image],
@@ -7484,7 +7880,6 @@ mod tests {
         static KEPT_STATE: std::sync::LazyLock<crate::session::DurableState> =
             std::sync::LazyLock::new(crate::session::DurableState::empty_for_tests);
         let refused = || SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: "w".to_string(),
             tool: "write_file".to_string(),
             ok: false,
@@ -7535,6 +7930,7 @@ mod tests {
             control: &control,
         };
         wrapper.change_made("w", &crate::permission::ApprovalDiff::of("a\n", "b\n"));
+        wrapper.presented("w", "write_file", "shown");
         // The directory the images were copied into is the recorder's
         // answer, which the card's badges link to.
         assert_eq!(
@@ -7560,7 +7956,10 @@ mod tests {
             wrapper.state().expect("forwarded"),
             &*KEPT_STATE
         ));
-        assert_eq!(kept.1, ["change w", "images 1", "tool images r 1"]);
+        assert_eq!(
+            kept.1,
+            ["change w", "presented w", "images 1", "tool images r 1"]
+        );
         // And the loop reads its stop as before.
         assert!(control.stopping());
         assert_eq!(
@@ -10861,5 +11260,643 @@ mod tests {
         assert!(!session.workspace.path().join("asked-about.txt").exists());
         assert!(!session.written().exists());
         assert_eq!(provider.requests(), 1);
+    }
+
+    // ---- session titles (`super::titles`) ----
+
+    /// A runtime on the Gateway with a key and nothing asked in it yet, its
+    /// desk publishing where to ask and answered by `answer` from the excerpt.
+    fn titled_runtime(
+        answer: impl Fn(&str) -> super::super::titles::Outcome + Send + Sync + 'static,
+    ) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        assert_eq!(config.provider, ProviderId::Gateway);
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let (desk, answers) = super::super::titles::TitleDesk::answering(true, answer);
+        state.titles = desk;
+        state.title_answers = Some(answers);
+        state.publish();
+        (home, workspace, state)
+    }
+
+    fn generated(title: &str) -> super::super::titles::Outcome {
+        super::super::titles::Outcome::Generated(title.to_string())
+    }
+
+    /// The next title answer, or `None` when none comes.
+    fn next_title_within(
+        state: &mut Runtime,
+        within: Duration,
+    ) -> Option<super::super::titles::Titled> {
+        on_a_runtime(async {
+            tokio::time::timeout(within, next_title(&mut state.title_answers))
+                .await
+                .ok()
+        })
+    }
+
+    /// Every `session_renamed` frame of the conversation's log, as written.
+    fn rename_frames(state: &Runtime) -> Vec<String> {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        let log = std::fs::read_to_string(
+            state
+                .store
+                .session_dir(conversation.recorder.id())
+                .join(crate::session::EVENTS_FILE),
+        )
+        .expect("the log");
+        log.lines()
+            .filter(|line| line.contains("\"kind\":\"session_renamed\""))
+            .map(|line| {
+                let start = line.find("\"event\":").expect("an event");
+                line[start..].to_string()
+            })
+            .collect()
+    }
+
+    /// A first turn that ran and ended in the conversation, so the session
+    /// has a title derived from its prompt.
+    fn concluded(state: &mut Runtime, prompt: &str) {
+        let recorder = &mut state.conversation.as_mut().expect("open").recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: prompt.to_string(),
+        });
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        });
+    }
+
+    #[test]
+    fn a_title_that_lands_while_a_call_has_the_thread_does_not_carry_the_turn_past_its_stop() {
+        // A turn sees a Ctrl-C typed at a question it parked on only because
+        // the call yields once when it is done (`crate::agent::machine`'s
+        // `yield_once`), and the race above it reads the channel before it
+        // polls the turn again. Red before: a title's answer that came while
+        // the question had the thread was read below that race, and the turn
+        // was polled straight past its yield -- the stop came after the next
+        // request had already gone, and that request took the reply the
+        // user's next prompt was owed.
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (desk, mut answers) = super::super::titles::TitleDesk::new(true);
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&stopped);
+        let parked = Arc::clone(&control);
+        let landing = desk.clone();
+        let body = async move {
+            // The question, while it has the thread: the Ctrl-C ends it and
+            // is handed back to the loop that can stop the turn
+            // (`super::super::question::TuiQuestioner`) -- and the title
+            // asked at the first prompt's keystroke comes back meanwhile.
+            parked.give_back(TurnControl::Cancel { through: 0 });
+            landing.land(super::super::titles::Outcome::Unavailable(
+                super::super::titles::Unavailable::Empty,
+            ));
+            // The call's one yield.
+            let mut yielded = false;
+            std::future::poll_fn(move |cx| {
+                if yielded {
+                    return std::task::Poll::Ready(());
+                }
+                yielded = true;
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            })
+            .await;
+            // What the turn's loop reads before it asks for the next step.
+            watched.load(Ordering::Acquire)
+        };
+        let shown = desk.lineage();
+        let ((was_stopped, _titled), ended) = on_a_runtime(raced_against_control(
+            titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
+            &control,
+            |_through| stopped.store(true, Ordering::Release),
+        ));
+        assert!(
+            was_stopped,
+            "the turn went on to its next step with the stop still unread"
+        );
+        assert_eq!(ended, Ended::Turn);
+    }
+
+    #[test]
+    fn a_title_that_comes_after_a_rename_the_turn_put_aside_is_dropped() {
+        // Upstream writes a `/rename` at the keystroke, so a generated title
+        // after it finds the user's title on record and is dropped
+        // (`user_title_present`, `installGeneratedTitle`,
+        // `session_title_generation.zig:378-394`). xfx's turn puts the rename
+        // aside until it ends; an answer read meanwhile is dropped the same
+        // way -- not shown, and not written ahead of the user's.
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (desk, mut answers) =
+            super::super::titles::TitleDesk::answering(true, |_| generated("Generated"));
+        desk.publish_asker(titled_runtime(|_| generated("x")).2.title_asker());
+        assert!(desk.ask("fix the renderer"));
+        control.defer_rename("Mine".to_string(), false, true);
+        let landed = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&landed);
+        let probe = desk.clone();
+        let body = async move {
+            while probe.running() {
+                tokio::task::yield_now().await;
+            }
+            watched.store(true, Ordering::Release);
+        };
+        let shown = desk.lineage();
+        let (((), kept), _ended) = on_a_runtime(raced_against_control(
+            titled_while(body, Some(&mut answers), &desk, shown, &control, &events),
+            &control,
+            |_through| {},
+        ));
+        assert!(landed.load(Ordering::Acquire));
+        assert!(kept.is_empty(), "kept for writing ahead of the rename");
+        assert!(seen.try_recv().is_err(), "the band was shown it");
+        let record = desk.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("user_title_present"));
+    }
+
+    #[test]
+    fn trace_names_the_session_a_failed_question_was_about() {
+        // Upstream's record carries the session its task was started for,
+        // whatever came back (`LastResult.copyIds`,
+        // `app_session_runtime.zig:1110-1117`; `/trace` prints it as
+        // `session=`, `app_commands.zig:2796-2800`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| {
+            super::super::titles::Outcome::Unavailable(super::super::titles::Unavailable::Provider(
+                500,
+            ))
+        });
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .as_str()
+            .to_string();
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Failed);
+        assert_eq!(record.detail.as_deref(), Some("server_error"));
+        assert_eq!(record.session.as_deref(), Some(id.as_str()));
+    }
+
+    #[test]
+    fn the_desk_asks_only_on_the_gateway_with_a_key() {
+        // `sessionTitleModel` (`src/main.zig:471-475`): the Gateway names a
+        // title model; a configured provider -- llmux's place -- names none.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Asked"));
+        assert!(state.title_asker().is_some());
+        state.config.provider = ProviderId::Llmux;
+        state.publish();
+        assert!(!state.titles.ask("fix the renderer"), "llmux was asked");
+        state.config.provider = ProviderId::Gateway;
+        state.config.credential = None;
+        state.publish();
+        assert!(!state.titles.ask("fix the renderer"), "asked with no key");
+    }
+
+    #[test]
+    fn an_answer_before_the_conversation_opens_waits_for_it_and_is_shown_at_once() {
+        // The first prompt asks at the keystroke, before its turn opens the
+        // session: the answer is the band's now, and the log's the moment the
+        // session exists.
+        let (_home, _workspace, mut state) = titled_runtime(|excerpt| {
+            assert_eq!(excerpt, "fix the renderer");
+            generated("Fix the renderer")
+        });
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Fix the renderer"),
+            "the band was not given the title"
+        );
+        assert!(state.conversation.is_none());
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert_eq!(
+            rename_frames(&state),
+            [
+                r#""event":{"kind":"session_renamed","title":"Fix the renderer","source":"generated"}}"#
+            ]
+        );
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Fix the renderer"));
+        // A side call: nothing it cost is in what `/usage` reads
+        // (`session_title_generation.zig:185-187`).
+        assert!(recorded.usage.requests.is_empty());
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Installed);
+        assert_eq!(
+            record.session.as_deref(),
+            Some(
+                state
+                    .conversation
+                    .as_ref()
+                    .expect("open")
+                    .recorder
+                    .id()
+                    .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn a_users_title_is_kept_and_only_the_derived_one_is_replaced() {
+        // `installGeneratedTitle` (`session_title_generation.zig:378-394`;
+        // v2's, `session_adapter.zig:1675-1697`): the title on record may be
+        // replaced when it is none, or the one the first prompt derives --
+        // which upstream writes down at the first turn
+        // (`session_adapter.zig:1300-1310`). Anything else is the user's.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "fix the renderer");
+        state.rename("Mine", &CancelToken::new()).expect("renamed");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        assert_eq!(
+            rename_frames(&state),
+            [r#""event":{"kind":"session_renamed","title":"Mine"}}"#]
+        );
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("user_title_present"));
+
+        // A title on record that is the derived one -- here the user retyped
+        // it -- is replaced, as upstream replaces the derived title it wrote.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "fix the renderer");
+        state
+            .rename("fix the renderer", &CancelToken::new())
+            .expect("renamed");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Generated")
+        );
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Generated"));
+
+        // A rename with no turn yet: upstream's derived title is not present,
+        // so the rename stands (`!display.present`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state
+            .rename("Before asking", &CancelToken::new())
+            .expect("renamed");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+
+        // And a rename after a generated title is the one in force.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Generated"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert!(state.title_arrived(&titled, false).is_some());
+        state.rename("Mine", &CancelToken::new()).expect("renamed");
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Mine"));
+    }
+
+    #[test]
+    fn a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next() {
+        // A `/new` moves the lineage on at the keystroke; a resume and a
+        // provider switch move it in the runtime. The question runs on, and
+        // its answer is about the conversation let go of: dropped
+        // (`session_changed`, `pollSessionTitleGeneration`,
+        // `app_session_runtime.zig:3720-3728`), which `/trace` says over the
+        // title that came back (`recordDropped`, `:1153-1171`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        // The band's `/new`, then the runtime's drop.
+        state.titles.next_lineage();
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(titled.lineage, 0);
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+        state
+            .ready(&CancelToken::new())
+            .expect("the next conversation");
+        assert!(rename_frames(&state).is_empty());
+
+        // A provider switch's own lineage change, with the question still
+        // out when it is made.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+
+        // One that came back and was read before the lineage moved is
+        // dropped by its lineage too.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Too late"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert!(state.titles.settle(&titled));
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        assert_eq!(state.title_arrived(&titled, true), None);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+
+        // And one that was waiting for a conversation not yet open when a
+        // switch let it go: dropped too, not forgotten with `/trace` still
+        // calling it installed.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Never opened"));
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Never opened"),
+            "the band was not shown it"
+        );
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
+        assert_eq!(record.reason, Some("session_changed"));
+    }
+
+    #[test]
+    fn a_prompt_held_for_a_switch_asks_of_the_conversation_it_will_run_in() {
+        // Upstream holds a prompt while its provider is prepared and asks
+        // when it finalizes it, of the session in force then
+        // (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`,
+        // `:1479-1481`). After xfx's provider switch that is a conversation
+        // not yet opened: asked.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("New provider"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "a turn in the conversation the switch drops");
+        state.titles.switching(1);
+        assert!(state.titles.defer("fix the renderer", Some(2)));
+        state.worked_through(0);
+        assert!(!state.titles.running(), "asked before the switch was made");
+        let reloaded = state.config.clone();
+        let _ = state.adopt(reloaded);
+        state.worked_through(1);
+        assert!(
+            state.titles.running(),
+            "the fresh conversation's prompt asked nothing"
+        );
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(titled.lineage, state.titles.lineage());
+
+        // After a resume it is the resumed conversation, whose turns ask
+        // nothing (`session_untitled`, `app_session_runtime.zig:3674-3675`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Not asked"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        concluded(&mut state, "the session resumed into");
+        state.titles.switching(1);
+        assert!(state.titles.defer("fix the renderer", Some(2)));
+        state.worked_through(1);
+        assert!(!state.titles.running(), "a conversation with turns asked");
+
+        // A switch the interrupt dropped with the prompt: nothing asked.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Not asked"));
+        state.titles.switching(1);
+        assert!(state.titles.defer("dropped", Some(2)));
+        state.worked_through(2);
+        assert!(!state.titles.running(), "a dropped prompt asked");
+    }
+
+    #[test]
+    fn a_question_asked_after_a_new_is_the_next_conversations() {
+        // A prompt typed straight after `/new`, before the runtime has
+        // dropped the old conversation: its title is the next one's, held
+        // until that one is open.
+        let (_home, _workspace, mut state) = titled_runtime(|_| generated("Second session"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        state.titles.next_lineage();
+        assert!(state.titles.ask("second session question"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        // Still the old conversation open: not written into it.
+        assert_eq!(
+            state.title_arrived(&titled, false).as_deref(),
+            Some("Second session")
+        );
+        assert!(rename_frames(&state).is_empty());
+        // The band is told again after the fence, which sets aside everything
+        // before it -- the case of an answer the old turn read.
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert_eq!(
+            seen,
+            [
+                UiEvent::Fresh { through: 0 },
+                UiEvent::SessionTitled("Second session".to_string())
+            ]
+        );
+        state
+            .ready(&CancelToken::new())
+            .expect("the next conversation");
+        assert_eq!(
+            rename_frames(&state),
+            [
+                r#""event":{"kind":"session_renamed","title":"Second session","source":"generated"}}"#
+            ]
+        );
+    }
+
+    /// A provider that answers only once a title asked beside it has come
+    /// back -- `answered` set by the asker -- and a moment more: the turn is
+    /// provably still running when the title arrives, however loaded the
+    /// machine is.
+    struct AfterTheTitle {
+        answer: std::cell::RefCell<Option<Completion>>,
+        answered: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for AfterTheTitle {
+        async fn stream(
+            &self,
+            _request: &crate::gateway::protocol::CompletionRequest,
+            _deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            let deadline = Instant::now() + TEST_DRAIN;
+            while !self.answered.load(Ordering::SeqCst) && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok(self.answer.borrow_mut().take().expect("one request"))
+        }
+    }
+
+    #[test]
+    fn a_title_that_comes_back_mid_turn_is_shown_then_and_written_when_the_turn_ends() {
+        // Upstream installs it from its main loop whatever the worker is doing
+        // (`src/main.zig:3140-3143`): the window is titled during the first
+        // turn, not after it.
+        let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let says = Arc::clone(&answered);
+        let (_home, _workspace, mut state) = titled_runtime(move |_| {
+            says.store(true, Ordering::SeqCst);
+            generated("Fix the renderer")
+        });
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(AfterTheTitle {
+                answer: std::cell::RefCell::new(Some(answers("done"))),
+                answered,
+            }),
+        });
+        // Asked at the keystroke, before the turn takes the prompt.
+        assert!(state.titles.ask("fix the renderer"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+
+        let ended = on_a_runtime(run_turn(
+            &mut state,
+            "fix the renderer".to_string(),
+            Vec::new(),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+
+        assert_eq!(ended, Ended::Turn);
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        let titled = seen
+            .iter()
+            .position(|event| *event == UiEvent::SessionTitled("Fix the renderer".to_string()))
+            .expect("the band was told the title");
+        let ended_at = seen
+            .iter()
+            .position(|event| matches!(event, UiEvent::TurnEnded { .. }))
+            .expect("the turn ended");
+        assert!(titled < ended_at, "the title waited for the turn: {seen:?}");
+        // Written down once the turn let go of the log, and nothing of it in
+        // the turn's usage.
+        let frames = rename_frames(&state);
+        assert_eq!(frames.len(), 1, "{frames:?}");
+        let recorded = state.conversation.as_ref().expect("open").recorder.state();
+        assert_eq!(recorded.title().as_deref(), Some("Fix the renderer"));
+        assert_eq!(recorded.turns.len(), 1);
+        // The turn's own request, and none for the title.
+        assert_eq!(recorded.usage.requests.len(), 1);
+        assert!(!state.titles.running());
+        assert!(
+            state.title_answers.is_some(),
+            "the answers were not given back"
+        );
+    }
+
+    #[test]
+    fn a_title_that_comes_back_between_turns_is_written_and_then_shown() {
+        // The loop's own arm: the bill's way, the recorder that owns the log.
+        let (home, _workspace, mut state) = titled_runtime(|_| generated("Between turns"));
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (_changes_tx, mut changes_rx) = mpsc::unbounded_channel();
+        let outstanding = AtomicUsize::new(0);
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let log = home
+            .path()
+            .join(".xfx")
+            .join("sessions")
+            .join(id.as_str())
+            .join(crate::session::EVENTS_FILE);
+        let watched = log.clone();
+        std::thread::scope(|scope| {
+            let stopper = scope.spawn(move || {
+                // Once the loop has written the title down, and not before.
+                let deadline = Instant::now() + TEST_DRAIN;
+                while !std::fs::read_to_string(&watched)
+                    .is_ok_and(|log| log.contains("\"kind\":\"session_renamed\""))
+                    && Instant::now() < deadline
+                {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let _ = control_tx.send(TurnControl::Shutdown);
+            });
+            let _ = on_a_runtime(turn_loop(
+                state,
+                &events_tx,
+                &mut work_rx,
+                &mut changes_rx,
+                control,
+                Cancellation::new(CancelToken::new()),
+                &outstanding,
+            ));
+            stopper.join().expect("the stopper");
+        });
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert_eq!(
+            seen,
+            [UiEvent::SessionTitled("Between turns".to_string())],
+            "{seen:?}"
+        );
+        let log = std::fs::read_to_string(&log).expect("the log");
+        assert!(
+            log.contains(
+                r#""event":{"kind":"session_renamed","title":"Between turns","source":"generated"}}"#
+            ),
+            "{log}"
+        );
     }
 }

@@ -3353,7 +3353,6 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
-                    created_at_ms: None,
                     call_id: "read1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
@@ -3603,7 +3602,6 @@ mod tests {
                 ending: None,
                 lines: None,
                 change: None,
-                created_at_ms: None,
             });
         }
         if !reply.is_empty() {
@@ -3925,6 +3923,7 @@ these notes.";
                 reasoning: Some("xhigh".to_string()),
                 fast: false,
                 ultrafast: true,
+                max_output_tokens: None,
             },
         )
     }

@@ -88,6 +88,12 @@ pub trait TurnJournal {
     /// only keeps the log needs nothing from it.
     fn change_made(&mut self, call_id: &str, change: &crate::permission::ApprovalDiff);
 
+    /// What the person watching is shown of a call in place of its result,
+    /// when the two differ (`crate::tools::ToolResult::presented`). Handed
+    /// over after the result's record, for a surface that shows it; never
+    /// part of the log.
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str);
+
     /// The images the user message just recorded carries.
     ///
     /// **A method rather than an event**, because recording them is two
@@ -200,6 +206,8 @@ impl TurnJournal for NoJournal {
     fn record(&mut self, _event: SessionEvent) {}
 
     fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
 
     fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
         None

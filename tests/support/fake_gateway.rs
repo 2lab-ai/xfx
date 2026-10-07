@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -113,7 +113,21 @@ struct State {
     catalog: Mutex<Option<(u16, String)>>,
     /// Every catalog request, kept apart from [`Self::requests`].
     catalog_requests: Mutex<Vec<CapturedRequest>>,
+    /// What a session-title request is answered with: the title's text, or
+    /// `None` for a stream with no text -- an answer that leaves the title the
+    /// prompt gave ([`FakeGateway::with_title`]).
+    title: Mutex<Option<String>>,
+    /// Every session-title request, kept apart from [`Self::requests`].
+    title_requests: Mutex<Vec<CapturedRequest>>,
+    /// While set and not yet released, a title request is answered only once
+    /// it is ([`FakeGateway::with_title_held`]).
+    title_hold: Mutex<Option<Arc<AtomicBool>>>,
 }
+
+/// What every session-title request xfx sends begins its instructions with
+/// (upstream's `instructions_text`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_title_generation.zig:23`).
+pub const TITLE_INSTRUCTIONS: &str = "Generate a short title for a conversation";
 
 /// Where the real Gateway publishes its model catalog
 /// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:48`).
@@ -127,7 +141,10 @@ pub struct FakeGateway {
     addr: SocketAddr,
     state: Arc<State>,
     shutdown: Arc<AtomicBool>,
+    /// Accepts connections and starts a reader for each.
     thread: Option<JoinHandle<()>>,
+    /// Answers the scripted requests, one at a time.
+    server: Option<JoinHandle<()>>,
 }
 
 impl FakeGateway {
@@ -148,16 +165,23 @@ impl FakeGateway {
             ..State::default()
         });
         let shutdown = Arc::new(AtomicBool::new(false));
+        let (scripted, queue) = mpsc::channel::<(CapturedRequest, TcpStream)>();
 
+        // Every connection is read on a thread of its own, so a client that
+        // has connected and not yet written -- or a side call the fixture is
+        // holding -- is in front of nobody. A session-title request and a
+        // catalog request are answered right there, apart from the script;
+        // everything else goes to the one thread that answers the script.
         let thread_state = Arc::clone(&state);
         let thread_shutdown = Arc::clone(&shutdown);
         let thread = thread::spawn(move || {
             while !thread_shutdown.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        // Connections are served one at a time on purpose: the
-                        // request order a test asserts on is then the real order.
-                        serve(&thread_state, &thread_shutdown, stream);
+                        let state = Arc::clone(&thread_state);
+                        let shutdown = Arc::clone(&thread_shutdown);
+                        let scripted = scripted.clone();
+                        thread::spawn(move || read_one(&state, &shutdown, stream, &scripted));
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(ACCEPT_POLL);
@@ -166,12 +190,32 @@ impl FakeGateway {
                 }
             }
         });
+        // The script is answered one request at a time, in the order the
+        // requests arrived whole, on purpose: the request order a test
+        // asserts on is then the real order, and a reply that hangs holds the
+        // next scripted request back as a real stream holds its connection.
+        let server_state = Arc::clone(&state);
+        let server_shutdown = Arc::clone(&shutdown);
+        let server = thread::spawn(move || loop {
+            match queue.recv_timeout(ACCEPT_POLL) {
+                Ok((request, stream)) => {
+                    answer_scripted(&server_state, &server_shutdown, request, stream)
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if server_shutdown.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        });
 
         Self {
             addr,
             state,
             shutdown,
             thread: Some(thread),
+            server: Some(server),
         }
     }
 
@@ -206,6 +250,37 @@ impl FakeGateway {
         self
     }
 
+    /// Answers a session-title request with `title`.
+    ///
+    /// A title request is **not** a turn either: it is answered from here,
+    /// never from the script, and recorded apart from [`Self::requests`] --
+    /// so a case that counts a turn's requests counts the same whether or
+    /// not its first prompt asked for a title. Without this, a title request
+    /// is answered with a stream that has no text in it, and the session
+    /// keeps the title its first prompt gives it.
+    pub fn with_title(self, title: &str) -> Self {
+        *self.state.title.lock().expect("title lock") = Some(title.to_string());
+        self
+    }
+
+    /// [`Self::with_title`], answered only once the returned flag is set (or
+    /// the fixture is dropped, or [`HANG_TIMEOUT`] passes): a Gateway that is
+    /// slow to name a session.
+    pub fn with_title_held(self, title: &str) -> (Self, Arc<AtomicBool>) {
+        let release = Arc::new(AtomicBool::new(false));
+        *self.state.title_hold.lock().expect("title lock") = Some(Arc::clone(&release));
+        (self.with_title(title), release)
+    }
+
+    /// Every session-title request received so far, in arrival order.
+    pub fn title_requests(&self) -> Vec<CapturedRequest> {
+        self.state
+            .title_requests
+            .lock()
+            .expect("title lock")
+            .clone()
+    }
+
     /// Every catalog request received so far, in arrival order.
     pub fn catalog_requests(&self) -> Vec<CapturedRequest> {
         self.state
@@ -236,14 +311,26 @@ impl FakeGateway {
 impl Drop for FakeGateway {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(thread) = self.thread.take() {
+        for thread in [self.thread.take(), self.server.take()]
+            .into_iter()
+            .flatten()
+        {
             let _ = thread.join();
         }
     }
 }
 
-/// Reads one request, records it, and writes the next scripted reply.
-fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
+/// Reads one connection's request and answers it, or hands it to the thread
+/// that answers the script ([`answer_scripted`]).
+///
+/// A reader whose client never writes gives up after [`HANG_TIMEOUT`], so no
+/// reader outlives a test by more than that.
+fn read_one(
+    state: &Arc<State>,
+    shutdown: &Arc<AtomicBool>,
+    stream: TcpStream,
+    scripted: &mpsc::Sender<(CapturedRequest, TcpStream)>,
+) {
     // On the BSD socket API an accepted socket inherits the listener's
     // O_NONBLOCK flag, so this connection would return `WouldBlock` for a read
     // that simply has not arrived yet. The listener polls; the connection does
@@ -254,6 +341,7 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
     stream
         .set_nodelay(true)
         .expect("disable Nagle so a piece is its own packet");
+    let _ = stream.set_read_timeout(Some(HANG_TIMEOUT));
     let mut reader = BufReader::new(stream.try_clone().expect("clone the stream"));
 
     let Some(request) = read_request(&mut reader) else {
@@ -272,11 +360,44 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
         close_cleanly(&mut writer);
         return;
     }
-    state
-        .requests
-        .lock()
-        .expect("requests lock")
-        .push(request.clone());
+    if request.method == "POST" && request.body.contains(TITLE_INSTRUCTIONS) {
+        state
+            .title_requests
+            .lock()
+            .expect("title lock")
+            .push(request);
+        let hold = state.title_hold.lock().expect("title lock").clone();
+        if let Some(release) = hold {
+            let deadline = std::time::Instant::now() + HANG_TIMEOUT;
+            while !release.load(Ordering::SeqCst)
+                && !shutdown.load(Ordering::SeqCst)
+                && std::time::Instant::now() < deadline
+            {
+                thread::sleep(ACCEPT_POLL);
+            }
+        }
+        let title = state.title.lock().expect("title lock").clone();
+        let mut events: Vec<Value> = title
+            .iter()
+            .map(|title| text_delta("title_1", title))
+            .collect();
+        events.push(finish("stop"));
+        let mut writer = stream;
+        write_reply(&mut writer, Some(Reply::Sse(sse_body(&events))), shutdown);
+        close_cleanly(&mut writer);
+        return;
+    }
+    let _ = scripted.send((request, stream));
+}
+
+/// Records one scripted request and writes the next scripted reply.
+fn answer_scripted(
+    state: &Arc<State>,
+    shutdown: &Arc<AtomicBool>,
+    request: CapturedRequest,
+    stream: TcpStream,
+) {
+    state.requests.lock().expect("requests lock").push(request);
 
     let reply = state.script.lock().expect("script lock").pop_front();
     let mut writer = stream;

@@ -616,6 +616,7 @@ pub(crate) fn rename_conversation(
 ) -> Result<(), String> {
     conversation.recorder.commit(SessionEvent::SessionRenamed {
         title: title.to_string(),
+        source: crate::session::TitleSource::User,
     });
     match conversation.recorder.failure() {
         Some(problem) => Err(problem.to_string()),
@@ -2328,6 +2329,7 @@ fn trace_on_the_line(
         session,
         screen: None,
         compaction: &compaction,
+        title: None,
     }
     .render();
     let disposition = crate::trace::deliver(

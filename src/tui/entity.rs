@@ -849,7 +849,7 @@ mod tests {
     #[test]
     fn every_block_goes_back_where_it_stands_and_words_that_look_like_one_do_not() {
         // The whole reason a span replaces a name search: the draft below holds
-        // *three* copies of `[Pasted text #1, 1 lines]` and exactly one of them
+        // *three* copies of `[Pasted text #1, 1 line]` and exactly one of them
         // is the block.
         let (mut draft, mut entities) = one(&format!("{} see ", summary(1, 1)), 1, "y");
         let tail = format!(" {}", summary(1, 1));
