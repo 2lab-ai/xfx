@@ -275,21 +275,63 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let ToolInput::WriteFile(input) = input else {
         return ToolResult::failure(mismatched("write_file"));
     };
-    let bytes = input.content.as_bytes();
-    if let Err(reason) = bounded("write_file", "content", bytes.len(), context) {
-        return ToolResult::failure(reason);
-    }
+    let Prepared {
+        located,
+        plan,
+        changes,
+        before,
+    } = match prepare_write_file(input, context, Proof::Required) {
+        Ok(prepared) => prepared,
+        Err(result) => return result,
+    };
+    commit(context, located, plan, changes, before, |plan| {
+        format!(
+            "Wrote {} ({} bytes)",
+            plan.display(),
+            plan.staged_bytes().len()
+        )
+    })
+}
 
-    let located = match namespace::locate(context.scope(), &input.path, "write_file") {
-        Ok(located) => located,
-        Err(reason) => return ToolResult::failure(reason),
-    };
-    let preimage = match read_preimage(&located, "write_file", context) {
-        Ok(preimage) => preimage,
-        Err(reason) => return ToolResult::failure(reason),
-    };
-    if let Some(reason) = read_proof_missing("write_file", context, &located, &preimage) {
-        return ToolResult::failure(reason);
+/// A change resolved, read and planned, and not made: what policy judges and
+/// what `/permissions remember` keys a rule on.
+pub(crate) struct Prepared {
+    located: Location,
+    pub(crate) plan: MutationPlan,
+    changes: Option<LineChanges>,
+    /// The bytes the change replaces, for `/undo` ([`commit`]).
+    before: Option<Vec<u8>>,
+}
+
+/// Whether preparing a change requires the session's read proof.
+///
+/// A call the model makes does: an existing file it has not read in full is
+/// one whose contents it would discard unseen. A rule a person is making does
+/// not -- the proof is about what the model knows, not about what may run,
+/// and upstream's preparation has no such step (`preparePermissionStateAction`,
+/// `tool_admission.zig:2257-2302`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Proof {
+    Required,
+    NotRequired,
+}
+
+/// `write_file`, up to the decision.
+pub(crate) fn prepare_write_file(
+    input: &WriteFileInput,
+    context: &ToolContext,
+    proof: Proof,
+) -> Result<Prepared, ToolResult> {
+    let bytes = input.content.as_bytes();
+    bounded("write_file", "content", bytes.len(), context).map_err(ToolResult::failure)?;
+
+    let located = namespace::locate(context.scope(), &input.path, "write_file")
+        .map_err(ToolResult::failure)?;
+    let preimage = read_preimage(&located, "write_file", context).map_err(ToolResult::failure)?;
+    if proof == Proof::Required {
+        if let Some(reason) = read_proof_missing("write_file", context, &located, &preimage) {
+            return Err(ToolResult::failure(reason));
+        }
     }
     // What the row under the turn counts (`Wrote c.txt +2`). Only for a
     // preimage that is text: lines of bytes that are not UTF-8 are not lines,
@@ -320,83 +362,90 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         preimage.summary(),
         bytes.to_vec(),
     )
+    .with_rule_targets(located.rule_targets())
+    .with_state_binding(located.state_binding(&[input.path.as_bytes(), input.content.as_bytes()]))
     .with_diff(ApprovalDiff::around_change(
         &preimage.as_text(),
         &input.content,
     ));
-    commit(
-        context,
+    Ok(Prepared {
         located,
         plan,
         changes,
-        preimage.into_before(),
-        |plan| {
-            format!(
-                "Wrote {} ({} bytes)",
-                plan.display(),
-                plan.staged_bytes().len()
-            )
-        },
-    )
+        before: preimage.into_before(),
+    })
 }
 
 fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let ToolInput::EditFile(input) = input else {
         return ToolResult::failure(mismatched("edit_file"));
     };
+    let Prepared {
+        located,
+        plan,
+        changes,
+        before,
+    } = match prepare_edit_file(input, context, Proof::Required) {
+        Ok(prepared) => prepared,
+        Err(result) => return result,
+    };
+    commit(context, located, plan, changes, before, |plan| {
+        format!("Edited {}", plan.display())
+    })
+}
+
+/// `edit_file`, up to the decision.
+pub(crate) fn prepare_edit_file(
+    input: &EditFileInput,
+    context: &ToolContext,
+    proof: Proof,
+) -> Result<Prepared, ToolResult> {
     for (field, value) in [
         ("old_string", &input.old_string),
         ("new_string", &input.new_string),
     ] {
-        if let Err(reason) = bounded("edit_file", field, value.len(), context) {
-            return ToolResult::failure(reason);
+        bounded("edit_file", field, value.len(), context).map_err(ToolResult::failure)?;
+    }
+
+    let located = namespace::locate(context.scope(), &input.path, "edit_file")
+        .map_err(ToolResult::failure)?;
+    let preimage = read_preimage(&located, "edit_file", context).map_err(ToolResult::failure)?;
+    let TargetState::Present { bytes, .. } = &preimage else {
+        return Err(ToolResult::failure(format!(
+            "edit_file cannot edit a file that does not exist: no such path: `{}`",
+            input.path
+        )));
+    };
+    if proof == Proof::Required {
+        if let Some(reason) = read_proof_missing("edit_file", context, &located, &preimage) {
+            return Err(ToolResult::failure(reason));
         }
     }
 
-    let located = match namespace::locate(context.scope(), &input.path, "edit_file") {
-        Ok(located) => located,
-        Err(reason) => return ToolResult::failure(reason),
-    };
-    let preimage = match read_preimage(&located, "edit_file", context) {
-        Ok(preimage) => preimage,
-        Err(reason) => return ToolResult::failure(reason),
-    };
-    let TargetState::Present { bytes, .. } = &preimage else {
-        return ToolResult::failure(format!(
-            "edit_file cannot edit a file that does not exist: no such path: `{}`",
-            input.path
-        ));
-    };
-    if let Some(reason) = read_proof_missing("edit_file", context, &located, &preimage) {
-        return ToolResult::failure(reason);
-    }
-
     let Ok(text) = std::str::from_utf8(bytes) else {
-        return ToolResult::failure(format!(
+        return Err(ToolResult::failure(format!(
             "edit_file cannot edit `{}`: it is not UTF-8 text",
             located.display()
-        ));
+        )));
     };
     let occurrences = text.matches(input.old_string.as_str()).count();
     match occurrences {
         0 => {
-            return ToolResult::failure(format!(
+            return Err(ToolResult::failure(format!(
                 "edit_file made no change: old_string was not found in `{}`",
                 located.display()
-            ))
+            )))
         }
         1 => {}
         many => {
-            return ToolResult::failure(format!(
+            return Err(ToolResult::failure(format!(
                 "edit_file made no change: old_string appears {many} times in `{}`; include enough surrounding text for exactly one match",
                 located.display()
-            ))
+            )))
         }
     }
     let after = text.replacen(input.old_string.as_str(), &input.new_string, 1);
-    if let Err(reason) = bounded("edit_file", "result", after.len(), context) {
-        return ToolResult::failure(reason);
-    }
+    bounded("edit_file", "result", after.len(), context).map_err(ToolResult::failure)?;
     // Counted over the whole file, as upstream's review diff is, rather than
     // over the two strings: an `old_string` that ends mid-line changes the
     // line it ends on, and only the file says which one that is.
@@ -427,41 +476,64 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         preimage.summary(),
         after.into_bytes(),
     )
+    .with_rule_targets(located.rule_targets())
+    .with_state_binding(located.state_binding(&[
+        input.path.as_bytes(),
+        input.old_string.as_bytes(),
+        input.new_string.as_bytes(),
+    ]))
     .with_excerpt(MutationExcerpt {
         before: bounded_excerpt(&input.old_string),
         after: bounded_excerpt(&input.new_string),
     })
     .with_diff(diff);
-    commit(
-        context,
+    Ok(Prepared {
         located,
         plan,
         changes,
-        preimage.into_before(),
-        |plan| format!("Edited {}", plan.display()),
-    )
+        before: preimage.into_before(),
+    })
 }
 
 fn execute_create_folder(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let ToolInput::CreateFolder(input) = input else {
         return ToolResult::failure(mismatched("create_folder"));
     };
-    let located = match namespace::locate(context.scope(), &input.path, "create_folder") {
-        Ok(located) => located,
-        Err(reason) => return ToolResult::failure(reason),
+    let Prepared {
+        located,
+        plan,
+        changes,
+        before,
+    } = match prepare_create_folder(input, context) {
+        Ok(prepared) => prepared,
+        Err(result) => return result,
     };
+    commit(context, located, plan, changes, before, |plan| {
+        format!("Created {}", plan.display())
+    })
+}
+
+/// `create_folder`, up to the decision. A directory that is already there is
+/// answered here, as a success with nothing to decide: creating nothing needs
+/// no authority.
+pub(crate) fn prepare_create_folder(
+    input: &CreateFolderInput,
+    context: &ToolContext,
+) -> Result<Prepared, ToolResult> {
+    let located = namespace::locate(context.scope(), &input.path, "create_folder")
+        .map_err(ToolResult::failure)?;
 
     // Checking whether the directory is already there is a read, so it happens
     // before any decision: creating nothing needs no authority.
     match namespace::directory_exists(&located) {
         Ok(true) => {
-            return ToolResult::success(
+            return Err(ToolResult::success(
                 format!("{} already exists", located.display()),
                 format!("{} already exists", located.display()),
-            )
+            ))
         }
         Ok(false) => {}
-        Err(reason) => return ToolResult::failure(format!("create_folder {reason}")),
+        Err(reason) => return Err(ToolResult::failure(format!("create_folder {reason}"))),
     }
 
     let plan = MutationPlan::new(
@@ -471,11 +543,16 @@ fn execute_create_folder(input: &ToolInput, context: &ToolContext) -> ToolResult
         located.target_scope(),
         Preimage::Absent,
         Vec::new(),
-    );
-    // No preimage: a folder is not something `/undo` takes back
-    // ([`commit`] tracks file writes and edits only).
-    commit(context, located, plan, None, None, |plan| {
-        format!("Created {}", plan.display())
+    )
+    .with_rule_targets(located.rule_targets())
+    .with_state_binding(located.state_binding(&[input.path.as_bytes()]));
+    Ok(Prepared {
+        located,
+        plan,
+        changes: None,
+        // No preimage: a folder is not something `/undo` takes back
+        // ([`commit`] tracks file writes and edits only).
+        before: None,
     })
 }
 
@@ -916,6 +993,9 @@ mod namespace {
     pub struct Location {
         /// The deepest directory on the path that already exists.
         parent: OwnedFd,
+        /// What a configured rule is matched against for this change
+        /// ([`MutationPlan::rule_targets`]).
+        rule_targets: Vec<Vec<u8>>,
         /// Directories between `parent` and the final name that do not exist
         /// yet, in order. Creating them is part of the change, not of resolving
         /// it, so nothing here has been created.
@@ -939,6 +1019,43 @@ mod namespace {
 
         pub fn target_scope(&self) -> TargetScope {
             self.target_scope
+        }
+
+        /// Every path a configured rule judges this change at, in upstream's
+        /// order, canonical and workspace-relative.
+        pub fn rule_targets(&self) -> Vec<Vec<u8>> {
+            self.rule_targets.clone()
+        }
+
+        /// What a saved-session rule's key binds for a call whose typed input
+        /// is `fields`: each field length-prefixed, then the device and inode
+        /// of the deepest directory on the path that exists -- the one the
+        /// change is made in, held open by descriptor -- as upstream's key
+        /// binds every target directory's identity
+        /// (`permissionStateKeyForPreparedFileMutation`,
+        /// `tool_admission.zig:2328-2340`). A directory swapped for another
+        /// under the same name is another action.
+        pub fn state_binding(&self, fields: &[&[u8]]) -> Vec<u8> {
+            let mut binding = Vec::new();
+            for value in fields {
+                crate::permission::session_rules::field(&mut binding, value);
+            }
+            // Through `std`'s own reading of the same `fstat`, which names
+            // both numbers `u64` on every platform (`st_dev` is signed on
+            // some), on a duplicate of the descriptor so the walk's stays put.
+            let (device, inode) = self
+                .parent
+                .try_clone()
+                .map(std::fs::File::from)
+                .and_then(|directory| directory.metadata())
+                .map(|metadata| {
+                    use std::os::unix::fs::MetadataExt;
+                    (metadata.dev(), metadata.ino())
+                })
+                .unwrap_or((0, 0));
+            crate::permission::session_rules::field(&mut binding, &device.to_be_bytes());
+            crate::permission::session_rules::field(&mut binding, &inode.to_be_bytes());
+            binding
         }
 
         /// Whether the target can possibly exist yet.
@@ -1066,14 +1183,71 @@ mod namespace {
             }
         }
 
+        let rule_targets = rule_targets(scope, root, &relative, &missing);
         Ok(Location {
             parent,
+            rule_targets,
             missing,
             name: relative[last].clone(),
             display: scope.display_path(&full),
             full,
             target_scope,
         })
+    }
+
+    /// The paths a configured rule judges a change at: the target, its
+    /// parent, then every other directory the change creates, deepest first
+    /// (`assembleFileTargetDrafts`, `vercel-labs/fx@c1db9191
+    /// src/core/permissions/permissions.zig:738-801`).
+    ///
+    /// **Spelled as the filesystem spells them.** The walk above opened every
+    /// existing component without following a link, so no link is left to
+    /// resolve -- but on a filesystem that ignores case, `SECRET/a` and
+    /// `secret/a` are one file and only one of them is what a rule says.
+    /// Upstream matches the path its resolver `realpath`ed, so this asks the
+    /// same question of the part that exists (and of the target itself when
+    /// it exists and is not a link); a directory still to be created is named
+    /// as written, as upstream names it. A lookup that fails falls back to the
+    /// path as written, which is also what the walk just proved exists.
+    fn rule_targets(
+        scope: &AccessScope,
+        root: &Path,
+        relative: &[OsString],
+        missing: &[OsString],
+    ) -> Vec<Vec<u8>> {
+        let last = relative.len() - 1;
+        let existing = &relative[..last - missing.len()];
+        let mut lexical = root.to_path_buf();
+        for component in existing {
+            lexical.push(component);
+        }
+        let deepest = std::fs::canonicalize(&lexical).unwrap_or(lexical);
+        let mut created: Vec<PathBuf> = Vec::with_capacity(missing.len());
+        let mut directory = deepest.clone();
+        for component in missing {
+            directory.push(component);
+            created.push(directory.clone());
+        }
+        let parent = created.last().cloned().unwrap_or(deepest);
+        let mut target = parent.join(&relative[last]);
+        if missing.is_empty() {
+            if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+                if !metadata.file_type().is_symlink() {
+                    if let Ok(canonical) = std::fs::canonicalize(&target) {
+                        target = canonical;
+                    }
+                }
+            }
+        }
+        let primary = scope.primary();
+        let mut targets = vec![
+            crate::permission::rules::rule_path(primary, &target),
+            crate::permission::rules::rule_path(primary, &parent),
+        ];
+        for directory in created.iter().rev().skip(1) {
+            targets.push(crate::permission::rules::rule_path(primary, directory));
+        }
+        targets
     }
 
     /// The first component of `relative` that names write-protected metadata.
@@ -1485,6 +1659,14 @@ mod namespace {
 
         pub fn target_scope(&self) -> TargetScope {
             TargetScope::PrimaryWorkspace
+        }
+
+        pub fn rule_targets(&self) -> Vec<Vec<u8>> {
+            Vec::new()
+        }
+
+        pub fn state_binding(&self, _fields: &[&[u8]]) -> Vec<u8> {
+            Vec::new()
         }
     }
 

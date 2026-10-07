@@ -231,6 +231,10 @@ pub(crate) enum Action {
     ToggleTranscript,
     /// Insert what was last killed. `C-y` (`0x19`, `shortcuts.zig:84-85`).
     Yank,
+    /// Attach the clipboard's image at the caret. `C-v` (`0x16`), as
+    /// upstream's composer binds it (`app_input_runtime.zig:1561-1567`, at
+    /// `c1db919`): the same read `/paste` makes.
+    PasteImage,
     /// Select the whole draft: Super+A on a terminal that reports Super
     /// (`select_all`, `escape_parser.zig` at `c1db919`, :223-225).
     SelectAll,
@@ -798,6 +802,7 @@ fn control(byte: u8) -> Action {
         0x0f => Action::ToggleTranscript,
         0x10 => Action::ControlP,
         0x15 => Action::KillToStart,
+        0x16 => Action::PasteImage,
         0x17 => Action::DeleteWordLeft,
         0x19 => Action::Yank,
         0x1f => Action::Undo,
@@ -2412,6 +2417,7 @@ mod tests {
             (0x0f, Action::ToggleTranscript),
             (0x10, Action::ControlP),
             (0x15, Action::KillToStart),
+            (0x16, Action::PasteImage),
             (0x17, Action::DeleteWordLeft),
             (0x19, Action::Yank),
             (0x1f, Action::Undo),

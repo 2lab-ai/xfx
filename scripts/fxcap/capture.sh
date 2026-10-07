@@ -27,6 +27,15 @@
 #                          workspace before launch
 #   githead <branch>       makes the workspace a checkout on <branch>: a
 #                          `.git/HEAD` naming it, and nothing else
+#   dir <name> [<from>]    a directory beside the workspace, <run>/<name>, made
+#                          before launch -- empty, or a copy of scenarios/<from>
+#                          -- so `/workspace add ../<name>` names a directory
+#                          inside the run and nowhere else (a plain name: no
+#                          `/`, not `.` or `..`)
+#   sparsepng <name> <bytes>
+#                          a file of <bytes> in the workspace that begins with
+#                          the PNG signature and is a hole after it -- an image
+#                          over a size limit, without one in the repository
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
@@ -58,6 +67,12 @@
 #                          <bin>-<scenario>-<size>-<label>-<n>.md, oldest
 #                          first, the run's directory written as <scratch>,
 #                          and prints the mode each was written with
+#   clipimage <file>|off   makes the fake osascript answer a clipboard-image
+#                          read (`-e` with `POSIX file "<path>"` and
+#                          `class PNGf`) by copying <file> (under scenarios/)
+#                          to <path>, as the real clipboard would write its
+#                          image; `off` (the default) writes nothing and exits
+#                          0. Such a read is never kept for `clipfile`.
 #   relaunch [<args>...]   starts the binary again in the same pane, with the
 #                          same HOME and environment and these arguments --
 #                          after `keep` and an exit, so a second launch sees
@@ -143,6 +158,19 @@ main() {
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
+    if [[ $line == sparsepng\ * ]]; then
+      # Not `name`/`size`: `size` is this run's terminal size.
+      local png=${line#sparsepng }
+      dd if=/dev/zero of="$run/work/${png%% *}" bs=1 count=0 seek="${png#* }" 2>/dev/null
+      printf '\211PNG\r\n\032\n' | dd of="$run/work/${png%% *}" conv=notrunc 2>/dev/null
+    fi
+    if [[ $line == dir\ * ]]; then
+      local name from
+      read -r name from <<< "${line#dir }"
+      case $name in ''|.|..|*/*) echo "dir takes a plain name, not $name" >&2; exit 2 ;; esac
+      mkdir -p "$run/$name"
+      [[ -n $from ]] && cp -R "$scenarios/$from/." "$run/$name/"
+    fi
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
@@ -171,9 +199,26 @@ main() {
   done
   # osascript writes nothing either; it keeps the path a file copy hands it as
   # its last argument (`/trace`), for `clipfile`, and exits 0 -- or, while
-  # `clipfail on`, exits 1 and keeps nothing.
-  printf '#!/bin/sh\nif [ -f "%s/clipboard-fail" ]; then exit 1; fi\nfor arg in "$@"; do last=$arg; done\nprintf "%%s\\n" "$last" >> "%s/clipboard-file"\nexit 0\n' \
-    "$run" "$run" > "$run/shim/osascript"
+  # `clipfail on`, exits 1 and keeps nothing. A clipboard-image read (`/paste`,
+  # Ctrl-V) is never kept: it writes the `clipimage` file, when one is set, to
+  # the path its script names, and nothing otherwise.
+  cat > "$run/shim/osascript" <<SHIM
+#!/bin/sh
+if [ -f "$run/clipboard-fail" ]; then exit 1; fi
+case \$2 in
+  *'POSIX file "'*'class PNGf'*)
+    if [ "\$1" = "-e" ] && [ -f "$run/clipimage" ]; then
+      out=\${2#*POSIX file \\"}
+      out=\${out%%\\"*}
+      cat "$run/clipimage" > "\$out"
+    fi
+    exit 0
+    ;;
+esac
+for arg in "\$@"; do last=\$arg; done
+printf '%s\\n' "\$last" >> "$run/clipboard-file"
+exit 0
+SHIM
   # pbcopy is fed through a pipe: drain it, keep a copy for the receipt -- or,
   # while `clipfail on`, drain it and fail.
   printf '#!/bin/sh\nif [ -f "%s/clipboard-fail" ]; then cat >/dev/null; exit 1; fi\ncat > "%s/clipboard"\n' \
@@ -218,7 +263,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead) ;;
+      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -291,6 +336,12 @@ $xfx_model $extra_env $bin"
         ;;
       relaunch)
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
+        ;;
+      clipimage)
+        case $rest in
+          off) rm -f "$run/clipimage" ;;
+          *) cp "$scenarios/$rest" "$run/clipimage" ;;
+        esac
         ;;
       clipfile)
         local name=$out/$which-$scenario-$size-$rest

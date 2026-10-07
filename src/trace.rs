@@ -46,7 +46,7 @@ use std::fmt::Write as _;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-use crate::clipboard::Clipboard;
+use crate::clipboard::{Clipboard, Stop};
 use crate::config::RuntimeConfig;
 use crate::output::StatusSnapshot;
 use crate::session::{DurableState, TurnConclusion, TurnStep};
@@ -105,11 +105,19 @@ impl Disposition {
 ///
 /// **Blocks** for the write's `fsync` and for the clipboard tool, up to its
 /// deadline: the line shell calls it inline, the TUI from a thread of its own.
-pub fn deliver(report: &str, dir: &Path, clipboard: &Clipboard, now_ms: i64) -> Disposition {
+/// `stop` gives the copy up -- the write is never given up, so a report is
+/// whole or absent ([`Stop`]).
+pub fn deliver(
+    report: &str,
+    dir: &Path,
+    clipboard: &Clipboard,
+    now_ms: i64,
+    stop: &Stop,
+) -> Disposition {
     let Ok(path) = write_report(dir, report, now_ms) else {
         return Disposition::Unavailable;
     };
-    if clipboard.copy_file(&path) {
+    if clipboard.copy_file_until(&path, stop) {
         Disposition::Copied(path)
     } else if cfg!(target_os = "macos") {
         Disposition::CopyFailed(path)
@@ -1879,6 +1887,7 @@ mod tests {
             Path::new("/nonexistent/xfx-trace-dir"),
             &tool.clipboard(),
             NOW,
+            &Stop::default(),
         );
         assert_eq!(done, Disposition::Unavailable);
         assert_eq!(tool.copied_file(), None);
@@ -1888,7 +1897,13 @@ mod tests {
     fn a_written_report_is_copied_as_its_path_or_saved_where_there_is_no_file_clipboard() {
         let tool = crate::clipboard::fake::FakeTool::keeping();
         let dir = tempfile::tempdir().expect("a directory");
-        let done = deliver("report", dir.path(), &tool.clipboard(), NOW);
+        let done = deliver(
+            "report",
+            dir.path(),
+            &tool.clipboard(),
+            NOW,
+            &Stop::default(),
+        );
         let written = match &done {
             Disposition::Copied(path) | Disposition::Saved(path) => path.clone(),
             other => panic!("not written: {other:?}"),
@@ -1903,7 +1918,13 @@ mod tests {
             assert_eq!(done, Disposition::Saved(written.clone()));
         }
         tool.fail();
-        let refused = deliver("report", dir.path(), &tool.clipboard(), NOW);
+        let refused = deliver(
+            "report",
+            dir.path(),
+            &tool.clipboard(),
+            NOW,
+            &Stop::default(),
+        );
         if cfg!(target_os = "macos") {
             assert!(matches!(refused, Disposition::CopyFailed(_)), "{refused:?}");
         } else {
@@ -2071,6 +2092,8 @@ mod tests {
                     unaccounted: false,
                     lines_added: 0,
                     lines_removed: 0,
+                    settled: Vec::new(),
+                    rejected: Vec::new(),
                 },
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {

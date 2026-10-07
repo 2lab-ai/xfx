@@ -79,6 +79,8 @@ use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface}
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
 use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
+use super::clipboard_image::ClipboardReads;
+use super::compaction::{self, Compaction};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
@@ -106,6 +108,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::recall::Recall;
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
+use super::rule_confirm::RuleConfirm;
 use super::session_picker::{self, SessionAction, SessionPicker};
 use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::sound::Sound;
@@ -116,6 +119,7 @@ use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
+use super::workspace_menu::{self, MenuAction as WorkspaceAction};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
@@ -128,6 +132,7 @@ use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 
 /// Upstream's line for a cancelled turn, in this product's name and in
 /// `palette`: `■` in the warning grey, `Cancelled` in the hint grey, and the
@@ -837,6 +842,13 @@ pub(crate) struct Shell {
     /// the moment the turn shows any sign of having got through -- an answer,
     /// a tool, a question -- or of being over.
     retry: Option<super::retry::Standing>,
+    /// The compaction the activity row is about, running or just ended
+    /// ([`super::compaction`]).
+    ///
+    /// It takes the row while it is visible, as upstream's projection wins
+    /// over the turn's (`frameOwnedActivityProjection`, `render_input.zig:
+    /// 699-719`), and it never writes into the document.
+    compaction: Option<Compaction>,
     /// How many submissions are waiting behind the one in flight, as of the
     /// last settle. Cached for the same reason [`Self::escape_armed`] is.
     queued: usize,
@@ -1002,6 +1014,20 @@ pub(crate) struct Shell {
     /// question outranks it in [`Self::slot`] and takes the keys while it is
     /// up; the picker is back when it has been answered.
     statusline_menu: Option<statusline::Menu>,
+    /// The directories `/workspace` saved for this workspace, as the runtime
+    /// last put them in force: the profile's at launch, and what each change
+    /// read back since ([`UiEvent::Workspace`]). The band's copy, for the
+    /// picker, `/workspace list` and the `@` index; the scope a tool runs in
+    /// is the runtime's, made from the same list.
+    workspace_access: WorkspaceAccess,
+    /// The `/workspace` picker, while it is up ([`super::workspace_menu`]): a
+    /// focus like the `/statusline` picker, the composer row hidden while it
+    /// is.
+    workspace_menu: Option<workspace_menu::Menu>,
+    /// A `/permissions remember` or `revoke` waiting to be confirmed
+    /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
+    /// as a question does, and outranks everything but a question.
+    rule_confirm: Option<RuleConfirm>,
     /// The workspace's path and the Git branch its `HEAD` was last read on,
     /// for the workspace segment ([`super::statusline::Workspace`]).
     workspace_identity: statusline::Workspace,
@@ -1170,6 +1196,17 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// The clipboard reads `/paste` and Ctrl-V started, and what each found
+    /// ([`super::clipboard_image`]).
+    clipboard_reads: ClipboardReads,
+    /// The number the next attached image takes. Spent only when a badge
+    /// lands and never given back, so no two images in one process answer to
+    /// one `[Image #N]` (`allocateImageId`, `image_attachments.zig:1366-1370`);
+    /// a resumed session moves it past every number its prompts name.
+    images_next: u32,
+    /// The home directory `/image ~/…` is read under: the one the
+    /// configuration found its profile in.
+    home: Option<std::path::PathBuf>,
     /// The `/trace` reports still being built, written and copied on their own
     /// threads, and how each went ([`super::trace`]).
     traces: Traces,
@@ -1206,6 +1243,9 @@ pub(crate) struct Shell {
     /// to and for the next `/usage` to open on (`usage_dashboard`'s cache):
     /// when it was read, and what. A newer read replaces it.
     usage_read: Option<(i64, crate::usage::Ledger)>,
+    /// The `/credits` questions in flight, each on a thread of its own, and
+    /// the answers that have come back ([`super::credits_ask::Asks`]).
+    credit_asks: super::credits_ask::Asks,
 }
 
 /// What `/stats` reports: the terminal writer's counters.
@@ -1499,6 +1539,17 @@ use super::activity::compact_tokens;
 
 /// Bold on, and every attribute off: what upstream's card puts around the
 /// submitted text (`user_message_card.zig:319-325`).
+/// The directories the `@` index walks besides the workspace: the ones a
+/// turn's scope would hold -- the available saved directories that are still
+/// themselves, less any inside the workspace or inside another
+/// ([`WorkspaceAccess::scope`]) -- in the order they were saved.
+fn index_roots(primary: &std::path::Path, access: &WorkspaceAccess) -> Vec<std::path::PathBuf> {
+    access
+        .scope(primary)
+        .map(|scope| scope.additional_roots().to_vec())
+        .unwrap_or_default()
+}
+
 const BOLD: &str = "\u{1b}[1m";
 const RESET: &str = "\u{1b}[0m";
 
@@ -1514,6 +1565,9 @@ enum Slot<'a> {
     /// **not** the same thing: it grants nothing and its answer is text
     /// ([`super::question`]).
     Ask(&'a QuestionPanel),
+    /// A rule change waiting to be confirmed. It owns the focus and the
+    /// composer's rows.
+    Rule(&'a RuleConfirm),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
     /// The `/settings` menu. Rows, and the composer as its search; it binds
@@ -1521,6 +1575,9 @@ enum Slot<'a> {
     Settings(&'a SettingsMenu),
     /// `/usage`'s dashboard. The same: the focus and the composer's rows.
     Usage(&'a Dashboard),
+    /// The `/workspace` picker. The same kind: the focus, and the composer's
+    /// rows.
+    Workspace(&'a workspace_menu::Menu),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1699,6 +1756,7 @@ impl Shell {
             cancel_owed: None,
             cancel_covers: 0,
             retry: None,
+            compaction: None,
             queued: 0,
             activity: Activity::new(),
             phase: 0,
@@ -1711,10 +1769,17 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             file_picker: None,
-            files: Files::new(
-                config.workspace_root.clone(),
-                std::env::var_os("HOME").map(std::path::PathBuf::from),
-            ),
+            files: {
+                let mut files = Files::new(
+                    config.workspace_root.clone(),
+                    std::env::var_os("HOME").map(std::path::PathBuf::from),
+                );
+                files.set_extra_roots(index_roots(
+                    &config.workspace_root,
+                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),
+                ));
+                files
+            },
             separator: None,
             model_draft: None,
             recalled_slash: false,
@@ -1727,6 +1792,12 @@ impl Shell {
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
+            workspace_access: WorkspaceAccess::load(
+                &config.workspace_root,
+                &config.additional_directories,
+            ),
+            workspace_menu: None,
+            rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
                 // branch has no reason to open a file for it.
@@ -1768,14 +1839,27 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            clipboard_reads: ClipboardReads::new(clipboard.clone()),
             traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
+            images_next: 1,
+            home: config
+                .profile_dir
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf),
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
             usage_menu: None,
             usage_reader: usage_menu::Reader::new(profile),
             usage_read: None,
+            // A shell a test built asks nobody: a question published to it is
+            // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+            #[cfg(not(test))]
+            credit_asks: super::credits_ask::Asks::new(),
+            #[cfg(test)]
+            credit_asks: super::credits_ask::Asks::by_hand(),
         };
         shell.recall_saved_lines();
         shell
@@ -1877,6 +1961,9 @@ impl Shell {
                 Some(Slot::Ask(ask)) => {
                     ask.painted(self.geometry.cols, self.geometry.rows, &self.palette)
                 }
+                Some(Slot::Rule(confirm)) => {
+                    confirm.rows(self.geometry.cols, self.geometry.rows, Some(&self.palette))
+                }
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for: one layout answers both
                 // (`composeHelpMenuRow` is handed `menuRowCount`'s answer).
@@ -1910,6 +1997,14 @@ impl Shell {
                 Some(Slot::Usage(dashboard)) => {
                     dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same, with the directories in force.
+                Some(Slot::Workspace(menu)) => menu.rows(
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    &self.workspace,
+                    self.workspace_access.entries(),
+                    self.palette,
+                ),
                 Some(Slot::Menu(picker)) => picker.rows(
                     self.geometry.cols,
                     self.geometry.rows,
@@ -1977,6 +2072,9 @@ impl Shell {
                 self.palette.dim(),
                 picker::key_help(self.geometry.cols).to_string(),
             ),
+            // `1–2 choose    enter confirm    esc cancel`
+            // (`cap/fx-permissions3-40x120-remember-prompt`).
+            Some(Slot::Rule(_)) => RuleConfirm::hint(self.geometry.cols, &self.palette),
             // The catalog's own key help, in the same dim grey
             // (`composeHelpMenuHintRow`, `input_presentation.zig:696-721`) --
             // except while a Ctrl-C would leave, which the catalog says in the
@@ -2020,6 +2118,11 @@ impl Shell {
             Some(Slot::Usage(_)) => self.painted(
                 self.palette.dim(),
                 usage_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the `/workspace` picker's (`input_presentation.zig:782-786`).
+            Some(Slot::Workspace(_)) => self.painted(
+                self.palette.dim(),
+                workspace_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -2273,11 +2376,17 @@ impl Shell {
         if let Some(ask) = self.ask.as_ref() {
             return Some(Slot::Ask(ask));
         }
+        if let Some(confirm) = self.rule_confirm.as_ref() {
+            return Some(Slot::Rule(confirm));
+        }
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
         if let Some(dashboard) = self.usage_menu.as_ref() {
             return Some(Slot::Usage(dashboard));
+        }
+        if let Some(menu) = self.workspace_menu.as_ref() {
+            return Some(Slot::Workspace(menu));
         }
         // Ahead of the catalog and the pickers, as upstream ranks it
         // (`show_settings_menu`, `surface_frame.zig:399-403`) -- though the
@@ -2364,6 +2473,11 @@ impl Shell {
                     .unwrap_or_else(|| (ask.caret_row(cols, rows), 0));
                 return (self.geometry.panel_first().saturating_add(row), column);
             }
+            // A rule change waiting to be confirmed: on its marked choice.
+            if let Some(confirm) = self.rule_confirm.as_ref() {
+                let row = confirm.marked_row(self.geometry.cols, self.geometry.rows);
+                return (self.geometry.panel_first().saturating_add(row), 0);
+            }
             // The `/statusline` picker has the focus too, and no composer row
             // to leave a caret in: it goes to the start of the marked row,
             // which is what Enter and the arrows act on.
@@ -2376,6 +2490,11 @@ impl Shell {
             // header when no model is in view.
             if let Some(dashboard) = self.usage_menu.as_ref() {
                 let row = dashboard.marked_row(self.geometry.panel, self.geometry.cols);
+                return (self.geometry.panel_first().saturating_add(row), 0);
+            }
+            // The `/workspace` picker's the same way.
+            if let Some(menu) = self.workspace_menu.as_ref() {
+                let row = menu.marked_row(self.geometry.panel, self.workspace_access.entries());
                 return (self.geometry.panel_first().saturating_add(row), 0);
             }
         }
@@ -2544,6 +2663,9 @@ impl Shell {
         self.tally = Tally::default();
         self.context_used = None;
         self.forget_session_title();
+        // Past every image number the session's prompts already name, so a
+        // new attachment's `[Image #N]` is never one of theirs.
+        self.images_next = self.images_next.max(replay.next_image);
         if wipe {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
@@ -2639,7 +2761,7 @@ impl Shell {
             // the provider said, or the estimate of what it wrote.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
-                input.consume(&turn.user);
+                input.consume(&turn.sent);
                 let output = output.unwrap_or_else(|| streamed.estimate());
                 self.run_mark(Mark::Summary(summary_line(
                     seconds,
@@ -3120,6 +3242,8 @@ impl Shell {
                     self.render.request(Reason::Footer);
                 }
             }
+            // A compaction, on the row above the divider and nowhere else.
+            UiEvent::Compaction(update) => self.compaction_update(update),
             // The conversation a reset asked to drop is gone, and nothing the
             // runtime sends from here on is about it -- once this is the fence
             // of the last reset sent. An earlier reset's fence ends nothing:
@@ -3143,6 +3267,14 @@ impl Shell {
                 self.close_sessions(true);
                 self.hydrate(replay, true);
             }
+            // A `/workspace` change reached the runtime: the directories it
+            // put in force, when it did, and what it says either way.
+            UiEvent::Workspace { notice, access } => {
+                if let Some(access) = access {
+                    self.adopt_workspace(access);
+                }
+                self.announce(notice);
+            }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
             UiEvent::Renamed { title, unsaved } => {
@@ -3162,17 +3294,6 @@ impl Shell {
                     self.refit();
                     self.render.request(Reason::Modal);
                 }
-            }
-            // What `/credits` found, under its topic: neutral for the fields
-            // or the word that there were none, an error for a failure
-            // (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
-            UiEvent::Credits(answer) => {
-                let body = answer.body();
-                self.announce(if answer.is_error() {
-                    notice::Notice::error(crate::credits::TOPIC, body)
-                } else {
-                    notice::Notice::neutral(crate::credits::TOPIC, body)
-                });
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -4833,6 +4954,7 @@ impl Shell {
         if self.help_menu.is_some()
             || self.settings_menu.is_some()
             || self.statusline_menu.is_some()
+            || self.workspace_menu.is_some()
             || self.sessions.is_some()
             || self.full.is_open()
         {
@@ -4854,6 +4976,88 @@ impl Shell {
 
     /// One keystroke, while the `/statusline` picker has the focus.
     ///
+    /// One keystroke to a rule change waiting to be confirmed: `1` or Enter
+    /// on `Confirm` makes it and says how it went, `2` or Enter on `Cancel`
+    /// says it was cancelled, Escape closes it saying nothing
+    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:255-327`;
+    /// `cap/fx-permissions3-40x120-remember-esc`), and the arrows move the
+    /// mark. Everything else is swallowed, as the approval band swallows it.
+    fn offer_to_rule_confirm(&mut self, event: Input) {
+        use super::rule_confirm::{Key, Reply};
+        let key = match event {
+            Input::Text(character) => Key::Digit(character),
+            Input::Action(Action::Up | Action::ControlP) => Key::Up,
+            Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
+            Input::Action(Action::Submit) => Key::Enter,
+            Input::Action(Action::Escape) => Key::Escape,
+            Input::Action(Action::Redraw) => {
+                self.external_damage();
+                return;
+            }
+            _ => return,
+        };
+        let Some(confirm) = self.rule_confirm.as_mut() else {
+            return;
+        };
+        match confirm.apply(key) {
+            Reply::Ignored => {}
+            Reply::Moved => self.render.request(Reason::Modal),
+            Reply::Dismiss => self.close_rule_confirm(),
+            Reply::Cancel => {
+                self.close_rule_confirm();
+                self.announce(notice::Notice::neutral(
+                    crate::permission::slash::TOPIC,
+                    crate::permission::slash::CANCELLED,
+                ));
+            }
+            Reply::Confirm => {
+                let confirmation = confirm.confirmation().clone();
+                self.close_rule_confirm();
+                let (tone, body) = crate::permission::slash::confirm(&confirmation);
+                self.announce(allowlist_notice(
+                    tone,
+                    crate::permission::slash::TOPIC,
+                    body,
+                ));
+            }
+        }
+    }
+
+    /// Prepares `tool(arguments)` for a saved-session rule, on this thread and
+    /// running nothing: the workspace this shell is in and the directories
+    /// `/workspace` added to it -- the session's own scope, as upstream
+    /// prepares under `input.access_scope` (`tool_admission.zig:2270-2289`) --
+    /// the shipped limits,
+    /// and the configured table in force, so a change a configured rule
+    /// denies cannot be remembered as allowed. Its own session, in `ask`, with
+    /// no grants and no prompter: preparing asks nobody anything.
+    fn prepare_rule_action(
+        &self,
+        tool: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<crate::tools::RuleAction, String> {
+        let scope = self
+            .workspace_access
+            .scope(&self.workspace)
+            .map_err(|err| err.to_string())?;
+        let context = crate::tools::ToolContext::new(scope).with_permissions(
+            // `ask`, whatever the session's mode, as upstream prepares a rule
+            // (`.permission_mode = .ask`, `tool_admission.zig:2286`): in full
+            // access no table is consulted, and a change a configured rule
+            // denies must not be remembered as allowed.
+            crate::permission::PermissionSession::new(PermissionMode::Ask)
+                .with_live_rules(self.work.rules().clone()),
+        );
+        crate::tools::prepare_rule_action(tool, arguments, &context)
+    }
+
+    /// Takes the rule confirmation down and gives the composer its rows back.
+    fn close_rule_confirm(&mut self) {
+        self.rule_confirm = None;
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
     /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Enter, Left and
     /// Right flip the marked item **silently** -- the row is the answer, and
     /// nothing reaches the document unless the write failed
@@ -4940,6 +5144,55 @@ impl Shell {
         }
     }
 
+    /// One keystroke, while the `/workspace` picker has the focus.
+    ///
+    /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Escape closes
+    /// it; **Enter puts the marked choice's command in the composer and runs
+    /// nothing** (`prepareWorkspaceMenuCommand`, `app_input_runtime.zig:2580-2609`):
+    /// the draft is replaced by it, the picker closes, and the user submits
+    /// the line -- or edits it, or throws it away. A command the composer
+    /// cannot hold leaves the picker as it was, as upstream's does.
+    fn offer_to_workspace(&mut self, event: Input) {
+        let Input::Action(action) = event else {
+            return;
+        };
+        let Some(request) = WorkspaceAction::of(action) else {
+            return;
+        };
+        let Some(menu) = self.workspace_menu.as_mut() else {
+            return;
+        };
+        match request {
+            WorkspaceAction::Up | WorkspaceAction::Down => {
+                menu.step(
+                    request == WorkspaceAction::Down,
+                    self.workspace_access.entries(),
+                );
+                self.render.request(Reason::Modal);
+            }
+            WorkspaceAction::Use => {
+                let command = menu.command(self.workspace_access.entries());
+                // The whole draft replaced, its blocks with it -- the editor
+                // keeps what it had when the command is past its cap -- and
+                // a boundary in the undo history, as at every whole-draft
+                // replacement ([`Self::recall`]).
+                if !self.editor.set_text(&command, Entities::new()) {
+                    return;
+                }
+                self.workspace_menu = None;
+                self.edit_history.boundary();
+                self.edited(None);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+            WorkspaceAction::Close => {
+                self.workspace_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+    }
+
     /// Puts `scope` on the dashboard (`refreshUsageMenu`,
     /// `app_commands.zig:1064-1092`): the session at once, from what the
     /// runtime last published; a rolling window from the last read when there
@@ -4987,6 +5240,20 @@ impl Shell {
         }
     }
 
+    /// The directories in force are now `access`: the band's copy, and the
+    /// roots the `@` index walks besides the workspace (`install`'s
+    /// `refreshFileIndex`, `app_workspace_runtime.zig:131-147`).
+    fn adopt_workspace(&mut self, access: WorkspaceAccess) {
+        self.files
+            .set_extra_roots(index_roots(&self.workspace, &access));
+        self.workspace_access = access;
+        if self.workspace_menu.is_some() {
+            // A list of another length is a picker of another height.
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
     /// Takes every read of the session logs that has finished, keeps the
     /// newest, and shows it when a rolling window is up to show it on
     /// (`collectUsageDashboardFacts`, `app_commands.zig:1114-1139`).
@@ -5014,6 +5281,25 @@ impl Shell {
             self.refit();
             self.render.request(Reason::Modal);
         }
+    }
+
+    /// Shows every `/credits` answer that has come back.
+    fn settle_credits(&mut self) {
+        while let Some(answer) = self.credit_asks.finished() {
+            self.say_credits(answer);
+        }
+    }
+
+    /// What `/credits` found, under its topic: neutral for the fields or the
+    /// word that there were none, an error for a failure
+    /// (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
+    fn say_credits(&mut self, answer: crate::credits::Answer) {
+        let body = answer.body();
+        self.announce(if answer.is_error() {
+            notice::Notice::error(crate::credits::TOPIC, body)
+        } else {
+            notice::Notice::neutral(crate::credits::TOPIC, body)
+        });
     }
 
     /// Gives `/usage` a reader that reads nothing and answers only what the
@@ -6521,6 +6807,8 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // And so is a clipboard image.
+        self.settle_clipboard_reads();
         // So is a file index or a directory listing.
         self.settle_files();
         // And a report.
@@ -6530,6 +6818,8 @@ impl Shell {
         self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
+        // And what the Gateway said to a `/credits`.
+        self.settle_credits();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -6546,6 +6836,19 @@ impl Shell {
             self.cancelling = false;
             self.cancel_owed = None;
             self.cancel_covers = 0;
+        }
+        // The same for a compaction the user stopped before the runtime took it
+        // off the queue: it never began, so it never says how it ended. Once
+        // nothing is in hand it is over, cancelled -- and an ending the runtime
+        // did send, a moment late, still replaces this one
+        // ([`Self::compaction_update`]).
+        if self.work.outstanding() == 0 {
+            if let Some(compaction) = self.compaction.as_mut() {
+                if compaction.stopped() {
+                    compaction.settle(compaction::Feedback::Cancelled, now);
+                    self.render.request(Reason::Footer);
+                }
+            }
         }
         let armed = self.gestures.escape_armed(now);
         if armed != self.escape_armed {
@@ -6645,6 +6948,81 @@ impl Shell {
         }
     }
 
+    /// Puts each clipboard image that has been read into the draft at the
+    /// caret, or says why there is none, in the order the reads finished.
+    ///
+    /// Upstream's `attachClipboard` (`image_commands.zig:86-104`): an image is
+    /// a badge and **no notice** -- the composer is the answer; a clipboard
+    /// with no image is a neutral notice; a system with no way to read one
+    /// says nothing at all; anything else is an error naming what failed.
+    fn settle_clipboard_reads(&mut self) {
+        while let Some(read) = self.clipboard_reads.finished() {
+            match read {
+                Ok((media_type, bytes)) => {
+                    let id = self.images_next;
+                    let mut image = crate::image::Image::new(
+                        id,
+                        std::path::PathBuf::new(),
+                        media_type,
+                        std::sync::Arc::from(bytes),
+                    );
+                    // Named by the copy the session keeps of it, which is what
+                    // upstream links a clipboard badge to: the source was a
+                    // temporary file and is gone.
+                    image.path = std::path::PathBuf::from(image.snapshot_name());
+                    if !self.attach(image) {
+                        self.announce(notice::Notice::neutral(
+                            crate::image::TOPIC,
+                            crate::image::INPUT_FULL,
+                        ));
+                    }
+                }
+                Err(crate::clipboard::ImageReadError::NoImage) => {
+                    self.announce(notice::Notice::neutral(
+                        crate::image::TOPIC,
+                        crate::image::NO_CLIPBOARD_IMAGE,
+                    ));
+                }
+                Err(crate::clipboard::ImageReadError::Unsupported) => {}
+                Err(crate::clipboard::ImageReadError::Failed(name)) => {
+                    self.announce(notice::Notice::error(
+                        crate::image::TOPIC,
+                        format!("failed to paste clipboard image: {name}"),
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Puts `image`'s badge into the draft at the caret, the image behind it,
+    /// and spends its number. `false` when the composer has no room for the
+    /// badge, which spends nothing.
+    ///
+    /// The insertion is a boundary of the edit history rather than an entry
+    /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
+    /// an undo does not take an attachment back -- deleting its badge does.
+    fn attach(&mut self, image: crate::image::Image) -> bool {
+        let id = image.id;
+        let Some(next) = id.checked_add(1) else {
+            return false;
+        };
+        let kind = EntityKind::Image {
+            token: std::sync::Arc::from(crate::image::token(id)),
+            image: std::sync::Arc::new(image),
+        };
+        if self
+            .editor
+            .insert_entity(&crate::image::badge(id), kind)
+            .is_none()
+        {
+            return false;
+        }
+        self.images_next = next;
+        self.edit_history.boundary();
+        self.amended(None);
+        true
+    }
+
     /// Says how each `/trace` that has finished went, in upstream's one
     /// sentence and with no topic (`finish_trace_notice`,
     /// `app_commands.zig:55-65`): an error when the copy or the write failed.
@@ -6680,6 +7058,14 @@ impl Shell {
         if self.activity.working() && !self.activity.started() {
             self.activity.begin(now);
         }
+        // A manual compaction's clock starts on the same tick a turn's does,
+        // and a sentence whose time is up is gone.
+        if let Some(compaction) = self.compaction.as_mut() {
+            compaction.tick(now);
+            if !compaction.visible(now) {
+                self.compaction = None;
+            }
+        }
         // **The clock stops while the question is up**, because that interval
         // measures the person rather than the model: a turn that spent four
         // minutes waiting to be told whether it could edit a file did not spend
@@ -6693,7 +7079,10 @@ impl Shell {
         } else {
             self.activity.thaw(now);
         }
-        if self.render.animate(self.activity.working(), now) {
+        if self
+            .render
+            .animate(self.activity.working() || self.compacting(), now)
+        {
             self.phase = (self.phase + 1) % PHASES;
         }
         let output = self
@@ -6716,10 +7105,32 @@ impl Shell {
         // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
         // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
         // counting down on this clock.
-        let row = match self.retry.as_ref() {
+        //
+        // A compaction takes the row from the turn's own label while it shows
+        // anything (`frameOwnedActivityProjection`, `render_input.zig:699-719`):
+        // its phase and clock while it runs, its sentence once it has ended.
+        let compaction = self.compaction.as_ref().and_then(|compaction| {
+            compaction.row(
+                now,
+                self.phase,
+                self.geometry.cols,
+                self.activity.elapsed(now),
+                colours,
+            )
+        });
+        let row = match (self.retry.as_ref(), compaction) {
             _ if self.modal() => None,
-            Some(standing) if self.activity.working() => {
+            (Some(standing), _) if self.activity.working() => {
                 Some(self.painted(self.palette.warning(), standing.label(now)))
+            }
+            (_, Some(compaction::Row::Running(row))) => Some(row),
+            (_, Some(compaction::Row::Feedback(feedback))) => {
+                let colour = match feedback.tone() {
+                    compaction::Tone::Neutral => self.palette.dim(),
+                    compaction::Tone::Warning => self.palette.warning(),
+                    compaction::Tone::Danger => self.palette.danger(),
+                };
+                Some(self.painted(colour, feedback.label().to_string()))
             }
             _ => self.activity.row(
                 now,
@@ -6744,6 +7155,91 @@ impl Shell {
             self.refit();
         }
         self.render.request(Reason::Animation);
+    }
+
+    /// Whether a compaction is running.
+    fn compacting(&self) -> bool {
+        self.compaction.as_ref().is_some_and(Compaction::active)
+    }
+
+    /// Whether the row shows a compaction's sentence an Escape would take
+    /// away: one that has ended and is still on the row
+    /// (`dismissCompactionFeedback`, `input_interrupt_runtime.zig:57-65`).
+    fn compaction_dismissible(&self, now: Instant) -> bool {
+        self.compaction
+            .as_ref()
+            .is_some_and(|compaction| !compaction.active() && compaction.visible(now))
+    }
+
+    /// What the runtime says about a compaction.
+    fn compaction_update(&mut self, update: compaction::Update) {
+        match update {
+            // A manual one was put on the row at the keystroke; an automatic
+            // one begins here, inside its turn.
+            compaction::Update::Began { automatic } => {
+                if !self.compacting() {
+                    self.compaction = Some(Compaction::began(automatic));
+                }
+            }
+            compaction::Update::Summarizing => {
+                if let Some(compaction) = self.compaction.as_mut() {
+                    compaction.summarizing();
+                }
+            }
+            compaction::Update::Settled(feedback) => {
+                let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
+                self.compaction
+                    .get_or_insert_with(|| Compaction::began(automatic))
+                    .settle(feedback, Instant::now());
+                if feedback == compaction::Feedback::Succeeded {
+                    // The meter's number measured a request no request will
+                    // carry again: the next one carries the compacted
+                    // conversation. It goes until a turn measures that one,
+                    // because a number no provider said is not one this row
+                    // puts up ([`Self::context_used`]).
+                    self.context_used = None;
+                    self.render.request(Reason::Footer);
+                } else if automatic {
+                    // The turn it ran in did not run, and the row says why: its
+                    // conclusion adds nothing (`compactionErrorHandled`,
+                    // `app_process_runtime.zig:10-17`, `:55-56`).
+                    self.cancelling = true;
+                }
+            }
+        }
+    }
+
+    /// Stops the compaction in hand (`cancelActiveOperation`,
+    /// `input_interrupt_runtime.zig:77-90`, `:113-116`): the runtime is told,
+    /// the row says `Stopping compaction` until the runtime says it has, and
+    /// **nothing is written into the document** -- the sentence it ends with is
+    /// the row's. A compaction inside a turn stops that turn with it, and the
+    /// turn's conclusion says nothing either.
+    fn stop_compaction(&mut self) {
+        let waiting = self.work.queued() > 0;
+        self.work.control(TurnControl::Cancel {
+            through: self.work.accepted(),
+        });
+        self.forget_catalog_request();
+        let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
+        if let Some(compaction) = self.compaction.as_mut() {
+            compaction.stopping();
+        }
+        if automatic {
+            // The turn ends with no bell, as an interrupted turn does; a
+            // manual compaction ends no turn, so it owes the next one nothing.
+            self.sound.interrupted();
+            self.cancelling = true;
+            self.retry = None;
+        }
+        if waiting {
+            self.prompts.clear();
+            self.refit();
+            // xfx's queue is its own, and so is the sentence that says it went
+            // with the keystroke ([`Self::cancel_turn_with`]).
+            self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
+        }
+        self.cancel_covers = self.prompts.len();
     }
 
     /// What a theme report says, applied to the palette.
@@ -7039,6 +7535,12 @@ impl Shell {
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
             // do (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`).
             // Escape is the way out, and then the keys mean what they mean.
+            // A rule change waiting to be confirmed has the focus the same
+            // way, and swallows what it does not bind.
+            if self.rule_confirm.is_some() {
+                self.offer_to_rule_confirm(event);
+                continue;
+            }
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
                 continue;
@@ -7046,6 +7548,11 @@ impl Shell {
             // `/usage`'s dashboard, the same way.
             if self.usage_menu.is_some() {
                 self.offer_to_usage(event);
+                continue;
+            }
+            // The `/workspace` picker the same way.
+            if self.workspace_menu.is_some() {
+                self.offer_to_workspace(event);
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -7352,11 +7859,18 @@ impl Shell {
             // own `TurnStarted` to its conclusion or the keystroke that
             // stopped it. A prompt still waiting for the runtime to pick it up
             // is not yet an operation there is anything to interrupt in.
+            // A compaction's sentence goes first, and that is all this Escape
+            // does (`dismissCompactionFeedback`, `app_input_runtime.zig:3158`,
+            // `:3208`).
+            Action::Escape if self.compaction_dismissible(now) => {
+                self.compaction = None;
+                self.settle_band(now);
+            }
+            // A compaction running is work an Escape pair stops, as a turn is
+            // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`).
             Action::Escape => {
-                match self
-                    .gestures
-                    .escape(now, self.activity.working(), !self.editor.is_empty())
-                {
+                let running = self.activity.working() || self.compacting();
+                match self.gestures.escape(now, running, !self.editor.is_empty()) {
                     Escape::Nothing | Escape::Armed | Escape::InterruptArmed => {
                         self.settle_band(now)
                     }
@@ -7467,6 +7981,16 @@ impl Shell {
             Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
+            // `/paste`'s read, at the caret -- except while a menu reads the
+            // composer as its search, where a badge would be a query: upstream
+            // skips it while its model picker borrows the composer
+            // (`app_input_runtime.zig:1561-1567`).
+            Action::PasteImage => {
+                if self.model_menu.is_none() && self.help_menu.is_none() && self.sessions.is_none()
+                {
+                    self.paste_image();
+                }
+            }
             // Super+A, Super+C, Super+X (`select_all`, `copy_selection`,
             // `cut_selection`, `app_input_runtime.zig:350-385`).
             Action::SelectAll => {
@@ -7496,6 +8020,17 @@ impl Shell {
                 }
             }
             Action::Tab | Action::Ignore => {}
+        }
+    }
+
+    /// Starts reading the clipboard's image; its badge lands when the read
+    /// answers ([`Self::settle_clipboard_reads`]).
+    fn paste_image(&mut self) {
+        if !self.clipboard_reads.start() {
+            self.announce(notice::Notice::error(
+                crate::image::TOPIC,
+                "failed to paste clipboard image: SystemResources",
+            ));
         }
     }
 
@@ -7616,6 +8151,10 @@ impl Shell {
     /// written then only when no call's line was ([`Self::cancel_owed`]). The
     /// activity row stays while the command runs, because it does.
     fn cancel_turn_with(&mut self, written: bool) {
+        if self.compacting() {
+            self.stop_compaction();
+            return;
+        }
         // Read **before** the message goes out, because after it the runtime
         // is dropping exactly these and the count is on its way to zero: what
         // the user is owed a sentence about is what was waiting when they
@@ -7764,7 +8303,20 @@ impl Shell {
         if self.editor.is_empty() {
             return;
         }
+        // A compaction's sentence is answered by the next line sent, whatever
+        // it is (`submit`, `input_submit_runtime.zig:628-635`).
+        if self
+            .compaction
+            .as_ref()
+            .is_some_and(|compaction| !compaction.active())
+        {
+            self.compaction = None;
+        }
         let text = self.editor.text().to_string();
+        if let Some((cut, submitted)) = self.after_badges(&text) {
+            self.run_command_after_badges(&text, cut, &submitted);
+            return;
+        }
         let submitted = router::classify(&text);
         // **Before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
@@ -7899,13 +8451,30 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // The images whose badges the draft holds, in the order they stand:
+        // what goes after the prompt's text on the wire.
+        let images: Vec<crate::image::Image> = self
+            .editor
+            .entities()
+            .images()
+            .map(|image| crate::image::Image::clone(image))
+            .collect();
+        // An image counts as the token the prompt names it by, as upstream's
+        // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
+        // #3][Image #4] what is in this image?`). Read before the draft goes.
+        let counted = self.editor.entities().with_image_tokens(text);
+        let work = if images.is_empty() {
+            TurnWork::Submit(prompt)
+        } else {
+            TurnWork::Attached { prompt, images }
+        };
         // Whether it will wait behind a turn that is running -- the turn the
         // activity row is about, as upstream's steer waits on an active
         // operation. Work the session has stopped or reset is not one: a
         // prompt typed after it goes out as soon as that work unwinds, and its
         // card is written at once, as it always was.
         let waits = self.activity.working();
-        match self.work.submit(TurnWork::Submit(prompt)) {
+        match self.work.submit(work) {
             Ok(()) => {
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
@@ -7916,7 +8485,7 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
                 let mut estimate = Estimator::default();
-                estimate.consume(text);
+                estimate.consume(&counted);
                 if waits {
                     self.prompts
                         .push_back((estimate.estimate(), title, Some(text.to_string())));
@@ -8097,6 +8666,64 @@ impl Shell {
         self.gestures.submitted();
         router::route(submitted, self);
     }
+
+    /// Where a command typed after image badges begins, and the command, when
+    /// the draft is that: blanks, one or more badges with blanks between them,
+    /// and then a line that names a command (`pendingImagesPrefixEnd`,
+    /// `input_submit_runtime.zig:718-736`, `:945-969`).
+    ///
+    /// The one way `/images` can see an attachment, and the way a second
+    /// `/image` lands beside the first: the command runs with the badges kept.
+    /// A line after them that names no command is a prompt like any other, and
+    /// the badges go with it.
+    fn after_badges(&self, text: &str) -> Option<(usize, Submitted)> {
+        let blanks = |at: usize| {
+            at + text[at..].len()
+                - text[at..]
+                    .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                    .len()
+        };
+        let mut at = blanks(0);
+        let mut badges = 0usize;
+        while let Some(span) = self
+            .editor
+            .entities()
+            .spans()
+            .iter()
+            .find(|span| span.start == at && span.image().is_some())
+        {
+            badges += 1;
+            at = blanks(span.end);
+        }
+        if badges == 0 {
+            return None;
+        }
+        match router::classify(&text[at..]) {
+            submitted @ Submitted::Command { .. } => Some((at, submitted)),
+            _ => None,
+        }
+    }
+
+    /// Runs `submitted` with the badges in front of `cut` kept in the composer,
+    /// as upstream's `submitSlashCommand` keeps its retained prefix
+    /// (`input_submit_runtime.zig:1000-1047`). The command is recorded in the
+    /// history as the command alone: the badges stay where they were.
+    fn run_command_after_badges(&mut self, text: &str, cut: usize, submitted: &Submitted) {
+        self.history
+            .record(HistoryEntry::new(text[cut..].to_string(), Vec::new()));
+        let mut kept = Entities::new();
+        for span in self.editor.entities().spans() {
+            if span.end <= cut {
+                kept.register(span.clone());
+            }
+        }
+        self.take_draft();
+        let restored = self.editor.set_text(&text[..cut], kept);
+        debug_assert!(restored, "a prefix of the draft fits where the draft did");
+        self.edited(None);
+        self.gestures.submitted();
+        router::route(submitted, self);
+    }
 }
 
 /// `event` with Shift taken off Up and Down.
@@ -8245,6 +8872,7 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.provider_picker = None;
         self.statusline_menu = None;
+        self.workspace_menu = None;
         let scope = crate::usage::Scope::Days30;
         let cached = self
             .usage_read
@@ -8259,12 +8887,19 @@ impl CommandHandlers for Shell {
     }
 
     /// Upstream's `commandShowCredits` (`app_commands.zig:2052-2082`), asked
-    /// on the runtime thread: the question opens a socket, and the thread that
-    /// holds the terminal waits on none. The answer is a notice when it comes
-    /// ([`UiEvent::Credits`]).
+    /// the moment it is typed: on a thread of its own, because the question
+    /// opens a socket and the thread that holds the terminal waits on none --
+    /// and not through the work queue, so a turn that is running does not
+    /// hold it, a full queue does not refuse it, and a Ctrl-C does not drop it
+    /// ([`super::credits_ask`]). What to ask is the runtime's last
+    /// publication; a provider with nothing to ask answers at once.
     fn credits(&mut self) {
-        if let Err(rejected) = self.work.submit(TurnWork::Credits) {
-            self.refused(rejected);
+        let started = match self.work.credits_question() {
+            Ok(question) => self.credit_asks.start(question),
+            Err(answer) => Err(answer),
+        };
+        if let Err(answer) = started {
+            self.say_credits(answer);
         }
     }
 
@@ -8336,12 +8971,47 @@ impl CommandHandlers for Shell {
     /// ([`Self::choose_mode`]) and answered here at once, as upstream answers
     /// it; anything else is the usage line.
     fn permissions(&mut self, argument: &str) {
-        use crate::permission::slash::Request;
-        match Request::parse(argument) {
+        use crate::permission::slash::{self, Managed, Request};
+        let request = Request::parse(argument);
+        let rules_path = self.work.saved_rules_path();
+        let managed = slash::manage(
+            &request,
+            rules_path.as_deref(),
+            self.asking(),
+            |tool, arguments| self.prepare_rule_action(tool, arguments),
+        );
+        if let Some(managed) = managed {
+            match managed {
+                Managed::Say { tone, topic, body } => {
+                    self.announce(allowlist_notice(tone, topic, body));
+                }
+                Managed::Confirm(confirmation) => {
+                    // The slot's other occupants close, as a question's
+                    // arrival closes them: one thing at a time has the focus.
+                    self.picker = None;
+                    self.help_menu = None;
+                    self.statusline_menu = None;
+                    self.settings_menu = None;
+                    self.usage_menu = None;
+                    self.rule_confirm = Some(RuleConfirm::new(confirmation));
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
+            }
+            return;
+        }
+        match request {
+            Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage => {
+                unreachable!("`manage` answers every rule-management form")
+            }
             Request::Show => {
                 let grants = self.work.grants();
-                self.announce(permissions::status(self.mode, &grants));
-                self.announce(permissions::saved_rules());
+                let rules = self.work.rules().current();
+                self.announce(permissions::status(self.mode, &rules, &grants));
+                self.announce(match slash::saved_rules_at(rules_path.as_deref()) {
+                    Ok(body) => permissions::saved_rules(&body),
+                    Err(reason) => notice::Notice::error(slash::TOPIC, reason),
+                });
             }
             Request::Select(mode) => {
                 if self.choose_mode(Change::Mode(mode), mode) {
@@ -8357,6 +9027,32 @@ impl CommandHandlers for Shell {
         }
     }
 
+    /// Upstream's `/allowlist` (`handleAllowlist`,
+    /// `session_commands.zig:396-444`): one transcript notice per answer, and
+    /// a table read back from the file put in force for the very next tool
+    /// call -- of a turn already running too -- through the live handle every
+    /// conversation decides with ([`WorkHandle::rules`]).
+    ///
+    /// Done here, on the thread that holds the terminal, as `/statusline`'s
+    /// write is and as upstream's is: the write is a read, a change and a
+    /// rename of one small file under the settings lock, and the answer is
+    /// owed before the next keystroke is read.
+    fn allowlist(&mut self, argument: &str) {
+        use crate::permission::allowlist;
+        let outcome = allowlist::run(
+            argument,
+            self.settings_path.as_deref(),
+            &self.workspace,
+            |name| crate::tools::ADVERTISED_TOOLS.contains(&name),
+        );
+        if let Some(table) = outcome.in_force {
+            self.work.rules().replace(table);
+        }
+        for answer in outcome.answers {
+            self.announce(allowlist_notice(answer.tone, answer.topic, answer.body));
+        }
+    }
+
     /// Upstream's `commandHandleStatusline` (`app_commands.zig:2094-2107`):
     /// bare, the picker opens on its first row in place of the composer, and
     /// the menus that share its slot close; with an item, that item flips and
@@ -8367,6 +9063,7 @@ impl CommandHandlers for Shell {
             self.picker = None;
             self.file_picker = None;
             self.help_menu = None;
+            self.workspace_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -8379,6 +9076,103 @@ impl CommandHandlers for Shell {
             return;
         };
         self.set_statusline(item, !self.statusline.get(item), true);
+    }
+
+    /// Upstream's `commandHandleWorkspace` and `handleWorkspaceCommand`
+    /// (`app_commands.zig:2119-2152`, `:245-328`).
+    ///
+    /// **Bare**, the saved directories are looked at again -- only while
+    /// nothing runs, as upstream's refresh is (`refreshWorkspaceAvailabilityForList`,
+    /// `:224-230`) -- and the picker opens on `Add directory…` in place of the
+    /// composer, the menus that share its slot closed. **`list`** says the
+    /// snapshot. **A change** is the runtime's to make, because it changes the
+    /// scope a turn runs in: while a turn runs or one waits it is refused at
+    /// once with upstream's neutral notice, and otherwise it goes as work,
+    /// answered by [`UiEvent::Workspace`] with the snapshot -- or the refusal --
+    /// and the directories now in force. **Anything else** is upstream's usage
+    /// line, an error with no topic.
+    fn workspace(&mut self, argument: &str) {
+        let action = match workspace_access::parse(argument) {
+            Ok(action) => action,
+            Err(()) => {
+                self.write_notice(&notice::Notice::error("", workspace_access::USAGE));
+                return;
+            }
+        };
+        let Some(action) = action else {
+            if self.work.outstanding() == 0 {
+                let refreshed = self.workspace_access.refreshed();
+                if refreshed != self.workspace_access {
+                    self.adopt_workspace(refreshed);
+                }
+            }
+            if argument.is_empty() {
+                // Every menu that shares the slot goes, as upstream's
+                // command closes them (`app_commands.zig:2141-2146`).
+                self.picker = None;
+                self.file_picker = None;
+                self.help_menu = None;
+                self.sessions = None;
+                self.model_menu = None;
+                self.provider_picker = None;
+                self.statusline_menu = None;
+                self.usage_menu = None;
+                self.settings_menu = None;
+                self.workspace_menu = Some(workspace_menu::Menu::open());
+                self.refit();
+                self.render.request(Reason::Modal);
+            } else {
+                self.write_notice(&notice::Notice::neutral(
+                    workspace_access::TOPIC,
+                    workspace_access::snapshot(&self.workspace, &self.workspace_access, None),
+                ));
+            }
+            return;
+        };
+        if self.work.outstanding() > 0 {
+            self.write_notice(&notice::Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::BUSY,
+            ));
+            return;
+        }
+        if let Err(rejected) = self.work.submit(TurnWork::Workspace(action)) {
+            self.refused(rejected);
+        }
+    }
+
+    /// `/compact` (`request_context_compaction`, `input_submit_runtime.zig:
+    /// 139-161`), in upstream's order: a compaction already running is
+    /// answered by nothing; a conversation with no turn in it is `No context
+    /// to compact.`; a turn running or a prompt waiting is the busy warning,
+    /// and the user is told to wait rather than having it queued; otherwise
+    /// the runtime is asked, and the row says `Preparing compaction` from this
+    /// keystroke on. Nothing is written into the document, in any case.
+    ///
+    /// The runtime decides the rest -- whether anything is older than the
+    /// turns a compaction keeps, which is a question about the conversation
+    /// it holds -- and answers on the row ([`UiEvent::Compaction`]).
+    fn compact(&mut self) {
+        let now = Instant::now();
+        if self.compacting() {
+            return;
+        }
+        if self.work.status().history_turns == 0 {
+            self.compaction = Some(Compaction::refused(compaction::Feedback::NoOp, now));
+            return;
+        }
+        // A turn, running or waiting: upstream's `isProcessing` and
+        // `queuedPromptCount` (`input_submit_runtime.zig:148-153`). Other work
+        // -- a catalog read, a listing -- is not a conversation a compaction
+        // would cut into, and it queues behind that as it would behind a turn.
+        if self.activity.working() || !self.prompts.is_empty() {
+            self.compaction = Some(Compaction::refused(compaction::Feedback::Busy, now));
+            return;
+        }
+        match self.work.submit(TurnWork::Compact) {
+            Ok(()) => self.compaction = Some(Compaction::began(false)),
+            Err(rejected) => self.refused(rejected),
+        }
     }
 
     /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
@@ -8418,6 +9212,7 @@ impl CommandHandlers for Shell {
         self.usage_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
+        self.workspace_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
@@ -8515,6 +9310,77 @@ impl CommandHandlers for Shell {
     /// could not be started is said before the level, as upstream says a
     /// failed one, and a save that fails later is said when it does
     /// ([`Self::settle_saves`]).
+    /// `/image <path>` (and `/img`): upstream's `attachPath`
+    /// (`image_commands.zig:22-57`). Nothing after it is the usage line, an
+    /// error with no topic; a path that cannot be attached says why under
+    /// `images`; one that can puts its badge at the caret and says
+    /// `attached image: <name>`. The file is read now, whole, and what was read
+    /// is what every request sends ([`crate::image`]).
+    fn image(&mut self, argument: &str) {
+        if argument.trim_matches([' ', '\t']).is_empty() {
+            self.write_notice(&notice::Notice::error("", crate::image::USAGE));
+            return;
+        }
+        match crate::image::load(&self.workspace, self.home.as_deref(), argument) {
+            Err(problem) => self.announce(notice::Notice::error(
+                crate::image::TOPIC,
+                problem.to_string(),
+            )),
+            Ok((path, media_type, bytes)) => {
+                let image = crate::image::Image::new(
+                    self.images_next,
+                    path,
+                    media_type,
+                    std::sync::Arc::from(bytes),
+                );
+                let name = image.name();
+                let body = if self.attach(image) {
+                    format!("attached image: {name}")
+                } else {
+                    crate::image::INPUT_FULL.to_string()
+                };
+                self.announce(notice::Notice::neutral(crate::image::TOPIC, body));
+            }
+        }
+    }
+
+    /// `/images [clear]`: upstream's `managePending`
+    /// (`image_commands.zig:58-84`). `clear` drops every attachment -- the
+    /// badges are the attachments, so the draft they stand in goes -- and
+    /// anything else lists them, `N pending` with one ` - <name> (<type>)` row
+    /// each. Neutral throughout, under `images`.
+    ///
+    /// The list is the badges in the draft, in the order they stand: the only
+    /// way to have one when this runs is to have typed the command after them
+    /// ([`Self::submit`]'s retained badges).
+    fn images(&mut self, argument: &str) {
+        if argument.trim_matches([' ', '\t']) == "clear" {
+            self.clear_composer();
+            self.announce(notice::Notice::neutral(
+                crate::image::TOPIC,
+                crate::image::CLEARED,
+            ));
+            return;
+        }
+        let rows: Vec<String> = self
+            .editor
+            .entities()
+            .images()
+            .map(|image| format!(" - {} ({})", image.name(), image.media_type.label()))
+            .collect();
+        let body = if rows.is_empty() {
+            crate::image::NONE_PENDING.to_string()
+        } else {
+            format!("{} pending\n{}", rows.len(), rows.join("\n"))
+        };
+        self.announce(notice::Notice::neutral(crate::image::TOPIC, body));
+    }
+
+    /// `/paste`: the clipboard's image, as Ctrl-V reads it.
+    fn paste(&mut self) {
+        self.paste_image();
+    }
+
     fn sound(&mut self, argument: &str) {
         let Some(request) = crate::sound::Request::parse(argument) else {
             self.write_notice(&notice::Notice::error("", crate::sound::USAGE));
@@ -8964,6 +9830,9 @@ impl Shell {
         self.cancel_owed = None;
         self.cancel_covers = 0;
         self.retry = None;
+        // A compaction's sentence is about the conversation being dropped
+        // (`retireLiveSessionCompaction`, `app_session_runtime.zig:1958-1964`).
+        self.compaction = None;
         self.context_used = None;
         // The old screen's debts: the text the pacer holds, the lines placed
         // behind it, the answer block a cancelled turn left open, and -- once
@@ -9062,6 +9931,12 @@ impl Shell {
                 self.gestures.turn_ended();
                 true
             }
+            // A compaction the reset stopped: its sentence is about the
+            // conversation that was dropped.
+            UiEvent::Compaction(_) => {
+                self.compaction = None;
+                true
+            }
             // The fence itself, the runtime's own state, and a runtime that is
             // gone: shown as usual. A provider switch or a model change that
             // completed before the cancellation reached it really did happen.
@@ -9069,12 +9944,12 @@ impl Shell {
             // change, or was refused, and saying nothing would make it a change
             // nobody was told of.
             UiEvent::Fresh { .. }
-            | UiEvent::Credits(_)
             | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
             | UiEvent::Renamed { .. }
+            | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
             | UiEvent::CatalogLoaded { .. }
@@ -9354,6 +10229,10 @@ impl Shell {
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Column) => model_column::height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
+            Some(Slot::Workspace(_)) => {
+                workspace_menu::Menu::height(rows, self.workspace_access.entries())
+            }
+            Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
             | Some(Slot::Settings(_))
@@ -9404,7 +10283,7 @@ impl Shell {
         // model's own batch alike: upstream's question replaces the composer
         // rather than sitting under it ([`layout::fits_approval`];
         // `fx-question-40x120-q1`), so the band is solved with none.
-        if self.panel.is_some() || self.ask.is_some() {
+        if self.panel.is_some() || self.ask.is_some() || matches!(slot, Some(Slot::Rule(_))) {
             return layout::solve_band(rows, cols, 0, activity, fixed)
                 .map(|geometry| geometry.floated(self.document_rows));
         }
@@ -9415,9 +10294,13 @@ impl Shell {
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
         //
-        // `/usage`'s dashboard is the same kind of occupant, and gives up rows
-        // the same way (`composeConstrainedUsageRow`).
-        if matches!(slot, Some(Slot::Statusline(_)) | Some(Slot::Usage(_))) {
+        // `/usage`'s dashboard and the `/workspace` picker are the same kind
+        // of occupant, and give up rows the same way
+        // (`composeConstrainedUsageRow`, `composeWorkspaceRow`).
+        if matches!(
+            slot,
+            Some(Slot::Statusline(_)) | Some(Slot::Usage(_)) | Some(Slot::Workspace(_))
+        ) {
             return (1..=fixed)
                 .rev()
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
@@ -9610,12 +10493,29 @@ fn first_word(text: &str) -> (&str, &str) {
     }
 }
 
+/// A transcript notice in one of the tones `/allowlist` and `/permissions`
+/// answer in.
+fn allowlist_notice(
+    tone: crate::permission::allowlist::Tone,
+    topic: &str,
+    body: impl Into<String>,
+) -> notice::Notice {
+    use crate::permission::allowlist::Tone;
+    match tone {
+        Tone::Neutral => notice::Notice::neutral(topic, body),
+        Tone::Warning => notice::Notice::warning(topic, body),
+        Tone::Error => notice::Notice::error(topic, body),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
 
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
@@ -15017,7 +15917,7 @@ mod tests {
                 "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
                  upstream exploded \u{b7} retrying request in 1s",
                 "  kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
-                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: ",
+                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error:",
                 "  upstream exploded",
             ],
             "{screen:#?}"
@@ -15515,8 +16415,8 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, `/help`, `/model`, `/provider` and a bare `/statusline`
-            // the ones whose answer is in the band, and the reset's three names answer
+            // a row, `/help`, `/model`, `/provider`, a bare `/statusline` and a
+            // bare `/workspace` the ones whose answer is in the band, and the reset's three names answer
             // with a fresh screen and say nothing (`fx-sessions-40x120-new.txt`);
             // every other one says something, as a notice.
             if *name == "/quit" {
@@ -15567,12 +16467,15 @@ mod tests {
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/credits" {
-                // Asked of the runtime, which answers with the notice; the
-                // UI thread waits on no socket.
-                assert_eq!(shell.picks_up(), TurnWork::Credits);
-                assert!(
-                    document.is_empty(),
-                    "/credits answered before it was asked: {document:?}"
+                // Off the work queue: a provider with nothing to ask -- this
+                // fixture's -- answers at once, as a notice.
+                assert!(shell.sent.try_recv().is_err(), "/credits was queued");
+                assert_eq!(
+                    document,
+                    said(notice::Notice::error(
+                        "credits",
+                        crate::credits::UNAVAILABLE
+                    ))
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/statusline" {
@@ -15583,6 +16486,31 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/statusline wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/workspace" {
+                // A bare `/workspace` is upstream's compact picker
+                // (`cap/fx-workspace-40x120-bare`), in the band too.
+                assert!(
+                    shell.workspace_menu.is_some(),
+                    "/workspace opened no picker"
+                );
+                assert!(
+                    document.is_empty(),
+                    "/workspace wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/paste" {
+                // The clipboard is read on a thread of its own, so its answer
+                // is the read's -- this shell reads nowhere, and says so
+                // (`super::copy::NOWHERE`).
+                assert_eq!(
+                    read_settled(&mut shell),
+                    said(notice::Notice::error(
+                        "images",
+                        "failed to paste clipboard image: FileNotFound"
+                    )),
+                    "/paste did not answer"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/settings" {
@@ -15610,6 +16538,30 @@ mod tests {
                 assert_eq!(
                     copy_settled(&mut shell),
                     said(notice::Notice::error("", crate::trace::UNAVAILABLE))
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/compact" {
+                // Upstream writes nothing of a compaction into the document;
+                // the row above the divider is its answer -- here, with no
+                // conversation, `No context to compact.`
+                // (`fx-compact-40x120-empty-0.3s`).
+                assert!(
+                    document.is_empty(),
+                    "/compact wrote to the document: {document:?}"
+                );
+                assert_eq!(
+                    shell.compaction.as_ref().map(|c| c.row(
+                        Instant::now(),
+                        0,
+                        80,
+                        Duration::ZERO,
+                        super::super::activity::Colours {
+                            label: "",
+                            dim: "",
+                            reset: ""
+                        }
+                    )),
+                    Some(Some(compaction::Row::Feedback(compaction::Feedback::NoOp)))
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
@@ -15683,8 +16635,12 @@ mod tests {
 
     /// Turns the loop until a `/copy` or a `/trace` that is running on its own
     /// thread has said how it went, and hands back what the document gained.
+    ///
+    /// A minute, because the fake tools are fresh scripts and macOS assesses
+    /// one the first time it runs -- 8 to 12 s on a machine at load 35 -- and
+    /// no case here is about how fast a tool starts.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         loop {
             shell.settle_band(Instant::now());
             let document = shell.document();
@@ -15957,6 +16913,32 @@ mod tests {
             traced(&path)
         };
         assert_eq!(document, expected);
+    }
+
+    #[test]
+    fn a_notice_naming_a_path_wraps_where_upstreams_does() {
+        // `fx-trace-40x120-copy-fail.txt` rows 15-16, the path as fx's run
+        // had it: the notice breaks after `fxtmp/` and drops nothing but the
+        // space it would otherwise have hung (`scanNoticeLine`,
+        // `transcript_blocks.zig:1651-1702`).
+        let mut shell = shell(40, 120);
+        shell.announce(notice::Notice::error(
+            "",
+            crate::trace::Disposition::CopyFailed(std::path::PathBuf::from(
+                "/private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                 fx-trace-2026-10-06-213606-c51761bbc7ce.md",
+            ))
+            .sentence(),
+        ));
+        assert_eq!(
+            shell.document(),
+            [
+                "\u{2717} Clipboard copy failed. Trace saved at \
+                 /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                "  fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
+                "",
+            ]
+        );
     }
 
     #[test]
@@ -16398,8 +17380,7 @@ mod tests {
 
     #[test]
     fn a_bare_permissions_is_upstreams_two_notices_and_changes_nothing() {
-        // `cap/fx-permissions-40x120-bare.txt`, less the two usage rows that
-        // name `remember` and `revoke`, which xfx does not have.
+        // `cap/fx-permissions-40x120-bare.txt`.
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/permissions\r");
         assert_eq!(
@@ -16409,6 +17390,9 @@ mod tests {
                 "  configured rules: (none)".to_string(),
                 "  session grants: (none)".to_string(),
                 "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                "         /permissions remember <allow|deny> <tool-name> <arguments-json>"
+                    .to_string(),
+                "         /permissions revoke <rule-id>".to_string(),
                 String::new(),
                 "* permissions: saved-session permission rules: none".to_string(),
                 String::new(),
@@ -16442,6 +17426,325 @@ mod tests {
                 "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
             ],
             "{document:?}"
+        );
+    }
+
+    /// A 40x120 shell over a profile the test keeps alive, so `/allowlist`
+    /// has a file to write.
+    fn allowlist_shell() -> (tempfile::TempDir, tempfile::TempDir, Fixture) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let (work, sent, control, _changes) = WorkHandle::detached_with_changes();
+        let fixture = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        (home, workspace, fixture)
+    }
+
+    #[test]
+    fn an_allowlist_change_is_one_notice_and_in_force_for_the_next_decision() {
+        use crate::permission::{ConfiguredRule, RuleAction};
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(b"/allowlist add command \"git *\"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* allowlist: added command: \"git *\" (scope=local)".to_string(),
+                String::new(),
+            ]
+        );
+        // The handle every conversation decides with holds it now: the next
+        // tool call is judged by it without a restart (trap (d)).
+        assert_eq!(
+            shell.work.rules().current().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "nothing went to the runtime"
+        );
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert_eq!(
+            document[..4],
+            [
+                "* permissions: mode=auto".to_string(),
+                "  configured rules:".to_string(),
+                "   - allow bash -> git *".to_string(),
+                "  session grants: (none)".to_string(),
+            ],
+            "{document:?}"
+        );
+    }
+
+    /// `row` with every SGR sequence taken out: what a confirmation's rows
+    /// say, whatever they are painted in.
+    fn sgr_free(row: &str) -> String {
+        let mut out = String::with_capacity(row.len());
+        let mut rest = row;
+        while let Some(at) = rest.find("\u{1b}[") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            match after.find('m') {
+                Some(end) => rest = &after[end + 1..],
+                None => {
+                    rest = "";
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A shell whose runtime has published a saved session's rule store, in
+    /// a workspace the test keeps.
+    fn remembering_shell() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        std::path::PathBuf,
+        Fixture,
+    ) {
+        let (home, workspace, shell) = allowlist_shell();
+        let session = home.path().join("session");
+        std::fs::create_dir_all(&session).expect("a session directory");
+        let rules = crate::permission::session_rules::path_in(&session);
+        shell.work.publish_saved_rules(Some(rules.clone()));
+        (home, workspace, rules, shell)
+    }
+
+    #[test]
+    fn remember_needs_a_saved_session_and_says_so_in_upstreams_words() {
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a\",\"content\":\"x\"}\r",
+        );
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "✗ permissions: saved-session permission rules require an active saved session"
+                    .to_string(),
+                String::new(),
+                "✗ permissions: saved-session permission rules require an active saved session"
+                    .to_string(),
+                String::new(),
+            ]
+        );
+        assert!(shell.rule_confirm.is_none());
+    }
+
+    #[test]
+    fn remember_opens_upstreams_confirmation_and_enter_keeps_the_rule() {
+        let (_home, workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
+        let at = band
+            .iter()
+            .position(|row| row.contains("Permission needed · Choose one"))
+            .expect("the confirmation is up");
+        assert!(band[at].ends_with("Permission rule"), "{band:?}");
+        assert_eq!(band[at + 2], "  Remember allow for this saved session?");
+        assert_eq!(
+            band[at + 3],
+            "  Confirm this exact saved-session permission rule. The action will not run."
+        );
+        // `sha256("x")`'s first eight bytes, as upstream shows them.
+        assert_eq!(
+            band[at + 4],
+            "  $ write_file a.txt preimage=absent after=2d711642b726b044"
+        );
+        assert_eq!(band[at + 6], "  ❯ 1. Confirm");
+        assert_eq!(band[at + 7], "    2. Cancel");
+        assert_eq!(
+            sgr_free(shell.band_rows().last().expect("a hint row")),
+            "1–2 choose    enter confirm    esc cancel"
+        );
+        assert!(
+            !workspace.path().join("a.txt").exists(),
+            "the action did not run"
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
+        );
+        let state = crate::permission::session_rules::load(&rules).expect("the store");
+        assert_eq!(state.rules.len(), 1);
+        assert_eq!(
+            state.rules[0].display,
+            "write_file a.txt preimage=absent after=2d711642b726b044"
+        );
+        // Listed under the bare command, and revoked through the same band.
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert!(
+            document.contains(&"* permissions: saved-session permission rules (1):".to_string()),
+            "{document:?}"
+        );
+        assert!(document.contains(
+            &"  1 allow write_file a.txt preimage=absent after=2d711642b726b044".to_string()
+        ));
+        shell.route_bytes(b"/permissions revoke 1\r");
+        let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
+        assert!(band.contains(&"  Revoke this saved-session permission rule?".to_string()));
+        assert!(band.contains(
+            &"  Confirm revocation of this stored rule. No current action will be prepared or run."
+                .to_string()
+        ));
+        shell.route_bytes(b"1");
+        assert!(crate::permission::session_rules::load(&rules)
+            .expect("the store")
+            .rules
+            .is_empty());
+        assert_eq!(
+            shell.document().iter().rev().nth(1).map(String::as_str),
+            Some("* permissions: saved-session permission rule updated")
+        );
+    }
+
+    #[test]
+    fn a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can() {
+        // Upstream prepares a rule under the session's own scope, added roots
+        // and all (`.access_scope = input.access_scope`,
+        // `tool_admission.zig:2270-2289`), so a write the session may make in
+        // an added directory is a write it may remember -- and, like any
+        // other, it does not run.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        let added = tempfile::tempdir().expect("an added directory");
+        let added = added.path().canonicalize().expect("canonical");
+        shell.workspace_access = WorkspaceAccess::load(
+            &shell.workspace.clone(),
+            &[added.to_string_lossy().into_owned()],
+        );
+        let target = added.join("plan.md");
+        let line = format!(
+            "/permissions remember allow write_file {{\"path\":\"{}\",\"content\":\"x\"}}\r",
+            target.display()
+        );
+        shell.route_bytes(line.as_bytes());
+        assert!(
+            shell.rule_confirm.is_some(),
+            "not prepared: {:?}",
+            shell.document()
+        );
+        let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
+        assert!(
+            band.iter().any(|row| row.contains(&format!(
+                "$ write_file {} preimage=absent",
+                target.display()
+            ))),
+            "{band:?}"
+        );
+        assert!(!target.exists(), "the action ran");
+        // A directory that is not one of the session's is still refused.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        let outside = tempfile::tempdir().expect("elsewhere");
+        let line = format!(
+            "/permissions remember allow write_file {{\"path\":\"{}\",\"content\":\"x\"}}\r",
+            outside
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("x.md")
+                .display()
+        );
+        let _ = shell.document();
+        shell.route_bytes(line.as_bytes());
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.document().first().map(String::as_str),
+            Some("✗ permissions: could not prepare that exact permission action without executing it")
+        );
+    }
+
+    #[test]
+    fn escape_closes_the_confirmation_silently_and_two_says_cancelled() {
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
+        assert!(shell.rule_confirm.is_some());
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.rule_confirm.is_none(), "Escape closes it");
+        assert!(shell.document().is_empty(), "{:?}", shell.document());
+        shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
+        shell.route_bytes(b"2");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission change cancelled".to_string(),
+                String::new(),
+            ]
+        );
+        assert!(!rules.exists(), "nothing was kept");
+    }
+
+    #[test]
+    fn a_remember_that_cannot_be_prepared_or_a_revoke_of_nothing_says_why() {
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        for line in [
+            &b"/permissions remember allow bash {\"command\":\"ls\"}\r"[..],
+            b"/permissions remember allow write_file not-json\r",
+            b"/permissions remember allow read_file {\"path\":\"a\"}\r",
+        ] {
+            shell.route_bytes(line);
+        }
+        shell.route_bytes(b"/permissions revoke 99\r");
+        shell.route_bytes(b"/permissions revoke abc\r");
+        let prepared =
+            "✗ permissions: could not prepare that exact permission action without executing it";
+        assert_eq!(
+            shell.document(),
+            vec![
+                prepared.to_string(),
+                String::new(),
+                prepared.to_string(),
+                String::new(),
+                prepared.to_string(),
+                String::new(),
+                "! permissions: saved-session permission rule not found".to_string(),
+                String::new(),
+                "✗ usage: /permissions remember <allow|deny> <tool-name> <arguments-json>"
+                    .to_string(),
+                "         /permissions revoke <rule-id>".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_allowlist_refusal_and_a_listing_are_said_in_upstreams_tones() {
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(b"/allowlist bogus\r");
+        shell.route_bytes(b"/allowlist add tool web_fetch\r");
+        shell.route_bytes(b"/allowlist\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "✗ usage: /allowlist [view [effective|local|user]|[local|user] add|remove|reset ...]"
+                    .to_string(),
+                String::new(),
+                "✗ usage: /allowlist add [command|tool|url|web-fetch-domain] <pattern>".to_string(),
+                String::new(),
+                "* allowlist: effective persistent allow rules: (none)".to_string(),
+                String::new(),
+            ]
         );
     }
 
@@ -16552,20 +17855,18 @@ mod tests {
 
     #[test]
     fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing() {
-        // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic.
-        // `remember` and `revoke` are upstream's and answered the same way.
+        // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic, and
+        // its two continuation rows.
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
-        for typed in [
-            "bogus",
-            "remember allow write_file {}",
-            "revoke 1",
-            "reset now",
-        ] {
+        for typed in ["bogus", "reset now", "full"] {
             shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
             assert_eq!(
                 shell.document(),
                 vec![
                     "\u{2717} usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                    "         /permissions remember <allow|deny> <tool-name> <arguments-json>"
+                        .to_string(),
+                    "         /permissions revoke <rule-id>".to_string(),
                     String::new(),
                 ],
                 "{typed}"
@@ -17102,9 +18403,12 @@ mod tests {
                 "* status: model=a",
                 "  history_turns=0",
                 "",
-                "\u{2717} command: Unknown ",
-                "  command. Try ",
-                "  /help.",
+                // `scanNoticeLine` (`transcript_blocks.zig:1674-1702`): the
+                // space a row breaks at is on neither row, and `/help` breaks
+                // after its `/`.
+                "\u{2717} command: Unknown",
+                "  command. Try /",
+                "  help.",
                 "",
             ]
         );
@@ -17390,6 +18694,7 @@ mod tests {
             title: title.map(str::to_string),
             turns,
             model: None,
+            next_image: 1,
         }
     }
 
@@ -17402,6 +18707,7 @@ mod tests {
     ) -> HydratedTurn {
         HydratedTurn {
             user: user.to_string(),
+            sent: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
             started_at_ms: 0,
@@ -17710,6 +19016,7 @@ mod tests {
                     ),
                     HydratedTurn {
                         user: "and then".to_string(),
+                        sent: "and then".to_string(),
                         steps: Vec::new(),
                         ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
                         started_at_ms: 0,
@@ -21888,8 +23195,12 @@ mod tests {
     }
 
     /// Turns of the loop until the selection copies have answered.
+    ///
+    /// A minute, as `copy_settled` waits: the fake tool is a fresh script,
+    /// which macOS assesses on its first run -- past ten seconds at load 60,
+    /// where this failed in a fault-injection run.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -22242,8 +23553,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 7,
-            "/clear, /new, /reset, /resume, /rename, /undo and /copy"
+            2 + 8,
+            "/clear, /new, /reset, /resume, /rename, /undo, /copy and /compact"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -23047,6 +24358,285 @@ mod tests {
             output: None,
         });
         assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
+    }
+
+    // -----------------------------------------------------------------------
+    // `/workspace`: the picker, the text forms, and the runtime's answer
+    // -----------------------------------------------------------------------
+
+    /// The profile under `root` with `dirs` saved for its workspace, and the
+    /// workspace's real path.
+    fn workspace_profile(root: &std::path::Path, dirs: &[&std::path::Path]) -> std::path::PathBuf {
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let key = workspace.canonicalize().expect("canonical");
+        let profile = root.join("home").join(".xfx");
+        std::fs::create_dir_all(&profile).expect("a profile");
+        let saved: Vec<String> = dirs
+            .iter()
+            .map(|dir| {
+                dir.canonicalize()
+                    .expect("canonical")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        std::fs::write(
+            profile.join("settings.json"),
+            serde_json::json!({"workspaces": {key.to_string_lossy(): {"additional_directories": saved}}})
+                .to_string(),
+        )
+        .expect("a profile");
+        key
+    }
+
+    #[test]
+    fn a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer() {
+        // `cap/fx-workspace-40x120-bare`: the rule, `Workspace`, a blank, the
+        // two pinned rows, a blank, `❯ Add directory…`, the rule and the key
+        // help -- and nothing written, nothing sent.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.document().is_empty(), "the picker wrote a notice");
+        assert!(shell.workspace_menu.is_some());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.panel, 6);
+        let rows = shell.band_rows();
+        assert_eq!(rows[0], divider(120));
+        let primary = shell.workspace.to_string_lossy().into_owned();
+        assert_eq!(
+            uncoloured_rows(&rows[1..7]),
+            [
+                "Workspace".to_string(),
+                String::new(),
+                format!("  Primary                   {primary}"),
+                "  Additional directories    0 / 16".to_string(),
+                String::new(),
+                "\u{276f} Add directory\u{2026}             Grant access to another directory"
+                    .to_string(),
+            ]
+        );
+        assert_eq!(rows[7], divider(120));
+        assert_eq!(
+            rows[8],
+            format!(
+                "{}\u{2191}\u{2193} navigate     enter use     esc close{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 5, 0));
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/workspace reached the runtime"
+        );
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+    }
+
+    #[test]
+    fn enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing() {
+        // `cap/fx-workspace2-40x120-add-row-enter`, `-dir-enter`,
+        // `cap/fx-workspace3-40x120-clear-prefill`; fx e2e
+        // `tui-slash-menu.test.ts:2340-2373`.
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let extra = extra.canonicalize().expect("canonical");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+
+        for (downs, command) in [
+            (0, "/workspace add ".to_string()),
+            (1, format!("/workspace remove {}", extra.display())),
+            (2, "/workspace clear".to_string()),
+        ] {
+            shell.route_bytes(b"/workspace\r");
+            assert_eq!(shell.geometry.panel, 8, "{command}");
+            for _ in 0..downs {
+                shell.route_bytes(b"\x1b[B");
+            }
+            shell.route_bytes(b"\r");
+            assert!(shell.workspace_menu.is_none(), "{command}");
+            assert_eq!(shell.editor.text(), command);
+            assert!(shell.sent.try_recv().is_err(), "{command} ran");
+            assert!(shell.document().is_empty(), "{command} said something");
+            assert!(
+                shell.band_rows().contains(&composer_row(&command)),
+                "{command}: {:?}",
+                shell.band_rows()
+            );
+            // Ctrl-U empties it, as the e2e does between the two.
+            shell.route_bytes(&[0x15]);
+            assert!(shell.editor.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_workspace_pickers_keys_wrap_swallow_and_close() {
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .workspace_menu
+                .expect("up")
+                .command(shell.workspace_access.entries())
+        };
+        // Up from the first wraps to the last; Ctrl-J and Ctrl-K walk too.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(marked(&shell), "/workspace clear");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(marked(&shell), "/workspace add ");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(marked(&shell), "/workspace clear");
+        // Letters, Left and Right, a Ctrl-C: swallowed, picker still up.
+        shell.route_bytes(b"x\x1b[C\x1b[D");
+        shell.route_bytes(&[0x03]);
+        assert!(shell.workspace_menu.is_some());
+        assert!(shell.editor.is_empty());
+        assert_eq!(marked(&shell), "/workspace clear");
+        escape(&mut shell);
+        assert!(shell.workspace_menu.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn a_saved_directory_is_listed_and_counted_from_the_profile_at_launch() {
+        // `cap/fx-workspace2-40x120-picker-one`.
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let extra = extra.canonicalize().expect("canonical");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        let rows = uncoloured_rows(&shell.band_rows()[1..9]);
+        assert_eq!(rows[3], "  Additional directories    1 / 16");
+        assert_eq!(
+            rows[6],
+            format!("  {}    Active \u{b7} Saved", extra.display())
+        );
+        assert_eq!(
+            rows[7].trim_end(),
+            format!(
+                "  Clear saved directories{}Remove every saved additional directory",
+                " ".repeat(extra.to_string_lossy().len() + 4 - 23)
+            )
+        );
+    }
+
+    #[test]
+    fn workspace_list_says_the_snapshot_and_bad_words_say_the_usage() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        let primary = shell.workspace.to_string_lossy().into_owned();
+        shell.route_bytes(b"/workspace list\r");
+        assert_eq!(
+            shell.document(),
+            [
+                format!("* workspace: primary={primary}"),
+                "  saved_suppressed=false limit=16".to_string(),
+                "  additional directories: (none)".to_string(),
+                String::new(),
+            ]
+        );
+        for typed in [
+            "/workspace bogus\r",
+            "/workspace add\r",
+            "/workspace add   \r",
+        ] {
+            shell.route_bytes(typed.as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /workspace [add PATH|remove PATH|clear]"
+                )),
+                "{typed:?}"
+            );
+        }
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refusal reached the runtime"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_goes_to_the_runtime_and_its_answer_is_said_and_kept() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace add ../extra\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Workspace(workspace_access::Action::Add("../extra".to_string()))
+        );
+        assert!(
+            shell.document().is_empty(),
+            "the band answered for the runtime"
+        );
+
+        let entries =
+            WorkspaceAccess::load(&shell.workspace.clone(), &["/somewhere/extra".to_string()]);
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "primary=/w\nadditional directories:"),
+            access: Some(entries.clone()),
+        });
+        assert_eq!(shell.workspace_access, entries);
+        assert_eq!(
+            shell.document(),
+            [
+                "* workspace: primary=/w".to_string(),
+                "  additional directories:".to_string(),
+                String::new(),
+            ]
+        );
+        // A refusal says so and keeps the directories as they were.
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::error(
+                "workspace",
+                "Workspace update rejected: directory does not exist",
+            ),
+            access: None,
+        });
+        assert_eq!(shell.workspace_access, entries);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "workspace",
+                "Workspace update rejected: directory does not exist"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_is_refused_while_a_turn_is_in_hand() {
+        // `tryBeginWorkspaceMutation` (`app_commands.zig:219-222`): no change
+        // while anything runs or waits, and upstream's neutral sentence.
+        let mut shell = shell(40, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/workspace clear\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "workspace",
+                "Workspace changes are unavailable until the active and queued work finishes."
+            ))
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the change was queued anyway"
+        );
+        // The snapshot and the picker are not changes, and still answer.
+        shell.route_bytes(b"/workspace list\r");
+        assert!(shell.document()[0].starts_with("* workspace: primary="));
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.workspace_menu.is_some());
     }
 
     // -----------------------------------------------------------------------
@@ -25117,7 +26707,7 @@ mod tests {
             screen[at + 1..at + 4],
             [
                 format!(
-                    "  tools: {} advertised ({}, +1 ",
+                    "  tools: {} advertised ({}, +1",
                     crate::tools::ADVERTISED_TOOLS.len(),
                     crate::tools::ADVERTISED_TOOLS[..8].join(", ")
                 ),
@@ -25578,6 +27168,442 @@ mod tests {
         assert!(!shell.full.is_open());
     }
 
+    // -- /image, /images, /paste and Ctrl-V ---------------------------------
+
+    /// A workspace holding upstream's capture files -- `shot.png` (the 73-byte
+    /// PNG), `notes.txt`, `huge.png` one byte over the ceiling with a PNG
+    /// signature, and a directory -- and the shell reading from it.
+    struct Attaching {
+        shell: Fixture,
+        _root: tempfile::TempDir,
+        workspace: std::path::PathBuf,
+    }
+
+    fn attaching() -> Attaching {
+        let root = tempfile::tempdir().expect("a root");
+        let workspace = root.path().canonicalize().expect("canonical").join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        std::fs::write(workspace.join("shot.png"), crate::image::fixture::SHOT_PNG).expect("shot");
+        std::fs::write(workspace.join("notes.txt"), "not an image").expect("notes");
+        std::fs::create_dir(workspace.join("pics")).expect("a directory");
+        let huge = std::fs::File::create(workspace.join("huge.png")).expect("huge");
+        huge.set_len(crate::image::MAX_IMAGE_BYTES + 1)
+            .expect("sparse");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(workspace.join("huge.png"))
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, &crate::image::fixture::SHOT_PNG[..8])
+            })
+            .expect("a signature");
+        let mut shell = shell(40, 120);
+        shell.workspace = workspace.clone();
+        shell.home = Some(root.path().to_path_buf());
+        Attaching {
+            shell,
+            _root: root,
+            workspace,
+        }
+    }
+
+    impl std::ops::Deref for Attaching {
+        type Target = Fixture;
+        fn deref(&self) -> &Fixture {
+            &self.shell
+        }
+    }
+
+    impl std::ops::DerefMut for Attaching {
+        fn deref_mut(&mut self) -> &mut Fixture {
+            &mut self.shell
+        }
+    }
+
+    /// The images the draft's badges attach, by number.
+    fn attached_ids(shell: &Shell) -> Vec<u32> {
+        shell
+            .editor
+            .entities()
+            .images()
+            .map(|image| image.id)
+            .collect()
+    }
+
+    #[test]
+    fn image_with_nothing_after_it_is_the_usage_error_with_no_topic() {
+        // `fx-image-40x120-bare.ansi`: `✗ usage: /image <path>`, the error's
+        // glyph and no topic (`image_commands.zig:24-27`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/image\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("", "usage: /image <path>"))
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_attached_is_refused_in_upstreams_words() {
+        // `fx-image-40x120-{missing,unsupported,toolarge}.ansi`.
+        for (line, body) in [
+            (&b"/image nope.png\r"[..], "image file not found"),
+            (b"/image notes.txt\r", "unsupported image type"),
+            (b"/image huge.png\r", "image exceeds the 20 MiB limit"),
+            (b"/image pics\r", "failed to attach image: NotRegularFile"),
+            (
+                b"/image ~nobody/x.png\r",
+                "failed to attach image: InvalidPath",
+            ),
+        ] {
+            let mut shell = attaching();
+            shell.route_bytes(line);
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("images", body)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+            assert!(shell.editor.is_empty(), "a refused image left a badge");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "a refusal reached the runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn a_path_spelled_inside_the_workspace_may_not_read_outside_it_through_a_symlink() {
+        let mut shell = attaching();
+        let outside = shell
+            .workspace
+            .parent()
+            .expect("a parent")
+            .join("secret.png");
+        std::fs::write(&outside, crate::image::fixture::SHOT_PNG).expect("outside");
+        std::os::unix::fs::symlink(&outside, shell.workspace.join("link.png")).expect("a link");
+        shell.route_bytes(b"/image link.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "failed to attach image: PathOutsideWorkspace"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+    }
+
+    #[test]
+    fn an_attached_image_is_a_badge_at_the_caret_and_one_neutral_notice() {
+        // `fx-image-40x120-attached.ansi`: `* images: attached image:
+        // shot.png`, and the composer `┃ [Image 1]`.
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "images",
+                "attached image: shot.png"
+            ))
+        );
+        assert_eq!(shell.editor.text(), "[Image 1]");
+        assert_eq!(attached_ids(&shell), [1]);
+        // Nothing went to the runtime: an attachment waits for its prompt.
+        assert!(shell.sent.try_recv().is_err());
+        // The quoted and the escaped spellings of a path are the same file,
+        // and `~` is the home directory.
+        let home = shell.home.clone().expect("a home");
+        std::fs::write(home.join("home.png"), crate::image::fixture::SHOT_PNG).expect("home");
+        for line in [
+            &b"/img \"shot.png\"\r"[..],
+            b"/img sh\\ot.png\r",
+            b"/img ~/home.png\r",
+        ] {
+            shell.route_bytes(line);
+        }
+        assert_eq!(attached_ids(&shell), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_command_typed_after_the_badges_runs_with_the_badges_kept() {
+        // `fx-image-40x120-two-attached.ansi`: `/img shot.png` and then
+        // `/image shot.png` typed straight after its badge leave
+        // `┃ [Image 3][Image 4]` (`pendingImagesPrefixEnd`,
+        // `input_submit_runtime.zig:718-736`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/img shot.png\r");
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.editor.text(), "[Image 1][Image 2]");
+        shell.document();
+        // `fx-image-40x120-images-listed.ansi`: one notice, a row per image,
+        // and the composer keeps what it had.
+        shell.route_bytes(b" /images\r");
+        assert_eq!(
+            shell.document(),
+            [
+                "* images: 2 pending",
+                "   - shot.png (image/png)",
+                "   - shot.png (image/png)",
+                ""
+            ]
+        );
+        assert_eq!(shell.editor.text(), "[Image 1][Image 2] ");
+        assert_eq!(attached_ids(&shell), [1, 2]);
+        // A word after the badges that names no command is a prompt, and the
+        // badges go with it.
+        shell.route_bytes(b"/nosuch\r");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images }
+                if prompt == "[Image #1][Image #2] /nosuch" && images.len() == 2
+        ));
+    }
+
+    #[test]
+    fn images_clear_drops_every_attachment_and_the_draft_they_stood_in() {
+        // `fx-image-40x120-images-cleared.ansi`.
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" /images clear\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("images", "cleared pending images"))
+        );
+        assert!(shell.editor.is_empty());
+        // And a number spent is never handed out again.
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [2]);
+    }
+
+    #[test]
+    fn images_with_nothing_attached_says_so_and_any_other_word_lists() {
+        // `fx-image-40x120-images-empty.ansi`; `/images foo` lists too, only
+        // `clear` is a word (`image_commands.zig:58-84`).
+        for line in [&b"/images\r"[..], b"/images foo\r", b"/images clear\r"] {
+            let mut shell = attaching();
+            shell.route_bytes(line);
+            let body = if line == b"/images clear\r" {
+                "cleared pending images"
+            } else {
+                "no pending images"
+            };
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("images", body))
+            );
+        }
+    }
+
+    #[test]
+    fn deleting_the_badge_drops_the_image_and_nothing_brings_it_back() {
+        // `fx-image-cu-40x120-after.ansi`: Ctrl-U, then `/images` says none
+        // (`kill_ring.zig:562-584`: `placeholder backing dropped kind=image`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x15");
+        assert!(shell.editor.is_empty());
+        shell.document();
+        shell.route_bytes(b"/images\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("images", "no pending images"))
+        );
+        // A yank of the killed badge is its words, and so is an undo of the
+        // delete: neither attaches the image again.
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x15\x19");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert!(attached_ids(&shell).is_empty());
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x7f");
+        assert!(
+            shell.editor.is_empty(),
+            "a backspace at a badge takes it whole"
+        );
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "[Image 3]");
+        assert!(attached_ids(&shell).is_empty());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 3]".to_string()));
+    }
+
+    #[test]
+    fn a_prompt_sends_its_badges_as_tokens_with_the_images_after_them() {
+        // `fx-image-40x120-sent.ansi` and its `001-completion.json`: the card
+        // shows the badges, the prompt says `[Image #N]`, and the images go
+        // in the order they were attached.
+        let mut shell = attaching();
+        shell.route_bytes(b"/img shot.png\r");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" what is in this image?\r");
+        let TurnWork::Attached { prompt, images } = shell.picks_up() else {
+            panic!("the images were not handed to the runtime");
+        };
+        assert_eq!(prompt, "[Image #1][Image #2] what is in this image?");
+        assert_eq!(
+            images.iter().map(|image| image.id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        // The summary's `↑` counts the tokens, as upstream's composer holds
+        // them: 12 here, where the badges alone would be 11
+        // (`fx-image-40x120-sent`, `0s (↑12 ↓40)`).
+        assert_eq!(
+            shell.prompts.back().map(|(estimate, ..)| *estimate),
+            Some(12)
+        );
+        assert!(images
+            .iter()
+            .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
+        assert_eq!(
+            shell.document(),
+            card("[Image 1][Image 2] what is in this image?")
+        );
+        assert!(shell.editor.is_empty());
+        // The bytes are the ones attached: the file changing afterwards is
+        // not what was sent.
+        std::fs::write(shell.workspace.join("shot.png"), b"GIF89a").expect("replace");
+        assert_eq!(&*images[0].bytes, crate::image::fixture::SHOT_PNG);
+    }
+
+    #[test]
+    fn a_prompt_of_badges_alone_is_sent_with_its_images() {
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r\r");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images } if prompt == "[Image #1]" && images.len() == 1
+        ));
+    }
+
+    /// Settles the band until the clipboard read has answered: the document
+    /// rows it wrote, or none when it put a badge in the draft instead.
+    ///
+    /// A minute, for the reason `copies_settled` gives.
+    fn read_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
+        let before = shell.editor.text().to_string();
+        loop {
+            shell.settle_band(Instant::now());
+            let document = shell.document();
+            if !document.is_empty() {
+                return document;
+            }
+            if shell.editor.text() != before {
+                return Vec::new();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the clipboard read never answered"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn ctrl_v_puts_the_clipboard_image_at_the_caret_with_no_notice() {
+        // `image_commands.zig:86-104`: a badge and a repaint, no notice -- and
+        // the image is named by the copy the session will keep of it.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        shell.route_bytes(b"look ");
+        shell.route_bytes(b"\x16");
+        let written = read_settled(&mut shell);
+        assert!(
+            written.is_empty(),
+            "a pasted image wrote a notice: {written:?}"
+        );
+        assert_eq!(shell.editor.text(), "look [Image 1]");
+        let name =
+            crate::image::snapshot_name(1, &crate::image::digest(crate::image::fixture::SHOT_PNG));
+        shell.route_bytes(b" /images\r");
+        // `look ` is not a badge, so this is a prompt, not the command.
+        assert!(matches!(shell.picks_up(), TurnWork::Attached { .. }));
+        shell.document();
+        // `/paste` is the same read.
+        shell.route_bytes(b"/paste\r");
+        assert!(read_settled(&mut shell).is_empty());
+        shell.route_bytes(b" /images\r");
+        assert_eq!(
+            shell.document(),
+            [
+                "* images: 1 pending".to_string(),
+                format!("   - {} (image/png)", name.replace("image-1-", "image-2-")),
+                String::new()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_clipboard_with_no_image_or_no_reader_says_so() {
+        // No image: neutral. No reader: upstream's error name -- which is
+        // also what the capture harness's do-nothing `osascript` produces
+        // (`fx-paste-40x120-paste.ansi`).
+        let empty = crate::clipboard::fake::FakeTool::holding(None);
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(empty.clipboard());
+        shell.route_bytes(b"/paste\r");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "no image found on clipboard"
+            ))
+        );
+        let mut shell = attaching();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::error(
+                "images",
+                "failed to paste clipboard image: FileNotFound"
+            ))
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn an_image_the_composer_has_no_room_for_is_not_attached_and_says_so() {
+        // `writeInputFullNotice` (`image_commands.zig:9-19`): neutral, under
+        // `images`, and nothing in the draft -- reached by a clipboard image
+        // arriving at a draft the badge does not fit beside.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        let room = "[Image 1]".len() - 1;
+        assert!(shell
+            .editor
+            .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
+            .is_some());
+        let before = shell.editor.text().len();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "input is full; image not attached"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.editor.text().len(), before, "the draft changed");
+        // The number was not spent: the next image that fits is #1.
+        shell.take_draft();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [1]);
+    }
+
+    #[test]
+    fn a_resumed_session_numbers_new_images_past_the_ones_it_holds() {
+        let mut shell = attaching();
+        let mut saved = replay(Some("pictures"), Vec::new());
+        saved.next_image = 5;
+        shell.hydrate(saved, false);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [5]);
+    }
+
     // -----------------------------------------------------------------------
     // `/usage` and `/credits`
     // -----------------------------------------------------------------------
@@ -25605,6 +27631,7 @@ mod tests {
                 reasoning_tokens: Some(reasoning),
                 cost: Some(cost),
                 generation_id: None,
+                origin: None,
             };
         let usage = crate::session::RecordedUsage {
             requests: vec![
@@ -25746,6 +27773,7 @@ mod tests {
             reasoning_tokens: None,
             cost: None,
             generation_id: None,
+            origin: None,
         });
         usage.lines_added = 2;
         shell.work.publish_spent(super::super::worker::Spent {
@@ -25770,6 +27798,54 @@ mod tests {
             usage_band(&shell)[1],
             "Usage  30 days  7 days  24 hours  [Session]"
         );
+    }
+
+    /// Quitting does not wait out a read of the session logs: the reader is
+    /// cancelled and stops at the next session it would open
+    /// (`usage_dashboard_runtime.zig:96-103`), so a slow one -- a long history
+    /// -- costs the exit the one log it is in.
+    #[test]
+    fn quit_returns_promptly_with_a_slow_usage_read_in_flight() {
+        let mut fixture = shell(40, 120);
+        let started = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let (reading, saw_cancel) = (Arc::clone(&started), Arc::clone(&stopped));
+        fixture.usage_reader = usage_menu::Reader::reading_with(
+            std::path::PathBuf::from("/nowhere"),
+            move |_, _, cancel| {
+                reading.store(true, Ordering::SeqCst);
+                // A history that takes half a minute to read, a session at a
+                // time.
+                let deadline = Instant::now() + Duration::from_secs(30);
+                while Instant::now() < deadline {
+                    if cancel.load(Ordering::Acquire) {
+                        saw_cancel.store(true, Ordering::SeqCst);
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Some(Err("never cancelled".to_string()))
+            },
+        );
+        fixture.route_bytes(b"/usage\r");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !started.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the read never started");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // The dashboard takes every key while it is up; closed, `/quit`.
+        escape(&mut fixture);
+        assert!(fixture.usage_menu.is_none());
+        fixture.route_bytes(b"/quit\r");
+        assert!(fixture.leaving());
+        let quitting = Instant::now();
+        drop(fixture);
+        assert!(
+            quitting.elapsed() < Duration::from_secs(1),
+            "the exit waited {:?} for the read",
+            quitting.elapsed()
+        );
+        assert!(stopped.load(Ordering::SeqCst), "the read was not cancelled");
     }
 
     #[test]
@@ -25813,30 +27889,50 @@ mod tests {
         }
     }
 
+    /// What `/credits` asks with a Gateway key: the question a runtime
+    /// publishes for this configuration.
+    fn a_credits_question() -> crate::credits::Question {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        crate::credits::question(&config).expect("a Gateway with a key asks")
+    }
+
     #[test]
-    fn credits_is_asked_of_the_runtime_and_answered_as_upstreams_notice() {
+    fn credits_is_asked_at_once_and_answered_as_upstreams_notice() {
         let mut shell = shell(40, 120);
+        shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"/balance\r");
-        assert_eq!(shell.picks_up(), TurnWork::Credits);
+        assert_eq!(shell.credit_asks.asked(), 1);
+        assert!(shell.sent.try_recv().is_err(), "/credits was queued");
         assert!(shell.document().is_empty(), "answered before it was asked");
 
         // `fx-credits-ok-40x120-after`: three fields, one per row, the later
         // two under the first's gutter.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
             balance: Some("42.17".to_string()),
             used: Some("7.83".to_string()),
             plan: Some("pro".to_string()),
-        }));
+        });
+        shell.settle_band(Instant::now());
         assert_eq!(
             shell.document(),
             ["* credits: balance=42.17", "  used=7.83", "  plan=pro", ""]
         );
         // `credits-empty`: neutral, and says there was nothing.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
             balance: None,
             used: None,
             plan: None,
-        }));
+        });
+        shell.settle_band(Instant::now());
         assert_eq!(
             shell.document(),
             said(notice::Notice::neutral(
@@ -25845,9 +27941,10 @@ mod tests {
             ))
         );
         // `credits-404`: an error, in the error tone.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Failed(
+        shell.credit_asks.deliver(crate::credits::Answer::Failed(
             "HTTP 404: not found".to_string(),
-        )));
+        ));
+        shell.settle_band(Instant::now());
         let rows = shell.take_pending();
         let row = &rows[0].rows[0];
         assert_eq!(colourless(row), "\u{2717} credits: HTTP 404: not found");
@@ -25860,20 +27957,63 @@ mod tests {
         );
     }
 
+    /// Upstream answers `/credits` on the spot (`commandShowCredits`,
+    /// `app_commands.zig:2052-2082`): a turn that is running does not hold it,
+    /// a full queue does not refuse it, and a Ctrl-C meant for the turn does
+    /// not take it away.
     #[test]
-    fn credits_with_the_queue_full_is_refused_where_the_user_reads_it() {
+    fn credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c() {
         let mut shell = shell(24, 80);
+        shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"first\r");
         shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::TurnStarted);
         shell.document();
         shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.credit_asks.asked(), 1, "/credits waited");
+        assert!(!shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/credits joined the queue");
+
+        // The interrupt is the turn's, and the question is not.
+        shell.route_bytes(&[0x03]);
         assert!(
-            shell.sent.try_recv().is_err(),
-            "/credits joined a full queue"
+            matches!(shell.control.try_recv(), Ok(TurnControl::Cancel { .. })),
+            "the Ctrl-C did not interrupt the turn"
         );
-        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
+            balance: Some("42.17".to_string()),
+            used: None,
+            plan: None,
+        });
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| row == "* credits: balance=42.17"),
+            "the answer was dropped"
+        );
+    }
+
+    #[test]
+    fn credits_with_nothing_to_ask_answers_at_once_and_asks_nobody() {
+        let mut shell = shell(40, 120);
+        shell
+            .work
+            .publish_credits(Err(crate::credits::Answer::Failed(
+                crate::output::MISSING_AUTH_HELP.to_string(),
+            )));
+        shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.credit_asks.asked(), 0);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "credits",
+                crate::output::MISSING_AUTH_HELP
+            ))
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -26837,5 +28977,340 @@ mod tests {
             "warned twice: {document:?}"
         );
         assert_eq!(recalled(&mut shell), "/version", "the recall lost the line");
+    }
+
+    // -----------------------------------------------------------------------
+    // `/compact`
+    // -----------------------------------------------------------------------
+
+    /// The activity row's text, colours off, or `None` when there is none.
+    fn compaction_row(shell: &mut Fixture, now: Instant) -> Option<String> {
+        shell.settle_band(now);
+        shell.activity_row.as_deref().map(uncoloured)
+    }
+
+    /// A shell whose conversation holds a turn, as `/status` reads it.
+    fn with_a_turn() -> Fixture {
+        let shell = shell(40, 120);
+        shell.work.publish_status(a_status(1, 0));
+        shell
+    }
+
+    #[test]
+    fn compact_asks_the_runtime_and_says_so_on_the_row_and_nowhere_else() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        let now = Instant::now();
+        assert_eq!(
+            compaction_row(&mut shell, now).as_deref(),
+            Some("\u{2022} Preparing compaction (0s)")
+        );
+        // The marker and the label in the activity grey, as the turn's row
+        // is painted (`receipts/w4/fx-compact-40x120-compacting-1.9s`:
+        // `ESC[38;5;252m• Compacting (2s)`).
+        assert!(shell
+            .activity_row
+            .as_deref()
+            .is_some_and(|row| row.contains(&format!("{}\u{2022}", PALETTE.activity()))));
+        shell.apply(UiEvent::Compaction(compaction::Update::Summarizing));
+        // The clock is the compaction's own, from the keystroke's tick.
+        let row = compaction_row(&mut shell, now + Duration::from_millis(2_100)).expect("a row");
+        assert!(row.ends_with("Compacting (2s)"), "{row:?}");
+        // Nothing in the document, before or after it ends.
+        assert!(shell.document().is_empty());
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Succeeded,
+        )));
+        assert_eq!(
+            compaction_row(&mut shell, now + Duration::from_secs(3)),
+            None
+        );
+        assert!(shell.document().is_empty(), "a success wrote something");
+    }
+
+    #[test]
+    fn compact_with_no_conversation_says_there_is_nothing_for_a_second_and_a_half() {
+        // `cap/fx-compact-40x120-empty-0.3s`: `ESC[38;5;245mNo context to
+        // compact.ESC[39m`, gone by `-empty-2.3s`.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/compact\r");
+        assert!(shell.sent.try_recv().is_err(), "the runtime was asked");
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(format!("{}No context to compact.{}", PALETTE.dim(), PALETTE.reset()).as_str())
+        );
+        assert!(shell.document().is_empty());
+        assert_eq!(
+            compaction_row(&mut shell, now + Duration::from_millis(1_400)).as_deref(),
+            Some("No context to compact.")
+        );
+        assert_eq!(
+            compaction_row(
+                &mut shell,
+                now + compaction::TRANSIENT + Duration::from_millis(1)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn compact_while_a_turn_runs_or_waits_is_refused_with_upstreams_warning() {
+        let mut shell = with_a_turn();
+        turn_running(&mut shell, b"say something\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/compact\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "it was queued behind the turn"
+        );
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{}Wait for the active work to finish before compacting context.{}",
+                    PALETTE.warning(),
+                    PALETTE.reset()
+                )
+                .as_str()
+            )
+        );
+        assert!(shell.document().is_empty());
+        // Gone after a second and a half, and the turn's own row is back.
+        let later =
+            compaction_row(&mut shell, now + compaction::TRANSIENT).expect("the turn's row");
+        assert!(later.contains("Thinking"), "{later:?}");
+
+        // A prompt that is waiting is the same refusal.
+        let mut waiting = with_a_turn();
+        waiting.route_bytes(b"first\r");
+        waiting.route_bytes(b"/compact\r");
+        assert_eq!(waiting.picks_up(), TurnWork::Submit("first".to_string()));
+        assert!(waiting.sent.try_recv().is_err());
+        assert_eq!(
+            compaction_row(&mut waiting, Instant::now()).as_deref(),
+            Some("Wait for the active work to finish before compacting context.")
+        );
+    }
+
+    #[test]
+    fn compact_takes_no_argument_and_a_second_one_while_running_is_ignored() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact now\r");
+        assert!(shell.sent.try_recv().is_err());
+        assert!(shell
+            .document()
+            .iter()
+            .any(|row| row.contains("Unknown command. Try /help.")));
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        shell.route_bytes(b"/compact\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a second compaction was asked"
+        );
+        assert!(compaction_row(&mut shell, Instant::now())
+            .is_some_and(|row| row.contains("Preparing compaction")));
+    }
+
+    #[test]
+    fn a_prompt_typed_during_a_compaction_waits_behind_it() {
+        // e2e `tui-compaction-activity.test.ts:329-355`: neither its own turn
+        // nor a cancellation, until the compaction is over.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        shell.route_bytes(b"after it\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        assert_eq!(shell.picks_up(), TurnWork::Submit("after it".to_string()));
+        assert_eq!(shell.controlled(), None, "the compaction was cancelled");
+        assert!(compaction_row(&mut shell, Instant::now())
+            .is_some_and(|row| row.contains("Preparing compaction")));
+    }
+
+    #[test]
+    fn a_failure_stays_until_escape_or_the_next_line_and_escape_does_nothing_else() {
+        for (tone, feedback) in [
+            (PALETTE.danger(), compaction::Feedback::Failed),
+            (PALETTE.dim(), compaction::Feedback::Cancelled),
+            (PALETTE.danger(), compaction::Feedback::NotStarted),
+        ] {
+            let mut shell = with_a_turn();
+            shell.route_bytes(b"/compact\r");
+            let _ = shell.picks_up();
+            shell.work.give_back();
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(feedback)));
+            let now = Instant::now();
+            shell.settle_band(now);
+            assert_eq!(
+                shell.activity_row.as_deref(),
+                Some(format!("{tone}{}{}", feedback.label(), PALETTE.reset()).as_str())
+            );
+            assert_eq!(
+                compaction_row(&mut shell, now + Duration::from_secs(600)).as_deref(),
+                Some(feedback.label()),
+                "{feedback:?} went by itself"
+            );
+            assert!(shell.document().is_empty());
+            shell.route_bytes(&[0x1b]);
+            shell.settle_input(now + Duration::from_secs(601));
+            assert_eq!(
+                compaction_row(&mut shell, now + Duration::from_secs(601)),
+                None
+            );
+            assert_eq!(shell.controlled(), None, "the Escape cancelled something");
+            assert!(
+                !shell.hint().contains("esc again"),
+                "the Escape armed a gesture"
+            );
+        }
+        // The next line sent takes it away too.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        shell.route_bytes(b"/version\r");
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
+    }
+
+    #[test]
+    fn ctrl_c_or_the_escape_pair_stops_a_compaction_and_writes_nothing() {
+        for escape in [false, true] {
+            let mut shell = with_a_turn();
+            shell.route_bytes(b"/compact\r");
+            let _ = shell.picks_up();
+            let accepted = shell.work.accepted();
+            let now = Instant::now();
+            if escape {
+                // The first Escape arms, as over a running turn
+                // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`).
+                shell.consume(vec![Input::Action(Action::Escape)], now);
+                assert_eq!(shell.controlled(), None);
+                assert!(shell.gestures.interrupt_armed(now));
+                shell.consume(
+                    vec![Input::Action(Action::Escape)],
+                    now + super::super::gesture::INTERRUPT_WINDOW,
+                );
+            } else {
+                shell.route_bytes(&[0x03]);
+            }
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: accepted })
+            );
+            assert_eq!(
+                compaction_row(&mut shell, now).as_deref(),
+                Some("\u{2022} Stopping compaction (0s)")
+            );
+            assert!(shell.document().is_empty(), "the stop wrote a line");
+            assert!(!shell.leaving());
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+                compaction::Feedback::Cancelled,
+            )));
+            assert_eq!(
+                compaction_row(&mut shell, now).as_deref(),
+                Some("Compaction cancelled. Try /compact again when ready.")
+            );
+            assert!(shell.document().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_compaction_stopped_before_the_runtime_took_it_ends_cancelled() {
+        // Dropped from the queue by the cancel, it never says how it ended:
+        // once nothing is in hand, it is over.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        shell.route_bytes(&[0x03]);
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction cancelled. Try /compact again when ready.")
+        );
+    }
+
+    #[test]
+    fn an_automatic_compaction_takes_the_turns_row_on_the_turns_clock() {
+        let mut shell = with_a_turn();
+        let started = turn_running(&mut shell, b"a long one\r");
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Summarizing));
+        let row =
+            compaction_row(&mut shell, started + Duration::from_millis(3_200)).expect("a row");
+        assert!(row.ends_with("Compacting (3s)"), "{row:?}");
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Succeeded,
+        )));
+        let row =
+            compaction_row(&mut shell, started + Duration::from_millis(3_300)).expect("a row");
+        assert!(row.contains("Thinking (3s)"), "the turn goes on: {row:?}");
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn a_failed_automatic_compaction_ends_its_turn_with_the_row_alone() {
+        let mut shell = with_a_turn();
+        turn_running(&mut shell, b"a long one\r");
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let document = shell.released();
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("system") || row.contains("ompact")),
+            "{document:?}"
+        );
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction failed. Try /compact again.")
+        );
+    }
+
+    #[test]
+    fn a_compaction_clears_the_context_meter_until_a_turn_measures_again() {
+        let mut shell = with_a_turn();
+        shell.apply(UiEvent::Usage {
+            input: Some(90_000),
+            output: Some(10),
+        });
+        assert_eq!(shell.shell.context_used, Some(90_000));
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::NoOp,
+        )));
+        assert_eq!(shell.shell.context_used, Some(90_000), "nothing changed");
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Succeeded,
+        )));
+        assert_eq!(shell.shell.context_used, None);
+    }
+
+    #[test]
+    fn a_reset_takes_a_compactions_row_with_the_conversation() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/new\r");
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
+        // What the cancelled compaction still says is about the old one.
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
     }
 }

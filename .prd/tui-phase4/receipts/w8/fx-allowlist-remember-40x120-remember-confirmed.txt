@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ hello
+
+  Hello.
+
+  0s (↑2 ↓40)
+
+* permissions: saved-session permission rule updated
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
