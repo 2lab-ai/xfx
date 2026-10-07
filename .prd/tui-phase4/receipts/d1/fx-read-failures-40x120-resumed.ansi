@@ -1,0 +1,40 @@
+[38;5;250m* session resumed: read them[39m
+
+[38;5;255m┃[39m [1mread them[0m
+
+  Reading.
+
+[38;5;255m●[39m [38;5;245m4 tool calls · 3 read · 1 list · 4 failed[39m
+[38;5;245m├ Failed src[39m
+[38;5;245m├ Failed   missing.txt[39m
+[38;5;245m├ Failed *.rs[39m
+[38;5;245m└ Failed alpha[39m
+
+  Done.
+
+[38;5;245m  0s (↑2 ↓80)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

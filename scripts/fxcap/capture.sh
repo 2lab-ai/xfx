@@ -54,6 +54,9 @@
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
 #   title <label>          writes the pane's window title (OSC 2) to
 #                          <bin>-<scenario>-<size>-<label>.title
+#   cursor <label>         writes where the terminal's cursor is, `x,y` from
+#                          the pane's top left, to
+#                          <bin>-<scenario>-<size>-<label>.cursor
 #   keep                   keeps the pane after the program exits, so a title
 #                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
@@ -351,6 +354,11 @@ $xfx_model $extra_env $bin"
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
         echo "$name.title"
+        ;;
+      cursor)
+        local name=$out/$which-$scenario-$size-$rest
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{cursor_x},#{cursor_y}' > "$name.cursor"
+        echo "$name.cursor"
         ;;
       keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
       clip)
