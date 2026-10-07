@@ -792,11 +792,73 @@ struct Walk {
     published: Vec<Candidate>,
 }
 
+/// Every entry under the workspace and then under each added directory, in
+/// that order (`discoverScopeCandidates`, `file_index.zig:902-1030`).
+///
+/// The workspace's are named relative to it, as they always were; an added
+/// directory's are named by their **absolute** path, because that is the only
+/// name that reaches them from the workspace (`appendDiscoveredCandidate`,
+/// `:1032-1051`: `display = if (root_index == 0) relative else absolute`). One
+/// cap for all of them, taken in that order, and a path that one root already
+/// listed -- an added directory that holds the workspace, say -- is listed
+/// once, under the first. An added directory that cannot be read is left out
+/// and the others are kept (`file index root discovery omitted`, `:944`); the
+/// workspace that cannot be is the index failing, as before.
+pub(crate) fn discover_roots(
+    root: &Path,
+    extra: &[PathBuf],
+    git: Option<&Path>,
+    stop: &AtomicBool,
+) -> Result<Vec<Candidate>, ()> {
+    let mut entries = discover(root, git, stop)?;
+    if extra.is_empty() {
+        return Ok(entries);
+    }
+    let mut seen: std::collections::HashSet<PathBuf> = entries
+        .iter()
+        .map(|candidate| root.join(&candidate.path))
+        .collect();
+    for added in extra {
+        if entries.len() >= MOST_INDEXED || stop.load(Atomic::Relaxed) {
+            break;
+        }
+        let Ok(found) = discover(added, git, stop) else {
+            if stop.load(Atomic::Relaxed) {
+                return Err(());
+            }
+            continue;
+        };
+        for candidate in found {
+            if entries.len() >= MOST_INDEXED {
+                break;
+            }
+            let absolute = added.join(&candidate.path);
+            let Some(path) = absolute.to_str().map(str::to_string) else {
+                continue;
+            };
+            if !admissible(&path) || !seen.insert(absolute) {
+                continue;
+            }
+            entries.push(Candidate {
+                path,
+                kind: candidate.kind,
+            });
+        }
+    }
+    Ok(entries)
+}
+
 /// The worker's whole job: discovery, then publication a prefix at a time
 /// (`loadGeneration`, `file_index.zig:790-842`). A stop is looked at between
 /// publications as upstream looks at it between entries (`file_index.zig:189`).
-fn load(root: &Path, git: Option<&Path>, stop: &AtomicBool, tx: &mpsc::Sender<Published>) {
-    let Ok(entries) = discover(root, git, stop) else {
+fn load(
+    root: &Path,
+    extra: &[PathBuf],
+    git: Option<&Path>,
+    stop: &AtomicBool,
+    tx: &mpsc::Sender<Published>,
+) {
+    let Ok(entries) = discover_roots(root, extra, git, stop) else {
         let _ = tx.send(Published::Failed);
         return;
     };
@@ -837,6 +899,9 @@ struct Listing {
 /// missing.
 pub(crate) struct Files {
     root: PathBuf,
+    /// The directories `/workspace` added, active ones only, whose entries
+    /// follow the workspace's ([`discover_roots`]).
+    extra: Vec<PathBuf>,
     home: Option<PathBuf>,
     git: Option<PathBuf>,
     /// The last index a walk finished. A walk in flight searches its own
@@ -857,6 +922,7 @@ impl Files {
     pub(crate) fn new(root: PathBuf, home: Option<PathBuf>) -> Self {
         Self {
             root,
+            extra: Vec::new(),
             home,
             git: trusted_git(),
             index: None,
@@ -878,14 +944,35 @@ impl Files {
         }
     }
 
+    /// The directories added to the workspace are now `extra`
+    /// (`refreshFileIndex` on an install that changed the scope,
+    /// `app_workspace_runtime.zig:131-147`).
+    ///
+    /// An index of other roots answers for roots that are not the session's
+    /// any more -- or leaves out one that is -- so a change throws it away,
+    /// stops a walk of the old ones, and the next picker walks the new ones.
+    /// The same roots again change nothing.
+    pub(crate) fn set_extra_roots(&mut self, extra: Vec<PathBuf>) {
+        if extra == self.extra {
+            return;
+        }
+        self.extra = extra;
+        if let Some(walk) = self.walk.take() {
+            walk.stop.store(true, Atomic::Relaxed);
+        }
+        self.index = None;
+        self.failed = false;
+    }
+
     fn start_walk(&mut self) {
         let (tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
         let root = self.root.clone();
+        let extra = self.extra.clone();
         let git = self.git.clone();
         let flag = Arc::clone(&stop);
         let spawned = super::signals::spawn_unsignalled("xfx-file-index", move || {
-            load(&root, git.as_deref(), &flag, &tx)
+            load(&root, &extra, git.as_deref(), &flag, &tx)
         });
         if spawned.is_ok() {
             self.walk = Some(Walk {
@@ -1094,6 +1181,86 @@ pub(crate) mod tests {
             write(dir.path(), path);
         }
         dir
+    }
+
+    #[test]
+    fn an_added_directory_is_indexed_after_the_workspace_by_its_absolute_paths() {
+        // `appendDiscoveredCandidate` (`file_index.zig:1032-1051`): the first
+        // root's entries relative, every other root's absolute.
+        let base = tempfile::tempdir().expect("a base");
+        let base_path = base.path().canonicalize().expect("canonical");
+        let work = base_path.join("work");
+        let extra = base_path.join("extra");
+        write(&work, "main.rs");
+        write(&extra, "notes/plan.md");
+        let found = discover_roots(
+            &work,
+            &[extra.clone(), base_path.join("missing")],
+            None,
+            &AtomicBool::new(false),
+        )
+        .expect("a walk");
+        let extra_text = extra.to_string_lossy();
+        assert_eq!(
+            paths(&found),
+            [
+                "main.rs".to_string(),
+                format!("{extra_text}/notes/"),
+                format!("{extra_text}/notes/plan.md"),
+            ]
+        );
+        // An added directory that holds the workspace lists the workspace's
+        // entries once, under the workspace's own names.
+        let found = discover_roots(
+            &work,
+            std::slice::from_ref(&base_path),
+            None,
+            &AtomicBool::new(false),
+        )
+        .expect("a walk");
+        let listed = paths(&found);
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|path| path.ends_with("main.rs"))
+                .count(),
+            1
+        );
+        assert!(
+            listed.contains(&format!("{extra_text}/notes/plan.md")),
+            "{listed:?}"
+        );
+    }
+
+    #[test]
+    fn a_change_of_added_directories_drops_the_index_and_the_next_picker_walks_them() {
+        let base = tempfile::tempdir().expect("a base");
+        let base_path = base.path().canonicalize().expect("canonical");
+        let work = base_path.join("work");
+        let extra = base_path.join("extra");
+        write(&work, "main.rs");
+        write(&extra, "plan.md");
+        let mut files = Files::new(work, None);
+        files.git = None;
+        files.begin_episode();
+        settled(&mut files, |files| !files.busy());
+        assert!(found_paths(files.lookup("plan")).is_empty());
+
+        files.set_extra_roots(vec![extra.clone()]);
+        assert_eq!(
+            files.lookup("plan"),
+            Lookup::Loading,
+            "the old index answered"
+        );
+        files.begin_episode();
+        settled(&mut files, |files| !files.busy());
+        assert_eq!(
+            found_paths(files.lookup("plan")),
+            [format!("{}/plan.md", extra.display())]
+        );
+        // The same roots again keep the index.
+        files.set_extra_roots(vec![extra]);
+        assert!(matches!(files.lookup("plan"), Lookup::Rows(_)));
     }
 
     #[test]
@@ -1540,7 +1707,7 @@ pub(crate) mod tests {
         let stop = AtomicBool::new(false);
         let whole = discover(dir.path(), None, &stop).expect("a walk");
         let (tx, rx) = mpsc::channel();
-        load(dir.path(), None, &stop, &tx);
+        load(dir.path(), &[], None, &stop, &tx);
         drop(tx);
         let mut runs = Vec::new();
         let mut published = Vec::new();
@@ -1566,7 +1733,7 @@ pub(crate) mod tests {
         // A stop that arrives first publishes nothing.
         let stop = AtomicBool::new(true);
         let (tx, rx) = mpsc::channel();
-        load(dir.path(), None, &stop, &tx);
+        load(dir.path(), &[], None, &stop, &tx);
         drop(tx);
         assert!(matches!(
             rx.iter().collect::<Vec<_>>().as_slice(),
