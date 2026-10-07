@@ -21,6 +21,9 @@ use support::sandbox::Sandbox;
 /// What every frame the TUI paints starts with once it is up.
 const READY: &str = "\u{1b}[?2004h";
 
+/// The sandbox's model as the hint row names it.
+const MODEL: &str = "glm-5.2";
+
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh")
 }
@@ -102,14 +105,13 @@ fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects
         text.contains("Ready") || (text.contains("Reloading") && text.contains("ady    "))
     });
     session.wait_for("stdio \u{b7} Profile");
-    // Esc closes the menu once it is known to be a lone Esc; a letter typed
-    // before that would make it Alt+letter, so the closing frame is awaited.
-    let before = session.text().len();
+    // Esc closes the menu once it is known to be a lone Esc (50 ms of
+    // quiet); a letter typed before that would make it Alt+letter. The hint
+    // row painted back -- the model's name on it, which the open menu's key
+    // help replaced -- is what says it settled.
+    let shown = session.text().matches(MODEL).count();
     session.type_bytes(b"\x1b");
-    session.wait_until("the menu to close", |text| {
-        text.get(before..)
-            .is_some_and(|after| after.contains("\u{1b}[?2026l"))
-    });
+    session.wait_for_count(MODEL, shown + 1);
 
     session.type_bytes(b"use the echo tool\r");
     session.wait_for("MARKER-MCP-DONE");
