@@ -623,8 +623,9 @@ pub(crate) fn execution_failure(
 
 /// Upstream's envelope for a filesystem tool the operating system refused
 /// (`filesystemAccessDeniedJson` and its suggestion,
-/// `tool_result_errors.zig:382-409`).
-pub(crate) fn access_denied(tool: &str, path: &str) -> String {
+/// `tool_result_errors.zig:382-409`), `name` the refusal's error name
+/// ([`zig_error_name`]: `AccessDenied` or `PermissionDenied`).
+pub(crate) fn access_denied(tool: &str, path: &str, name: &str) -> String {
     let suggestion = if cfg!(target_os = "macos") {
         "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. If the path is in a protected folder such as Desktop, Documents, or Downloads, ask the user to grant the terminal app Files and Folders or Full Disk Access. Otherwise, ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
     } else {
@@ -633,24 +634,115 @@ pub(crate) fn access_denied(tool: &str, path: &str) -> String {
     execution_failure(
         tool,
         "Operating system denied filesystem access",
-        &[("path", path), ("error", "AccessDenied")],
+        &[("path", path), ("error", name)],
         Some(suggestion),
     )
 }
 
-/// The name upstream's envelope gives an I/O error (its Zig error's name,
-/// `@errorName`), for the kinds both runtimes meet; anything else by the
-/// kind's own name.
-pub(crate) fn error_name(err: &std::io::Error) -> String {
-    use std::io::ErrorKind;
-    match err.kind() {
-        ErrorKind::NotFound => "FileNotFound".to_string(),
-        ErrorKind::PermissionDenied => "AccessDenied".to_string(),
-        ErrorKind::IsADirectory => "IsDir".to_string(),
-        ErrorKind::NotADirectory => "NotDir".to_string(),
-        ErrorKind::InvalidData => "InvalidUtf8".to_string(),
-        other => format!("{other:?}"),
-    }
+/// Whether upstream calls an error a refusal by the operating system
+/// (`isFilesystemAccessDenied`, `tool_result_errors.zig:382-384`).
+pub(crate) fn is_access_denied(name: &str) -> bool {
+    name == "AccessDenied" || name == "PermissionDenied"
+}
+
+/// The system call an I/O error came from, as upstream's runtime names the
+/// error each one fails with differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Syscall {
+    /// `fstatat` (`posixStatFile`, `std/Io/Threaded.zig:3673`).
+    Stat,
+    /// `openat` of a file (`dirOpenFilePosix`, `:4789`).
+    Open,
+    /// `openat` of a directory (`dirOpenDirPosix`, `:5237`).
+    OpenDir,
+    /// `preadv`, which a file reader reads with (`fileReadPositionalPosix`,
+    /// `:9766`).
+    PositionalRead,
+}
+
+/// The name upstream's envelope gives `err`, the Zig error its runtime
+/// returns for the same errno from the same call (Zig 0.16, upstream's
+/// `minimum_zig_version`, `build.zig.zon:28`; the switches in
+/// `lib/std/Io/Threaded.zig` cited on [`Syscall`]). An errno that switch
+/// does not name, or a Rust error that carries none, is upstream's
+/// `Unexpected` (`posix.unexpectedErrno`, `errnoBug`).
+pub(crate) fn zig_error_name(call: Syscall, err: &std::io::Error) -> &'static str {
+    let Some(errno) = err.raw_os_error() else {
+        return "Unexpected";
+    };
+    zig_errno_name(call, errno)
+}
+
+fn zig_errno_name(call: Syscall, errno: i32) -> &'static str {
+    use libc::*;
+    let table: &[(i32, &str)] = match call {
+        Syscall::Stat => &[
+            (ENOMEM, "SystemResources"),
+            (EACCES, "AccessDenied"),
+            (EPERM, "PermissionDenied"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ELOOP, "SymLinkLoop"),
+            (ENOENT, "FileNotFound"),
+            (ENOTDIR, "FileNotFound"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::Open => &[
+            (EINVAL, "BadPathName"),
+            (EACCES, "AccessDenied"),
+            (EFBIG, "FileTooBig"),
+            (EOVERFLOW, "FileTooBig"),
+            (EISDIR, "IsDir"),
+            (ELOOP, "SymLinkLoop"),
+            (EMFILE, "ProcessFdQuotaExceeded"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ENFILE, "SystemFdQuotaExceeded"),
+            (ENODEV, "NoDevice"),
+            (ENOENT, "FileNotFound"),
+            (ESRCH, "FileNotFound"),
+            (ENOMEM, "SystemResources"),
+            (ENOSPC, "NoSpaceLeft"),
+            (ENOTDIR, "NotDir"),
+            (EPERM, "PermissionDenied"),
+            (EEXIST, "PathAlreadyExists"),
+            (EBUSY, "DeviceBusy"),
+            (EOPNOTSUPP, "FileLocksUnsupported"),
+            (EAGAIN, "WouldBlock"),
+            (ETXTBSY, "FileBusy"),
+            (ENXIO, "NoDevice"),
+            (EROFS, "ReadOnlyFileSystem"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::OpenDir => &[
+            (EINVAL, "BadPathName"),
+            (EACCES, "AccessDenied"),
+            (ELOOP, "SymLinkLoop"),
+            (EMFILE, "ProcessFdQuotaExceeded"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ENFILE, "SystemFdQuotaExceeded"),
+            (ENODEV, "NoDevice"),
+            (ENOENT, "FileNotFound"),
+            (ENOMEM, "SystemResources"),
+            (ENOTDIR, "NotDir"),
+            (EPERM, "PermissionDenied"),
+            (ENXIO, "NoDevice"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::PositionalRead => &[
+            (ENXIO, "Unseekable"),
+            (ESPIPE, "Unseekable"),
+            (EOVERFLOW, "Unseekable"),
+            (ENOBUFS, "SystemResources"),
+            (ENOMEM, "SystemResources"),
+            (EAGAIN, "WouldBlock"),
+            (EIO, "InputOutput"),
+            (EISDIR, "IsDir"),
+            (EBADF, "NotOpenForReading"),
+        ],
+    };
+    table
+        .iter()
+        .find(|(known, _)| *known == errno)
+        .map_or("Unexpected", |(_, name)| name)
 }
 
 /// `text` clipped to at most `limit` bytes, or `None` when it already fits.
@@ -1256,6 +1348,83 @@ mod tests {
         assert_eq!(optional_string("t", object, "missing").unwrap(), None);
         assert_eq!(optional_integer("t", object, "missing", 1).unwrap(), None);
         assert!(!optional_bool("t", object, "missing").unwrap());
+    }
+
+    /// Upstream's names for every errno each call it makes names, by call
+    /// (`std/Io/Threaded.zig`, Zig 0.16): the table this crate's envelope
+    /// text is held to.
+    #[test]
+    fn an_errno_is_named_as_upstreams_runtime_names_it_for_the_call_it_came_from() {
+        use libc::*;
+        let cases: &[(Syscall, i32, &str)] = &[
+            // `posixStatFile`, `:3673-3704`: a missing directory on the way
+            // is `FileNotFound` here, not `NotDir`.
+            (Syscall::Stat, ENOENT, "FileNotFound"),
+            (Syscall::Stat, ENOTDIR, "FileNotFound"),
+            (Syscall::Stat, EACCES, "AccessDenied"),
+            (Syscall::Stat, EPERM, "PermissionDenied"),
+            (Syscall::Stat, ELOOP, "SymLinkLoop"),
+            (Syscall::Stat, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::Stat, ENOMEM, "SystemResources"),
+            (Syscall::Stat, EILSEQ, "BadPathName"),
+            (Syscall::Stat, EIO, "Unexpected"),
+            // `dirOpenFilePosix`, `:4789-4880`.
+            (Syscall::Open, ENOENT, "FileNotFound"),
+            (Syscall::Open, ENOTDIR, "NotDir"),
+            (Syscall::Open, EISDIR, "IsDir"),
+            (Syscall::Open, EACCES, "AccessDenied"),
+            (Syscall::Open, EPERM, "PermissionDenied"),
+            (Syscall::Open, ELOOP, "SymLinkLoop"),
+            (Syscall::Open, EMFILE, "ProcessFdQuotaExceeded"),
+            (Syscall::Open, ENFILE, "SystemFdQuotaExceeded"),
+            (Syscall::Open, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::Open, ENODEV, "NoDevice"),
+            (Syscall::Open, ENXIO, "NoDevice"),
+            (Syscall::Open, ENOMEM, "SystemResources"),
+            (Syscall::Open, ENOSPC, "NoSpaceLeft"),
+            (Syscall::Open, EEXIST, "PathAlreadyExists"),
+            (Syscall::Open, EBUSY, "DeviceBusy"),
+            (Syscall::Open, EAGAIN, "WouldBlock"),
+            (Syscall::Open, ETXTBSY, "FileBusy"),
+            (Syscall::Open, EROFS, "ReadOnlyFileSystem"),
+            (Syscall::Open, EFBIG, "FileTooBig"),
+            (Syscall::Open, EOVERFLOW, "FileTooBig"),
+            (Syscall::Open, EINVAL, "BadPathName"),
+            (Syscall::Open, EOPNOTSUPP, "FileLocksUnsupported"),
+            (Syscall::Open, EIO, "Unexpected"),
+            // `dirOpenDirPosix`, `:5237-5300`.
+            (Syscall::OpenDir, ENOENT, "FileNotFound"),
+            (Syscall::OpenDir, ENOTDIR, "NotDir"),
+            (Syscall::OpenDir, EACCES, "AccessDenied"),
+            (Syscall::OpenDir, EPERM, "PermissionDenied"),
+            (Syscall::OpenDir, ELOOP, "SymLinkLoop"),
+            (Syscall::OpenDir, EMFILE, "ProcessFdQuotaExceeded"),
+            (Syscall::OpenDir, ENFILE, "SystemFdQuotaExceeded"),
+            (Syscall::OpenDir, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::OpenDir, ENOMEM, "SystemResources"),
+            (Syscall::OpenDir, EINVAL, "BadPathName"),
+            (Syscall::OpenDir, EISDIR, "Unexpected"),
+            // `fileReadPositionalPosix`, `:9766-9842`.
+            (Syscall::PositionalRead, EIO, "InputOutput"),
+            (Syscall::PositionalRead, EISDIR, "IsDir"),
+            (Syscall::PositionalRead, EAGAIN, "WouldBlock"),
+            (Syscall::PositionalRead, ESPIPE, "Unseekable"),
+            (Syscall::PositionalRead, ENOMEM, "SystemResources"),
+            (Syscall::PositionalRead, EBADF, "NotOpenForReading"),
+            (Syscall::PositionalRead, EACCES, "Unexpected"),
+        ];
+        for (call, errno, name) in cases {
+            assert_eq!(
+                zig_error_name(*call, &std::io::Error::from_raw_os_error(*errno)),
+                *name,
+                "{call:?} errno {errno}"
+            );
+        }
+        // A Rust error that carries no errno.
+        assert_eq!(
+            zig_error_name(Syscall::Open, &std::io::Error::other("x")),
+            "Unexpected"
+        );
     }
 
     #[test]
