@@ -1746,6 +1746,33 @@ mod tests {
     }
 
     #[test]
+    fn wrap_table_cell_cuts_wide_glyphs_whole_at_the_column_edge() {
+        // `wrapTableCell` (`transcript_blocks.zig:1443-1477`) over two-cell
+        // glyphs: the CJK fixture's description at the four cells upstream's
+        // `table_cjk_14` gives its column (the golden below), and an odd
+        // width, where a glyph that would straddle the edge starts the next
+        // line rather than leave half of itself behind.
+        let mut lines = Vec::new();
+        wrap_table_cell("長い説明のテキストです".as_bytes(), 4, &mut lines);
+        assert_eq!(
+            texts(&lines),
+            ["長い", "説明", "のテ", "キス", "トで", "す"].map(str::as_bytes)
+        );
+        wrap_table_cell("漢字かな".as_bytes(), 5, &mut lines);
+        assert_eq!(texts(&lines), ["漢字", "かな"].map(str::as_bytes));
+        assert_eq!(
+            lines.iter().map(|line| line.width).collect::<Vec<_>>(),
+            [4, 4]
+        );
+        // A space between them is the break, and is on neither line --
+        // including the one the width ends on.
+        wrap_table_cell("漢字 かな 漢字".as_bytes(), 5, &mut lines);
+        assert_eq!(texts(&lines), ["漢字", "かな", "漢字"].map(str::as_bytes));
+        wrap_table_cell("漢字 かな".as_bytes(), 4, &mut lines);
+        assert_eq!(texts(&lines), ["漢字", "かな"].map(str::as_bytes));
+    }
+
+    #[test]
     fn wrap_table_cell_resets_a_style_it_cannot_restore_before_the_padding() {
         let mut lines = Vec::new();
         wrap_table_cell(b"\x1b[48;5;236mfoo bar\x1b[49m", 3, &mut lines);

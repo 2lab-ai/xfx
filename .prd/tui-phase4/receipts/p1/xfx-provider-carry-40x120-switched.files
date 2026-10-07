@@ -1,0 +1,39 @@
+=== ~/.xfx/history.jsonl (291 bytes)
+{"schema_version":1,"timestamp_ms":1791355742681,"workspace_root":"<scratch>/work","text":"read the notes and tell me what they say"}
+{"schema_version":1,"timestamp_ms":1791355757802,"workspace_root":"<scratch>/work","text":"/provider"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1791355742681-8b91edf6db5ce490/events.jsonl (2863 bytes)
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":1,"event_id":"31cfd2fad780058d6781171b4f31f896","timestamp_ms":1791355742682,"event":{"kind":"session_started","id":"1791355742681-8b91edf6db5ce490","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":2,"event_id":"d2685a4f53cb8a9c5912386256e8425a","timestamp_ms":1791355742710,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":3,"event_id":"8027e7ea513dc5d8165ac8cc2cb06daa","timestamp_ms":1791355742725,"event":{"kind":"user_message","text":"read the notes and tell me what they say"}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":4,"event_id":"a6a55a2a100d2878c8061f0924c64148","timestamp_ms":1791355742742,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"functions.read:0","name":"read_file","input":{"path":"notes.txt"}}]}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":5,"event_id":"237be600955644ca930bf23da55d37de","timestamp_ms":1791355742756,"event":{"kind":"tool_result","call_id":"functions.read:0","tool":"read_file","ok":true,"output":"<path>notes.txt</path>\n<content>\n1\tNOTE-BODY: the meeting moved to Thursday.\n</content>"}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":6,"event_id":"f8131504fb79113b1417d0f104e4a071","timestamp_ms":1791355742892,"event":{"kind":"assistant_message","text":"The notes say the meeting moved to Thursday.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":7,"event_id":"5d32d178a8385dde45dd444283aff354","timestamp_ms":1791355742905,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":80,"requests":[{"at_ms":1791355742742,"duration_ms":3,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0},{"at_ms":1791355742892,"duration_ms":117,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":8,"event_id":"0eb1ec2b9b78824e9276c37742c87fef","timestamp_ms":1791355742925,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":2}}}
+{"schema_version":1,"log_generation":"fa3615cea6b66932ae7e590df389c330","seq":9,"event_id":"2dbfef585df6a6fbf297607f0ad8a1b8","timestamp_ms":1791355762899,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null,"provider":"llmux"}}
+
+=== ~/.xfx/sessions/1791355742681-8b91edf6db5ce490/session.json (646 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791355742681-8b91edf6db5ce490","log_generation":"fa3615cea6b66932ae7e590df389c330","created_at_ms":1791355742682,"updated_at_ms":1791355762899,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"read the notes and tell me what they","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":9,"event_log_bytes":2863,"event_log_sha256":"a3f75d64b3da751dea34f60250d1e8a745a6b8cfdb4527fdb73541bca6009db3"}
+
+=== ~/.xfx/settings.json (258 bytes)
+{
+  "models": {
+    "gateway": "fake/model-a",
+    "llmux": "fake/model-a"
+  },
+  "provider": "llmux",
+  "llmux_url": "http://127.0.0.1:64935",
+  "statusLine": {
+    "context": true,
+    "session": true
+  },
+  "backend": "llmux",
+  "model": "fake/model-a"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791355742905}
+

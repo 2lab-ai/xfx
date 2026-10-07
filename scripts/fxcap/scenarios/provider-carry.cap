@@ -1,0 +1,53 @@
+# P1: `/provider` mid-session keeps the conversation, and the next request
+# carries the earlier turn in the new provider's shape. fx goes vercel ->
+# codex (a seeded subscription sign-in, the Codex endpoints on the fake's own
+# port, so nothing reaches a browser or the network); xfx goes gateway ->
+# llmux (the fake's port is the daemon). The first turn reads a file under a
+# call id no Anthropic `tool_use` takes (`functions.read:0`, upstream's own
+# vector, tool_call_ids.zig:139). Then a resume, and one more turn. The
+# context meter and the session title are on, to show what the footer keeps.
+fx: seed provider-carry-fx.json
+xfx: seed provider-carry-xfx.json
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses
+nomodel
+gateway provider-carry-turns.json
+work provider-carry-ws
+wait 6
+snap start
+type read the notes and tell me what they say
+key Enter
+wait 15
+snap turn1
+type /provider
+key Enter
+wait 4
+snap open
+key Down
+wait 1
+key Enter
+wait 10
+snap switched
+home switched
+type what day was it again?
+key Enter
+wait 15
+snap turn2
+keep
+type /quit
+key Enter
+wait 4
+snap quit
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 10
+snap resumed
+type and after the resume?
+key Enter
+wait 15
+snap turn3
+home end
+gwlog
+type /quit
+key Enter
+wait 3

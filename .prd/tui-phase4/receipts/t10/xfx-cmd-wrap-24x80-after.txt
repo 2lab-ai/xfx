@@ -1,0 +1,24 @@
+└ Denied echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeee…
+
+✗ permissions: this screen is too small to ask for permission, so the change was
+  refused
+
+  Both refused.
+
+  20s (↑5 ↓120)
+
+┃ 3
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
