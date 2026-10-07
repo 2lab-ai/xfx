@@ -11,8 +11,7 @@
 //!
 //! * **The order is upstream's, and the order is a priority.** A missing
 //!   credential leads, because nothing else on the row matters on a machine
-//!   where every turn will refuse; then what is already queued, then the
-//!   permission mode, the model, the session title, the context meter and the
+//!   where every turn will refuse; then the permission mode, the model, the session title, the context meter and the
 //!   workspace (`buildHintLine`, `render.zig:440-470`). Left is more important
 //!   than right, which is what makes "drop from the right" the right rule for a
 //!   screen too narrow to hold everything -- the segments that survive are the
@@ -50,8 +49,8 @@
 //! `None` here is an item that is off or has nothing to say yet. The
 //! reasoning effort follows the model, as upstream's does (`render.zig:390-393`):
 //! the caller decides whether the model takes it and hands it over only then.
-//! The fast-mode marker (`render.zig:394-402`) belongs to a speed xfx does not
-//! send yet.
+//! So does the speed marker `⚡︎` (`render.zig:394-402`): the caller decides
+//! whether a turn will go fast, and in which colour that is said.
 
 use crate::config::PermissionMode;
 
@@ -67,6 +66,11 @@ pub(crate) const SEPARATOR: &str = " · ";
 /// does not carry ([`Hint::missing_credential`] is a yes or a no), and a row
 /// that guessed would send a Gateway user to the daemon's setup.
 pub(crate) const MISSING_CREDENTIAL: &str = "run `xfx setup`";
+
+/// What says a turn will go fast (`render.zig:398`, `:402`): the high-voltage
+/// sign in its text presentation -- two cells, as upstream counts it
+/// (`display_width.zig:697`).
+pub(crate) const SPEED_MARKER: &str = "\u{26a1}\u{fe0e}";
 
 /// How many blank cells separate the left of the row from the right-aligned
 /// slot at its end, at the very least.
@@ -85,8 +89,6 @@ pub(crate) struct Hint<'a> {
     /// Whether the configured provider has nothing to authenticate with, in
     /// which case every turn this session runs will refuse.
     pub(crate) missing_credential: bool,
-    /// How many submissions are waiting behind the one in flight.
-    pub(crate) queued: usize,
     /// How much authority a turn will have before it has to ask.
     pub(crate) mode: PermissionMode,
     /// The model a turn will talk to, as configured -- provider prefix and all.
@@ -97,6 +99,12 @@ pub(crate) struct Hint<'a> {
     /// level (`appendSessionStatusSegments`, `render.zig:381-393`: shown only
     /// when the model supports effort and it is not the default).
     pub(crate) effort: Option<&'a str>,
+    /// The speed marker [`SPEED_MARKER`], when a turn will go fast: the colour
+    /// it is said in, with the row's own resumed after it ([`Self::accent`]'s
+    /// second) -- **empty for Fast**, which is said in the row's grey, and
+    /// Ultra's yellow for Ultra (`appendSessionStatusSegments`,
+    /// `render.zig:396-403`). `None` for neither.
+    pub(crate) speed: Option<&'a str>,
     /// The session's title, when the title segment is on and the session has
     /// one ([`super::statusline::session_label`] is what makes it safe to
     /// paint).
@@ -129,6 +137,12 @@ pub(crate) struct Hint<'a> {
     /// `red_style` (`input_presentation.zig:565`), where the armed-Escape cue
     /// is in the row's grey.
     pub(crate) right_style: &'a str,
+    /// What ends the row's own colours before [`Self::right`]'s padding:
+    /// upstream closes the run (`reset_style`) and then moves to the slot's
+    /// column, so the cells between are the terminal's own and the slot opens
+    /// its colour afresh (`input_presentation.zig:551-567`). Empty for a
+    /// caller with no palette.
+    pub(crate) close: &'a str,
     /// The two colours a permission mode that grants something is said in:
     /// its own, and the row's to resume with (`render.zig:235-241`, `c1db919`:
     /// `auto` and `full access` in `permission_auto_style`, then
@@ -249,7 +263,9 @@ pub(crate) fn row(hint: &Hint<'_>, cols: u16) -> String {
         // Flush with the last column. The left side was budgeted against
         // `limit`, so this is at least [`GAP`] whenever anything survived on
         // it -- and zero only when a single oversized segment was cut to the
-        // screen, where the clip below is what keeps the row on it.
+        // screen, where the clip below is what keeps the row on it. The row's
+        // run ends first, so the padding is in no colour of its own.
+        row.push_str(hint.close);
         let padding = budget.saturating_sub(cells(&row) + right_cells);
         row.extend(std::iter::repeat_n(' ', padding));
         // The last thing on the row, so its colour needs no resume: whoever
@@ -275,11 +291,6 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
     if hint.missing_credential {
         push(&mut segments, MISSING_CREDENTIAL.to_string());
     }
-    if hint.queued > 0 {
-        // `queued 1` in upstream's own words (`render.zig:419-422`), and the
-        // whole difference between a queue and a surprise.
-        push(&mut segments, format!("queued {}", hint.queued));
-    }
     let model = compact_model(hint.model);
     // The word a person reads (`permissionModeStatusLabel`,
     // `render.zig:235-241`): `full access`, not the `yolo` the settings file
@@ -297,6 +308,14 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
     push(&mut segments, model);
     if let Some(effort) = hint.effort {
         push(&mut segments, effort.to_string());
+    }
+    match hint.speed {
+        Some("") => push(&mut segments, SPEED_MARKER.to_string()),
+        Some(colour) => push(
+            &mut segments,
+            format!("{colour}{SPEED_MARKER}{}", hint.accent.1),
+        ),
+        None => {}
     }
     if let Some(title) = hint.session_title {
         push(&mut segments, title.to_string());
@@ -374,16 +393,17 @@ mod tests {
     fn hint() -> Hint<'static> {
         Hint {
             missing_credential: false,
-            queued: 0,
             mode: PermissionMode::Ask,
             model: "anthropic/claude-opus-4-7",
             effort: None,
+            speed: None,
             session_title: None,
             context_used: None,
             workspace: None,
             notice: None,
             right: None,
             right_style: "",
+            close: "",
             accent: ("", ""),
         }
     }
@@ -408,18 +428,18 @@ mod tests {
 
     #[test]
     fn the_segments_are_in_upstreams_order() {
+        // Claim changed: no `queued N` first -- upstream's row has no queue
+        // segment (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
         let mut hint = hint();
-        hint.queued = 1;
         hint.context_used = Some((12_000, Some(200_000)));
         let row = row(&hint, 200);
-        let queued = row.find("queued 1").expect("queued");
         let mode = row.find("ask").expect("the permission mode");
         let model = row.find("opus 4-7").expect("the model");
         let context = row.find("12k/200k").expect("the context");
-        assert!(queued < mode && mode < model && model < context, "{row:?}");
+        assert!(mode < model && model < context, "{row:?}");
         assert!(row.contains("12k/200k 6%"), "{row:?}");
         assert_eq!(
-            row, "queued 1 · ask · opus 4-7 · 12k/200k 6%",
+            row, "ask · opus 4-7 · 12k/200k 6%",
             "the segments are joined by something other than upstream's separator"
         );
     }
@@ -672,8 +692,7 @@ mod tests {
         // kept its separator would show a `·` with one side missing.
         let mut hint = hint();
         hint.model = "anthropic/";
-        hint.queued = 2;
-        assert_eq!(row(&hint, 80), "queued 2 · ask");
+        assert_eq!(row(&hint, 80), "ask");
     }
     #[test]
     fn the_meter_says_both_numbers_and_the_percentage_between_them() {
@@ -754,6 +773,32 @@ mod tests {
         let mut only = self::hint();
         only.workspace = Some(("/w", None));
         assert_eq!(row(&only, 120), "ask \u{b7} opus 4-7 \u{b7} /w");
+    }
+
+    #[test]
+    fn the_speed_marker_follows_the_effort_in_the_rows_grey_or_ultras_yellow() {
+        // Two cells, as upstream counts the sign in its text presentation
+        // (`display_width.zig:697`): the budget below is measured with it.
+        assert_eq!(cells(SPEED_MARKER), 2);
+        // Fast, in the row's own grey (`fx-fast-opus-40x120-fast-on`:
+        // `auto · opus 5 · ⚡︎`).
+        let mut fast = self::hint();
+        fast.effort = Some("low");
+        fast.speed = Some("");
+        fast.session_title = Some("t");
+        assert_eq!(
+            row(&fast, 120),
+            "ask \u{b7} opus 4-7 \u{b7} low \u{b7} \u{26a1}\u{fe0e} \u{b7} t"
+        );
+        // Ultra, in its yellow and the row's colour resumed after it
+        // (`render.zig:1038-1043`).
+        let mut ultra = self::hint();
+        ultra.speed = Some("<Y>");
+        ultra.accent = ("<A>", "<S>");
+        assert_eq!(
+            row(&ultra, 120),
+            "ask \u{b7} opus 4-7 \u{b7} <Y>\u{26a1}\u{fe0e}<S>"
+        );
     }
 
     #[test]

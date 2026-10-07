@@ -2130,14 +2130,23 @@ fn setup_creates_a_private_profile_home_and_a_private_settings_file() {
         & 0o777;
     assert_eq!(file_mode, 0o600, "settings are owner-only");
 
-    // Nothing staged is left behind by a write that completed.
+    // Nothing staged is left behind by a write that completed. The lock every
+    // settings write takes stays beside the file, empty and owner-only, as
+    // upstream's does (`settings_store.zig:491`).
     let leftovers: Vec<String> = std::fs::read_dir(sandbox.profile_dir())
         .unwrap()
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name != "settings.json")
+        .filter(|name| name != "settings.json" && name != "settings.lock")
         .collect();
     assert!(leftovers.is_empty(), "got {leftovers:?}");
+    let lock = std::fs::metadata(sandbox.profile_dir().join("settings.lock")).unwrap();
+    assert_eq!(
+        lock.permissions().mode() & 0o777,
+        0o600,
+        "the lock is owner-only"
+    );
+    assert_eq!(lock.len(), 0, "the lock holds nothing");
 }
 
 #[test]

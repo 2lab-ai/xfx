@@ -199,6 +199,12 @@ impl History {
     /// behind. The captured draft goes with the position: it was a stand-in for
     /// a line the user has now replaced, and a draft that outlived its walk
     /// would be handed back by a later `C-n` in place of what is on the screen.
+    /// Whether a walk is under way: an entry is in the composer in place of
+    /// the draft it stood aside.
+    pub(crate) fn walking(&self) -> bool {
+        self.cursor.is_some()
+    }
+
     pub(crate) fn leave(&mut self) {
         self.cursor = None;
         self.draft = None;

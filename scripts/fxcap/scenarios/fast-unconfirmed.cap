@@ -1,0 +1,15 @@
+# A turn in Ultra whose finish does not confirm the tier: fx says so above
+# the answer (`orchestrator.zig:8015-8022`).
+models models.json
+gateway speed-unconfirmed-turns.json
+seed fast-seed-astra.json
+nomodel
+wait 2.5
+type /ultrafast on
+key Enter
+wait 1
+type say something
+key Enter
+wait 2.5
+snap turn
+gwlog

@@ -1,0 +1,43 @@
+# /fast and /ultrafast on a model that offers neither (account-model research
+# §5-§6): the menu row, the refusal of /fast's argument, and every
+# /ultrafast form.
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /fast
+wait 0.5
+snap fast-typed
+key Enter
+wait 1
+snap fast
+type /fast on
+wait 0.3
+key Enter
+wait 1
+snap fast-on-arg
+type /ultrafast
+wait 0.5
+snap uf-typed
+key Enter
+wait 1
+snap uf-bare
+type /ultrafast 
+wait 0.7
+snap uf-space
+key C-u
+type /ultrafast status
+key Enter
+wait 1
+type /ultrafast on
+key Enter
+wait 1
+type /ultrafast off
+key Enter
+wait 1
+type /ultrafast bogus
+key Enter
+wait 1
+snap uf-forms
+home end

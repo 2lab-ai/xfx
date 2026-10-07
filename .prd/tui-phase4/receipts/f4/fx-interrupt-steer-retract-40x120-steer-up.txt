@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run it
+
+● 1 tool call · 1 command
+└ Running sleep 4; echo done
+
+• Running (2s) (↑2 ↓40)
+
+┃ change tone
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

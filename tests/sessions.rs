@@ -219,6 +219,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
             output_tokens: Some(7),
+            turn_output_tokens: None,
             requests: Vec::new(),
             unaccounted: false,
             lines_added: 0,
@@ -282,7 +283,9 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult { tool, .. } => Some(tool.as_str()),
-            TurnStep::Assistant { .. } | TurnStep::ToolFeedback { .. } => None,
+            TurnStep::Assistant { .. }
+            | TurnStep::ToolFeedback { .. }
+            | TurnStep::Steered { .. } => None,
         })
         .collect();
     assert_eq!(tools, ["read_file", "edit_file", "terminal"]);
@@ -2244,6 +2247,9 @@ fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
                             .to_string(),
                     ),
                     permission_mode: None,
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
                 },
             )
             .expect("append");

@@ -1,0 +1,40 @@
+├ Read a.txt
+├ Read b.txt
+├ Matched **/*.rs
+├ Searched alpha
+├ Ran sleep 3; echo hello from shell; ls
+├ Edited a.txt +1 / -1
+├ Denied file
+├ Failed missing.txt: Path not found: missing.txt
+└ Exited 3 echo boom; echo err >&2; exit 3
+
+  All done. The files were updated.
+
+  13s (↑8 ↓320)
+
+┃ and once more
+
+● 1 tool call · 1 write · 1 cancelled
+└ Cancelled file
+
+■ Cancelled file · What can fx do differently?
+
+┃ run the long one
+
+● 1 tool call · 1 command
+└ Running sleep 4
+
+  Running (1s) (↑4 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+

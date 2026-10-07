@@ -622,11 +622,23 @@ pub(crate) fn escape_at(text: &str) -> Option<usize> {
 /// sequence whose meaning is unknown is how a re-open turns into a second
 /// instruction, and the cost of not replaying one is a lost attribute rather
 /// than a terminal doing something nobody asked for.
+///
+/// **And the hyperlink**, which is not an SGR but is state the same way: an
+/// OSC 8 open stays in force across text until a close, so a row cut out of a
+/// linked run starts outside the link unless it is reopened, exactly as it
+/// starts uncoloured unless its colour is. Only a link
+/// [`super::hyperlink::link_at`] admits is ever held -- one it refuses is
+/// dropped by the painter, so the terminal never enters it -- and an SGR reset
+/// does not close it, because on a terminal it does not.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SgrState {
     /// The open slots, in the order they were opened, so a replay reproduces
     /// the order the provider wrote.
     open: Vec<(Slot, String)>,
+    /// The link the text left open, as the sequence that opens it again.
+    /// Shared rather than owned per copy: a linked run puts this state into
+    /// every cell it paints (`super::grid::Cell`).
+    link: Option<std::sync::Arc<str>>,
 }
 
 /// One thing SGR can be in two states about.
@@ -656,6 +668,13 @@ impl SgrState {
             let (sequence, tail) = rest.split_at(len);
             if is_sgr(sequence) {
                 self.apply(sequence);
+            } else if let Some((_, link)) = super::hyperlink::link_at(sequence) {
+                self.link = match link {
+                    super::hyperlink::Hyperlink::Open { .. } => {
+                        Some(std::sync::Arc::from(sequence))
+                    }
+                    super::hyperlink::Hyperlink::Close => None,
+                };
             }
             rest = tail;
         }
@@ -711,12 +730,48 @@ impl SgrState {
         Ok(color)
     }
 
-    /// The sequences that put a fresh terminal back into this state.
+    /// The sequences that put a fresh terminal back into this state: the
+    /// attributes, then the link -- upstream's order when it carries a link
+    /// onto the next row (`assistant_wrap.zig:1306-1311`).
     pub(crate) fn reopen(&self) -> String {
+        let mut out = self.attributes();
+        if let Some(link) = &self.link {
+            out.push_str(link);
+        }
+        out
+    }
+
+    /// The SGR half of [`Self::reopen`]: the attributes alone.
+    pub(crate) fn attributes(&self) -> String {
         self.open
             .iter()
             .map(|(_, sequence)| sequence.as_str())
             .collect()
+    }
+
+    /// The link this state holds open, as the sequence that opens it.
+    ///
+    /// **The expected side of [`super::check`]'s link comparison**, read from
+    /// the slot rather than from [`Self::reopen`] for the reason
+    /// [`Self::color`] is: the wire side is decoded by a parser of its own.
+    pub(crate) fn link(&self) -> Option<&std::sync::Arc<str>> {
+        self.link.as_ref()
+    }
+
+    /// What takes a terminal in this state back to a fresh one: a reset for
+    /// the attributes and a close for the link, each only when it is owed --
+    /// upstream's order at the end of a wrapped row
+    /// (`assistant_wrap.zig:1310`, `\x1b[0m\x1b]8;;\x1b\\`). A reset alone
+    /// would leave the link open on whatever the next write paints.
+    pub(crate) fn close(&self) -> String {
+        let mut out = String::new();
+        if !self.open.is_empty() {
+            out.push_str("\u{1b}[0m");
+        }
+        if self.link.is_some() {
+            out.push_str(super::hyperlink::CLOSE);
+        }
+        out
     }
 
     /// Applies one SGR sequence, parameter by parameter.

@@ -865,6 +865,8 @@ impl Report<'_> {
                     TurnStep::ToolFeedback { call_id, text } => {
                         block(out, &format!("feedback id={call_id}"), text);
                     }
+                    // A prompt the person sent into the turn while it ran.
+                    TurnStep::Steered { text } => block(out, "steer", text),
                 }
             }
         }
@@ -2264,6 +2266,7 @@ mod tests {
                 SessionEvent::UsageRecorded {
                     input_tokens: Some(1200),
                     output_tokens: Some(40),
+                    turn_output_tokens: None,
                     requests: Vec::new(),
                     unaccounted: false,
                     lines_added: 0,

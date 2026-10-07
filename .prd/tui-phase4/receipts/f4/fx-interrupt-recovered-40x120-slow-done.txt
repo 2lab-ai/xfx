@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run it
+
+● 1 tool call · 1 command
+└ Ran sleep 4
+
+  after recovery.
+
+  5s (↑2 ↓80)
+
+┃ slowly
+
+  slow words after a retry keep coming in.
+
+  3s (↑2 ↓40)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
