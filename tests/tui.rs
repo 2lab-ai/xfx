@@ -1554,6 +1554,54 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
 }
 
 #[test]
+fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
+    // `app_lifecycle.zig:944-948`: a cursor past the first column is on a
+    // line the shell left unfinished, so the launch starts on the row under
+    // it -- and with `startup_scrollback` on, that line goes into scrollback
+    // with the rest instead of being written over by the welcome line.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(format!(
+        "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
+        env!("CARGO_BIN_EXE_xfx")
+    ));
+    sandbox.apply_env(&mut command);
+    command.env("XFX_TUI", "1");
+
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    // Row 1, column 20: just past the marker the shell printed.
+    session.type_bytes(b"\x1b[1;20R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let announced = text.find(READY).expect("the session's announce");
+    let after = &text[announced..];
+    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
+    let push_end = launch
+        .match_indices("\u{1b}[24;1H")
+        .nth(1)
+        .map_or(launch.len(), |(at, _)| at);
+    let push = &launch[..push_end];
+    let to_bottom = push
+        .find("\u{1b}[24;1H")
+        .unwrap_or_else(|| panic!("the unfinished line was not pushed away: {text:?}"));
+    let newline = push
+        .find('\n')
+        .unwrap_or_else(|| panic!("nothing scrolled: {text:?}"));
+    assert!(to_bottom < newline, "{text:?}");
+    assert_eq!(
+        push.matches('\n').count(),
+        1,
+        "the push was not the one row the line is on: {text:?}"
+    );
+}
+
+#[test]
 fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
     // `prepareStartupViewport` with `startup_scrollback` off
     // (`app_lifecycle.zig:966-988`): nothing is pushed while eleven rows are
