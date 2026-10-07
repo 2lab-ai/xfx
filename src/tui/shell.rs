@@ -367,6 +367,28 @@ fn banner_layout(text: &str, width: usize) -> Vec<String> {
     rows
 }
 
+/// As much of a waiting card as its [`BANNER_ROWS`] rows can show, and enough
+/// past them to know there is more: up to the line break after one more line,
+/// and no more than two more rows' worth of characters. A card is the prompt
+/// with its pastes expanded, and the banner is laid out on every frame, so a
+/// paste of megabytes is not copied each time to show two rows of it.
+fn banner_prefix(card: &str, width: usize) -> &str {
+    let chars = (BANNER_ROWS + 2).saturating_mul(width.max(1));
+    let mut breaks = 0usize;
+    for (count, (at, character)) in card.char_indices().enumerate() {
+        if count >= chars {
+            return &card[..at];
+        }
+        if character == '\n' {
+            breaks += 1;
+            if breaks > BANNER_ROWS {
+                return &card[..at];
+            }
+        }
+    }
+    card
+}
+
 /// The question a cancelled turn leaves in the document, after its marker and
 /// its word (`lifecycleTerminalLine`, `transcript/runtime.zig:644`), in this
 /// product's name.
@@ -9498,9 +9520,10 @@ impl Shell {
             // **Expanded here, and only here.** What the composer holds for a
             // collapsed paste is a summary; what the user meant to send is the
             // text it stands for, so the prompt is expanded on its way to the
-            // runtime and the *document* still shows the summary -- a screen
-            // that echoed eight megabytes back at the user would be the paint
-            // the collapse exists to prevent.
+            // runtime -- and the card shows it expanded too, as upstream's
+            // does ([`Self::send`]). The summary is the composer's alone: a
+            // band that painted eight megabytes and re-wrapped them on every
+            // keystroke is what the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
                 // Upstream writes a prompt that carries images to the history
                 // file not at all (`!has_images_for_submit`,
@@ -9578,10 +9601,18 @@ impl Shell {
             .images()
             .map(|image| crate::image::Image::clone(image))
             .collect();
-        // An image counts as the token the prompt names it by, as upstream's
-        // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
-        // #3][Image #4] what is in this image?`). Read before the draft goes.
-        let counted = self.editor.entities().with_image_tokens(text);
+        // **The card is the prompt as it is sent**: each block the text it
+        // stands for, each image the token that names it -- upstream's card
+        // is built from the submitted prompt, its blocks expanded
+        // (`expanded.text`, `input_submit_runtime.zig:705-706`, carried into
+        // the turn as `visual_text`, `:815-861`; the card,
+        // `transcript/store.zig:2814-2820`), whose tokens are made badges
+        // there ([`card_line`]). The turn's summary counts the same text
+        // (`TurnSummaryAccumulator.init(.., job.prompt)`,
+        // `orchestrator.zig:5482-5485`; `fx-image-40x120-sent`: `↑12` for
+        // `[Image #3][Image #4] what is in this image?`). Read before the
+        // draft goes.
+        let card = self.editor.entities().expand(text);
         // **Into the turn that is running**, as upstream's steer
         // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
         // takes it at its next boundary -- at once over an answer, after a
@@ -9602,7 +9633,7 @@ impl Shell {
                 self.ask_for_title(excerpt.as_deref(), None);
                 self.take_draft();
                 self.edited(None);
-                self.steers.push((id, prompt, text.to_string()));
+                self.steers.push((id, prompt, card));
                 self.refit();
                 self.render.request(Reason::Footer);
                 self.gestures.submitted();
@@ -9612,9 +9643,6 @@ impl Shell {
         // What the card's badges link to: the files these images were read
         // from, as the composer's badges did.
         let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
-        // The card is the prompt as it is sent, its tokens made badges there
-        // ([`card_line`]).
-        let card = self.editor.entities().with_image_tokens(text);
         let work = if images.is_empty() {
             TurnWork::Submit(prompt)
         } else {
@@ -9638,7 +9666,7 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
                 let mut estimate = Estimator::default();
-                estimate.consume(&counted);
+                estimate.consume(&card);
                 if waits {
                     self.prompts
                         .push_back((estimate.estimate(), title, Some((card, links))));
@@ -11996,7 +12024,7 @@ impl Shell {
                 continue;
             };
             rows.extend(
-                banner_layout(&card_text(card, links), width)
+                banner_layout(&card_text(banner_prefix(card, width), links), width)
                     .into_iter()
                     .map(|row| format!("{BANNER_MARK}{row}")),
             );
@@ -13176,10 +13204,15 @@ mod tests {
     }
 
     #[test]
-    fn a_large_paste_is_a_summary_on_the_screen_and_the_whole_text_on_the_wire() {
+    fn a_large_paste_is_a_summary_in_the_composer_and_the_whole_text_on_the_wire_and_the_card() {
         // 1800 codepoints painted into a band is a band that has eaten the
         // screen -- and every later keystroke re-wraps whatever the composer
-        // holds. The summary is what is shown; the text is what is sent.
+        // holds. The summary is what the composer shows; the text is what is
+        // sent, and what the card shows: upstream's card is the prompt as it
+        // was submitted, its blocks expanded (`expanded.text`,
+        // `input_submit_runtime.zig:705-706`; the card built from it,
+        // `transcript/store.zig:2814-2820`), each line of it rows of its own
+        // (`collectLogicalLinesWithFirstPrefix`, `user_message_card.zig:348-383`).
         let mut shell = shell(24, 80);
         let block = format!("{}\n{}", "y".repeat(900), "z".repeat(900));
         shell.route_bytes(b"\x1b[200~");
@@ -13198,10 +13231,20 @@ mod tests {
             TurnWork::Submit(block),
             "the summary was sent in place of what was pasted"
         );
+        // Each line on rows of its own, wrapped at the 78 cells behind the
+        // rail.
+        let mut rows: Vec<String> = Vec::new();
+        for letter in ["y", "z"] {
+            rows.extend(
+                [78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 42]
+                    .map(|cells| format!("{RAIL} {BOLD}{}", letter.repeat(cells))),
+            );
+        }
+        rows.push(String::new());
         assert_eq!(
             shell.document(),
-            card("[Pasted text #1, 2 lines]"),
-            "the document echoed the whole block back at the user"
+            rows,
+            "the card is not the text that was sent"
         );
     }
 
@@ -17337,6 +17380,47 @@ mod tests {
             shell.picks_up(),
             TurnWork::Attached { prompt, images } if prompt == "and [Image #1]" && images.len() == 1
         ));
+    }
+
+    #[test]
+    fn a_steered_paste_waits_as_its_text_and_its_card_is_the_text() {
+        // A steer's message is the prompt as sent (`admitInteractivePrompt`,
+        // `worker_runtime.zig:1080-1104`), its block expanded, and so is the
+        // card written when the turn takes it; while it waits, its banner is
+        // the first two rows of that text, the last cut for `…`
+        // (`composeSteeringMessageRows`, `input_presentation.zig:58-80`).
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        let block = "w".repeat(1500);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(b"\r");
+        assert!(steering.pending(), "the prompt did not steer");
+        let width = usize::from(shell.geometry.cols - 2);
+        assert_eq!(
+            shell.banner_rows(shell.geometry.cols),
+            [
+                format!("{BANNER_MARK}{}", "w".repeat(width)),
+                format!("{BANNER_MARK}{}\u{2026}", "w".repeat(width - 1)),
+            ]
+        );
+        let taken = steering.take();
+        assert_eq!(taken[0].text, block);
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let words: String = shell
+            .released()
+            .iter()
+            .map(|row| uncoloured(row))
+            .filter_map(|row| row.strip_prefix("\u{2503} ").map(str::to_string))
+            .collect();
+        assert!(words.contains(&block), "the steer's card is not its text");
+        assert!(!words.contains("Pasted text"));
     }
 
     #[test]
