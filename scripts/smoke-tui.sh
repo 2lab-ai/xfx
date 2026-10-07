@@ -200,6 +200,9 @@ band that came back.
   entry and pops on every restore path
 * `CR`, `LF` with a scroll at the bottom margin, and `BEL` -- counted in
   `bells` and moving nothing, `/sound`'s bell (`check.rs`'s `Intent::Bell`)
+* whether a synchronized update is open (`synchronized`): `check.rs` refuses a
+  vector that leaves one open, and the wire's form of that is a session that
+  gives the terminal back inside one, which scenario 1 asserts against
 * a cluster written past the last column while autowrap is off is a finding:
   the terminal would clip it, and the checker refuses it before it is written
 
@@ -1113,6 +1116,20 @@ def a_hyperlink_that_is_not_inert_or_is_left_open_is_a_finding():
         require(fed(sequence).unknown, "%s passed the oracle unremarked: %r" % (what, sequence))
 
 
+def an_update_is_open_between_its_brackets_and_only_there():
+    """`?2026h` opens a synchronized update and `?2026l` closes it.
+
+    `check.rs` refuses a vector that leaves one open; the wire has no vector
+    boundaries, so the form this suite can hold the product to is the session's
+    own end -- the terminal is given back outside any update. That needs the
+    emulator to know whether one is open, in both directions.
+    """
+    grid = fed("\x1b[?2026hx")
+    require(grid.synchronized, "an opened update was not seen as open")
+    grid = fed("\x1b[?2026hx\x1b[?2026l")
+    require(not grid.synchronized, "a closed update was still seen as open")
+
+
 def a_bell_moves_nothing_and_is_counted():
     grid = fed("ab\x07\x07c")
     require(not grid.unknown, "a bell was reported as a defect: %r" % (grid.unknown,))
@@ -1350,6 +1367,7 @@ TESTS = (
     an_osc_in_the_other_terminator_or_with_another_body_is_a_finding,
     a_hyperlink_the_product_writes_is_accepted_and_covers_its_cells,
     a_hyperlink_that_is_not_inert_or_is_left_open_is_a_finding,
+    an_update_is_open_between_its_brackets_and_only_there,
     a_bell_moves_nothing_and_is_counted,
     a_caret_placed_off_the_screen_or_half_addressed_is_a_finding,
     a_cluster_past_the_last_column_is_a_finding_only_with_autowrap_off,
@@ -3551,6 +3569,14 @@ def scenario_1(run):
     settled = trial.session.settled_text()
     run.require(pty.RESTORE in settled, "the normal restore is on the terminal, in order")
     run.require(trial.modes() == trial.before, "the terminal was given back byte for byte")
+    # `check.rs` refuses a vector that leaves synchronized output open; on the
+    # wire that is a terminal given back with an update still open, holding
+    # every later byte -- the user's shell included -- unpresented.
+    given_back = Grid(trial.rows, trial.cols).feed(bytes(trial.session.captured))
+    run.require(
+        not given_back.synchronized,
+        "the session gave the terminal back inside a synchronized update",
+    )
     fixture.stop()
 
 
