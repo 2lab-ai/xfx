@@ -702,7 +702,7 @@ mod editor;
 mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
-mod fault;
+pub(crate) mod fault;
 mod file_index;
 mod file_picker;
 mod frame;
