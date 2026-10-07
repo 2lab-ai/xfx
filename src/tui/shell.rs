@@ -8394,20 +8394,25 @@ impl Shell {
         // **Neither while the prompt history is off** (`/settings`): the line
         // is kept nowhere, and the walk still ends, because the draft it stood
         // beside has been consumed either way.
-        let saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
+        let mut saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
             .then(|| self.saved_line(&text));
-        if saved.is_none() {
-            self.history.leave();
-        } else {
-            // **With the blocks its summaries name.** An entry is the line as
-            // the composer held it, which for a collapsed paste is 25 bytes
-            // standing for as much as 8 MiB; an entry that recorded only the
-            // words would recall a summary that stands for nothing
-            // (`super::entity::EntitySnapshot`).
-            self.history.record(HistoryEntry::new(
-                text.clone(),
-                self.editor.entities().snapshots(),
-            ));
+        // **With the blocks its summaries name.** An entry is the line as the
+        // composer held it, which for a collapsed paste is 25 bytes standing
+        // for as much as 8 MiB; an entry that recorded only the words would
+        // recall a summary that stands for nothing
+        // (`super::entity::EntitySnapshot`).
+        let mut entry = saved
+            .is_some()
+            .then(|| HistoryEntry::new(text.clone(), self.editor.entities().snapshots()));
+        // A prompt whose typed paths became badges is written down once the
+        // runtime has answered: a refusal gives the paths back to the draft,
+        // and the line walked back to is that line, not badges' words that
+        // would attach nothing ([`Self::restore_typed`]).
+        let deferred = matches!(typed, Typed::Attached { .. });
+        match entry.take() {
+            None => self.history.leave(),
+            Some(now) if !deferred => self.history.record(now),
+            later => entry = later,
         }
         match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
@@ -8463,10 +8468,21 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                if !self.send(self.expanded_prompt(&text, prompt), &text) {
+                if !self.send(self.expanded_prompt(&text, prompt), &text) && deferred {
                     self.restore_typed(typed);
+                    if entry.is_some() {
+                        let draft = self.editor.text();
+                        saved = Some(self.saved_line(draft));
+                        entry = Some(HistoryEntry::new(
+                            draft.to_string(),
+                            self.editor.entities().snapshots(),
+                        ));
+                    }
                 }
             }
+        }
+        if let Some(entry) = entry {
+            self.history.record(entry);
         }
         // To the file after the line has been acted on, as upstream appends
         // once the submission is through (`input_submit_runtime.zig:884-886`,
@@ -27674,6 +27690,10 @@ mod tests {
         assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
         assert_eq!(shell.editor.text(), "look at shot.png");
         assert!(attached_ids(&shell).is_empty());
+        // And the line walked back to is the line the draft gives back, not
+        // a badge's words that would attach nothing.
+        shell.route_bytes(b"\x15\x1b[A");
+        assert_eq!(shell.editor.text(), "look at shot.png");
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
         shell.work.finished_one();

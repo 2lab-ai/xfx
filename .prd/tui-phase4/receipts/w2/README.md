@@ -1,6 +1,7 @@
 # W2 receipt: /image (/img), /images, /paste and Ctrl-V
 
-Four scenarios, run at 40x120 on both binaries through the repo harness:
+Six scenarios, run at 40x120 on both binaries through the repo harness -- the
+first four below, the last two in the follow-up section:
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
