@@ -1,37 +1,37 @@
+  │ 1   alpha line 1
+  │ 2 - alpha line 2
+  │ 2 + ALPHA LINE TWO
+  │ 3   alpha line 3
 
-  2026-10-07 01:51:39.472 UTC · Tool
+  2026-10-07 03:09:06.832 UTC · Tool
 ├ Denied file
 │  path: c.txt
 │  content: new file
 │  second line
 
-  2026-10-07 01:51:39.472 UTC · Tool
+  2026-10-07 03:09:06.866 UTC · Tool
 ├ Failed missing.txt
-│  read_file refused the path: no such path: `missing.txt`
+│  Path not found: missing.txt
 
-  2026-10-07 01:51:39.472 UTC · Tool
+  2026-10-07 03:09:09.373 UTC · Tool
 └ Exited 3 echo boom; echo err >&2; exit 3
 │ boom
 │ err
 │ exit code 3
 
-  2026-10-07 01:51:52.595 UTC · Response
+  2026-10-07 03:09:10.238 UTC · Response
   All done. The files were updated.
 
-  2026-10-07 01:51:52.595 UTC · Usage
-  13s (↑8 ↓40)
+  2026-10-07 03:09:10.238 UTC · Usage
+  12s (↑8 ↓320)
 
-  2026-10-07 01:51:54.272 UTC · Prompt
+  2026-10-07 03:09:10.238 UTC · Prompt
 ┃ and once more
 
 ■ Cancelled · What can xfx do differently?
 
-  2026-10-07 01:51:58.321 UTC · Prompt
+  2026-10-07 03:09:10.238 UTC · Prompt
 ┃ run the long one
-
-  2026-10-07 01:51:58.321 UTC · Tool
-● 1 tool call · 1 command
-└ Ran sleep 4
 
 ■ Cancelled · What can xfx do differently?
 

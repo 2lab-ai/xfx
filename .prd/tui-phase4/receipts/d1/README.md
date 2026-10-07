@@ -45,6 +45,23 @@ Re-checked at the end of the round on `afd5c83` (plan `b887a7f`): xfx's
 every snap is the receipt's but for session ids, wall-clock stamps and
 seconds, and how many tokens had streamed at the snap.
 
+Round 4 (on `aed4475`, round 4 with F4 `e17dd02` merged; banner
+`v0.1.0-aed4475`): `resume-tools` retaken on both, the whole set replaced,
+at load averages near 15-20. With the clock masked: `end` is identical,
+`resumed` differs only in the summary's seconds (`12s`/`13s`), and the
+replayed Ctrl-O's top page (`ctrl-o-up2`) is identical; the other pages are
+the same entries shifted by fx's two shell-argument rows per command, plus
+the edit's result line. The stamps follow fx's: the notice the resume, the
+first turn's Prompt and Response its start, its Response and Usage after the
+calls its conclusion, and both stopped turns' Prompts that same conclusion
+(fx `03:08:12.245` on all four, xfx `03:09:10.238` on all four); each call
+carries its own result's time (xfx `03:08:57.350` … `03:09:09.373`, fx one
+end-of-turn instant, as above). `Failed missing.txt: Path not found:
+missing.txt` is identical live (`end`, `live-ctrl-o`) and replayed. Since
+F4, xfx stops `sleep 4` at the Ctrl-C as fx does, so its replay no longer
+shows `Ran sleep 4`; live, its Ctrl-O body for that call is `aborted by
+user` where fx's is `signal 15` (F4's surface).
+
 Round 3 (on `120f93e`, the binaries' banners say so; the round's own changes
 uncommitted in that build): `resume-tools` retaken on both with the Ctrl-O
 pages above -- the whole set replaced -- and `rename` and `rename-midturn`

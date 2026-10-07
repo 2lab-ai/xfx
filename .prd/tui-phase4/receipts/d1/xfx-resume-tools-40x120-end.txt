@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-120f93e [debug] · Run /help for commands
+x𝒇x v0.1.0-aed4475 [debug] · Run /help for commands
 
 ┃ look at the files and fix them
 
@@ -12,12 +12,12 @@ x𝒇x v0.1.0-120f93e [debug] · Run /help for commands
 ├ Ran sleep 3; echo hello from shell; ls
 ├ Edited a.txt +1 / -1
 ├ Denied file
-├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`
+├ Failed missing.txt: Path not found: missing.txt
 └ Exited 3 echo boom; echo err >&2; exit 3
 
   All done. The files were updated.
 
-  13s (↑8 ↓40)
+  13s (↑8 ↓320)
 
 ┃
 

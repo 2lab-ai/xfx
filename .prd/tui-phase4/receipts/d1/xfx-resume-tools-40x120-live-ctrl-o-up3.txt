@@ -1,38 +1,38 @@
-x𝒇x v0.1.0-120f93e [debug] · Run /help for commands
+x𝒇x v0.1.0-aed4475 [debug] · Run /help for commands
 
-  2026-10-07 01:51:35.404 UTC · Notice
+  2026-10-07 03:08:56.939 UTC · Notice
 * session: provider: gateway · model: fake/model-a · effort: auto
   tools: 9 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal, +1
   more)
   mcp: none
 
-  2026-10-07 01:51:39.500 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 5ms
-  finish: tool_calls
-  tokens: 1200 in · 40 out
-
-  2026-10-07 01:51:39.543 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 1ms
-  finish: tool_calls
-  tokens: 1200 in · 40 out
-
-  2026-10-07 01:51:39.601 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 2ms
-  finish: tool_calls
-  tokens: 1200 in · 40 out
-
-  2026-10-07 01:51:45.060 UTC · Notice
+  2026-10-07 03:08:57.327 UTC · Notice
 * network: provider: gateway · model: fake/model-a · 9ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-10-07 01:51:47.236 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 22ms
+  2026-10-07 03:08:57.417 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 9ms
   finish: tool_calls
   tokens: 1200 in · 40 out
 
-  2026-10-07 01:51:49.222 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 39ms
+  2026-10-07 03:08:57.528 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 12ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:02.854 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 4ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:04.854 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-07 03:09:06.862 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
   finish: tool_calls
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

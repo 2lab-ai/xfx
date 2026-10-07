@@ -1,17 +1,17 @@
 [38;5;252m  │ 2 + ALPHA LINE TWO[39m
 [38;5;245m  │ 3   alpha line 3[39m
 
-[38;5;245m  2026-10-07 01:36:08.962 UTC · Tool[39m
+[38;5;245m  2026-10-07 03:08:12.245 UTC · Tool[39m
 ├ Denied file
 │[38;5;245m  path: c.txt[39m
 │[38;5;245m  content: new file[39m
 │[38;5;245m  second line[39m
 
-[38;5;245m  2026-10-07 01:36:08.962 UTC · Tool[39m
+[38;5;245m  2026-10-07 03:08:12.245 UTC · Tool[39m
 ├ Failed missing.txt
 │[38;5;245m  Path not found: missing.txt
 
-  2026-10-07 01:36:08.962 UTC · Tool[39m
+  2026-10-07 03:08:12.245 UTC · Tool[39m
 └ Exited 3 [38;5;252mecho[39m boom[38;5;252m;[39m [38;5;252mecho[39m err [38;5;252m>&[38;5;250m2[38;5;252m;[39m [38;5;252mexit[39m 3
 │[38;5;245m  action: run[39m
 │[38;5;245m  yield_time_ms: 30000[39m
@@ -19,18 +19,18 @@
 │[38;5;245m err[39m
 │[38;5;245m exit code 3[39m
 
-[38;5;245m  2026-10-07 01:36:08.962 UTC · Response[39m
+[38;5;245m  2026-10-07 03:08:12.245 UTC · Response[39m
   All done. The files were updated.
 
-[38;5;245m  2026-10-07 01:36:08.962 UTC · Usage[39m
+[38;5;245m  2026-10-07 03:08:12.245 UTC · Usage[39m
 [38;5;245m  13s (↑8 ↓320)[39m
 
-[38;5;245m  2026-10-07 01:36:08.962 UTC · Prompt[39m
+[38;5;245m  2026-10-07 03:08:12.245 UTC · Prompt[39m
 [38;5;255m┃[39m [1mand once more[0m
 
 [38;5;252m■[39m [38;5;255mCancelled[39m · What can fx do differently?
 
-[38;5;245m  2026-10-07 01:36:08.962 UTC · Prompt[39m
+[38;5;245m  2026-10-07 03:08:12.245 UTC · Prompt[39m
 [38;5;255m┃[39m [1mrun the long one[0m
 
 [38;5;252m■[39m [38;5;255mCancelled[39m · What can fx do differently?

@@ -3,12 +3,12 @@
 ├ Ran sleep 3; echo hello from shell; ls
 ├ Edited a.txt +1 / -1
 ├ Denied file
-├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`
+├ Failed missing.txt: Path not found: missing.txt
 └ Exited 3 echo boom; echo err >&2; exit 3
 
   All done. The files were updated.
 
-  13s (↑8 ↓40)
+  13s (↑8 ↓320)
 
 ┃ and once more
 
@@ -22,10 +22,10 @@
 
 
 
-● 1 tool call · 1 command
-└ Ran sleep 4
+● 1 tool call · 1 command · 1 cancelled
+└ Cancelled sleep 4
 
-■ Cancelled · What can xfx do differently?
+■ Cancelled sleep 4 · What can xfx do differently?
 
 ┃
 

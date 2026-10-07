@@ -1,17 +1,17 @@
 │  3    alpha line 3
 
-  2026-10-07 01:36:08.962 UTC · Tool
+  2026-10-07 03:08:12.245 UTC · Tool
 ├ Read b.txt
 │  1    beta one
 │  2    beta two
 
-  2026-10-07 01:36:08.962 UTC · Tool
+  2026-10-07 03:08:12.245 UTC · Tool
 ├ Matched **/*.rs
 │  [glob] 1 matches for **/*.rs
 │   - src/main.rs
 
 
-  2026-10-07 01:36:08.962 UTC · Tool
+  2026-10-07 03:08:12.245 UTC · Tool
 ├ Searched alpha
 │  [grep] 3 matches for alpha
 │   - a.txt:1: alpha line 1
@@ -19,7 +19,7 @@
 │   - a.txt:3: alpha line 3
 
 
-  2026-10-07 01:36:08.962 UTC · Tool
+  2026-10-07 03:08:12.245 UTC · Tool
 ├ Ran sleep 3; echo hello from shell; ls
 │  action: run
 │  yield_time_ms: 30000
@@ -28,7 +28,7 @@
 │ b.txt
 │ src
 
-  2026-10-07 01:36:08.962 UTC · Tool
+  2026-10-07 03:08:12.245 UTC · Tool
 ├ Edited a.txt +1 / -1
 │  edited a.txt (41 bytes)
 
