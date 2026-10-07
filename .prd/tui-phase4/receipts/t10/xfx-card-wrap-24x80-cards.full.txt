@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-f59ed24 [debug] · Run /help for commands
+x𝒇x v0.1.0-e19747f [debug] · Run /help for commands
 
 ┃ A-R2a-one-word-exactly-the-width-=============================================
 ┃ ======================================== then a row that starts with a blank
