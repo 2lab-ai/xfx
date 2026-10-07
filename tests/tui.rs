@@ -8829,19 +8829,25 @@ fn trace_records_a_failed_compaction_and_the_one_after_it() {
     );
     session.type_bytes(b"/compact\r");
     wait_for_checkpoints(&sandbox, 1);
-    // `committed` is recorded just after the checkpoint is written, on the
-    // runtime's thread; `/trace` reads the record on the screen's.
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
-    session.type_bytes(b"/trace\r");
-    session.wait_for(if cfg!(target_os = "macos") {
-        "Trace copied to clipboard. Review and redact it before sharing."
-    } else {
-        "Trace saved at"
-    });
-    let reports = clipboard.reports();
-    assert_eq!(reports.len(), 1, "{reports:?}");
-    let report = std::fs::read_to_string(&reports[0]).expect("the report");
+    // `committed` is recorded just after the checkpoint is written, on the
+    // runtime's thread, and `/trace` reads the record on the screen's: a
+    // report taken in between is asked for again.
+    let deadline = Instant::now() + WAIT;
+    let report = loop {
+        let taken = clipboard.reports().len();
+        session.type_bytes(b"/trace\r");
+        while clipboard.reports().len() == taken {
+            assert!(Instant::now() < deadline, "no report was written");
+            std::thread::sleep(IDLE_POLL);
+        }
+        let path = clipboard.reports().pop().expect("a report");
+        let report = std::fs::read_to_string(&path).expect("the report");
+        if report.contains("event=committed") {
+            break report;
+        }
+        assert!(Instant::now() < deadline, "no committed event:\n{report}");
+    };
     let section = report
         .split("\n## Context Compaction\n")
         .nth(1)
