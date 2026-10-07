@@ -7045,11 +7045,7 @@ impl Shell {
         if found.is_empty() {
             return Typed::Nothing;
         }
-        let before = Typed::Attached {
-            text: text.to_string(),
-            spans: spans.to_vec(),
-            next: first,
-        };
+        let before = self.draft_before();
         // From the last to the first, so each range is still where it was.
         for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate().rev() {
             let id = first + index as u32;
@@ -7068,22 +7064,113 @@ impl Shell {
                 .and_then(|_| self.editor.insert_entity(&crate::image::badge(id), kind));
             if placed.is_none() {
                 // No room for the badge: the draft as it was, the paths words.
-                self.restore_typed(before);
+                self.restore_draft(before);
                 return Typed::Nothing;
             }
         }
         self.images_next = next;
         self.edit_history.boundary();
-        before
+        Typed::Attached
     }
 
-    /// Puts back the draft [`Self::attach_typed`] changed, as it was before:
-    /// a prompt the runtime would not take keeps the paths the user typed, as
-    /// upstream's composer does when the admission fails.
-    fn restore_typed(&mut self, before: Typed) {
-        let Typed::Attached { text, spans, next } = before else {
-            return;
-        };
+    /// Gives each badge whose number the prompt already says in words -- a
+    /// typed `[Image #1]` beside the badge that is #1 -- a fresh number, so
+    /// the model is never handed two things called `[Image #1]`
+    /// (`mapSubmittedImages`, `input_submit_runtime.zig:1615-1692`). The
+    /// words stay as typed; the badge takes the session's next number that
+    /// neither the words nor another badge use (`nextRemappedImageId`,
+    /// `:1713-1724`), and the numbers it spends are spent
+    /// (`commitRemappedImageIds`, `:1701-1711`).
+    ///
+    /// The words are read from the prompt as it is sent, a collapsed paste's
+    /// text included (`literalImageIdUsed`, `:1726-1752`). `true` when a
+    /// badge was renumbered.
+    fn renumber_lookalikes(&mut self) -> bool {
+        let text = self.editor.text().to_string();
+        let spans = self.editor.entities().spans().to_vec();
+        let mut words: Vec<u32> = Vec::new();
+        let mut cut = 0;
+        for span in &spans {
+            words.extend(crate::image::placeholder_ids(&text[cut..span.start]));
+            if span.image().is_none() {
+                words.extend(crate::image::placeholder_ids(span.text()));
+            }
+            cut = span.end;
+        }
+        words.extend(crate::image::placeholder_ids(&text[cut..]));
+        let taken: Vec<u32> = spans
+            .iter()
+            .filter_map(|span| span.image().map(|image| image.id))
+            .collect();
+        if !taken.iter().any(|id| words.contains(id)) {
+            return false;
+        }
+        let mut next = self.images_next;
+        let mut out = String::with_capacity(text.len());
+        let mut entities = Entities::new();
+        let mut cut = 0;
+        for span in spans {
+            out.push_str(&text[cut..span.start]);
+            let start = out.len();
+            let kind = match span.image() {
+                Some(image) if words.contains(&image.id) => {
+                    while words.contains(&next) || taken.contains(&next) {
+                        let Some(after) = next.checked_add(1) else {
+                            return false;
+                        };
+                        next = after;
+                    }
+                    let id = next;
+                    let Some(after) = id.checked_add(1) else {
+                        return false;
+                    };
+                    next = after;
+                    let mut renamed = crate::image::Image::clone(image);
+                    renamed.id = id;
+                    out.push_str(&crate::image::badge(id));
+                    EntityKind::Image {
+                        token: std::sync::Arc::from(crate::image::token(id)),
+                        image: std::sync::Arc::new(renamed),
+                    }
+                }
+                _ => {
+                    out.push_str(&text[span.start..span.end]);
+                    span.kind.clone()
+                }
+            };
+            entities.register(Span {
+                start,
+                end: out.len(),
+                kind,
+            });
+            cut = span.end;
+        }
+        out.push_str(&text[cut..]);
+        if !self.editor.set_text(&out, entities) {
+            return false;
+        }
+        self.images_next = self.images_next.max(next);
+        self.edit_history.boundary();
+        true
+    }
+
+    /// The draft as it stands, to be put back if a prompt made from it is
+    /// not taken ([`Self::restore_draft`]).
+    fn draft_before(&self) -> DraftBefore {
+        DraftBefore {
+            text: self.editor.text().to_string(),
+            spans: self.editor.entities().spans().to_vec(),
+            next: self.images_next,
+        }
+    }
+
+    /// Puts back the draft submit changed for sending -- typed paths made
+    /// badges, badges renumbered -- as it was before: a prompt the runtime
+    /// would not take keeps what the user typed, and spends no number, as
+    /// upstream's composer does when the admission fails
+    /// (`input_submit_runtime.zig:872-874`).
+    fn restore_draft(&mut self, before: DraftBefore) {
+        let DraftBefore { text, spans, next } = before;
         let mut entities = Entities::new();
         for span in spans {
             entities.register(span);
@@ -8364,17 +8451,20 @@ impl Shell {
         }
         let mut submitted = router::classify(&text);
         // A prompt's typed image paths first, because a path that cannot be
-        // attached stops the prompt before anything below records it.
-        let mut typed = Typed::Nothing;
+        // attached stops the prompt before anything below records it; then
+        // its badges' numbers against the ones its words say.
+        let mut before = None;
         if matches!(submitted, Submitted::Prompt(_)) {
-            typed = self.attach_typed(&text);
-            match typed {
+            let draft = self.draft_before();
+            let attached = match self.attach_typed(&text) {
                 Typed::Refused => return,
-                Typed::Nothing => {}
-                Typed::Attached { .. } => {
-                    text = self.editor.text().to_string();
-                    submitted = router::classify(&text);
-                }
+                Typed::Nothing => false,
+                Typed::Attached => true,
+            };
+            if self.renumber_lookalikes() || attached {
+                before = Some(draft);
+                text = self.editor.text().to_string();
+                submitted = router::classify(&text);
             }
         }
         // **Read before any arm below, because every one of them consumes the
@@ -8482,7 +8572,9 @@ impl Shell {
                         saved = None;
                     }
                 } else {
-                    self.restore_typed(typed);
+                    if let Some(before) = before.take() {
+                        self.restore_draft(before);
+                    }
                     self.history.leave();
                     saved = None;
                 }
@@ -8818,13 +8910,15 @@ enum Typed {
     /// A path could not be attached and the user has been told; the prompt
     /// is not sent.
     Refused,
-    /// Its paths are badges now, and this is the draft as it was before, for
-    /// a prompt the runtime refuses ([`Shell::restore_typed`]).
-    Attached {
-        text: String,
-        spans: Vec<Span>,
-        next: u32,
-    },
+    /// Its paths are badges now.
+    Attached,
+}
+
+/// A draft as it was before submit changed it ([`Shell::restore_draft`]).
+struct DraftBefore {
+    text: String,
+    spans: Vec<Span>,
+    next: u32,
 }
 
 /// Where the path after a pasted `/image ` or `/img ` begins, or `None` when
@@ -27679,6 +27773,50 @@ mod tests {
         // Nothing was recorded for the line that did not go.
         shell.route_bytes(b"\x15\x1b[A");
         assert_eq!(shell.editor.text(), "read nope.png notes.png pics.png");
+    }
+
+    #[test]
+    fn a_badge_whose_number_the_prompt_types_in_words_is_sent_under_a_fresh_one() {
+        // `tui-composer-edit-contracts.test.ts:1033-1047` and
+        // `fx-image-composer-40x120-lookalike-sent`: the words stay `[Image
+        // #1]`, the badge is sent as #2, and #2 is spent.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" duplicate [Image #1]\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] duplicate [Image #1]".to_string(), vec![2])
+        );
+        assert_eq!(shell.document(), card("[Image 2] duplicate [Image #1]"));
+        shell.work.finished_one();
+        // The next number skips every one the words or another badge say.
+        pasted(&mut shell, "shot.png shot.png");
+        assert_eq!(attached_ids(&shell), [3, 4]);
+        shell.route_bytes(b" [Image #3] [Image #5]\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            (
+                "[Image #6] [Image #4] [Image #3] [Image #5]".to_string(),
+                vec![6, 4]
+            )
+        );
+        shell.work.finished_one();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [7]);
+    }
+
+    #[test]
+    fn a_renumbered_prompt_the_runtime_refuses_keeps_its_badge_and_spends_nothing() {
+        let mut shell = attaching();
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.document();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" [Image #1]\r");
+        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        assert_eq!(shell.editor.text(), "[Image 1] [Image #1]");
+        assert_eq!(attached_ids(&shell), [1]);
+        assert_eq!(shell.images_next, 2);
     }
 
     #[test]

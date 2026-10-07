@@ -219,6 +219,28 @@ pub fn badge(id: u32) -> String {
     format!("[Image {id}]")
 }
 
+/// Every `[Image #N]` in `text`, by its number, in the order they stand
+/// (`matchImagePlaceholder`, `image_attachments.zig:1388-1403`): the prefix,
+/// one or more digits, and `]`. A number too large for an id names no image
+/// this session could have, and is skipped.
+pub fn placeholder_ids(text: &str) -> impl Iterator<Item = u32> + '_ {
+    const PREFIX: &str = "[Image #";
+    let mut rest = text;
+    std::iter::from_fn(move || loop {
+        let at = rest.find(PREFIX)?;
+        let after = &rest[at + PREFIX.len()..];
+        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 0 && after.as_bytes().get(digits) == Some(&b']') {
+            rest = &after[digits + 1..];
+            if let Ok(id) = after[..digits].parse::<u32>() {
+                return Some(id);
+            }
+            continue;
+        }
+        rest = after;
+    })
+}
+
 /// The SHA-256 of `bytes`, lowercase hex.
 pub fn digest(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(64);
@@ -920,6 +942,18 @@ mod tests {
             "{}",
             sent[2].text()
         );
+    }
+
+    #[test]
+    fn a_placeholder_is_the_prefix_digits_and_a_bracket_and_nothing_else() {
+        let ids = |text: &str| placeholder_ids(text).collect::<Vec<_>>();
+        assert_eq!(ids("[Image #1] and [Image #23]"), [1, 23]);
+        assert_eq!(
+            ids("[Image 1] [Image #] [Image #x] [Image #2"),
+            Vec::<u32>::new()
+        );
+        assert_eq!(ids("[Image #[Image #4]"), [4]);
+        assert_eq!(ids("[Image #99999999999] [Image #5]"), [5]);
     }
 
     #[test]

@@ -8458,6 +8458,46 @@ fn an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood() {
     assert_eq!(file_parts(&requests[1].json()).len(), 2);
 }
 
+#[test]
+fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number() {
+    // `tui-composer-edit-contracts.test.ts:1033-1047`: the words stay, the
+    // badge is renumbered, and the log names the image by its new number.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-SEEN"]),
+    )])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"\x1b[200~shot.png\x1b[201~ duplicate [Image #1]\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 2] duplicate [Image #1]"],
+        &[],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let body = gateway.requests()[0].json();
+    assert_eq!(user_messages(&body), ["[Image #2] duplicate [Image #1]"]);
+    assert_eq!(file_parts(&body).len(), 1);
+    let ids = sandbox.session_ids();
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    assert!(
+        log.contains("\"text\":\"[Image #2] duplicate [Image #1]\""),
+        "{log}"
+    );
+    assert!(log.contains("\"images\":[{\"id\":2,"), "{log}");
+}
+
 /// A PNG signature and an `IHDR` declaring `width` x `height`: upstream's
 /// `testPngHeader` (`image_data.zig:370-379`).
 fn png_header(width: u32, height: u32) -> Vec<u8> {
