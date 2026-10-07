@@ -92,16 +92,8 @@ pub(crate) struct HydratedTurn {
 pub(crate) enum HydratedStep {
     /// Answer text, raw markdown, for the presenter.
     Text(String),
-    /// A call, named as a live turn named it before it ran, and when its
-    /// result was recorded, if the log says (`created_at_ms`): the time its
-    /// full-transcript entry carries, as upstream's carries its persisted
-    /// result's (`transcript/runtime.zig:5826`, read `full_transcript_screen.zig:
-    /// 5801-5814`).
-    ToolStart {
-        id: String,
-        shown: Shown,
-        at_ms: Option<i64>,
-    },
+    /// A call, named as a live turn named it before it ran.
+    ToolStart { id: String, shown: Shown },
     /// What came back, as the live row said it: the outcome and the lines a
     /// change made, as the log recorded them ([`ToolEnding`], [`LineCounts`]).
     /// A log written before they were recorded settles every call as done or
@@ -173,25 +165,16 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
     let registry = Registry::builtin();
     // The calls that came back, and with what: a result the turn's stop
     // cancelled is not one of them.
-    let answered: Vec<(&str, Option<i64>)> = turn
+    let answered: Vec<&str> = turn
         .steps
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult {
-                call_id,
-                ending,
-                created_at_ms,
-                ..
-            } if *ending != Some(ToolEnding::Cancelled) => Some((call_id.as_str(), *created_at_ms)),
+                call_id, ending, ..
+            } if *ending != Some(ToolEnding::Cancelled) => Some(call_id.as_str()),
             _ => None,
         })
         .collect();
-    let came_back_at = |id: &str| {
-        answered
-            .iter()
-            .find(|(answered, _)| *answered == id)
-            .map(|(_, at_ms)| *at_ms)
-    };
     let mut steps = Vec::new();
     for step in &turn.steps {
         match step {
@@ -200,7 +183,7 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             } => {
                 let came_back: Vec<_> = tool_calls
                     .iter()
-                    .filter_map(|call| came_back_at(&call.id).map(|at_ms| (call, at_ms)))
+                    .filter(|call| answered.contains(&call.id.as_str()))
                     .collect();
                 if !tool_calls.is_empty() && came_back.is_empty() {
                     continue;
@@ -211,13 +194,12 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
                 // A call to a tool this build does not offer never started on
                 // a live screen either: the turn ended on it before any row
                 // (`agent::machine`'s `ToolCallUnsupported`).
-                steps.extend(came_back.into_iter().filter_map(|(call, at_ms)| {
+                steps.extend(came_back.into_iter().filter_map(|call| {
                     registry
                         .spec(&call.name)
                         .map(|spec| HydratedStep::ToolStart {
                             id: call.id.clone(),
                             shown: spec.shown(&call.input),
-                            at_ms,
                         })
                 }));
             }
@@ -427,7 +409,6 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
-                    created_at_ms: Some(11_500),
                     ending: None,
                     lines: None,
                     change: None,
@@ -463,11 +444,9 @@ mod tests {
             HydratedStep::Text("Looking.".to_string())
         );
         match &replayed.steps[1] {
-            HydratedStep::ToolStart { id, shown, at_ms } => {
+            HydratedStep::ToolStart { id, shown } => {
                 assert_eq!(id, "c1");
                 assert_eq!(shown.target.as_deref(), Some("a.txt"));
-                // When its result was recorded, for its full-transcript entry.
-                assert_eq!(*at_ms, Some(11_500));
             }
             other => panic!("{other:?}"),
         }
@@ -535,7 +514,6 @@ mod tests {
         lines: Option<LineCounts>,
     ) -> TurnStep {
         TurnStep::ToolResult {
-            created_at_ms: None,
             images: Vec::new(),
             call_id: id.to_string(),
             tool: "t".to_string(),

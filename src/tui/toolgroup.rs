@@ -135,9 +135,7 @@ impl Call {
         let default = self.shown.presentation.default_target;
         let refused = matches!(self.state, State::Denied | State::Cancelled);
         match &self.shown.target {
-            Some(target) if !(refused && self.changes_a_file()) => {
-                safe_one_line(target, TARGET_BYTES)
-            }
+            Some(target) if !(refused && self.changes_a_file()) => spelled(target),
             _ => default.to_string(),
         }
     }
@@ -170,7 +168,7 @@ impl Call {
         match &self.state {
             State::Failed(reason) if !reason.is_empty() => {
                 phrase.push_str(": ");
-                phrase.push_str(&safe_one_line(reason, TARGET_BYTES));
+                phrase.push_str(&flattened(reason));
             }
             // `formatToolStatusWithStats`: both counts, or the one that is
             // not zero, and nothing for a change of nothing. Monochrome, as
@@ -533,6 +531,39 @@ fn cancelled_line(call: &Call, palette: Palette) -> String {
     )
 }
 
+/// A call's argument as the row shows it: as the model wrote it, spaces
+/// around it included -- upstream's `Failed   missing.txt  :`
+/// (`fx-read-failures-40x120-live`) -- with every control character a space
+/// and the length bounded, as [`safe_one_line`] bounds it.
+fn spelled(target: &str) -> String {
+    let mut out = String::new();
+    for character in target.chars() {
+        let character = if character.is_control() {
+            ' '
+        } else {
+            character
+        };
+        if out.len() + character.len_utf8() > TARGET_BYTES {
+            out.push('\u{2026}');
+            break;
+        }
+        out.push(character);
+    }
+    out
+}
+
+/// A failure's reason as the row shows it: one line, every run of white
+/// space one space and none at either end (`encodeTerminalSafeInline`,
+/// `vercel-labs/fx@c1db9191 src/core/shared/text_utils.zig:387-407`, used for
+/// the row at `tool_presentation.zig:1265-1290`).
+fn flattened(reason: &str) -> String {
+    let words: Vec<&str> = reason
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|word| !word.is_empty())
+        .collect();
+    safe_one_line(&words.join(" "), TARGET_BYTES)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -747,6 +778,35 @@ mod tests {
                 "\u{251c} Exited 3 echo boom; echo err >&2; exit 3",
                 "\u{2514} Read a.txt",
                 "",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_target_keeps_its_spaces_and_a_reason_is_one_flattened_line_or_nothing() {
+        // `fx-read-failures-40x120-live`: the argument as written
+        // (`Failed   missing.txt  :`), the preflight's sentence with its runs
+        // of spaces made one (`encodeTerminalSafeInline`,
+        // `text_utils.zig:387-407`), and an in-call failure with no reason.
+        let mut group = ToolGroup::default();
+        group.start(
+            "1".into(),
+            shown(&read::READ_FILE, json!({"path": "  missing.txt  "})),
+        );
+        assert!(group.finish(
+            "1",
+            false,
+            "Path not found:   missing.txt  ",
+            Outcome::Finished,
+            None
+        ));
+        group.start("2".into(), shown(&read::READ_FILE, json!({"path": "src"})));
+        assert!(group.finish("2", false, "", Outcome::Finished, None));
+        assert_eq!(
+            plain(&group)[1..3],
+            [
+                "\u{251c} Failed   missing.txt  : Path not found: missing.txt",
+                "\u{2514} Failed src",
             ]
         );
     }
