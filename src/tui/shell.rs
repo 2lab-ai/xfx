@@ -578,6 +578,15 @@ pub(crate) enum Resize {
     TooSmall,
 }
 
+/// What [`Shell::stage_document`] saved: the session's record of the
+/// document, as the terminal last took it.
+pub(crate) struct StagedDocument {
+    document_rows: u32,
+    geometry: Geometry,
+    retint_debt: bool,
+    collapse_debt: bool,
+}
+
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
     pub(crate) geometry: Geometry,
@@ -10661,6 +10670,45 @@ impl Shell {
     pub(crate) fn document_carried(&mut self, rows: u16) {
         self.document_rows = self.document_rows.saturating_sub(u32::from(rows));
         self.refloat();
+    }
+
+    /// Begins a frame that writes the document's rows in **one** vector with
+    /// the band's (`super::event_loop`'s `commit_primary`), and saves what the
+    /// document's writers move as they are staged into it.
+    ///
+    /// Everything those writers record -- the rows the document reaches, the
+    /// band floated under them, the recolour and collapse debts paid, the
+    /// transcript's operations taken -- is recorded as if the vector had
+    /// landed, because each one is measured against the screen the one before
+    /// it leaves. [`Self::unstage_document`] is what makes that honest: a
+    /// vector the screen did not take puts every one of them back.
+    pub(crate) fn stage_document(&mut self) -> StagedDocument {
+        self.transcript.stage();
+        StagedDocument {
+            document_rows: self.document_rows,
+            geometry: self.geometry,
+            retint_debt: self.retint_debt,
+            collapse_debt: self.collapse_debt,
+        }
+    }
+
+    /// The staged frame landed: its rows are the terminal's.
+    pub(crate) fn settle_document(&mut self) {
+        self.transcript.settle();
+    }
+
+    /// The staged frame did not land, so nothing it carried is on the
+    /// terminal: the document is owed again exactly what it was owed before
+    /// [`Self::stage_document`].
+    ///
+    /// The frame requests the staging raised are left raised: they ask for the
+    /// frame this session still owes.
+    pub(crate) fn unstage_document(&mut self, staged: StagedDocument) {
+        self.document_rows = staged.document_rows;
+        self.geometry = staged.geometry;
+        self.retint_debt = staged.retint_debt;
+        self.collapse_debt = staged.collapse_debt;
+        self.transcript.unstage();
     }
 
     /// This session as it stands once the document has filled the screen: the

@@ -3655,6 +3655,131 @@ fn a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
+/// Every byte of `text` from `from` on, cut where synchronized output is
+/// switched on and off: each piece paired with whether it was written inside an
+/// update (`?2026h` ... `?2026l`) or outside one.
+fn updates_and_gaps(text: &str) -> Vec<(bool, &str)> {
+    let mut pieces = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let Some(open) = rest.find("\u{1b}[?2026h") else {
+            pieces.push((false, rest));
+            break;
+        };
+        if open > 0 {
+            pieces.push((false, &rest[..open]));
+        }
+        let Some(close) = rest[open..].find("\u{1b}[?2026l") else {
+            pieces.push((true, &rest[open..]));
+            break;
+        };
+        let end = open + close + "\u{1b}[?2026l".len();
+        pieces.push((true, &rest[open..end]));
+        rest = &rest[end..];
+    }
+    pieces
+}
+
+/// Whether `bytes` write a cell or scroll the screen: text, or a linefeed.
+/// Sequences, carriage returns (a pty's `ONLCR` adds one in front of every
+/// linefeed) and a lone `BEL` write neither.
+fn writes_a_cell(bytes: &str) -> bool {
+    let mut rest = bytes;
+    while let Some(c) = rest.chars().next() {
+        if c == '\u{1b}' {
+            rest = &rest[escape_len(rest)..];
+            continue;
+        }
+        if c == '\n' || !c.is_control() {
+            return true;
+        }
+        rest = &rest[c.len_utf8()..];
+    }
+    false
+}
+
+#[test]
+fn a_streamed_answer_grows_the_document_only_inside_the_update_that_paints_the_band() {
+    // T4's finding, on a real terminal: every document append was a write of
+    // its own **ahead** of the band's frame and outside any synchronized
+    // update, so a terminal could present an answer's new row with the band a
+    // row above where it belongs. Upstream's document growth is movement bytes
+    // inside the frame's `?2026h` (`render_engine/terminal_diff.zig:604-645`).
+    //
+    // So: from the first frame on, no byte that writes a cell or scrolls the
+    // screen is outside an update -- the prompt's card, every row of a
+    // streamed answer of more lines than the screen holds, the turn's summary.
+    // The launch's own push and queries come before the first frame and are
+    // not the document's.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SsePieces(vec![
+        support::fake_gateway::sse_body_without_done(&[support::fake_gateway::text_delta(
+            "a",
+            &long_answer("MARKER-HEAD", "MARKER-TAIL"),
+        )]),
+        support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("b", &long_answer("MARKER-MORE", "MARKER-END")),
+            support::fake_gateway::finish_with_usage("stop", 3, 5),
+        ]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+    session.type_bytes(b"stream\r");
+    // Neutral about the bracketing it is about to judge: the answer's last
+    // marker on the wire, and a frame that ended after it.
+    session.wait_until("the whole answer and a frame after it", |text| {
+        text.find("MARKER-END")
+            .is_some_and(|end| text.rfind(FRAME_END).is_some_and(|frame| frame > end))
+    });
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let first = text.find(FRAME_BEGIN).expect("a first frame");
+    let restore = text.rfind(RESTORE).expect("the exit's restore");
+    let session_bytes = &text[first..restore];
+    let pieces = updates_and_gaps(session_bytes);
+    let outside: Vec<&str> = pieces
+        .iter()
+        .filter(|(inside, bytes)| !inside && writes_a_cell(bytes))
+        .map(|(_, bytes)| *bytes)
+        .collect();
+    assert!(
+        outside.is_empty(),
+        "bytes that write a cell or scroll the screen outside any update: {outside:?}"
+    );
+    // And the answer really did grow the document through those updates: its
+    // rows were scrolled into the terminal's history, inside them.
+    let scrolling: Vec<&str> = pieces
+        .iter()
+        .filter(|(inside, bytes)| *inside && bytes.contains('\n'))
+        .map(|(_, bytes)| *bytes)
+        .collect();
+    assert!(
+        !scrolling.is_empty(),
+        "no update scrolled the screen, so this case proves nothing: {pieces:?}"
+    );
+    for marker in ["MARKER-HEAD", "MARKER-MORE", "MARKER-END"] {
+        let carrying: Vec<&&str> = pieces
+            .iter()
+            .filter(|(_, bytes)| bytes.contains(marker))
+            .map(|(_, bytes)| bytes)
+            .collect();
+        assert!(
+            !carrying.is_empty()
+                && pieces
+                    .iter()
+                    .filter(|(_, bytes)| bytes.contains(marker))
+                    .all(|(inside, bytes)| *inside && bytes.ends_with("\u{1b}[?2026l")),
+            "{marker} was not written inside an update that closed: {carrying:?}"
+        );
+    }
+}
+
 #[test]
 fn an_escape_sequence_in_an_answer_reaches_the_terminal_disarmed() {
     // What the band is protected by, end to end. The text of an answer is a

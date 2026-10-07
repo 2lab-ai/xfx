@@ -41,10 +41,16 @@ use super::grid::Grid;
 use super::layout::Geometry;
 
 /// Begins a frame: synchronized output on, cursor hidden.
-const BEGIN_FRAME: &str = "\x1b[?2026h\x1b[?25l";
+///
+/// Visible to [`super::event_loop`] for the one vector it assembles itself:
+/// the update that carries the document's growth and the band in one
+/// (`commit_primary`), which opens with exactly these bytes.
+pub(crate) const BEGIN_FRAME: &str = "\x1b[?2026h\x1b[?25l";
 
-/// Ends one: cursor shown, synchronized output off.
-const END_FRAME: &str = "\x1b[?2026l\x1b[?25h";
+/// Ends one: synchronized output off, then the cursor shown -- upstream's
+/// order, which shows the caret only once the update is presented
+/// (`render_engine/terminal_diff.zig:643-644`).
+pub(crate) const END_FRAME: &str = "\x1b[?2026l\x1b[?25h";
 
 /// Ends one and leaves the cursor as [`BEGIN_FRAME`] left it: hidden.
 ///
@@ -52,8 +58,11 @@ const END_FRAME: &str = "\x1b[?2026l\x1b[?25h";
 /// which upstream paints with the cursor off (`paint_plan.zig:1047`). Only
 /// [`Band::paint_alternate`] writes it, and only for a [`Caret`] that says so;
 /// the frame that gives the plane back ends with [`END_FRAME`], so the band is
-/// handed back its caret.
-const END_FRAME_HIDDEN: &str = "\x1b[?2026l";
+/// handed back its caret. A reset's handoff ends with it too ([`Band::hand_off`]),
+/// and so does an update whose band frame was refused
+/// (`super::event_loop`'s `commit_primary`): the caret is wherever the
+/// document's last row left it, and the frame still owed is what shows it.
+pub(crate) const END_FRAME_HIDDEN: &str = "\x1b[?2026l";
 
 /// Where an alternate-plane frame leaves the caret, and whether it is shown.
 ///
@@ -257,6 +266,40 @@ pub(crate) struct Band {
     /// way to reach a grid the band did not plan.
     #[cfg(test)]
     taint: Option<fn(&mut Grid, &Geometry)>,
+    /// What the document's writers had found when an update that carries them
+    /// began ([`Self::save_document`]), while it is being assembled and has not
+    /// been written.
+    ///
+    /// The writers record what they wrote as each one is staged -- the shadow,
+    /// the band's top, the document's last row, the caret owed -- because each
+    /// is planned against the screen the one before it leaves. Until the one
+    /// vector they are written into lands, none of that is true of the
+    /// terminal, and this is what [`Self::restore_document`] gives back.
+    saved: Option<SavedDocument>,
+}
+
+/// The band's record of the screen as [`Band::save_document`] found it: exactly
+/// the fields a document writer adopts when its bytes land
+/// ([`Band::retint_document`], [`Band::collapse_groups`],
+/// [`Band::carry_document`], [`Band::append_floating`],
+/// [`Band::document_released`]).
+struct SavedDocument {
+    shadow: Grid,
+    painted: Option<u16>,
+    painted_on: Option<(u16, u16)>,
+    document_bottom: Option<u16>,
+    caret: Option<(u16, u16)>,
+}
+
+/// What [`Band::build_frame`] left in the band's buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Built {
+    /// A frame, to be written as it stands ([`Band::frame_bytes`]) and then
+    /// recorded ([`Band::frame_landed_primary`]).
+    Frame,
+    /// Nothing: the screen already holds this band, under this caret and this
+    /// title, and that has been recorded.
+    Unchanged,
 }
 
 /// One frame, and the plane it belongs to.
@@ -351,14 +394,23 @@ impl Band {
             tamper: None,
             #[cfg(test)]
             taint: None,
+            saved: None,
         }
     }
 
     /// Damages every vector this band builds from here on, for the tests that
-    /// have to see a wrong one refused.
+    /// have to see a wrong one refused -- here, and in `super::event_loop`'s,
+    /// where one part of an update is refused by its own check and the parts
+    /// before it are not.
     #[cfg(test)]
-    fn tamper_with(&mut self, tamper: fn(&mut Vec<u8>)) {
+    pub(crate) fn tamper_with(&mut self, tamper: fn(&mut Vec<u8>)) {
         self.tamper = Some(tamper);
+    }
+
+    /// Stops damaging them.
+    #[cfg(test)]
+    pub(crate) fn untamper(&mut self) {
+        self.tamper = None;
     }
 
     /// Damages the grid every frame from here on aims at, for the tests that
@@ -936,8 +988,10 @@ impl Band {
     /// Pure with respect to the terminal -- nothing is written -- so a frame's
     /// geometry is assertable without one, which is the only way the band's row
     /// numbers get tested at all. The buffer it is built in is reused; the copy
-    /// handed back is the caller's, and [`commit`](Self::commit) writes that
-    /// copy in a single call.
+    /// handed back is the test's. The painter itself is
+    /// [`paint_whole`](Self::paint_whole), which the `fault-injection` build's
+    /// frame calls in place and writes in a single call; this copy is the
+    /// tests' handle on it.
     ///
     /// `rows` are the band's rows, top first, starting at the band's top row
     /// ([`Geometry::band_top`]), which is the activity row while a turn is
@@ -946,15 +1000,32 @@ impl Band {
     /// cells to the **left** of the caret on it -- a count, which is what the
     /// composer measures, converted to a one-based column here and nowhere
     /// else.
-    #[cfg(any(test, feature = "fault-injection"))]
+    #[cfg(test)]
     pub(crate) fn render(
         &mut self,
         rows: &[String],
         geometry: &Geometry,
         cursor: (u16, u16),
     ) -> Vec<u8> {
+        self.paint_whole(rows, geometry, cursor, false);
+        self.buffer.clone()
+    }
+
+    /// [`Self::render`] into the band's own buffer, and -- when `opened` --
+    /// without the [`BEGIN_FRAME`] an update that already began has written
+    /// ([`Self::build_frame`]).
+    #[cfg(any(test, feature = "fault-injection"))]
+    fn paint_whole(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+        opened: bool,
+    ) {
         self.buffer.clear();
-        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        if !opened {
+            self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        }
         self.retitle();
         self.release(geometry);
         // The top of what this frame is about to write, which on a band that
@@ -985,7 +1056,6 @@ impl Band {
         }
         cup(&mut self.buffer, cursor.0, cursor.1.saturating_add(1));
         self.buffer.extend_from_slice(END_FRAME.as_bytes());
-        self.buffer.clone()
     }
 
     /// One frame: the difference between what the terminal is holding and what
@@ -1008,6 +1078,41 @@ impl Band {
         geometry: &Geometry,
         cursor: (u16, u16),
     ) -> Result<Commit, Emit> {
+        match self.build_frame(rows, geometry, cursor, false)? {
+            Built::Unchanged => Ok(Commit::NoChange),
+            Built::Frame => {
+                out.emit(&self.buffer)?;
+                self.landed(geometry, cursor);
+                Ok(Commit::Painted)
+            }
+        }
+    }
+
+    /// [`Self::commit`] up to the write: the frame is planned, built into the
+    /// band's buffer and checked, and **nothing about it is recorded** except
+    /// what a frame records before it is written -- the top of what it is
+    /// about to paint ([`Self::record_painted`]), because a frame the terminal
+    /// took half of has still painted from there.
+    ///
+    /// `opened` is an update that has already begun: the document's growth
+    /// was written into it first (`super::event_loop`'s `commit_primary`), so
+    /// the frame leaves out the [`BEGIN_FRAME`] the update opened with and is
+    /// the rest of that one update -- upstream's order, movement bytes and then
+    /// the band, inside one `?2026h` (`render_engine/terminal_diff.zig:611-645`).
+    /// Its check is the same either way: the cells, the caret, the title, and
+    /// a cursor the frame shows as it ends.
+    ///
+    /// [`Built::Frame`] leaves the bytes in [`Self::frame_bytes`] for the
+    /// caller to write in one emit, and [`Self::frame_landed_primary`] is what
+    /// records them once they have landed. [`Built::Unchanged`] wrote nothing
+    /// and needs nothing more.
+    pub(crate) fn build_frame(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+        opened: bool,
+    ) -> Result<Built, Emit> {
         // A band that has never painted, or one whose screen has changed size,
         // knows nothing about what is on those rows.
         if self.shadow.rows() != geometry.rows || self.shadow.cols() != geometry.cols {
@@ -1031,13 +1136,13 @@ impl Band {
         // compares against has to be one this band would stand behind.
         #[cfg(feature = "fault-injection")]
         if super::fault::injected(super::fault::Fault::FullPaintReference) {
-            let frame = self.render(rows, geometry, cursor);
+            self.paint_whole(rows, geometry, cursor, opened);
             // The shadow is kept honest even here, so the two builds differ in
             // the bytes they write and in nothing else.
             self.plan(rows, geometry);
             check::preflight(
                 &seed,
-                &frame,
+                &self.buffer,
                 &check::Declared::new(
                     check::Intent::Primary {
                         grid: &self.target,
@@ -1049,9 +1154,7 @@ impl Band {
                 ),
             )
             .map_err(Emit::rejected)?;
-            out.emit(&frame)?;
-            self.landed(geometry, cursor);
-            return Ok(Commit::Painted);
+            return Ok(Built::Frame);
         }
 
         self.plan(rows, geometry);
@@ -1063,7 +1166,9 @@ impl Band {
         let moved = self.caret != Some(cursor);
 
         self.buffer.clear();
-        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        if !opened {
+            self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        }
         self.retitle();
         if self.damaged {
             // Exactly the erase the Phase-1 painter opened every frame with,
@@ -1143,7 +1248,7 @@ impl Band {
             // clears from the band's top row rather than from a row above it
             // that nothing is on.
             self.delivered(geometry);
-            return Ok(Commit::NoChange);
+            return Ok(Built::Unchanged);
         }
         // The top of what this frame is about to write, which on a band that
         // shrank is still the *old* top: recorded before the write, because a
@@ -1173,9 +1278,61 @@ impl Band {
             ),
         )
         .map_err(Emit::rejected)?;
-        out.emit(&self.buffer)?;
+        Ok(Built::Frame)
+    }
+
+    /// The frame [`Self::build_frame`] left in the band's buffer.
+    pub(crate) fn frame_bytes(&self) -> &[u8] {
+        &self.buffer
+    }
+
+    /// Records that the frame [`Self::build_frame`] built reached the screen
+    /// -- whole, and only then.
+    pub(crate) fn frame_landed_primary(&mut self, geometry: &Geometry, cursor: (u16, u16)) {
         self.landed(geometry, cursor);
-        Ok(Commit::Painted)
+    }
+
+    /// Saves what the document's writers will record, before an update that
+    /// carries them is assembled (`super::event_loop`'s `commit_primary`).
+    ///
+    /// One clone of the shadow, and only on a tick that owes the document
+    /// something: the caller asks before it stages. The same order of work as
+    /// the copy each writer already makes to plan against
+    /// (`target.clone_from(&self.shadow)`, which for a derived `Clone` is a
+    /// fresh clone as well); what it adds to a streamed tick is measured by
+    /// the P3-WRAP painter benchmark below `super::event_loop`'s tests.
+    pub(crate) fn save_document(&mut self) {
+        debug_assert!(
+            self.saved.is_none(),
+            "an update began while the last one's document was still unsettled"
+        );
+        self.saved = Some(SavedDocument {
+            shadow: self.shadow.clone(),
+            painted: self.painted,
+            painted_on: self.painted_on,
+            document_bottom: self.document_bottom,
+            caret: self.caret,
+        });
+    }
+
+    /// The update the document's writers were staged into landed: what they
+    /// recorded is true of the terminal, and nothing is kept.
+    pub(crate) fn forget_saved(&mut self) {
+        self.saved = None;
+    }
+
+    /// The update did not land, so nothing the document's writers recorded is
+    /// on the terminal: the band's record goes back to what
+    /// [`Self::save_document`] found.
+    pub(crate) fn restore_document(&mut self) {
+        let Some(saved) = self.saved.take() else {
+            return;
+        };
+        self.shadow = saved.shadow;
+        self.painted = saved.painted;
+        self.painted_on = saved.painted_on;
+        self.document_bottom = saved.document_bottom;
+        self.caret = saved.caret;
     }
 
     /// Builds [`target`](Self::target): what the screen will hold once this
@@ -1580,6 +1737,13 @@ impl Band {
         bottom.saturating_sub(top).saturating_add(1)
     }
 
+    /// Whether [`Self::carry_document`] has rows to carry off the top of the
+    /// screen for a band solved as `geometry`: one of the document's debts,
+    /// asked before an update that would carry them is assembled.
+    pub(crate) fn owes_carry(&self, geometry: &Geometry) -> bool {
+        self.grown(geometry) > 0
+    }
+
     /// Carries the document up out of the way of a band that has grown, in one
     /// write and one flush.
     ///
@@ -1733,9 +1897,10 @@ impl Band {
     /// `?25h` (`terminal_diff.zig:643-644`). A terminal that honours the mode
     /// presents the erase and the scroll as one change rather than the band
     /// erased and then the rows climbing; the fresh session's frame shows the
-    /// cursor again. The welcome line and that frame are two vectors here and
-    /// one update upstream (`.prd/tui-phase4/receipts/t4/`), because every
-    /// append in this crate is its own vector ahead of the band's.
+    /// cursor again. That frame is the second update, and it carries the
+    /// welcome line ahead of the band, as upstream's does
+    /// (`finishLiveSessionTransition`, `app_session_runtime.zig:2012-2018`;
+    /// `super::event_loop`'s `commit_primary`).
     ///
     /// **Nothing is recorded until the write lands**, as everywhere else here.
     /// Once it has, the band knows exactly what is on the screen -- nothing --
