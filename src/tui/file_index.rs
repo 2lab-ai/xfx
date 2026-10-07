@@ -971,9 +971,9 @@ impl Files {
         let extra = self.extra.clone();
         let git = self.git.clone();
         let flag = Arc::clone(&stop);
-        let spawned = std::thread::Builder::new()
-            .name("xfx-file-index".to_string())
-            .spawn(move || load(&root, &extra, git.as_deref(), &flag, &tx));
+        let spawned = super::signals::spawn_unsignalled("xfx-file-index", move || {
+            load(&root, &extra, git.as_deref(), &flag, &tx)
+        });
         if spawned.is_ok() {
             self.walk = Some(Walk {
                 rx,
@@ -1085,11 +1085,9 @@ impl Files {
         let (tx, rx) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
         let target = directory.clone();
-        let spawned = std::thread::Builder::new()
-            .name("xfx-file-listing".to_string())
-            .spawn(move || {
-                let _ = tx.send(list_directory(&target));
-            });
+        let spawned = super::signals::spawn_unsignalled("xfx-file-listing", move || {
+            let _ = tx.send(list_directory(&target));
+        });
         if spawned.is_err() {
             return Lookup::Unavailable;
         }
