@@ -10,8 +10,9 @@
 //!   the session log, the problems those record, and on the TUI what its screen
 //!   was given. Upstream's section names where xfx has the fact
 //!   (`buildTraceReport`, `:2229-2290`); the sections whose facts xfx does not
-//!   have -- a `ps` snapshot, renderer events, title generation, compaction, a
-//!   debug log tail -- are absent rather than written empty.
+//!   have -- a `ps` snapshot, renderer events, title generation, a debug log
+//!   tail -- are absent rather than written empty. What compactions did is
+//!   there, from [`crate::agent::compaction_trace`].
 //! - **Write** it where upstream writes it ([`write_report`]): `$TMPDIR`, or
 //!   `/tmp`, as `xfx-trace-<UTC>-<12 hex>.md`, created exclusively, owner-only,
 //!   and synced (`writeTraceReportFile`, `:2183-2227`).
@@ -512,6 +513,9 @@ pub struct Report<'a> {
     pub session: Session<'a>,
     /// The TUI's half; `None` on the line shell, which has no screen.
     pub screen: Option<Screen<'a>>,
+    /// What compactions did, oldest first
+    /// ([`crate::agent::compaction_trace::snapshot`]).
+    pub compaction: &'a [crate::agent::compaction_trace::Event],
     /// `## Session Title`; `None` on the line shell, which asks no model for
     /// a title.
     pub title: Option<&'a TitleTrace>,
@@ -530,6 +534,18 @@ const PREVIEW_BYTES: usize = 180;
 const NETWORK_PROBLEMS: usize = 3;
 const TOOL_PROBLEMS: usize = 5;
 const NOTICE_PROBLEMS: usize = 5;
+const COMPACTION_PROBLEMS: usize = 3;
+
+/// The most compaction events the report lists, newest kept
+/// (`trace_compaction_max_events`, `app_commands.zig:2722`).
+const COMPACTION_EVENTS: usize = 24;
+
+/// The most bytes of one compaction line (`trace_transcript_max_line_bytes`,
+/// `app_commands.zig:2173`).
+const COMPACTION_LINE_BYTES: usize = 300;
+
+/// The most bytes of a compaction problem's detail (`app_commands.zig:2655`).
+const COMPACTION_PROBLEM_DETAIL_BYTES: usize = 160;
 
 impl Report<'_> {
     /// The report, as the file holds it.
@@ -545,6 +561,7 @@ impl Report<'_> {
         self.current_state(&mut out);
         self.configuration(&mut out);
         self.problems(&mut out);
+        compaction(&mut out, self.compaction);
         if let Some(title) = self.title {
             session_title(&mut out, title);
         }
@@ -802,6 +819,30 @@ impl Report<'_> {
                 );
             }
         }
+        // Upstream lists them after the tool problems
+        // (`writeProblemsSummary`, `app_commands.zig:2641-2664`).
+        for event in self
+            .compaction
+            .iter()
+            .rev()
+            .filter(|event| event.failed)
+            .take(COMPACTION_PROBLEMS)
+        {
+            out.push_str("- context compaction ");
+            out.push_str(event.kind.name());
+            if event.context.turn != 0 {
+                let _ = write!(out, " turn_id={}", event.context.turn);
+            }
+            if !event.detail.is_empty() {
+                out.push_str(" detail=");
+                let (visible, cut) = cut_at(&event.detail, COMPACTION_PROBLEM_DETAIL_BYTES);
+                out.push_str(visible);
+                if cut {
+                    out.push_str(" ...");
+                }
+            }
+            out.push('\n');
+        }
         if out.len() == before {
             out.push_str("(none recorded)\n");
         }
@@ -960,6 +1001,68 @@ impl Report<'_> {
                 }
             }
         }
+    }
+}
+
+/// `text`'s first `bytes` bytes, at a character boundary, and whether that
+/// cut anything.
+fn cut_at(text: &str, bytes: usize) -> (&str, bool) {
+    if text.len() <= bytes {
+        return (text, false);
+    }
+    let mut end = bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&text[..end], true)
+}
+
+/// `## Context Compaction` (`writeCompactionSummary`,
+/// `app_commands.zig:2724-2775`): every compaction decision and failure the
+/// process kept, the newest [`COMPACTION_EVENTS`] of them one line each.
+/// Kept whether or not anything asked for a trace, which upstream's line
+/// says by naming its trace switch; xfx has no such switch, so its line says
+/// only that they are always recorded.
+fn compaction(out: &mut String, events: &[crate::agent::compaction_trace::Event]) {
+    out.push_str("\n## Context Compaction\n");
+    if events.is_empty() {
+        out.push_str("(none recorded)\n");
+        return;
+    }
+    let failed = events.iter().filter(|event| event.failed).count();
+    let _ = write!(out, "last={} failed={failed}", events.len());
+    // The ones the ring let go are counted, not hidden.
+    let overwritten = events[0].sequence.saturating_sub(1);
+    if overwritten > 0 {
+        let _ = write!(out, " overwritten_before={overwritten}");
+    }
+    out.push_str(" (always recorded)\n");
+    let start = events.len().saturating_sub(COMPACTION_EVENTS);
+    if start > 0 {
+        let _ = writeln!(out, "... ({start} older events omitted)");
+    }
+    for event in &events[start..] {
+        let mut line = moment(event.at_ms);
+        let _ = write!(line, " event={}", event.kind.name());
+        if event.context.turn != 0 {
+            let _ = write!(line, " turn_id={}", event.context.turn);
+        }
+        if event.context.step != 0 {
+            let _ = write!(line, " step_id={}", event.context.step);
+        }
+        if event.failed {
+            line.push_str(" failed");
+        }
+        if !event.detail.is_empty() {
+            line.push(' ');
+            line.push_str(&event.detail);
+        }
+        if event.truncated {
+            line.push_str(" ...");
+        }
+        let (visible, cut) = cut_at(&line, COMPACTION_LINE_BYTES);
+        out.push_str(visible);
+        out.push_str(if cut { " ...\n" } else { "\n" });
     }
 }
 
@@ -2278,6 +2381,7 @@ mod tests {
             settings: &Settings::of(config),
             session,
             screen,
+            compaction: &[],
             title: None,
         }
         .render()
@@ -2305,6 +2409,7 @@ mod tests {
                 "## Current State",
                 "## Configuration",
                 "## Problems",
+                "## Context Compaction",
                 "## Tool Calls",
                 "## Permissions",
                 "## Session Log",
@@ -2503,6 +2608,7 @@ mod tests {
                 "## Current State",
                 "## Configuration",
                 "## Problems",
+                "## Context Compaction",
                 "## Network Calls",
                 "## Tool Calls",
                 "## Permissions",
@@ -2537,8 +2643,8 @@ mod tests {
     #[test]
     fn the_tui_says_how_its_session_title_was_asked_for_in_upstreams_section() {
         // `writeSessionTitleSummary` (`app_commands.zig:2779-2816`), after
-        // `## Problems` as upstream orders it (`buildTraceReport`,
-        // `:2268-2273`), and the problem line a failed one adds
+        // `## Problems` and `## Context Compaction` as upstream orders them
+        // (`buildTraceReport`, `:2266-2270`), and the problem line a failed one adds
         // (`writeProblemsSummary`, `:2596-2611`).
         let (_home, _workspace, config) = configured("value-of-the-credential");
         let status = crate::interactive::status_snapshot(&config, &config.model, None);
@@ -2551,6 +2657,7 @@ mod tests {
                 settings: &settings,
                 session: Session::None,
                 screen: None,
+                compaction: &[],
                 title: Some(title),
             }
             .render()
@@ -2575,6 +2682,7 @@ mod tests {
                 "## Current State",
                 "## Configuration",
                 "## Problems",
+                "## Context Compaction",
                 "## Session Title",
                 "## Tool Calls",
                 "## Permissions",
@@ -2647,6 +2755,95 @@ mod tests {
     }
 
     #[test]
+    fn compactions_are_listed_in_their_own_section_and_failed_ones_under_problems() {
+        use crate::agent::compaction_trace::{Context, Event, Kind};
+        let event = |sequence: u64, kind: Kind, failed: bool, turn: u64, detail: &str| Event {
+            sequence,
+            at_ms: NOW,
+            context: Context { turn, step: 0 },
+            failed,
+            kind,
+            detail: detail.to_string(),
+            truncated: false,
+        };
+        let events = [
+            event(
+                3,
+                Kind::SummaryTransportFailed,
+                true,
+                0,
+                "model=m kind=invalid_request detail=[redacted]",
+            ),
+            event(
+                4,
+                Kind::TransactionFailed,
+                true,
+                0,
+                "stage=summary origin=manual err=ModelFailed",
+            ),
+            event(
+                5,
+                Kind::Committed,
+                false,
+                7,
+                "origin=automatic removed_turns=1",
+            ),
+        ];
+        let (_home, _workspace, config) = configured("value-of-the-credential");
+        let status = crate::interactive::status_snapshot(&config, &config.model, None);
+        let report = Report {
+            generated_ms: NOW,
+            status: &status,
+            effort: None,
+            settings: &Settings::default(),
+            session: Session::None,
+            screen: None,
+            compaction: &events,
+            title: None,
+        }
+        .render();
+        let section = report
+            .split("\n## Context Compaction\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n## ").next())
+            .expect("the section");
+        // `writeCompactionSummary`, `app_commands.zig:2732-2775`: two events
+        // went before these, and the line says so.
+        let at = moment(NOW);
+        assert_eq!(
+            section,
+            format!(
+                "last=3 failed=2 overwritten_before=2 (always recorded)\n\
+                 {at} event=summary_transport_failed failed model=m kind=invalid_request \
+                 detail=[redacted]\n\
+                 {at} event=transaction_failed failed stage=summary origin=manual err=ModelFailed\n\
+                 {at} event=committed turn_id=7 origin=automatic removed_turns=1\n"
+            )
+        );
+        // The failed ones, newest first, under Problems
+        // (`app_commands.zig:2641-2664`).
+        let problems = report
+            .split("\n## Problems\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n## ").next())
+            .expect("problems");
+        assert!(
+            problems.ends_with(
+                "- context compaction transaction_failed detail=stage=summary origin=manual \
+             err=ModelFailed\n- context compaction summary_transport_failed detail=model=m \
+             kind=invalid_request detail=[redacted]\n"
+            ),
+            "{problems}"
+        );
+        // None at all is said so.
+        let quiet = render(&config, Session::None, None);
+        assert!(
+            quiet.contains("\n## Context Compaction\n(none recorded)\n"),
+            "{quiet}"
+        );
+    }
+
+    #[test]
     fn a_daemon_url_is_reported_without_its_credentials() {
         let (_home, _workspace, config) = configured("value-of-the-credential");
         let mut status = crate::interactive::status_snapshot(&config, &config.model, None);
@@ -2658,6 +2855,7 @@ mod tests {
             settings: &Settings::default(),
             session: Session::None,
             screen: None,
+            compaction: &[],
             title: None,
         }
         .render();

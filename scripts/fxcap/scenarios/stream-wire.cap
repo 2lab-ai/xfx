@@ -1,0 +1,12 @@
+# The bytes of a streamed answer (`.prd/tui-phase4` T8): one prompt, an
+# answer that arrives a few words at a time across two paragraphs, then the
+# wire -- which writes a synchronized update brackets, and whether the rows
+# the answer adds are inside the same update as the band under them.
+gateway stream-wire-turns.json
+wait 2
+type stream please
+key Enter
+wait 4
+snap end
+snapfull end
+wire end

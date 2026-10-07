@@ -1795,6 +1795,30 @@ fn a_change_that_changes_nothing_tells_the_screen_so_and_tells_the_model_what_it
     );
 }
 
+/// What a made change tells the model, which a resumed session's Ctrl-O
+/// lists above its diff: upstream's `wrote|edited <path> (<n> bytes)`, the
+/// file's size after the change (`prepareFileMutationSuccessResult`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/file_mutation_execution.zig:
+/// 159-187`; `fx-resume-tools-40x120-ctrl-o-up1`: `edited a.txt (41 bytes)`).
+#[test]
+fn a_made_change_tells_the_model_upstreams_line_with_the_files_new_size() {
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Yolo);
+    let wrote = succeeds(
+        &context,
+        "write_file",
+        json!({ "path": "c.txt", "content": "new file\nsecond line\n" }),
+    );
+    assert_eq!(wrote, "wrote c.txt (21 bytes)");
+    read_whole(&context, "c.txt");
+    let edited = succeeds(
+        &context,
+        "edit_file",
+        json!({ "path": "c.txt", "old_string": "new file", "new_string": "NEW FILE!" }),
+    );
+    assert_eq!(edited, "edited c.txt (22 bytes)");
+}
+
 #[test]
 fn edit_file_refuses_a_file_that_does_not_exist() {
     let tree = Tree::new();
@@ -2535,6 +2559,46 @@ fn the_command_xfx_echoes_back_cannot_close_the_tag_it_is_quoted_in() {
         json!({ "action": "exec", "command": "pwd" }),
     );
     assert!(result.detail.contains("pwd"), "{:?}", result.detail);
+}
+
+/// One past its deadline is killed at once -- a timeout is upstream's force
+/// stop (`updateTerminationSignal`, `vercel-labs/fx@c1db9191
+/// src/core/execution/command_runner.zig:3395-3400`) -- and the screen is
+/// shown what it wrote and `timed out` (`fx-timeout-40x120-live-ctrl-o`).
+#[test]
+fn a_command_past_its_deadline_is_killed_at_once_and_the_screen_says_it_timed_out() {
+    let tree = Tree::new();
+    let context = context_with_limits(
+        &tree,
+        PermissionMode::Yolo,
+        ToolLimits {
+            command_timeout_ms: 300,
+            ..ToolLimits::default()
+        },
+    );
+    let started = Instant::now();
+    let result = call(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "trap '' TERM; echo started; sleep 30 & wait" }),
+    );
+    // No grace: a command that ignores `SIGTERM` is gone as soon as one that
+    // does not.
+    assert!(
+        started.elapsed() < Duration::from_millis(900),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(
+        result.output.starts_with("terminal timed out:"),
+        "{}",
+        result.output
+    );
+    let presented = result.presented.as_deref().expect("the screen's account");
+    assert!(
+        presented.contains("<timed_out/>\n<stdout>\nstarted\n"),
+        "{presented}"
+    );
 }
 
 #[test]

@@ -75,6 +75,7 @@
 //! ([`super::credits_ask`]), so no handler can run on it, and it is never
 //! waited for.
 
+use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
@@ -87,6 +88,8 @@ use crate::config::Credential;
 use crate::gateway::protocol::{CompletionRequest, Message, RequestOptions, ToolChoice};
 use crate::gateway::{CancelToken, DeltaSink, Endpoint, GatewayProvider, Provider, ProviderError};
 use crate::trace::{TitleGeneration, TitleStatus};
+
+use super::notice::{Notice, Tone};
 
 /// The model the Gateway's titles are asked of: fixed, and cheaper than the
 /// session's own (`title_model`, `vercel-labs/fx@c1db9191
@@ -109,6 +112,20 @@ pub(crate) const MAX_EXCERPT_BYTES: usize = 2048;
 /// How long one request may take, from the thread's start to its answer
 /// (`default_timeout_ms`, `:19`).
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long the rest of an answer's body is read once the model has
+/// finished, as upstream's pooled client drains it before the call returns
+/// (`pool_drain_budget_ms`, `vercel-labs/fx@c1db9191 src/gateway/client.zig:218-221`,
+/// read at `:1777-1810`; the title call is on that pool,
+/// `src/builtins/gateway.zig:575-578`, `:608`). So the question's elapsed
+/// time, which `/trace` prints, runs to the end of the body as upstream's
+/// does (`finished_at_ms`, `session_title_generation.zig:369`), and the title
+/// lands when upstream's would.
+pub(crate) const DRAIN_BUDGET: Duration = Duration::from_secs(2);
+
+/// How many of the questions' requests `/trace` can list: upstream's network
+/// ring's (`ring_capacity`, `src/core/workspace/network_metrics.zig:14`).
+const MAX_CALLS: usize = 32;
 
 /// The most tokens the answer may carry (`max_output_tokens`, `:20`).
 pub(crate) const MAX_OUTPUT_TOKENS: u32 = 128;
@@ -279,7 +296,9 @@ pub(crate) struct Question {
 }
 
 /// How a question is asked: the Gateway in the binary, a script in a test.
-type Asked = Pin<Box<dyn Future<Output = Outcome>>>;
+/// Beside what it came to, the request it made as `/trace`'s network record
+/// would name it, when it made one ([`TitleDesk::calls`]).
+type Asked = Pin<Box<dyn Future<Output = (Outcome, Option<Notice>)>>>;
 type Asker = Arc<dyn Fn(Question) -> Asked + Send + Sync>;
 
 /// The question in flight.
@@ -325,6 +344,9 @@ struct Desk {
     /// The session the runtime has open, and the lineage it is in, as the
     /// runtime last published it ([`TitleDesk::publish_session`]).
     session: Option<(u64, String)>,
+    /// The requests questions made, oldest first, each under the moment it
+    /// started ([`TitleDesk::calls`]).
+    calls: VecDeque<(i64, Notice)>,
 }
 
 impl Desk {
@@ -369,7 +391,7 @@ impl TitleDesk {
             Arc::new(|question: Question| -> Asked { Box::pin(ask_gateway(question)) });
         #[cfg(test)]
         let ask: Asker = Arc::new(|_question: Question| -> Asked {
-            Box::pin(async { Outcome::Unavailable(Unavailable::Transport("Test")) })
+            Box::pin(async { (Outcome::Unavailable(Unavailable::Transport("Test")), None) })
         });
         Self::asking(on, ask)
     }
@@ -390,6 +412,7 @@ impl TitleDesk {
                     worked: 0,
                     deferred: None,
                     session: None,
+                    calls: VecDeque::new(),
                 }),
                 ask,
                 done,
@@ -410,7 +433,7 @@ impl TitleDesk {
             on,
             Arc::new(move |question: Question| -> Asked {
                 let outcome = answer(&question.excerpt);
-                Box::pin(async move { outcome })
+                Box::pin(async move { (outcome, None) })
             }),
         )
     }
@@ -427,7 +450,7 @@ impl TitleDesk {
             on,
             Arc::new(move |question: Question| -> Asked {
                 let outcome = answer(&question);
-                Box::pin(async move { outcome })
+                Box::pin(async move { (outcome, None) })
             }),
         )
     }
@@ -572,20 +595,32 @@ impl TitleDesk {
         };
         let ask = Arc::clone(&self.0.ask);
         let done = self.0.done.clone();
+        let shared = Arc::clone(&self.0);
         let started = Instant::now();
+        let started_ms = crate::session::event::system_now_ms();
         let spawned = super::signals::spawn_unsignalled(THREAD_NAME, move || {
-            let outcome = match tokio::runtime::Builder::new_current_thread()
+            let (outcome, call) = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
             {
                 Ok(runtime) => {
-                    let outcome = runtime.block_on(ask(question));
+                    let answered = runtime.block_on(ask(question));
                     // A resolver still in `getaddrinfo` is not waited for.
                     runtime.shutdown_background();
-                    outcome
+                    answered
                 }
-                Err(_) => Outcome::Unavailable(Unavailable::NotStarted),
+                Err(_) => (Outcome::Unavailable(Unavailable::NotStarted), None),
             };
+            // Recorded whatever becomes of the answer, as upstream's ring
+            // takes every model call its gateway step settles
+            // (`recordGatewayCallMetric`, `gateway_step.zig:72`, `:144`).
+            if let Some(call) = call {
+                let mut desk = shared.desk.lock().unwrap_or_else(PoisonError::into_inner);
+                if desk.calls.len() == MAX_CALLS {
+                    desk.calls.pop_front();
+                }
+                desk.calls.push_back((started_ms, call));
+            }
             // Nobody left to tell is a session that has ended.
             let _ = done.send(Titled {
                 ticket,
@@ -689,6 +724,36 @@ impl TitleDesk {
         }
     }
 
+    /// The requests questions have made, oldest first, as `/trace`'s
+    /// `## Network Calls` lists them beside the turns' (`writeNetworkCallsSummary`,
+    /// `app_commands.zig:3005-3030`, over the ring every model call is recorded
+    /// in -- the title's among them, `session_title_generation.zig:161` through
+    /// `gateway_step.zig:144`): each as the turns' `* network:` record reads,
+    /// under the moment it started. Never in the full transcript: upstream's
+    /// title call reports no event (`ignoreEvent`, `:181`).
+    pub(crate) fn calls(&self) -> Vec<crate::trace::Entry> {
+        self.lock()
+            .calls
+            .iter()
+            .map(|(started_ms, notice)| {
+                let mut lines = notice.body.lines();
+                let mut rows = vec![format!(
+                    "{} {}: {}",
+                    notice.tone.glyph(),
+                    notice.topic,
+                    lines.next().unwrap_or_default()
+                )];
+                rows.extend(lines.map(|line| format!("  {line}")));
+                crate::trace::Entry {
+                    at_ms: *started_ms,
+                    kind: "semantic notice",
+                    rows,
+                    problem: matches!(notice.tone, Tone::Warning | Tone::Error),
+                }
+            })
+            .collect()
+    }
+
     /// How title generation stands, for `/trace` (`writeSessionTitleSummary`,
     /// `app_commands.zig:2781-2816`): the question out, or how the last one
     /// went.
@@ -756,19 +821,41 @@ impl DeltaSink for Discard {
 /// upstream's (`retry_count = 1`, `session_title_generation.zig:168`, which
 /// is the attempt limit, `src/gateway/client.zig:1497-1530`), bounded by
 /// [`TIMEOUT`] and by the question's cancellation.
-async fn ask_gateway(question: Question) -> Outcome {
+async fn ask_gateway(question: Question) -> (Outcome, Option<Notice>) {
     let provider = match GatewayProvider::new(
         question.endpoint,
         question.credential,
         question.cancel.clone(),
     ) {
-        Ok(provider) => provider,
-        Err(err) => return Outcome::Unavailable(failure(&err)),
+        Ok(provider) => provider.draining_after_finish(DRAIN_BUDGET),
+        Err(err) => return (Outcome::Unavailable(failure(&err)), None),
     };
     provider.set_options(options());
     let request = request(&question.excerpt);
+    let started = Instant::now();
     let answered = tokio::time::timeout(TIMEOUT, provider.stream(&request, &mut Discard)).await;
-    if question.cancel.is_cancelled() {
+    // The request as a turn's is recorded (`super::full_transcript::network_record`):
+    // one that settled, answered or refused.
+    let call = answered.as_ref().ok().and_then(|settled| {
+        super::full_transcript::network_record(
+            crate::provider::ProviderId::Gateway.label(),
+            MODEL,
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            settled,
+        )
+    });
+    (outcome_of(&question.cancel, answered), call)
+}
+
+/// What an exchange came to.
+fn outcome_of(
+    cancel: &CancelToken,
+    answered: Result<
+        Result<crate::gateway::protocol::Completion, ProviderError>,
+        tokio::time::error::Elapsed,
+    >,
+) -> Outcome {
+    if cancel.is_cancelled() {
         return Outcome::Unavailable(Unavailable::Cancelled);
     }
     let completion = match answered {
@@ -786,9 +873,6 @@ async fn ask_gateway(question: Question) -> Outcome {
     }
 }
 
-/// What a failed exchange was, by kind: a status the Gateway answered with,
-/// or where the exchange broke. Never the error's text, which can quote a
-/// response body.
 /// The kind upstream names a failure status by, `@tagName` of its
 /// `FailureKind` (`failureKind`, `vercel-labs/fx@c1db9191
 /// src/builtins/gateway.zig:710-723`; the kinds,
@@ -808,6 +892,9 @@ fn failure_kind(status: u16) -> &'static str {
     }
 }
 
+/// What a failed exchange was, by kind: a status the Gateway answered with,
+/// or where the exchange broke. Never the error's text, which can quote a
+/// response body.
 fn failure(err: &ProviderError) -> Unavailable {
     match err {
         ProviderError::Status { status, .. } => Unavailable::Provider(*status),
@@ -959,6 +1046,14 @@ mod tests {
     /// One HTTP exchange on a loopback port: the request it read, head and
     /// body, and the answer it gave.
     fn one_exchange(answer: String) -> (Endpoint, std::thread::JoinHandle<String>) {
+        paced_exchange(vec![(answer, Duration::ZERO)])
+    }
+
+    /// [`one_exchange`], the answer written a piece at a time, each piece
+    /// followed by its pause.
+    fn paced_exchange(
+        pieces: Vec<(String, Duration)>,
+    ) -> (Endpoint, std::thread::JoinHandle<String>) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
         let url = format!(
@@ -987,7 +1082,11 @@ mod tests {
                 }
                 request.extend_from_slice(&buffer[..read]);
             }
-            stream.write_all(answer.as_bytes()).expect("a write");
+            for (piece, pause) in pieces {
+                stream.write_all(piece.as_bytes()).expect("a write");
+                stream.flush().expect("a flush");
+                std::thread::sleep(pause);
+            }
             String::from_utf8_lossy(&request).into_owned()
         });
         (
@@ -1013,14 +1112,20 @@ mod tests {
     const FINISH: &str = r#"{"type":"finish","finishReason":{"unified":"stop","raw":"stop"},"usage":{"inputTokens":{"total":90},"outputTokens":{"total":5}}}"#;
 
     fn asked(answer: String) -> (Outcome, String) {
+        let (outcome, _call, request) = asked_and_recorded(answer);
+        (outcome, request)
+    }
+
+    /// [`asked`], with the network record the request left.
+    fn asked_and_recorded(answer: String) -> (Outcome, Option<Notice>, String) {
         let (endpoint, server) = one_exchange(answer);
-        let outcome = on_a_runtime(ask_gateway(Question {
+        let (outcome, call) = on_a_runtime(ask_gateway(Question {
             endpoint,
             credential: credential(),
             excerpt: "fix the renderer".to_string(),
             cancel: CancelToken::new(),
         }));
-        (outcome, server.join().expect("the server"))
+        (outcome, call, server.join().expect("the server"))
     }
 
     #[test]
@@ -1052,6 +1157,82 @@ mod tests {
         );
     }
 
+    /// A stream whose `[DONE]` comes `pause` after the finish, and the
+    /// question's wall time.
+    fn asked_with_a_late_end(pause: Duration, drain: Option<Duration>) -> (Outcome, Duration) {
+        let whole = stream(&[
+            r#"{"type":"text-delta","id":"t1","delta":"Late End"}"#,
+            FINISH,
+        ]);
+        let cut = whole.find("data: [DONE]").expect("an end");
+        let (head, tail) = whole.split_at(cut);
+        let (endpoint, server) = paced_exchange(vec![
+            (head.to_string(), pause),
+            (tail.to_string(), Duration::ZERO),
+        ]);
+        let started = Instant::now();
+        let outcome = on_a_runtime(async {
+            match drain {
+                // The question as it is asked.
+                None => {
+                    ask_gateway(Question {
+                        endpoint,
+                        credential: credential(),
+                        excerpt: "fix the renderer".to_string(),
+                        cancel: CancelToken::new(),
+                    })
+                    .await
+                    .0
+                }
+                // The provider with a budget of the test's own.
+                Some(budget) => {
+                    let provider = GatewayProvider::new(endpoint, credential(), CancelToken::new())
+                        .expect("a provider")
+                        .draining_after_finish(budget);
+                    provider.set_options(options());
+                    match provider
+                        .stream(&request("fix the renderer"), &mut Discard)
+                        .await
+                    {
+                        Ok(completion) => Outcome::Generated(completion.text),
+                        Err(err) => Outcome::Unavailable(failure(&err)),
+                    }
+                }
+            }
+        });
+        let elapsed = started.elapsed();
+        let _ = server.join();
+        (outcome, elapsed)
+    }
+
+    #[test]
+    fn a_question_runs_to_the_end_of_its_body_as_upstreams_pooled_drain_does() {
+        // `client.zig:1777-1810`: the parse stops at the finish, and the rest
+        // of the body is read before the call returns, so `finished_at_ms` --
+        // `/trace`'s elapsed -- is past it. Red before: the answer was taken
+        // at the finish, 400 ms before the body ended.
+        let pause = Duration::from_millis(400);
+        let (outcome, elapsed) = asked_with_a_late_end(pause, None);
+        assert_eq!(outcome, Outcome::Generated("Late End".to_string()));
+        assert!(elapsed >= pause, "returned at the finish: {elapsed:?}");
+    }
+
+    #[test]
+    fn the_drain_is_bounded_and_the_answer_stands_when_it_runs_out() {
+        // `pool_drain_budget_ms` (`client.zig:218-221`): a body that does not
+        // end costs the budget and no more, and only reuse is lost, never
+        // the response (`:1780-1785`).
+        let (outcome, elapsed) = asked_with_a_late_end(
+            Duration::from_millis(1500),
+            Some(Duration::from_millis(150)),
+        );
+        assert_eq!(outcome, Outcome::Generated("Late End".to_string()));
+        assert!(
+            elapsed >= Duration::from_millis(150) && elapsed < Duration::from_millis(1400),
+            "{elapsed:?}"
+        );
+    }
+
     fn request_body_for(excerpt: &str) -> String {
         super::request(excerpt)
             .body_with(&options())
@@ -1075,17 +1256,90 @@ mod tests {
     }
 
     #[test]
+    fn a_question_records_its_request_as_a_turns_network_record_would() {
+        // Upstream's ring records the title's model call with the turns'
+        // (`gateway_step.zig:72`, `:144`), so `/trace` lists it: here as the
+        // turns' `* network:` record reads (`network_record`).
+        let (_, refused, _) = asked_and_recorded(
+            "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 4\r\nconnection: close\r\n\r\nbusy"
+                .to_string(),
+        );
+        let refused = refused.expect("a refusal is a request made");
+        assert_eq!(refused.tone, Tone::Warning);
+        assert_eq!(refused.topic, "network");
+        let (head, tail) = refused.body.split_once('\n').expect("two lines");
+        assert!(
+            head.starts_with("provider: gateway \u{b7} model: openai/gpt-5.6-luna \u{b7} ")
+                && head.ends_with("ms"),
+            "{head}"
+        );
+        assert_eq!(tail, "failed: server_error");
+
+        let (_, answered, _) = asked_and_recorded(stream(&[
+            r#"{"type":"text-delta","id":"t1","delta":"Fix it"}"#,
+            FINISH,
+        ]));
+        let answered = answered.expect("an answer is a request made");
+        assert_eq!(answered.tone, Tone::Neutral);
+        assert!(
+            answered
+                .body
+                .ends_with("\nfinish: stop\ntokens: 90 in \u{b7} 5 out"),
+            "{}",
+            answered.body
+        );
+    }
+
+    #[test]
+    fn the_desk_lists_its_requests_under_the_moment_they_started() {
+        // What `/trace`'s `## Network Calls` and `## Problems` read: each
+        // request as a row like a turn's, a refusal a problem.
+        let record = Notice::warning(
+            "network",
+            "provider: gateway \u{b7} model: openai/gpt-5.6-luna \u{b7} 12ms\nfailed: server_error",
+        );
+        let (desk, mut answers) = TitleDesk::asking(
+            true,
+            Arc::new(move |_question: Question| -> Asked {
+                let record = record.clone();
+                Box::pin(async move {
+                    (
+                        Outcome::Unavailable(Unavailable::Provider(500)),
+                        Some(record),
+                    )
+                })
+            }),
+        );
+        published(&desk);
+        let before = crate::session::event::system_now_ms();
+        assert!(desk.ask("x"));
+        let _ = next_within(&mut answers).expect("an answer");
+        let calls = desk.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].rows,
+            [
+                "! network: provider: gateway \u{b7} model: openai/gpt-5.6-luna \u{b7} 12ms",
+                "  failed: server_error"
+            ]
+        );
+        assert!(calls[0].problem);
+        assert!(calls[0].at_ms >= before);
+    }
+
+    #[test]
     fn a_cancelled_question_asks_nothing() {
         let cancel = CancelToken::new();
         cancel.cancel();
         let (endpoint, _) = a_question();
-        let outcome = on_a_runtime(ask_gateway(Question {
+        let (outcome, call) = on_a_runtime(ask_gateway(Question {
             endpoint,
             credential: credential(),
             excerpt: "fix the renderer".to_string(),
             cancel,
         }));
         assert_eq!(outcome, Outcome::Unavailable(Unavailable::Cancelled));
+        assert_eq!(call, None, "a request nobody made was recorded");
     }
 
     fn next_within(answers: &mut Answers) -> Option<Titled> {
