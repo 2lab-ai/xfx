@@ -333,6 +333,40 @@ included. Before `5de23de` the undo in `undone` brought back `[Image 1]` as
 words with no image behind them (`deleting_the_badge_drops_the_image_and_an_undo_after_it_changes_nothing`
 failed on the old rule: `left: "look [Image 2]"`, `right: "look "`).
 
+## Round 7: plan `23907ead` merged, the boundary rule for pasted-text blocks
+
+xfx `target/debug/xfx` at `eab9e5b` (banner `v0.1.0-eab9e5b`; plan
+`23907ead` merged as `3373442`), fx the c1db919 build. New:
+`paste-block-undo.cap` -- `look` and a space typed, 1001 `x`s pasted (a
+block), Backspace, Ctrl-_ twice; 1001 `x`s pasted again, Ctrl-U, Ctrl-Y,
+Ctrl-_, Ctrl-_.
+
+| snap | fx | xfx | upstream |
+|---|---|---|---|
+| `pasted` | `┃ look [Pasted text #1, 1 line]` | `… 1 lines]` | the paste is a boundary, `input_paste_runtime.zig:436-438` |
+| `deleted` | `┃ look ` | same | Backspace takes the block whole |
+| `undone` | `┃ look `: the two undos find nothing | same | `composer_replacement.zig:223-232`, `composer_undo.zig:252-268` |
+| `pasted-again` | `┃ look [Pasted text #2, 1 line]` | `… 1 lines]` | |
+| `killed` | `┃` | same | the kill is a boundary, `composer_kill_ring.zig:90-118` |
+| `yanked` | `look ` and the 1001 `x`s as text, no block | same text; the rows wrap differently | the ring holds the block's text, `kill_ring.zig:429-447` |
+| `yank-undone` | `┃`: the yank was an entry | same | |
+| `undone-again` | `┃`: the kill was not | same | |
+
+Five of eight snaps are identical in `.txt` and `.ansi`. The other three
+differ in two things that are not the undo:
+
+- **The summary's noun.** fx writes `1 line` for one line
+  (`formatPlaceholder`, `pasted_blocks.zig:59-62`); xfx's `paste::summary`
+  always writes `lines` (`src/tui/paste.rs:326-328`).
+- **Where a long word breaks in the composer.** fx keeps `look` and starts
+  the run of `x`s on the same row, breaking it at the edge; xfx moves the run
+  to the next row. The yanked text is the same 1006 characters on both.
+
+Before `eab9e5b` xfx's `yanked` was `┃ look [Pasted text #3, 1 lines]` (a new
+block), and the second undo in `undone-again` brought back
+`┃ look [Pasted text #2, 1 lines]`, the killed block (a capture at `3373442`,
+not kept).
+
 ## Differences, and why
 
 - **Where a clipboard badge's link goes** (round 4): fx's copy is in the
