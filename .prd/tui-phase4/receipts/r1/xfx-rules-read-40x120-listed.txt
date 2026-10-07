@@ -1,0 +1,40 @@
+└ Read secret.txt
+
+  Read once.
+
+  5s (↑2 ↓80)
+
+┃ and again
+
+● 1 tool call · 1 read
+└ Read secret.txt
+
+  Read always.
+
+  5s (↑3 ↓80)
+
+┃ once more
+
+● 2 tool calls · 2 read
+├ Read secret.txt
+└ Read notes.txt
+
+  Read again.
+
+  1s (↑2 ↓80)
+
+* permissions: mode=ask
+  configured rules:
+   - ask read -> secret*
+   - ask grep -> *
+  session grants:
+   - read_file -> secret.txt
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules: none
+
+┃
+
+ask · model-a

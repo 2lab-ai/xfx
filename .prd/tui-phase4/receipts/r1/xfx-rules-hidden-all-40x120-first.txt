@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-0d26715 [debug] · Run /help for commands
+
+┃ hello
+
+  Ready.
+
+  1s (↑2 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
