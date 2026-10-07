@@ -42,7 +42,7 @@ pub struct TurnRequest {
 /// Where a turn's durable evidence goes.
 ///
 /// The turn emits typed [`SessionEvent`]s and knows nothing about files: the
-/// session store implements this, and so does a recorder in a test. Two
+/// session store implements this, and so does a recorder in a test. Three
 /// decisions are deliberate.
 ///
 /// **It returns nothing.** A turn's outcome is what the user asked for, and it
@@ -56,6 +56,26 @@ pub struct TurnRequest {
 /// still done real work, and the evidence of that work is exactly what a resume
 /// needs. Events accumulated in memory until a tidy ending would be the events
 /// most worth keeping and the ones most likely to be lost.
+///
+/// **No method has a default.** A journal that wraps another -- one that
+/// rewrites a record, one that tees the turn to a surface -- answers each of
+/// them, by forwarding or on purpose; a default would let a wrapper written
+/// later drop the inner journal's answer without a word, as one dropped
+/// [`Self::state`] and with it every compaction between a turn's steps. A
+/// method added here is a compile error in every journal until each says
+/// what it does with it. One that keeps no log answers that it has none.
+///
+/// So a wrapper that forwards only the record does not build:
+///
+/// ```compile_fail,E0046
+/// struct Wrapper<'a>(&'a mut dyn xfx::agent::TurnJournal);
+///
+/// impl xfx::agent::TurnJournal for Wrapper<'_> {
+///     fn record(&mut self, event: xfx::session::SessionEvent) {
+///         self.0.record(event);
+///     }
+/// }
+/// ```
 pub trait TurnJournal {
     fn record(&mut self, event: SessionEvent);
 
@@ -66,13 +86,13 @@ pub trait TurnJournal {
     /// for a resumed session (`SessionEvent::ToolResult`'s `change`); this is
     /// how a surface watching the turn gets it as it happens. A journal that
     /// only keeps the log needs nothing from it.
-    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+    fn change_made(&mut self, call_id: &str, change: &crate::permission::ApprovalDiff);
 
     /// What the person watching is shown of a call in place of its result,
     /// when the two differ (`crate::tools::ToolResult::presented`). Handed
     /// over after the result's record, for a surface that shows it; never
     /// part of the log.
-    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str);
 
     /// The images the user message just recorded carries.
     ///
@@ -83,15 +103,95 @@ pub trait TurnJournal {
     ///
     /// Answers the directory their copies were saved in -- each under
     /// [`crate::image::Image::snapshot_name`] -- or `None` when none was.
-    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
-        None
-    }
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf>;
 
     /// The images the result of `call_id` carried, recorded with it so later
     /// requests send them again ([`crate::session::SessionRecorder::attach_tool_images`]).
     /// Called right after that result's [`SessionEvent::ToolResult`], and only
     /// for a result that carried any.
-    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]);
+
+    /// The session as the log now holds it, this turn's steps so far
+    /// included, for a journal that keeps one: what a compaction in the
+    /// middle of a turn plans from ([`StepCompactor`]). `None` for one that
+    /// keeps no log.
+    fn state(&self) -> Option<&crate::session::DurableState>;
+}
+
+/// What a turn asks before each model step: whether its conversation is to be
+/// compacted first (upstream's per-step check, `orchestrator.zig:7286-7322`).
+///
+/// The turn measures the request it is about to send and hands the answer
+/// here; an implementation that compacts records the checkpoint through the
+/// journal and returns the history the next request carries instead. It is
+/// also asked, with `overflow` set, after the provider refused a request as
+/// too large -- once per turn (`provider_overflow`, `:8099-8124`).
+#[async_trait::async_trait(?Send)]
+pub trait StepCompactor {
+    /// `Ok(None)` when nothing was compacted, and the request goes as it was.
+    async fn before_step(
+        &mut self,
+        check: StepCheck<'_>,
+    ) -> Result<Option<StepCompaction>, TurnError>;
+
+    /// What its notes requests cost since it was last asked, and whether one
+    /// was lost after it was sent: the turn's `/usage` record carries them.
+    fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
+        (Vec::new(), false)
+    }
+
+    /// The provider counted `input_tokens` for the request measured as
+    /// `request` and then sent, which later measurements are scaled by
+    /// (`storeRequestTokenCalibration`, `orchestrator.zig:8873-8885`).
+    fn answered(&mut self, _request: &crate::agent::compact::RequestCost, _input_tokens: u64) {}
+
+    /// When a compaction it ran was stopped and stopped the turn with it, the
+    /// sentence the person was shown for it: the turn's conclusion records it
+    /// as a stop the compaction took (`persistCompactionInterruptedTurnOnce`,
+    /// `orchestrator.zig:7413-7423`; `cancellation_origin`,
+    /// `runtime/interruption.zig:51-77`).
+    fn stopped(&self) -> Option<String> {
+        None
+    }
+}
+
+/// What a compaction before a step did to the request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepCompaction {
+    /// What the turn carries before its own message from now on: the
+    /// compacted form, and the turns after it but the one in progress.
+    pub history: Vec<crate::gateway::protocol::Message>,
+    /// How many of the turn's own exchanges -- a step that called tools, with
+    /// its results -- the compacted form now holds, counted from the turn's
+    /// start. The turn sends its steps from the next one on
+    /// (`retainedMessageOffset`, `orchestrator.zig:7432-7433`).
+    pub exchanges: usize,
+}
+
+/// One step's question to a [`StepCompactor`].
+pub struct StepCheck<'a> {
+    /// The request about to be sent, as measured (`measureProviderRequest`,
+    /// `prompt_context.zig:71-151`): its body's length, its text by the token
+    /// estimate with images left out, and which images it carries.
+    pub request: crate::agent::compact::RequestCost,
+    /// The same request with no messages but its instructions, measured the
+    /// same way: the part compaction cannot shrink (`request_fixed_tokens`,
+    /// `orchestrator.zig:7307-7316`). `None` when it could not be built.
+    pub fixed: Option<crate::agent::compact::RequestCost>,
+    /// The request itself, which a notes request may follow so the provider
+    /// can reuse what it cached of it (`CompactorCaller.conversation`,
+    /// `orchestrator.zig:7390-7393`).
+    pub conversation: &'a crate::gateway::protocol::CompletionRequest,
+    /// The provider refused the last request as too large.
+    pub overflow: bool,
+    /// Whether anything new can be compacted: not straight after a
+    /// compaction, before the request it rebuilt has gone
+    /// (`has_new_compactable_context`, `orchestrator.zig:7304`).
+    pub compactable: bool,
+    /// How many model steps this turn has run.
+    pub step: u32,
+    pub provider: &'a dyn crate::gateway::Provider,
+    pub journal: &'a mut dyn TurnJournal,
 }
 
 /// A journal that keeps nothing.
@@ -104,6 +204,20 @@ pub struct NoJournal;
 
 impl TurnJournal for NoJournal {
     fn record(&mut self, _event: SessionEvent) {}
+
+    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        None
+    }
 }
 
 /// What a completed turn produced.
@@ -152,6 +266,17 @@ pub enum TurnError {
     StepLimit { limit: u32 },
     /// The attempt budget was exhausted, or was zero to begin with.
     AttemptLimit { limit: u32 },
+    /// The request is too large for the model's window even with
+    /// everything before it compacted (`ContextCapacityExceeded`,
+    /// `orchestrator.zig:7344-7350`).
+    ContextNotReduced { reason: &'static str },
+    /// A compaction the turn needed did not finish: its notes could not be
+    /// written, or the log would not take it. `reason` is upstream's error
+    /// name. **The row says what went wrong and the turn says nothing**
+    /// (`compactionErrorHandled`, `app_process_runtime.zig:10-17`): the turn
+    /// keeps the steps it ran, and concludes with no error of its own
+    /// (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:213-246`).
+    CompactionEnded { reason: &'static str },
     /// The turn was cancelled.
     Cancelled,
     /// Turn events could not be written.
@@ -189,6 +314,8 @@ impl fmt::Display for TurnError {
                 "the model finished with `tool-calls` but named no tool to call"
             ),
             Self::ProviderFailure { detail } => write!(f, "the provider failed: {detail}"),
+            Self::ContextNotReduced { reason } => write!(f, "request failed: {reason}"),
+            Self::CompactionEnded { reason } => write!(f, "the turn stopped ({reason})"),
             Self::StepLimit { limit } => {
                 write!(f, "the turn reached its limit of {limit} model steps")
             }

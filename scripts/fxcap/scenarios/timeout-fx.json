@@ -1,0 +1,4 @@
+[
+  {"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "echo started; sleep 5", "yield_time_ms": 30000, "timeout_ms": 1000}}}},
+  {"delayMs": 100, "chunks": ["Done."]}
+]

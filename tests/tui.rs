@@ -59,6 +59,46 @@ fn on_screen(session: &Session, (rows, cols): (usize, usize), needles: &[&str], 
     );
 }
 
+/// [`on_screen`] for a notice that names a path: the notice is found
+/// whether or not it fits on one row.
+///
+/// A notice wider than the screen is wrapped by xfx onto rows under it with a
+/// hanging indent, at a path's `/` as readily as at a space, and the path is
+/// the sandbox's -- under whatever `TMPDIR` is -- so its length is the
+/// environment's, not the test's. A one-row needle for it timed out every run
+/// once `TMPDIR` was long enough: `* undo: Restored <path>` came as 238 bytes
+/// on a 200-column screen, split after `det/` onto the next row. The claim is
+/// unchanged -- this notice, naming this file, landed -- and is checked over the
+/// rows a notice wraps onto, blanks aside ([`Screen::holds`]).
+fn notice_on_screen(session: &Session, (rows, cols): (usize, usize), needles: &[&str]) {
+    session.wait_until(
+        &format!("{needles:?} on the screen, wrapped or not"),
+        |text| {
+            Screen::painted(text, rows, cols)
+                .is_some_and(|screen| needles.iter().all(|needle| screen.holds(needle)))
+        },
+    );
+}
+
+#[test]
+fn a_notice_wrapped_onto_the_row_under_it_is_held_and_another_notice_is_not() {
+    // `notice_on_screen`'s oracle, on the rows the long-`TMPDIR` run wrote: a
+    // notice split after a path's `/`, the rest under a two-space indent.
+    let wire =
+        "\u{1b}[2;1H* undo: Restored /tmp/a-long/scratch/\u{1b}[3;1H  directory/workspace/a.txt";
+    let screen = Screen::of(5, 40, wire);
+    assert!(screen.holds("* undo: Restored /tmp/a-long/scratch/directory/workspace/a.txt"));
+    assert!(!screen.holds("* undo: Deleted /tmp/a-long/scratch/directory/workspace/a.txt"));
+    assert!(!screen.holds("* undo: Restored /tmp/a-long/scratch/directory/workspace/b.txt"));
+    // A wrap at a space drops the space: the break's blanks are not counted.
+    let spaced = Screen::of(
+        5,
+        40,
+        "\u{1b}[2;1H* undo: Deleted /w/b.txt\u{1b}[3;1H  (was newly created)",
+    );
+    assert!(spaced.holds("* undo: Deleted /w/b.txt (was newly created)"));
+}
+
 /// The text of every user message in a captured request body.
 ///
 /// The same reduction `tests/interactive.rs` performs on the line-oriented
@@ -218,6 +258,25 @@ impl Screen {
     /// The one-based row `needle` is on, if any row carries it.
     fn find(&self, needle: &str) -> Option<usize> {
         (1..=self.lines.len()).find(|row| self.row_text(*row).contains(needle))
+    }
+
+    /// Whether `needle` is on the screen, on one row or wrapped over the rows
+    /// under its first: each continuation row read without its indent, and
+    /// the blanks of the break -- a wrap at a space drops it -- not counted.
+    fn holds(&self, needle: &str) -> bool {
+        if self.find(needle).is_some() {
+            return true;
+        }
+        let squeezed =
+            |text: &str| -> String { text.chars().filter(|c| !c.is_whitespace()).collect() };
+        let wanted = squeezed(needle);
+        (1..=self.lines.len()).any(|first| {
+            let mut joined = squeezed(&self.row_text(first));
+            (first + 1..=self.lines.len().min(first + 4)).any(|row| {
+                joined.push_str(&squeezed(&self.row_text(row)));
+                joined.contains(&wanted)
+            })
+        })
     }
 
     /// The one-based row the band's rule is on, if the band has painted one.
@@ -4520,11 +4579,10 @@ fn undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest()
     let path = std::fs::canonicalize(&file).expect("canonicalize");
 
     session.type_bytes(b"/undo\r");
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!("* undo: Restored {}", path.display())],
-        &[],
     );
     assert_eq!(std::fs::read_to_string(&file).expect("restored"), "one\n");
 
@@ -4587,14 +4645,13 @@ fn an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn
     assert!(file.exists(), "the undo ran under the running turn");
 
     session.type_bytes(&[0x03]);
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!(
             "* undo: Deleted {} (was newly created)",
             path.display()
         )],
-        &[],
     );
     assert!(!file.exists(), "the undo was dropped with the turn");
 
@@ -4685,14 +4742,13 @@ fn a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back() {
     let pty = Pty::open();
     let (mut session, first) = undo_typed_in_the_pause(&sandbox, &gateway, &pty, "b.txt");
 
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[
             "ALL-DONE",
             &format!("* undo: Deleted {} (was newly created)", first.display()),
         ],
-        &[],
     );
     assert!(!first.exists(), "the change typed at was not taken back");
     let second = sandbox.workspace.join("b.txt");
@@ -4704,14 +4760,13 @@ fn a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back() {
     // pressed: the undo may have removed it by the time the next line runs.
     let second = std::fs::canonicalize(&second).expect("canonicalize");
     session.type_bytes(b"/undo\r");
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!(
             "* undo: Deleted {} (was newly created)",
             second.display()
         )],
-        &[],
     );
     assert!(!second.exists());
 
@@ -4732,25 +4787,23 @@ fn an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back(
     let pty = Pty::open();
     let (mut session, first) = undo_typed_in_the_pause(&sandbox, &gateway, &pty, "b.txt");
 
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[
             "ALL-DONE",
             &format!("* undo: Could not undo {}", first.display()),
         ],
-        &[],
     );
     assert_eq!(
         std::fs::read_to_string(&first).expect("left alone"),
         "two\n"
     );
     session.type_bytes(b"/undo\r");
-    on_screen(
+    notice_on_screen(
         &session,
         (30, 200),
         &[&format!("* undo: Restored {}", first.display())],
-        &[],
     );
     assert_eq!(std::fs::read_to_string(&first).expect("restored"), "one\n");
 
@@ -8244,7 +8297,7 @@ fn a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_i
         request["model"], "unlisted-xyz",
         "the applied id was not the model of the next turn: {request}"
     );
-    // The catalog was read once, for both selections.
+    // The catalog was read once -- at launch -- and both selections used it.
     assert_eq!(
         daemon
             .paths()
@@ -8364,6 +8417,7 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let asked = gateway.catalog_requests();
+    // Read once, at launch; the menu and the query used that read.
     assert_eq!(asked.len(), 1, "the catalog is read once: {asked:?}");
     assert_eq!(asked[0].method, "GET");
     assert_eq!(asked[0].path, support::fake_gateway::MODELS_PATH);
@@ -8644,16 +8698,23 @@ fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it
     assert_eq!(settings["effort"], "low");
     assert_eq!(settings["models"]["gateway"], "fake/model-a");
 
-    // The next launch starts in it. No catalog has been read yet, so nothing
-    // says this model does not take the level and the footer shows it, as
-    // upstream's does while its catalog is loading
-    // (`active_capabilities_pending`) -- upstream loads one at launch, xfx
-    // when something first needs it.
+    // The next launch starts in it. Its catalog, read at launch, says this
+    // model lists no levels, so once it has answered the footer shows none
+    // -- as upstream's shows the level only while its catalog is loading
+    // (`active_capabilities_pending`) -- and the session still holds `low`
+    // for the next model that does.
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     again.wait_for(READY);
-    on_screen(&again, (40, 120), &["auto \u{b7} model-a \u{b7} low"], &[]);
+    on_screen(
+        &again,
+        (40, 120),
+        &["auto \u{b7} model-a"],
+        &["auto \u{b7} model-a \u{b7} low"],
+    );
+    again.type_bytes(b"\x1b[200~/model qqq/unlisted\x1b[201~\r");
+    again.wait_for("Switched to qqq/unlisted (effort: low, speed: normal)");
     again.type_bytes(&[0x04]);
     assert_eq!(again.wait_exit().code(), Some(0));
 }
@@ -9374,7 +9435,8 @@ fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
         session.type_bytes(b" what is in this image?\r");
         on_screen(&session, (40, 120), &["\u{2717} system:", refusal], &[]);
         assert_eq!(gateway.request_count(), 0, "{refusal}: a request was sent");
-        // The catalog was what decided it, and the answer stays on the screen.
+        // The catalog read at launch was what decided it, and the answer
+        // stays on the screen.
         assert_eq!(gateway.catalog_requests().len(), 1);
         session.type_bytes(&[0x04]);
         assert_eq!(session.wait_exit().code(), Some(0));
@@ -9614,7 +9676,11 @@ fn slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text(
         "\n    TRACE_RENDER_DONE\n".to_string(),
         "] user\n  render the trace fixture\n".to_string(),
         "] assistant\n  TRACE_RENDER_DONE\n".to_string(),
-        "\n## Network Calls\ncalls=1 ok=1 refused=0\n".to_string(),
+        // The turn's request and the title's: upstream's ring holds every
+        // model call, the title's among them (`writeNetworkCallsSummary`,
+        // `app_commands.zig:3005-3030`; `gateway_step.zig:144`).
+        "\n## Network Calls\ncalls=2 ok=2 refused=0\n".to_string(),
+        "] * network: provider: gateway \u{b7} model: openai/gpt-5.6-luna \u{b7} ".to_string(),
         // The fixture's title request answers with no text: the switch is on,
         // the session is shown under its prompt, and the question came back
         // empty (`writeSessionTitleSummary`, `app_commands.zig:2779-2816`).
@@ -9660,8 +9726,8 @@ const COMPACTION_WORDS: [&str; 4] = [
     "No context to compact",
 ];
 
-/// Every `context_checkpoint` frame of the sandbox's sessions.
-fn checkpoints(sandbox: &Sandbox) -> Vec<Value> {
+/// Every frame of the sandbox's sessions, in each log's order.
+fn session_frames(sandbox: &Sandbox) -> Vec<Value> {
     sandbox
         .session_ids()
         .iter()
@@ -9673,6 +9739,13 @@ fn checkpoints(sandbox: &Sandbox) -> Vec<Value> {
                 .filter_map(|line| serde_json::from_str::<Value>(line).ok())
                 .collect::<Vec<_>>()
         })
+        .collect()
+}
+
+/// Every `context_checkpoint` frame of the sandbox's sessions.
+fn checkpoints(sandbox: &Sandbox) -> Vec<Value> {
+    session_frames(sandbox)
+        .into_iter()
         .filter(|frame| frame["event"]["kind"] == "context_checkpoint")
         .collect()
 }
@@ -9757,6 +9830,26 @@ fn compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it(
         !asked.contains("second question"),
         "the kept turn was compacted"
     );
+
+    // What the notes request cost is in the session's `/usage` record, in a
+    // frame of its own just before the checkpoint: it answered no turn, so it
+    // carries no turn's totals (`app_agent_runtime.zig:1127`).
+    let frames = session_frames(&sandbox);
+    let at = frames
+        .iter()
+        .position(|frame| frame["event"]["kind"] == "context_checkpoint")
+        .expect("the checkpoint");
+    let usage = &frames[at - 1]["event"];
+    assert_eq!(usage["kind"], "usage_recorded", "{usage}");
+    assert!(
+        usage.get("input_tokens").is_none_or(Value::is_null),
+        "{usage}"
+    );
+    let billed = usage["requests"].as_array().expect("requests");
+    assert_eq!(billed.len(), 1, "{usage}");
+    // The sandbox's model (`support::sandbox`), which the request names in a
+    // header rather than its body.
+    assert_eq!(billed[0]["model"], "zai/glm-5.2", "{usage}");
 
     // The checkpoint covers the first turn and keeps its exact texts.
     let frame = checkpoints(&sandbox).remove(0);
@@ -9949,6 +10042,114 @@ fn a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation()
 }
 
 #[test]
+fn trace_records_a_failed_compaction_and_the_one_after_it() {
+    // Upstream's `manual failure then success: /trace records compaction
+    // decisions and failures without FX_TRACE`
+    // (`tui-compaction-activity.test.ts:506-549`): the section is always
+    // there, the refusal's words reach it masked, and the failures are
+    // problems.
+    use support::fake_gateway::{content_only, Reply};
+    const SECRET: &str = "sk-abcdef0123456789abcdef0123456789xyz";
+    let mut script = read_then_answer("MARKER-ONE");
+    script.push(Reply::Sse(content_only(&["MARKER-TWO"])));
+    for _ in 0..2 {
+        script.push(Reply::Status(400, format!("Synthetic rejection {SECRET}")));
+    }
+    script.push(Reply::Sse(content_only(&[NOTES])));
+    let gateway = FakeGateway::start(script);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-TWO");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(b"/compact\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Compaction failed. Try /compact again."],
+        &[],
+    );
+    session.type_bytes(b"/compact\r");
+    wait_for_checkpoints(&sandbox, 1);
+
+    // `committed` is recorded just after the checkpoint is written, on the
+    // runtime's thread, and `/trace` reads the record on the screen's: a
+    // report taken in between is asked for again.
+    let deadline = Instant::now() + WAIT;
+    let notice = if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    };
+    let report = loop {
+        let taken = clipboard.reports().len();
+        session.type_bytes(b"/trace\r");
+        // Read once the notice says the report is whole.
+        session.wait_for_count(notice, taken + 1);
+        let path = clipboard.reports().pop().expect("a report");
+        let report = std::fs::read_to_string(&path).expect("the report");
+        if report.contains("event=committed") {
+            break report;
+        }
+        assert!(Instant::now() < deadline, "no committed event:\n{report}");
+    };
+    let section = report
+        .split("\n## Context Compaction\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .unwrap_or_else(|| panic!("no compaction section:\n{report}"));
+    let head = section.lines().next().unwrap_or_default();
+    let counts: Vec<u64> = head
+        .split(' ')
+        .filter_map(|word| word.split_once('=').and_then(|(_, n)| n.parse().ok()))
+        .collect();
+    assert!(
+        head.starts_with("last=") && head.ends_with(" (always recorded)") && counts[1] > 0,
+        "{head}"
+    );
+    // A `/compact` takes the next turn id after the two prompts', as
+    // upstream's does (`worker_runtime.zig:989`): 3, then 4.
+    for needle in [
+        "event=summary_transport_failed turn_id=3 failed model=zai/glm-5.2 kind=invalid_request",
+        "[redacted]",
+        "event=log turn_id=3 fallback model=anthropic/claude-sonnet-5 after=ModelFailed",
+        "event=transaction_failed turn_id=3 failed stage=summary origin=manual err=ModelFailed",
+        "event=provider_start turn_id=4 model=zai/glm-5.2 turns=1 earlier=false store=false",
+        "event=provider_completed turn_id=4 model=zai/glm-5.2 summaries=1 shown_turns=1 turns=1 \
+         tools=1",
+        "event=committed turn_id=4 origin=manual removed_turns=1 compaction_count=1",
+    ] {
+        assert!(section.contains(needle), "{needle:?} is not in:\n{section}");
+    }
+    assert!(
+        !report.contains(SECRET),
+        "the provider's secret reached the report"
+    );
+    let problems = report
+        .split("\n## Problems\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n## ").next())
+        .expect("problems");
+    assert!(
+        problems.contains("- context compaction transaction_failed turn_id=3 detail=stage=summary"),
+        "{problems}"
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes() {
     use support::fake_gateway::{content_only, Reply};
     let mut script = read_then_answer("MARKER-ONE");
@@ -10025,9 +10226,12 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
     let id = sandbox.session_ids().remove(0);
     let pty = Pty::open();
     pty.resize(40, 120);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
     let mut keyless = tui_with(&sandbox, &gateway);
     keyless.env_remove("AI_GATEWAY_API_KEY");
     keyless.arg("--resume").arg(&id);
+    clipboard.first_on_path(&mut keyless);
+    clipboard.reports_into(&mut keyless);
     let mut resumed = Session::spawn_without_taking_the_terminal(&pty, keyless);
     resumed.wait_for(READY);
     resumed.wait_for("MARKER-TWO");
@@ -10040,6 +10244,23 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
     );
     assert_eq!(gateway.request_count(), 2);
     assert!(checkpoints(&sandbox).is_empty());
+    // `/trace` says why (`compactor.zig:185-193`), once the report is whole.
+    resumed.type_bytes(b"/trace\r");
+    resumed.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let report = std::fs::read_to_string(&reports[0]).expect("the report");
+    for needle in [
+        "event=credential_unauthorized turn_id=1 failed provider=gateway credential_source=none",
+        "event=transaction_failed turn_id=1 failed stage=preparation origin=manual \
+         err=ContextCompactionUnavailable",
+    ] {
+        assert!(report.contains(needle), "{needle:?} is not in:\n{report}");
+    }
     resumed.type_bytes(b"/quit\r");
     assert_eq!(resumed.wait_exit().code(), Some(0));
 }
@@ -10048,13 +10269,13 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
 fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
     // Upstream's automatic trigger (`orchestrator.zig:7306-7322`): the request
     // the turn opens with is measured against 80% of the model's usable input,
-    // known from the catalog's window, and compacted first when it reaches it.
-    // A 16K window keeping 4K for output is 12K usable and compacts at 9.6K:
-    // the first turn's request is the tool schemas and a line, and the second
-    // carries the first turn's read, ten thousand words of it.
-    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
-    let line = "evidence ".repeat(25);
-    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    // known from the catalog read at launch, and compacted first when it
+    // reaches it. A 16K window keeping 4K for output is 12K usable and
+    // compacts at 9.6K. The first turn reads a small file; the provider
+    // counts its answering request at the point, and the second turn's
+    // request -- that one and a little more -- is measured by that count
+    // (`calibrateProviderRequest`, `prompt_context.zig:153-171`).
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
             tool_call(
@@ -10064,17 +10285,14 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
             ),
             finish("tool-calls"),
         ])),
-        Reply::Sse(content_only(&["MARKER-ONE"])),
-        Reply::Sse(content_only(&[NOTES])),
-        Reply::Sse(content_only(&["MARKER-TWO"])),
+        counted("MARKER-ONE", 9_600),
+        uncounted(NOTES),
+        uncounted("MARKER-TWO"),
     ])
-    .with_catalog(serde_json::json!({"object": "list", "data": [
-        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
-         "released": 1_700_000_000, "tags": ["tool-use"],
-         "context_window": 16_000, "max_tokens": 4_000},
-    ]}));
+    .with_catalog(small_window());
     let sandbox = Sandbox::new();
-    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("big.txt"), lines_of_evidence(20))
+        .expect("write the fixture");
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session =
@@ -10088,8 +10306,26 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
     wait_for_checkpoints(&sandbox, 1);
     let requests = gateway.requests();
     assert_eq!(requests.len(), 4, "{requests:?}");
-    assert!(!is_summary(&requests[1].json()), "the first turn compacted");
-    assert!(is_summary(&requests[2].json()), "the notes went first");
+    assert!(
+        !is_summary(&requests[1].json()) && !is_notes_after_conversation(&requests[1].json()),
+        "the first turn compacted"
+    );
+    // The notes went first, right after the conversation the turn was about
+    // to send, so the provider can reuse what it cached of it
+    // (`summarize.zig:571-595`; `text_completion.zig:68-80`): its tools and
+    // tool choice, every message, then the request.
+    let notes = requests[2].json();
+    assert!(is_notes_after_conversation(&notes), "{notes}");
+    assert_eq!(notes["tools"], requests[1].json()["tools"]);
+    assert_eq!(notes["toolChoice"], requests[1].json()["toolChoice"]);
+    let asked = user_messages(&notes);
+    assert_eq!(&asked[..2], ["first question", "second question"]);
+    assert!(
+        asked[2].contains(
+            "Turn 1 (T1), which begins \u{201c}first question\u{201d}\n  T1 read_file: big.txt\n"
+        ),
+        "{asked:?}"
+    );
     let users = user_messages(&requests[3].json());
     assert!(
         users[0].starts_with("<compacted_conversation>\n"),
@@ -10100,7 +10336,7 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
         !requests[3].body.contains("evidence evidence"),
         "the compacted turn's read was still sent"
     );
-    // The catalog was read once, for the window.
+    // The catalog was read once, at launch, and the window came from it.
     assert_eq!(gateway.catalog_requests().len(), 1);
     on_screen(&session, (40, 120), &["MARKER-TWO"], &COMPACTION_WORDS);
     wait_for_conclusions(&sandbox, 2);
@@ -10109,15 +10345,629 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
 }
 
 #[test]
-fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped() {
-    // Upstream's `auto: cancellation provenance` (`tui-compaction-activity.test.ts:
-    // 446-503`): the turn that reached the compaction point is stopped with the
-    // compaction, nothing is checkpointed, the row says `Compaction cancelled.`,
-    // and the turn is recorded as asked and stopped
-    // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:7413-7423`).
+fn a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step() {
+    // Upstream measures every step's request, not only a turn's first
+    // (`orchestrator.zig:7286-7322`): the second turn opens under the point,
+    // its read takes the next request past it, and the turns before it are
+    // compacted between the read and that request. 16K window, 4K output:
+    // 12K usable, compacting at 9.6K; the tool schemas are about 3K. The
+    // first answer carries no count, so the estimate alone measures.
     use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
     let line = "evidence ".repeat(25);
-    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    let lines = |count: usize| -> String { (0..count).map(|_| format!("{line}\n")).collect() };
+    let read = |id: &str, path: &str| {
+        Reply::Sse(sse_body(&[
+            tool_call(id, "read_file", serde_json::json!({ "path": path })),
+            finish("tool-calls"),
+        ]))
+    };
+    let gateway = FakeGateway::start(vec![
+        read("read-1", "first.txt"),
+        uncounted("MARKER-ONE"),
+        read("read-2", "second.txt"),
+        Reply::Sse(content_only(&[NOTES])),
+        Reply::Sse(content_only(&["MARKER-TWO"])),
+        Reply::Sse(content_only(&["MARKER-THREE"])),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
+         "released": 1_700_000_000, "tags": ["tool-use"],
+         "context_window": 16_000, "max_tokens": 4_000},
+    ]}));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("first.txt"), lines(60)).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("second.txt"), lines(100)).expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-TWO");
+    wait_for_checkpoints(&sandbox, 1);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 5, "{requests:?}");
+    // The second turn's first request went as it was.
+    assert!(!is_summary(&requests[2].json()));
+    assert_eq!(
+        user_messages(&requests[2].json()),
+        ["first question", "second question"]
+    );
+    // Then the notes -- the first turn, and the read of the turn in
+    // progress, whose first message stays -- then the step after the read,
+    // carrying the compacted form, the second question, and nothing of the
+    // read: its result alone is larger than the room the kept part has
+    // (`selectRecentContext`, `window.zig:226-236`; `split`, `:271-295`).
+    let notes = requests[3].json();
+    assert!(is_summary(&notes), "the notes went between the steps");
+    let asked = user_messages(&notes).join("\n");
+    assert!(
+        asked.contains(
+            "[Turn in progress]\n[User, this message stays in the conversation after the \
+             summary]\nsecond question\n"
+        ),
+        "{asked}"
+    );
+    assert!(
+        asked.contains("Turn 1 (T1)\nTurn in progress (T2)\n"),
+        "{asked}"
+    );
+    assert!(asked.contains("For the turn in progress, give its notes so far.\n"));
+    let next = requests[4].json();
+    let users = user_messages(&next);
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert!(
+        users[0].contains(
+            "Turn in progress, whose first user message follows this:\nIts tools so far:\n  \
+             T2 read_file second.txt"
+        ),
+        "{users:?}"
+    );
+    assert_eq!(&users[1..], ["second question"]);
+    let tools: Vec<&Value> = next["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .collect();
+    assert!(tools.is_empty(), "a compacted read was still sent");
+    // The checkpoint was written inside the second turn, which then went on
+    // and ended as any turn does.
+    let frames = session_frames(&sandbox);
+    let at = |kind: &str, from: usize| {
+        frames[from..]
+            .iter()
+            .position(|frame| frame["event"]["kind"] == kind)
+            .map(|offset| from + offset)
+    };
+    let asked = frames
+        .iter()
+        .position(|frame| frame["event"]["text"] == "second question")
+        .expect("the second prompt");
+    let checkpoint = at("context_checkpoint", asked).expect("the checkpoint");
+    let concluded = at("turn_concluded", asked).expect("the conclusion");
+    assert!(checkpoint < concluded, "the checkpoint was not mid-turn");
+    assert_eq!(frames[concluded]["event"]["outcome"]["kind"], "final");
+    on_screen(&session, (40, 120), &["MARKER-TWO"], &COMPACTION_WORDS);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // A resume reads the checkpoint, and after it the second turn's first
+    // message and its reply, without the read the checkpoint holds.
+    let id = sandbox.session_ids().remove(0);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    again.wait_for("MARKER-TWO");
+    again.type_bytes(b"third question\r");
+    again.wait_for("MARKER-THREE");
+    let after = gateway
+        .requests()
+        .pop()
+        .expect("the third turn's request")
+        .json();
+    let users = user_messages(&after);
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert_eq!(&users[1..], ["second question", "third question"]);
+    assert!(
+        !after["prompt"]
+            .as_array()
+            .expect("a prompt")
+            .iter()
+            .any(|message| message["role"] == "tool"),
+        "the compacted read came back on the resume"
+    );
+    wait_for_conclusions(&sandbox, 3);
+    again.type_bytes(b"/quit\r");
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+/// A catalog that gives the sandbox's model a 16K window keeping 4K for
+/// output: 12K usable, the automatic point at 9.6K.
+fn small_window() -> Value {
+    serde_json::json!({"object": "list", "data": [
+        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
+         "released": 1_700_000_000, "tags": ["tool-use"],
+         "context_window": 16_000, "max_tokens": 4_000},
+    ]})
+}
+
+/// `count` lines of words, about 57 tokens each by the estimate.
+fn lines_of_evidence(count: usize) -> String {
+    let line = "evidence ".repeat(25);
+    (0..count).map(|_| format!("{line}\n")).collect()
+}
+
+fn read_reply(id: &str, path: &str) -> support::fake_gateway::Reply {
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    Reply::Sse(sse_body(&[
+        tool_call(id, "read_file", serde_json::json!({ "path": path })),
+        finish("tool-calls"),
+    ]))
+}
+
+/// An answer whose finish carries no usage: the provider gives no count for
+/// a later request's estimate to be scaled by (`calibrateProviderRequest`,
+/// `prompt_context.zig:153-171`), so the window tests size their requests by
+/// the estimate alone, as they were sized before xfx calibrated.
+fn uncounted(text: &str) -> support::fake_gateway::Reply {
+    use support::fake_gateway::{finish, sse_body, text_delta, Reply};
+    Reply::Sse(sse_body(&[text_delta("answer_0", text), finish("stop")]))
+}
+
+/// An answer whose finish says the provider counted `input` tokens for the
+/// request it answered: the next request's estimate is that count scaled by
+/// how much larger it is (`orchestrator.zig:7292-7303`).
+fn counted(text: &str, input: u64) -> support::fake_gateway::Reply {
+    use support::fake_gateway::{finish_with_usage, sse_body, text_delta, Reply};
+    Reply::Sse(sse_body(&[
+        text_delta("answer_0", text),
+        finish_with_usage("stop", input, 5),
+    ]))
+}
+
+/// The notes request sent right after the conversation (`askFirstNotes`,
+/// `summarize.zig:571-595`): the turn's own request, tools and all, then one
+/// user message that opens with the compactor's instructions.
+fn is_notes_after_conversation(body: &Value) -> bool {
+    body["tools"]
+        .as_array()
+        .is_some_and(|tools| !tools.is_empty())
+        && user_messages(body).last().is_some_and(|last| {
+            last.starts_with("You write compaction notes on an AI coding assistant's work")
+                && last.contains(
+                    "Write the compaction notes for the turns of the conversation above that \
+                     are listed below;",
+                )
+        })
+}
+
+const IN_PROGRESS_NOTES: &str = "Turn in progress\nIn between: Read the three files.\n\
+T1: one\nT2: two\nT3: three\n\nFacts:\nF1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
+
+#[test]
+fn a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused() {
+    // The first turn of a session with no window: this fake publishes no
+    // catalog, so the read at launch fails, and nothing else gives this model
+    // one. Three reads, and the provider refuses the next request as too
+    // large. The turn's own exchanges are compacted while its
+    // first message stays (`split`, `window.zig:271-295`) and the refused
+    // request goes again (`provider_overflow`, `orchestrator.zig:8099-8124`)
+    // -- where a cut at whole turns had nothing to compact.
+    use support::fake_gateway::{content_only, Reply};
+    let gateway = FakeGateway::start(vec![
+        read_reply("read-1", "a.txt"),
+        read_reply("read-2", "b.txt"),
+        read_reply("read-3", "c.txt"),
+        Reply::Status(
+            400,
+            r#"{"error":{"code":"context_length_exceeded"}}"#.to_string(),
+        ),
+        Reply::Sse(content_only(&[IN_PROGRESS_NOTES])),
+        Reply::Sse(content_only(&["MARKER-ANSWER"])),
+    ]);
+    let sandbox = Sandbox::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+    }
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"read all three\r");
+    session.wait_for("MARKER-ANSWER");
+    wait_for_conclusions(&sandbox, 1);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 6, "{requests:?}");
+    assert!(
+        is_summary(&requests[4].json()),
+        "the notes went after the refusal"
+    );
+    let users = user_messages(&requests[5].json());
+    assert!(users[0].contains("Turn in progress, whose first user message follows this:\n"));
+    assert_eq!(&users[1..], ["read all three"]);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    on_screen(
+        &session,
+        (40, 120),
+        &["MARKER-ANSWER"],
+        &["context_length_exceeded", "\u{2717}", "ompact"],
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on() {
+    // A turn after a short one whose answer carries no count, so the
+    // estimate alone measures: three reads take its next request past the
+    // point, and the turn before it and its own exchanges so far are
+    // compacted while its first message stays
+    // (`selectRecentContext`, `window.zig:169-251`; `split`, `:271-295`) --
+    // the turn goes on and answers, where a whole-turn cut kept its reads.
+    use support::fake_gateway::{content_only, Reply};
+    const NOTES_WITH_PROGRESS: &str = "Turn 1\nIn between: none\n\nTurn in progress\n\
+In between: Read the three files.\nT1: one\nT2: two\nT3: three\n\nFacts:\n\
+F1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
+    let gateway = FakeGateway::start(vec![
+        uncounted("MARKER-HELLO"),
+        read_reply("read-1", "a.txt"),
+        read_reply("read-2", "b.txt"),
+        read_reply("read-3", "c.txt"),
+        Reply::Sse(content_only(&[NOTES_WITH_PROGRESS])),
+        Reply::Sse(content_only(&["MARKER-ANSWER"])),
+        Reply::Sse(content_only(&["MARKER-NEXT"])),
+    ])
+    .with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+    }
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"hello\r");
+    session.wait_for("MARKER-HELLO");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"read all three\r");
+    session.wait_for("MARKER-ANSWER");
+    wait_for_conclusions(&sandbox, 2);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 6, "{requests:?}");
+    assert!((0..4).all(|at| !is_summary(&requests[at].json())));
+    // The notes went after the third read, right after the conversation the
+    // step was about to send, which leaves room for them
+    // (`roomAfterConversation`, `window.zig:79-89`; `summarize.zig:571-595`):
+    // every turn listed, findable, and the turn in progress noted through
+    // its last call.
+    let notes = requests[4].json();
+    assert!(is_notes_after_conversation(&notes), "{notes}");
+    let asked = user_messages(&notes);
+    assert_eq!(&asked[..2], ["hello", "read all three"]);
+    assert!(
+        asked[2].contains(
+            "Turn 1 (no tool calls), which begins \u{201c}hello\u{201d}\nTurn in progress \
+             (T1\u{2013}T3), which begins \u{201c}read all three\u{201d}\n  T1 read_file: a.txt\n  \
+             T2 read_file: b.txt\n  T3 read_file: c.txt\n"
+        ),
+        "{asked:?}"
+    );
+    assert!(
+        asked[2].contains(
+            "For the turn in progress, give its notes so far, through the last tool call listed \
+             under its heading; the calls after it stay in the conversation.\n"
+        ),
+        "{asked:?}"
+    );
+    let next = requests[5].json();
+    let users = user_messages(&next);
+    assert!(users[0].contains("Turn in progress, whose first user message follows this:\n"));
+    assert!(users[0].contains("MARKER-HANDOFF-77"), "{users:?}");
+    assert_eq!(&users[1..], ["read all three"]);
+    assert!(
+        !next["prompt"]
+            .as_array()
+            .expect("a prompt")
+            .iter()
+            .any(|message| message["role"] == "tool"),
+        "a compacted read was still sent"
+    );
+    // The checkpoint covers the turn's reads, inside it; the turn ended as
+    // any turn does, and nothing of the compaction is on the screen.
+    let frames = session_frames(&sandbox);
+    let checkpoint = frames
+        .iter()
+        .position(|frame| frame["event"]["kind"] == "context_checkpoint")
+        .expect("a checkpoint");
+    let concluded = frames[checkpoint..]
+        .iter()
+        .position(|frame| frame["event"]["kind"] == "turn_concluded")
+        .map(|at| checkpoint + at)
+        .expect("the second turn's conclusion");
+    assert_eq!(frames[concluded]["event"]["outcome"]["kind"], "final");
+    let open = &frames[checkpoint]["event"]["compacted"]["open"];
+    assert_eq!(open["first_tool"], 1, "{open}");
+    assert_eq!(open["last_tool"], 3, "{open}");
+    assert_eq!(
+        frames[checkpoint]["event"]["compacted"]["turns"]
+            .as_array()
+            .map(Vec::len),
+        Some(1),
+        "the turn in progress is not a compacted turn"
+    );
+    on_screen(&session, (40, 120), &["MARKER-ANSWER"], &COMPACTION_WORDS);
+
+    // The next turn carries the compacted form, then the first turn's
+    // message and its answer -- and still none of its reads.
+    session.type_bytes(b"and now\r");
+    session.wait_for("MARKER-NEXT");
+    let after = gateway.requests().pop().expect("the next request").json();
+    let users = user_messages(&after);
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert_eq!(&users[1..], ["read all three", "and now"]);
+    wait_for_conclusions(&sandbox, 3);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own() {
+    // `finishExecutionOnlyFailureIfNeeded` (`finalization.zig:213-246`): the
+    // turn keeps the reads it made and ends with no error text, live or on a
+    // resume; the row alone says what went wrong (`compactionErrorHandled`).
+    use support::fake_gateway::Reply;
+    let gateway = FakeGateway::start(vec![
+        uncounted("MARKER-HELLO"),
+        read_reply("read-1", "a.txt"),
+        read_reply("read-2", "b.txt"),
+        read_reply("read-3", "c.txt"),
+        Reply::Status(400, "Synthetic summary rejection".to_string()),
+        Reply::Status(400, "Synthetic summary rejection".to_string()),
+    ])
+    .with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+    }
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"hello\r");
+    session.wait_for("MARKER-HELLO");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"read all three\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Compaction failed. Try /compact again.", "c.txt"],
+        &[
+            "\u{2717}",
+            "request failed",
+            "the turn stopped",
+            "Cancelled",
+        ],
+    );
+    wait_for_conclusions(&sandbox, 2);
+    let frames = session_frames(&sandbox);
+    let concluded = frames
+        .iter()
+        .filter(|frame| frame["event"]["kind"] == "turn_concluded")
+        .nth(1)
+        .expect("the second conclusion");
+    assert_eq!(
+        concluded["event"]["outcome"]["kind"], "final",
+        "{concluded}"
+    );
+    let results = frames
+        .iter()
+        .filter(|frame| frame["event"]["kind"] == "tool_result")
+        .count();
+    assert_eq!(results, 3, "the reads were not kept");
+    assert!(checkpoints(&sandbox).is_empty());
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // On a resume: the prompt and its reads, and no error under them.
+    let id = sandbox.session_ids().remove(0);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    on_screen(
+        &again,
+        (40, 120),
+        &["read all three", "c.txt"],
+        &[
+            "\u{2717}",
+            "request failed",
+            "the turn stopped",
+            "ompact",
+            "Synthetic",
+        ],
+    );
+    again.type_bytes(b"/quit\r");
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn the_catalog_is_read_at_launch_and_a_session_s_first_turn_is_sized_by_it() {
+    // Upstream reads its catalog on a thread of its own once the session is
+    // up (`app.startModelCacheWarmup()`, `app_entry_runtime.zig:335`;
+    // `startWarmup`, `model_cache_runtime.zig:321-349`), and a turn whose
+    // window only the catalog gives waits for that read
+    // (`requiresResolvedRequestCapabilities`, `orchestrator.zig:5383-5395`;
+    // `resolveForRequest`, `model_cache_runtime.zig:614-669`). So a session's
+    // first turn knows the window: three reads take its next request past
+    // the point, and its own exchanges are compacted while its first message
+    // stays -- with nothing refused first.
+    let gateway = FakeGateway::start(vec![
+        read_reply("read-1", "a.txt"),
+        read_reply("read-2", "b.txt"),
+        read_reply("read-3", "c.txt"),
+        uncounted(IN_PROGRESS_NOTES),
+        uncounted("MARKER-ANSWER"),
+    ])
+    .with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+    }
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    // Asked with nothing typed.
+    let deadline = Instant::now() + std::time::Duration::from_secs(10);
+    while gateway.catalog_requests().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the catalog was not read at launch"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(gateway.request_count(), 0);
+    session.type_bytes(b"read all three\r");
+    session.wait_for("MARKER-ANSWER");
+    wait_for_conclusions(&sandbox, 1);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 5, "{requests:?}");
+    let notes = requests[3].json();
+    assert!(
+        is_summary(&notes) || is_notes_after_conversation(&notes),
+        "the notes went after the third read: {notes}"
+    );
+    let users = user_messages(&requests[4].json());
+    assert!(users[0].contains("Turn in progress, whose first user message follows this:\n"));
+    assert_eq!(&users[1..], ["read all three"]);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    assert_eq!(gateway.catalog_requests().len(), 1);
+    on_screen(&session, (40, 120), &["MARKER-ANSWER"], &COMPACTION_WORDS);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words() {
+    // Compacted and still past the window, the request is not sent
+    // (`no_compactable_context`, `orchestrator.zig:7347-7350`), and the turn
+    // ends with upstream's error on a line of its own -- `formatErrorBody`'s
+    // "request failed: " and the error's name (`app_process_runtime.zig:
+    // 113-126`, `:149-158`). The prompt alone is about 10K of the 12K usable.
+    let gateway = FakeGateway::start(vec![uncounted("MARKER-HELLO")]).with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"hello\r");
+    session.wait_for("MARKER-HELLO");
+    wait_for_conclusions(&sandbox, 1);
+    let mut paste = b"\x1b[200~".to_vec();
+    paste.extend("evidence ".repeat(5_000).trim_end().as_bytes());
+    paste.extend(b"\x1b[201~\r");
+    session.type_bytes(&paste);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2717} system: request failed: ContextCapacityExceeded"],
+        &["Compacting ("],
+    );
+    // Only the first turn's request went; the first turn was compacted.
+    assert_eq!(gateway.request_count(), 1);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again() {
+    // Upstream's `provider_overflow` (`orchestrator.zig:8099-8124`,
+    // `isContextOverflowFailure` `:4428-4445`): a refusal that says the
+    // request is too large for the window is answered once by compacting
+    // and asking again -- whether or not the catalog names a window.
+    use support::fake_gateway::{content_only, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        Reply::Status(
+            400,
+            r#"{"error":{"message":"input exceeds the context window","code":"context_length_exceeded"}}"#
+                .to_string(),
+        ),
+        Reply::Sse(content_only(&["MARKER-TWO"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-TWO");
+    wait_for_conclusions(&sandbox, 2);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    assert_eq!(
+        user_messages(&requests[1].json()),
+        ["first question", "second question"]
+    );
+    // A turn with only its message and reply is compacted from its exact
+    // texts, with no notes request; the refused request goes again with it.
+    let users = user_messages(&requests[2].json());
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert!(users[0].contains("User 1:\nfirst question\n"), "{users:?}");
+    assert_eq!(&users[1..], ["second question"]);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    // The refusal is not the turn's: nothing of it on the screen.
+    on_screen(
+        &session,
+        (40, 120),
+        &["MARKER-TWO"],
+        &["context window", "request failed", "\u{2717}"],
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it() {
+    // Upstream keeps a failed turn only once it has execution to keep
+    // (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:213-246`;
+    // `orchestrator.zig:5782-5797`), and a compaction's failure is the row's
+    // alone (`compactionErrorHandled`): a turn whose opening request needed a
+    // compaction that failed is not in the log, and a resume shows nothing
+    // of it -- its e2e forbids `compaction` anywhere in a reopened
+    // transcript (`COMPACTION_OUTPUT`, `tui-compaction-activity.test.ts:24`).
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
             tool_call(
@@ -10127,16 +10977,90 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
             ),
             finish("tool-calls"),
         ])),
-        Reply::Sse(content_only(&["MARKER-ONE"])),
+        // Counted just under the window: the second turn's request is past
+        // the point, with no room left after it for notes
+        // (`roomAfterConversation`, `window.zig:79-89`).
+        counted("MARKER-ONE", 11_900),
+        Reply::Status(400, "Synthetic summary rejection".to_string()),
+        Reply::Status(400, "Synthetic summary rejection".to_string()),
+    ])
+    .with_catalog(small_window());
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("big.txt"), lines_of_evidence(20))
+        .expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Compaction failed. Try /compact again."],
+        &["the conversation could not", "\u{2717}"],
+    );
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 4, "{requests:?}");
+    assert!(is_summary(&requests[2].json()) && is_summary(&requests[3].json()));
+    assert!(checkpoints(&sandbox).is_empty());
+    assert!(
+        !session_frames(&sandbox)
+            .iter()
+            .any(|frame| frame["event"]["text"] == "second question"),
+        "the turn the compaction failed for was recorded"
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let id = sandbox.session_ids().remove(0);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    again.wait_for("MARKER-ONE");
+    on_screen(
+        &again,
+        (40, 120),
+        &["MARKER-ONE"],
+        &["ompact", "second question", "\u{2717}", "Synthetic"],
+    );
+    again.type_bytes(b"/quit\r");
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped() {
+    // Upstream's `auto: cancellation provenance` (`tui-compaction-activity.test.ts:
+    // 446-503`): the turn that reached the compaction point is stopped with the
+    // compaction, nothing is checkpointed, the row says `Compaction cancelled.`,
+    // and the turn is recorded as asked and stopped
+    // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:7413-7423`).
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "read-1",
+                "read_file",
+                serde_json::json!({ "path": "big.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        // Counted just under the window: the second turn's request is past
+        // the point, with no room left after it for notes
+        // (`roomAfterConversation`, `window.zig:79-89`).
+        counted("MARKER-ONE", 11_900),
         Reply::SseThenHang(Vec::new()),
     ])
-    .with_catalog(serde_json::json!({"object": "list", "data": [
-        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
-         "released": 1_700_000_000, "tags": ["tool-use"],
-         "context_window": 16_000, "max_tokens": 4_000},
-    ]}));
+    .with_catalog(small_window());
     let sandbox = Sandbox::new();
-    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("big.txt"), lines_of_evidence(20))
+        .expect("write the fixture");
     let pty = Pty::open();
     pty.resize(40, 120);
     let mut session =
@@ -10172,7 +11096,13 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
         .iter()
         .position(|frame| frame["event"]["text"] == "second question")
         .expect("the stopped turn's prompt was recorded");
-    let concluded = &frames[asked + 1]["event"];
+    // The notes request was stopped after it was sent, so it may have been
+    // billed with nothing to say for how much: the turn's `/usage` record
+    // says so (`ambiguous_delivery`, `session_usage.zig:43-53`).
+    let usage = &frames[asked + 1]["event"];
+    assert_eq!(usage["kind"], "usage_recorded", "{usage}");
+    assert_eq!(usage["unaccounted"], true, "{usage}");
+    let concluded = &frames[asked + 2]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
     // The sentence the user was shown, and whose stop it was in a field of

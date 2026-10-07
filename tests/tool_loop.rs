@@ -769,6 +769,85 @@ fn a_search_root_that_does_not_resolve_is_upstreams_preflight_sentence() {
     }
 }
 
+/// A search pointed at a file searches that file, as upstream's does
+/// (`glob_files.zig:189-198`, `grep_files.zig:278-286`); one pointed at a
+/// FIFO is `grep_files`'s plain refusal (`:287`); and a root the system will
+/// not open is its envelope or sentence, none of them with a reason on the
+/// row.
+#[cfg(unix)]
+#[test]
+fn a_search_over_a_file_searches_it_and_one_the_system_refuses_is_upstreams_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let tree = Tree::new();
+    tree.write("notes.txt", "alpha one\nbeta\nalpha two\n");
+    let context = context(&tree);
+    let globbed = call(
+        &context,
+        "glob_files",
+        json!({ "pattern": "*.txt", "path": "notes.txt" }),
+    );
+    assert!(globbed.ok, "{globbed:?}");
+    assert_eq!(globbed.output, "[glob] 1 matches for *.txt\n - notes.txt\n");
+    let missed = call(
+        &context,
+        "glob_files",
+        json!({ "pattern": "*.rs", "path": "notes.txt" }),
+    );
+    assert_eq!(missed.output, "[glob] no matches for *.rs\n");
+    let grepped = call(
+        &context,
+        "grep_files",
+        json!({ "pattern": "alpha", "path": "notes.txt" }),
+    );
+    assert!(grepped.ok, "{grepped:?}");
+    assert!(
+        grepped.output.contains("notes.txt:1: alpha one"),
+        "{}",
+        grepped.output
+    );
+    assert!(
+        grepped.output.contains("notes.txt:3: alpha two"),
+        "{}",
+        grepped.output
+    );
+
+    tree.mkfifo("pipe");
+    let piped = call(
+        &context,
+        "grep_files",
+        json!({ "pattern": "x", "path": "pipe" }),
+    );
+    let absolute = fs::canonicalize(tree.root().join("pipe")).expect("canonical");
+    assert_eq!(
+        piped.output,
+        format!("Not a regular file or directory: {}", absolute.display())
+    );
+    assert_eq!(&*piped.detail, "");
+
+    // A file the system will not open (not as root, whom nothing refuses).
+    if unsafe { libc::geteuid() } != 0 {
+        let locked = tree.root().join("locked.txt");
+        fs::write(&locked, "alpha\n").expect("write");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+        let refused = call(
+            &context,
+            "grep_files",
+            json!({ "pattern": "alpha", "path": "locked.txt" }),
+        );
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).expect("chmod");
+        let path = fs::canonicalize(&locked).expect("canonical");
+        assert!(
+            refused.output.starts_with(&format!(
+                r#"{{"error":{{"type":"tool_execution_failed","tool_name":"grep_files","message":"Operating system denied filesystem access","details":{{"path":{},"error":"AccessDenied"}}"#,
+                serde_json::to_string(&path.display().to_string()).expect("a string")
+            )),
+            "{}",
+            refused.output
+        );
+        assert_eq!(&*refused.detail, "");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
@@ -1898,6 +1977,20 @@ impl TurnJournal for RecordingJournal {
     fn record(&mut self, event: SessionEvent) {
         self.events.push(event);
     }
+
+    fn change_made(&mut self, _call_id: &str, _change: &ApprovalDiff) {}
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[xfx::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[xfx::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&xfx::session::DurableState> {
+        None
+    }
 }
 
 /// The kinds of what a turn recorded, and the changes it handed over between
@@ -1916,6 +2009,18 @@ impl TurnJournal for ChangeJournal {
     fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
         self.kinds.push("change");
         self.changes.push((call_id.to_string(), change.clone()));
+    }
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[xfx::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[xfx::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&xfx::session::DurableState> {
+        None
     }
 }
 

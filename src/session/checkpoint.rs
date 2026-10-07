@@ -93,6 +93,30 @@ pub struct Entry {
     pub text: String,
 }
 
+/// The earlier part of a turn a compaction cut inside of: what it did so
+/// far, summarized, while its first user message stays after the checkpoint
+/// with the rest of it (`OpenTurn`, `checkpoint.zig:64-75`). The next
+/// compaction carries it on when it compacts more of that turn.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenTurn {
+    /// Messages the user added while it ran, exact. xfx has none to add --
+    /// what the user says at an approval is a note, not a message -- so this
+    /// stays empty; kept for the payload's shape.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub users: Vec<String>,
+    /// What the assistant has done so far, summarized. (Upstream also keeps
+    /// the part's exact text, for the record it saves once the turn is
+    /// compacted to its end; xfx saves no records.)
+    #[serde(default)]
+    pub work: String,
+    #[serde(default)]
+    pub first_tool: usize,
+    #[serde(default)]
+    pub last_tool: usize,
+    #[serde(default)]
+    pub tools: Vec<ToolLine>,
+}
+
 /// A compacted conversation: what replaces the turns a checkpoint covers
 /// (`Payload`, `checkpoint.zig:128-154`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,7 +126,13 @@ pub struct Compacted {
     pub entries: Vec<Entry>,
     /// The compacted turns, oldest first.
     pub turns: Vec<CompactedTurn>,
-    /// Turns and tool calls are numbered through these counts.
+    /// The earlier part of the turn the checkpoint cut inside of, when it
+    /// cut inside one. **Absent from the frame when there is none**, so a
+    /// checkpoint at whole turns is written exactly as before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<OpenTurn>,
+    /// Turns and tool calls are numbered through these counts; a turn in
+    /// progress takes no number until it is compacted to its end.
     pub turn_count: usize,
     pub tool_count: usize,
 }
@@ -179,6 +209,25 @@ pub fn render(compacted: &Compacted) -> String {
     let mut text = String::from(OPENING);
     for turn in &compacted.turns {
         render_turn(&mut text, turn);
+    }
+    if let Some(open) = &compacted.open {
+        // `checkpoint.zig:290-295`.
+        text.push_str("Turn in progress, whose first user message follows this:\n");
+        for user in &open.users {
+            text.push_str(&format!(
+                "User, added while the assistant worked:\n{user}\n\n"
+            ));
+        }
+        if !open.work.is_empty() {
+            text.push_str(&format!("Assistant, in between so far:\n{}\n\n", open.work));
+        }
+        render_tools(
+            &mut text,
+            "Its tools so far",
+            &open.tools,
+            open.first_tool,
+            open.last_tool,
+        );
     }
     render_entries(&mut text, &compacted.entries);
     text.push_str(CLOSING);
@@ -312,6 +361,7 @@ mod tests {
                     why: "read the notes; it shows SEED_VALUE_42".into(),
                 }],
             }],
+            open: None,
             turn_count: 1,
             tool_count: 1,
         }
@@ -347,6 +397,7 @@ F1 (T1): notes.txt holds SEED_VALUE_42\n\n</compacted_conversation>\n";
                 last_tool: 0,
                 tools: Vec::new(),
             }],
+            open: None,
             turn_count: 1,
             tool_count: 0,
         };
