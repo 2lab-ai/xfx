@@ -33,10 +33,10 @@ Each snap has a `.txt` and an `.ansi` (`capture-pane -e`, OSC 8 kept by tmux 3.7
 | `card-wrap 24x80 cards.full` | **37 of 38** | `A-R8` (history row 18): fx's history line holds the two cells its raw tab skipped as a tab (`\t`), where xfx wrote two blank cells; the screen is the same, and the same row of fx's on the 40x120 screen is spelled with blanks, as xfx's is |
 | `before-23907ea card-wrap 40x120 cards.full` (vs fx's) | 21 of 31 | the rows this unit changes, below |
 | `before-23907ea card-wrap 24x80 cards.full` (vs fx's) | 22 of 38 | the same |
-| `cmd-wrap 40x120 cmd-a` | 21 of 24; **command rows 10 of 10** | xfx's comment line (`# terminal.exec cwd=.`, fx's `# shell.run profile=user shell=/bin/zsh`); fx's trailing empty command row (row 24 -- xfx's permission layer trims the command, `src/permission/authority.rs:1037`); xfx's own `2 = allow every future run...` scope rows; the blank rows a shorter band leaves |
+| `cmd-wrap 40x120 cmd-a` | 21 of 24; **command rows 10 of 10** | xfx's comment line (`# terminal.exec cwd=.`, fx's `# shell.run profile=user shell=/bin/zsh`); fx's trailing empty command row (row 24 -- xfx's permission layer trims the command, `src/permission/authority.rs:1037`); xfx's own `2 = allow every future run...` grant rows; the blank rows a shorter band leaves |
 | `cmd-wrap 40x120 cmd-b` | 14 of 16; **command rows 2 of 2** | the comment line; xfx's grant rows |
 | `cmd-wrap 40x120 after` / `.full` | **8 of 8** / **8 of 8** | none |
-| `cmd-wrap 24x80` fx `cmd-b` vs xfx `cmd-a` | 12 of 15; **command rows 4 of 4** | the same question on both screens: xfx refused command A as too small for its band (`✗ permissions: this screen is too small to ask for permission`) -- its scope rows do not fit at 24 rows -- so its first question is B, which is fx's second. Before this unit too (`before-23907ea`) |
+| `cmd-wrap 24x80` fx `cmd-b` vs xfx `cmd-a` | 12 of 15; **command rows 4 of 4** | the same question on both screens: xfx refused command A as too small for its band (`✗ permissions: this screen is too small to ask for permission`) -- its grant rows do not fit at 24 rows -- so its first question is B, which is fx's second. Before this unit too (`before-23907ea`) |
 | `cmd-wrap 24x80 cmd-a`, `cmd-b`, `after` | 8 of 22, 0 of 15, 1 of 5 | the questions are not the same ones (above) |
 | `before-23907ea cmd-wrap 40x120 cmd-a` (vs fx's) | 16 of 24; command rows 5 of 10 | the rows this unit changes, below |
 | `before-23907ea cmd-wrap 40x120 cmd-b` (vs fx's) | 13 of 16; command rows 1 of 2 | the same |
@@ -100,8 +100,8 @@ fx: `src/ui/footer/approval_ui.zig` (`projectCommandText` `:228-247`, `CommandSe
 
 ## What does not match, and why
 
-- **The banner** (xfx's brand line) and, on the command screens, everything that is not the command's rows: the comment line names xfx's own tool, and xfx's band adds what `2` would grant (pre-existing, not this unit).
-- **The 24x80 command A.** xfx refuses it as too small, fx asks it. Its scope rows do not fit the band at 24 rows; the same was true before this unit. B's command rows are four on both builds at 24x80 (`B-C1` now breaks as fx's), inside the band.
+- **The banner** (xfx's brand line) and, on the command screens, everything that is not the command's rows: the comment line names xfx's own tool, and xfx's band adds a grant row saying what `2` would grant (pre-existing, not this unit).
+- **The 24x80 command A.** xfx refuses it as too small, fx asks it. Its grant rows do not fit the band at 24 rows; the same was true before this unit. B's command rows are four on both builds at 24x80 (`B-C1` now breaks as fx's), inside the band.
 - **A trailing line break in a command** is a row in fx's question (40x120 `cmd-a` row 24); xfx's permission layer trims the command before anyone asks (`src/permission/authority.rs:1037`), so it has no such row. Not a wrap rule.
 - **`U+061C` (Arabic letter mark) is named in a command** (`\u{061c}`), where fx shows it as it is: xfx's bidi rule names it (`approval_view.rs:915`), and the command is what a reviewer is asked to run.
 - **A command's grant row** (xfx's own `2 = allow every future run of exactly ...`, not fx's) quotes the command spelled as the rows above it are (`585bae8`; before that it was blanked by the bridge's `inert`). It is wrapped by `safe_rows`, the composer's rule, which can cut between a spelled `\x1b` and what follows it (40x120 `cmd-a` rows 29-30); fx has no such row to match.
