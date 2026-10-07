@@ -7,7 +7,7 @@ scripts/fxcap/capture.sh {fx,xfx} provider-carry 40x120 <dir>
 scripts/fxcap/capture.sh {fx,xfx} provider-carry-back 40x120 <dir>
 ```
 
-`fx` is the c1db919 build (`v0.0.13`). `xfx` is `target/debug/xfx` built from `8caaaa8` (its banner says `v0.1.0-8caaaa8`): this branch after `plan/tui-phase4` 227c9766 was merged. Each snap has a `.txt` and an `.ansi` (`capture-pane -e`); `*-bodies/` holds every request the fake received, `NNN-<wire>.json` in arrival order; `*.files` is every file under HOME at that point (`home`).
+`fx` is the c1db919 build (`v0.0.13`). `xfx` is `target/debug/xfx` built from `6bd4e9a` (its banner says `v0.1.0-6bd4e9a`): this branch after `plan/tui-phase4` 82400635 was merged. (A first take on `8caaaa8`, before the plan's background catalog read, differed only in the launch turn's meter of `provider-carry-back`; every xfx file here is the `6bd4e9a` take.) Each snap has a `.txt` and an `.ansi` (`capture-pane -e`); `*-bodies/` holds every request the fake received, `NNN-<wire>.json` in arrival order; `*.files` is every file under HOME at that point (`home`).
 
 **The second provider.** fx's providers are `vercel`, `codex`, `grok`; xfx's are `gateway`, `llmux`. So the pair is fx's Gateway → Codex against xfx's Gateway → llmux, and back. The fake (`scripts/fxcap/fakegw.ts`) answers on one port as the Gateway, as a llmux daemon (`GET /` → `llmux`, `GET /models`, `POST /v1/messages` as Anthropic SSE) and as a Codex endpoint (`GET /codex/models`, `POST /codex/responses` as Responses SSE, fx's own e2e shapes, `tests/e2e/tui-auth-source-selection.test.ts:84-118`). fx reaches Codex through its own e2e overrides, `FX_E2E_OPENAI_CODEX_MODELS_URL`/`FX_E2E_OPENAI_CODEX_RESPONSES_URL` (`openai_codex_models.zig:18`, `openai_codex.zig:16`, loopback only), with a seeded sign-in, `~/.fx/chatgpt-auth.json` (a fake token, no network, `FX_NO_OPEN_BROWSER=1` as every capture): nothing reached a browser or the network. Harness additions in this unit: `homefile <path> <file>` and `@PORT@` in seeded files and `env` values. One queue of turns serves whichever wire asks, so the same answers reach both binaries.
 
@@ -33,8 +33,8 @@ Compared row by row in the `.ansi` files, every row after the banner (the resume
 | carry `resumed` | 19/20 | **20/20** | -- one session: `* session resumed: read the notes and tell me what they`, both turns replayed, the switch notices not (neither product replays notices) |
 | carry `turn3` | 25/26 | **26/26** | -- |
 | back `start` | 3/4 | 4/4 | -- |
-| back `turn1` | 12/13 | 12/13 | 14: the hint row -- fx `· 1k/272k 0%`, xfx `· 1k`: xfx reads no catalog for a launch's first turn (ssot Tension "The model catalog is read when something needs it"), fx preloads its own |
-| back `open` | 16/20 | 16/20 | 14-16: provider rows; 21: the same hint row |
+| back `turn1` | 12/13 | **13/13** | -- (the turn on the provider that seals its reasoning; fx `· 1k/272k 0%`, xfx `· 1k/200k 0%`) |
+| back `open` | 16/20 | 17/20 | 14-16: the provider rows, `codex · current` against `llmux · current` |
 | back `switched` | 13/19 | 13/19 | **17/17** with the two rows out: fx's extra `* auth: Switched credential to AI_GATEWAY_API_KEY.` is its gated sign-in leaf (D3, zbrain #88) |
 | back `turn2` | 13/26 | 13/26 | **23/23** with the two rows out: xfx's `! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over` -- fx drops the same reasoning without a word (below) |
 | back `turn3` | 13/32 | 13/32 | **29/29** with the two rows out: the notice is not said again |
@@ -68,7 +68,6 @@ Both record the switch in the session: fx c1db919's v2 session writes the prefer
 - **fx's `* auth: Switched credential to AI_GATEWAY_API_KEY.`** (back): fx's Gateway row leads through its sign-in columns to a credential switch first; those are gated for xfx (#88) and xfx's row commits (D3 receipt).
 - **xfx's one-time `! session:` notice** (back `turn2`): fx sends a message's replay state only to the provider and model that produced it and says nothing on the screen (`projectProviderReplay`, `types.zig:1548-1563`; a debug trace, `builtins/gateway.zig:183-185`). xfx drops the same state and, by its own rule (`.prd/04-providers.md` §Provenance), says so -- once per conversation. Tension in `ssot.md`.
 - **fx's file-evidence user message**: fx's feature, absent from xfx's requests on every wire; not this unit's.
-- **The launch turn's meter** (back `turn1`, `open`): the existing lazy-catalog Tension. The switch itself reads the target's catalog, as fx's does, so the switched screen matches.
 
 ## Translation table
 

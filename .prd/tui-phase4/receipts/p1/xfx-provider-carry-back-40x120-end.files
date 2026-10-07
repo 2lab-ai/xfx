@@ -1,26 +1,26 @@
 === ~/.xfx/history.jsonl (569 bytes)
-{"schema_version":1,"timestamp_ms":1791354701418,"workspace_root":"<scratch>/work","text":"read the notes and tell me what they say"}
-{"schema_version":1,"timestamp_ms":1791354716468,"workspace_root":"<scratch>/work","text":"/provider"}
-{"schema_version":1,"timestamp_ms":1791354733606,"workspace_root":"<scratch>/work","text":"what day was it again?"}
-{"schema_version":1,"timestamp_ms":1791354748656,"workspace_root":"<scratch>/work","text":"and once more?"}
+{"schema_version":1,"timestamp_ms":1791355828014,"workspace_root":"<scratch>/work","text":"read the notes and tell me what they say"}
+{"schema_version":1,"timestamp_ms":1791355843170,"workspace_root":"<scratch>/work","text":"/provider"}
+{"schema_version":1,"timestamp_ms":1791355860385,"workspace_root":"<scratch>/work","text":"what day was it again?"}
+{"schema_version":1,"timestamp_ms":1791355875461,"workspace_root":"<scratch>/work","text":"and once more?"}
 
 === ~/.xfx/history.lock (0 bytes)
-=== ~/.xfx/sessions/1791354701418-f67a55353fbb104a/events.jsonl (5937 bytes)
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":1,"event_id":"84f831d8526db3c89e12d0a5e4a999f4","timestamp_ms":1791354701427,"event":{"kind":"session_started","id":"1791354701418-f67a55353fbb104a","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"llmux"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":2,"event_id":"8c31efb923350b6da3b1a064f8e51e76","timestamp_ms":1791354701484,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":3,"event_id":"7fb0bb92122724a0b0adfd9ded29cac5","timestamp_ms":1791354701499,"event":{"kind":"user_message","text":"read the notes and tell me what they say"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":4,"event_id":"7159a816ccd9a220d93c4efd6ea87bf3","timestamp_ms":1791354701518,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"toolu_01","name":"read_file","input":{"path":"notes.txt"}}],"raw_content":[{"type":"thinking","thinking":"SEALED-THOUGHT: read the file first.","signature":"SEALED-SIGNATURE-1"},{"type":"tool_use","id":"toolu_01","name":"read_file","input":{"path":"notes.txt"}}],"wire":"anthropic_messages"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":5,"event_id":"3e0fd5c0fd7b12d70bf89b4ddc5ef7b9","timestamp_ms":1791354701539,"event":{"kind":"tool_result","call_id":"toolu_01","tool":"read_file","ok":true,"output":"<path>notes.txt</path>\n<content>\n1\tNOTE-BODY: the meeting moved to Thursday.\n</content>"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":6,"event_id":"652b1ff753033f84980b3f707b7328b1","timestamp_ms":1791354701558,"event":{"kind":"assistant_message","text":"The notes say the meeting moved to Thursday.","tool_calls":[],"raw_content":[{"type":"text","text":"The notes say the meeting moved to Thursday."}],"wire":"anthropic_messages"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":7,"event_id":"008962bd4e69f1905f2bba2069b3110b","timestamp_ms":1791354701575,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":80,"requests":[{"at_ms":1791354701518,"duration_ms":4,"model":"llmux/fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"cost":0.0},{"at_ms":1791354701558,"duration_ms":2,"model":"llmux/fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"cost":0.0}]}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":8,"event_id":"aba7dce83442c8d242252f6247f49a74","timestamp_ms":1791354701596,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":2}}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":9,"event_id":"7372e727d5e1cc8d65f1b5e4995592d8","timestamp_ms":1791354720572,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null,"provider":"gateway"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":10,"event_id":"208f49b416f1997369bda5b6831b8f42","timestamp_ms":1791354733607,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":11,"event_id":"1b1e582e2ee91e3d089fc01f31e106b2","timestamp_ms":1791354733647,"event":{"kind":"user_message","text":"what day was it again?"}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","seq":12,"event_id":"b0593eaaad3e1a4ce1a466a4966b7514","timestamp_ms":1791354733754,"event":{"kind":"assistant_message","text":"MARKER-AFTER-SWITCH: still Thursday.","tool_calls":[]}}
-{"schema_version":1,"log_generation":"f6696fc39916ea5dafba526945bfe031","se
-=== ~/.xfx/sessions/1791354701418-f67a55353fbb104a/session.json (648 bytes)
-{"schema_version":1,"storage_format":"event_log_v1","id":"1791354701418-f67a55353fbb104a","log_generation":"f6696fc39916ea5dafba526945bfe031","created_at_ms":1791354701427,"updated_at_ms":1791354748820,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"read the notes and tell me what they","history_turns":3,"permission_grants":0,"total_input_tokens":3600,"total_output_tokens":120,"last_event_seq":19,"event_log_bytes":5937,"event_log_sha256":"a40c5c3c54de7a91fbf50a0d21d4b870c8c947057006e7fc0902376eb3e95898"}
+=== ~/.xfx/sessions/1791355828014-1fb85ecf123680ff/events.jsonl (5937 bytes)
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":1,"event_id":"b3822bbbe086148b5a86e24082b7bd2c","timestamp_ms":1791355828016,"event":{"kind":"session_started","id":"1791355828014-1fb85ecf123680ff","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"llmux"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":2,"event_id":"c1721cb42360134e6d15b4b7c42a3b60","timestamp_ms":1791355828037,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":3,"event_id":"485bc2109f88b5c34a4b7f3750c24f10","timestamp_ms":1791355828054,"event":{"kind":"user_message","text":"read the notes and tell me what they say"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":4,"event_id":"4d863c8a1fb462bc9e8532ca311ebba4","timestamp_ms":1791355828074,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"toolu_01","name":"read_file","input":{"path":"notes.txt"}}],"raw_content":[{"type":"thinking","thinking":"SEALED-THOUGHT: read the file first.","signature":"SEALED-SIGNATURE-1"},{"type":"tool_use","id":"toolu_01","name":"read_file","input":{"path":"notes.txt"}}],"wire":"anthropic_messages"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":5,"event_id":"1cddb004d1484f0ec8589401e716fb08","timestamp_ms":1791355828089,"event":{"kind":"tool_result","call_id":"toolu_01","tool":"read_file","ok":true,"output":"<path>notes.txt</path>\n<content>\n1\tNOTE-BODY: the meeting moved to Thursday.\n</content>"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":6,"event_id":"04efe6d0cc25878dd5406e8e385bccc9","timestamp_ms":1791355828110,"event":{"kind":"assistant_message","text":"The notes say the meeting moved to Thursday.","tool_calls":[],"raw_content":[{"type":"text","text":"The notes say the meeting moved to Thursday."}],"wire":"anthropic_messages"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":7,"event_id":"e6e4940c4042ef8c7bb237291731082c","timestamp_ms":1791355828124,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":80,"requests":[{"at_ms":1791355828074,"duration_ms":5,"model":"llmux/fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"cost":0.0},{"at_ms":1791355828110,"duration_ms":3,"model":"llmux/fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"cost":0.0}]}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":8,"event_id":"b9cf2a8f6fcee463862862c0083163ea","timestamp_ms":1791355828142,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":2}}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":9,"event_id":"8c16b08d1827ff88b164e86b9eede816","timestamp_ms":1791355847255,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null,"provider":"gateway"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":10,"event_id":"94ed832db1d6d3632b18b5dee03fc6f9","timestamp_ms":1791355860386,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":11,"event_id":"6a820cbdc9898105757976e1ad58f018","timestamp_ms":1791355860413,"event":{"kind":"user_message","text":"what day was it again?"}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","seq":12,"event_id":"e6226ab1fd9464e13a87e650b8364c40","timestamp_ms":1791355860493,"event":{"kind":"assistant_message","text":"MARKER-AFTER-SWITCH: still Thursday.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"b58d7bf5cb308c4ca220b730d35324c5","se
+=== ~/.xfx/sessions/1791355828014-1fb85ecf123680ff/session.json (648 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791355828014-1fb85ecf123680ff","log_generation":"b58d7bf5cb308c4ca220b730d35324c5","created_at_ms":1791355828016,"updated_at_ms":1791355875612,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"read the notes and tell me what they","history_turns":3,"permission_grants":0,"total_input_tokens":3600,"total_output_tokens":120,"last_event_seq":19,"event_log_bytes":5937,"event_log_sha256":"22d5d17dffa19aa799ce876e6cfe5e94a7d8ea821802a76594f3d03e72cc3b94"}
 
 === ~/.xfx/settings.json (262 bytes)
 {
@@ -29,7 +29,7 @@
     "llmux": "fake/model-a"
   },
   "provider": "gateway",
-  "llmux_url": "http://127.0.0.1:54176",
+  "llmux_url": "http://127.0.0.1:51534",
   "statusLine": {
     "context": true,
     "session": true
@@ -40,5 +40,5 @@
 
 === ~/.xfx/settings.lock (0 bytes)
 === ~/.xfx/usage.json (41 bytes)
-{"tracking_started_at_ms":1791354701575}
+{"tracking_started_at_ms":1791355828124}
 
