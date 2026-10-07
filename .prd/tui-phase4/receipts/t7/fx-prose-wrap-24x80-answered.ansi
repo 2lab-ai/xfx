@@ -1,0 +1,24 @@
+  [2m1.[0m An ordered item that wraps: its continuation rows begin under the first
+     letter after the number and the period, three columns in from the
+     left edge.
+     [2m• [0mA nested bullet under the ordered item, long enough to wrap at eighty
+       columns as well, indented by its own two plus the bullet's two cells.
+
+  [2m│ [0mA quote that wraps: every continuation row repeats the quote's dim rule in
+  [2m│ [0mfront of the text, and the last word of the quote is not left alone.
+  [2m│ │ [0mA nested quote line that wraps too, so both rules repeat on its
+  [2m│ │ [0mcontinuation rows, at either of the two widths this receipt is taken at.
+
+  [4mA heading long enough to wrap at eighty columns keeps its underline on every[0m
+  [4mrow it wraps onto here[0m
+
+  A paragraph with [4m[38;5;75m]8;id=fx-1;https://example.com/wrap\a link whose text wraps across the edge of the row at eighty[0m]8;;\
+  [4m[38;5;75m]8;id=fx-1;https://example.com/wrap\columns[0m]8;;\ and the end.
+
+  Done.
+
+[38;5;245m  1s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

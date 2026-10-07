@@ -527,6 +527,72 @@ pub(crate) fn scrollback_push(cursor_row: u16, rows: u16) -> u16 {
     cursor_row.min(rows).saturating_sub(1)
 }
 
+/// The document rows a launch keeps under its start when it does **not**
+/// push the shell's output away: room for the welcome line and what follows
+/// it (`welcome_message_reserved_rows`, `src/ui/render.zig:24`, handed to the
+/// launch as `startup_min_body_rows`, `app_bootstrap_runtime.zig:420`).
+pub(crate) const STARTUP_BODY_ROWS: u16 = 11;
+
+/// Where a launch starts, and what it scrolls away to start there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Origin {
+    /// The rows pushed into scrollback ([`push_lines`]).
+    pub(crate) push: u16,
+    /// The screen row the session's first document row goes on.
+    pub(crate) row: u16,
+}
+
+/// The launch's start (`prepareStartupViewport`, `app_lifecycle.zig:966-988`).
+///
+/// With `startup_scrollback` on -- the default -- everything above the
+/// cursor goes into scrollback and the session starts on row 1
+/// ([`scrollback_push`]). Off, it starts on the cursor's own row, under what
+/// the shell left there, unless that leaves fewer than [`STARTUP_BODY_ROWS`]
+/// rows above `content_bottom` -- the last row a band at the bottom leaves the
+/// document -- in which case only as much is pushed as makes room.
+pub(crate) fn launch_origin(
+    cursor_row: u16,
+    rows: u16,
+    content_bottom: u16,
+    scrollback: bool,
+) -> Origin {
+    let start = cursor_row.clamp(1, rows.max(1));
+    if scrollback && start > 1 {
+        return Origin {
+            push: scrollback_push(cursor_row, rows),
+            row: 1,
+        };
+    }
+    let reserve = STARTUP_BODY_ROWS.min(content_bottom);
+    let latest = if reserve > 0 {
+        content_bottom - reserve + 1
+    } else {
+        content_bottom
+    };
+    if content_bottom > 0 && start > latest {
+        return Origin {
+            push: start - latest,
+            row: latest,
+        };
+    }
+    Origin {
+        push: 0,
+        row: start,
+    }
+}
+
+/// The row a launch may start on, given where the shell left the cursor: the
+/// row under it when the cursor is past the first column of a row that is
+/// not the last, so a line the shell did not end is not written over
+/// (`app_lifecycle.zig:944-948`).
+pub(crate) fn start_row(row: u16, column: u16, rows: u16) -> u16 {
+    if column > 1 && row < rows {
+        row + 1
+    } else {
+        row
+    }
+}
+
 /// Scrolls the shell's output above the band into the terminal's scrollback.
 ///
 /// **The cursor is moved to the bottom row first, and that is the whole of the
@@ -544,13 +610,15 @@ pub(crate) fn scrollback_push(cursor_row: u16, rows: u16) -> u16 {
 ///
 /// A push of nothing writes nothing: there is no reason to move the shell's
 /// cursor when there is nothing above it to save.
-pub(crate) fn push(
+///
+/// The count is decided by [`launch_origin`]; [`push`] is the default
+/// launch's, everything above the cursor.
+pub(crate) fn push_lines(
     out: &mut impl Sink,
-    cursor_row: u16,
+    lines: u16,
     rows: u16,
     columns: u16,
 ) -> io::Result<()> {
-    let lines = scrollback_push(cursor_row, rows);
     if lines == 0 {
         return Ok(());
     }
@@ -567,6 +635,18 @@ pub(crate) fn push(
     // Converted here for the reason `CursorProbe::ask` converts: this runs
     // once, at launch, above a restore and below no budget.
     out.emit(&bytes).map_err(Emit::into_error)
+}
+
+/// The push a launch with `startup_scrollback` on makes: everything above
+/// the cursor ([`scrollback_push`]).
+#[cfg(test)]
+pub(crate) fn push(
+    out: &mut impl Sink,
+    cursor_row: u16,
+    rows: u16,
+    columns: u16,
+) -> io::Result<()> {
+    push_lines(out, scrollback_push(cursor_row, rows), rows, columns)
 }
 
 /// The launch queries, in the order the fence needs them.
@@ -841,6 +921,48 @@ mod tests {
         assert_eq!(scrollback_push(10, 24), 9);
         assert_eq!(scrollback_push(24, 24), 23);
         assert_eq!(scrollback_push(30, 24), 23);
+    }
+
+    #[test]
+    fn a_launch_with_startup_scrollback_off_starts_under_the_shells_output() {
+        // `prepareStartupViewport` (`app_lifecycle.zig:966-988`) on a 24-row
+        // screen whose band leaves the document rows 1-21: on, the rows above
+        // the cursor go and the session starts on row 1; off, it starts on the
+        // cursor's row while eleven rows are left under it there, and from
+        // row 11 -- 21 - 11 + 1 -- with only the difference pushed, past that.
+        assert_eq!(launch_origin(10, 24, 21, true), Origin { push: 9, row: 1 });
+        assert_eq!(launch_origin(1, 24, 21, true), Origin { push: 0, row: 1 });
+        assert_eq!(
+            launch_origin(10, 24, 21, false),
+            Origin { push: 0, row: 10 }
+        );
+        assert_eq!(
+            launch_origin(11, 24, 21, false),
+            Origin { push: 0, row: 11 }
+        );
+        assert_eq!(
+            launch_origin(12, 24, 21, false),
+            Origin { push: 1, row: 11 }
+        );
+        assert_eq!(
+            launch_origin(24, 24, 21, false),
+            Origin { push: 13, row: 11 }
+        );
+        // A screen with fewer than eleven document rows keeps them all.
+        assert_eq!(launch_origin(6, 8, 5, false), Origin { push: 5, row: 1 });
+        // And a launch that could not read the cursor starts on row 1 either
+        // way, pushing nothing.
+        assert_eq!(launch_origin(1, 24, 21, false), Origin { push: 0, row: 1 });
+    }
+
+    #[test]
+    fn a_cursor_past_the_first_column_starts_the_launch_a_row_down() {
+        // `app_lifecycle.zig:944-948`: a prompt the shell did not end is on
+        // the cursor's row, so the launch starts under it -- except on the
+        // last row, where there is no row under it to start on.
+        assert_eq!(start_row(10, 1, 24), 10);
+        assert_eq!(start_row(10, 5, 24), 11);
+        assert_eq!(start_row(24, 5, 24), 24);
     }
 
     /// Every event a run of bytes produces, and every byte it gives back.

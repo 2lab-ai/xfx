@@ -1,0 +1,76 @@
+[
+ {
+  "request": "001-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #1] describe this too"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "list_files",
+   "glob_files",
+   "grep_files",
+   "read_file",
+   "write_file",
+   "edit_file",
+   "create_folder",
+   "terminal",
+   "ask_user_question"
+  ]
+ },
+ {
+  "request": "002-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #1] describe this too"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    }
+   ],
+   [
+    {
+     "type": "text",
+     "text": "inspect [Image #2],"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "list_files",
+   "glob_files",
+   "grep_files",
+   "read_file",
+   "write_file",
+   "edit_file",
+   "create_folder",
+   "terminal",
+   "ask_user_question"
+  ]
+ }
+]

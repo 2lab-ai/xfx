@@ -1,11 +1,15 @@
-//! The one soft-wrap: text in, rows out, measured in cells.
+//! The composer's soft-wrap: text in, rows out, measured in cells.
 //!
 //! Two surfaces need the same answer to "where does this text break" -- the
 //! transcript, which turns finished text into document rows, and the composer,
 //! which turns typed text into band rows and has to put a caret on one of them.
 //! Wrapping them separately is how the caret ends up a row away from the
 //! character it is supposed to sit on, so there is one function and both call
-//! it.
+//! it -- for every transcript row upstream lays out the way its composer does
+//! (`visual_layout.zig`). The assistant's answer is not one of them: upstream
+//! wraps it with its assistant wrap, and so does xfx ([`super::prose`], which
+//! measures with this module's [`width`] and tiles the text into the same
+//! [`Row`]s).
 //!
 //! A [`Row`] is a **range of the text**, not a copy of it. The caller already
 //! owns the string; handing back byte offsets is what lets the composer map a
@@ -153,10 +157,10 @@ pub(crate) fn first_cluster(text: &str) -> Option<&str> {
 /// rather than kept it matters more than cosmetically -- a break inside one is
 /// a fragment the removal cannot recognize.
 #[derive(Debug, Clone, Copy)]
-struct Painted<'a> {
-    start: usize,
-    end: usize,
-    cluster: &'a str,
+pub(crate) struct Painted<'a> {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) cluster: &'a str,
 }
 
 /// The clusters of `text` that paint something, with the escape sequences
@@ -166,7 +170,7 @@ struct Painted<'a> {
 /// it belongs to the text around it. Its bytes stay in the row, because a
 /// [`Row`] is a range and the ranges tile the text -- a sequence between two
 /// clusters is inside whichever row those clusters put it in.
-fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
+pub(crate) fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
     let mut cursor = 0usize;
     std::iter::from_fn(move || {
         let start = cursor;
@@ -427,12 +431,12 @@ pub(crate) fn cursor_point(text: &str, rows: &[Row], cursor: usize) -> (usize, u
 /// would be a second answer to the same question with nothing keeping the two
 /// in step. Reaching this function it is an ordinary control character,
 /// measured at no cells and stripped by the painter.
-fn is_line_break(cluster: &str) -> bool {
+pub(crate) fn is_line_break(cluster: &str) -> bool {
     cluster == "\n" || cluster == "\r\n"
 }
 
 /// One cluster's cells, as [`width`] counts them.
-fn cluster_width(cluster: &str) -> u16 {
+pub(crate) fn cluster_width(cluster: &str) -> u16 {
     u16::try_from(cluster_cells(cluster)).unwrap_or(u16::MAX)
 }
 

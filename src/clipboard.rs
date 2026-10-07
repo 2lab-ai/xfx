@@ -409,7 +409,7 @@ impl Clipboard {
     fn read_image_with_osascript(
         &self,
     ) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
-        let dir = private_directory()
+        let dir = private_directory("xfx-clipboard")
             .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
         let path = dir.join("clipboard.png");
         let outcome = self
@@ -463,16 +463,14 @@ impl Clipboard {
 }
 
 /// A new directory only this user can enter, under the system's temporary
-/// directory, for one clipboard read.
-fn private_directory() -> std::io::Result<std::path::PathBuf> {
+/// directory, named `<prefix>-<random>`: one clipboard read's, or a session's
+/// pasted images' (`crate::tui`'s paste copies).
+pub(crate) fn private_directory(prefix: &str) -> std::io::Result<std::path::PathBuf> {
     use std::os::unix::fs::DirBuilderExt;
     let base = std::env::temp_dir();
     let mut last = None;
     for _ in 0..16 {
-        let dir = base.join(format!(
-            "xfx-clipboard-{}",
-            crate::session::new_identifier()
-        ));
+        let dir = base.join(format!("{prefix}-{}", crate::session::new_identifier()));
         match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
             Ok(()) => return Ok(dir),
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => last = Some(err),
@@ -510,6 +508,7 @@ mod tests {
                         workspace_root: home.path().to_path_buf(),
                         model: "fake/model-a".to_string(),
                         permission_mode: PermissionMode::Ask,
+                        provider: None,
                     },
                 )
                 .expect("a session");
@@ -553,6 +552,10 @@ mod tests {
 
         fn ran(self) -> Self {
             self.commit(SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "call-1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

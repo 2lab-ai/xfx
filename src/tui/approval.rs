@@ -816,6 +816,15 @@ pub(crate) enum Deferred {
         through: crate::tools::undo::Mark,
         after_reset: bool,
     },
+    /// [`TurnControl::Rename`], `after_reset` as [`Self::Undo`]'s: a title
+    /// typed after a reset the loop had already read is the session that
+    /// reset starts, so it is written once the drop is done. `announced` as
+    /// the shell sent it.
+    Rename {
+        title: String,
+        after_reset: bool,
+        announced: bool,
+    },
 }
 
 impl ControlChannel {
@@ -863,6 +872,32 @@ impl ControlChannel {
             through,
             after_reset,
         });
+    }
+
+    /// Puts a `/rename` aside until the work that is running ends
+    /// ([`TurnControl::Rename`]): the conversation's log is that work's to
+    /// write until then, and **a rename answers no question** either.
+    pub(crate) fn defer_rename(&self, title: String, after_reset: bool, announced: bool) {
+        self.deferred.guarded().push(Deferred::Rename {
+            title,
+            after_reset,
+            announced,
+        });
+    }
+
+    /// Whether a `/rename` of the conversation the work is in is put aside
+    /// for when the work ends: one typed before a reset the loop had read is
+    /// the next conversation's, and does not count.
+    pub(crate) fn renaming(&self) -> bool {
+        self.deferred.guarded().iter().any(|deferred| {
+            matches!(
+                deferred,
+                Deferred::Rename {
+                    after_reset: false,
+                    ..
+                }
+            )
+        })
     }
 
     /// Everything put aside, oldest first, for the turn loop to do now that
@@ -930,6 +965,17 @@ impl ControlChannel {
         if let Some(waker) = self.loop_waker.guarded().take() {
             waker.wake();
         }
+    }
+
+    /// Whether a parked reader has handed back a stop the loop has not read
+    /// yet -- so the refusal it answered with was the stop's, not the user's.
+    pub(crate) fn stopping(&self) -> bool {
+        self.put_back.guarded().iter().any(|message| {
+            matches!(
+                message,
+                TurnControl::Cancel { .. } | TurnControl::Reset { .. } | TurnControl::Shutdown
+            )
+        })
     }
 
     /// What is waiting, for a test that asks rather than awaits.
@@ -1137,6 +1183,13 @@ impl ApprovalPrompter for TuiPrompter {
                     // `stop` catch-all for the reason the arm before it is.
                     Some(TurnControl::Undo { through }) => {
                         self.control.defer_undo(through, false);
+                        continue;
+                    }
+                    // `/rename` typed while this question is up: written once
+                    // the turn is over, and the question stays up
+                    // ([`ControlChannel::defer_rename`]).
+                    Some(TurnControl::Rename { title, announced }) => {
+                        self.control.defer_rename(title, false, announced);
                         continue;
                     }
                     // A cancel (Escape at the panel, or an interrupt) or a

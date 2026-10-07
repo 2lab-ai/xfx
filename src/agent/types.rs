@@ -62,10 +62,10 @@ pub trait TurnJournal {
     /// The change a call made, for a surface that shows it beside the log --
     /// the TUI's full transcript (`crate::tui`'s `full_transcript::Teed`).
     ///
-    /// **Not recorded**, and that is why it is a method of its own rather than
-    /// an event: the log keeps what the model was told, and a diff is what
-    /// the person watching is shown. Every journal that only keeps the log
-    /// keeps nothing of it.
+    /// Handed over after the result's record, which carries the same change
+    /// for a resumed session (`SessionEvent::ToolResult`'s `change`); this is
+    /// how a surface watching the turn gets it as it happens. A journal that
+    /// only keeps the log needs nothing from it.
     fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
 
     /// The images the user message just recorded carries.
@@ -74,7 +74,18 @@ pub trait TurnJournal {
     /// things in one order: their bytes saved beside the log, then the record
     /// that names them ([`crate::session::SessionRecorder::attach_images`]). A
     /// journal that keeps no log keeps no images either.
-    fn attach_images(&mut self, _images: &[crate::image::Image]) {}
+    ///
+    /// Answers the directory their copies were saved in -- each under
+    /// [`crate::image::Image::snapshot_name`] -- or `None` when none was.
+    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// The images the result of `call_id` carried, recorded with it so later
+    /// requests send them again ([`crate::session::SessionRecorder::attach_tool_images`]).
+    /// Called right after that result's [`SessionEvent::ToolResult`], and only
+    /// for a result that carried any.
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
 }
 
 /// A journal that keeps nothing.

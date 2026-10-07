@@ -414,7 +414,10 @@ pub struct ToolResult {
     /// into [`Self::output`]: merging would let a user's sentence be read as the
     /// tool's own report of what it did. It is context, not authority -- the
     /// call that ran is the one that was judged, whatever this says.
-    pub feedback: Option<String>,
+    ///
+    /// `Box<str>` rather than `String`: it is never grown, and a result is
+    /// returned by value through every refusal path, so its size is kept down.
+    pub feedback: Option<Box<str>>,
     /// How the call ended, for the person watching rather than for the model
     /// ([`Outcome`]). Never part of [`Self::output`].
     pub outcome: Outcome,
@@ -428,6 +431,12 @@ pub struct ToolResult {
     /// result is returned by value through every refusal path, and most
     /// carry no change.
     pub change: Option<Box<ApprovalDiff>>,
+    /// The image the result carries for the model beside [`Self::output`]:
+    /// `read_file` of an image file (`read_file.zig:228-278`), and none for
+    /// any other call. Only a result that succeeded carries one. Boxed: a
+    /// result travels by value through every refusal path, and almost none
+    /// carries an image.
+    pub image: Option<Box<crate::image::ToolImage>>,
 }
 
 /// What follows the tool's name in every refusal ([`ToolResult::refused`]).
@@ -455,6 +464,7 @@ impl ToolResult {
             outcome: Outcome::Finished,
             changes: None,
             change: None,
+            image: None,
         }
     }
 
@@ -476,6 +486,12 @@ impl ToolResult {
         self
     }
 
+    /// The same result, carrying an image for the model.
+    pub fn with_image(mut self, image: Option<crate::image::ToolImage>) -> Self {
+        self.image = image.map(Box::new);
+        self
+    }
+
     /// A refusal. The summary is the first line of the explanation, bounded, so
     /// a long filesystem error cannot flood a human's event stream.
     pub fn failure(output: impl Into<String>) -> Self {
@@ -490,6 +506,7 @@ impl ToolResult {
             outcome: Outcome::Finished,
             changes: None,
             change: None,
+            image: None,
         }
     }
 
@@ -516,7 +533,9 @@ impl ToolResult {
     /// A draft of spaces is not a sentence, and an empty user message on the
     /// wire is worse than none: it would spend a turn saying nothing.
     pub fn with_feedback(mut self, feedback: Option<String>) -> Self {
-        self.feedback = feedback.filter(|text| !text.trim().is_empty());
+        self.feedback = feedback
+            .filter(|text| !text.trim().is_empty())
+            .map(String::into_boxed_str);
         self
     }
 }

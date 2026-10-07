@@ -39,9 +39,16 @@
 #                          a file of <bytes> in the workspace that begins with
 #                          the PNG signature and is a hole after it -- an image
 #                          over a size limit, without one in the repository
+#   pnghdr <name> <width> <height>
+#                          a PNG signature and an IHDR declaring <width> x
+#                          <height> and nothing else, in the workspace -- an
+#                          image over a pixel limit, as fx's own tests make one
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
+#   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
+#                          the run directory -- a paste too large for a
+#                          command line, such as one past the prompt's budget
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
@@ -87,6 +94,13 @@
 #                          attached to this server -- none, so no bell reaches
 #                          any real terminal -- to
 #                          <bin>-<scenario>-<size>-<label>.bells
+#   wire <label>           copies every byte the binary has written to its
+#                          terminal so far, exactly as written (tmux's
+#                          pipe-pane, attached in the command that creates the
+#                          pane), to <bin>-<scenario>-<size>-<label>.wire --
+#                          what a screen capture cannot show: which writes a
+#                          synchronized update brackets, and where a scroll
+#                          lands among them
 #
 # fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
 # the PATH shims below do not reach, and FX_SOUND=0 only sets the level at
@@ -167,6 +181,18 @@ main() {
       local png=${line#sparsepng }
       dd if=/dev/zero of="$run/work/${png%% *}" bs=1 count=0 seek="${png#* }" 2>/dev/null
       printf '\211PNG\r\n\032\n' | dd of="$run/work/${png%% *}" conv=notrunc 2>/dev/null
+    fi
+    if [[ $line == pnghdr\ * ]]; then
+      local header name width height value bits
+      read -r name width height <<< "${line#pnghdr }"
+      header='\211PNG\r\n\032\n\000\000\000\015IHDR'
+      for value in "$width" "$height"; do
+        for bits in 24 16 8 0; do
+          header+=$(printf '\\%03o' $(( (value >> bits) & 255 )))
+        done
+      done
+      # shellcheck disable=SC2059 # the format is the bytes, built above
+      printf "$header" > "$run/work/$name"
     fi
     if [[ $line == dir\ * ]]; then
       local name from
@@ -256,9 +282,12 @@ $xfx_model $extra_env $bin"
   # server started for it, **before** the session that runs the binary: fx
   # rings its start-up cue as soon as it is up (`app_entry_runtime.zig:327`),
   # and a hook set after `new-session` returned can be set after that bell.
+  # The pane's output is piped to `$run/wire` (for `wire`) in the same command
+  # list, so the server has read none of it before the pipe is attached.
   tmux -f /dev/null -S "$sock" start-server \; \
     set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
-    new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch"
+    new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
+    pipe-pane -o -t cap "cat >> $run/wire"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -267,10 +296,15 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|credits|titled|nomodel|githead|sparsepng|dir) ;;
+      ''|'#'*|gateway|env|seed|work|models|credits|titled|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
+      pastex)
+        head -c "$rest" /dev/zero | tr '\0' x > "$run/pastex"
+        tmux -f /dev/null -S "$sock" load-buffer -b capbuf "$run/pastex"
+        tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap
+        rm -f "$run/pastex" ;;
       key) # shellcheck disable=SC2086
         tmux -f /dev/null -S "$sock" send-keys -t cap $rest ;;
       snap)
@@ -337,6 +371,14 @@ $xfx_model $extra_env $bin"
           echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
         } > "$name"
         echo "$name: $(tr '\n' ' ' < "$name")"
+        ;;
+      wire)
+        local name=$out/$which-$scenario-$size-$rest.wire
+        # The pipe is a `cat` of the server's own; give it a moment to write
+        # what the server has already handed it.
+        sleep 0.3
+        cp "$run/wire" "$name"
+        echo "$name ($(wc -c < "$name" | tr -d ' ') bytes)"
         ;;
       relaunch)
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ what is in the picture?
+
+● 1 tool call · 1 read
+└ Read shot.png
+
+  A small red square.
+
+  0s (↑6 ↓80)
+
+┃ and the wide one?
+
+● 1 tool call · 1 read
+└ Read wide.png
+
+  Too wide.
+
+  0s (↑4 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

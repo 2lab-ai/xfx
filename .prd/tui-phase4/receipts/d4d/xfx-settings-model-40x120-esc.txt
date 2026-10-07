@@ -1,14 +1,14 @@
-x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
 
 ┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 1  [All]
 
-auto · model-a
+  fake/model-a
 
-
-
-
-
-
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
 
 
 

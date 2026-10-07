@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-120f93e [debug] · Run /help for commands
+
+┃ count to ten slowly
+
+* session: renamed to "Counted mid turn"
+
+• Generating (2s) (↑6 ↓8)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

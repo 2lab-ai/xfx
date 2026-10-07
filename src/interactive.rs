@@ -336,9 +336,8 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         name: "/settings",
         aliases: &[],
         // Upstream's words (`commands.zig:488`). It takes an argument there
-        // (`startup-scrollback`) and is filed so here too, so completing it
-        // leaves the caret past a space as upstream's popup does; xfx answers
-        // any argument with `SETTINGS_USAGE`.
+        // (`startup-scrollback [on|off]`) and here, so completing it leaves the
+        // caret past a space as upstream's popup does.
         summary: "browse and update settings",
         category: "Appearance",
         has_args: true,
@@ -625,12 +624,9 @@ pub(crate) fn rename_conversation(
     }
 }
 
-/// What `/settings` says to anything after its name (`writeSettingsUsage`,
-/// `session_commands.zig:1129-1135`), without upstream's `startup-scrollback`
-/// form: that setting chooses at launch whether the shell's earlier output is
-/// pushed into scrollback (`prepareStartupViewport`, `app_lifecycle.zig:966-988`),
-/// and xfx always pushes it -- there is no other value to set.
-pub const SETTINGS_USAGE: &str = "usage: /settings";
+/// What `/settings` says to an argument it does not take, upstream's words
+/// exactly (`writeSettingsUsage`, `session_commands.zig:1129-1135`).
+pub const SETTINGS_USAGE: &str = "usage: /settings [startup-scrollback [on|off]]";
 
 /// What `/settings` says on this surface.
 ///
@@ -1089,6 +1085,7 @@ impl Conversation {
             self.recorder.commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: Some(mode.label().to_string()),
+                provider: None,
                 effort: None,
                 fast_mode: None,
                 ultrafast_mode: None,
@@ -1169,6 +1166,7 @@ pub(crate) fn open_conversation(
                 // The mode the authority is really in, rather than a second
                 // copy of it the caller could pass a different value for.
                 permission_mode: permissions.mode(),
+                provider: Some(config.provider),
             },
         )
         .map_err(|err| err.to_string())?;
@@ -1868,6 +1866,7 @@ async fn apply_model(
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        provider: None,
                         effort: None,
                         fast_mode: None,
                         ultrafast_mode: None,

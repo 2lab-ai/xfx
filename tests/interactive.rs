@@ -1921,9 +1921,8 @@ fn a_stop_a_resume_and_an_exit_are_three_states_the_harness_keeps_apart() {
         "a live child before any signal"
     );
 
-    session.signal(Signal::STOP);
     assert_eq!(
-        session.wait_state("the stop", |state| matches!(state, Wait::Stopped(_))),
+        session.stop_with(Signal::STOP, "the stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     // Read it again. The child has not moved, so the answer must not either.

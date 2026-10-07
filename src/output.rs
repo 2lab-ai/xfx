@@ -823,6 +823,7 @@ impl SessionDetailSnapshot {
                             tool,
                             ok,
                             output,
+                            ..
                         } => SessionStepRow::Tool {
                             call_id: clip_text(&one_line(call_id)),
                             tool: clip_text(&one_line(tool)),
@@ -953,7 +954,7 @@ impl SessionDetailSnapshot {
                     finish_reason,
                     steps,
                 }) => format!("final finish_reason={finish_reason} steps={steps}"),
-                Some(crate::session::TurnConclusion::Interrupted { reason }) => {
+                Some(crate::session::TurnConclusion::Interrupted { reason, .. }) => {
                     format!("interrupted reason={}", one_line(reason))
                 }
                 None => "unfinished".to_string(),
@@ -992,8 +993,14 @@ fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::sessio
             finish_reason: clip_text(&one_line(finish_reason)),
             steps: *steps,
         },
-        TurnConclusion::Interrupted { reason } => TurnConclusion::Interrupted {
+        TurnConclusion::Interrupted {
+            reason,
+            terminal_reason,
+            cancellation_origin,
+        } => TurnConclusion::Interrupted {
             reason: clip_text(&one_line(reason)),
+            terminal_reason: *terminal_reason,
+            cancellation_origin: *cancellation_origin,
         },
     }
 }
@@ -1503,6 +1510,7 @@ mod tests {
             origin_workspace_root: "/w".to_string(),
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
+            provider: None,
             permission_mode: crate::config::PermissionMode::Auto,
             last_event_seq: 1,
             total_input_tokens: 3,
@@ -1558,10 +1566,15 @@ mod tests {
         let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
             &long,
             vec![crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 output: long.clone(),
+                images: Vec::new(),
             }],
         )])));
         assert!(snapshot.turns[0].user.ends_with("bytes]"), "the user text");

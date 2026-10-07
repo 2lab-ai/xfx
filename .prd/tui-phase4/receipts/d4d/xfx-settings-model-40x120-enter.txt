@@ -1,18 +1,18 @@
-x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
 
 ┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Models 1  [All]
+Settings 11  [All]  Interface  Agent  Notifications  Advanced
 
-  fake/model-a
-
-Note: Gateway catalog is authenticated with an API key
+  Model                    fake/model-a
+                           fake/model-a
+  Reasoning effort         default
+  Permission mode          ask  auto  full access
+  Sound level              off  on
+  Startup scrollback       off  on
+  Prompt history           off  on
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓ navigate     tab provider     enter use     esc close
-
-
-
-
+↑↓ navigate     tab category     ←→ change     esc close
 
 
 
