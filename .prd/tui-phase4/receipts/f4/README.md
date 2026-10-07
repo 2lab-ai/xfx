@@ -137,7 +137,7 @@ The 24x80 snaps have scrolled the same skew through the whole screen.
 
 | snap | matches | differs, and why |
 |---|---|---|
-| `cmd-running` | the card, `● 1 tool call · 1 command`, `└ Running sleep 6` | the activity row's `↓40` / `↓0` (fx counts the tool step's reported usage, xfx's row counts streamed text) |
+| `cmd-running` | the card, `● 1 tool call · 1 command`, `└ Running sleep 6`; at `ae7264b` (T6 merged) the activity row's `↑2 ↓40` too, the tool step's reported usage on both | -- (before T6: xfx `↓0`, counting streamed text) |
 | `cmd-cc`, `cmd-cc-2` | every row after the banner, SGR included: `· 1 cancelled`, `└ Cancelled sleep 6`, `■ Cancelled sleep 6 · What can … do differently?`, `press ctrl+c again to exit` -- **the command is killed at the keystroke on both** | name |
 | `cmd-done` | every row after the banner | name |
 
@@ -163,7 +163,13 @@ answer `MARKER-HEAD … word15`, `┃ what are you doing`, `steered answer.`, on
 summary; then `┋ change tone` above the composer while the command runs, and
 `┃ change tone` under `└ Ran sleep 4; echo done` with `after steer.` -- but for
 blink/count and the summaries' token counts (`↑4 ↓75` / `↑4 ↓40`: fx counts
-reported usage). The requests (`*-bodies/`), non-system messages:
+reported usage). **At `ae7264b`** (T6 merged, retaken at load ~20-30) the
+counts follow fx's rule: the steered turn's summary is the cut answer's
+estimate plus the continued step's 40, and the second turn's is fx's `↑2 ↓80`.
+That run's steer landed one chunk earlier (`… word14 `, estimate 33), so it
+reads `↑4 ↓73`, which is what fx's `telemetry.zig:149-155` gives for that cut.
+fx's cut at `word15` estimates 35, hence its `↓75`. The requests
+(`*-bodies/`), non-system messages:
 
 | request | fx | xfx |
 |---|---|---|
@@ -261,5 +267,11 @@ row byte for byte in all three. Every other row differs by the two registries
   (`tool_result_errors.zig:289-320`).
 - **A file call is not stopped at the keystroke**: only the command polls the
   turn's flag; a file tool runs to its end, and its row shows its real result.
-- **The activity row's output count while a tool runs** (`↓40` / `↓0`): fx
-  counts the step's reported usage, xfx the text it streamed.
+
+The activity row's output count while a tool runs (`↓40` / `↓0`), listed here
+until T6, is fixed by it: at `ae7264b` (plan `13dac71` merged) xfx's row is
+fx's `↑2 ↓40` in `interrupt-cmd` `cmd-running` and in every
+`interrupt-steer-retract` snap, and that scenario's summary is fx's `↑2 ↓80`.
+A request a steer cuts short is now settled at the estimate of what it
+streamed, as fx settles a stopped one (`telemetry.zig:149-155`), so the steered
+turn's summary is the cut answer's estimate plus the continued step's 40.
