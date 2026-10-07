@@ -1,0 +1,45 @@
+=== ~/.xfx/history.jsonl (702 bytes)
+{"schema_version":1,"timestamp_ms":1791354616531,"workspace_root":"<scratch>/work","text":"read the notes and tell me what they say"}
+{"schema_version":1,"timestamp_ms":1791354631588,"workspace_root":"<scratch>/work","text":"/provider"}
+{"schema_version":1,"timestamp_ms":1791354646839,"workspace_root":"<scratch>/work","text":"what day was it again?"}
+{"schema_version":1,"timestamp_ms":1791354661893,"workspace_root":"<scratch>/work","text":"/quit"}
+{"schema_version":1,"timestamp_ms":1791354675995,"workspace_root":"<scratch>/work","text":"and after the resume?"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1791354616533-5f2abb71427357ac/events.jsonl (5841 bytes)
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":1,"event_id":"91a0fcd3b279c68005e1cf4d6d5b69a2","timestamp_ms":1791354616567,"event":{"kind":"session_started","id":"1791354616533-5f2abb71427357ac","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":2,"event_id":"b48e3433f33f2b29364351a159adff41","timestamp_ms":1791354616627,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":3,"event_id":"7d2fddaa44bddfe6007e423722d57238","timestamp_ms":1791354616694,"event":{"kind":"user_message","text":"read the notes and tell me what they say"}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":4,"event_id":"cfffae8aac504c0e90e9d74851c1f01a","timestamp_ms":1791354616814,"event":{"kind":"assistant_message","text":"","tool_calls":[{"id":"functions.read:0","name":"read_file","input":{"path":"notes.txt"}}]}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":5,"event_id":"483baa3cd646b5a32495422070246e45","timestamp_ms":1791354616921,"event":{"kind":"tool_result","call_id":"functions.read:0","tool":"read_file","ok":true,"output":"<path>notes.txt</path>\n<content>\n1\tNOTE-BODY: the meeting moved to Thursday.\n</content>"}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":6,"event_id":"7d57afa1588a9ab65d3631e2af518cf2","timestamp_ms":1791354617159,"event":{"kind":"assistant_message","text":"The notes say the meeting moved to Thursday.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":7,"event_id":"c609b48ba5df642838f457b9f1a4555c","timestamp_ms":1791354617235,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":80,"requests":[{"at_ms":1791354616814,"duration_ms":33,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0},{"at_ms":1791354617159,"duration_ms":146,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":8,"event_id":"65f6d19323e0472c4242a25682eecc15","timestamp_ms":1791354617351,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":2}}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":9,"event_id":"193480e71cec2b2c6ee14d6126bf084a","timestamp_ms":1791354636677,"event":{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null,"provider":"llmux"}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":10,"event_id":"48d5d0c6724021a3bd6d213b59fb42a4","timestamp_ms":1791354646841,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":11,"event_id":"b5edc74657472db217005ef45b6224b9","timestamp_ms":1791354646892,"event":{"kind":"user_message","text":"what day was it again?"}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":12,"event_id":"d074ba71f682e7f479b604a1a97ef31f","timestamp_ms":1791354646910,"event":{"kind":"assistant_message","text":"MARKER-AFTER-SWITCH: still Thursday.","tool_calls":[],"raw_content":[{"type":"text","text":"MARKER-AFTER-SWITCH: still Thursday."}],"wire":"anthropic_messages"}}
+{"schema_version":1,"log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","seq":13,"event_id":"12a0d85275e8a511ea6b4ab4fdb03be2","timestamp_ms":1791354646922,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1791354646910,"duration_ms":3,"model":"llmux/fake/model-
+=== ~/.xfx/sessions/1791354616533-5f2abb71427357ac/session.json (648 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791354616533-5f2abb71427357ac","log_generation":"a3433a305668ceddbf6b2d21c8e3ff97","created_at_ms":1791354616567,"updated_at_ms":1791354676066,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"read the notes and tell me what they","history_turns":3,"permission_grants":0,"total_input_tokens":3600,"total_output_tokens":120,"last_event_seq":19,"event_log_bytes":5841,"event_log_sha256":"60de4957e437be703d59a08ca2ab549b9ed51c955a778f01dee1efd07e9c3416"}
+
+=== ~/.xfx/settings.json (258 bytes)
+{
+  "models": {
+    "gateway": "fake/model-a",
+    "llmux": "fake/model-a"
+  },
+  "provider": "llmux",
+  "llmux_url": "http://127.0.0.1:51881",
+  "statusLine": {
+    "context": true,
+    "session": true
+  },
+  "backend": "llmux",
+  "model": "fake/model-a"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791354617235}
+

@@ -1,0 +1,8 @@
+[fakegw] listening 54176
+[fakegw] llmux /v1/messages -> tool read_file
+[fakegw] llmux /v1/messages -> text
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed

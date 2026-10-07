@@ -1,0 +1,66 @@
+=== ~/.fx/backups/settings.json.backup.1791354565474-0000000000000001-9e624b5751428365e8bedc9c47db615b (124 bytes)
+{"models":{"gateway":"fake/model-a","codex":"gpt-5.6-sol"},"provider":"codex","statusLine":{"context":true,"session":true}}
+
+=== ~/.fx/backups/settings.json.backup.1791354565500-0000000000000002-a333d39b66ec03c5f394b71f33660069 (165 bytes)
+{"models":{"gateway":"fake/model-a","codex":"gpt-5.6-sol"},"provider":"codex","statusLine":{"context":true,"session":true},"credential_source":"ai_gateway_api_key"}
+
+=== ~/.fx/chatgpt-auth.json (223 bytes)
+{"version":1,"access_token":"header.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF9mYWtlIn19.signature","refresh_token":"fake-refresh","expires_at_ms":4102444800000,"account_id":"acct_fake"}
+
+=== ~/.fx/chatgpt-auth.lock (0 bytes)
+=== ~/.fx/continue/6d3ff2d436c686f68e448c452b2acbff310284db5ef79064120eb36d54364ca3 (13 bytes)
+MyUUBxtFii5l
+
+=== ~/.fx/history.jsonl (569 bytes)
+{"schema_version":1,"timestamp_ms":1791354539168,"workspace_root":"<scratch>/work","text":"read the notes and tell me what they say"}
+{"schema_version":1,"timestamp_ms":1791354554357,"workspace_root":"<scratch>/work","text":"/provider"}
+{"schema_version":1,"timestamp_ms":1791354575555,"workspace_root":"<scratch>/work","text":"what day was it again?"}
+{"schema_version":1,"timestamp_ms":1791354590629,"workspace_root":"<scratch>/work","text":"and once more?"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/provider-versions/codex.json (52 bytes)
+{"version":"0.160.1","checked_at_ms":1791354532995}
+
+=== ~/.fx/sessions/MyUUBxtFii5l/events.jsonl (3419 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791354539235,"event":{"user":{"text":"read the notes and tell me what they say","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791354539235,"event":{"assistant":{"text":"","provider_replay":{"source":{"provider":"codex","model":"gpt-5.6-sol"},"parts_json":"[{\"id\":\"rs_fake\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"SEALED-THOUGHT: read the file first.\"}],\"encrypted_content\":\"SEALED-SIGNATURE-1\"}]"},"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791354539235,"event":{"tool_call":{"call_id":"toolu_01","tool_name":"read_file","arguments_json":"{\"path\":\"notes.txt\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":4,"timestamp_ms":1791354539235,"event":{"tool_result":{"call_id":"toolu_01","tool_name":"read_file","status":"success","artifact_ref":"result-read_file-7a95b703964d828f-9819319860f3c038.txt","tool_image_handle":null,"output_bytes":87,"stored_bytes":87,"completeness":"complete","preview":"<path>notes.txt</path>\n<content>\n1\tNOTE-BODY: the meeting moved to Thursday.\n</content>","provider_native":false,"created_at_ms":1791354539229,"permission_feedback":[],"committed_file_presentation":null,"command_replay_ref":null,"command_replay_bytes":null,"command_process_presentation":null,"terminal_action_presentation":null}}}
+{"schema_version":3,"seq":5,"timestamp_ms":1791354539235,"event":{"assistant":{"text":"The notes say the meeting moved to Thursday.","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":6,"timestamp_ms":1791354539235,"event":{"turn_completed":{"files":[{"path":"notes.txt","new_path":null,"tool_call_id":"toolu_01","tool_name":"read_file","action":"read","status":"success","model_view_covers_full_file":true,"stale":false}],"turn_summary":{"started_at_ms":1791354539173,"completed_at_ms":1791354539229,"thinking_duration_ms":26,"turn_duration_ms":56,"token_progress":{"input_tokens":10,"output_tokens":80,"input_exact":false,"output_exact":true}}}}}
+{"schema_version":3,"seq":7,"timestamp_ms":1791354575689,"event":{"user":{"text":"what day was it again?","images":[],"work_id":null}}}
+{"schema_version":3,"seq":8,"timestamp_ms":1791354575689,"event":{"assistant":{"text":"MARKER-AFTER-SWITCH: still Thursday.","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":9,"timestamp_ms":1791354575689,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791354575558,"completed_at_ms":1791354575687,"thinking_duration_ms":7,"turn_duration_ms":129,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+{"schema_version":3,"seq":10,"timestamp_ms":1791354590757,"event":{"user":{"text":"and once more?","images":[],"work_id":null}}}
+{"schema_version":3,"seq":11,"timestamp_ms":1791354590757,"event":{"assistant":{"text":"MARKER-AGAIN: Thursday.","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":12,"timestamp_ms":1791354590757,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791354590630,"completed_at_ms":1791354590748,"thinking_duration_ms":2,"turn_duration_ms":118,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/MyUUBxtFii5l/owner.live (43 bytes)
+{"pid":97534,"opened_at_ms":1791354532993}
+
+=== ~/.fx/sessions/MyUUBxtFii5l/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/MyUUBxtFii5l/session.json (412 bytes)
+{"schema_version":4,"id":"MyUUBxtFii5l","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791354532992,"updated_at_ms":1791354565501,"conversation_language":"und-Latn","provider":"gateway","model":"fake/model-a","effort":"auto","fast_mode":false,"title":"read the notes and tell me what they","subagent_child":false}
+=== ~/.fx/sessions/MyUUBxtFii5l/session.lock (0 bytes)
+=== ~/.fx/sessions/MyUUBxtFii5l/tool-results/result-read_file-7a95b703964d828f-9819319860f3c038.txt (87 bytes)
+<path>notes.txt</path>
+<content>
+1	NOTE-BODY: the meeting moved to Thursday.
+</content>
+=== ~/.fx/sessions/MyUUBxtFii5l/usage-v2.json (766 bytes)
+{"schema_version":1,"session_id":"MyUUBxtFii5l","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":5,"settled_through_sequence":4,"api_duration_ms":284,"wall_duration_ms":57756,"total_cost":0,"input_tokens":2400,"output_tokens":80,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":null,"request_count":2,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[{"model":"codex/gpt-5.6-sol","first_sequence":1,"total_cost":0,"input_tokens":2400,"output_tokens":80,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":null,"request_count":2,"billable_web_search_calls":0}],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (167 bytes)
+{"models":{"gateway":"fake/model-a","codex":"gpt-5.6-sol"},"provider":"gateway","statusLine":{"context":true,"session":true},"credential_source":"ai_gateway_api_key"}
+
+=== ~/.fx/settings.lock (0 bytes)
+=== ~/.fx/usage.jsonl (1077 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791354539205}
+{"schema_version":1,"kind":"pending","id":"gen_663C8F082F1D905DCF9828377A","observed_at_ms":1791354539204}
+{"schema_version":1,"kind":"generation","fact":{"id":"gen_663C8F082F1D905DCF9828377A","created_at_ms":1791354539197,"model":"codex/gpt-5.6-sol","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":null,"billable_web_search_calls":0,"total_cost":0}}
+{"schema_version":1,"kind":"pending","id":"gen_40C568F15367D026B9E1A31C32","observed_at_ms":1791354539224}
+{"schema_version":1,"kind":"generation","fact":{"id":"gen_40C568F15367D026B9E1A31C32","created_at_ms":1791354539211,"model":"codex/gpt-5.6-sol","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":null,"billable_web_search_calls":0,"total_cost":0}}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791354575686,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791354590747,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

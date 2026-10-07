@@ -1,0 +1,40 @@
+
+[38;5;255m┃[39m [1mread the notes and tell me what they say[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 read[39m
+[38;5;245m└ Read notes.txt[39m
+
+  The notes say the meeting moved to Thursday.
+
+[38;5;245m  0s (↑10 ↓80)[39m
+
+[38;5;250m* provider: Preparing llmux.[39m
+
+[38;5;250m* provider: Switched to llmux with fake/model-a.[39m
+
+[38;5;255m┃[39m [1mwhat day was it again?[0m
+
+  MARKER-AFTER-SWITCH: still Thursday.
+
+[38;5;245m  0s (↑6 ↓40)[39m
+
+
+[38;5;245mContinue session with: xfx --resume 1791354616533-5f2abb71427357ac[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Oct  7 15:31:01 2026)

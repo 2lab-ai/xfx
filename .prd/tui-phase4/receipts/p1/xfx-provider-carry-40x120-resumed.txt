@@ -1,0 +1,40 @@
+* session resumed: read the notes and tell me what they
+
+┃ read the notes and tell me what they say
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  The notes say the meeting moved to Thursday.
+
+  0s (↑10 ↓80)
+
+┃ what day was it again?
+
+  MARKER-AFTER-SWITCH: still Thursday.
+
+  0s (↑6 ↓40)
+
+┃
+
+auto · model-a · read the notes and tell me what
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

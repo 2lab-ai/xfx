@@ -1,0 +1,10 @@
+[fakegw] listening 51881
+[fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
+[fakegw] completion /v4/ai/language-model -> tool read_file
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] GET / (llmux probe)
+[fakegw] GET /models (llmux catalog)
+[fakegw] GET /models (llmux catalog)
+[fakegw] llmux /v1/messages -> text
+[fakegw] GET /models (llmux catalog)
+[fakegw] llmux /v1/messages -> text
