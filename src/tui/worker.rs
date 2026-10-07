@@ -1777,9 +1777,20 @@ impl Runtime {
     /// shown when it came back.
     fn opened(&mut self) {
         self.conversation_lineage = Some(self.titles.lineage());
+        self.publish_title_session();
         if let Some(titled) = self.pending_title.take() {
             let _ = self.install_title(&titled);
         }
+    }
+
+    /// Tells the desk which session is open, for `/trace`'s `session=`
+    /// ([`super::titles::TitleDesk::publish_session`]).
+    fn publish_title_session(&self) {
+        self.titles.publish_session(
+            self.conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.id().as_str()),
+        );
     }
 
     /// Takes one answer off the books and gives the session its title when it
@@ -1824,8 +1835,6 @@ impl Runtime {
             return Some(title.to_string());
         }
         let conversation = self.conversation.as_mut()?;
-        self.titles
-            .record_session(conversation.recorder.id().as_str());
         let state = conversation.recorder.state();
         if let Some(on_record) = &state.renamed {
             if state.derived_title().as_deref() != Some(on_record.as_str()) {
@@ -2208,6 +2217,7 @@ impl Runtime {
         self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
         self.conversation_lineage = Some(self.titles.lineage());
+        self.publish_title_session();
     }
 
     /// The session this runtime's conversation is recorded in, when it holds
@@ -10835,6 +10845,35 @@ mod tests {
         let record = desk.generation();
         assert_eq!(record.status, crate::trace::TitleStatus::Dropped);
         assert_eq!(record.reason, Some("user_title_present"));
+    }
+
+    #[test]
+    fn trace_names_the_session_a_failed_question_was_about() {
+        // Upstream's record carries the session its task was started for,
+        // whatever came back (`LastResult.copyIds`,
+        // `app_session_runtime.zig:1110-1117`; `/trace` prints it as
+        // `session=`, `app_commands.zig:2796-2800`).
+        let (_home, _workspace, mut state) = titled_runtime(|_| {
+            super::super::titles::Outcome::Unavailable(super::super::titles::Unavailable::Provider(
+                500,
+            ))
+        });
+        state.ready(&CancelToken::new()).expect("a conversation");
+        assert!(state.titles.ask("fix the renderer"));
+        let titled = next_title_within(&mut state, TEST_DRAIN).expect("an answer");
+        assert_eq!(state.title_arrived(&titled, false), None);
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .as_str()
+            .to_string();
+        let record = state.titles.generation();
+        assert_eq!(record.status, crate::trace::TitleStatus::Failed);
+        assert_eq!(record.detail.as_deref(), Some("server_error"));
+        assert_eq!(record.session.as_deref(), Some(id.as_str()));
     }
 
     #[test]

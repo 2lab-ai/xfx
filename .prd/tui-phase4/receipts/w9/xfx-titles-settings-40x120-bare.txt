@@ -1,8 +1,8 @@
-x𝒇x v0.1.0-11b0618 [debug] · Run /help for commands
+x𝒇x v0.1.0-bcb13ad [debug] · Run /help for commands
 
 ┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Settings 11  [All]  Interface  Agent  Notifications  Advanced
+Settings 14  [All]  Interface  Agent  Notifications  Advanced
 
   Status line context      off  on
   Status line session      off  on
@@ -11,15 +11,15 @@ Settings 11  [All]  Interface  Agent  Notifications  Advanced
   Collapse tool calls      off  on
   Model                    fake/model-a
   Reasoning effort         default
+  Fast mode                off
+  Ultra mode               off
   Permission mode          ask  auto  full access
   Session titles           off  on
   Sound level              off  on
+  Startup scrollback       off  on
   Prompt history           off  on
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓ navigate     tab category     ←→ change     esc close
-
-
-
 
 
 

@@ -4,7 +4,7 @@
 
   The renderer answer.
 
-  2s (↑14 ↓40)
+  0s (↑14 ↓40)
 
 ┃
 

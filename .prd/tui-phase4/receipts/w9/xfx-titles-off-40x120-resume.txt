@@ -1,10 +1,10 @@
-x𝒇x v0.1.0-11b0618 [debug] · Run /help for commands
+x𝒇x v0.1.0-bcb13ad [debug] · Run /help for commands
 
 ┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Sessions 1  [Current workspace]  All workspaces
 
-  fix the renderer loop, it redraws every row twice    work · now · 1 turn
+  fix the renderer loop, it redraws every row    work · now · 1 turn
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓ navigate     tab scope     enter resume     esc close
 

@@ -210,7 +210,7 @@ pub(crate) fn options() -> RequestOptions {
 pub(crate) enum Unavailable {
     /// The thread could not be started.
     NotStarted,
-    /// The conversation the question was about was let go of first.
+    /// The session ended with the question out ([`TitleDesk::stop`]).
     Cancelled,
     /// No answer within [`TIMEOUT`].
     TimedOut,
@@ -234,7 +234,7 @@ impl Unavailable {
             Self::Cancelled => ("cancelled", None),
             Self::TimedOut => ("transport_error", Some("Timeout".to_string())),
             Self::Transport(kind) => ("transport_error", Some((*kind).to_string())),
-            Self::Provider(status) => ("provider_failure", Some(format!("http_{status}"))),
+            Self::Provider(status) => ("provider_failure", Some(failure_kind(*status).to_string())),
             Self::Empty => ("empty_content", None),
             Self::Unsanitizable => ("unsanitizable", None),
         }
@@ -285,6 +285,8 @@ type Asker = Arc<dyn Fn(Question) -> Asked + Send + Sync>;
 /// The question in flight.
 struct Running {
     ticket: u64,
+    /// The conversation it is about.
+    lineage: u64,
     cancel: CancelToken,
     started: Instant,
 }
@@ -306,6 +308,8 @@ struct Desk {
     /// How the last question went, for `/trace` (`TitleGenerationLoad.last`,
     /// `app_session_runtime.zig:1083-1118`).
     last: TitleGeneration,
+    /// The conversation [`Self::last`] is about.
+    last_lineage: u64,
     /// The position in the runtime's queue of the last switch the band handed
     /// it -- a resume or a provider switch -- while the runtime has not got
     /// past it ([`TitleDesk::switching`]).
@@ -318,6 +322,19 @@ struct Desk {
     /// -- for the runtime to ask from once the switch is made, unless an
     /// interrupt dropped the prompt with it ([`TitleDesk::defer`]).
     deferred: Option<(Option<usize>, String)>,
+    /// The session the runtime has open, and the lineage it is in, as the
+    /// runtime last published it ([`TitleDesk::publish_session`]).
+    session: Option<(u64, String)>,
+}
+
+impl Desk {
+    /// The session published for `lineage`, if the one published is.
+    fn session_of(&self, lineage: u64) -> Option<String> {
+        self.session
+            .as_ref()
+            .filter(|(published, _)| *published == lineage)
+            .map(|(_, session)| session.clone())
+    }
 }
 
 struct Shared {
@@ -368,9 +385,11 @@ impl TitleDesk {
                     tickets: 0,
                     running: None,
                     last: TitleGeneration::default(),
+                    last_lineage: 0,
                     switch_at: None,
                     worked: 0,
                     deferred: None,
+                    session: None,
                 }),
                 ask,
                 done,
@@ -576,8 +595,10 @@ impl TitleDesk {
             });
         });
         if spawned.is_err() {
+            desk.last_lineage = lineage;
             desk.last = TitleGeneration {
                 status: TitleStatus::Failed,
+                session: desk.session_of(lineage),
                 model: Some(MODEL.to_string()),
                 reason: Some("spawn_failed"),
                 elapsed_ms: Some(0),
@@ -587,6 +608,7 @@ impl TitleDesk {
         }
         desk.running = Some(Running {
             ticket,
+            lineage,
             cancel,
             started,
         });
@@ -614,9 +636,11 @@ impl TitleDesk {
                 (TitleStatus::Failed, Some(reason), detail)
             }
         };
+        let session = desk.session_of(titled.lineage);
+        desk.last_lineage = titled.lineage;
         desk.last = TitleGeneration {
             status,
-            session: None,
+            session,
             model: Some(MODEL.to_string()),
             reason,
             detail,
@@ -625,9 +649,25 @@ impl TitleDesk {
         true
     }
 
-    /// The session a settled answer was about, once the runtime knows it.
-    pub(crate) fn record_session(&self, session: &str) {
-        self.lock().last.session = Some(session.to_string());
+    /// The session the runtime has open now, in the lineage in force, or
+    /// none: what `/trace` names a question by (`session=`,
+    /// `app_commands.zig:2804`, `:2814`), as upstream's task carries the
+    /// session it was started for (`LastResult.copyIds`,
+    /// `app_session_runtime.zig:1109-1117`). xfx opens a session with its
+    /// first turn, so a question asked at the first prompt's keystroke is
+    /// named once the runtime has opened it.
+    ///
+    /// An answer settled before its conversation was opened is named now.
+    pub(crate) fn publish_session(&self, session: Option<&str>) {
+        let mut desk = self.lock();
+        let lineage = desk.lineage;
+        desk.session = session.map(|session| (lineage, session.to_string()));
+        if desk.last.session.is_none()
+            && desk.last.status != TitleStatus::None
+            && desk.last_lineage == lineage
+        {
+            desk.last.session = desk.session_of(lineage);
+        }
     }
 
     /// A title that came back and was not given to the session, and why
@@ -657,7 +697,7 @@ impl TitleDesk {
         match &desk.running {
             Some(running) => TitleGeneration {
                 status: TitleStatus::Running,
-                session: None,
+                session: desk.session_of(running.lineage),
                 model: Some(MODEL.to_string()),
                 reason: None,
                 detail: None,
@@ -749,6 +789,25 @@ async fn ask_gateway(question: Question) -> Outcome {
 /// What a failed exchange was, by kind: a status the Gateway answered with,
 /// or where the exchange broke. Never the error's text, which can quote a
 /// response body.
+/// The kind upstream names a failure status by, `@tagName` of its
+/// `FailureKind` (`failureKind`, `vercel-labs/fx@c1db9191
+/// src/builtins/gateway.zig:710-723`; the kinds,
+/// `src/core/agent/stream_provider.zig:271-282`).
+fn failure_kind(status: u16) -> &'static str {
+    match status {
+        400 => "invalid_request",
+        401 => "unauthorized",
+        403 => "forbidden",
+        413 => "request_too_large",
+        429 => "rate_limited",
+        500 => "server_error",
+        502 => "bad_gateway",
+        503 => "unavailable",
+        504 => "gateway_timeout",
+        _ => "provider_error",
+    }
+}
+
 fn failure(err: &ProviderError) -> Unavailable {
     match err {
         ProviderError::Status { status, .. } => Unavailable::Provider(*status),
@@ -1161,19 +1220,47 @@ mod tests {
     }
 
     #[test]
+    fn a_failure_status_is_named_as_upstreams_failure_kind() {
+        // `failureKind`, `src/builtins/gateway.zig:710-723`: the detail
+        // `/trace` prints is the kind's tag, never the number.
+        for (status, kind) in [
+            (400, "invalid_request"),
+            (401, "unauthorized"),
+            (403, "forbidden"),
+            (413, "request_too_large"),
+            (429, "rate_limited"),
+            (500, "server_error"),
+            (502, "bad_gateway"),
+            (503, "unavailable"),
+            (504, "gateway_timeout"),
+            (418, "provider_error"),
+        ] {
+            assert_eq!(
+                Unavailable::Provider(status).reason(),
+                ("provider_failure", Some(kind.to_string())),
+                "{status}"
+            );
+        }
+    }
+
+    #[test]
     fn trace_reads_the_question_out_or_how_the_last_one_went() {
         let (desk, mut answers) =
             TitleDesk::answering(true, |_| Outcome::Unavailable(Unavailable::Provider(429)));
         assert_eq!(desk.generation(), TitleGeneration::default());
         published(&desk);
+        desk.publish_session(Some("s-1"));
         assert!(desk.ask("x"));
+        // While it is out: running, about the session open (`app_commands.zig:2804`).
+        let out = desk.generation();
+        assert_eq!(out.status, TitleStatus::Running);
+        assert_eq!(out.session.as_deref(), Some("s-1"));
         let titled = next_within(&mut answers).expect("an answer");
         assert!(desk.settle(&titled));
-        desk.record_session("s-1");
         let record = desk.generation();
         assert_eq!(record.status, TitleStatus::Failed);
         assert_eq!(record.reason, Some("provider_failure"));
-        assert_eq!(record.detail.as_deref(), Some("http_429"));
+        assert_eq!(record.detail.as_deref(), Some("rate_limited"));
         assert_eq!(record.session.as_deref(), Some("s-1"));
         assert!(record.elapsed_ms.is_some());
         // A drop is recorded only over a title that came back.
