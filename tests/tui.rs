@@ -9631,11 +9631,40 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     let concluded = &frames[asked + 1]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
-    assert_eq!(concluded["outcome"]["reason"], "the turn was cancelled");
+    // The sentence the user was shown, and whose stop it was in a field of
+    // its own, as upstream's (`event.interrupted.cancellation_origin ===
+    // "compaction"`, `tui-compaction-activity.test.ts:471`): that field,
+    // not the sentence, is how a resume tells it from the turn's own stop.
+    assert_eq!(
+        concluded["outcome"]["reason"],
+        "Compaction cancelled. Try /compact again when ready."
+    );
+    assert_eq!(concluded["outcome"]["cancellation_origin"], "compaction");
+    // And stopped, as upstream's compaction stop is (`terminal_reason`'s
+    // default, `persistCompactionInterruptedTurnOnce`).
+    assert_eq!(concluded["outcome"]["terminal_reason"], "cancelled");
     // Nothing about it in the document.
     on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Nor on a resume of it: the stopped turn replays as its card alone, as
+    // upstream's does (`tui-compaction-activity.test.ts:481-488`) -- no
+    // `■ Cancelled`, no `✗ system`.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    on_screen(
+        &second,
+        (40, 120),
+        &["second question", "MARKER-ONE"],
+        &["Cancelled", "\u{2717} system"],
+    );
+    second.type_bytes(b"/quit\r");
+    assert_eq!(second.wait_exit().code(), Some(0));
 }
 
 #[test]
