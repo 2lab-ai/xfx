@@ -421,6 +421,11 @@ pub struct Sources {
     /// `setup` has to be able to tell the operator that the file it just wrote
     /// is not the layer their next turn will read.
     pub llmux_url: SettingSource,
+    /// Where `fast_mode` and `fast_mode_model_bound` came from: the binding
+    /// holds only when they and the model came from one layer
+    /// (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+    pub fast_mode: SettingSource,
+    pub fast_mode_model_bound: SettingSource,
 }
 
 impl Default for Sources {
@@ -431,6 +436,8 @@ impl Default for Sources {
             max_agent_steps: SettingSource::CompiledDefault,
             provider: SettingSource::CompiledDefault,
             llmux_url: SettingSource::CompiledDefault,
+            fast_mode: SettingSource::CompiledDefault,
+            fast_mode_model_bound: SettingSource::CompiledDefault,
         }
     }
 }
@@ -1135,8 +1142,12 @@ impl RuntimeConfig {
             // Ultra outranks Fast, as turning it on turns Fast off.
             fast_mode: settings.fast_mode.unwrap_or(false)
                 && !settings.ultrafast_mode.unwrap_or(false),
+            // Bound only to a model chosen in the layer Fast was
+            // (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
             fast_mode_model_bound: settings.fast_mode.unwrap_or(false)
-                && settings.fast_mode_model_bound.unwrap_or(false),
+                && settings.fast_mode_model_bound.unwrap_or(false)
+                && sources.model == sources.fast_mode
+                && sources.fast_mode == sources.fast_mode_model_bound,
             ultrafast_mode: settings.ultrafast_mode.unwrap_or(false),
             permission,
             sources,
@@ -1233,9 +1244,11 @@ impl Settings {
         }
         if let Some(on) = incoming.fast_mode {
             self.fast_mode = Some(on);
+            sources.fast_mode = source;
         }
         if let Some(on) = incoming.fast_mode_model_bound {
             self.fast_mode_model_bound = Some(on);
+            sources.fast_mode_model_bound = source;
         }
         if let Some(on) = incoming.ultrafast_mode {
             self.ultrafast_mode = Some(on);
@@ -2794,11 +2807,47 @@ mod tests {
     }
 
     #[test]
+    fn fast_is_bound_only_to_a_model_chosen_where_fast_was() {
+        // `resolveStartupFastMode` (`app_lifecycle.zig:827-844`): the binding
+        // holds only when the model, `fast_mode` and the binding all come from
+        // the same layer -- a model an `XFX_MODEL` names, or the compiled
+        // default, was not the one Fast was chosen for, so the footer does not
+        // mark it (Fast is still on, and still sent).
+        let profile = r#"{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":true,"fast_mode_model_bound":true}"#;
+        let (_root, config) = loaded_with_profile(profile);
+        assert!(config.fast_mode && config.fast_mode_model_bound);
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        let env = Environment::new(
+            Some(home),
+            BTreeMap::from([(ENV_MODEL.to_string(), "openai/gpt-6-astra".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, &workspace).expect("load");
+        assert!(config.fast_mode, "Fast is still on");
+        assert!(
+            !config.fast_mode_model_bound,
+            "bound to a model the environment replaced"
+        );
+        // The compiled default model is not the profile's either.
+        let (_root, config) =
+            loaded_with_profile(r#"{"fast_mode":true,"fast_mode_model_bound":true}"#);
+        assert!(config.fast_mode && !config.fast_mode_model_bound);
+    }
+
+    #[test]
     fn the_speed_switches_are_the_profiles_and_ultra_outranks_fast() {
         let (_root, config) = loaded_with_profile("{}");
         assert!(!config.fast_mode && !config.ultrafast_mode && !config.fast_mode_model_bound);
         let (_root, config) = loaded_with_profile(
-            r#"{"fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}"#,
+            r#"{"model":"acme/one","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}"#,
         );
         assert!(config.fast_mode && config.fast_mode_model_bound && !config.ultrafast_mode);
         // Fast written by hand without the binding is on, and not bound.
