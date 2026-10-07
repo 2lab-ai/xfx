@@ -340,16 +340,25 @@ fn parse_entry(
     {
         return Err(ConfigError("McpConfigInvalidHeaders"));
     }
-    if config.headers.iter().any(|(name, value)| {
-        name.is_empty()
-            || !name.bytes().all(is_token_byte)
-            || value
-                .bytes()
-                .any(|byte| byte == b'\r' || byte == b'\n' || byte == 0)
-    }) {
+    if !valid_static_headers(&config.headers) {
         return Err(ConfigError("McpConfigInvalidHeaders"));
     }
+    // A header whose value is a variable's (`parseRemoteHeaderEnv`,
+    // `project_config.zig:1110-1140`): the variable a plain name, never
+    // `Authorization` (that is `bearer_token_env`'s), and the names held to
+    // the same rules as static ones.
     config.header_env = string_map(object.get("header_env"), "McpConfigInvalidHeaders")?;
+    let named: Vec<(String, String)> = config
+        .header_env
+        .iter()
+        .map(|(name, _)| (name.clone(), "value".to_string()))
+        .collect();
+    if config.header_env.iter().any(|(name, variable)| {
+        !is_env_name(variable) || name.eq_ignore_ascii_case("authorization")
+    }) || !valid_static_headers(&named)
+    {
+        return Err(ConfigError("McpConfigInvalidHeaders"));
+    }
     config.bearer_token_env = match object.get("bearer_token_env") {
         None => None,
         Some(Value::String(name)) if is_env_name(name) => Some(name.clone()),
@@ -450,6 +459,42 @@ fn is_env_name(name: &str) -> bool {
 
 fn is_token_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+}
+
+/// The headers the protocol sets itself, which a configuration may not
+/// (`isReservedHeader`, `streamable_http.zig:1234-1252`).
+const RESERVED_HEADERS: [&str; 12] = [
+    "accept",
+    "accept-encoding",
+    "connection",
+    "content-length",
+    "content-type",
+    "host",
+    "last-event-id",
+    "mcp-method",
+    "mcp-name",
+    "mcp-protocol-version",
+    "mcp-session-id",
+    "transfer-encoding",
+];
+
+/// `validateStaticHeaders` (`streamable_http.zig:99-111`): each name an HTTP
+/// token and not one the protocol sets, each value free of control bytes
+/// but tab, and no name twice in any case.
+fn valid_static_headers(headers: &[(String, String)]) -> bool {
+    headers.iter().enumerate().all(|(index, (name, value))| {
+        let lowered = name.to_ascii_lowercase();
+        !name.is_empty()
+            && name.bytes().all(is_token_byte)
+            && value
+                .bytes()
+                .all(|byte| (byte >= 0x20 || byte == b'\t') && byte != 0x7f)
+            && !RESERVED_HEADERS.contains(&lowered.as_str())
+            && !lowered.starts_with("mcp-param-")
+            && !headers[..index]
+                .iter()
+                .any(|(previous, _)| previous.eq_ignore_ascii_case(name))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,6 +1100,41 @@ mod tests {
         ] {
             assert_eq!(parse_profile(text), Err(ConfigError(expected)), "{text}");
         }
+    }
+
+    #[test]
+    fn headers_are_held_to_upstreams_static_rules_and_header_env_to_plain_names() {
+        let remote = |fields: &str| {
+            format!(
+                r#"{{"mcp":{{"r":{{"type":"http","url":"https://example.test/mcp",{fields}}}}}}}"#
+            )
+        };
+        for fields in [
+            r#""headers":{"X-A":"1","x-a":"2"}"#,
+            r#""headers":{"Content-Type":"text/plain"}"#,
+            r#""headers":{"MCP-Session-Id":"s"}"#,
+            r#""headers":{"Mcp-Param-Name":"v"}"#,
+            r#""headers":{"X-A":"line\u0001"}"#,
+            r#""headers":{"X A":"1"}"#,
+            r#""header_env":{"X-Team":"not a name"}"#,
+            r#""header_env":{"Authorization":"TOKEN"}"#,
+            r#""header_env":{"Host":"HOST_VALUE"}"#,
+            r#""header_env":{"X-A":"ONE","x-a":"TWO"}"#,
+        ] {
+            assert_eq!(
+                parse_profile(&remote(fields)),
+                Err(ConfigError("McpConfigInvalidHeaders")),
+                "{fields}"
+            );
+        }
+        let profile = parse_profile(&remote(
+            r#""headers":{"X-A":"tab\there","Authorization":"Bearer x"},"header_env":{"X-Team":"TEAM_1"}"#,
+        ))
+        .expect("parses");
+        assert_eq!(
+            profile.servers[0].header_env,
+            [("X-Team".to_string(), "TEAM_1".to_string())]
+        );
     }
 
     #[test]
