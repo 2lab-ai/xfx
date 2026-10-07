@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ee00a1e [debug] · Run /help for commands
+
+┃ what is in the picture?
+
+● 1 tool call · 1 read
+└ Read shot.png
+
+  A small red square.
+
+  0s (↑6 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

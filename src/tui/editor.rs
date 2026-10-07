@@ -546,16 +546,16 @@ impl Editor {
     /// The offsets are the delta's own -- widened where the editor widened them
     /// -- so this is a `replace_range` on a boundary this module produced rather
     /// than one re-derived from a buffer that no longer says how its bytes got
-    /// there. The blocks come back with the **ids they had**, because the
-    /// summaries being restored say those numbers out loud (`entity.rs:212-216`
-    /// would reject a duplicate, and there is none: the block was gone).
+    /// there. **Text only**: an edit that took a block or a badge, or put one
+    /// in, is a boundary of the history and never an entry in it
+    /// ([`super::edit_history::EditHistory::record`]), as upstream's structured
+    /// edits are, so no delta handed back here carries one.
     pub(crate) fn revert(&mut self, delta: &Delta) {
-        self.splice(
-            delta.at(),
-            delta.inserted().len(),
-            delta.removed(),
-            delta.removed_entities(),
+        debug_assert!(
+            delta.removed_entities().is_empty() && delta.inserted_entities().is_empty(),
+            "the history held an edit over an entity"
         );
+        self.splice(delta.at(), delta.inserted().len(), delta.removed());
         self.cursor = delta.caret_before();
         self.sticky = None;
         self.anchor = None;
@@ -563,29 +563,26 @@ impl Editor {
 
     /// Does `delta` again, after a [`Self::revert`] took it back.
     pub(crate) fn replay(&mut self, delta: &Delta) {
-        self.splice(
-            delta.at(),
-            delta.removed().len(),
-            delta.inserted(),
-            delta.inserted_entities(),
+        debug_assert!(
+            delta.removed_entities().is_empty() && delta.inserted_entities().is_empty(),
+            "the history held an edit over an entity"
         );
+        self.splice(delta.at(), delta.removed().len(), delta.inserted());
         self.cursor = delta.caret_after();
         self.sticky = None;
         self.anchor = None;
     }
 
-    /// Replaces `remove` bytes at `at` with `insert`, and puts `entities` back
-    /// at the absolute offsets they name.
+    /// Replaces `remove` bytes at `at` with `insert`.
     ///
     /// The one place a history operation touches the buffer, so the two
     /// directions cannot disagree about what "putting it back" means.
-    fn splice(&mut self, at: usize, remove: usize, insert: &str, entities: &[Span]) {
+    fn splice(&mut self, at: usize, remove: usize, insert: &str) {
         if remove > 0 {
             let end = at.saturating_add(remove);
-            // Widening cannot reach past this range: what a delta names is
-            // either the run the editor already widened to, or the summary it
-            // registered whole -- and an entity that merely *abuts* the range is
-            // not an overlap (`super::entity::Entities::delete_touching`).
+            // No entity is in this range: an edit over one is never on the
+            // history, and one that merely *abuts* the range is not an overlap
+            // (`super::entity::Entities::delete_touching`).
             let taken = self.entities.delete_touching(at..end);
             debug_assert_eq!(taken, at..end, "a history delta named a partial entity");
             self.text.replace_range(taken, "");
@@ -593,9 +590,6 @@ impl Editor {
         if !insert.is_empty() {
             self.text.insert_str(at, insert);
             self.entities.shift_after_insert(at, insert.len());
-        }
-        for span in entities {
-            self.entities.register(span.clone());
         }
     }
 
@@ -978,7 +972,7 @@ impl Editor {
         }
         let caret_before = self.cursor;
         let removed = self.text[start..end].to_string();
-        self.splice(start, end - start, text, &[]);
+        self.splice(start, end - start, text);
         self.cursor = boundary_at_or_after(&self.text, caret.min(self.text.len()));
         self.sticky = None;
         self.anchor = None;
@@ -1288,6 +1282,7 @@ fn after(text: &str, at: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::edit_history::EditHistory;
     use crate::tui::entity::{Entities, EntityKind, Span};
 
     fn editor(text: &str) -> Editor {
@@ -1301,8 +1296,16 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn undo_of_a_paste_restores_the_block_with_its_original_id() {
-        let mut editor = Editor::new();
+    fn a_pasted_block_is_a_boundary_so_no_undo_takes_it_back() {
+        // Upstream registers a collapsed paste's block and then draws a
+        // boundary under the history (`historyBoundary`,
+        // `input_paste_runtime.zig:436-438`; `undo` answers `false` right after
+        // it, `app_input_runtime.zig:15603-15624`): the paste is not an entry,
+        // and nothing before it is one any more.
+        let mut editor = editor("typed");
+        let mut history = EditHistory::new();
+        history.record(editor.insert(" first").expect("an edit"));
+        assert_eq!(history.undo_depth(), 1);
         let delta = editor
             .insert_entity(
                 "[Pasted text #1, 12 lines]",
@@ -1313,36 +1316,30 @@ mod tests {
                 },
             )
             .expect("the paste fits");
-        assert_eq!(delta.kind(), DeltaKind::Paste);
-        let id = delta.inserted_entities()[0].id();
+        assert_eq!(delta.inserted_entities()[0].id(), 1);
+        history.record(delta);
+        assert_eq!((history.undo_depth(), history.redo_depth()), (0, 0));
 
-        editor.revert(&delta);
-        assert_eq!(editor.text(), "");
-        assert!(
-            editor.entities().is_empty(),
-            "the block outlived the summary it stands for"
-        );
-        assert_eq!(caret(&editor), delta.caret_before());
-
-        editor.replay(&delta);
-        assert_eq!(editor.text(), "[Pasted text #1, 12 lines]");
-        assert_eq!(
-            editor.entities().spans()[0].id(),
-            id,
-            "the replayed block came back under a different number"
-        );
-        assert_eq!(editor.expanded(), "a\nb\nc");
-        assert_eq!(caret(&editor), delta.caret_after());
+        assert!(!history.undo(|delta| editor.revert(delta)));
+        assert_eq!(editor.text(), "typed first[Pasted text #1, 12 lines]");
+        assert_eq!(editor.entities().spans()[0].id(), 1);
+        assert_eq!(editor.expanded(), "typed firsta\nb\nc");
     }
 
     #[test]
-    fn a_delta_round_trips_over_an_entity_boundary() {
+    fn a_backspace_at_a_block_names_the_whole_block_and_is_a_boundary() {
         // A backspace at a summary's right edge takes the **whole** block, so
-        // the delta names the widened range (`Entities::delete_touching`) and
-        // the undo has to put the block back with it -- text, span and id.
+        // the delta names the widened range (`Entities::delete_touching`) --
+        // and an edit over a block is a boundary of the history rather than
+        // an entry (`composer_replacement.zig:223-232`): nothing brings the
+        // block back, and the entries before it are gone too
+        // (`composer_deletion.zig:300-329`).
         let (mut editor, range) = with_block("before ", "a very long paste", " after");
         assert_eq!(editor.entities().len(), 1);
-        let whole = editor.text().to_string();
+        let mut history = EditHistory::new();
+        history.record(editor.insert("!").expect("an edit"));
+        history.record(editor.apply(Action::Backspace, 80).expect("an edit"));
+        assert_eq!(history.undo_depth(), 2);
         editor.apply(Action::Home, 80);
         editor.apply(Action::End, 80);
         // The caret is at the end of the line; walk it back over ` after` and
@@ -1366,17 +1363,10 @@ mod tests {
         assert_eq!(delta.removed_entities().len(), 1);
         assert_eq!(delta.removed_entities()[0].id(), 1);
 
-        editor.revert(&delta);
-        assert_eq!(editor.text(), whole);
-        assert_eq!(editor.entities().len(), 1, "the block did not come back");
-        assert_eq!(editor.entities().spans()[0].range(), range);
-        assert_eq!(editor.expanded(), "before a very long paste after");
-        assert_eq!(caret(&editor), delta.caret_before());
-
-        editor.replay(&delta);
+        history.record(delta);
+        assert_eq!((history.undo_depth(), history.redo_depth()), (0, 0));
+        assert!(!history.undo(|delta| editor.revert(delta)));
         assert_eq!(editor.text(), "before  after");
-        assert!(editor.entities().is_empty());
-        assert_eq!(caret(&editor), delta.caret_after());
     }
 
     #[test]
@@ -1555,8 +1545,9 @@ mod tests {
         let delta = draft.insert("z").expect("an edit");
         assert_eq!(draft.text(), "z");
         assert!(draft.entities().is_empty());
-        draft.revert(&delta);
-        assert_eq!(draft.entities().len(), 1, "the undo lost the block");
+        // The block went with it: what makes the edit a boundary of the
+        // history rather than an entry ([`EditHistory::record`]).
+        assert_eq!(delta.removed_entities().len(), 1);
         assert_eq!(draft.selection(), None);
         // With nothing selected the painted rows are the rows.
         assert_eq!(draft.painted_rows(80, "<", ">"), draft.rows(80));

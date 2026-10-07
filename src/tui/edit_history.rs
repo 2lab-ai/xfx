@@ -59,8 +59,9 @@ pub(crate) enum DeltaKind {
     Ordinary,
     /// `C-k`, `C-u`, `C-w`: what it removed goes to the kill slot.
     Kill,
-    /// One framed paste, however many reads it arrived in -- the boundary the
-    /// one-entry seam this module replaces used to hold on its own.
+    /// A collapsed paste or a badge put in at the caret
+    /// ([`super::editor::Editor::insert_entity`]): it puts an entity in, so
+    /// recording it is a boundary ([`EditHistory::record`]).
     Paste,
 }
 
@@ -209,25 +210,22 @@ impl EditHistory {
     ///
     /// The order matters and it is upstream's: the kill slot is loaded first,
     /// because a kill too big for the **history** is still a kill and the slot
-    /// has a budget of its own; then the oversized delta becomes a boundary
-    /// (`edit_history.zig:86-87,99-101`); then redo is cleared and its bytes
-    /// given back, the entry is pushed, and the two caps evict from the front.
-    pub(crate) fn record(&mut self, mut delta: Delta) {
+    /// has a budget of its own; then an oversized delta, or one over a badge,
+    /// becomes a boundary (`edit_history.zig:86-87,99-101`); then redo is
+    /// cleared and its bytes given back, the entry is pushed, and the two caps
+    /// evict from the front.
+    pub(crate) fn record(&mut self, delta: Delta) {
         debug_assert!(
             !delta.is_empty(),
             "an edit that changed nothing was recorded as history"
         );
-        // **An image's badge comes back as words.** The badge is the
-        // attachment: deleting it dropped the image, as upstream's line delete
-        // does (`kill_ring.zig:562-584`), so neither an undo nor a yank of the
-        // text it stood in may attach it again -- and neither stack holds up to
-        // twenty megabytes of bytes for a badge that is gone.
-        delta.removed_entities.retain(|span| span.image().is_none());
-        delta
-            .inserted_entities
-            .retain(|span| span.image().is_none());
         let weight = delta.weight();
         if delta.kind() == DeltaKind::Kill {
+            // **A killed badge takes its image with it**, and a yank brings
+            // the image back under a fresh number, as upstream's kill ring
+            // does (`kill_ring.zig:120-190`, `tui-composer-edit-contracts.test.ts:763-797`).
+            // The slot holds the image's bytes by reference: the same bytes
+            // the draft held, not a copy.
             // Replaced whole, never appended to: consecutive kills do not
             // coalesce (`kill_ring.zig:86-116`). A kill past the slot's own cap
             // **empties** it -- a truncated payload behind a summary would yank
@@ -245,7 +243,24 @@ impl EditHistory {
                     .collect(),
             });
         }
-        if weight > MAX_RETAINED_BYTES {
+        // **An edit that takes an entity or puts one in is a boundary** -- a
+        // pasted-text block or an image's badge, the composer's structured
+        // units (`registered_entities.zig:270-290`) -- as upstream's
+        // structured edits are: a block's or a badge's own insertion
+        // (`input_paste_runtime.zig:436-438`, `image_commands.zig:172-174`),
+        // a deletion, a kill or a typed replacement over one
+        // (`composer_replacement.zig:223-232`, `composer_kill_ring.zig:90-101`)
+        // and a yank that brings a badge back (`:56-66`) clear both stacks
+        // rather than record. So an undo never brings an entity back, and
+        // upstream's refusal of an undo over one
+        // (`composer_undo.zig:35-40,252-268`) has nothing left to refuse.
+        // A skill token (`$name`, the /skills unit's) is the third such
+        // entity upstream has; it joins here as an `EntityKind` of its own,
+        // and this test takes it with no change.
+        if weight > MAX_RETAINED_BYTES
+            || !delta.removed_entities().is_empty()
+            || !delta.inserted_entities().is_empty()
+        {
             self.boundary();
             return;
         }

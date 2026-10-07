@@ -672,8 +672,12 @@ impl TurnJournal for Teed<'_> {
     }
 
     /// The log's alone: a prompt's images are on its card already.
-    fn attach_images(&mut self, images: &[crate::image::Image]) {
-        self.journal.attach_images(images);
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        self.journal.attach_images(images)
+    }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        self.journal.attach_tool_images(call_id, images);
     }
 }
 
@@ -1647,8 +1651,13 @@ fn unpainted(text: &str) -> String {
 ///
 /// `"  "` for an argument or a tool's result, `" "` for a command's own output
 /// (`renderCommandOutputRecordWithPrimaryGutter`).
+///
+/// Wrapped by upstream's assistant wrap in its literal form
+/// ([`super::prose::literal`]), as both of upstream's are: no word is left
+/// alone on a line's last row, and no markdown is read into the text.
 fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
-    let width = cols.saturating_sub(1 + wrap::width(gutter)).max(1);
+    let rail = 1 + wrap::width(gutter);
+    let width = cols.saturating_sub(rail).max(1);
     let dim = palette.dim();
     let reset = palette.reset();
     let mut rows = Vec::new();
@@ -1658,7 +1667,7 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
             continue;
         }
-        for row in wrap::wrap(line, width) {
+        for row in super::prose::literal(line, width, rail) {
             let piece = line[row.start..row.end].trim_end_matches([' ', '\n']);
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
@@ -2770,6 +2779,7 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
+                images: Vec::new(),
                 call_id: "e".into(),
                 tool: "edit_file".into(),
                 ok: true,
@@ -2865,6 +2875,7 @@ mod tests {
                 tool: "read_file".into(),
                 ok: true,
                 output: "<path>a.txt</path>\n<content>\n1\tsaved line\n</content>".into(),
+                images: Vec::new(),
                 ending: None,
                 lines: None,
                 change: None,

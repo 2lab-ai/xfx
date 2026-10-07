@@ -1,0 +1,22 @@
+=== ~/.xfx/history.jsonl (276 bytes)
+{"schema_version":1,"timestamp_ms":1791331986885,"workspace_root":"<scratch>/work","text":"/image wide.png"}
+{"schema_version":1,"timestamp_ms":1791331988430,"workspace_root":"<scratch>/work","text":"[Image #1] describe"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1791331988430-fbb5573e72c4cfa7/events.jsonl (2114 bytes)
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":1,"event_id":"6392fa9f64d757283a2638155d4056c5","timestamp_ms":1791331988459,"event":{"kind":"session_started","id":"1791331988430-fbb5573e72c4cfa7","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":2,"event_id":"932fc5aa371646e31764e88bfe20dae3","timestamp_ms":1791331988507,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":3,"event_id":"36e3ad5da0b5cc53645d3c3984ead140","timestamp_ms":1791331988519,"event":{"kind":"user_message","text":"[Image #1] describe"}}
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":4,"event_id":"72a458703dce8db1891f240eabdfc9ea","timestamp_ms":1791331988537,"event":{"kind":"images_attached","images":[{"id":1,"path":"<scratch>/work/wide.png","media_type":"image/png","sha256":"c27bf7313d5f0cbebba58529303722ff6eaed8accb2b6eee76a5edc5890a713d","bytes":24}]}}
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":5,"event_id":"d593809f95ca6b1a0d2061a8fdea595f","timestamp_ms":1791331988658,"event":{"kind":"assistant_message","text":"It is a small red square.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":6,"event_id":"cbdab428cafd3367e7463f9cf90e4535","timestamp_ms":1791331988670,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"requests":[{"at_ms":1791331988658,"duration_ms":106,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","seq":7,"event_id":"b4b2d08e993cb9950ced0f1e38b503c6","timestamp_ms":1791331988688,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1791331988430-fbb5573e72c4cfa7/images/image-1-c27bf7313d5f0cbe.bin (24 bytes)
+(binary)
+=== ~/.xfx/sessions/1791331988430-fbb5573e72c4cfa7/session.json (629 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791331988430-fbb5573e72c4cfa7","log_generation":"3e7a050ba2a9a9fc4af97f6dc67702eb","created_at_ms":1791331988459,"updated_at_ms":1791331988688,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"[Image #1] describe","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":7,"event_log_bytes":2114,"event_log_sha256":"fd54a69974aeae2c3d0603b107363615acda0dac8e08b513cb03d4fd1813dd1e"}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791331988670}
+

@@ -148,8 +148,8 @@ pub struct Image {
     /// within a process (`allocateImageId`, `image_attachments.zig:1366-1370`).
     pub id: u32,
     /// The file it was read from, resolved -- or, for a clipboard image, the
-    /// name its saved copy has in the session ([`Self::snapshot_name`]), which
-    /// is what upstream names one by (`image_commands.zig:144-149`).
+    /// copy written when it was pasted, named [`Self::snapshot_name`], which
+    /// is what upstream names and links one by (`image_commands.zig:138-147`).
     pub path: PathBuf,
     pub media_type: MediaType,
     /// What was read when it was attached, and nothing read since.
@@ -159,9 +159,24 @@ pub struct Image {
     pub bytes: Arc<[u8]>,
     /// The SHA-256 of [`Self::bytes`], lowercase hex.
     pub sha256: String,
+    /// Whether [`Self::path`] is the copy written when it was pasted off the
+    /// clipboard rather than a file the user named: the session then records
+    /// it by its saved copy, which outlives the paste's.
+    pub copied: bool,
 }
 
 impl Image {
+    /// This image as a part of the user message that carries it, with its
+    /// saved copy at `saved` when there is one.
+    pub fn part(&self, saved: Option<Arc<Path>>) -> crate::gateway::protocol::ContentPart {
+        crate::gateway::protocol::ContentPart::Image {
+            id: self.id,
+            media_type: self.media_type,
+            data: Arc::clone(&self.bytes),
+            saved,
+        }
+    }
+
     pub fn new(id: u32, path: PathBuf, media_type: MediaType, bytes: Arc<[u8]>) -> Self {
         let sha256 = digest(&bytes);
         Self {
@@ -170,6 +185,7 @@ impl Image {
             media_type,
             bytes,
             sha256,
+            copied: false,
         }
     }
 
@@ -206,6 +222,37 @@ pub fn token(id: u32) -> String {
 /// `image_attachments.zig:1336-1340`).
 pub fn badge(id: u32) -> String {
     format!("[Image {id}]")
+}
+
+/// The `[Image #N]` `text` begins with, as its number and its length in
+/// bytes (`matchImagePlaceholder`, `image_attachments.zig:1388-1403`): the
+/// prefix, one or more digits, and `]`. A number too large for an id names no
+/// image this session could have, and is not one.
+pub fn placeholder_at(text: &str) -> Option<(u32, usize)> {
+    const PREFIX: &str = "[Image #";
+    let after = text.strip_prefix(PREFIX)?;
+    let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 || after.as_bytes().get(digits) != Some(&b']') {
+        return None;
+    }
+    let id = after[..digits].parse::<u32>().ok()?;
+    Some((id, PREFIX.len() + digits + 1))
+}
+
+/// Every `[Image #N]` in `text`, by its number, in the order they stand
+/// ([`placeholder_at`]).
+pub fn placeholder_ids(text: &str) -> impl Iterator<Item = u32> + '_ {
+    let mut rest = text;
+    std::iter::from_fn(move || loop {
+        let at = rest.find("[Image #")?;
+        match placeholder_at(&rest[at..]) {
+            Some((id, len)) => {
+                rest = &rest[at + len..];
+                return Some(id);
+            }
+            None => rest = &rest[at + 1..],
+        }
+    })
 }
 
 /// The SHA-256 of `bytes`, lowercase hex.
@@ -416,6 +463,422 @@ pub fn load(
     Ok((path, media_type, bytes))
 }
 
+/// [`load`] for a path that is already the file's name, quotes and escapes
+/// undone -- a canonical `@"…"` word's payload (`load_user_image_literal`,
+/// `image_attachments.zig:209-224`): resolved as it stands, never normalized a
+/// second time.
+pub fn load_literal(
+    workspace: &Path,
+    home: Option<&Path>,
+    path: &str,
+) -> Result<(PathBuf, MediaType, Vec<u8>), AttachError> {
+    let path = resolve(workspace, home, path)?;
+    let (media_type, bytes) = read(&path)?;
+    Ok((path, media_type, bytes))
+}
+
+// ---------------------------------------------------------------------------
+// what one request may carry
+// ---------------------------------------------------------------------------
+
+/// The most base64 one image may be on the wire (`max_encoded_image_bytes`,
+/// `image_data.zig:5`): 5 MiB, so 3.75 MiB of image.
+pub const MAX_ENCODED_BYTES: usize = 5 * 1024 * 1024;
+
+/// The most pixels per side an image may have in a request of more than
+/// [`STRICT_IMAGE_COUNT`] images, and in one of up to that many
+/// (`max_image_dimension`, `max_single_image_dimension`, `strict_image_count`,
+/// `image_data.zig:157-159`): the strictest provider's limits.
+pub const MAX_DIMENSION: u32 = 2000;
+pub const MAX_SINGLE_DIMENSION: u32 = 8000;
+pub const STRICT_IMAGE_COUNT: usize = 20;
+
+/// Whether `raw` bytes are within [`MAX_ENCODED_BYTES`] once encoded
+/// (`fitsEncodedImageLimit`, `image_data.zig:180-183`).
+pub fn fits_encoded(raw: usize) -> bool {
+    raw.checked_add(2)
+        .map(|padded| padded / 3)
+        .and_then(|groups| groups.checked_mul(4))
+        .is_some_and(|encoded| encoded <= MAX_ENCODED_BYTES)
+}
+
+/// The pixel limit for a request carrying `count` images
+/// (`requestMaxDimension`, `image_data.zig:166-168`).
+pub fn request_max_dimension(count: usize) -> u32 {
+    if count > STRICT_IMAGE_COUNT {
+        MAX_DIMENSION
+    } else {
+        MAX_SINGLE_DIMENSION
+    }
+}
+
+/// An image's size in pixels, read from its header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Dimensions {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Dimensions {
+    fn exceeds(self, limit: u32) -> bool {
+        self.width > limit || self.height > limit
+    }
+}
+
+/// The pixel size `bytes` declare, without decoding a pixel
+/// (`imageDimensions`, `image_data.zig:194-368`), or `None` for a header that
+/// is truncated, malformed, or says zero.
+pub fn dimensions(bytes: &[u8]) -> Option<Dimensions> {
+    let sized = |width: u32, height: u32| {
+        (width != 0 && height != 0).then_some(Dimensions { width, height })
+    };
+    let be16 = |at: usize| {
+        Some(u32::from(u16::from_be_bytes([
+            *bytes.get(at)?,
+            *bytes.get(at + 1)?,
+        ])))
+    };
+    let le16 = |at: usize| {
+        Some(u32::from(u16::from_le_bytes([
+            *bytes.get(at)?,
+            *bytes.get(at + 1)?,
+        ])))
+    };
+    let le24 = |at: usize| {
+        Some(u32::from_le_bytes([
+            *bytes.get(at)?,
+            *bytes.get(at + 1)?,
+            *bytes.get(at + 2)?,
+            0,
+        ]))
+    };
+    match MediaType::sniff(bytes)? {
+        MediaType::Png => {
+            if bytes.get(12..16)? != b"IHDR" {
+                return None;
+            }
+            let be32 =
+                |at: usize| Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
+            sized(be32(16)?, be32(20)?)
+        }
+        MediaType::Gif => sized(le16(6)?, le16(8)?),
+        MediaType::Webp => match bytes.get(12..16)? {
+            b"VP8 " => {
+                if bytes.get(23..26)? != b"\x9d\x01\x2a" {
+                    return None;
+                }
+                sized(le16(26)? & 0x3fff, le16(28)? & 0x3fff)
+            }
+            b"VP8L" => {
+                if *bytes.get(20)? != 0x2f {
+                    return None;
+                }
+                let bits = u32::from_le_bytes(bytes.get(21..25)?.try_into().ok()?);
+                sized((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1)
+            }
+            b"VP8X" => sized(le24(24)? + 1, le24(27)? + 1),
+            _ => None,
+        },
+        MediaType::Jpeg => {
+            // The marker walk to the first frame header, bounded as upstream
+            // bounds it (`jpegDimensions`, `max_jpeg_segments`).
+            let mut offset = 2usize;
+            for _ in 0..4096 {
+                if *bytes.get(offset)? != 0xff {
+                    return None;
+                }
+                let marker = *bytes.get(offset + 1)?;
+                match marker {
+                    0xff => offset += 1,
+                    0x01 | 0xd0..=0xd8 => offset += 2,
+                    0xd9 | 0xda => return None,
+                    _ => {
+                        let length = be16(offset + 2)? as usize;
+                        if length < 2 {
+                            return None;
+                        }
+                        if matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
+                            return sized(be16(offset + 7)?, be16(offset + 5)?);
+                        }
+                        offset = offset.checked_add(2 + length)?;
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
+/// The extension a smaller copy of `media_type` is saved under
+/// (`mediaTypeExtension`, `image_attachments.zig:869-880`): the saved copy
+/// is a `.bin`, which hides the type from a tool that picks a decoder by name.
+fn extension(media_type: MediaType) -> &'static str {
+    match media_type {
+        MediaType::Png => ".png",
+        MediaType::Jpeg => ".jpg",
+        MediaType::Gif => ".gif",
+        MediaType::Webp => ".webp",
+    }
+}
+
+/// What the prompt says in place of an image a request does not carry
+/// (`writeWithheldAttachmentNotice`, `image_attachments.zig:841-868`), in
+/// upstream's sentences. Upstream's `source_ref` branch (a host reference
+/// with no bytes) has no counterpart: an xfx image is always bytes.
+///
+/// The note tells the model to `read_file the copy`, and `read_file` returns
+/// an image as upstream's does ([`read_file_image`]), on either wire.
+pub fn withheld_note(
+    id: u32,
+    media_type: MediaType,
+    size: Option<Dimensions>,
+    limit: u32,
+    saved: Option<&Path>,
+) -> String {
+    let mut note = match size {
+        Some(size) => format!(
+            "[Image #{id} not sent: {} is {}x{} pixels. This request permits at most {limit} per \
+             side and 5 MiB encoded per image. ",
+            media_type.label(),
+            size.width,
+            size.height
+        ),
+        None => format!("[Image #{id} not sent: its dimensions could not be verified. "),
+    };
+    match saved {
+        Some(path) => note.push_str(&format!(
+            "The original is saved at {}. Use an available image tool to save a smaller copy to \
+             a new file ending in {}, then read_file the copy. If no image tool is available, \
+             ask the user before installing one.]\n",
+            path.display(),
+            extension(media_type)
+        )),
+        None => {
+            note.push_str("No local image file is available; ask the user for a smaller copy.]\n")
+        }
+    }
+    note
+}
+
+/// `messages` as one request may carry them: every image too large to send
+/// -- over [`MAX_ENCODED_BYTES`] once encoded, over the request's pixel limit
+/// ([`request_max_dimension`] of how many images it carries), or with a size
+/// its header does not say -- taken out, and its [`withheld_note`] put in
+/// front of the text of the message it was on (`withholdOversizedAttachments`,
+/// `image_attachments.zig:882-920`).
+///
+/// A projection of one request: the history and the log keep every image,
+/// and a later request decides again.
+pub fn withhold(
+    mut messages: Vec<crate::gateway::protocol::Message>,
+) -> Vec<crate::gateway::protocol::Message> {
+    use crate::gateway::protocol::ContentPart;
+    // Every image the request carries counts, a tool result's with the
+    // user's (`countRequestImages`, `image_data.zig:171-178`).
+    let count = messages
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .map(|part| match part {
+            ContentPart::Image { .. } => 1,
+            ContentPart::ToolResult { images, .. } => images.len(),
+            _ => 0,
+        })
+        .sum::<usize>();
+    if count == 0 {
+        return messages;
+    }
+    let limit = request_max_dimension(count);
+    for message in &mut messages {
+        // A tool result's own images, with upstream's note for each in front
+        // of its output (`withholdRequestToolImages`,
+        // `execution_memory.zig:730-766`).
+        for part in &mut message.content {
+            let ContentPart::ToolResult { output, images, .. } = part else {
+                continue;
+            };
+            let mut notes = String::new();
+            images.retain(|image| {
+                let size = dimensions(&image.data);
+                if size.is_some_and(|size| !size.exceeds(limit)) && fits_encoded(image.data.len()) {
+                    return true;
+                }
+                notes.push_str(&withheld_tool_note(image.media_type, size, limit));
+                false
+            });
+            output.insert_str(0, &notes);
+        }
+        let mut notes = String::new();
+        message.content.retain(|part| {
+            let ContentPart::Image {
+                id,
+                media_type,
+                data,
+                saved,
+            } = part
+            else {
+                return true;
+            };
+            let size = dimensions(data);
+            if size.is_some_and(|size| !size.exceeds(limit)) && fits_encoded(data.len()) {
+                return true;
+            }
+            notes.push_str(&withheld_note(
+                *id,
+                *media_type,
+                size,
+                limit,
+                saved.as_deref(),
+            ));
+            false
+        });
+        if notes.is_empty() {
+            continue;
+        }
+        match message.content.iter_mut().find_map(|part| match part {
+            ContentPart::Text { text } => Some(text),
+            _ => None,
+        }) {
+            Some(text) => text.insert_str(0, &notes),
+            None => message.content.insert(0, ContentPart::Text { text: notes }),
+        }
+    }
+    messages
+}
+
+/// What a tool result says in place of an image of its own that a request
+/// does not carry (`withholdRequestToolImages`, `execution_memory.zig:745-756`).
+/// Upstream's sentences; its host-reference branch has no counterpart here.
+pub fn withheld_tool_note(media_type: MediaType, size: Option<Dimensions>, limit: u32) -> String {
+    let mut note = match size {
+        Some(size) => format!(
+            "[Image not sent: {} is {}x{} pixels; this request permits at most {limit} per side \
+             and 5 MiB encoded per image. ",
+            media_type.label(),
+            size.width,
+            size.height
+        ),
+        None => "[Image not sent: its dimensions could not be verified. ".to_string(),
+    };
+    note.push_str(
+        "If this tool result names a local file, use an available image tool to save a smaller \
+         copy, then read_file the copy. If no tool or path is available, ask the user; ask \
+         before installing software.]\n",
+    );
+    note
+}
+
+// ---------------------------------------------------------------------------
+// an image a tool hands the model
+// ---------------------------------------------------------------------------
+
+/// An image a tool returned with its result: `read_file` of an image file
+/// (`imageToolResult`, `read_file.zig:228-278`). The model sees it after the
+/// result's text -- on the Gateway in a user message after the tool results,
+/// on llmux inside the `tool_result` block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolImage {
+    pub media_type: MediaType,
+    pub data: Arc<[u8]>,
+    /// The file it was read from, as the tool named it.
+    pub path: String,
+}
+
+/// The text a user message carries the tool results' images under on the
+/// Gateway (`tool_image_followup_text`, `vercel_protocol.zig:677`).
+pub const TOOL_IMAGES_FOLLOWUP: &str = "Attached image(s) from the tool result.";
+
+/// What a tool result says in place of its images for a model that does not
+/// read them inline, on the Gateway (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`): a model the catalog lists without `vision` and
+/// `file-input`, with no `vision` tool to fall back on.
+pub const TOOL_IMAGES_NOT_NATIVE: &str = "[Tool images were retained but not sent: this model does not accept inline images and no vision fallback is available. Ask the user to attach the image directly or switch to a vision-capable model.]\n";
+
+/// The same, for a model whose image input nobody can vouch for: unlisted,
+/// or the catalog unread. Upstream's sentence with this product's name.
+pub const TOOL_IMAGES_UNKNOWN: &str = "[Tool images were retained but not sent: xfx could not confirm image input support for this model (the model is not listed in the model catalog, or the catalog is unavailable). This can recover later in the session, so a retry may succeed; otherwise ask the user to attach the image directly.]\n";
+
+/// Every tool result's images in `request` taken out, `note` put in front of
+/// each output that had any (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`). `None` when there were none to take.
+pub fn strip_tool_images(
+    request: &crate::gateway::protocol::CompletionRequest,
+    note: &str,
+) -> Option<crate::gateway::protocol::CompletionRequest> {
+    use crate::gateway::protocol::ContentPart;
+    let carries = request.messages.iter().any(|message| {
+        message.content.iter().any(
+            |part| matches!(part, ContentPart::ToolResult { images, .. } if !images.is_empty()),
+        )
+    });
+    if !carries {
+        return None;
+    }
+    let mut stripped = request.clone();
+    for message in &mut stripped.messages {
+        for part in &mut message.content {
+            if let ContentPart::ToolResult { output, images, .. } = part {
+                if !images.is_empty() {
+                    images.clear();
+                    output.insert_str(0, note);
+                }
+            }
+        }
+    }
+    Some(stripped)
+}
+
+/// What `read_file` returns for a file whose bytes are an image
+/// (`imageToolResult`, `read_file.zig:228-278`), or `None` for bytes that are
+/// not one -- which `read_file` names as binary.
+///
+/// An image the request could carry -- read whole, its size known, at most
+/// 8000 pixels a side and 5 MiB once encoded -- is attached, the text saying
+/// so; any other is not, and the text says why and what the model can do.
+/// `complete` is whether `bytes` is the whole file.
+pub fn read_file_image(
+    display: &str,
+    bytes: &[u8],
+    file_size: u64,
+    complete: bool,
+) -> Option<(String, Option<ToolImage>)> {
+    let media_type = MediaType::sniff(bytes)?;
+    let size = dimensions(bytes);
+    let reason = if !complete {
+        Some("the file exceeds read_file's 10 MiB read limit")
+    } else if size.is_none() {
+        Some("the image dimensions could not be verified")
+    } else if !fits_encoded(bytes.len()) {
+        Some("the image exceeds the 5 MiB encoded attach limit")
+    } else if size.is_some_and(|size| size.exceeds(MAX_SINGLE_DIMENSION)) {
+        Some("the image exceeds 8000 pixels per side")
+    } else {
+        None
+    };
+    let label = media_type.label();
+    Some(match reason {
+        Some(reason) => (
+            format!(
+                "<path>{display}</path>\n<content>image not attached: {label} ({file_size} \
+                 bytes); {reason}. Use an available image tool to save a smaller copy to a new \
+                 file, then read_file the copy. If no image tool is available, ask the user \
+                 before installing one.</content>"
+            ),
+            None,
+        ),
+        None => (
+            format!(
+                "<path>{display}</path>\n<content>image attached ({label}, {file_size} \
+                 bytes)</content>"
+            ),
+            Some(ToolImage {
+                media_type,
+                data: Arc::from(bytes),
+                path: display.to_string(),
+            }),
+        ),
+    })
+}
+
 /// `bytes` as standard base64 with padding (RFC 4648 §4) -- what both wires
 /// carry an image as.
 ///
@@ -460,6 +923,16 @@ pub(crate) mod fixture {
         0x9e, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
     ];
 
+    /// A PNG signature and an `IHDR` declaring `width` x `height`: enough for
+    /// the type and the size, not for a decoder (`testPngHeader`,
+    /// `image_data.zig:370-379`).
+    pub(crate) fn png_header(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&height.to_be_bytes());
+        bytes
+    }
+
     /// What upstream sent for it: `data` of the first `file` part in
     /// `cap/fx-image-40x120-bodies/001-completion.json`.
     pub(crate) const SHOT_PNG_BASE64: &str =
@@ -470,6 +943,318 @@ pub(crate) mod fixture {
 mod tests {
     use super::fixture::{SHOT_PNG, SHOT_PNG_BASE64};
     use super::*;
+
+    use super::fixture::png_header;
+
+    /// Upstream's JPEG fixture: SOI, APP0, DHT, a fill byte, a progressive
+    /// frame header and EOI, so the walk crosses every kind of marker
+    /// (`testJpeg`, `image_data.zig:380-397`).
+    fn jpeg(width: u16, height: u16) -> Vec<u8> {
+        let mut bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xc4\x00\x04\x00\x00\xff\xff\xc2\x00\x11\x08\x00\x00\x00\x00\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01\xff\xd9".to_vec();
+        bytes[32..34].copy_from_slice(&height.to_be_bytes());
+        bytes[34..36].copy_from_slice(&width.to_be_bytes());
+        bytes
+    }
+
+    #[test]
+    fn a_size_is_read_from_each_formats_header_and_a_bad_one_is_none() {
+        let size = |width, height| Some(Dimensions { width, height });
+        assert_eq!(dimensions(fixture::SHOT_PNG), size(4, 4));
+        assert_eq!(dimensions(&png_header(3420, 2224)), size(3420, 2224));
+        assert_eq!(dimensions(&jpeg(8001, 600)), size(8001, 600));
+        assert_eq!(dimensions(b"GIF89a\x40\x01\xf0\x00"), size(320, 240));
+        let mut vp8x = b"RIFF\0\0\0\0WEBPVP8X\0\0\0\0\0\0\0\0".to_vec();
+        vp8x.extend_from_slice(&[0x3f, 0x1f, 0x00, 0x7f, 0x3e, 0x00]);
+        assert_eq!(dimensions(&vp8x), size(8000, 16000));
+        let mut vp8l = b"RIFF\0\0\0\0WEBPVP8L\0\0\0\0\x2f".to_vec();
+        vp8l.extend_from_slice(&(99u32 | (49u32 << 14)).to_le_bytes());
+        assert_eq!(dimensions(&vp8l), size(100, 50));
+        let mut vp8 = b"RIFF\0\0\0\0WEBPVP8 \0\0\0\0\0\0\0\x9d\x01\x2a".to_vec();
+        vp8.extend_from_slice(&[0x80, 0x02, 0xe0, 0x01]);
+        assert_eq!(dimensions(&vp8), size(640, 480));
+        // Upstream's malformed and truncated headers (`image_data.zig:493-510`).
+        assert_eq!(dimensions(&png_header(0, 10)), None);
+        assert_eq!(dimensions(&png_header(10, 10)[..23]), None);
+        let mut not_ihdr = png_header(10, 10);
+        not_ihdr[12..16].copy_from_slice(b"IDAT");
+        assert_eq!(dimensions(&not_ihdr), None);
+        assert_eq!(dimensions(&jpeg(10, 10)[..35]), None);
+        let mut scan_first = jpeg(10, 10);
+        scan_first[3] = 0xda;
+        assert_eq!(dimensions(&scan_first), None);
+        let mut short_length = jpeg(10, 10);
+        short_length[4..6].copy_from_slice(&1u16.to_be_bytes());
+        assert_eq!(dimensions(&short_length), None);
+        assert_eq!(dimensions(b"\xff\xd8\xff\xd9"), None);
+        assert_eq!(dimensions(b"GIF89a\x01"), None);
+        assert_eq!(dimensions(b"not an image"), None);
+    }
+
+    #[test]
+    fn the_encoded_ceiling_and_the_pixel_limit_are_upstreams() {
+        // `fitsEncodedImageLimit` (`image_data.zig:476-480`).
+        let max_raw = MAX_ENCODED_BYTES / 4 * 3;
+        assert!(fits_encoded(max_raw));
+        assert!(!fits_encoded(max_raw + 1));
+        assert!(!fits_encoded(usize::MAX));
+        assert_eq!(request_max_dimension(1), 8000);
+        assert_eq!(request_max_dimension(20), 8000);
+        assert_eq!(request_max_dimension(21), 2000);
+    }
+
+    fn image_part(
+        id: u32,
+        bytes: Vec<u8>,
+        saved: Option<&str>,
+    ) -> crate::gateway::protocol::ContentPart {
+        crate::gateway::protocol::ContentPart::Image {
+            id,
+            media_type: MediaType::sniff(&bytes).unwrap_or(MediaType::Png),
+            data: Arc::from(bytes),
+            saved: saved.map(|path| Arc::from(Path::new(path))),
+        }
+    }
+
+    fn images_on(message: &crate::gateway::protocol::Message) -> Vec<u32> {
+        message
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                crate::gateway::protocol::ContentPart::Image { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_image_a_request_cannot_carry_is_withheld_and_named_in_front_of_the_text() {
+        // `withholdOversizedAttachments` and `writeWithheldAttachmentNotice`
+        // (`image_attachments.zig:841-920`): the image stays out, the text
+        // says which and why in upstream's sentences, and its neighbour that
+        // fits is sent.
+        use crate::gateway::protocol::Message;
+        let wide = "/h/.xfx/sessions/s/images/image-2-0123456789abcdef.bin";
+        let messages = vec![
+            Message::system("rules"),
+            Message::user_with_images(
+                "[Image #1][Image #2] compare",
+                [
+                    image_part(1, fixture::SHOT_PNG.to_vec(), None),
+                    image_part(2, png_header(8001, 10), Some(wide)),
+                ],
+            ),
+        ];
+        let sent = withhold(messages);
+        assert_eq!(images_on(&sent[1]), [1]);
+        assert_eq!(
+            sent[1].text(),
+            format!(
+                "[Image #2 not sent: image/png is 8001x10 pixels. This request permits at most \
+                 8000 per side and 5 MiB encoded per image. The original is saved at {wide}. Use \
+                 an available image tool to save a smaller copy to a new file ending in .png, then \
+                 read_file the copy. If no image tool is available, ask the user before installing \
+                 one.]\n[Image #1][Image #2] compare"
+            )
+        );
+        assert_eq!(
+            sent[0].text(),
+            "rules",
+            "a message with no image is left alone"
+        );
+    }
+
+    #[test]
+    fn an_image_over_the_encoded_ceiling_or_of_no_known_size_is_withheld_too() {
+        use crate::gateway::protocol::Message;
+        let mut big = png_header(100, 100);
+        big.resize(MAX_ENCODED_BYTES / 4 * 3 + 1, 0);
+        let mut no_size = png_header(10, 10);
+        no_size[12..16].copy_from_slice(b"XXXX");
+        let sent = withhold(vec![Message::user_with_images(
+            "[Image #3][Image #4] look",
+            [image_part(3, big, None), image_part(4, no_size, None)],
+        )]);
+        assert!(images_on(&sent[0]).is_empty());
+        assert_eq!(
+            sent[0].text(),
+            "[Image #3 not sent: image/png is 100x100 pixels. This request permits at most 8000 \
+             per side and 5 MiB encoded per image. No local image file is available; ask the user \
+             for a smaller copy.]\n[Image #4 not sent: its dimensions could not be verified. No \
+             local image file is available; ask the user for a smaller copy.]\n[Image #3][Image \
+             #4] look"
+        );
+        // A JPEG is saved under upstream's extension for one.
+        let jpg = withheld_note(9, MediaType::Jpeg, None, 8000, Some(Path::new("/s/x.bin")));
+        assert!(jpg.contains("a new file ending in .jpg,"), "{jpg}");
+    }
+
+    #[test]
+    fn past_twenty_images_a_request_permits_two_thousand_pixels_a_side() {
+        use crate::gateway::protocol::Message;
+        let turn = |count: u32| {
+            Message::user_with_images(
+                "pictures",
+                (1..=count).map(|id| image_part(id, png_header(2001, 10), None)),
+            )
+        };
+        // Twenty: every one is within 8000.
+        assert_eq!(images_on(&withhold(vec![turn(20)])[0]).len(), 20);
+        // Twenty-one, counted across the whole request: none is within 2000.
+        let sent = withhold(vec![
+            turn(20),
+            Message::assistant(Some("ok"), Vec::new()),
+            turn(1),
+        ]);
+        assert!(images_on(&sent[0]).is_empty());
+        assert!(images_on(&sent[2]).is_empty());
+        assert!(
+            sent[2].text().contains("at most 2000 per side"),
+            "{}",
+            sent[2].text()
+        );
+    }
+
+    #[test]
+    fn read_file_attaches_an_image_a_request_can_carry_and_says_why_not_otherwise() {
+        // `imageToolResult` (`read_file.zig:228-278`) and its cases
+        // (`:728-890`).
+        let (text, image) =
+            read_file_image("shot.png", fixture::SHOT_PNG, 73, true).expect("an image");
+        assert_eq!(
+            text,
+            "<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"
+        );
+        let image = image.expect("attached");
+        assert_eq!(image.media_type, MediaType::Png);
+        assert_eq!(&image.data[..], fixture::SHOT_PNG);
+        let refused = |bytes: &[u8], complete: bool| {
+            let (text, image) =
+                read_file_image("p.png", bytes, bytes.len() as u64, complete).expect("an image");
+            assert!(image.is_none(), "{text}");
+            text
+        };
+        let edge = png_header(8000, 8000);
+        assert!(read_file_image("e.png", &edge, 24, true)
+            .expect("an image")
+            .1
+            .is_some());
+        let wide = refused(&png_header(8001, 1), true);
+        assert_eq!(
+            wide,
+            "<path>p.png</path>\n<content>image not attached: image/png (24 bytes); the image \
+             exceeds 8000 pixels per side. Use an available image tool to save a smaller copy to \
+             a new file, then read_file the copy. If no image tool is available, ask the user \
+             before installing one.</content>"
+        );
+        let mut no_size = png_header(10, 10);
+        no_size[12..16].copy_from_slice(b"IDAT");
+        assert!(refused(&no_size, true).contains("the image dimensions could not be verified."));
+        let mut big = png_header(10, 10);
+        big.resize(MAX_ENCODED_BYTES / 4 * 3 + 1, 0);
+        assert!(refused(&big, true).contains("the image exceeds the 5 MiB encoded attach limit."));
+        assert!(refused(fixture::SHOT_PNG, false)
+            .contains("the file exceeds read_file's 10 MiB read limit."));
+        assert_eq!(read_file_image("a.bin", b"\x00\x01binary", 8, true), None);
+    }
+
+    fn tool_message(images: Vec<ToolImage>) -> crate::gateway::protocol::Message {
+        crate::gateway::protocol::Message::tool_result_with_images(
+            "c1",
+            "read_file",
+            "seen",
+            images,
+        )
+    }
+
+    fn tool_image(bytes: Vec<u8>) -> ToolImage {
+        ToolImage {
+            media_type: MediaType::Png,
+            data: Arc::from(bytes),
+            path: "x.png".to_string(),
+        }
+    }
+
+    fn tool_parts(message: &crate::gateway::protocol::Message) -> (String, usize) {
+        match &message.content[0] {
+            crate::gateway::protocol::ContentPart::ToolResult { output, images, .. } => {
+                (output.clone(), images.len())
+            }
+            other => panic!("not a result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_tool_image_counts_toward_the_request_and_is_withheld_with_upstreams_tool_note() {
+        // `countRequestImages` counts both kinds (`image_data.zig:171-178`);
+        // `withholdRequestToolImages` writes its own note
+        // (`execution_memory.zig:730-766`).
+        use crate::gateway::protocol::Message;
+        let users = Message::user_with_images(
+            "many",
+            (1..=20).map(|id| image_part(id, fixture::SHOT_PNG.to_vec(), None)),
+        );
+        let sent = withhold(vec![
+            users,
+            tool_message(vec![tool_image(png_header(2001, 10))]),
+        ]);
+        assert_eq!(images_on(&sent[0]).len(), 20, "the user images fit 2000");
+        assert_eq!(
+            tool_parts(&sent[1]),
+            (
+                "[Image not sent: image/png is 2001x10 pixels; this request permits at most 2000 \
+                 per side and 5 MiB encoded per image. If this tool result names a local file, \
+                 use an available image tool to save a smaller copy, then read_file the copy. If \
+                 no tool or path is available, ask the user; ask before installing software.]\n\
+                 seen"
+                    .to_string(),
+                0
+            )
+        );
+        // Alone in a request, the same image is within 8000 and goes.
+        let alone = withhold(vec![tool_message(vec![tool_image(png_header(2001, 10))])]);
+        assert_eq!(tool_parts(&alone[0]), ("seen".to_string(), 1));
+    }
+
+    #[test]
+    fn a_model_that_cannot_read_tool_images_gets_upstreams_sentence_in_their_place() {
+        use crate::gateway::protocol::{CompletionRequest, Message, ToolChoice};
+        let request = CompletionRequest {
+            model: "m".to_string(),
+            messages: vec![
+                Message::user("read it"),
+                tool_message(vec![tool_image(fixture::SHOT_PNG.to_vec())]),
+            ],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let stripped = strip_tool_images(&request, TOOL_IMAGES_NOT_NATIVE).expect("stripped");
+        assert_eq!(
+            tool_parts(&stripped.messages[1]),
+            (format!("{TOOL_IMAGES_NOT_NATIVE}seen"), 0)
+        );
+        assert_eq!(
+            tool_parts(&request.messages[1]).1,
+            1,
+            "the history is left alone"
+        );
+        let plain = CompletionRequest {
+            messages: vec![Message::user("hi")],
+            ..request
+        };
+        assert!(strip_tool_images(&plain, TOOL_IMAGES_UNKNOWN).is_none());
+    }
+
+    #[test]
+    fn a_placeholder_is_the_prefix_digits_and_a_bracket_and_nothing_else() {
+        let ids = |text: &str| placeholder_ids(text).collect::<Vec<_>>();
+        assert_eq!(ids("[Image #1] and [Image #23]"), [1, 23]);
+        assert_eq!(
+            ids("[Image 1] [Image #] [Image #x] [Image #2"),
+            Vec::<u32>::new()
+        );
+        assert_eq!(ids("[Image #[Image #4]"), [4]);
+        assert_eq!(ids("[Image #99999999999] [Image #5]"), [5]);
+    }
 
     #[test]
     fn base64_is_the_bytes_upstream_sent_for_the_same_file() {

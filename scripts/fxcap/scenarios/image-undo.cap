@@ -1,0 +1,29 @@
+# An undo over a badge: `look ` typed, `shot.png` pasted (its badge), then
+# Backspace takes the badge and Ctrl-_ (undo) twice finds nothing to take
+# back. Then `shot.png` pasted again, Ctrl-U kills the line with its badge,
+# Ctrl-Y yanks it back, and an undo leaves the yank where it is.
+models models-image.json
+work image-ws
+wait 5
+type look
+key Space
+paste shot.png
+wait 1.5
+snap pasted
+key BSpace
+wait 0.5
+snap deleted
+key C-_
+wait 0.5
+key C-_
+wait 0.5
+snap undone
+paste shot.png
+wait 1.5
+key C-u
+key C-y
+wait 0.5
+snap yanked
+key C-_
+wait 0.5
+snap yank-undone

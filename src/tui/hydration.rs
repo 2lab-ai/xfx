@@ -47,9 +47,11 @@ pub(crate) struct Hydration {
     pub(crate) settings: Option<crate::provider::effort::TurnSettings>,
     /// Whether the Fast mode those settings carry stays **bound** to the
     /// model (the footer's `⚡︎`): only when the session recorded the selection
-    /// the session was configured with -- the same model and the same Fast
-    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
-    /// Read only beside [`Self::settings`].
+    /// the session was configured with -- the same provider, the same model
+    /// and the same Fast (`restoredFastModeModelBound`,
+    /// `app_session_runtime.zig:6318-6328`;
+    /// [`super::worker::Resumption::keeps_fast_binding`]). Read only beside
+    /// [`Self::settings`].
     pub(crate) keeps_fast_binding: bool,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
@@ -61,11 +63,10 @@ pub(crate) struct Hydration {
 /// One turn of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HydratedTurn {
-    /// The prompt as its card shows it: the log's text, with each image's
-    /// `[Image #N]` spelled as the badge the composer showed, `[Image N]`.
-    pub(crate) user: String,
-    /// The prompt exactly as the log holds it -- what the model was sent, and
-    /// what the turn's summary counts, as a live turn's does.
+    /// The prompt exactly as the log holds it -- what the model was sent, what
+    /// the turn's summary counts, and what its card is made from: each
+    /// `[Image #N]` that names one of [`Self::images`] is a badge there, as a
+    /// live card's is (`super::shell`'s `card_line`).
     pub(crate) sent: String,
     pub(crate) steps: Vec<HydratedStep>,
     pub(crate) ending: Ending,
@@ -263,17 +264,7 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         Some(crate::session::TurnConclusion::Interrupted { .. }) => Ending::Failed,
         None => Ending::Unconcluded,
     };
-    // The card says what the composer said: each image's badge, `[Image N]`,
-    // where the prompt the model was sent says `[Image #N]`.
-    let mut user = turn.user.clone();
-    for image in &turn.images {
-        user = user.replace(
-            &crate::image::token(image.recorded.id),
-            &crate::image::badge(image.recorded.id),
-        );
-    }
     HydratedTurn {
-        user,
         sent: turn.user.clone(),
         steps,
         ending,
@@ -362,6 +353,7 @@ mod tests {
             origin_workspace_root: "/w".to_string(),
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
+            provider: None,
             permission_mode: crate::config::PermissionMode::Auto,
             turns: vec![turn],
             grants: Vec::new(),
@@ -375,10 +367,16 @@ mod tests {
             checkpoint: None,
         };
         let replay = Hydration::of(&state, None);
-        // `#9` names no image of the turn: those are the user's own words.
+        // The card is made from the prompt as sent and the turn's images; `#9`
+        // names no image of the turn, so it stays the user's own words there
+        // (`super::shell`'s cases).
         assert_eq!(
-            replay.turns[0].user,
-            "[Image 3][Image 4] what is in this image? [Image #9]"
+            replay.turns[0]
+                .images
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            [3, 4]
         );
         assert_eq!(
             replay.turns[0].sent,
@@ -418,6 +416,7 @@ mod tests {
                     tool: "read_file".to_string(),
                     ok: false,
                     output: "no such path: `a.txt`\nmore".to_string(),
+                    images: Vec::new(),
                 },
                 TurnStep::ToolFeedback {
                     call_id: "c1".to_string(),
@@ -438,7 +437,7 @@ mod tests {
             },
         );
         let replayed = super::turn(&turn);
-        assert_eq!(replayed.user, "read it");
+        assert_eq!(replayed.sent, "read it");
         assert_eq!(replayed.steps.len(), 5, "{:?}", replayed.steps);
         assert_eq!(
             replayed.steps[0],
@@ -515,6 +514,7 @@ mod tests {
         lines: Option<LineCounts>,
     ) -> TurnStep {
         TurnStep::ToolResult {
+            images: Vec::new(),
             call_id: id.to_string(),
             tool: "t".to_string(),
             ok,

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* fast: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+* fast: on
+
+* fast: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+* fast: off
+
+┃
+
+auto · opus 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

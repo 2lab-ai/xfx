@@ -399,7 +399,9 @@ pub struct ToolResult {
     /// The text the model sees.
     pub output: String,
     /// A one-line summary for the `tool_result` event a human watches.
-    pub detail: String,
+    /// `Box<str>`, as [`Self::feedback`] is: never grown once made, and every
+    /// byte of a result is carried through every refusal path.
+    pub detail: Box<str>,
     /// Whether this result ends the turn instead of going back to the model.
     ///
     /// Almost always false: a refusal is information the model can act on. It is
@@ -414,6 +416,9 @@ pub struct ToolResult {
     /// into [`Self::output`]: merging would let a user's sentence be read as the
     /// tool's own report of what it did. It is context, not authority -- the
     /// call that ran is the one that was judged, whatever this says.
+    ///
+    /// `Box<str>` rather than `String`: it is never grown, and a result is
+    /// returned by value through every refusal path, so its size is kept down.
     pub feedback: Option<Box<str>>,
     /// How the call ended, for the person watching rather than for the model
     /// ([`Outcome`]). Never part of [`Self::output`].
@@ -434,9 +439,14 @@ pub struct ToolResult {
     /// shows the command's output and the signal it died of
     /// (`fx-resume-tools-40x120-live-ctrl-o`: `│ signal 15`). Never part of
     /// [`Self::output`] or of the session's log. Boxed for the reason
-    /// [`Self::change`] is, and [`Self::feedback`] a boxed `str` so the two
-    /// cost a result no more than the one did.
+    /// [`Self::change`] is.
     pub presented: Option<Box<String>>,
+    /// The image the result carries for the model beside [`Self::output`]:
+    /// `read_file` of an image file (`read_file.zig:228-278`), and none for
+    /// any other call. Only a result that succeeded carries one. Boxed: a
+    /// result travels by value through every refusal path, and almost none
+    /// carries an image.
+    pub image: Option<Box<crate::image::ToolImage>>,
 }
 
 /// What follows the tool's name in every refusal ([`ToolResult::refused`]).
@@ -458,13 +468,14 @@ impl ToolResult {
         Self {
             ok: true,
             output: output.into(),
-            detail: summarize(&detail.into()),
+            detail: summarize(&detail.into()).into_boxed_str(),
             fatal: false,
             feedback: None,
             outcome: Outcome::Finished,
             changes: None,
             change: None,
             presented: None,
+            image: None,
         }
     }
 
@@ -486,11 +497,17 @@ impl ToolResult {
         self
     }
 
+    /// The same result, carrying an image for the model.
+    pub fn with_image(mut self, image: Option<crate::image::ToolImage>) -> Self {
+        self.image = image.map(Box::new);
+        self
+    }
+
     /// A refusal. The summary is the first line of the explanation, bounded, so
     /// a long filesystem error cannot flood a human's event stream.
     pub fn failure(output: impl Into<String>) -> Self {
         let output = output.into();
-        let detail = summarize(&output);
+        let detail = summarize(&output).into_boxed_str();
         Self {
             ok: false,
             output,
@@ -501,6 +518,7 @@ impl ToolResult {
             changes: None,
             change: None,
             presented: None,
+            image: None,
         }
     }
 
@@ -518,7 +536,7 @@ impl ToolResult {
     /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/tool_presentation.zig:
     /// 1253-1301`; `fx-read-failures-40x120-live`: `Failed src`).
     pub fn unexplained(mut self) -> Self {
-        self.detail.clear();
+        self.detail = Box::default();
         self
     }
 
@@ -1322,7 +1340,7 @@ mod tests {
     fn a_failure_summary_is_the_first_line_and_is_bounded() {
         let result = ToolResult::failure("no such path: `x`\nmore detail");
         assert!(!result.ok);
-        assert_eq!(result.detail, "no such path: `x`");
+        assert_eq!(&*result.detail, "no such path: `x`");
 
         let long = ToolResult::failure("e".repeat(400));
         assert!(long.detail.len() <= 164, "{}", long.detail.len());

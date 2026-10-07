@@ -1,46 +1,46 @@
-=== ~/.fx/backups/settings.json.backup.1791323997637-0000000000000001-4ac00e7700a9c55dc2d38889ce8d8054 (59 bytes)
+=== ~/.fx/backups/settings.json.backup.1791342160416-0000000000000001-e1a200545e2fea6fff384b68fcb27f6a (59 bytes)
 {"models":{"gateway":"fake/model-a"},"provider":"gateway"}
 
-=== ~/.fx/backups/settings.json.backup.1791324001594-0000000000000002-2d5e3bce58e7dc38914eb4796c1deb86 (150 bytes)
+=== ~/.fx/backups/settings.json.backup.1791342164466-0000000000000002-e1f7267f4f57393f9010c9a83f0e4444 (150 bytes)
 {"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high","fast_mode":false,"ultrafast_mode":true,"fast_mode_model_bound":true}
 
-=== ~/.fx/backups/settings.json.backup.1791324008299-0000000000000003-0aa9bb49c6e27774846d30550cf1227a (150 bytes)
+=== ~/.fx/backups/settings.json.backup.1791342171075-0000000000000003-2a0c70282c92fd0d5c5d194578eb62aa (150 bytes)
 {"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"high","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}
 
-=== ~/.fx/continue/772a80954093ddceff4569efb4451d224210dc082e077f2e2c8d879b75685e4e (13 bytes)
-eTRsyL-0wflz
+=== ~/.fx/continue/6baa6dedecf3cf6967f9dbed05f0d9be50237e5b051d8c53aa2d74cdb01d2e84 (13 bytes)
+6hzJFubKMPot
 
 === ~/.fx/history.jsonl (389 bytes)
-{"schema_version":1,"timestamp_ms":1791323999045,"workspace_root":"<scratch>/work","text":"say something"}
-{"schema_version":1,"timestamp_ms":1791324001593,"workspace_root":"<scratch>/work","text":"/fast"}
-{"schema_version":1,"timestamp_ms":1791324002921,"workspace_root":"<scratch>/work","text":"say more"}
+{"schema_version":1,"timestamp_ms":1791342161923,"workspace_root":"<scratch>/work","text":"say something"}
+{"schema_version":1,"timestamp_ms":1791342164464,"workspace_root":"<scratch>/work","text":"/fast"}
+{"schema_version":1,"timestamp_ms":1791342165738,"workspace_root":"<scratch>/work","text":"say more"}
 
 === ~/.fx/history.lock (0 bytes)
-=== ~/.fx/sessions/eTRsyL-0wflz/events.jsonl (1206 bytes)
-{"schema_version":3,"seq":1,"timestamp_ms":1791323999079,"event":{"user":{"text":"say something","images":[],"work_id":null}}}
-{"schema_version":3,"seq":2,"timestamp_ms":1791323999079,"event":{"assistant":{"text":"MARKER-ULTRA-TURN","provider_replay":null,"standalone_response":false}}}
-{"schema_version":3,"seq":3,"timestamp_ms":1791323999079,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791323999046,"completed_at_ms":1791323999072,"thinking_duration_ms":3,"turn_duration_ms":26,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
-{"schema_version":3,"seq":4,"timestamp_ms":1791324002956,"event":{"user":{"text":"say more","images":[],"work_id":null}}}
-{"schema_version":3,"seq":5,"timestamp_ms":1791324002956,"event":{"assistant":{"text":"MARKER-FAST-TURN","provider_replay":null,"standalone_response":false}}}
-{"schema_version":3,"seq":6,"timestamp_ms":1791324002956,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791324002927,"completed_at_ms":1791324002949,"thinking_duration_ms":9,"turn_duration_ms":22,"token_progress":{"input_tokens":2,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+=== ~/.fx/sessions/6hzJFubKMPot/events.jsonl (1210 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791342162403,"event":{"user":{"text":"say something","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791342162403,"event":{"assistant":{"text":"MARKER-ULTRA-TURN","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791342162403,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791342161963,"completed_at_ms":1791342162341,"thinking_duration_ms":120,"turn_duration_ms":378,"token_progress":{"input_tokens":4,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+{"schema_version":3,"seq":4,"timestamp_ms":1791342165801,"event":{"user":{"text":"say more","images":[],"work_id":null}}}
+{"schema_version":3,"seq":5,"timestamp_ms":1791342165801,"event":{"assistant":{"text":"MARKER-FAST-TURN","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":6,"timestamp_ms":1791342165801,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791342165740,"completed_at_ms":1791342165797,"thinking_duration_ms":32,"turn_duration_ms":57,"token_progress":{"input_tokens":2,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
 
-=== ~/.fx/sessions/eTRsyL-0wflz/owner.live (42 bytes)
-{"pid":5848,"opened_at_ms":1791323991891}
+=== ~/.fx/sessions/6hzJFubKMPot/owner.live (43 bytes)
+{"pid":91405,"opened_at_ms":1791342153603}
 
-=== ~/.fx/sessions/eTRsyL-0wflz/permissions.json (51 bytes)
+=== ~/.fx/sessions/6hzJFubKMPot/permissions.json (51 bytes)
 {"schema_version":2,"next_generation":1,"rules":[]}
-=== ~/.fx/sessions/eTRsyL-0wflz/session.json (371 bytes)
-{"schema_version":4,"id":"eTRsyL-0wflz","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791323991873,"updated_at_ms":1791324008300,"conversation_language":"und-Latn","provider":"gateway","model":"openai/gpt-6-astra","effort":"xhigh","fast_mode":true,"subagent_child":false}
-=== ~/.fx/sessions/eTRsyL-0wflz/session.lock (0 bytes)
-=== ~/.fx/sessions/eTRsyL-0wflz/usage-v2.json (539 bytes)
-{"schema_version":1,"session_id":"eTRsyL-0wflz","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":3,"settled_through_sequence":2,"api_duration_ms":31,"wall_duration_ms":11076,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/sessions/6hzJFubKMPot/session.json (371 bytes)
+{"schema_version":4,"id":"6hzJFubKMPot","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791342153575,"updated_at_ms":1791342171076,"conversation_language":"und-Latn","provider":"gateway","model":"openai/gpt-6-astra","effort":"xhigh","fast_mode":true,"subagent_child":false}
+=== ~/.fx/sessions/6hzJFubKMPot/session.lock (0 bytes)
+=== ~/.fx/sessions/6hzJFubKMPot/usage-v2.json (539 bytes)
+{"schema_version":1,"session_id":"6hzJFubKMPot","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":3,"settled_through_sequence":2,"api_duration_ms":55,"wall_duration_ms":12222,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
 === ~/.fx/settings.json (151 bytes)
 {"models":{"gateway":"openai/gpt-6-astra"},"provider":"gateway","effort":"xhigh","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}
 
 === ~/.fx/settings.lock (0 bytes)
 === ~/.fx/usage.jsonl (265 bytes)
-{"schema_version":1,"kind":"coverage","started_at_ms":1791323999072}
-{"schema_version":1,"kind":"incident","occurred_at_ms":1791323999071,"completeness":"incomplete"}
-{"schema_version":1,"kind":"incident","occurred_at_ms":1791324002947,"completeness":"incomplete"}
+{"schema_version":1,"kind":"coverage","started_at_ms":1791342162248}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791342162168,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791342165784,"completeness":"incomplete"}
 
 === ~/.fx/usage.lock (0 bytes)

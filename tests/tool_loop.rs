@@ -747,7 +747,7 @@ fn a_read_that_resolved_and_failed_is_upstreams_envelope_and_its_row_says_nothin
             serde_json::to_string(&absolute.display().to_string()).expect("a string")
         )
     );
-    assert_eq!(result.detail, "", "the row was given a reason");
+    assert_eq!(&*result.detail, "", "the row was given a reason");
 }
 
 /// The search tools' and `list_files`'s roots that do not resolve, in the
@@ -765,7 +765,7 @@ fn a_search_root_that_does_not_resolve_is_upstreams_preflight_sentence() {
         let result = call(&context, tool, input);
         assert!(!result.ok, "{tool}");
         assert_eq!(result.output, "Path not found: nope", "{tool}");
-        assert_eq!(result.detail, "Path not found: nope", "{tool}");
+        assert_eq!(&*result.detail, "Path not found: nope", "{tool}");
     }
 }
 
@@ -2035,6 +2035,7 @@ fn replayed(events: &[SessionEvent], workspace: &Path) -> DurableState {
                 workspace_root: workspace.to_path_buf(),
                 model: "vendor/model".to_string(),
                 permission_mode: PermissionMode::Ask,
+                provider: None,
             },
         )
         .expect("create the session");
