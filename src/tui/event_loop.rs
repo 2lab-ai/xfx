@@ -70,7 +70,7 @@ use tokio::sync::mpsc::Receiver;
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
 use super::deliver::{Counted, Emit, RawTty, Sink};
-use super::frame::{Band, Commit, Retint};
+use super::frame::{Band, Collapse, Commit, Retint};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
@@ -1352,6 +1352,22 @@ fn commit_document(
             }
         }
     }
+    // The tool groups on the screen, collapsed where they stand, before
+    // anything moves the rows they are on. The same rules as the recolour
+    // above: settled is paid, deferred stands and the tick goes on, refused is
+    // still owed.
+    if shell.owes_collapse() {
+        match band.collapse_groups(out, &shell.geometry, shell.open_document_rows()) {
+            Ok(Collapse::Settled(rows)) => shell.document_collapsed(rows),
+            Ok(Collapse::Deferred) => {}
+            Err(emit) => {
+                return match disposed(emit, failures, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(false),
+                }
+            }
+        }
+    }
     match band.carry_document(out, &shell.geometry) {
         Ok(carried) => shell.document_carried(carried),
         Err(emit) => {
@@ -1413,7 +1429,22 @@ fn commit_document(
             room,
         ) {
             Ok(()) => {
-                document = reached;
+                // **On the screen, not in the transcript.** Under a band that
+                // is already on the bottom row the rows past `room` scrolled
+                // the screen, and what they carried off the top is the
+                // terminal's scrollback now: the document ends on the row
+                // above the band, whatever the append's own count says.
+                // Counting those rows as still on it is how a band that later
+                // shrinks -- a question answered, a menu closed -- floats back
+                // down by them and leaves blank rows over the turn's own.
+                document = reached.min(u32::from(after.content_bottom));
+                // A block that shrank wrote its old rows blank, and they are
+                // the band's again: the document ends above them.
+                if append.release > 0 {
+                    let released = u16::try_from(append.release).unwrap_or(u16::MAX);
+                    document = document.saturating_sub(u32::from(released));
+                    band.document_released(released);
+                }
                 Landed::All
             }
             Err(emit) => {
@@ -1892,6 +1923,11 @@ mod tests {
     }
 
     fn shell() -> Fixture {
+        shell_of(24, 80)
+    }
+
+    /// [`shell`] on a screen of `rows` x `cols`.
+    fn shell_of(rows: u16, cols: u16) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A workspace with the same last component in every fixture, because
@@ -1908,7 +1944,7 @@ mod tests {
         Fixture {
             shell: Shell::new(
                 &config,
-                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                crate::tui::layout::solve(rows, cols, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
                     depth: crate::tui::theme::Depth::Ansi256,
@@ -2332,7 +2368,10 @@ mod tests {
         // are erased, and so is row 21 -- the fixture's document ends blank,
         // and the blank row a document ends on is spacing, not history -- and
         // the twenty rows above them are handed to scrollback.
-        let handoff = format!("\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(20));
+        let handoff = format!(
+            "\u{1b}[?2026h\u{1b}[?25l\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+            "\n".repeat(20)
+        );
         assert!(
             text.starts_with(&handoff),
             "the handoff never reached the screen: {text:?}"
@@ -3078,6 +3117,194 @@ mod tests {
     }
 
     #[test]
+    fn switching_collapse_on_collapses_the_groups_still_on_the_screen() {
+        // `fx-settings-collapse-40x120-collapse-on`: a closed group on the
+        // screen loses its call rows at once, the answer under it moves up,
+        // and the band floats up with the document -- before anything else
+        // the tick writes. On upstream's 40 rows, where the menu leaves the
+        // group on the screen.
+        let mut shell = shell_of(40, 120);
+        shell.document_landed(0);
+        let mut band = Band::new();
+        let now = Instant::now();
+        shell.route_bytes(b"look\r");
+        committed(&mut shell, &mut band);
+        shell.apply(UiEvent::TurnStarted);
+        for event in a_call("call-1", "a.txt")
+            .into_iter()
+            .chain(a_call("call-2", "b.txt"))
+        {
+            shell.apply(event);
+        }
+        shell.apply(UiEvent::Delta("Read both.\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        shell.settle_band(now);
+        let painted = committed(&mut shell, &mut band);
+        assert!(painted.contains("Read b.txt"), "{painted:?}");
+        let before = shell.document_rows();
+
+        shell.route_bytes(b"/settings\r");
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B\x1b[B\x1b[C");
+        assert!(shell.owes_collapse(), "the switch owed the screen nothing");
+        let written = committed(&mut shell, &mut band);
+        assert!(!shell.owes_collapse(), "the collapse is still owed");
+
+        let moved = written
+            .find("Read both.")
+            .unwrap_or_else(|| panic!("the line under the group did not move: {written:?}"));
+        let saved = written
+            .find("saved to user settings")
+            .unwrap_or_else(|| panic!("the switch said nothing: {written:?}"));
+        assert!(
+            moved < saved,
+            "the collapse came after the append: {written:?}"
+        );
+        assert!(
+            !written[..moved].contains('\n'),
+            "the collapse scrolled the screen: {written:?}"
+        );
+        // Two rows fewer, and the notice's two rows more.
+        assert_eq!(shell.document_rows(), before - 2 + 2);
+        assert_eq!(
+            shell.geometry.band_top(),
+            u16::try_from(shell.document_rows()).expect("a short document") + 1,
+            "the band is not under the document"
+        );
+
+        // Switched off, nothing on the screen is owed anything: the calls of a
+        // group written collapsed were never there to put back.
+        shell.route_bytes(b"\x1b[C");
+        assert!(!shell.owes_collapse());
+    }
+
+    #[test]
+    fn an_open_group_collapsed_gives_its_call_rows_back_to_what_comes_next() {
+        // The group the turn is still writing is the transcript's open block,
+        // rewritten rather than moved: collapsed, it writes its call rows
+        // blank -- and they are the document's no longer, so what is written
+        // next lands right under the group's own blank row, as upstream's
+        // re-render puts it (`fx-settings-collapse-40x120-running`: the
+        // header, one blank, the next row).
+        let mut shell = shell_of(40, 120);
+        shell.document_landed(0);
+        let mut band = Band::new();
+        let now = Instant::now();
+        shell.route_bytes(b"look\r");
+        committed(&mut shell, &mut band);
+        shell.apply(UiEvent::TurnStarted);
+        for event in a_call("call-1", "a.txt")
+            .into_iter()
+            .chain(a_call("call-2", "b.txt"))
+        {
+            shell.apply(event);
+        }
+        shell.settle_band(now);
+        committed(&mut shell, &mut band);
+        // The header, two calls and the group's blank row end the document.
+        let header = u16::try_from(shell.document_rows()).expect("a short document") - 3;
+        let before = shell.document_rows();
+
+        shell.route_bytes(b"/settings\r");
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B\x1b[B\x1b[C");
+        let written = committed(&mut shell, &mut band);
+
+        let said = written
+            .find("collapse tool calls:")
+            .unwrap_or_else(|| panic!("the switch said nothing: {written:?}"));
+        let placed = written[..said]
+            .rfind(";1H")
+            .and_then(|end| {
+                let start = written[..end].rfind('[')? + 1;
+                written[start..end].parse::<u16>().ok()
+            })
+            .unwrap_or_else(|| panic!("the notice was not placed: {written:?}"));
+        assert_eq!(
+            placed,
+            header + 2,
+            "the notice is not under the collapsed group's blank row: {written:?}"
+        );
+        // Two rows given back, and the notice's two taken.
+        assert_eq!(shell.document_rows(), before - 2 + 2);
+    }
+
+    #[test]
+    fn rows_an_append_scrolled_off_the_screen_are_not_counted_as_on_it() {
+        // `settings-collapse`'s `running` screen, on 24 rows: a command's group
+        // lands in the same tick as its permission question, so it is written
+        // under a band the question has already pinned to the bottom row, and
+        // the rows that do not fit scroll the screen. Those rows left the top
+        // of it: the document on the screen still ends directly above the band.
+        // When the question goes and the band shrinks back, the turn's row is
+        // the row under the group's own blank one, as upstream's is
+        // (`fx-settings-collapse-40x120-running`: the header, one blank, the
+        // activity row) -- not under two rows that are not there.
+        let mut shell = floating();
+        let mut band = Band::new();
+        let now = Instant::now();
+        let lines: Vec<String> = (1..=12).map(|n| format!("line {n}")).collect();
+        shell.write_transcript(&lines.join("\n"));
+        shell.end_transcript_line();
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"run it\r");
+        committed(&mut shell, &mut band);
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(now);
+        committed(&mut shell, &mut band);
+
+        let [start, _] = a_call("call-1", "notes.txt");
+        shell.apply(start);
+        shell.apply(asked_inline());
+        shell.settle_band(now);
+        let written = committed(&mut shell, &mut band);
+        let frame = written
+            .find("\u{1b}[?2026h")
+            .unwrap_or_else(|| panic!("no band frame followed the append: {written:?}"));
+        assert!(
+            written[..frame].contains("1 tool call"),
+            "the group was not written before the band: {written:?}"
+        );
+        // An append writes each row on the row above the band and scrolls the
+        // screen before the next, so the last row it placed before the frame
+        // is where the group's trailing blank row stays.
+        let group_bottom = written[..frame]
+            .rfind(";1H")
+            .and_then(|end| {
+                let start = written[..end].rfind('[')? + 1;
+                written[start..end].parse::<u16>().ok()
+            })
+            .unwrap_or_else(|| panic!("the group's last row was not placed: {written:?}"));
+        assert!(
+            written.contains(&format!("\u{1b}[{};1H\n", shell.geometry.rows)),
+            "the group did not scroll the screen, so this case proves nothing: {written:?}"
+        );
+        assert_eq!(
+            shell.geometry.content_bottom, group_bottom,
+            "the band is not directly under the group: {written:?}"
+        );
+        assert!(
+            shell.document_rows() <= u32::from(shell.geometry.content_bottom),
+            "the document is counted {} rows deep on a screen whose band starts on row {}",
+            shell.document_rows(),
+            shell.geometry.band_top()
+        );
+
+        shell.reconcile_approval();
+        shell.route_bytes(b"1");
+        shell.settle_band(now);
+        committed(&mut shell, &mut band);
+
+        assert_eq!(
+            shell.geometry.activity,
+            Some(group_bottom + 1),
+            "the turn's row is not under the group's blank row: {:?}",
+            shell.geometry
+        );
+    }
+
+    #[test]
     fn a_band_under_a_short_document_follows_it_down_instead_of_scrolling_it() {
         let mut shell = floating();
         let mut band = Band::new();
@@ -3148,7 +3375,7 @@ mod tests {
         // the nine that had already left it are there already.
         assert!(
             text.starts_with(&format!(
-                "\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}",
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
                 "\n".repeat(21)
             )),
             "{text:?}"
@@ -3184,7 +3411,10 @@ mod tests {
         shell.route_bytes(b"/reset\r");
         let text = committed(&mut shell, &mut band);
 
-        let handoff = format!("\u{1b}[11;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(10));
+        let handoff = format!(
+            "\u{1b}[?2026h\u{1b}[?25l\u{1b}[11;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+            "\n".repeat(10)
+        );
         assert!(text.starts_with(&handoff), "{text:?}");
         let rest = &text[handoff.len()..];
         let welcome = super::super::shell::welcome_line(shell.palette());
@@ -3658,7 +3888,10 @@ mod tests {
         let text = String::from_utf8(screen.written).expect("utf-8");
         // A band that had painted nothing claims none of the screen, so the
         // whole of it is handed off but the blank row the document ends on.
-        let handoff = format!("\u{1b}[24;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(23));
+        let handoff = format!(
+            "\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+            "\n".repeat(23)
+        );
         assert!(text.starts_with(&handoff), "{text:?}");
         assert_eq!(
             text.matches(&handoff).count(),
@@ -4378,7 +4611,10 @@ mod tests {
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         // The document ends on the blank row under its notice, which is
         // erased with the band rather than carried.
-        let handoff = format!("\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(20));
+        let handoff = format!(
+            "\u{1b}[?2026h\u{1b}[?25l\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+            "\n".repeat(20)
+        );
         assert!(back.starts_with(&handoff), "{back:?}");
         assert!(back.contains("Run /help for commands"), "{back:?}");
         assert!(!shell.owes_handoff());

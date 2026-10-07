@@ -283,6 +283,22 @@ struct Layout {
     count: usize,
 }
 
+/// The menu as `/settings`' Model row lists it ([`ModelMenu::inline`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Inline<'a> {
+    /// Asked for; not answered yet.
+    Loading,
+    /// The catalog could not be read.
+    Failed,
+    /// The models the search finds -- maybe none -- with the mark and the
+    /// first one in view as the menu's own moves left them.
+    Listed {
+        ids: Vec<&'a str>,
+        selected: usize,
+        window_start: usize,
+    },
+}
+
 /// The menu: what it lists, which tab is up, which model is marked, and what
 /// the search is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,6 +433,26 @@ impl ModelMenu {
         self.selected = super::picker::advanced(self.selected, count, delta);
         self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
         true
+    }
+
+    /// What `/settings`' Model row shows of this menu under itself: the same
+    /// state, the same filtered models, the same mark (`composeModelRow`,
+    /// `settings_menu_presentation.zig:277-310`, which reads the model menu
+    /// upstream's `/model` opens).
+    pub(crate) fn inline(&self) -> Inline<'_> {
+        match self.load {
+            Load::Loading => Inline::Loading,
+            Load::Failed(_) => Inline::Failed,
+            Load::Ready => Inline::Listed {
+                ids: self
+                    .items()
+                    .into_iter()
+                    .map(|item| item.id.as_str())
+                    .collect(),
+                selected: self.selected,
+                window_start: self.window_start,
+            },
+        }
     }
 
     /// The marked model's id, or `None` when nothing is listed

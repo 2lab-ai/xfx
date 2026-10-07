@@ -1,0 +1,35 @@
+# /settings' Startup scrollback: the row and `/settings startup-scrollback`,
+# saved for the next launch and said so, and the usage line for an argument
+# it does not take. What the next launch does with it is not capturable
+# here: `relaunch` respawns the pane, and tmux clears it for that, so fx and
+# xfx both start on row 1 of an empty screen either way (tests/tui.rs
+# `with_startup_scrollback_off_the_launch_starts_under_the_shells_output`
+# drives it on a pty instead).
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+wait 2
+type /settings
+key Enter
+wait 1
+type startup
+wait 0.5
+snap row
+key Right
+wait 0.8
+snap row-off
+home row-off
+key Escape
+wait 0.5
+type /settings startup-scrollback
+key Enter
+wait 0.8
+snap toggle
+type /settings STARTUP-SCROLLBACK off
+key Enter
+wait 0.8
+snap off
+home off
+type /settings startup-scrollback maybe
+key Enter
+wait 0.8
+snap usage

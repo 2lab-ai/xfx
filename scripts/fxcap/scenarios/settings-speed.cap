@@ -1,0 +1,32 @@
+# /settings' Fast mode and Ultra mode on anthropic/claude-opus-5 -- a model
+# that offers Fast and not Ultra (`models.json`): Fast's row has `off  on`
+# and Right is `/fast`; Ultra's is its value alone and Right does nothing.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+models models.json
+seed fast-seed-opus.json
+nomodel
+wait 2.5
+type /settings
+key Enter
+wait 1.5
+key Down Down Down Down Down Down Down
+wait 0.3
+snap fast-marked
+key Right
+wait 1
+snap fast-on
+wait 1
+home fast-on
+key Down
+wait 0.3
+key Right
+wait 1
+snap ultra-right
+key Up
+wait 0.3
+key Left
+wait 1
+snap fast-off
+key Escape
+wait 0.5

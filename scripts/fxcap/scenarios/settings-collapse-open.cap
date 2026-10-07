@@ -1,0 +1,36 @@
+# /settings' Collapse tool calls switched on while the turn's group is still
+# open: its call row goes and what is written next -- the switch's own notice
+# -- lands under the group's blank row. In ask mode, so the command is
+# decided by key (as `settings-collapse.cap`).
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+fx: gateway settings-collapse-fx.json
+xfx: gateway settings-collapse-xfx.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type look
+key Enter
+wait 3
+type again
+key Enter
+wait 3
+type run it
+key Enter
+wait 2.5
+key 1
+wait 0.8
+snap running
+type /settings
+key Enter
+wait 1
+key Down Down Down Down
+wait 0.3
+key Right
+wait 0.8
+snap collapse-on
+key Escape
+wait 0.5
+snap after-esc

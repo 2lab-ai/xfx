@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
 
 * effort: saved to user settings (scope=user)
 
@@ -8,7 +8,7 @@ x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
 
 ┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Settings 10  [All]  Interface  Agent  Notifications  Advanced
+Settings 11  [All]  Interface  Agent  Notifications  Advanced
 
   Status line context      off  on
   Status line session      off  on
@@ -19,10 +19,10 @@ Settings 10  [All]  Interface  Agent  Notifications  Advanced
   Reasoning effort         default  low  high
   Permission mode          ask  auto  full access
   Sound level              off  on
+  Startup scrollback       off  on
   Prompt history           off  on
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓ navigate     tab category     ←→ change     esc close
-
 
 
 

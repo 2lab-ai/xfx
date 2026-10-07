@@ -17,25 +17,41 @@
 //! **The same thing the row's slash command does, and it says so the same
 //! way** (`applySettingsCatalogChange`, `app_commands.zig:4110-4210`): a status
 //! line row is `/statusline <item>` with both of its notices, the permission
-//! row is `/permissions <mode>`, the sound row is `/sound <level>`. The three
+//! row is `/permissions <mode>`, the sound row is `/sound <level>`, and
+//! `Fast mode` and `Ultra mode` are `/fast` and `/ultrafast on|off` when they
+//! differ from the session. The three
 //! preferences that have no command of their own are written to the profile
 //! and announce the write (`persistUserPreferences`, `app_commands.zig:167-192`).
 //! This module only decides *which* value a keystroke means
 //! ([`SettingsMenu::change`]); the shell applies it, so a row can never do
-//! something its command does not. Enter does nothing except on `Model`
+//! something its command does not. `Startup scrollback` is
+//! `/settings startup-scrollback <value>`, which changes the next launch and
+//! not this one. Enter does nothing except on `Model`
 //! (`submitSettingsMenuSelection`, `app_input_runtime.zig:2531-2552`) -- the
 //! statusline picker is the one whose Enter flips a value, not this one.
 //!
+//! # The Model row's list
+//!
+//! Right or Enter on `Model` opens the catalog `/model` lists **under the
+//! row**, in the menu's own rows (`changeSettingsMenuSelection`,
+//! `app_input_runtime.zig:2489-2512`; `inlineModelRowCount` and
+//! `composeModelRow`, `settings_menu_presentation.zig:15-19`, `:277-310`): up to
+//! six model ids at the value column, the marked one bold, or one dim line
+//! four columns in while there is nothing to list. The arrows move its mark,
+//! Left and Enter use the marked model and close it, Tab closes it with the
+//! tab change. It is `/model`'s menu, held by the shell
+//! ([`super::model_menu::ModelMenu::inline`]); this module only lays it out.
+//!
 //! # What it lists
 //!
-//! Upstream's fourteen rows, in its order, **less the ones xfx has nothing
-//! behind**: `Fast mode` and `Ultra mode` (xfx sends no speed tier),
-//! `Session titles` (xfx has no title generator: a session's title is its
-//! first prompt), and `Startup scrollback` (upstream can leave the shell's
-//! output on the screen at launch, and xfx always pushes it into scrollback).
-//! A row with nothing behind it would be a switch that switches nothing, which
-//! `scripts/check-no-stubs.sh` exists to keep out of the binary;
-//! `.prd/tui-phase4/ssot.md` records each one. `Sound level` is `off  on`:
+//! Upstream's fourteen rows, in its order, **less the one xfx has nothing
+//! behind**: `Session titles` (xfx has no title generator: a session's title
+//! is its first prompt). A row with nothing behind it would be a switch that
+//! switches nothing, which `scripts/check-no-stubs.sh` exists to keep out of
+//! the binary; `.prd/tui-phase4/ssot.md` records it. `Fast mode` and `Ultra
+//! mode` are `/fast` and `/ultrafast on|off`, with choices only for a model
+//! whose catalog row offers the speed, or while it is on
+//! (`optionCount`, `settings_catalog.zig:314-315`). `Sound level` is `off  on`:
 //! upstream's `max` drives chimes xfx does not play (`crate::sound`).
 //! `Reasoning effort` is the session's effort (`crate::provider::effort`), its
 //! choices `default` and the levels the catalog lists for the model in force --
@@ -56,6 +72,7 @@
 use crate::config::{Notifications, PermissionMode, StatusLine, StatusLineItem};
 
 use super::input::Action;
+use super::model_menu::{Inline, ModelMenu};
 use super::picker::{cells, edge_start, ellipsized, pad_to};
 use super::theme::Palette;
 
@@ -91,6 +108,20 @@ const GAP: &str = "  ";
 /// What a list with nothing in it says (`composeEmptyRow`, `:322-324`).
 const EMPTY: &str = "No settings found.";
 
+/// The most models the Model row's list shows at once (`inlineModelRowCount`,
+/// `settings_menu_presentation.zig:15-19`).
+const MOST_MODELS: usize = 6;
+
+/// Where the list's one line sits while it has no model to show
+/// (`composeStyledText(..., 4)`, `:283-290`).
+const MODEL_STATE_INDENT: usize = 4;
+
+/// The list's line while the catalog is on its way, while nothing matches,
+/// and when it could not be read (`:284-288`).
+const MODELS_LOADING: &str = "Loading models\u{2026}";
+const MODELS_NONE: &str = "No models found";
+const MODELS_FAILED: &str = "Models unavailable";
+
 /// What the hint row says while the menu is up, widest first
 /// (`composeSettingsMenuHintRow`, `src/ui/footer/input_presentation.zig:729-765`).
 ///
@@ -121,6 +152,26 @@ pub(crate) const EFFORT_TOPIC: &str = "effort";
 /// written, are announced under (`handleHistory`, `session_commands.zig:443-509`;
 /// `recordAcceptedInput`, `input_submit_runtime.zig:1270-1274`).
 pub(crate) const HISTORY_TOPIC: &str = "history";
+
+/// The topic `/settings startup-scrollback`'s answer is filed under
+/// (`writeDomainNotice(.{ .topic = "settings" ...})`,
+/// `session_commands.zig:1119-1121`).
+pub(crate) const SETTINGS_TOPIC: &str = "settings";
+
+/// The argument `/settings` takes, and the topic a write of it that failed is
+/// filed under (`reportUserSettingsFailure(app, "startup-scrollback", ...)`,
+/// `session_commands.zig:1083-1090`).
+pub(crate) const STARTUP_SCROLLBACK_TOPIC: &str = "startup-scrollback";
+
+/// What a saved `startup_scrollback` says: the value, and that it is the next
+/// launch's (`saveStartupScrollbackSetting`, `session_commands.zig:1102-1118`,
+/// for the profile as its source).
+pub(crate) fn startup_scrollback_saved(on: bool) -> String {
+    format!(
+        "startup_scrollback: {} (applies on next launch)",
+        on_off(on)
+    )
+}
 
 /// The two words every on/off setting cycles through, in the order drawn.
 const ON_OFF: [&str; 2] = ["off", "on"];
@@ -181,10 +232,17 @@ pub(crate) enum Setting {
     Model,
     /// The session's reasoning effort, written as `effort`.
     Effort,
+    /// `/fast`: Fast mode for the model in force.
+    FastMode,
+    /// `/ultrafast on|off`: Ultra mode for the model in force.
+    UltraMode,
     /// `/permissions <mode>`.
     PermissionMode,
     /// `/sound <level>`.
     SoundLevel,
+    /// `/settings startup-scrollback <value>`: whether the next launch pushes
+    /// the shell's output into scrollback.
+    StartupScrollback,
     /// Whether submitted lines are kept for the composer's recall, here and in
     /// the next session.
     PromptHistory,
@@ -202,8 +260,11 @@ impl Setting {
             Self::CollapseToolCalls => "collapse_tool_calls",
             Self::Model => "model",
             Self::Effort => "effort",
+            Self::FastMode => "fast_mode",
+            Self::UltraMode => "ultrafast_mode",
             Self::PermissionMode => "permission_mode",
             Self::SoundLevel => "sound_level",
+            Self::StartupScrollback => "startup_scrollback",
             Self::PromptHistory => "prompt_history",
         }
     }
@@ -222,7 +283,7 @@ struct Spec {
 /// The settings, in upstream's order (`specs`, `settings_catalog.zig:261-276`)
 /// and upstream's words, with this product's name where upstream says its own
 /// and without `max` in the sound row's, which xfx's switch does not have.
-const SPECS: [Spec; 10] = [
+const SPECS: [Spec; 13] = [
     Spec {
         id: Setting::Statusline(StatusLineItem::Context),
         category: Category::Interface,
@@ -266,6 +327,18 @@ const SPECS: [Spec; 10] = [
         description: "Control how much reasoning the model applies",
     },
     Spec {
+        id: Setting::FastMode,
+        category: Category::Agent,
+        label: "Fast mode",
+        description: "Use faster inference when the model supports it",
+    },
+    Spec {
+        id: Setting::UltraMode,
+        category: Category::Agent,
+        label: "Ultra mode",
+        description: "Request the highest-speed mode when the model supports it",
+    },
+    Spec {
         id: Setting::PermissionMode,
         category: Category::Agent,
         label: "Permission mode",
@@ -276,6 +349,12 @@ const SPECS: [Spec; 10] = [
         category: Category::Notifications,
         label: "Sound level",
         description: "Choose off or on for sounds and terminal bells",
+    },
+    Spec {
+        id: Setting::StartupScrollback,
+        category: Category::Advanced,
+        label: "Startup scrollback",
+        description: "Restore terminal output when xfx starts",
     },
     Spec {
         id: Setting::PromptHistory,
@@ -304,9 +383,22 @@ pub(crate) struct Snapshot<'a> {
     /// The levels the catalog lists for the model in force, empty when it
     /// lists none or has not been read.
     pub(crate) efforts: &'a [String],
+    /// Fast mode and Ultra mode, as the session asks for them now.
+    pub(crate) fast: bool,
+    pub(crate) ultrafast: bool,
+    /// Whether the model in force's catalog row offers each speed: false
+    /// while the catalog has not been read.
+    pub(crate) offers_fast: bool,
+    pub(crate) offers_ultrafast: bool,
     pub(crate) permission_mode: PermissionMode,
     pub(crate) sound: Notifications,
+    /// What the profile says the next launch does, which is what the row and
+    /// its command change (`openWithStartupScrollback`,
+    /// `app_commands.zig:2022-2041`) -- not what this launch did.
+    pub(crate) startup_scrollback: bool,
     pub(crate) prompt_history: bool,
+    /// `/model`'s menu, while the Model row has it open under itself.
+    pub(crate) models: Option<&'a ModelMenu>,
 }
 
 impl<'a> Snapshot<'a> {
@@ -323,13 +415,29 @@ impl<'a> Snapshot<'a> {
             Setting::CollapseToolCalls => on_off(self.collapse_tool_calls),
             Setting::Model => self.model,
             Setting::Effort => self.effort,
+            Setting::FastMode => on_off(self.fast),
+            Setting::UltraMode => on_off(self.ultrafast),
             Setting::PermissionMode => self.permission_mode.display_label(),
             Setting::SoundLevel => match (self.sound.turn_end, self.sound.attention_required) {
                 (false, false) => "off",
                 (true, true) => "on",
                 _ => "custom",
             },
+            Setting::StartupScrollback => on_off(self.startup_scrollback),
             Setting::PromptHistory => on_off(self.prompt_history),
+        }
+    }
+
+    /// The rows the Model row's list takes under it: none while it is shut,
+    /// one line while it has no model to show, and up to [`MOST_MODELS`]
+    /// otherwise (`inlineModelRowCount`, `:15-19`).
+    fn model_rows(&self) -> u16 {
+        match self.models.map(ModelMenu::inline) {
+            None => 0,
+            Some(Inline::Listed { ids, .. }) if !ids.is_empty() => {
+                u16::try_from(ids.len().min(MOST_MODELS)).unwrap_or(1)
+            }
+            Some(_) => 1,
         }
     }
 }
@@ -357,11 +465,15 @@ fn options<'a>(id: Setting, snapshot: &Snapshot<'a>) -> Vec<&'a str> {
                 .chain(snapshot.efforts.iter().map(String::as_str))
                 .collect()
         }
+        Setting::FastMode if snapshot.offers_fast || snapshot.fast => ON_OFF.to_vec(),
+        Setting::UltraMode if snapshot.offers_ultrafast || snapshot.ultrafast => ON_OFF.to_vec(),
+        Setting::FastMode | Setting::UltraMode => Vec::new(),
         Setting::PermissionMode => PERMISSION_MODES.to_vec(),
         Setting::Statusline(_)
         | Setting::SlashMenuCategories
         | Setting::CollapseToolCalls
         | Setting::SoundLevel
+        | Setting::StartupScrollback
         | Setting::PromptHistory => ON_OFF.to_vec(),
     }
 }
@@ -399,7 +511,8 @@ pub(crate) enum SettingsAction {
     Previous,
     /// Its next choice, wrapping. Right.
     Next,
-    /// Enter: `/model`'s menu on the `Model` row, nothing on any other.
+    /// Enter: the list under the `Model` row -- or, with it open, the marked
+    /// model -- and nothing on any other row.
     Open,
     /// Close it and empty the search (`cancelSettingsMenu`, `:3292-3294`).
     /// Escape.
@@ -438,6 +551,18 @@ struct Layout {
     visible: usize,
     /// The marked setting, as an index into the filtered list.
     selected: usize,
+    /// One body row and the Model row's list open: the row is the list's
+    /// first (`model_only`, `:118-131`).
+    model_only: bool,
+}
+
+/// One row under the header (`BodyRow`, `settings_menu_presentation.zig:21-28`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyRow {
+    /// A setting, as an index into the filtered list.
+    Item(usize),
+    /// The Model row's list's row this many from its first in view.
+    Model(usize),
 }
 
 /// The menu: which tab is up, which setting is marked, and what the search is.
@@ -574,14 +699,16 @@ impl SettingsMenu {
 
     /// The menu's shape in `max_rows` rows (`buildBrowseLayout`, `:97-134`):
     /// the header only when there are more than two rows, an empty list as
-    /// one row under it, otherwise the window where the last move left it,
-    /// pulled back to the mark and walked down until the mark is in it.
-    fn layout(&self, count: usize, max_rows: u16) -> Layout {
+    /// one row under it, otherwise the window where the last move left it --
+    /// from the mark itself while the Model row's list is open -- pulled back
+    /// to the mark and walked down until the mark is in it.
+    fn layout(&self, items: &[&Spec], snapshot: &Snapshot<'_>, max_rows: u16) -> Layout {
         if max_rows == 0 {
             return Layout::default();
         }
         let header = max_rows > HEADER_ROWS;
         let body_start = if header { HEADER_ROWS } else { 0 };
+        let count = items.len();
         if count == 0 {
             return Layout {
                 rows: max_rows.min(body_start + 1),
@@ -590,27 +717,57 @@ impl SettingsMenu {
             };
         }
         let selected = self.selected % count;
-        let budget = usize::from(max_rows - body_start);
-        let measure = |first: usize| (count - first).min(budget);
-        let mut first = self.window_start.min(count - 1).min(selected);
-        let mut visible = measure(first);
-        while selected >= first + visible && first < selected {
+        let budget = max_rows - body_start;
+        let listing = snapshot.models.is_some();
+        let mut first = if listing {
+            selected
+        } else {
+            self.window_start.min(count - 1)
+        }
+        .min(selected);
+        let mut body = measure(items, snapshot, first, budget);
+        while selected >= first + body.0 && first < selected {
             first += 1;
-            visible = measure(first);
+            body = measure(items, snapshot, first, budget);
         }
-        if visible == 0 {
+        if body.0 == 0 {
             first = selected;
-            visible = measure(first);
+            body = measure(items, snapshot, first, budget);
         }
-        // At most the catalog's ten settings.
-        let shown = u16::try_from(visible).unwrap_or(u16::MAX);
+        let (visible, rows) = body;
         Layout {
-            rows: body_start + shown,
+            rows: body_start + rows,
             header,
             first,
             visible,
             selected,
+            model_only: listing && budget == 1,
         }
+    }
+
+    /// The rows under the header, top first: each setting in view, and under
+    /// the Model row its list while it is open (`browseBodyRowAt`,
+    /// `:160-182`), as many as the layout has rows for.
+    fn body(&self, layout: &Layout, items: &[&Spec], snapshot: &Snapshot<'_>) -> Vec<BodyRow> {
+        let body_start = if layout.header { HEADER_ROWS } else { 0 };
+        let room = usize::from(layout.rows.saturating_sub(body_start));
+        if layout.model_only {
+            return vec![BodyRow::Model(0)].into_iter().take(room).collect();
+        }
+        let mut body = Vec::with_capacity(room);
+        for (index, spec) in items
+            .iter()
+            .enumerate()
+            .skip(layout.first)
+            .take(layout.visible)
+        {
+            body.push(BodyRow::Item(index));
+            if spec.id == Setting::Model {
+                body.extend((0..usize::from(snapshot.model_rows())).map(BodyRow::Model));
+            }
+        }
+        body.truncate(room);
+        body
     }
 
     /// How many rows the band has to give it on a screen `terminal_rows` tall
@@ -624,7 +781,8 @@ impl SettingsMenu {
         input_extra: u16,
     ) -> u16 {
         self.layout(
-            self.items(snapshot).len(),
+            &self.items(snapshot),
+            snapshot,
             row_budget(terminal_rows, input_extra),
         )
         .rows
@@ -634,8 +792,24 @@ impl SettingsMenu {
     /// one: the window a move scrolls against
     /// (`visibleNavigationItemsForBudget`, `:44-50`).
     pub(crate) fn visible_items(&self, snapshot: &Snapshot<'_>, max_rows: u16) -> u16 {
-        let visible = self.layout(self.items(snapshot).len(), max_rows).visible;
+        let visible = self
+            .layout(&self.items(snapshot), snapshot, max_rows)
+            .visible;
         u16::try_from(visible.max(1)).unwrap_or(u16::MAX)
+    }
+
+    /// How many of the Model row's list's rows are in view in `max_rows`
+    /// rows: the window its mark scrolls against
+    /// (`visibleModelItemsForBudget`, `:52-71`).
+    pub(crate) fn visible_models(&self, snapshot: &Snapshot<'_>, max_rows: u16) -> u16 {
+        let items = self.items(snapshot);
+        let layout = self.layout(&items, snapshot, max_rows);
+        let shown = self
+            .body(&layout, &items, snapshot)
+            .iter()
+            .filter(|row| matches!(row, BodyRow::Model(_)))
+            .count();
+        u16::try_from(shown).unwrap_or(u16::MAX)
     }
 
     /// The menu's rows in `max_rows` rows of a `cols`-wide screen, top first:
@@ -649,7 +823,7 @@ impl SettingsMenu {
         palette: Palette,
     ) -> Vec<String> {
         let items = self.items(snapshot);
-        let layout = self.layout(items.len(), max_rows);
+        let layout = self.layout(&items, snapshot, max_rows);
         let mut rows = Vec::with_capacity(usize::from(layout.rows));
         if layout.rows == 0 {
             return rows;
@@ -668,12 +842,21 @@ impl SettingsMenu {
             return rows;
         }
         let column = value_column(&items, cols);
-        for (offset, spec) in items[layout.first..layout.first + layout.visible]
-            .iter()
-            .enumerate()
-        {
-            let marked = layout.first + offset == layout.selected;
-            rows.push(item_row(spec, snapshot, marked, column, cols, palette));
+        for row in self.body(&layout, &items, snapshot) {
+            rows.push(match row {
+                BodyRow::Item(index) => item_row(
+                    items[index],
+                    snapshot,
+                    index == layout.selected,
+                    column,
+                    cols,
+                    palette,
+                ),
+                BodyRow::Model(offset) => match snapshot.models {
+                    Some(menu) => model_row(menu, offset, column, cols, palette),
+                    None => String::new(),
+                },
+            });
         }
         rows
     }
@@ -705,6 +888,87 @@ impl SettingsMenu {
             palette.reset()
         )
     }
+}
+
+/// How many settings from `first` fit in `budget` rows, and the rows they
+/// take with the Model row's list under it (`measureBrowseBody`, `:140-158`):
+/// a setting takes its row, and the Model row as many of its list's as are
+/// left. With the list open and one row to give, the one row is the list's.
+fn measure(items: &[&Spec], snapshot: &Snapshot<'_>, first: usize, budget: u16) -> (usize, u16) {
+    let mut visible = 0;
+    let mut rows: u16 = 0;
+    for spec in &items[first..] {
+        if rows + 1 > budget {
+            break;
+        }
+        let list = if spec.id == Setting::Model {
+            snapshot.model_rows().min(budget - rows - 1)
+        } else {
+            0
+        };
+        rows += 1 + list;
+        visible += 1;
+    }
+    if snapshot.models.is_some() && budget == 1 && visible > 0 {
+        rows = 1;
+    }
+    (visible, rows)
+}
+
+/// One row of the Model row's list (`composeModelRow`, `:277-310`): a model
+/// id at the value column, the marked one bold and the rest dim, in a window
+/// of at most [`MOST_MODELS`] kept round the mark -- or, with no model to
+/// show, what the list is waiting for, dim and four columns in.
+fn model_row(
+    menu: &ModelMenu,
+    offset: usize,
+    column: usize,
+    cols: u16,
+    palette: Palette,
+) -> String {
+    let width = usize::from(cols);
+    let (ids, selected, window_start) = match menu.inline() {
+        Inline::Listed {
+            ids,
+            selected,
+            window_start,
+        } if !ids.is_empty() => (ids, selected, window_start),
+        state => {
+            let text = match state {
+                Inline::Loading => MODELS_LOADING,
+                Inline::Failed => MODELS_FAILED,
+                Inline::Listed { .. } => MODELS_NONE,
+            };
+            return format!(
+                "{}{}{}{}",
+                " ".repeat(MODEL_STATE_INDENT.min(width)),
+                palette.dim(),
+                ellipsized(text, width.saturating_sub(MODEL_STATE_INDENT)),
+                palette.reset()
+            );
+        }
+    };
+    let count = ids.len();
+    let selected = selected % count;
+    let shown = count.min(MOST_MODELS);
+    let mut start = window_start.min(selected);
+    if selected >= start + shown {
+        start = selected + 1 - shown;
+    }
+    let index = start.min(count - shown) + offset;
+    let Some(id) = ids.get(index) else {
+        return String::new();
+    };
+    let mut row = String::new();
+    pad_to(&mut row, column);
+    row.push_str(if index == selected {
+        palette.subtitle()
+    } else {
+        palette.dim()
+    });
+    row.push_str(&ellipsized(id, width.saturating_sub(column)));
+    row.push_str(palette.reset());
+    row
 }
 
 /// One tab: the active one bold in brackets, the rest dim
@@ -857,9 +1121,15 @@ mod tests {
             model: "fake/model-a",
             effort: "default",
             efforts: &[],
+            fast: false,
+            ultrafast: false,
+            offers_fast: false,
+            offers_ultrafast: false,
             permission_mode: PermissionMode::Auto,
             sound: Notifications::both(false),
+            startup_scrollback: true,
             prompt_history: true,
+            models: None,
         }
     }
 
@@ -909,14 +1179,13 @@ mod tests {
 
     #[test]
     fn the_bare_menu_is_upstreams_rows_less_the_settings_xfx_has_nothing_behind() {
-        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Fast mode`,
-        // `Ultra mode`, `Session titles` and `Startup scrollback`, and with
-        // `Sound level` cycling `off  on`.
+        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Session
+        // titles`, and with `Sound level` cycling `off  on`.
         let rows = SettingsMenu::open("").rows(&launched(), 120, 40, PALETTE);
         let tab = |label: &str| format!("  {DIM}{label}{RESET}");
         let mut expected = vec![
             format!(
-                "{BRIGHT}Settings 10{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
+                "{BRIGHT}Settings 13{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
                 tab("Interface"),
                 tab("Agent"),
                 tab("Notifications"),
@@ -938,6 +1207,15 @@ mod tests {
             "  {DIM}Reasoning effort{RESET}{}{BRIGHT}default{RESET}",
             " ".repeat(9)
         ));
+        // A model that offers no speed, with none on: the value alone.
+        expected.push(format!(
+            "  {DIM}Fast mode{RESET}{}{BRIGHT}off{RESET}",
+            " ".repeat(16)
+        ));
+        expected.push(format!(
+            "  {DIM}Ultra mode{RESET}{}{BRIGHT}off{RESET}",
+            " ".repeat(15)
+        ));
         expected.push(choice_row(
             "Permission mode",
             false,
@@ -945,9 +1223,62 @@ mod tests {
             "auto",
         ));
         expected.push(choice_row("Sound level", false, &ON_OFF, "off"));
+        expected.push(choice_row("Startup scrollback", false, &ON_OFF, "on"));
         expected.push(choice_row("Prompt history", false, &ON_OFF, "on"));
         assert_eq!(rows, expected);
-        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 12);
+        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 15);
+    }
+
+    #[test]
+    fn the_speed_rows_have_choices_only_for_a_model_that_offers_the_speed_or_while_it_is_on() {
+        // `optionCount`, `settings_catalog.zig:314-315`: no choice for a model
+        // without the speed, so Left and Right change nothing there; on and
+        // off for one that has it -- and while the speed is on, even after a
+        // move to a model without it, so the way back off is still a key.
+        let mut snapshot = launched();
+        let menu = on_tab(2);
+        let mut fast = menu.clone();
+        assert!(fast.step(true, 5, &snapshot) && fast.step(true, 5, &snapshot));
+        assert_eq!(fast.selected(&snapshot), Some(Setting::FastMode));
+        assert_eq!(fast.change(true, &snapshot), None);
+        snapshot.offers_fast = true;
+        assert_eq!(
+            fast.change(true, &snapshot),
+            Some(Change {
+                setting: Setting::FastMode,
+                value: "on".to_string()
+            })
+        );
+        let rows = fast.rows(&snapshot, 120, 40, PALETTE);
+        assert_eq!(plain(&rows[4]), "  Fast mode           off  on");
+        snapshot.offers_fast = false;
+        snapshot.fast = true;
+        assert_eq!(
+            fast.change(false, &snapshot),
+            Some(Change {
+                setting: Setting::FastMode,
+                value: "off".to_string()
+            })
+        );
+        // Ultra the same, by its own offer.
+        let mut ultra = fast.clone();
+        assert!(ultra.step(true, 5, &snapshot));
+        assert_eq!(ultra.selected(&snapshot), Some(Setting::UltraMode));
+        assert_eq!(ultra.change(true, &snapshot), None);
+        snapshot.offers_ultrafast = true;
+        assert_eq!(
+            ultra.change(true, &snapshot).map(|change| change.value),
+            Some("on".to_string())
+        );
+        // The search finds them by upstream's names and words.
+        assert_eq!(
+            labels(&SettingsMenu::open("ultrafast"), &snapshot),
+            ["Ultra mode"]
+        );
+        assert_eq!(
+            labels(&SettingsMenu::open("faster inference"), &snapshot),
+            ["Fast mode"]
+        );
     }
 
     #[test]
@@ -955,7 +1286,7 @@ mod tests {
         // `fx-settings2-40x120-tab1..5`: Interface, Agent, Notifications,
         // Advanced, All -- with xfx's settings on each.
         let snapshot = launched();
-        assert_eq!(labels(&on_tab(0), &snapshot).len(), 10);
+        assert_eq!(labels(&on_tab(0), &snapshot).len(), 13);
         assert_eq!(
             labels(&on_tab(1), &snapshot),
             [
@@ -968,10 +1299,19 @@ mod tests {
         );
         assert_eq!(
             labels(&on_tab(2), &snapshot),
-            ["Model", "Reasoning effort", "Permission mode"]
+            [
+                "Model",
+                "Reasoning effort",
+                "Fast mode",
+                "Ultra mode",
+                "Permission mode"
+            ]
         );
         assert_eq!(labels(&on_tab(3), &snapshot), ["Sound level"]);
-        assert_eq!(labels(&on_tab(4), &snapshot), ["Prompt history"]);
+        assert_eq!(
+            labels(&on_tab(4), &snapshot),
+            ["Startup scrollback", "Prompt history"]
+        );
         assert_eq!(on_tab(5), SettingsMenu::open(""));
         // Shift-Tab is the other way round.
         let mut back = SettingsMenu::open("");
@@ -1145,7 +1485,7 @@ mod tests {
         let menu = on_tab(2);
         assert_eq!(
             plain(&menu.rows(&snapshot, 40, 40, PALETTE)[0]),
-            "Settings 3  [Agent]"
+            "Settings 5  [Agent]"
         );
         assert_eq!(plain(&menu.rows(&snapshot, 12, 40, PALETTE)[0]), "[Agent]");
         assert_eq!(plain(&menu.rows(&snapshot, 5, 40, PALETTE)[0]), "[Agen");
