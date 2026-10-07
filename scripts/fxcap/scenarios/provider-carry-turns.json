@@ -1,0 +1,6 @@
+[
+ {"tool":{"id":"functions.read:0","name":"read_file","input":{"path":"notes.txt"}}},
+ {"delayMs":50,"chunks":["The notes say the meeting ","moved to Thursday."]},
+ {"delayMs":50,"chunks":["MARKER-AFTER-SWITCH: still Thursday."]},
+ {"delayMs":50,"chunks":["MARKER-AFTER-RESUME: Thursday it is."]}
+]
