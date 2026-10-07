@@ -23,40 +23,53 @@
 //!   [not] degrade the session's billing completeness and inflate its token
 //!   totals" (`session_title_generation.zig:185-187`).
 //!
+//! # Who asks, and when
+//!
+//! **The band, at submit** ([`TitleDesk::ask`]), as upstream's main thread
+//! does in `snapshotPrompt` for every prompt it hands its worker
+//! (`src/main.zig:1479-1481`) -- one the worker runs at once, one that waits,
+//! and one it steers into the turn that is running (`admitPrompt`,
+//! `src/core/agent/worker_runtime.zig:1064-1104`, which every interactive
+//! submit reaches through `snapshotPrompt` first). The band holds what the
+//! gate reads that only it knows at the keystroke -- the session's title as
+//! shown, whether a turn of this conversation has ended -- and the desk holds
+//! the rest: the switch, whether a question is out, and what the runtime last
+//! published about where to ask (`shouldGenerate`,
+//! `session_title_generation.zig:40-46`).
+//!
 //! # Where the answer goes
 //!
 //! **The runtime's, never the screen's directly.** The thread sends its answer
-//! on a channel the runtime reads ([`Titles::next`] between pieces of work,
-//! [`Titles::lend`] for the turn that is running); the runtime decides whether
-//! it is still the session's title to give -- the same session, not titled by
-//! the user since -- writes it into the log, and only then tells the band. A
-//! thread that wrote to the band itself could not know which session the band
-//! is showing by the time it answered.
+//! on a channel the runtime reads ([`Answers`]: between pieces of work, and in
+//! the turn that is running); the runtime decides whether it is still the
+//! session's title to give, writes it into the log, and tells the band.
 //!
-//! **Every start is a ticket, and only the ticket in force is answered.** A
-//! `/new`, a `/resume` and a provider switch end the session the question was
-//! about; they cancel the thread ([`Titles::forget`]), and an answer that was
-//! already on its way is told apart by its ticket and dropped. Upstream lets
-//! the request run on and drops its answer when the session has changed
-//! (`session_changed`, `:3720-3728`); the screen is the same either way, and
-//! the socket is closed sooner here.
+//! **Every question is tagged with the conversation it was asked in** -- a
+//! *lineage*, which moves on whenever the conversation the band shows is let
+//! go of: at the keystroke for `/new`, `/clear` and `/reset` (the band moves
+//! it, as upstream clears its session there), and in the runtime for a resume
+//! and a provider switch. A question of an older lineage is cancelled when it
+//! moves, and an answer of one is dropped (upstream's `session_changed`,
+//! `app_session_runtime.zig:3720-3728`); an answer of the lineage in force
+//! whose conversation the runtime has not opened yet is held until it does.
 //!
 //! **The thread is started with every owned signal blocked**
-//! ([`super::signals::spawn_unsignalled`]), as [`super::reconcile`]'s asker
-//! is, so no handler can run on it, and it is never waited for.
+//! ([`super::signals::spawn_unsignalled`]), as `/credits`' is
+//! ([`super::credits_ask`]), so no handler can run on it, and it is never
+//! waited for.
 
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::config::Credential;
 use crate::gateway::protocol::{CompletionRequest, Message, RequestOptions, ToolChoice};
 use crate::gateway::{CancelToken, DeltaSink, Endpoint, GatewayProvider, Provider, ProviderError};
+use crate::trace::{TitleGeneration, TitleStatus};
 
 /// The model the Gateway's titles are asked of: fixed, and cheaper than the
 /// session's own (`title_model`, `vercel-labs/fx@c1db9191
@@ -91,40 +104,6 @@ pub(crate) const INSTRUCTIONS: &str = "Generate a short title for a conversation
 
 /// The name the asking thread is given, for a debugger or a panic message.
 const THREAD_NAME: &str = "xfx-title";
-
-/// Whether a fresh session's first prompt asks for a title: the profile's
-/// `session_titles` at launch, and `/settings` since.
-///
-/// One flag for the session, written by the band the moment the row changes
-/// and read by the runtime when a first prompt's turn starts -- the
-/// [`crate::permission::LiveAuthority`] arrangement, so a change made while a
-/// turn runs decides the next session's first prompt without waiting for the
-/// queue. Upstream changes its own field at once the same way
-/// (`applySettingsCatalogChange`, `app_commands.zig:4149-4166`) and reads it
-/// at submit (`snapshotPrompt`, `src/main.zig:1479-1481`).
-#[derive(Debug, Clone)]
-pub(crate) struct TitleSwitch(Arc<std::sync::atomic::AtomicBool>);
-
-impl TitleSwitch {
-    pub(crate) fn new(on: bool) -> Self {
-        Self(Arc::new(std::sync::atomic::AtomicBool::new(on)))
-    }
-
-    pub(crate) fn on(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn set(&self, on: bool) {
-        self.0.store(on, Ordering::Release);
-    }
-}
-
-impl Default for TitleSwitch {
-    /// On, upstream's default (`settings_catalog.zig:63`).
-    fn default() -> Self {
-        Self::new(true)
-    }
-}
 
 /// The part of a first prompt a title is asked from, or `None` when it has no
 /// usable text (`promptExcerpt`, `session_title_generation.zig:52-58`).
@@ -211,16 +190,35 @@ pub(crate) fn options() -> RequestOptions {
 pub(crate) enum Unavailable {
     /// The thread could not be started.
     NotStarted,
-    /// The session the question was about was let go of first.
+    /// The conversation the question was about was let go of first.
     Cancelled,
     /// No answer within [`TIMEOUT`].
     TimedOut,
-    /// The Gateway could not be reached, or answered with a failure.
-    Failed(String),
+    /// The Gateway could not be reached, or the exchange broke: the kind of
+    /// failure, never its text.
+    Transport(&'static str),
+    /// The Gateway answered with a failure status.
+    Provider(u16),
     /// The answer had no text.
     Empty,
     /// The answer had text and none of it was a title.
     Unsanitizable,
+}
+
+impl Unavailable {
+    /// Upstream's name for it (`@tagName(FailureReason)`), and what it says
+    /// beside it (`detail`), for `/trace`.
+    fn reason(&self) -> (&'static str, Option<String>) {
+        match self {
+            Self::NotStarted => ("spawn_failed", None),
+            Self::Cancelled => ("cancelled", None),
+            Self::TimedOut => ("transport_error", Some("Timeout".to_string())),
+            Self::Transport(kind) => ("transport_error", Some((*kind).to_string())),
+            Self::Provider(status) => ("provider_failure", Some(format!("http_{status}"))),
+            Self::Empty => ("empty_content", None),
+            Self::Unsanitizable => ("unsanitizable", None),
+        }
+    }
 }
 
 /// What one question came to.
@@ -231,12 +229,15 @@ pub(crate) enum Outcome {
     Unavailable(Unavailable),
 }
 
-/// One answer, with the start it answers and the session it is about.
+/// One answer: the question it answers, the conversation it was asked in, and
+/// what came of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Titled {
     ticket: u64,
-    pub(crate) session: String,
+    pub(crate) lineage: u64,
     pub(crate) outcome: Outcome,
+    /// From the thread's start to its answer.
+    elapsed_ms: i64,
 }
 
 impl Titled {
@@ -262,97 +263,206 @@ type Asked = Pin<Box<dyn Future<Output = Outcome>>>;
 type Asker = Arc<dyn Fn(Question) -> Asked + Send + Sync>;
 
 /// The question in flight.
-#[derive(Debug)]
 struct Running {
     ticket: u64,
     cancel: CancelToken,
+    started: Instant,
 }
 
-/// The runtime's side of asking for titles: the one question in flight, and
-/// where the answers arrive.
-pub(crate) struct Titles {
-    ask: Asker,
-    done: UnboundedSender<Titled>,
-    /// Where answers arrive; lent to a turn while it runs ([`Self::lend`]).
-    answers: Option<Answers>,
-    /// The ticket an answer must carry to be read, `0` for none: shared with
-    /// [`Answers`], which a running turn holds while this does not.
-    in_force: Arc<AtomicU64>,
+/// What the desk holds under its lock.
+struct Desk {
+    /// The switch: the profile's `session_titles` at launch, and `/settings`
+    /// since (`applySettingsCatalogChange`, `app_commands.zig:4149-4166`).
+    on: bool,
+    /// Where a question goes and with which credential, as the runtime last
+    /// published it: the Gateway with a key, or nothing -- llmux, or no key --
+    /// which asks nothing (`provider_supports_titles`).
+    asker: Option<(Endpoint, Credential)>,
+    /// The conversation a question asked now is about.
+    lineage: u64,
     /// The last ticket given out.
     tickets: u64,
     running: Option<Running>,
+    /// How the last question went, for `/trace` (`TitleGenerationLoad.last`,
+    /// `app_session_runtime.zig:1083-1118`).
+    last: TitleGeneration,
 }
 
-impl Titles {
-    /// Asks the Gateway ([`ask_gateway`]).
+struct Shared {
+    desk: Mutex<Desk>,
+    ask: Asker,
+    done: UnboundedSender<Titled>,
+}
+
+/// The one place a session's title questions are asked from and accounted
+/// for, shared by the band (which asks, at submit) and the runtime (which
+/// publishes where to ask, moves the lineage on a resume or a provider
+/// switch, and settles every answer).
+///
+/// **The lock guards a few fields and nothing else**: no I/O, no channel and
+/// no `.await` happens under it, so the band's wait on it is the length of a
+/// copy -- the [`super::worker::StatusBoard`] rule.
+#[derive(Clone)]
+pub(crate) struct TitleDesk(Arc<Shared>);
+
+impl TitleDesk {
+    /// A desk that asks the Gateway ([`ask_gateway`]), switched `on`, and
+    /// where its answers arrive.
     ///
-    /// **Not in a unit test**, where a runtime built with this would send a
-    /// title request to whatever Gateway the process names -- upstream keeps
-    /// its own tests from it the same way (`is_test`,
-    /// `vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:2180-2182`). A test
-    /// that wants an answer builds its own ([`Self::answering`]).
-    pub(crate) fn new() -> Self {
+    /// **Not in a unit test**, where a desk built with this would send a title
+    /// request to whatever Gateway the process names -- upstream keeps its own
+    /// tests from it the same way (`is_test`, `vercel-labs/fx@c1db9191
+    /// src/core/cli/cli_ask.zig:2180-2182`). A test that wants an answer
+    /// builds its own ([`Self::answering`]).
+    pub(crate) fn new(on: bool) -> (Self, Answers) {
         #[cfg(not(test))]
         let ask: Asker =
             Arc::new(|question: Question| -> Asked { Box::pin(ask_gateway(question)) });
         #[cfg(test)]
         let ask: Asker = Arc::new(|_question: Question| -> Asked {
-            Box::pin(async {
-                Outcome::Unavailable(Unavailable::Failed("no network in a test".into()))
-            })
+            Box::pin(async { Outcome::Unavailable(Unavailable::Transport("Test")) })
         });
-        Self::asking(ask)
+        Self::asking(on, ask)
     }
 
-    fn asking(ask: Asker) -> Self {
+    fn asking(on: bool, ask: Asker) -> (Self, Answers) {
         let (done, answers) = unbounded_channel();
-        let in_force = Arc::new(AtomicU64::new(0));
-        Self {
-            ask,
-            done,
-            answers: Some(Answers {
-                answers,
-                in_force: Arc::clone(&in_force),
-            }),
-            in_force,
-            tickets: 0,
-            running: None,
-        }
+        (
+            Self(Arc::new(Shared {
+                desk: Mutex::new(Desk {
+                    on,
+                    asker: None,
+                    lineage: 0,
+                    tickets: 0,
+                    running: None,
+                    last: TitleGeneration::default(),
+                }),
+                ask,
+                done,
+            })),
+            Answers(answers),
+        )
     }
 
-    /// Titles whose questions `answer` answers, from the excerpt, on the
-    /// asking thread -- whether or not the question has been let go of since,
-    /// which is the answer already on its way that a case needs to make.
+    /// A desk whose questions `answer` answers, from the excerpt, on the
+    /// asking thread.
     #[cfg(test)]
-    pub(crate) fn answering(answer: impl Fn(&str) -> Outcome + Send + Sync + 'static) -> Self {
+    pub(crate) fn answering(
+        on: bool,
+        answer: impl Fn(&str) -> Outcome + Send + Sync + 'static,
+    ) -> (Self, Answers) {
         let answer = Arc::new(answer);
-        Self::asking(Arc::new(move |question: Question| -> Asked {
-            let outcome = answer(&question.excerpt);
-            Box::pin(async move { outcome })
-        }))
+        Self::asking(
+            on,
+            Arc::new(move |question: Question| -> Asked {
+                let outcome = answer(&question.excerpt);
+                Box::pin(async move { outcome })
+            }),
+        )
     }
 
-    /// Whether a question is in flight: a second first prompt asks nothing
-    /// while one is (`task_running`, `session_title_generation.zig:37-38`).
+    /// A desk whose questions `answer` answers with the whole question in
+    /// hand -- its cancellation included.
+    #[cfg(test)]
+    pub(crate) fn answering_questions(
+        on: bool,
+        answer: impl Fn(&Question) -> Outcome + Send + Sync + 'static,
+    ) -> (Self, Answers) {
+        let answer = Arc::new(answer);
+        Self::asking(
+            on,
+            Arc::new(move |question: Question| -> Asked {
+                let outcome = answer(&question);
+                Box::pin(async move { outcome })
+            }),
+        )
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Desk> {
+        self.0.desk.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether a first prompt asks for a title.
+    pub(crate) fn on(&self) -> bool {
+        self.lock().on
+    }
+
+    /// Turns asking on or off, for the next prompt that would ask; a question
+    /// already out is not taken back.
+    pub(crate) fn set_on(&self, on: bool) {
+        self.lock().on = on;
+    }
+
+    /// Where a question goes from now on, or nowhere ([`Desk::asker`]).
+    pub(crate) fn publish_asker(&self, asker: Option<(Endpoint, Credential)>) {
+        self.lock().asker = asker;
+    }
+
+    /// The conversation a question asked now is about.
+    pub(crate) fn lineage(&self) -> u64 {
+        self.lock().lineage
+    }
+
+    /// Lets go of the conversation questions were about: the question out is
+    /// cancelled, and anything asked from here on is about the next one.
+    /// Answers the new lineage.
+    pub(crate) fn next_lineage(&self) -> u64 {
+        let mut desk = self.lock();
+        desk.lineage += 1;
+        if let Some(running) = desk.running.take() {
+            running.cancel.cancel();
+            desk.last = TitleGeneration {
+                status: TitleStatus::Failed,
+                model: Some(MODEL.to_string()),
+                reason: Some("cancelled"),
+                elapsed_ms: Some(
+                    i64::try_from(running.started.elapsed().as_millis()).unwrap_or(i64::MAX),
+                ),
+                ..TitleGeneration::default()
+            };
+        }
+        desk.lineage
+    }
+
+    /// Whether a question is out (`task_running`,
+    /// `session_title_generation.zig:37-38`): until the runtime has read its
+    /// answer, as upstream's task is running until its poll takes it.
+    #[cfg(test)]
     pub(crate) fn running(&self) -> bool {
-        self.running.is_some()
+        self.lock().running.is_some()
     }
 
-    /// Starts asking for `session`'s title from `excerpt`, and returns without
-    /// waiting. `false` when a question is already in flight, or no thread
-    /// could be started for this one.
-    pub(crate) fn start(
-        &mut self,
-        session: &str,
-        excerpt: &str,
-        endpoint: Endpoint,
-        credential: Credential,
-    ) -> bool {
-        if self.running.is_some() {
+    /// Puts `outcome` into the answers now, as the answer to the question
+    /// out -- or to none, when none is -- the way a question's thread does,
+    /// at an instant a test picks rather than one the thread's timing does.
+    #[cfg(test)]
+    pub(crate) fn land(&self, outcome: Outcome) {
+        let desk = self.lock();
+        let ticket = desk.running.as_ref().map_or(0, |running| running.ticket);
+        let _ = self.0.done.send(Titled {
+            ticket,
+            lineage: desk.lineage,
+            outcome,
+            elapsed_ms: 0,
+        });
+    }
+
+    /// Asks for a title from `excerpt` ([`excerpt`]), about the conversation
+    /// in force, and returns without waiting -- or asks nothing, silently,
+    /// when the switch is off, nobody is published to ask, or a question is
+    /// already out (the rest of `shouldGenerate`; the band has checked its
+    /// own half). `true` when a question went out.
+    pub(crate) fn ask(&self, excerpt: &str) -> bool {
+        let mut desk = self.lock();
+        if !desk.on || desk.running.is_some() {
             return false;
         }
-        self.tickets += 1;
-        let ticket = self.tickets;
+        let Some((endpoint, credential)) = desk.asker.clone() else {
+            return false;
+        };
+        desk.tickets += 1;
+        let ticket = desk.tickets;
+        let lineage = desk.lineage;
         let cancel = CancelToken::new();
         let question = Question {
             endpoint,
@@ -360,10 +470,10 @@ impl Titles {
             excerpt: excerpt.to_string(),
             cancel: cancel.clone(),
         };
-        let ask = Arc::clone(&self.ask);
-        let done = self.done.clone();
-        let session = session.to_string();
-        let started = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+        let ask = Arc::clone(&self.0.ask);
+        let done = self.0.done.clone();
+        let started = Instant::now();
+        let spawned = super::signals::spawn_unsignalled(THREAD_NAME, move || {
             let outcome = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -379,102 +489,136 @@ impl Titles {
             // Nobody left to tell is a session that has ended.
             let _ = done.send(Titled {
                 ticket,
-                session,
+                lineage,
                 outcome,
+                elapsed_ms: i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
             });
-        })
-        .is_ok();
-        if !started {
+        });
+        if spawned.is_err() {
+            desk.last = TitleGeneration {
+                status: TitleStatus::Failed,
+                model: Some(MODEL.to_string()),
+                reason: Some("spawn_failed"),
+                elapsed_ms: Some(0),
+                ..TitleGeneration::default()
+            };
             return false;
         }
-        self.in_force.store(ticket, Ordering::Release);
-        self.running = Some(Running { ticket, cancel });
+        desk.running = Some(Running {
+            ticket,
+            cancel,
+            started,
+        });
         true
     }
 
-    /// Stops asking: the session the question was about was dropped, replaced
-    /// or ended. An answer already on its way is dropped when it arrives.
-    pub(crate) fn forget(&mut self) {
-        if let Some(running) = self.running.take() {
-            running.cancel.cancel();
-        }
-        self.in_force.store(0, Ordering::Release);
-    }
-
-    /// The question `titled` answers is over: nothing is in flight, and no
-    /// second answer under its ticket would be read.
-    pub(crate) fn settle(&mut self, titled: &Titled) {
-        if self
+    /// Takes `titled` off the books: the question it answers is no longer
+    /// out, and how it went is what `/trace` says (`recordFinished`,
+    /// `app_session_runtime.zig:1153-1171`). `false`, and nothing changed,
+    /// for an answer to a question that is not the one out -- one a lineage
+    /// change cancelled, whose word no longer counts.
+    pub(crate) fn settle(&self, titled: &Titled) -> bool {
+        let mut desk = self.lock();
+        if desk
             .running
             .as_ref()
-            .is_some_and(|running| running.ticket == titled.ticket)
+            .is_none_or(|running| running.ticket != titled.ticket)
         {
-            self.running = None;
-            self.in_force.store(0, Ordering::Release);
+            return false;
+        }
+        desk.running = None;
+        let (status, reason, detail) = match &titled.outcome {
+            Outcome::Generated(_) => (TitleStatus::Installed, None, None),
+            Outcome::Unavailable(why) => {
+                let (reason, detail) = why.reason();
+                (TitleStatus::Failed, Some(reason), detail)
+            }
+        };
+        desk.last = TitleGeneration {
+            status,
+            session: None,
+            model: Some(MODEL.to_string()),
+            reason,
+            detail,
+            elapsed_ms: Some(titled.elapsed_ms),
+        };
+        true
+    }
+
+    /// The session a settled answer was about, once the runtime knows it.
+    pub(crate) fn record_session(&self, session: &str) {
+        self.lock().last.session = Some(session.to_string());
+    }
+
+    /// A title that came back and was not given to the session, and why
+    /// (`recordDropped`, `app_session_runtime.zig:1173-1178`: only over one
+    /// that came back).
+    pub(crate) fn record_dropped(&self, reason: &'static str) {
+        let mut desk = self.lock();
+        if desk.last.status == TitleStatus::Installed {
+            desk.last.status = TitleStatus::Dropped;
+            desk.last.reason = Some(reason);
         }
     }
 
-    /// Lends the answers to the turn about to run, which reads them while it
-    /// holds the runtime ([`Self::give_back`] when it is over).
-    pub(crate) fn lend(&mut self) -> Option<Answers> {
-        self.answers.take()
-    }
-
-    pub(crate) fn give_back(&mut self, answers: Option<Answers>) {
-        if answers.is_some() {
-            self.answers = answers;
+    /// Cancels the question out: the session is ending (`requestStop`,
+    /// `app_session_runtime.zig:3950`).
+    pub(crate) fn stop(&self) {
+        if let Some(running) = self.lock().running.take() {
+            running.cancel.cancel();
         }
     }
 
-    /// The next answer to the question in force. Never resolves while none
-    /// has arrived -- nor while the answers are lent -- so it is an arm a
-    /// `select!` can always carry.
-    pub(crate) async fn next(&mut self) -> Titled {
-        match self.answers.as_mut() {
-            Some(answers) => answers.next().await,
-            None => std::future::pending().await,
+    /// How title generation stands, for `/trace` (`writeSessionTitleSummary`,
+    /// `app_commands.zig:2781-2816`): the question out, or how the last one
+    /// went.
+    pub(crate) fn generation(&self) -> TitleGeneration {
+        let desk = self.lock();
+        match &desk.running {
+            Some(running) => TitleGeneration {
+                status: TitleStatus::Running,
+                session: None,
+                model: Some(MODEL.to_string()),
+                reason: None,
+                detail: None,
+                elapsed_ms: Some(
+                    i64::try_from(running.started.elapsed().as_millis()).unwrap_or(i64::MAX),
+                ),
+            },
+            None => desk.last.clone(),
         }
     }
 }
 
-impl Drop for Titles {
-    /// Cancels the question in flight. Its thread is not waited for: it can
-    /// take no signal (the module's own note), and it ends at its next look at
-    /// the flag or at [`TIMEOUT`].
-    fn drop(&mut self) {
-        self.forget();
-    }
-}
-
-impl std::fmt::Debug for Titles {
+impl std::fmt::Debug for TitleDesk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Titles")
-            .field("running", &self.running)
+        let desk = self.lock();
+        f.debug_struct("TitleDesk")
+            .field("on", &desk.on)
+            .field("lineage", &desk.lineage)
+            .field(
+                "running",
+                &desk.running.as_ref().map(|running| running.ticket),
+            )
             .finish_non_exhaustive()
     }
 }
 
-/// Where the answers arrive, read by whoever holds the runtime.
+/// Where the answers arrive, read by whoever holds the runtime: the turn loop
+/// between pieces of work, and the turn that is running while it does.
 #[derive(Debug)]
-pub(crate) struct Answers {
-    answers: UnboundedReceiver<Titled>,
-    in_force: Arc<AtomicU64>,
-}
+pub(crate) struct Answers(UnboundedReceiver<Titled>);
 
 impl Answers {
-    /// The next answer under the ticket in force; one under any other is
-    /// about a session that was let go of, and is dropped.
+    /// The next answer, whatever question it answers ([`TitleDesk::settle`]
+    /// tells). Never resolves while none has arrived, so it is an arm a
+    /// `select!` can always carry.
     pub(crate) async fn next(&mut self) -> Titled {
-        loop {
-            match self.answers.recv().await {
-                Some(titled) if titled.ticket == self.in_force.load(Ordering::Acquire) => {
-                    return titled
-                }
-                Some(_) => continue,
-                // [`Titles`] holds a sender, so the channel cannot close while
-                // anything could read this.
-                None => return std::future::pending().await,
-            }
+        match self.0.recv().await {
+            Some(titled) => titled,
+            // [`TitleDesk`] holds a sender, so the channel cannot close while
+            // anything could read this.
+            None => std::future::pending().await,
         }
     }
 }
@@ -499,7 +643,7 @@ async fn ask_gateway(question: Question) -> Outcome {
         question.cancel.clone(),
     ) {
         Ok(provider) => provider,
-        Err(err) => return Outcome::Unavailable(Unavailable::Failed(err.to_string())),
+        Err(err) => return Outcome::Unavailable(failure(&err)),
     };
     provider.set_options(options());
     let request = request(&question.excerpt);
@@ -510,7 +654,7 @@ async fn ask_gateway(question: Question) -> Outcome {
     let completion = match answered {
         Err(_elapsed) => return Outcome::Unavailable(Unavailable::TimedOut),
         Ok(Err(ProviderError::Cancelled)) => return Outcome::Unavailable(Unavailable::Cancelled),
-        Ok(Err(err)) => return Outcome::Unavailable(Unavailable::Failed(err.to_string())),
+        Ok(Err(err)) => return Outcome::Unavailable(failure(&err)),
         Ok(Ok(completion)) => completion,
     };
     if completion.text.is_empty() {
@@ -519,6 +663,23 @@ async fn ask_gateway(question: Question) -> Outcome {
     match sanitize(&completion.text) {
         Some(title) => Outcome::Generated(title),
         None => Outcome::Unavailable(Unavailable::Unsanitizable),
+    }
+}
+
+/// What a failed exchange was, by kind: a status the Gateway answered with,
+/// or where the exchange broke. Never the error's text, which can quote a
+/// response body.
+fn failure(err: &ProviderError) -> Unavailable {
+    match err {
+        ProviderError::Status { status, .. } => Unavailable::Provider(*status),
+        ProviderError::Cancelled => Unavailable::Cancelled,
+        ProviderError::Endpoint(_) => Unavailable::Transport("Endpoint"),
+        ProviderError::Request { .. } => Unavailable::Transport("Request"),
+        ProviderError::InvalidHeader { .. } => Unavailable::Transport("InvalidHeader"),
+        ProviderError::Connect { .. } => Unavailable::Transport("Connect"),
+        ProviderError::Transport { .. } => Unavailable::Transport("Transport"),
+        ProviderError::Protocol(_) => Unavailable::Transport("Protocol"),
+        ProviderError::Sink(_) => Unavailable::Transport("Sink"),
     }
 }
 
@@ -771,10 +932,7 @@ mod tests {
             "HTTP/1.1 429 Too Many Requests\r\ncontent-length: 4\r\nconnection: close\r\n\r\nslow"
                 .to_string(),
         );
-        assert!(
-            matches!(outcome, Outcome::Unavailable(Unavailable::Failed(ref why)) if why.contains("429")),
-            "{outcome:?}"
-        );
+        assert_eq!(outcome, Outcome::Unavailable(Unavailable::Provider(429)));
     }
 
     #[test]
@@ -791,74 +949,105 @@ mod tests {
         assert_eq!(outcome, Outcome::Unavailable(Unavailable::Cancelled));
     }
 
-    fn next_within(titles: &mut Titles) -> Option<Titled> {
+    fn next_within(answers: &mut Answers) -> Option<Titled> {
         on_a_runtime(async {
-            tokio::time::timeout(Duration::from_secs(10), titles.next())
+            tokio::time::timeout(Duration::from_secs(10), answers.next())
                 .await
                 .ok()
         })
     }
 
-    #[test]
-    fn one_question_at_a_time_and_its_answer_names_its_session() {
-        let mut titles =
-            Titles::answering(|excerpt| Outcome::Generated(format!("About {excerpt}")));
+    /// A desk with somewhere to ask published, as the runtime publishes it.
+    fn published(desk: &TitleDesk) {
         let (endpoint, credential) = a_question();
-        assert!(titles.start("s-1", "the renderer", endpoint.clone(), credential.clone()));
-        assert!(titles.running());
-        assert!(
-            !titles.start("s-1", "again", endpoint, credential),
-            "a second question started while one was in flight"
-        );
-        let titled = next_within(&mut titles).expect("an answer");
-        assert_eq!(titled.session, "s-1");
-        assert_eq!(titled.title(), Some("About the renderer"));
-        titles.settle(&titled);
-        assert!(!titles.running());
+        desk.publish_asker(Some((endpoint, credential)));
     }
 
     #[test]
-    fn an_answer_about_a_session_let_go_of_is_never_read() {
-        // Held until the test has let the session go, whatever the flag
-        // says by then: an answer that was already on its way.
-        let gate = Arc::new(std::sync::Barrier::new(2));
-        let held = Arc::clone(&gate);
-        let mut titles = Titles::asking(Arc::new(move |_question: Question| -> Asked {
-            held.wait();
-            Box::pin(async { Outcome::Generated("Too late".into()) })
-        }));
-        let (endpoint, credential) = a_question();
-        assert!(titles.start("s-1", "first", endpoint.clone(), credential.clone()));
-        // `/new` while the question is out; its answer lands after.
-        titles.forget();
-        gate.wait();
-        assert!(!titles.running());
-        assert!(
-            on_a_runtime(async {
-                tokio::time::timeout(Duration::from_millis(300), titles.next())
-                    .await
-                    .ok()
-            })
-            .is_none(),
-            "an answer about the dropped session was read"
-        );
-        // The next session's question is answered as usual.
-        titles.ask = Arc::new(|_question: Question| -> Asked {
-            Box::pin(async { Outcome::Generated("Second".into()) })
+    fn one_question_at_a_time_and_only_when_the_switch_is_on_and_somebody_can_answer() {
+        // The desk's half of `shouldGenerate` (`session_title_generation.zig:40-46`).
+        let (desk, mut answers) = TitleDesk::answering(true, |excerpt| {
+            Outcome::Generated(format!("About {excerpt}"))
         });
-        assert!(titles.start("s-2", "second", endpoint, credential));
-        let titled = next_within(&mut titles).expect("an answer");
-        assert_eq!(
-            (titled.session.as_str(), titled.title()),
-            ("s-2", Some("Second"))
+        assert!(!desk.ask("x"), "asked with nobody published to answer");
+        published(&desk);
+        desk.set_on(false);
+        assert!(!desk.ask("x"), "asked with the switch off");
+        desk.set_on(true);
+        assert!(desk.ask("the renderer"));
+        assert!(desk.running());
+        assert!(!desk.ask("again"), "a second question while one was out");
+        let titled = next_within(&mut answers).expect("an answer");
+        assert_eq!(titled.lineage, 0);
+        assert_eq!(titled.title(), Some("About the renderer"));
+        assert!(desk.running(), "out until the runtime reads the answer");
+        assert!(desk.settle(&titled));
+        assert!(!desk.running());
+        assert!(!desk.settle(&titled), "settled twice");
+        let record = desk.generation();
+        assert_eq!(record.status, TitleStatus::Installed);
+        assert_eq!(record.model.as_deref(), Some(MODEL));
+    }
+
+    #[test]
+    fn a_lineage_change_cancels_the_question_out_and_its_answer_no_longer_counts() {
+        // `/new` while the question is out; its answer lands after, and is
+        // about the conversation let go of (`session_changed`).
+        let (desk, mut answers) = TitleDesk::answering_questions(true, |question| {
+            // The first question is answered only once it was cancelled; the
+            // second, which nothing cancels, at once.
+            if question.excerpt == "first" {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !question.cancel.is_cancelled() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                return Outcome::Generated("Too late".into());
+            }
+            Outcome::Generated("In time".into())
+        });
+        published(&desk);
+        assert!(desk.ask("first"));
+        assert_eq!(desk.next_lineage(), 1);
+        assert!(!desk.running());
+        let late = next_within(&mut answers).expect("the cancelled thread still answers");
+        assert_eq!(late.lineage, 0);
+        assert!(
+            !desk.settle(&late),
+            "a cancelled question's answer was counted"
         );
+        // The next conversation's question is its own.
+        assert!(desk.ask("second"));
+        let next = next_within(&mut answers).expect("an answer");
+        assert_eq!(next.lineage, 1);
+        assert!(desk.settle(&next));
+    }
+
+    #[test]
+    fn trace_reads_the_question_out_or_how_the_last_one_went() {
+        let (desk, mut answers) =
+            TitleDesk::answering(true, |_| Outcome::Unavailable(Unavailable::Provider(429)));
+        assert_eq!(desk.generation(), TitleGeneration::default());
+        published(&desk);
+        assert!(desk.ask("x"));
+        let titled = next_within(&mut answers).expect("an answer");
+        assert!(desk.settle(&titled));
+        desk.record_session("s-1");
+        let record = desk.generation();
+        assert_eq!(record.status, TitleStatus::Failed);
+        assert_eq!(record.reason, Some("provider_failure"));
+        assert_eq!(record.detail.as_deref(), Some("http_429"));
+        assert_eq!(record.session.as_deref(), Some("s-1"));
+        assert!(record.elapsed_ms.is_some());
+        // A drop is recorded only over a title that came back.
+        desk.record_dropped("user_title_present");
+        assert_eq!(desk.generation().status, TitleStatus::Failed);
     }
 
     /// The question is asked on the asking thread, so the asker reads that
     /// thread's mask: every owned signal blocked, whoever started it.
     #[test]
     fn the_asking_thread_can_take_no_owned_signal() {
-        let mut titles = Titles::answering(|_| {
+        let (desk, mut answers) = TitleDesk::answering(true, |_| {
             // A thread that could take one answers nothing usable.
             if super::super::signals::owned_blocked_here()
                 .iter()
@@ -869,31 +1058,9 @@ mod tests {
                 Outcome::Unavailable(Unavailable::NotStarted)
             }
         });
-        let (endpoint, credential) = a_question();
-        assert!(titles.start("s-1", "x", endpoint, credential));
-        let titled = next_within(&mut titles).expect("an answer");
+        published(&desk);
+        assert!(desk.ask("x"));
+        let titled = next_within(&mut answers).expect("an answer");
         assert_eq!(titled.title(), Some("Masked"));
-    }
-
-    #[test]
-    fn lent_answers_are_read_by_the_borrower_and_not_twice() {
-        let mut titles = Titles::answering(|_| Outcome::Generated("Lent".into()));
-        let mut lent = titles.lend();
-        let (endpoint, credential) = a_question();
-        assert!(titles.start("s-1", "x", endpoint, credential));
-        let titled = on_a_runtime(async {
-            tokio::time::timeout(Duration::from_secs(10), lent.as_mut().expect("lent").next())
-                .await
-                .ok()
-        })
-        .expect("the borrower read it");
-        titles.give_back(lent);
-        titles.settle(&titled);
-        assert!(on_a_runtime(async {
-            tokio::time::timeout(Duration::from_millis(200), titles.next())
-                .await
-                .ok()
-        })
-        .is_none());
     }
 }

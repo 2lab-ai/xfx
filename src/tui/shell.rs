@@ -1156,6 +1156,10 @@ pub(crate) struct Shell {
     /// The title the running turn's prompt would give its session, held from
     /// the turn's start to its end ([`Self::title_session`]).
     turn_title: Option<String>,
+    /// Whether a turn of this conversation has ended -- upstream's history is
+    /// no longer empty then (`session_untitled`, `app_session_runtime.zig:3674-3675`),
+    /// and a prompt asks for no title ([`Self::asks_for_title`]).
+    turned: bool,
     /// Whether the band has not yet been told the window title the session
     /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
     /// carries one.
@@ -1823,6 +1827,7 @@ impl Shell {
             tally: Tally::default(),
             prompts: VecDeque::new(),
             session_title: None,
+            turned: false,
             turn_title: None,
             title_owed: true,
             workspace: config.workspace_root.clone(),
@@ -2656,6 +2661,9 @@ impl Shell {
         // Past every image number the session's prompts already name, so a
         // new attachment's `[Image #N]` is never one of theirs.
         self.images_next = self.images_next.max(replay.next_image);
+        // A replayed session has had its turns: no prompt in it asks for a
+        // title, as upstream's resumed history is not empty.
+        self.turned = !replay.turns.is_empty();
         if wipe {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
@@ -3171,6 +3179,11 @@ impl Shell {
                 // (`postTurnEndHandler`). Owed once the answer is presented,
                 // which [`Self::settle_band`] notices.
                 self.sound.turn_ended(summary.is_some());
+                // A turn the runtime ran has ended, whichever way: upstream's
+                // history holds an interrupted turn too.
+                if self.tally.started.is_some() {
+                    self.turned = true;
+                }
                 self.tally.started = None;
                 // A turn this session stopped has already been answered for,
                 // at the keystroke: no summary under an answer that was cut
@@ -8308,6 +8321,9 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // What a model would be asked to title the session from, if this is
+        // the prompt that asks ([`Self::asks_for_title`]).
+        let excerpt = super::titles::excerpt(&prompt).map(str::to_string);
         // The images whose badges the draft holds, in the order they stand:
         // what goes after the prompt's text on the wire.
         let images: Vec<crate::image::Image> = self
@@ -8333,6 +8349,18 @@ impl Shell {
         let waits = self.activity.working();
         match self.work.submit(work) {
             Ok(()) => {
+                // **The session's title is asked for now, at the keystroke**,
+                // as upstream's `snapshotPrompt` asks for every prompt it
+                // hands its worker -- at once, waiting, or steered into the
+                // turn that runs (`src/main.zig:1479-1481`;
+                // `worker_runtime.zig:1064-1104`) -- with the switch as it
+                // stands now. On a thread of its own: the turn never waits
+                // for it ([`super::titles`]).
+                if let Some(excerpt) = excerpt.as_deref() {
+                    if self.asks_for_title() {
+                        self.work.ask_title(excerpt);
+                    }
+                }
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
                 // (`super::worker::WORK_LIMIT`), and the band already says so
@@ -9134,6 +9162,13 @@ impl CommandHandlers for Shell {
             outstanding: self.work.outstanding(),
             timeline,
             network,
+            // `## Session Title`: the switch, the title the window shows, and
+            // how asking a model for one stands.
+            title: crate::trace::TitleTrace {
+                setting: self.work.session_titles(),
+                title: self.session_title.clone(),
+                generation: self.work.title_generation(),
+            },
         };
         if !self.traces.start(job) {
             self.announce(notice::Notice::error("", crate::trace::UNAVAILABLE));
@@ -9651,6 +9686,11 @@ impl Shell {
         // new one.
         let through = self.work.accepted();
         self.work.control(TurnControl::Reset { through });
+        // After the reset is sent, so work the runtime takes before reading
+        // it is the old conversation's: a title asked about that one is
+        // cancelled now, as upstream clears its session at the keystroke, and
+        // one a prompt typed after this asks is the next one's.
+        self.work.new_title_lineage();
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
@@ -9835,9 +9875,22 @@ impl Shell {
     /// conversation being dropped, and its end must not title the next one.
     fn forget_session_title(&mut self) {
         self.turn_title = None;
+        self.turned = false;
         if self.session_title.take().is_some() {
             self.retitle();
         }
+    }
+
+    /// The band's half of upstream's gate for asking a model to title the
+    /// session (`shouldGenerate`, `vercel-labs/fx@c1db9191
+    /// src/core/session/session_title_generation.zig:40-46`, as
+    /// `maybeStartSessionTitleGeneration` assembles it,
+    /// `app_session_runtime.zig:3671-3678`): the session has no title yet --
+    /// none renamed, generated or derived, which is upstream's cached title
+    /// -- and no turn of it has ended. The switch, the provider and a
+    /// question already out are the desk's half ([`WorkHandle::ask_title`]).
+    fn asks_for_title(&self) -> bool {
+        self.session_title.is_none() && !self.turned
     }
 
     /// Owes the band the window title, and the frame that writes it.
@@ -19189,6 +19242,166 @@ mod tests {
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title(), None);
         assert!(visible_text(&shell.hint_row()).contains("Fix the renderer"));
+    }
+
+    /// The fixture's desk, with somewhere to ask published as the runtime
+    /// publishes it, and answered by `answer` -- no network.
+    fn asking_desk(shell: &mut Fixture) -> super::super::titles::Answers {
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let credential = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                None,
+                std::collections::BTreeMap::from([(
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "fake-key-not-real".to_string(),
+                )]),
+            ),
+            workspace.path(),
+        )
+        .expect("a configuration")
+        .credential
+        .expect("a credential");
+        let (desk, answers) = super::super::titles::TitleDesk::answering(true, |_| {
+            super::super::titles::Outcome::Generated("Titled".to_string())
+        });
+        desk.publish_asker(Some((
+            crate::gateway::Endpoint::resolve(Some("http://127.0.0.1:9/v4/ai/language-model"))
+                .expect("a loopback endpoint"),
+            credential,
+        )));
+        shell.work.titles_for_tests(desk);
+        answers
+    }
+
+    #[test]
+    fn a_fresh_sessions_first_prompt_asks_for_a_title_at_the_keystroke() {
+        // `snapshotPrompt` (`src/main.zig:1479-1481`): asked as the prompt is
+        // handed over, before its turn has started -- and, as the gate has it
+        // (`shouldGenerate`, `session_title_generation.zig:40-46`), not again
+        // while that question is out.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.route_bytes(b"fix the renderer\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("fix the renderer".to_string())
+        );
+        assert!(
+            shell.work.title_desk().running(),
+            "the first prompt asked for no title"
+        );
+        assert_eq!(shell.work.title_desk().lineage(), 0);
+    }
+
+    #[test]
+    fn a_prompt_asks_for_no_title_once_the_session_has_one_or_a_turn_has_ended() {
+        // The band's half of `session_untitled`
+        // (`app_session_runtime.zig:3674-3675`): the cached title is empty
+        // and the history is.
+        let mut titled = shell(24, 120);
+        let _answers = asking_desk(&mut titled);
+        titled.apply(UiEvent::Renamed {
+            title: "Mine".to_string(),
+            unsaved: None,
+        });
+        titled.route_bytes(b"fix the renderer\r");
+        let _ = titled.picks_up();
+        assert!(
+            !titled.work.title_desk().running(),
+            "a titled session asked"
+        );
+
+        // A first turn that ended -- interrupted too, as upstream's history
+        // holds an interrupted turn -- with no title given.
+        let mut turned = shell(24, 120);
+        let _answers = asking_desk(&mut turned);
+        turned.work.title_desk().set_on(false);
+        turn_running(&mut turned, b"first\r");
+        let _ = turned.picks_up();
+        turned.work.give_back();
+        turned.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: interrupted".to_string()),
+        });
+        turned.work.title_desk().set_on(true);
+        turned.route_bytes(b"second\r");
+        let _ = turned.picks_up();
+        assert!(
+            !turned.work.title_desk().running(),
+            "a session with a turn behind it asked"
+        );
+
+        // The switch, read at the keystroke.
+        let mut off = shell(24, 120);
+        let _answers = asking_desk(&mut off);
+        off.work.set_session_titles(false);
+        off.route_bytes(b"fix the renderer\r");
+        let _ = off.picks_up();
+        assert!(
+            !off.work.title_desk().running(),
+            "asked with the switch off"
+        );
+    }
+
+    #[test]
+    fn a_prompt_typed_while_the_first_turn_runs_asks_when_no_title_came_back() {
+        // Upstream asks for every prompt its worker takes, one steered into
+        // the running turn too (`admitPrompt`, `worker_runtime.zig:1064-1104`,
+        // after `snapshotPrompt`): while the first prompt's question is out
+        // nothing more is asked, and once it came back with no title, a
+        // prompt typed before the first turn ends asks again.
+        let mut shell = shell(24, 120);
+        let mut answers = asking_desk(&mut shell);
+        turn_running(&mut shell, b"first prompt\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        assert!(shell.work.title_desk().running());
+        shell.route_bytes(b"while it runs\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        // The first answer is read -- by the runtime, here by hand -- and it
+        // was no title.
+        let titled = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), answers.next())
+                    .await
+                    .expect("an answer")
+            });
+        assert!(shell.work.title_desk().settle(&titled));
+        assert!(!shell.work.title_desk().running());
+        shell.route_bytes(b"typed after the answer\r");
+        let _ = shell.picks_up();
+        assert!(
+            shell.work.title_desk().running(),
+            "a prompt in a still-untitled first turn asked nothing"
+        );
+    }
+
+    #[test]
+    fn a_reset_moves_the_title_lineage_on_at_the_keystroke() {
+        // Upstream clears its session at `/new` before anything else is
+        // read: a question about the old one is cancelled, and one a prompt
+        // typed straight after asks is the new one's.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.route_bytes(b"first\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        assert!(shell.work.title_desk().running());
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.work.title_desk().lineage(), 1);
+        assert!(
+            !shell.work.title_desk().running(),
+            "the old conversation's question is still out"
+        );
+        shell.route_bytes(b"straight away\r");
+        let _ = shell.picks_up();
+        assert!(
+            shell.work.title_desk().running(),
+            "the fresh session asked nothing"
+        );
     }
 
     #[test]

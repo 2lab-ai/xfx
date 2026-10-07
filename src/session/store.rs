@@ -669,9 +669,15 @@ impl DurableState {
     /// manifest publishes this, so a listing, a resume and the window title all
     /// say the same thing.
     pub fn title(&self) -> Option<String> {
-        self.renamed
-            .clone()
-            .or_else(|| self.turns.first().and_then(|turn| title_of(&turn.user)))
+        self.renamed.clone().or_else(|| self.derived_title())
+    }
+
+    /// The title the session's first prompt gives it, whatever title is on
+    /// record: what a generated title may replace (upstream compares the
+    /// title on record with this one, `installGeneratedTitle`,
+    /// `vercel-labs/fx@c1db9191 src/core/session/session_title_generation.zig:378-394`).
+    pub fn derived_title(&self) -> Option<String> {
+        self.turns.first().and_then(|turn| title_of(&turn.user))
     }
 
     /// The durable history, as the messages a next request would carry on

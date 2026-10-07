@@ -4501,9 +4501,9 @@ fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread()
 /// waiting behind it -- the queue full, which refuses a third prompt -- it is
 /// not refused, and the Ctrl-C that stops the turn does not take it away.
 ///
-/// The fixture serves one connection at a time, so the question reaches it
-/// once the hanging turn's connection is closed by the interrupt: what this
-/// proves on a real terminal is "not refused and not dropped". That it is
+/// The fixture answers its scripted requests one at a time, so the question
+/// is answered once the hanging turn's connection is closed by the interrupt:
+/// what this proves on a real terminal is "not refused and not dropped". That it is
 /// asked at once, ahead of the turn, is the shell's own case
 /// (`credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c`).
 #[test]
@@ -8672,6 +8672,14 @@ fn slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text(
         "] user\n  render the trace fixture\n".to_string(),
         "] assistant\n  TRACE_RENDER_DONE\n".to_string(),
         "\n## Network Calls\ncalls=1 ok=1 refused=0\n".to_string(),
+        // The fixture's title request answers with no text: the switch is on,
+        // the session is shown under its prompt, and the question came back
+        // empty (`writeSessionTitleSummary`, `app_commands.zig:2779-2816`).
+        "\n## Session Title\nsetting: true\ntitle: render the trace fixture\n\
+         generation: status=failed"
+            .to_string(),
+        " model=openai/gpt-5.6-luna reason=empty_content elapsed=".to_string(),
+        "\n- session title generation failed reason=empty_content\n".to_string(),
     ] {
         assert!(report.contains(&needle), "{needle:?} is not in:\n{report}");
     }
@@ -9480,4 +9488,45 @@ fn with_session_titles_off_nothing_is_asked_and_the_prompt_titles_the_session() 
         "a title was asked for with the switch off"
     );
     assert!(renames_on_disk(&sandbox).is_empty());
+}
+
+#[test]
+fn a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn() {
+    // The title request goes out at the keystroke, ahead of the turn's own,
+    // on a thread, a client and a connection of its own (`src/tui/titles.rs`);
+    // a Gateway that has not answered it yet must not keep the turn's answer
+    // from arriving. Here the title is held until the turn has answered, and
+    // is then given and still names the session: nothing gave up on it.
+    //
+    // Red before the fixture read each connection on its own thread: one at a
+    // time, it held the turn's connection behind the title's until the title
+    // gave up at its 15 s (`titles::TIMEOUT`).
+    let (gateway, release) = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-NOT-HELD"]),
+    )])
+    .with_title_held("Held Then Given");
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    let asked = Instant::now();
+    session.type_bytes(b"name this session slowly\r");
+    session.wait_for("MARKER-NOT-HELD");
+    let answered = asked.elapsed();
+    assert!(
+        answered < std::time::Duration::from_secs(15),
+        "the turn's answer waited {answered:?}: as long as the title's own give-up"
+    );
+    // The title was asked for, and is still unanswered.
+    let deadline = Instant::now() + WAIT;
+    while gateway.title_requests().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(IDLE_POLL);
+    }
+    assert_eq!(gateway.title_requests().len(), 1, "no title was asked for");
+    release.store(true, std::sync::atomic::Ordering::SeqCst);
+    session.wait_for("\u{1b}]2;Held Then Given\u{7}");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }

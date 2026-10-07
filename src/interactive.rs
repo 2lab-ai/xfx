@@ -2269,6 +2269,7 @@ fn trace_on_the_line(
         settings: &settings,
         session,
         screen: None,
+        title: None,
     }
     .render();
     let disposition = crate::trace::deliver(
