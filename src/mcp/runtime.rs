@@ -128,7 +128,40 @@ pub struct ServerView {
     pub capabilities: Capabilities,
     /// Known only once the server is ready.
     pub tool_count: Option<usize>,
+    /// The tools the server's catalog holds, whatever its state: none for
+    /// one that never connected (upstream's tool catalog, available from the
+    /// start, `catalog_state.zig:23-28`).
+    pub tools_held: usize,
+    /// What its feature lists held when last read.
+    pub listed: Listed,
     pub failure: Option<String>,
+}
+
+impl ServerView {
+    /// The `Capabilities` fact of the menu's details (`capabilitySummary`
+    /// over `counts`, `mcp_menu_presentation.zig:443-460`,
+    /// `server_views.zig:130-150`): a capability the server did not
+    /// advertise is `0`, one it did is its count once listed and `?` before;
+    /// tools are counted from the start, and are `?` only while the server is
+    /// still coming up.
+    pub fn capability_summary(&self) -> String {
+        let count = |advertised: bool, listed: Option<usize>| match (advertised, listed) {
+            (false, _) => "0".to_string(),
+            (true, Some(count)) => count.to_string(),
+            (true, None) => "?".to_string(),
+        };
+        let tools = if self.connection == Connection::Connecting {
+            "?".to_string()
+        } else {
+            self.tools_held.to_string()
+        };
+        format!(
+            "tools={tools} resources={} templates={} prompts={}",
+            count(self.capabilities.resources, self.listed.resources),
+            count(self.capabilities.resources, self.listed.templates),
+            count(self.capabilities.prompts, self.listed.prompts),
+        )
+    }
 }
 
 impl ServerView {
@@ -283,8 +316,20 @@ struct Live {
     instructions: Option<String>,
     capabilities: Capabilities,
     tools: Vec<McpTool>,
+    /// How many resources, resource templates and prompts the server listed
+    /// the last time anything asked, on this connection; `None` until then
+    /// (upstream's feature catalogs, `catalog_state.zig:36-66`).
+    listed: Listed,
     /// Restarts spent since the last good start.
     restarts: u8,
+}
+
+/// What a server's feature lists held when they were last read.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Listed {
+    pub resources: Option<usize>,
+    pub templates: Option<usize>,
+    pub prompts: Option<usize>,
 }
 
 /// One configured server and its connection.
@@ -321,6 +366,7 @@ impl Server {
                 instructions: None,
                 capabilities: Capabilities::default(),
                 tools: Vec::new(),
+                listed: Listed::default(),
                 restarts: 0,
             }),
             stopped: AtomicBool::new(false),
@@ -352,6 +398,8 @@ impl Server {
             protocol_version: live.protocol_version.clone(),
             capabilities: live.capabilities,
             tool_count: (connection == Connection::Ready).then_some(live.tools.len()),
+            tools_held: live.tools.len(),
+            listed: live.listed,
             failure: live.failure.clone(),
         }
     }
@@ -956,6 +1004,7 @@ impl McpRuntime {
         live.capabilities = capabilities;
         live.instructions = instructions;
         live.tools = tools;
+        live.listed = Listed::default();
         Ok(())
     }
 
@@ -1344,7 +1393,7 @@ impl McpRuntime {
             ("resources/list", "resources", "uri")
         };
         let items = self.paged(&server, method, key, cancel)?;
-        Ok(items
+        let resources: Vec<Resource> = items
             .iter()
             .filter_map(|item| {
                 Some(Resource {
@@ -1369,7 +1418,14 @@ impl McpRuntime {
                     template: templates,
                 })
             })
-            .collect())
+            .collect();
+        let mut live = server.live();
+        if templates {
+            live.listed.templates = Some(resources.len());
+        } else {
+            live.listed.resources = Some(resources.len());
+        }
+        Ok(resources)
     }
 
     /// `readResource`: the `contents` the server returned for `uri`.
@@ -1403,7 +1459,7 @@ impl McpRuntime {
             return Err(McpError::Named("McpPromptsUnsupported"));
         }
         let items = self.paged(&server, "prompts/list", "prompts", cancel)?;
-        Ok(items
+        let prompts: Vec<Prompt> = items
             .iter()
             .filter_map(|item| {
                 Some(Prompt {
@@ -1435,7 +1491,9 @@ impl McpRuntime {
                         .collect(),
                 })
             })
-            .collect())
+            .collect();
+        server.live().listed.prompts = Some(prompts.len());
+        Ok(prompts)
     }
 
     /// `getPrompt`: the prompt's description and messages.

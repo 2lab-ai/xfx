@@ -476,22 +476,7 @@ impl McpMenu {
                 palette,
             )];
         };
-        let capabilities = format!(
-            "tools={} resources={} templates=? prompts={}",
-            server
-                .tool_count
-                .map_or_else(|| "?".to_string(), |count| count.to_string()),
-            if server.capabilities.resources {
-                "?"
-            } else {
-                "0"
-            },
-            if server.capabilities.prompts {
-                "?"
-            } else {
-                "0"
-            },
-        );
+        let capabilities = server.capability_summary();
         let source = match server.source {
             Source::Profile => "Profile \u{b7} ~/.xfx/mcp.json",
             Source::Workspace => "Project \u{b7} .mcp.json",
@@ -1043,6 +1028,8 @@ mod tests {
             protocol_version: Some("2024-11-05".into()),
             capabilities: Capabilities::default(),
             tool_count: (connection == Connection::Ready).then_some(1),
+            tools_held: usize::from(connection == Connection::Ready),
+            listed: Default::default(),
             failure: None,
         }
     }

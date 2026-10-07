@@ -809,6 +809,8 @@ mod tests {
             protocol_version: None,
             capabilities: Capabilities::default(),
             tool_count: tools,
+            tools_held: tools.unwrap_or(0),
+            listed: Default::default(),
             failure: None,
         }
     }

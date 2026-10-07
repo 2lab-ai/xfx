@@ -598,3 +598,64 @@ fn an_http_server_is_sent_its_headers_then_its_environment_headers_then_its_bear
         Err(super::McpError::Named("McpBearerEnvironmentMissing"))
     );
 }
+
+#[test]
+fn an_http_server_nothing_listens_on_fails_as_connection_refused_with_upstreams_counts() {
+    // A port bound and released: nothing listens on it now.
+    let port = {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        listener.local_addr().unwrap().port()
+    };
+    let home = Home::new();
+    config::add_profile_server(
+        &home.profile(),
+        ServerConfig::http("remote", &format!("http://127.0.0.1:{port}/mcp")),
+    )
+    .expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    let view = settled(&runtime, "remote");
+    assert_eq!(view.status(), Status::Failed, "{view:?}");
+    assert_eq!(view.failure.as_deref(), Some("ConnectionRefused"));
+    // `vercel-labs/fx@c1db9191`'s details for the same server
+    // (`receipts/m1/fx-mcp-menu-screens-40x120-details-1`).
+    assert_eq!(
+        view.capability_summary(),
+        "tools=0 resources=0 templates=0 prompts=0"
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn a_ready_servers_lists_are_counted_once_read() {
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    let summary = |runtime: &McpRuntime| {
+        runtime
+            .views()
+            .into_iter()
+            .find(|view| view.name == "fixture")
+            .expect("a view")
+            .capability_summary()
+    };
+    assert_eq!(settled(&runtime, "fixture").status(), Status::Ready);
+    // The fixture advertises resources and prompts: unknown until listed.
+    assert_eq!(
+        summary(&runtime),
+        "tools=1 resources=? templates=? prompts=?"
+    );
+    runtime
+        .list_resources("fixture", false, None)
+        .expect("resources");
+    runtime
+        .list_resources("fixture", true, None)
+        .expect("templates");
+    runtime.list_prompts("fixture", None).expect("prompts");
+    assert_eq!(
+        summary(&runtime),
+        "tools=1 resources=1 templates=0 prompts=1"
+    );
+    runtime.shutdown();
+}

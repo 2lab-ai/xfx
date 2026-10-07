@@ -715,7 +715,7 @@ async fn post(
         .body(job.body.to_string())
         .send()
         .await
-        .map_err(|_| McpError::Named("McpConnectionFailed"))?;
+        .map_err(|err| McpError::Named(send_failure(&err)))?;
     let status = response.status();
     if status.is_redirection() {
         return Err(McpError::Named("RedirectNotAllowed"));
@@ -796,6 +796,23 @@ async fn post(
         }
     }
     answer(frame)
+}
+
+/// Why a request never got an answer, by the name upstream's HTTP client
+/// gives the reason where it is one a person can act on: `ConnectionRefused`
+/// for an endpoint nothing listens on (what fx's server details show), and
+/// `McpConnectionFailed` for the rest.
+fn send_failure(err: &reqwest::Error) -> &'static str {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(cause) = source {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::ConnectionRefused {
+                return "ConnectionRefused";
+            }
+        }
+        source = cause.source();
+    }
+    "McpConnectionFailed"
 }
 
 async fn read_bounded(response: reqwest::Response) -> Result<Vec<u8>, McpError> {
