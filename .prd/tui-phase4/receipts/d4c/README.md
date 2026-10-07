@@ -163,8 +163,9 @@ The tool group card now matches fx (`● 1 tool call · 1 write`, `└ Wrote c.t
   user settings (<reason>)` on both (`session_commands.zig:110-133`). fx says
   it before `* sound: <level>`, because fx saves before it answers. xfx saves
   on a writer thread of its own, so the UI thread never waits on the disk, and
-  says it when that thread reports the failure, after the level. Not captured;
-  `src/tui/shell.rs` `a_save_that_failed_says_so_after_the_level` proves it.
+  (since D2c round 3) holds the level until that thread has answered, so the
+  failure is said before it, as fx's. Not captured; `src/tui/shell.rs`
+  `a_save_that_failed_says_so_before_the_level` proves it.
 - **Where the bell is written.** fx writes the byte through its frame sink
   (`writeNotificationBell`, `runtime.zig:10152-10163`). xfx writes it as its own
   vector after the tick's frame. The output check accepts that vector only as a

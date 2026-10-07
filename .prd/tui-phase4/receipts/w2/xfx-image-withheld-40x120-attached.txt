@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-4774a9e [debug] · Run /help for commands
+
+* images: attached image: wide.png
+
+┃ [Image 1]
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

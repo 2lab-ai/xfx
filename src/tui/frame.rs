@@ -3518,9 +3518,17 @@ mod tests {
     fn a_link_is_never_split_across_two_rows_at_any_width() {
         // The wrap and the painter agree about where a link sequence is, and
         // every painted row closes what it opened.
+        // The answer's wrap (`super::super::prose`) included: it moves a word
+        // down where the composer's would not, and a break it moves must not
+        // land inside a sequence either.
         let text = format!("ab {DOCS_OPEN}cd ef{LINK_CLOSE} gh");
         for cols in 1..=14u16 {
-            for row in super::super::wrap::wrap(&text, cols) {
+            let answer =
+                super::super::prose::prose(&text, cols, 2, super::super::prose::Opening::Line);
+            for row in super::super::wrap::wrap(&text, cols)
+                .into_iter()
+                .chain(answer.into_iter().map(|laid| laid.row))
+            {
                 let painted = row_text(&text[row.start..row.end], cols);
                 let opens = painted.matches("\u{1b}]8;id=").count();
                 let closes = painted.matches(LINK_CLOSE).count();

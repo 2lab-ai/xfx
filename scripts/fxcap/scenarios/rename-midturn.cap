@@ -1,0 +1,27 @@
+# `/rename` while a turn streams (D1 follow-up): upstream renames at once,
+# streaming or not (`handleRenameCommand`, `app_commands.zig:3815-3858`) --
+# the notice and the window title come before the answer is over -- and the
+# title is the session's after a relaunch.
+gateway rename-midturn-turns.json
+wait 4
+type count to ten slowly
+key Enter
+wait 1.5
+type /rename Counted mid turn
+wait 0.3
+key Enter
+wait 0.8
+snap during
+title during
+wait 5
+snap after
+keep
+type /quit
+wait 0.3
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 4
+snap relaunched
+title relaunched

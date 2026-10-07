@@ -209,25 +209,22 @@ impl EditHistory {
     ///
     /// The order matters and it is upstream's: the kill slot is loaded first,
     /// because a kill too big for the **history** is still a kill and the slot
-    /// has a budget of its own; then the oversized delta becomes a boundary
-    /// (`edit_history.zig:86-87,99-101`); then redo is cleared and its bytes
-    /// given back, the entry is pushed, and the two caps evict from the front.
-    pub(crate) fn record(&mut self, mut delta: Delta) {
+    /// has a budget of its own; then an oversized delta, or one over a badge,
+    /// becomes a boundary (`edit_history.zig:86-87,99-101`); then redo is
+    /// cleared and its bytes given back, the entry is pushed, and the two caps
+    /// evict from the front.
+    pub(crate) fn record(&mut self, delta: Delta) {
         debug_assert!(
             !delta.is_empty(),
             "an edit that changed nothing was recorded as history"
         );
-        // **An image's badge comes back as words.** The badge is the
-        // attachment: deleting it dropped the image, as upstream's line delete
-        // does (`kill_ring.zig:562-584`), so neither an undo nor a yank of the
-        // text it stood in may attach it again -- and neither stack holds up to
-        // twenty megabytes of bytes for a badge that is gone.
-        delta.removed_entities.retain(|span| span.image().is_none());
-        delta
-            .inserted_entities
-            .retain(|span| span.image().is_none());
         let weight = delta.weight();
         if delta.kind() == DeltaKind::Kill {
+            // **A killed badge takes its image with it**, and a yank brings
+            // the image back under a fresh number, as upstream's kill ring
+            // does (`kill_ring.zig:120-190`, `tui-composer-edit-contracts.test.ts:763-797`).
+            // The slot holds the image's bytes by reference: the same bytes
+            // the draft held, not a copy.
             // Replaced whole, never appended to: consecutive kills do not
             // coalesce (`kill_ring.zig:86-116`). A kill past the slot's own cap
             // **empties** it -- a truncated payload behind a summary would yank
@@ -245,7 +242,21 @@ impl EditHistory {
                     .collect(),
             });
         }
-        if weight > MAX_RETAINED_BYTES {
+        // **An edit that takes a badge or puts one in is a boundary**, as
+        // upstream's structured edits are: a deletion, a kill or a typed
+        // replacement over one (`composer_replacement.zig:223-232`,
+        // `composer_kill_ring.zig:90-101`) and a yank that brings one back
+        // (`:56-66`) clear both stacks rather than record, so an undo never
+        // brings a badge back, as words or as an image, and upstream's
+        // refusal of an undo over one (`composer_undo.zig:35-40,252-268`)
+        // has nothing left to refuse. Neither stack holds an image's bytes.
+        if weight > MAX_RETAINED_BYTES
+            || delta
+                .removed_entities()
+                .iter()
+                .chain(delta.inserted_entities())
+                .any(|span| span.image().is_some())
+        {
             self.boundary();
             return;
         }

@@ -1,0 +1,19 @@
+# read_file of an image: the model calls it on shot.png and the result
+# attaches the picture (the request after it carries it), then on a PNG
+# header 9000 pixels wide, which is not attached and says why. The catalog
+# tags the model for images. `wide.png` is made at launch. Ten seconds for
+# each turn: a prompt typed while one still runs would steer it.
+models models-image.json
+gateway image-readfile-turns.json
+work image-ws
+pnghdr wide.png 9000 10
+wait 5
+type what is in the picture?
+key Enter
+wait 10
+snap read
+type and the wide one?
+key Enter
+wait 10
+snap wide
+gwlog

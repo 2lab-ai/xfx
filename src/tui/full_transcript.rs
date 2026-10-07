@@ -435,8 +435,24 @@ pub(crate) fn details_of(steps: &[TurnStep]) -> Vec<(String, Detail)> {
                 call_id,
                 tool,
                 output,
+                change,
                 ..
-            } => found.push((call_id.clone(), result(tool, output))),
+            } => {
+                found.push((call_id.clone(), result(tool, output)));
+                // After the result, where a live turn's journal hands it over
+                // ([`TurnJournal::change_made`] follows the result's record).
+                if let Some(change) = change {
+                    found.push((
+                        call_id.clone(),
+                        Detail::Change(ApprovalDiff {
+                            before: change.before.clone(),
+                            after: change.after.clone(),
+                            first_line: usize::try_from(change.first_line).unwrap_or(usize::MAX),
+                            lines_below: usize::try_from(change.lines_below).unwrap_or(usize::MAX),
+                        }),
+                    ));
+                }
+            }
             TurnStep::ToolFeedback { .. } | TurnStep::Steered { .. } => {}
         }
     }
@@ -649,8 +665,12 @@ impl TurnJournal for Teed<'_> {
     }
 
     /// The log's alone: a prompt's images are on its card already.
-    fn attach_images(&mut self, images: &[crate::image::Image]) {
-        self.journal.attach_images(images);
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        self.journal.attach_images(images)
+    }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        self.journal.attach_tool_images(call_id, images);
     }
 }
 
@@ -710,6 +730,9 @@ struct Call {
     result: Option<Detail>,
     /// The change it made, when it made one ([`Detail::Change`]).
     change: Option<ApprovalDiff>,
+    /// Drawn from a resumed session's log rather than run
+    /// ([`FullTranscript::replay`]).
+    replayed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -740,6 +763,11 @@ pub(crate) struct FullTranscript {
     /// The time new entries are stamped with instead of the clock's: a
     /// resumed turn's, while it is replayed ([`Self::stamp_with`]).
     stamp: Option<i64>,
+    /// Whether the calls drawn now are a resumed session's ([`Self::replay`]).
+    replaying: bool,
+    /// The time the next call's entry is stamped with instead
+    /// ([`Self::stamp_call`]).
+    call_stamp: Option<i64>,
     /// Whether the document opened with the welcome line, which upstream's
     /// screen shows first and without a header.
     welcome: bool,
@@ -820,6 +848,8 @@ impl FullTranscript {
         Self {
             clock,
             stamp: None,
+            replaying: false,
+            call_stamp: None,
             welcome: false,
             records: Vec::new(),
             entries: Vec::new(),
@@ -850,9 +880,30 @@ impl FullTranscript {
     /// Stamps what is recorded from here with `at_ms` rather than the clock,
     /// or with the clock again for `None`: a resumed session's turns carry
     /// the times the log has for them, as upstream's replay sets each one's
-    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`).
+    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`, through
+    /// `ResumeProjection.setCreatedAtMs`, `resume_projection.zig:76-78`).
     pub(crate) fn stamp_with(&mut self, at_ms: Option<i64>) {
         self.stamp = at_ms;
+    }
+
+    /// Stamps the next call's entry, and only it, with `at_ms`: a resumed
+    /// call's result's own time, which upstream's header prefers to its
+    /// entry's (`full_transcript_screen.zig:5801-5814`). The answer text
+    /// before the call is not that call's, so it keeps [`Self::stamp_with`]'s.
+    pub(crate) fn stamp_call(&mut self, at_ms: Option<i64>) {
+        self.call_stamp = at_ms;
+    }
+
+    /// The clock's time now: the moment a resume's stamps start from.
+    pub(crate) fn now(&self) -> i64 {
+        (self.clock)()
+    }
+
+    /// Whether the calls drawn from here are a resumed session's, replayed
+    /// from its log rather than run: upstream's replay hands each one the
+    /// output the log kept, a file change's included ([`Call::replayed`]).
+    pub(crate) fn replay(&mut self, replaying: bool) {
+        self.replaying = replaying;
     }
 
     /// One of upstream's full-detail records: shown here and nowhere else
@@ -957,6 +1008,10 @@ impl FullTranscript {
         }
         let group = self.groups.len() - 1;
         let pending = self.pending.remove(id).unwrap_or_default();
+        let stamp = self.stamp;
+        if let Some(at_ms) = self.call_stamp.take() {
+            self.stamp = Some(at_ms);
+        }
         self.push(Body::Tool(Box::new(Call {
             id: id.to_string(),
             shown: shown.clone(),
@@ -965,7 +1020,9 @@ impl FullTranscript {
             arguments: pending.arguments.unwrap_or_default(),
             result: pending.result,
             change: pending.change,
+            replayed: self.replaying,
         })));
+        self.stamp = stamp;
         self.calls.insert(id.to_string(), self.entries.len() - 1);
         self.touch_group(group);
     }
@@ -1433,8 +1490,12 @@ impl FullTranscript {
                 if shown_already || exec {
                     continue;
                 }
+                // Without the one break it may end on: upstream wraps an
+                // argument's text short of it (`full_transcript_screen.zig:
+                // 6381-6383`), so `content: …\n` is no rail row of its own.
+                let line = format!("{}: {}", argument.name, argument.value);
                 rows.extend(railed(
-                    &format!("{}: {}", argument.name, argument.value),
+                    line.strip_suffix('\n').unwrap_or(&line),
                     "  ",
                     cols,
                     palette,
@@ -1451,7 +1512,16 @@ impl FullTranscript {
                 }
             }
             Some(Detail::Result(text)) if !text.is_empty() && call.reports_its_result() => {
-                rows.extend(railed(text, "  ", cols, palette));
+                // A result's last break ends its last row, and the line the
+                // detail is closed with after it is a blank one, no rail
+                // (`appendDetailContent`, `full_transcript_screen.zig:
+                // 6618-6642`: a stored result leaves `ends_with_newline`
+                // false) -- a glob's list is followed by two blank rows.
+                let body = text.strip_suffix('\n');
+                rows.extend(railed(body.unwrap_or(text), "  ", cols, palette));
+                if body.is_some() {
+                    rows.push(String::new());
+                }
             }
             _ => {}
         }
@@ -1472,6 +1542,14 @@ impl Call {
     /// its diff and never a sentence about it (`fx-approvals-cc-40x120-full`,
     /// `fx-fulltranscript-40x120-full`). A change the tool itself refused
     /// keeps its reason, as a failed read does.
+    ///
+    /// A change made in a resumed session's log keeps what the tool said
+    /// too, above its diff: upstream's replay hands every call the output
+    /// the log kept (`attachHistoricalToolDetailResolved`,
+    /// `transcript/runtime.zig:5762-5829`), where its live one gets none for
+    /// a change -- `fx-resume-tools-40x120-ctrl-o-up1` against
+    /// `-live-ctrl-o-up1`. A refused one still has nothing: its output is the
+    /// refusal, which that replay drops (`permission_denied`, `:5774`).
     fn reports_its_result(&self) -> bool {
         let changes_a_file = matches!(
             self.shown.presentation.activity,
@@ -1486,6 +1564,7 @@ impl Call {
                     ..
                 }
             )
+            || (self.replayed && matches!(self.state, State::Finished { ok: true, .. }))
     }
 
     /// Whether the transcript's group draws a row for this call
@@ -1565,8 +1644,13 @@ fn unpainted(text: &str) -> String {
 ///
 /// `"  "` for an argument or a tool's result, `" "` for a command's own output
 /// (`renderCommandOutputRecordWithPrimaryGutter`).
+///
+/// Wrapped by upstream's assistant wrap in its literal form
+/// ([`super::prose::literal`]), as both of upstream's are: no word is left
+/// alone on a line's last row, and no markdown is read into the text.
 fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
-    let width = cols.saturating_sub(1 + wrap::width(gutter)).max(1);
+    let rail = 1 + wrap::width(gutter);
+    let width = cols.saturating_sub(rail).max(1);
     let dim = palette.dim();
     let reset = palette.reset();
     let mut rows = Vec::new();
@@ -1576,7 +1660,7 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
             continue;
         }
-        for row in wrap::wrap(line, width) {
+        for row in super::prose::literal(line, width, rail) {
             let piece = line[row.start..row.end].trim_end_matches([' ', '\n']);
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
@@ -2064,6 +2148,90 @@ mod tests {
         let rows = screen(&record);
         assert_eq!(rows[2], "\u{2514} Ran ls");
         assert_eq!(rows[3], "");
+
+        // Upstream's own rule, and only it: every argument but the captured
+        // command's `exec` and a value the row already shows
+        // (`full_transcript_screen.zig:6498-6511`; `exec` is the captured
+        // `terminal` action, `captured_command.zig:26`). Its `shell` lists
+        // `action: run` and `yield_time_ms` by the same rule
+        // (`fx-resume-tools-40x120-live-ctrl-o`); `terminal`'s one other
+        // field is `cwd`, listed when given.
+        let mut record = self::record();
+        let input = json!({"action": "exec", "command": "ls", "cwd": "sub"});
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "t".into(),
+            detail: Detail::Arguments(arguments("terminal", &input)),
+        });
+        record.tool_started("t", &command("ls"));
+        record.tool_finished("t", true, "", Outcome::Exited(0), None);
+        let rows = screen(&record);
+        assert_eq!(&rows[2..5], ["\u{2514} Ran ls", "\u{2502}  cwd: sub", ""]);
+    }
+
+    #[test]
+    fn a_trailing_line_break_is_no_rail_row_an_argument_drops_it_and_a_result_leaves_a_blank() {
+        // `fx-resume-tools-40x120-ctrl-o` / `-live-ctrl-o-up1` (D1 receipts):
+        // a refused write's `content: new file\nsecond line\n` ends on its
+        // second line, and a glob's `…\n - src/main.rs\n` on a blank row with
+        // no rail before the next entry's gap. An argument is written without
+        // its one trailing break (`appendTerminalSafeToolOutputInterruptible`,
+        // `full_transcript_screen.zig:6381-6383`); a result's ends its last
+        // row, and the line the detail closes with after it is that blank
+        // (`appendDetailContent`, `:6618-6642`). A break inside either keeps
+        // its rail.
+        let input = json!({"path": "c.txt", "content": "new file\n\nsecond line\n"});
+        let mut record = record();
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "w".into(),
+            detail: Detail::Arguments(arguments("write_file", &input)),
+        });
+        record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
+        record.tool_finished("w", false, "declined", Outcome::Denied, None);
+        let pattern = json!({"pattern": "**/*.rs"});
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "g".into(),
+            detail: Detail::Arguments(arguments("glob_files", &pattern)),
+        });
+        record.tool_started("g", &read::GLOB_FILES.shown(&pattern));
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "g".into(),
+            detail: result(
+                "glob_files",
+                "[glob] 1 matches for **/*.rs\n\n - src/main.rs\n",
+            ),
+        });
+        record.tool_finished("g", true, "", Outcome::Finished, None);
+        let rows = screen(&record);
+        let denied = rows
+            .iter()
+            .position(|row| row.ends_with("Denied file"))
+            .expect("the refused write");
+        assert_eq!(
+            &rows[denied..denied + 6],
+            [
+                "\u{251c} Denied file",
+                "\u{2502}  path: c.txt",
+                "\u{2502}  content: new file",
+                "\u{2502}  ",
+                "\u{2502}  second line",
+                "",
+            ]
+        );
+        let matched = rows
+            .iter()
+            .position(|row| row.ends_with("Matched **/*.rs"))
+            .expect("the glob");
+        assert_eq!(
+            &rows[matched..matched + 6],
+            [
+                "\u{2514} Matched **/*.rs",
+                "\u{2502}  [glob] 1 matches for **/*.rs",
+                "\u{2502}  ",
+                "\u{2502}   - src/main.rs",
+                "",
+                "",
+            ]
+        );
     }
 
     #[test]
@@ -2517,6 +2685,100 @@ mod tests {
             .any(|row| row.contains("session:")));
     }
 
+    /// A change made before a resume has its diff in the log beside its
+    /// result, and the replayed record shows it as the live one did.
+    #[test]
+    fn a_replayed_change_shows_the_diff_the_log_kept() {
+        let input = json!({"path": "a.txt", "old_string": "a", "new_string": "b"});
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "e".into(),
+                    name: "edit_file".into(),
+                    input: input.clone(),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                created_at_ms: None,
+                images: Vec::new(),
+                call_id: "e".into(),
+                tool: "edit_file".into(),
+                ok: true,
+                output: "Edited a.txt".into(),
+                ending: None,
+                lines: Some(crate::session::LineCounts {
+                    added: 1,
+                    removed: 1,
+                }),
+                change: Some(crate::session::RecordedChange {
+                    before: "a\n".into(),
+                    after: "b\n".into(),
+                    first_line: 1,
+                    lines_below: 0,
+                }),
+            },
+        ];
+        let details = details_of(&steps);
+        assert_eq!(
+            details.last(),
+            Some(&(
+                "e".to_string(),
+                Detail::Change(ApprovalDiff::of("a\n", "b\n"))
+            ))
+        );
+        // Replayed, the change's own result is listed above its diff, as
+        // upstream's replay hands the recorded output to the call's detail
+        // (`attachHistoricalToolDetailResolved`, `transcript/runtime.zig:
+        // 5762-5829`; `fx-resume-tools-40x120-ctrl-o-up1`: `│  edited a.txt
+        // (41 bytes)`, a blank row, the diff) -- where a live one shows the
+        // diff alone (`-live-ctrl-o-up1`).
+        let replayed = |replaying: bool| {
+            let mut record = record();
+            record.replay(replaying);
+            for (call_id, detail) in details.clone() {
+                record.observe(&UiEvent::ToolDetail { call_id, detail });
+            }
+            record.tool_started("e", &crate::tools::mutate::EDIT_FILE.shown(&input));
+            record.tool_finished(
+                "e",
+                true,
+                "",
+                Outcome::Finished,
+                Some(LineChanges {
+                    added: 1,
+                    removed: 1,
+                }),
+            );
+            record.replay(false);
+            plain(&record.rows(120, 40, DARK, ""))
+        };
+        let rows = replayed(true);
+        let edited = rows
+            .iter()
+            .position(|row| row.ends_with("Edited a.txt +1 / -1"))
+            .expect("the row");
+        assert_eq!(
+            &rows[edited..edited + 5],
+            [
+                "\u{2514} Edited a.txt +1 / -1",
+                "\u{2502}  Edited a.txt",
+                "",
+                "  \u{2502} 1 - a",
+                "  \u{2502} 1 + b",
+            ]
+        );
+        let rows = replayed(false);
+        assert!(
+            !rows.iter().any(|row| row == "\u{2502}  Edited a.txt"),
+            "a live change listed its result: {rows:?}"
+        );
+        assert!(rows.iter().any(|row| row == "  \u{2502} 1 + b"), "{rows:?}");
+    }
+
     #[test]
     fn a_replayed_turn_carries_the_times_the_log_has_and_its_calls_details() {
         // The entry point a resumed session fills the record through:
@@ -2534,10 +2796,15 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
                 output: "<path>a.txt</path>\n<content>\n1\tsaved line\n</content>".into(),
+                images: Vec::new(),
+                ending: None,
+                lines: None,
+                change: None,
             },
             TurnStep::ToolFeedback {
                 call_id: "c".into(),
@@ -2870,6 +3137,10 @@ mod tests {
                 wire: None,
             });
             teed.record(SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -2920,6 +3191,10 @@ mod tests {
         cancel.cancel();
         let mut kept = Kept(Vec::new());
         Teed::new(&mut kept, events, cancel).record(SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c".into(),
             tool: "glob_files".into(),
             ok: true,

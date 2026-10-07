@@ -1,0 +1,25 @@
+# An image path pasted into the composer is its badge before Enter, with no
+# notice; a path typed into a prompt is attached as the prompt is sent, its
+# comma kept after the badge. Then a paste whose path names no file is the
+# words it is. Five seconds before the paste: a paste that lands before the
+# program has asked for bracketed paste is keystrokes, not a paste.
+models models-image.json
+gateway image-turns.json
+work image-ws
+wait 5
+paste shot.png describe this too
+wait 1.5
+snap pasted
+key Enter
+wait 4
+snap pasted-sent
+type inspect shot.png,
+wait 1
+snap typed
+key Enter
+wait 4
+snap typed-sent
+paste see nope.png and notes.txt
+wait 1.5
+snap pasted-missing
+gwlog

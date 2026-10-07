@@ -66,6 +66,63 @@ pub struct RecordedToolCall {
     pub input: Value,
 }
 
+/// How one tool call ended for the person watching it, as its row said.
+///
+/// The screen's half of a result, kept so a resumed session's row says what
+/// the live one did (`Exited 3`, `Denied file`) rather than only the model's
+/// half, `ok` -- which is what upstream's replay reads its outcome from
+/// (`writeCompletedToolResult`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:4954-5080`: the command's recorded
+/// process presentation, the denial in the result). Nothing reads it back for
+/// the model. A kind a later build adds reads here as [`Self::Other`], which
+/// replays as the plain row, rather than refusing the log it is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToolEnding {
+    /// A file change that would have left the file as it was.
+    Unchanged,
+    /// A permission decision refused it.
+    Denied,
+    /// A command ran to its end with this status.
+    Exited { code: i32 },
+    /// A command a signal stopped.
+    Signalled { signal: i32 },
+    /// A command stopped for running past its ceiling.
+    TimedOut,
+    /// Stopped because the turn was.
+    Cancelled,
+    /// A kind this build does not know.
+    #[serde(other)]
+    Other,
+}
+
+/// How many lines a file change added and removed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineCounts {
+    pub added: u64,
+    pub removed: u64,
+}
+
+/// The change a call made to a file, as the review of it showed it: the
+/// window of the file it touched, both sides escaped and bounded
+/// (`crate::permission::ApprovalDiff`, 64 KiB a side), and where that window
+/// sits.
+///
+/// Kept so a resumed session's full transcript shows the diff a live one
+/// did, where upstream persists its file presentation beside the result
+/// (`writeCommittedFilePresentation`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_session_runtime.zig:4954`). Never read back for the
+/// model, which was told the result's output and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedChange {
+    pub before: String,
+    pub after: String,
+    /// The file's line number, one-based, of both sides' first line.
+    pub first_line: u64,
+    /// How many unchanged lines of the file follow both sides' last.
+    pub lines_below: u64,
+}
+
 /// One image a user message carried, as the log remembers it: which one, where
 /// it came from, and how to know its saved copy when it is read back.
 ///
@@ -173,7 +230,64 @@ pub enum TurnConclusion {
     Final { finish_reason: String, steps: u32 },
     /// The turn stopped before it finished: cancelled, out of budget, or
     /// refused. `reason` is the same sentence the user was shown.
-    Interrupted { reason: String },
+    Interrupted {
+        reason: String,
+        /// Whether the turn was stopped or failed, as upstream records it
+        /// beside every interruption ([`TerminalReason`]). Absent from a log
+        /// written before the field, whose turn is then told by `reason`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        terminal_reason: Option<TerminalReason>,
+        /// Whose stop it was, written only when it was not the turn's own,
+        /// as upstream writes its field (`ConversationInterruption.jsonStringify`,
+        /// `session_event.zig:138-160`) -- so a log from before the field
+        /// reads, and replays, as it always did.
+        #[serde(default, skip_serializing_if = "CancellationOrigin::is_turn")]
+        cancellation_origin: CancellationOrigin,
+    },
+}
+
+/// How an interrupted turn ended: stopped, or failed -- upstream's
+/// `InterruptedTerminalReason` (`vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig:2296-2299`). Upstream writes it on every
+/// interruption -- `failed` from `persistFailedPartialTurnOnce`
+/// (`runtime/interruption.zig:254`), `cancelled` by default -- as the event's
+/// `reason` (`session_event.zig:101`, written `:537`, read back
+/// `session_log.zig:2621`), and its replay chooses the turn's line by it
+/// alone (`app_session_runtime.zig:4796-4803`, `interruptedTurnNotice`
+/// `session.zig:45-50`). A name it does not know is refused, as upstream's
+/// reader refuses one (`session_codec.zig:820-821`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalReason {
+    /// Stopped: a Ctrl-C, a `/stop`, a compaction's cancel.
+    Cancelled,
+    /// Ended by anything else: the provider, a budget, a refusal.
+    Failed,
+}
+
+/// Which stop interrupted a turn: its own, or that of the automatic compaction
+/// that ran before its request could be sent -- upstream's `CancellationOrigin`
+/// (`vercel-labs/fx@c1db9191 src/core/shared/types.zig:2301-2304`), written by
+/// `persistCompactionInterruptedTurnOnce` (`runtime/interruption.zig:51-77`)
+/// and read by the replay (`app_session_runtime.zig:4796-4800`), which shows a
+/// turn the compaction stopped without the turn's cancellation line. As
+/// upstream's reader does (`session_event.zig:121-125`), a name it does not
+/// know is refused rather than guessed at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancellationOrigin {
+    /// The turn's own stop: a Ctrl-C, a `/stop`, a failure.
+    #[default]
+    Turn,
+    /// The stop of the automatic compaction the turn was waiting on.
+    Compaction,
+}
+
+impl CancellationOrigin {
+    /// For `skip_serializing_if`: the turn's own stop is the one not written.
+    fn is_turn(&self) -> bool {
+        *self == Self::Turn
+    }
 }
 
 impl TurnConclusion {
@@ -197,12 +311,24 @@ impl TurnConclusion {
 pub enum SessionEvent {
     /// The first event of every log. Establishes identity and both workspace
     /// roots (`session_event.zig:36-53`).
+    ///
+    /// `provider` is the provider the session was opened under -- what
+    /// upstream's `session_started` carries in its preferences beside the model
+    /// (`DurableSessionPreferences.provider`, `session_codec.zig:17-23`,
+    /// written by `writePreferences`, `session_event.zig:1979-1995`) and what
+    /// a resume judges a restored Fast binding by
+    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+    /// Its label (`gateway`, `llmux`), kept as written so a label a later
+    /// binary writes does not make the log unreadable. Absent from logs
+    /// written before it was recorded, and an older binary ignores it.
     SessionStarted {
         id: String,
         origin_workspace_root: String,
         workspace_root: String,
         model: String,
         permission_mode: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
     },
     /// The session was deliberately moved to a different workspace
     /// (`session_event.zig:67-76`).
@@ -217,9 +343,17 @@ pub enum SessionEvent {
     /// `fast_mode`, `ultrafast_mode`) and what its resume restores
     /// (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`).
     /// Written as a group, and absent from logs written before they existed.
+    ///
+    /// `provider` is the provider the session goes on under, when that has
+    /// changed since the log last said -- upstream's `preferences_changed`
+    /// carries it from the same patches as the model and the switches
+    /// (`session_event.zig:734`, `app_session_runtime.zig:3541-3552`). Absent
+    /// when unchanged and from older logs, and ignored by an older binary.
     PreferencesChanged {
         model: Option<String>,
         permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -245,6 +379,16 @@ pub enum SessionEvent {
     /// frame rather than resuming the conversation without the images its
     /// prompts name.
     ImagesAttached { images: Vec<RecordedImage> },
+    /// The images a tool result carried for the model -- `read_file` of an
+    /// image file -- saved beside the log as a prompt's are, written right
+    /// after that [`Self::ToolResult`] so a later request and a resume send
+    /// them again, as upstream retains a result's tool images
+    /// (`retainToolImages`, `execution_memory.zig:672-688`). Each `id` is its
+    /// place in the result, from 1; `path` is the file it was read from.
+    ToolImagesAttached {
+        call_id: String,
+        images: Vec<RecordedImage>,
+    },
     /// One assistant step: its text, then the tools it asked for, in order.
     ///
     AssistantMessage {
@@ -288,6 +432,32 @@ pub enum SessionEvent {
         tool: String,
         ok: bool,
         output: String,
+        /// How the call ended for the person watching, where that is more
+        /// than `ok` says: an exit status, a denial, a stop
+        /// ([`ToolEnding`]). Absent for a call that simply did or did not do
+        /// what it was asked -- and in every log written before the field
+        /// existed, which a resume replays as it always did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending: Option<ToolEnding>,
+        /// The lines a file change added and removed, when it made one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<LineCounts>,
+        /// The change itself, as its review showed it ([`RecordedChange`]),
+        /// for the full transcript of a resumed session.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<RecordedChange>,
+        /// When the result was recorded, as upstream keeps each persisted
+        /// result's own moment (`PersistedToolResult.created_at_ms`,
+        /// `vercel-labs/fx@c1db9191 src/core/agent/execution_memory.zig:52`)
+        /// and stamps a resumed call's full-transcript entry with it
+        /// (`transcript/runtime.zig:5826`). Upstream's is the turn's end,
+        /// because it writes a turn's results only then
+        /// (`buildNormalExecutionMemory`, `execution_memory.zig:421`, from
+        /// `orchestrator.zig:9260`); xfx writes each as it comes back, so
+        /// this is that moment. Absent in a log written before the field,
+        /// whose calls a resume stamps with their turn's start.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -437,6 +607,7 @@ impl SessionEvent {
             Self::ProjectContextRecorded { .. } => "project_context_recorded",
             Self::UserMessage { .. } => "user_message",
             Self::ImagesAttached { .. } => "images_attached",
+            Self::ToolImagesAttached { .. } => "tool_images_attached",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",
@@ -671,6 +842,54 @@ mod tests {
     }
 
     #[test]
+    fn the_provider_is_additive_on_both_frames_and_an_unknown_event_field_is_ignored() {
+        // Written only when known: a frame with none is byte-for-byte the
+        // frame an older binary wrote.
+        let started = |provider: Option<&str>| {
+            envelope(
+                1,
+                SessionEvent::SessionStarted {
+                    id: "s".to_string(),
+                    origin_workspace_root: "/w".to_string(),
+                    workspace_root: "/w".to_string(),
+                    model: "m".to_string(),
+                    permission_mode: "auto".to_string(),
+                    provider: provider.map(str::to_string),
+                },
+            )
+            .encode()
+            .expect("encodes")
+        };
+        assert!(!started(None).contains("provider"), "{}", started(None));
+        assert!(
+            started(Some("gateway")).contains(r#","provider":"gateway"}"#),
+            "{}",
+            started(Some("gateway"))
+        );
+        // A log written before it existed reads as one without it.
+        let older = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"session_started","id":"s","origin_workspace_root":"/w","workspace_root":"/w","model":"m","permission_mode":"auto"}}"#;
+        let SessionEvent::SessionStarted { provider, .. } =
+            EventEnvelope::decode(older).expect("an older frame").event
+        else {
+            panic!("not a start");
+        };
+        assert_eq!(provider, None);
+        let changed = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":2,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"preferences_changed","model":"m2","permission_mode":null}}"#;
+        let SessionEvent::PreferencesChanged { provider, .. } = EventEnvelope::decode(changed)
+            .expect("an older frame")
+            .event
+        else {
+            panic!("not a change");
+        };
+        assert_eq!(provider, None);
+        // And the other way: a field this binary does not know, inside an
+        // event it does, is read past -- which is what an older binary does
+        // with `provider` (`deny_unknown_fields` is the envelope's alone).
+        let newer = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"session_started","id":"s","origin_workspace_root":"/w","workspace_root":"/w","model":"m","permission_mode":"auto","a_later_field":{"x":1}}}"#;
+        assert!(EventEnvelope::decode(newer).is_ok());
+    }
+
+    #[test]
     fn an_unknown_event_kind_is_refused_rather_than_skipped() {
         let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"credential_stored","value":"x"}}"#;
         assert!(EventEnvelope::decode(line).is_err());
@@ -704,6 +923,10 @@ mod tests {
         let frame = envelope(
             1,
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -715,6 +938,172 @@ mod tests {
     }
 
     #[test]
+    fn a_result_keeps_how_its_row_ended_and_an_older_or_newer_one_still_reads() {
+        let result = SessionEvent::ToolResult {
+            created_at_ms: None,
+            call_id: "c".to_string(),
+            tool: "terminal".to_string(),
+            ok: true,
+            output: "boom".to_string(),
+            ending: Some(ToolEnding::Exited { code: 3 }),
+            lines: Some(LineCounts {
+                added: 2,
+                removed: 1,
+            }),
+            change: Some(RecordedChange {
+                before: "a\n".to_string(),
+                after: "b\nc\n".to_string(),
+                first_line: 4,
+                lines_below: 2,
+            }),
+        };
+        let encoded = serde_json::to_string(&result).expect("encodes");
+        assert!(
+            encoded
+                .contains(r#""ending":{"kind":"exited","code":3},"lines":{"added":2,"removed":1}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
+            result
+        );
+        // Written before the fields existed: nothing more than `ok` to say.
+        let older: SessionEvent = serde_json::from_str(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":false,"output":"o"}"#,
+        )
+        .expect("an older result still reads");
+        assert!(matches!(
+            older,
+            SessionEvent::ToolResult {
+                ending: None,
+                lines: None,
+                created_at_ms: None,
+                ..
+            }
+        ));
+        // When it was recorded, written beside the rest when known.
+        let stamped = SessionEvent::ToolResult {
+            call_id: "c".to_string(),
+            tool: "t".to_string(),
+            ok: true,
+            output: "o".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+            created_at_ms: Some(1_790_899_201_000),
+        };
+        let encoded = serde_json::to_string(&stamped).expect("encodes");
+        assert!(
+            encoded.ends_with(r#","created_at_ms":1790899201000}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
+            stamped
+        );
+        // A kind a later build adds is not a reason to refuse the log.
+        let newer: SessionEvent = serde_json::from_str(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","ending":{"kind":"paused","for":3}}"#,
+        )
+        .expect("a newer ending still reads");
+        assert!(matches!(
+            newer,
+            SessionEvent::ToolResult {
+                ending: Some(ToolEnding::Other),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn how_a_turn_ended_is_written_beside_its_sentence_and_an_older_frame_reads_without_it() {
+        // Upstream's event field, `reason: cancelled|failed`
+        // (`session_event.zig:101`), under xfx's name for it, since xfx's
+        // `reason` is the sentence.
+        let ended = |terminal_reason| SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "r".to_string(),
+                terminal_reason,
+                cancellation_origin: CancellationOrigin::Turn,
+            },
+        };
+        for (reason, name) in [
+            (TerminalReason::Cancelled, "cancelled"),
+            (TerminalReason::Failed, "failed"),
+        ] {
+            let line = serde_json::to_string(&ended(Some(reason))).expect("encodes");
+            assert_eq!(
+                line,
+                format!(
+                    r#"{{"kind":"turn_concluded","outcome":{{"kind":"interrupted","reason":"r","terminal_reason":"{name}"}}}}"#
+                )
+            );
+            assert_eq!(
+                serde_json::from_str::<SessionEvent>(&line).expect("decodes"),
+                ended(Some(reason))
+            );
+        }
+        let older = r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r"}}"#;
+        assert_eq!(
+            serde_json::to_string(&ended(None)).expect("encodes"),
+            older,
+            "a frame without it is written as before"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(older).expect("decodes"),
+            ended(None)
+        );
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","terminal_reason":"future"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_stop_the_compaction_took_says_so_and_any_other_reads_as_it_always_did() {
+        // Upstream writes the origin only when it is the compaction's
+        // (`session_event.zig:138-160`) and reads a missing one as the turn's.
+        let stopped = |cancellation_origin| SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "r".to_string(),
+                terminal_reason: None,
+                cancellation_origin,
+            },
+        };
+        let own = serde_json::to_string(&stopped(CancellationOrigin::Turn)).expect("encodes");
+        assert_eq!(
+            own,
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r"}}"#
+        );
+        let compaction =
+            serde_json::to_string(&stopped(CancellationOrigin::Compaction)).expect("encodes");
+        assert_eq!(
+            compaction,
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"compaction"}}"#
+        );
+        for (line, origin) in [
+            (own, CancellationOrigin::Turn),
+            (compaction, CancellationOrigin::Compaction),
+            (
+                r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"turn"}}"#
+                    .to_string(),
+                CancellationOrigin::Turn,
+            ),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<SessionEvent>(&line).expect("decodes"),
+                stopped(origin)
+            );
+        }
+        // A name it does not know is refused, as upstream's reader refuses it
+        // (`session_event.zig:121-125`), not read as either.
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"tool"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn every_event_kind_names_itself() {
         let events = [
             SessionEvent::SessionStarted {
@@ -723,6 +1112,7 @@ mod tests {
                 workspace_root: "/w".to_string(),
                 model: "m".to_string(),
                 permission_mode: "auto".to_string(),
+                provider: Some("gateway".to_string()),
             },
             SessionEvent::WorkspaceRebound {
                 previous_workspace_root: "/w".to_string(),
@@ -731,6 +1121,7 @@ mod tests {
             SessionEvent::PreferencesChanged {
                 model: Some("m2".to_string()),
                 permission_mode: None,
+                provider: Some("llmux".to_string()),
                 effort: Some("low".to_string()),
                 fast_mode: Some(true),
                 ultrafast_mode: Some(false),
@@ -750,6 +1141,10 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,
@@ -781,6 +1176,8 @@ mod tests {
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "cancelled".to_string(),
+                    terminal_reason: None,
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
             },
             SessionEvent::SessionRenamed {
@@ -974,7 +1371,9 @@ mod tests {
         );
         assert_eq!(
             TurnConclusion::Interrupted {
-                reason: "cancelled".to_string()
+                reason: "cancelled".to_string(),
+                terminal_reason: None,
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
             }
             .label(),
             "interrupted"

@@ -1,0 +1,40 @@
+  2026-10-07 03:08:57.397 UTC · Tool
+├ Read b.txt
+│  1    beta one
+│  2    beta two
+
+  2026-10-07 03:08:57.443 UTC · Tool
+├ Matched **/*.rs
+│  [glob] 1 matches for **/*.rs
+│   - src/main.rs
+
+
+  2026-10-07 03:08:57.477 UTC · Tool
+├ Searched alpha
+│  [grep] 3 matches for alpha
+│   - a.txt:1: alpha line 1
+│   - a.txt:2: alpha line 2
+│   - a.txt:3: alpha line 3
+
+
+  2026-10-07 03:08:57.564 UTC · Tool
+├ Ran sleep 3; echo hello from shell; ls
+│ hello from shell
+│ a.txt
+│ b.txt
+│ src
+
+  2026-10-07 03:09:02.899 UTC · Tool
+├ Edited a.txt +1 / -1
+
+  │ 1   alpha line 1
+  │ 2 - alpha line 2
+  │ 2 + ALPHA LINE TWO
+  │ 3   alpha line 3
+
+  2026-10-07 03:09:04.866 UTC · Tool
+├ Denied file
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

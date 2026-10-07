@@ -51,18 +51,19 @@ use std::path::PathBuf;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use super::steering::Steering;
+use super::tokens::{self, Progress, Streamed};
 use crate::gateway::protocol::{
     Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message,
     ResultStatus, ToolChoice,
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
-
-use super::steering::Steering;
-use crate::session::{RecordedToolCall, RequestUsage, SessionEvent, TurnConclusion};
-
-use super::tokens::{self, Progress, Streamed};
-use crate::tools::{LineChanges, Registry};
+use crate::session::{
+    CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent,
+    TerminalReason, ToolEnding, TurnConclusion,
+};
+use crate::tools::{LineChanges, Outcome, Registry};
 use crate::workspace::ProjectContext;
 
 use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
@@ -127,6 +128,20 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
     });
+}
+
+/// What a result's row said beyond `ok`, as the log keeps it: nothing for a
+/// call that simply finished, which is what an older log's reader assumes.
+fn recorded_ending(outcome: Outcome) -> Option<ToolEnding> {
+    match outcome {
+        Outcome::Finished => None,
+        Outcome::Unchanged => Some(ToolEnding::Unchanged),
+        Outcome::Denied => Some(ToolEnding::Denied),
+        Outcome::Exited(code) => Some(ToolEnding::Exited { code }),
+        Outcome::Signalled(signal) => Some(ToolEnding::Signalled { signal }),
+        Outcome::TimedOut => Some(ToolEnding::TimedOut),
+        Outcome::Cancelled => Some(ToolEnding::Cancelled),
+    }
 }
 
 pub fn allows_step(limit: u32, step: u32) -> bool {
@@ -278,6 +293,20 @@ pub async fn run_turn_saved(
         .await
 }
 
+/// The turn's user message: its text, then its images, each with the copy
+/// the log saved of it in `saved` when it saved one.
+fn user_message(request: &TurnRequest, saved: Option<&std::path::Path>) -> Message {
+    if request.images.is_empty() {
+        return Message::user(request.prompt.clone());
+    }
+    Message::user_with_images(
+        request.prompt.clone(),
+        request.images.iter().map(|image| {
+            image.part(saved.map(|dir| std::sync::Arc::from(dir.join(image.snapshot_name()))))
+        }),
+    )
+}
+
 /// One turn's conversation and bounds.
 #[derive(Debug)]
 pub struct TurnMachine {
@@ -344,17 +373,7 @@ enum Stepped {
 impl TurnMachine {
     pub fn new(request: TurnRequest) -> Self {
         let history = request.history.clone();
-        let user = if request.images.is_empty() {
-            Message::user(request.prompt.clone())
-        } else {
-            Message::user_with_images(
-                request.prompt.clone(),
-                request
-                    .images
-                    .iter()
-                    .map(|image| (image.media_type, &image.bytes)),
-            )
-        };
+        let user = user_message(&request, None);
         Self {
             request,
             context: ProjectContext::none(),
@@ -440,7 +459,11 @@ impl TurnMachine {
         journal.record(SessionEvent::UserMessage {
             text: self.request.prompt.clone(),
         });
-        journal.attach_images(&self.request.images);
+        // Where the log saved them, for the note a request that cannot carry
+        // one says in its place ([`crate::image::withhold`]).
+        if let Some(saved) = journal.attach_images(&self.request.images) {
+            self.user = user_message(&self.request, Some(&saved));
+        }
 
         let result = self.drive(provider, events, journal).await;
 
@@ -493,6 +516,16 @@ impl TurnMachine {
                 },
                 Err(err) => TurnConclusion::Interrupted {
                     reason: err.to_string(),
+                    // A stop is the one interruption upstream calls
+                    // cancelled; every other is a failure
+                    // (`persistFailedPartialTurnOnce`,
+                    // `runtime/interruption.zig:254`).
+                    terminal_reason: Some(if matches!(err, TurnError::Cancelled) {
+                        TerminalReason::Cancelled
+                    } else {
+                        TerminalReason::Failed
+                    }),
+                    cancellation_origin: CancellationOrigin::Turn,
                 },
             },
         });
@@ -833,19 +866,42 @@ impl TurnMachine {
                 })
                 .map_err(TurnError::Sink)?;
 
+            // With what the row said beyond `ok`, so a resumed session's row
+            // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
+                created_at_ms: Some(crate::session::event::system_now_ms()),
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,
                 output: result.output.clone(),
+                ending: recorded_ending(result.outcome),
+                lines: result.changes.map(|changes| LineCounts {
+                    added: changes.added as u64,
+                    removed: changes.removed as u64,
+                }),
+                change: result.change.as_deref().map(|change| RecordedChange {
+                    before: change.before.clone(),
+                    after: change.after.clone(),
+                    first_line: change.first_line as u64,
+                    lines_below: change.lines_below as u64,
+                }),
             });
+            let images: Vec<crate::image::ToolImage> = result
+                .image
+                .filter(|_| result.ok)
+                .map(|image| vec![*image])
+                .unwrap_or_default();
+            if !images.is_empty() {
+                journal.attach_tool_images(&call.id, &images);
+            }
             if let Some(change) = &result.change {
                 journal.change_made(&call.id, change);
             }
             // A call that failed is said as one on the wire, and one that was
             // refused as a refusal, as upstream says each (`error-text`,
             // `execution-denied`; `vercel-labs/fx@c1db9191
-            // src/gateway/vercel_protocol.zig:742-747`).
+            // src/gateway/vercel_protocol.zig:742-747`). Only a result that
+            // succeeded carries the images it returned.
             let status = if result.ok {
                 ResultStatus::Success
             } else if result.outcome == crate::tools::Outcome::Denied {
@@ -853,19 +909,18 @@ impl TurnMachine {
             } else {
                 ResultStatus::Failure
             };
-            self.suffix.push(Message::tool_ended(
-                &call.id,
-                &call.name,
-                result.output,
-                status,
-            ));
+            self.suffix.push(if status == ResultStatus::Success {
+                Message::tool_result_with_images(&call.id, &call.name, result.output, images)
+            } else {
+                Message::tool_ended(&call.id, &call.name, result.output, status)
+            });
 
             // Buffered here, delivered after the loop. Directly after the
             // result push, so only a call that actually ran and was answered
             // can contribute one -- which is what makes the disposition of
             // every exit below decidable rather than incidental.
             if let Some(text) = result.feedback {
-                amendments.push((call.id.clone(), text));
+                amendments.push((call.id.clone(), String::from(text)));
             }
 
             // Almost every refusal goes back to the model, which can correct
@@ -1220,7 +1275,10 @@ impl TurnMachine {
     pub fn completion_request(&self) -> CompletionRequest {
         CompletionRequest {
             model: self.request.model.clone(),
-            messages: self.messages(),
+            // Every image too large for this request taken out and named in
+            // the text in its place, as upstream projects each request
+            // (`withholdOversizedAttachments`, `orchestrator.zig:7215-7226`).
+            messages: crate::image::withhold(self.messages()),
             // The registry verbatim, every step. Re-advertising is not
             // redundant: the Gateway is stateless, so a schema omitted from
             // step two is a tool the model no longer has.

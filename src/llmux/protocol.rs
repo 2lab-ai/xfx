@@ -297,11 +297,31 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 tool: _,
                 output,
                 status,
+                images,
             } => {
+                // A result with images is Anthropic's content array -- its text,
+                // then an `image` block each -- which llmux carries on as the
+                // nested `input_image` both of its Responses backends read
+                // (`2lab-ai/llmux@4b3d4a4 src/provider/responses_request.rs:1137-1190`,
+                // `:1484-1500`). Without images it is the string it always was.
+                let content = if images.is_empty() {
+                    Value::from(output.as_str())
+                } else {
+                    let mut parts = vec![json_block([
+                        ("type", Value::from("text")),
+                        ("text", Value::from(output.as_str())),
+                    ])];
+                    parts.extend(
+                        images
+                            .iter()
+                            .map(|image| image_block(image.media_type, &image.data)),
+                    );
+                    Value::Array(parts)
+                };
                 let mut block = json_block([
                     ("type", Value::from("tool_result")),
                     ("tool_use_id", Value::from(call_id.as_str())),
-                    ("content", Value::from(output.as_str())),
+                    ("content", content),
                 ]);
                 // Anthropic's own flag for a result that is an error
                 // (`tool_result.is_error`), written only when it is one, so
@@ -324,20 +344,27 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
             // [`crate::image`] attaches -- and never a `url` source. Whether the
             // model behind the daemon reads images is the daemon's to say; its
             // catalog has no field for it, so a refusal arrives as its 400.
-            ContentPart::Image { media_type, data } => wire.blocks.push(json_block([
-                ("type", Value::from("image")),
-                (
-                    "source",
-                    json_block([
-                        ("type", Value::from("base64")),
-                        ("media_type", Value::from(media_type.label())),
-                        ("data", Value::from(crate::image::base64(data))),
-                    ]),
-                ),
-            ])),
+            ContentPart::Image {
+                media_type, data, ..
+            } => wire.blocks.push(image_block(*media_type, data)),
         }
     }
     wire
+}
+
+/// Anthropic's base64 `image` block.
+fn image_block(media_type: crate::image::MediaType, data: &[u8]) -> Value {
+    json_block([
+        ("type", Value::from("image")),
+        (
+            "source",
+            json_block([
+                ("type", Value::from("base64")),
+                ("media_type", Value::from(media_type.label())),
+                ("data", Value::from(crate::image::base64(data))),
+            ]),
+        ),
+    ])
 }
 
 fn json_block<const N: usize>(entries: [(&str, Value); N]) -> Value {
@@ -543,7 +570,12 @@ mod tests {
             messages: vec![
                 crate::gateway::protocol::Message::user_with_images(
                     "[Image #1] what?",
-                    [(crate::image::MediaType::Png, &shot)],
+                    [ContentPart::Image {
+                        id: 1,
+                        media_type: crate::image::MediaType::Png,
+                        data: std::sync::Arc::clone(&shot),
+                        saved: None,
+                    }],
                 ),
                 crate::gateway::protocol::Message::assistant(Some("red"), Vec::new()),
                 crate::gateway::protocol::Message::user("and now?"),
@@ -566,6 +598,54 @@ mod tests {
         // Never a `url` source: the bytes travel, and nothing names a place
         // the daemon would have to fetch them from.
         assert!(!parsed.to_string().contains("\"url\""), "{parsed}");
+    }
+
+    #[test]
+    fn a_tool_results_image_is_an_image_block_inside_its_tool_result() {
+        // Anthropic's content array, which llmux carries on as a nested
+        // `input_image` (`2lab-ai/llmux@4b3d4a4
+        // src/provider/responses_request.rs:1484-1500`); a result without an
+        // image is the string it always was.
+        let call = |id: &str| crate::gateway::protocol::ToolCall {
+            id: id.to_string(),
+            name: "read_file".to_string(),
+            input: json!({"path": "shot.png"}),
+        };
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![
+                crate::gateway::protocol::Message::user("look"),
+                crate::gateway::protocol::Message::assistant(None, vec![call("c1"), call("c2")]),
+                crate::gateway::protocol::Message::tool_result_with_images(
+                    "c1",
+                    "read_file",
+                    "attached",
+                    vec![crate::image::ToolImage {
+                        media_type: crate::image::MediaType::Png,
+                        data: std::sync::Arc::from(crate::image::fixture::SHOT_PNG),
+                        path: "shot.png".to_string(),
+                    }],
+                ),
+                crate::gateway::protocol::Message::tool_result("c2", "read_file", "labels"),
+            ],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let parsed: Value = serde_json::from_str(&body(&request).expect("valid")).expect("json");
+        assert_eq!(
+            parsed["messages"][2],
+            json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "c1", "content": [
+                    {"type": "text", "text": "attached"},
+                    {"type": "image", "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": crate::image::fixture::SHOT_PNG_BASE64,
+                    }},
+                ]},
+                {"type": "tool_result", "tool_use_id": "c2", "content": "labels"},
+            ]})
+        );
     }
 
     #[test]

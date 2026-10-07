@@ -1,0 +1,40 @@
+● 9 tool calls · 4 read · 2 commands · 1 list · 1 write · 1 edit · 2 failed · 1 denied
+├ Read a.txt
+│  1    alpha line 1
+│  2    alpha line 2
+│  3    alpha line 3
+
+  2026-10-07 03:08:57.371 UTC · Tool
+├ Read b.txt
+│  1    beta one
+│  2    beta two
+
+  2026-10-07 03:08:57.444 UTC · Tool
+├ Matched **/*.rs
+│  [glob] 1 matches for **/*.rs
+│   - src/main.rs
+
+
+  2026-10-07 03:08:57.474 UTC · Tool
+├ Searched alpha
+│  [grep] 3 matches for alpha
+│   - a.txt:1: alpha line 1
+│   - a.txt:2: alpha line 2
+│   - a.txt:3: alpha line 3
+
+
+  2026-10-07 03:09:02.813 UTC · Tool
+├ Ran sleep 3; echo hello from shell; ls
+│ hello from shell
+│ a.txt
+│ b.txt
+│ src
+
+  2026-10-07 03:09:04.823 UTC · Tool
+├ Edited a.txt +1 / -1
+│  Edited a.txt
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

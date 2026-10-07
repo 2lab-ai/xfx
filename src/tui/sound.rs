@@ -48,6 +48,9 @@ const NO_SETTINGS_FILE: &str = "no home directory is set";
 /// One save, as the writer thread is handed it.
 #[derive(Debug)]
 struct Order {
+    /// Which save this is, so the band can say how it went where it held the
+    /// level for it.
+    id: u64,
     level: Level,
     /// Whether the switches in force moved, which is what the failure's words
     /// depend on ([`crate::sound::not_saved`]).
@@ -57,6 +60,8 @@ struct Order {
 /// How one save went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Saved {
+    /// The id [`Sound::set`] answered with.
+    pub(crate) id: u64,
     pub(crate) changed: bool,
     /// The error's own words when it failed.
     pub(crate) outcome: Result<(), String>,
@@ -89,6 +94,8 @@ pub(crate) struct Sound {
     /// Cloned into the writer, which sends one [`Saved`] per order.
     done: Sender<Saved>,
     saved: Receiver<Saved>,
+    /// The next save's id.
+    next: u64,
 }
 
 impl Sound {
@@ -103,6 +110,7 @@ impl Sound {
             writer: None,
             done,
             saved,
+            next: 1,
         }
     }
 
@@ -115,13 +123,19 @@ impl Sound {
     ///
     /// Answers whether the switches moved, and -- when the save could not
     /// even be started -- why, so the caller can say so in upstream's order:
-    /// the failure first, then the level. A save that was started says how it
-    /// went later ([`Self::saved`]).
-    pub(crate) fn set(&mut self, level: Level) -> (bool, Result<(), String>) {
+    /// the failure first, then the level. A save that was started is answered
+    /// with its id, and says how it went later, under that id
+    /// ([`Self::saved`]), for the caller to say it before the level then.
+    pub(crate) fn set(&mut self, level: Level) -> (bool, Result<u64, String>) {
         let next = level.notifications();
         let changed = next != self.notifications;
         self.notifications = next;
-        (changed, self.save(Order { level, changed }))
+        let id = self.next;
+        let started = self.save(Order { id, level, changed }).map(|()| {
+            self.next += 1;
+            id
+        });
+        (changed, started)
     }
 
     fn save(&mut self, order: Order) -> Result<(), String> {
@@ -143,6 +157,12 @@ impl Sound {
     /// last call. In the order they were typed, because one thread wrote them.
     pub(crate) fn saved(&self) -> Option<Saved> {
         self.saved.try_recv().ok()
+    }
+
+    /// [`Self::saved`], waiting up to `limit` for one: for the exit and a
+    /// reset, which have the level to say and the screen to hand on.
+    pub(crate) fn wait(&self, limit: std::time::Duration) -> Option<Saved> {
+        self.saved.recv_timeout(limit).ok()
     }
 
     /// A turn -- or a piece of work that ran none (`ran` is `false`) -- has
@@ -221,6 +241,7 @@ fn spawn_writer(settings: PathBuf, done: Sender<Saved>) -> Result<Writer, String
             // Nobody left to tell is a session that has ended, and the file
             // was written for it all the same.
             let _ = done.send(Saved {
+                id: order.id,
                 changed: order.changed,
                 outcome,
             });
@@ -343,11 +364,15 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join(".xfx").join("settings.json");
         let mut sound = Sound::new(Notifications::both(false), Some(path.clone()));
-        for level in [Level::On, Level::Off, Level::On, Level::Off, Level::On] {
-            assert_eq!(sound.set(level).1, Ok(()));
+        for (id, level) in [Level::On, Level::Off, Level::On, Level::Off, Level::On]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(sound.set(level).1, Ok(id as u64 + 1));
         }
-        for _ in 0..5 {
-            assert_eq!(saved(&sound, Duration::from_secs(10)).outcome, Ok(()));
+        for id in 1..=5 {
+            let saved = saved(&sound, Duration::from_secs(10));
+            assert_eq!((saved.id, saved.outcome), (id, Ok(())));
         }
         let written: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
@@ -364,7 +389,7 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::write(&path, "{ not json").expect("seed");
         let mut sound = Sound::new(Notifications::both(false), Some(path.clone()));
-        assert_eq!(sound.set(Level::On).1, Ok(()));
+        assert_eq!(sound.set(Level::On).1, Ok(1));
         let saved = saved(&sound, Duration::from_secs(10));
         assert!(saved.changed);
         let reason = saved
@@ -379,7 +404,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
         let mut sound = Sound::new(Notifications::both(true), Some(path.clone()));
-        assert_eq!(sound.set(Level::Off).1, Ok(()));
+        assert_eq!(sound.set(Level::Off).1, Ok(1));
         drop(sound);
         let written: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).expect("landed")).expect("json");

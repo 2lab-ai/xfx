@@ -55,7 +55,7 @@ const GLOB_FILES_DESCRIPTION: &str = "Find file paths matching a glob pattern be
 
 const GREP_FILES_DESCRIPTION: &str = "Search text files for a literal substring, optionally narrowed by path and include glob, with modes for matching lines, files with matches, or counts, plus head_limit/offset paging and bounded context_lines. Paths are relative to the workspace root, or absolute inside an authorized root. Regular expressions are not supported: the pattern is matched literally. The search does not see every file: symlinks are not followed, build directories such as .git and node_modules are pruned, paths excluded by .gitignore are skipped, hidden dot-paths are skipped unless the include glob itself names one, and files that are not UTF-8 text or are above the size cap are not searched. Any file skipped for the last two reasons is counted on a ... skipped line, so no matches means no matches among the files actually searched. When to use: find an exact symbol, string, or usage site. When NOT to use: filename lookup, reading a known path, or regex search.";
 
-const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path. When NOT to use: list a directory, search many files, or read binary data.";
+const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range; image files (PNG, JPEG, GIF, WebP up to 3.9MB) attach to the result so you can see them. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path, or view an image file. When NOT to use: list a directory, search many files, or read non-image binary data.";
 
 const PATH_DESCRIPTION: &str =
     "Path relative to the workspace root, or an absolute path inside an authorized root.";
@@ -833,12 +833,27 @@ pub struct ReadFileInput {
     pub line_count: Option<usize>,
 }
 
+/// `read_file`'s arguments, refused in upstream's words
+/// (`vercel-labs/fx@c1db9191 src/tools/filesystem/read_file.zig:44-52`, and
+/// `:85` for a line field): the same fields and bounds as the shared decoders,
+/// whose sentences the other tools keep.
 fn decode_read_file(input: &Value) -> Result<ToolInput, String> {
-    let object = object("read_file", input)?;
+    let Some(object) = input.as_object() else {
+        return Err("read_file arguments must be an object".to_string());
+    };
+    let path = match object.get("path") {
+        None => return Err("read_file requires string field \"path\"".to_string()),
+        Some(Value::String(path)) => path.clone(),
+        Some(_) => return Err("read_file field \"path\" must be a string".to_string()),
+    };
+    let positive = |key: &str| {
+        optional_integer("read_file", object, key, 1)
+            .map_err(|_| format!("read_file field \"{key}\" must be a positive integer"))
+    };
     Ok(ToolInput::ReadFile(ReadFileInput {
-        path: required_string("read_file", object, "path")?,
-        start_line: optional_integer("read_file", object, "start_line", 1)?.unwrap_or(1),
-        line_count: optional_integer("read_file", object, "line_count", 1)?,
+        path,
+        start_line: positive("start_line")?.unwrap_or(1),
+        line_count: positive("line_count")?,
     }))
 }
 
@@ -846,7 +861,11 @@ fn validate_read_file(input: &ToolInput) -> Result<(), String> {
     let ToolInput::ReadFile(input) = input else {
         return Err(mismatched("read_file"));
     };
-    nonblank("read_file", "path", &input.path)
+    // `read_file.zig:96-103`.
+    if input.path.trim().is_empty() {
+        return Err("read_file field \"path\" must not be empty".to_string());
+    }
+    Ok(())
 }
 
 fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
@@ -856,7 +875,7 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let limits = context.limits();
     let resolved = match context.scope().resolve_existing(&input.path) {
         Ok(resolved) => resolved,
-        Err(err) => return refusal("read_file", err),
+        Err(err) => return unresolved("read_file", err),
     };
     if let Err(refused) = admitted("read_file", context, resolved.absolute()) {
         return refused;
@@ -911,7 +930,32 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         // The bytes are named and counted rather than shown. Dumping them would
         // fill the model's context with noise it cannot use and might not
         // survive as valid UTF-8 on the wire.
-        Ok(_) | Err(_) => return binary_result(&display, file_bytes),
+        //
+        // An image is the one binary file shown: attached for the model to see
+        // when a request can carry it, and refused in words when it cannot
+        // (`imageToolResult`, `read_file.zig:157`, `:228-278`).
+        Ok(_) | Err(_) => {
+            return match crate::image::read_file_image(
+                &display,
+                if snapshot_complete { &bytes } else { snapshot },
+                file_bytes as u64,
+                snapshot_complete,
+            ) {
+                Some((output, image)) => {
+                    let detail = match &image {
+                        Some(image) => {
+                            format!(
+                                "{display} ({}, {file_bytes} bytes)",
+                                image.media_type.label()
+                            )
+                        }
+                        None => format!("{display} (image not attached, {file_bytes} bytes)"),
+                    };
+                    ToolResult::success(output, detail).with_image(image)
+                }
+                None => binary_result(&display, file_bytes),
+            };
+        }
     };
 
     // The model may ask for fewer lines than the cap but never for more: a
@@ -1276,6 +1320,31 @@ fn refusal(tool: &str, err: PathError) -> ToolResult {
     ToolResult::failure(format!("{tool} refused the path: {err}"))
 }
 
+/// A path that did not resolve, as upstream says it: its permission
+/// preflight resolves a file tool's target before the tool runs and refuses
+/// one that does not with `permissionTargetResolutionFailureMessage`
+/// (`vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:2465-2495`) --
+/// `Path not found: <path>` for one that is absent (`:2471`), `Path is outside
+/// the workspace: <path>` for one past every root (`:2474`), and
+/// `Cannot resolve path "<path>": <why>` otherwise (`:2492-2493`, which names
+/// the error; this names it as the system did). A root that is not usable is
+/// not the path's fault, and keeps xfx's sentence.
+fn unresolved(tool: &str, err: PathError) -> ToolResult {
+    let said = match err {
+        PathError::NotFound { requested } => format!("Path not found: {requested}"),
+        PathError::OutsideScope { requested } => {
+            format!("Path is outside the workspace: {requested}")
+        }
+        PathError::Unresolvable { requested, detail } => {
+            format!("Cannot resolve path \"{requested}\": {detail}")
+        }
+        other @ (PathError::Empty | PathError::RootUnavailable { .. }) => {
+            return refusal(tool, other)
+        }
+    };
+    ToolResult::failure(said)
+}
+
 /// A decoded input reached the wrong executor.
 ///
 /// Unreachable through [`ToolSpec::run`], which pairs each decoder with its own
@@ -1414,11 +1483,13 @@ mod tests {
             (decode_list_files as fn(&Value) -> _, "list_files"),
             (decode_glob_files, "glob_files"),
             (decode_grep_files, "grep_files"),
-            (decode_read_file, "read_file"),
         ] {
             let err = decode(&json!(["not", "an", "object"])).expect_err("refused");
             assert_eq!(err, format!("{tool} arguments must be a JSON object"));
         }
+        // `read_file`'s in upstream's words (`read_file.zig:44-45`).
+        let err = decode_read_file(&json!(["not", "an", "object"])).expect_err("refused");
+        assert_eq!(err, "read_file arguments must be an object");
     }
 
     #[test]

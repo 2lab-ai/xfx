@@ -46,6 +46,7 @@ use std::collections::VecDeque;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::notice::Tone;
+use super::prose::{self, Continuation, Opening, ProseRow};
 use super::theme::{DocumentRow, Palette};
 use super::wrap;
 
@@ -353,8 +354,17 @@ pub(crate) enum Gutter {
     None,
     /// `┃` in the hint colour and a space.
     Rail,
-    /// Two blank columns.
+    /// Two blank columns: the assistant's answer, wrapped by upstream's
+    /// assistant wrap ([`super::prose`]) -- no orphan on a line's last row,
+    /// and a list item's, a quote's or an indented paragraph's continuation
+    /// rows lined up under its text.
     Indent,
+    /// The rest of an answer line whose first rows a freeze has handed to the
+    /// terminal ([`freeze`]): two blank columns, as [`Gutter::Indent`], and
+    /// the continuation that line's marker set -- which the text still held
+    /// here no longer begins with, so it is carried instead of read. Becomes
+    /// [`Gutter::Indent`] again when the line ends.
+    Carried(Option<Continuation>),
     /// A notice's: its glyph and a space in front of the **first** row, in
     /// the label's colour, and two blank columns in front of every row after
     /// it -- the rows the first line wraps onto and every line after it.
@@ -388,7 +398,11 @@ impl Gutter {
     pub(crate) fn width(self) -> u16 {
         match self {
             Gutter::None => 0,
-            Gutter::Rail | Gutter::Indent | Gutter::Head(_) | Gutter::NoticeIndent => 2,
+            Gutter::Rail
+            | Gutter::Indent
+            | Gutter::Carried(_)
+            | Gutter::Head(_)
+            | Gutter::NoticeIndent => 2,
         }
     }
 
@@ -398,7 +412,7 @@ impl Gutter {
         match self {
             Gutter::None => String::new(),
             Gutter::Rail => format!("{}\u{2503}{} ", palette.hint(), palette.reset()),
-            Gutter::Indent | Gutter::NoticeIndent => "  ".to_string(),
+            Gutter::Indent | Gutter::Carried(_) | Gutter::NoticeIndent => "  ".to_string(),
             // The space inside the run, as upstream's label is: one run of one
             // colour from the glyph to the colon, so a capture reads the label
             // as the single span upstream's does.
@@ -413,23 +427,56 @@ impl Gutter {
         }
     }
 
-    /// The gutter the rows **after** this line's first one carry.
+    /// The gutter the rows **after** this line's first one carry, and the one
+    /// the next line begins with.
     ///
     /// Itself for every gutter but a notice's head, whose glyph belongs to one
-    /// row only.
+    /// row only, and an answer line's carried continuation, which belongs to
+    /// that line only.
     fn continued(self) -> Gutter {
         match self {
             Gutter::Head(_) => Gutter::NoticeIndent,
+            Gutter::Carried(_) => Gutter::Indent,
             other => other,
         }
     }
 
-    /// The rows `text` occupies at `cols` behind this gutter: a notice's by
-    /// upstream's notice rule, everything else's by the prose one.
-    fn wrap(self, text: &str, cols: u16) -> Vec<wrap::Row> {
+    /// The gutter the rest of a line is wrapped with once a freeze has dropped
+    /// `line`'s first rows: [`Self::continued`], except that an answer line
+    /// keeps the continuation its marker set ([`Gutter::Carried`]).
+    ///
+    /// `line` is the text held **before** the drop: the whole line from its
+    /// start, unless an earlier freeze already carried its continuation.
+    fn frozen(self, line: &str) -> Gutter {
         match self {
-            Gutter::Head(_) | Gutter::NoticeIndent => wrap::wrap_notice(text, cols),
-            Gutter::None | Gutter::Rail | Gutter::Indent => wrap::wrap(text, cols),
+            Gutter::Indent => Gutter::Carried(prose::continuation_at(line, 0)),
+            Gutter::Carried(carried) => Gutter::Carried(carried),
+            other => other.continued(),
+        }
+    }
+
+    /// Whether this gutter's text is the assistant's answer, which upstream
+    /// wraps with its assistant wrap ([`super::prose`]).
+    fn is_answer(self) -> bool {
+        matches!(self, Gutter::Indent | Gutter::Carried(_))
+    }
+
+    /// The rows `text` occupies at `cols` behind this gutter: a notice's by
+    /// upstream's notice rule, the answer's by upstream's assistant wrap, and
+    /// everything else's by the composer's.
+    fn wrap(self, text: &str, cols: u16) -> Vec<ProseRow> {
+        let bare = |rows: Vec<wrap::Row>| {
+            rows.into_iter()
+                .map(|row| ProseRow { row, lead: None })
+                .collect()
+        };
+        match self {
+            Gutter::Head(_) | Gutter::NoticeIndent => bare(wrap::wrap_notice(text, cols)),
+            Gutter::None | Gutter::Rail => bare(wrap::wrap(text, cols)),
+            Gutter::Indent => prose::prose(text, cols, self.width(), Opening::Line),
+            Gutter::Carried(carried) => {
+                prose::prose(text, cols, self.width(), Opening::Continued(carried))
+            }
         }
     }
 }
@@ -1051,18 +1098,18 @@ impl Transcript {
         rows.append(&mut last);
         // After the append is built, because what is frozen is what the *next*
         // push may no longer rewrite; this one has already said what it owes.
-        let froze = freeze(
+        if let Some(after) = freeze(
             &mut tail,
             &mut roles,
             &mut open_rows,
             inner(self.cols, gutter),
             gutter,
-        );
-        if froze {
+        ) {
             // The row a notice's glyph stood on is the terminal's now, and the
             // tail this keeps begins on a continuation row: re-wrapped as a
-            // head, it would grow a second glyph.
-            gutter = gutter.continued();
+            // head, it would grow a second glyph -- and re-wrapped as an
+            // answer line's start, it would lose the indent its marker set.
+            gutter = after;
         }
 
         Prepared {
@@ -1303,31 +1350,40 @@ fn inner(cols: u16, gutter: Gutter) -> u16 {
 /// `the_rows_the_document_gets_are_the_ones_a_single_wrap_would_give` is that
 /// claim, checked against one unbroken wrap of the whole text.
 ///
+/// **The answer's wrap looks further ahead, and is settled anyway.** Upstream's
+/// assistant wrap ([`super::prose`]) moves a word down to keep a line's last
+/// word company, so the break before a line's last row depends on where the
+/// line *ends*. An answer line is never appended to after it is pushed: the
+/// presenter holds a line until its newline has arrived and hands it over
+/// whole (`crate::markdown`'s processor), so a freeze measures the whole line
+/// and what it keeps is that line's last row.
+///
 /// The alternative -- ending the line early -- was rejected: a break the
 /// provider did not write lands in the middle of a row, and the answer grows a
 /// short line every few thousand characters.
 ///
-/// Says whether it dropped anything: a line whose first row is no longer held
-/// here is a line whose next re-wrap starts on a continuation row
-/// ([`Gutter::continued`]).
+/// Answers with the gutter the rest of the line is wrapped with when it dropped
+/// anything: a line whose first row is no longer held here is a line whose
+/// next re-wrap starts on a continuation row ([`Gutter::frozen`]), and `None`
+/// when it dropped nothing.
 fn freeze(
     tail: &mut String,
     roles: &mut Roles,
     open_rows: &mut usize,
     cols: u16,
     gutter: Gutter,
-) -> bool {
+) -> Option<Gutter> {
     if *open_rows <= MAX_TAIL_ROWS {
-        return false;
+        return None;
     }
     let rows = gutter.wrap(tail, cols);
-    let Some(last) = rows.last() else {
-        return false;
-    };
-    let kept = last.start;
+    let last = rows.last()?;
+    let kept = last.row.start;
     if kept == 0 {
-        return false;
+        return None;
     }
+    // Asked before the drop, while the tail still begins where the line does.
+    let after = gutter.frozen(tail);
     tail.drain(..kept);
     // With the tail and by the same offset, because the spans describe *these*
     // bytes: a table left whole would paint the kept row in the role of text
@@ -1338,8 +1394,8 @@ fn freeze(
     // tail really occupies would make that scroll too small -- which is the
     // renderer treating unpainted rows as settled, the silent loss this whole
     // path is counted in `usize` to avoid.
-    *open_rows = gutter.continued().wrap(tail, cols).len();
-    true
+    *open_rows = after.wrap(tail, cols).len();
+    Some(after)
 }
 
 /// `text`, wrapped, as the strings an append writes -- each row painted in the
@@ -1378,7 +1434,11 @@ fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette)
             } else {
                 (&continuation, rest)
             };
-            if matches!(gutter, Gutter::Indent | Gutter::NoticeIndent) && row.is_empty() {
+            if matches!(
+                gutter,
+                Gutter::Indent | Gutter::Carried(_) | Gutter::NoticeIndent
+            ) && row.is_empty()
+            {
                 row
             } else {
                 format!("{prefix}{row}")
@@ -1398,18 +1458,41 @@ fn body_rows(
     let styled = text.contains('\u{1b}');
     let mut state = super::pacer::SgrState::default();
     let mut seen = 0usize;
+    // The screen's width, for the answer's tab stops: they are columns of the
+    // screen, gutter included.
+    let screen = usize::from(cols) + usize::from(gutter.width());
     gutter
         .wrap(text, cols)
         .into_iter()
-        .map(|row| {
+        .map(|laid| {
+            let row = laid.row;
+            // A continuation row's lead, in front of everything the row
+            // reopens -- upstream writes the indent, or the quote's rules,
+            // and then the pen (`assistant_wrap.zig:703-725`). It is there
+            // only when it leaves room, so the text's own cut is the rest.
+            let lead = laid.lead.map(Continuation::lead).unwrap_or_default();
+            let cols = cols.saturating_sub(laid.lead_width());
             let slice = &text[row.start..row.end];
+            // The answer's tabs, as the spaces to their stops: the painter's
+            // four-cell tab is the composer's.
+            let slice = if gutter.is_answer() {
+                let first = usize::from(gutter.width()) + usize::from(laid.lead_width()) + 1;
+                prose::expand_tabs(slice, first, screen)
+            } else {
+                std::borrow::Cow::Borrowed(slice)
+            };
+            let slice = slice.as_ref();
             let cut = drawn(slice, row.width, cols);
             let plain = roles.only(row.start..row.end) == Some(Role::Plain);
             if !(styled && plain) {
+                // A plain row is written as it is; only a role paints.
+                if plain {
+                    return format!("{lead}{slice}");
+                }
                 return paint(slice, roles, row.start, cut, palette);
             }
             state.observe(&text[seen.min(row.start)..row.start]);
-            let reopen = state.reopen();
+            let reopen = format!("{lead}{}", state.reopen());
             let (shown, past) = slice.split_at(cut);
             // The spaces a wrap leaves at the end of a row that another row
             // follows are the break, not part of the run they fell inside:
@@ -2348,6 +2431,152 @@ mod tests {
                 release: 0,
             }
         );
+    }
+
+    /// The rows an answer's `lines` make at `cols`, in the answer's gutter,
+    /// as the document ends up holding them.
+    fn answer_rows(cols: u16, lines: &str) -> Vec<String> {
+        let mut transcript = Transcript::new(cols);
+        transcript.queue_gutter(Gutter::Indent);
+        transcript.queue_push(lines, Role::Plain);
+        transcript.queue_end_line();
+        replay(drain(&mut transcript, DARK_256))
+    }
+
+    #[test]
+    fn an_answer_line_moves_a_word_down_rather_than_end_on_an_orphan() {
+        // D2c's `fast-unconfirmed` at 40x120: upstream's row ends `... a
+        // standard or` and the next is `lower tier.`, because `tier.` is the
+        // last word of its line and overflows, so the word before it goes down
+        // with it (`assistant_wrap.zig:269-298`, `isFinalWordOnLine`).
+        let rows = answer_rows(
+            120,
+            "Ultrafast was requested, but Gateway did not confirm it was served; \
+             this response may have used a standard or lower tier.\n\
+             MARKER-ULTRA-UNCONFIRMED",
+        );
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.trim_end().to_string())
+                .collect::<Vec<_>>(),
+            [
+                "  Ultrafast was requested, but Gateway did not confirm it was served; \
+                 this response may have used a standard or",
+                "  lower tier.",
+                "  MARKER-ULTRA-UNCONFIRMED",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_answer_link_or_style_that_wraps_is_closed_and_reopened_behind_the_lead() {
+        // Upstream's wrap at a break (`assistant_wrap.zig:682-727`): close the
+        // pen and the link, then the gutter and the continuation's lead, then
+        // the pen and the link again -- so no link is open across the `CUP`
+        // and the lead is never underlined.
+        const OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
+        const CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+        // "reopens an OSC 8 link after a word-balanced wrap", at six columns.
+        let rows = answer_rows(8, &format!("{OPEN}\u{1b}[4malpha beta\u{1b}[24m{CLOSE}"));
+        assert_eq!(
+            rows,
+            [
+                format!("  {OPEN}\u{1b}[4malpha{RESET}{CLOSE} "),
+                format!("  \u{1b}[4m{OPEN}beta\u{1b}[24m{CLOSE}"),
+            ]
+        );
+        // "keeps styled list continuations unstyled at indentation".
+        let rows = answer_rows(
+            9,
+            "\u{1b}[2m\u{2022} \u{1b}[22m\u{1b}[1mabcdefghij\u{1b}[22m",
+        );
+        assert_eq!(
+            rows,
+            [
+                format!("  \u{1b}[2m\u{2022} \u{1b}[22m\u{1b}[1mabcde{RESET}"),
+                "    \u{1b}[1mfghij\u{1b}[22m".to_string(),
+            ]
+        );
+        // "repeats every styled nested blockquote rule on word-aware
+        // continuations": the rules, dim, ahead of the bold.
+        let rule = "\u{1b}[2m\u{2502} \u{1b}[22m";
+        let rows = answer_rows(
+            20,
+            &format!("{rule}{rule}\u{1b}[1malpha beta gamma delta\u{1b}[22m"),
+        );
+        assert_eq!(
+            rows,
+            [
+                format!("  {rule}{rule}\u{1b}[1malpha beta{RESET} "),
+                format!("  {rule}{rule}\u{1b}[1mgamma delta\u{1b}[22m"),
+            ]
+        );
+        for row in rows
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 20))
+        {
+            assert_eq!(
+                row.matches("\u{1b}]8;id=").count(),
+                row.matches(CLOSE).count(),
+                "{row:?} leaves a link open"
+            );
+        }
+    }
+
+    #[test]
+    fn an_answer_tab_is_the_spaces_to_the_screens_next_stop() {
+        // `assistant_wrap.zig:163-174`: the gutter's two columns and `a` put
+        // the tab at screen column 4, and the next stop is column 9.
+        assert_eq!(answer_rows(80, "a\tb"), ["  a     b"]);
+        // The composer's wrap is what everything else keeps: four cells.
+        let mut transcript = Transcript::new(80);
+        assert_eq!(transcript.push("a\tb").rows, ["a\tb"]);
+    }
+
+    #[test]
+    fn a_frozen_answer_line_keeps_its_continuation_rows_lined_up() {
+        // A list item long enough to freeze: the rows the document ends up
+        // with are the rows one wrap of the whole item gives, the indent under
+        // the bullet included -- on the row a freeze kept and re-wrapped too.
+        let cols = 12;
+        let mut item = "\u{1b}[2m\u{2022} \u{1b}[22m".to_string();
+        for index in 0..1200 {
+            item.push_str(&format!("w{index} "));
+        }
+        let item = item.trim_end().to_string();
+        let whole: Vec<String> = prose::prose(&item, cols - 2, 2, Opening::Line)
+            .iter()
+            .map(|laid| {
+                let lead = laid.lead.map(Continuation::lead).unwrap_or_default();
+                unpainted(&format!("  {lead}{}", &item[laid.row.start..laid.row.end]))
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            whole.len() > MAX_TAIL_ROWS + 1,
+            "the case is too short to freeze"
+        );
+        let rows: Vec<String> = answer_rows(cols, &item)
+            .iter()
+            .map(|row| unpainted(row).trim_end().to_string())
+            .collect();
+        assert_eq!(rows, whole);
+        assert!(
+            rows[1..].iter().all(|row| row.starts_with("    w")),
+            "{rows:?}"
+        );
+        // And a resize re-measures the kept row with the carried indent.
+        let mut transcript = Transcript::new(cols);
+        transcript.queue_gutter(Gutter::Indent);
+        transcript.queue_push(&item, Role::Plain);
+        drain(&mut transcript, DARK_256);
+        assert!(matches!(
+            transcript.gutter,
+            Gutter::Carried(Some(Continuation::Indent(2)))
+        ));
+        transcript.resize_unfinished(9);
+        assert_eq!(transcript.tail_rows(), 1);
     }
 
     /// The document a sequence of appends leaves behind, replayed exactly as
