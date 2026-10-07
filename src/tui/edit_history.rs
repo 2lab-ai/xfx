@@ -209,10 +209,11 @@ impl EditHistory {
     ///
     /// The order matters and it is upstream's: the kill slot is loaded first,
     /// because a kill too big for the **history** is still a kill and the slot
-    /// has a budget of its own; then the oversized delta becomes a boundary
-    /// (`edit_history.zig:86-87,99-101`); then redo is cleared and its bytes
-    /// given back, the entry is pushed, and the two caps evict from the front.
-    pub(crate) fn record(&mut self, mut delta: Delta) {
+    /// has a budget of its own; then an oversized delta, or one over a badge,
+    /// becomes a boundary (`edit_history.zig:86-87,99-101`); then redo is
+    /// cleared and its bytes given back, the entry is pushed, and the two caps
+    /// evict from the front.
+    pub(crate) fn record(&mut self, delta: Delta) {
         debug_assert!(
             !delta.is_empty(),
             "an edit that changed nothing was recorded as history"
@@ -241,16 +242,21 @@ impl EditHistory {
                     .collect(),
             });
         }
-        // **On the two stacks an image's badge is words.** Upstream's undo
-        // refuses outright over a draft that holds a badge
-        // (`composer_undo.zig:252-268`); here an undo takes the text back and
-        // the image stays dropped, so neither stack holds twenty megabytes for
-        // a badge that is gone, and an undo can never attach it twice.
-        delta.removed_entities.retain(|span| span.image().is_none());
-        delta
-            .inserted_entities
-            .retain(|span| span.image().is_none());
-        if weight > MAX_RETAINED_BYTES {
+        // **An edit that takes a badge or puts one in is a boundary**, as
+        // upstream's structured edits are: a deletion, a kill or a typed
+        // replacement over one (`composer_replacement.zig:223-232`,
+        // `composer_kill_ring.zig:90-101`) and a yank that brings one back
+        // (`:56-66`) clear both stacks rather than record, so an undo never
+        // brings a badge back, as words or as an image, and upstream's
+        // refusal of an undo over one (`composer_undo.zig:35-40,252-268`)
+        // has nothing left to refuse. Neither stack holds an image's bytes.
+        if weight > MAX_RETAINED_BYTES
+            || delta
+                .removed_entities()
+                .iter()
+                .chain(delta.inserted_entities())
+                .any(|span| span.image().is_some())
+        {
             self.boundary();
             return;
         }

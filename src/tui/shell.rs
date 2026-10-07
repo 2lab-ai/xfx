@@ -20455,10 +20455,7 @@ mod tests {
             (3, std::path::PathBuf::from("/w/shot.png")),
             (4, std::path::PathBuf::from("/w/shot.png")),
         ];
-        resumed.hydrate(
-            bridge::inert_hydration(replay(Some("x"), vec![turn])),
-            true,
-        );
+        resumed.hydrate(bridge::inert_hydration(replay(Some("x"), vec![turn])), true);
         let rows = resumed.painted_document();
         let open = "\u{1b}]8;;file:///w/shot.png\u{1b}\\";
         assert_eq!(
@@ -30127,7 +30124,7 @@ mod tests {
     }
 
     #[test]
-    fn deleting_the_badge_drops_the_image_and_an_undo_brings_back_only_its_words() {
+    fn deleting_the_badge_drops_the_image_and_an_undo_after_it_changes_nothing() {
         // `fx-image-cu-40x120-after.ansi`: Ctrl-U, then `/images` says none
         // (`kill_ring.zig:562-584`: `placeholder backing dropped kind=image`).
         let mut shell = attaching();
@@ -30140,20 +30137,53 @@ mod tests {
             shell.document(),
             said(notice::Notice::neutral("images", "no pending images"))
         );
-        // An undo of the delete is its words: upstream refuses an undo over a
-        // badge (`composer_undo.zig:252-268`), and this one never attaches it
-        // twice.
-        shell.route_bytes(b"/image shot.png\r");
+        // An edit that takes a badge is a boundary of the history, as the
+        // badge's insertion was (`composer_replacement.zig:223-232`,
+        // `edit_history.zig:99-101`; `composer_deletion.zig:300-329` leaves
+        // nothing to undo after a badge is deleted): so an undo after it finds
+        // nothing, and the composer is as it was, with nothing said
+        // (`app_input_runtime.zig:397-402`), the words typed before the badge
+        // included.
+        shell.route_bytes(b"look ");
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "look [Image 2]");
         shell.route_bytes(b"\x7f");
-        assert!(
-            shell.editor.is_empty(),
+        assert_eq!(
+            shell.editor.text(),
+            "look ",
             "a backspace at a badge takes it whole"
         );
+        shell.document();
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "look ");
+        assert!(attached_ids(&shell).is_empty());
+        assert!(
+            shell.document().is_empty(),
+            "an undo with nothing to take said something"
+        );
+        // Nor is there anything to redo.
+        shell.route_bytes(b"\x1b[122;10u");
+        assert_eq!(shell.editor.text(), "look ");
+    }
+
+    #[test]
+    fn a_yanked_badge_is_not_taken_back_by_an_undo() {
+        // `composer_kill_ring.zig:44-88,303-332`: a kill over a badge and a
+        // yank that brings one back are boundaries, not entries.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b"\x15\x19");
+        assert_eq!(shell.editor.text(), "[Image 2]");
         shell.route_bytes(b"\x1f");
         assert_eq!(shell.editor.text(), "[Image 2]");
-        assert!(attached_ids(&shell).is_empty());
-        shell.route_bytes(b"\r");
-        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 2]".to_string()));
+        assert_eq!(attached_ids(&shell), [2]);
+        // A character typed after it is an entry of its own, and only it is
+        // taken.
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "[Image 2]x");
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert_eq!(attached_ids(&shell), [2]);
     }
 
     #[test]
