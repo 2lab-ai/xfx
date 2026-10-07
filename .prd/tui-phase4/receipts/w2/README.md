@@ -313,6 +313,26 @@ tokens, as fx does. Wire: the same requests as round 3 (the image after
 `shot.png`'s result, none after `wide.png`'s), with round 3's two differences,
 `Saved images: …` and `Session file evidence…`.
 
+## Round 6: plan `20d1482` merged, an undo over a badge
+
+xfx `target/debug/xfx` at `5de23de` (banner `v0.1.0-5de23de`; plan
+`20d1482` merged as `c0d89f2`), fx the c1db919 build. New:
+`image-undo.cap` -- `look` and a space typed, `shot.png` pasted, Backspace,
+Ctrl-_ (undo) twice; then `shot.png` pasted again, Ctrl-U, Ctrl-Y, Ctrl-_.
+
+| snap | both | upstream |
+|---|---|---|
+| `pasted` | `┃ look [Image 1]` | |
+| `deleted` | `┃ look `: Backspace at the badge takes it whole | `composer_deletion.zig:300-329` |
+| `undone` | `┃ look `, nothing said: the deletion was a boundary of the edit history, as the paste was, so the two undos find nothing | `composer_replacement.zig:223-232`, `edit_history.zig:99-101`, `app_input_runtime.zig:397-402` |
+| `yanked` | `┃ look [Image 3]`: the line killed with its badge, yanked back under a fresh number | `kill_ring.zig:120-190` |
+| `yank-undone` | `┃ look [Image 3]`: the kill and the yank were boundaries too | `composer_kill_ring.zig:44-118` |
+
+Every `.txt` and `.ansi` is identical after the banner, the badges' links
+included. Before `5de23de` the undo in `undone` brought back `[Image 1]` as
+words with no image behind them (`deleting_the_badge_drops_the_image_and_an_undo_after_it_changes_nothing`
+failed on the old rule: `left: "look [Image 2]"`, `right: "look "`).
+
 ## Differences, and why
 
 - **Where a clipboard badge's link goes** (round 4): fx's copy is in the
