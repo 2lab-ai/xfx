@@ -73,6 +73,12 @@ pub(crate) struct HydratedTurn {
     /// its arguments and its whole result
     /// ([`super::full_transcript::details_of`]).
     pub(crate) details: Vec<(String, super::full_transcript::Detail)>,
+    /// Each image the prompt sent, by its number and the file the log says it
+    /// was read from: what the card's badge links to, as a live card's does
+    /// (`expandPlaceholdersWithLinkedBadges`, `user_message_card.zig:222-230`).
+    /// The path is not made inert with the text: it reaches the screen only
+    /// percent-encoded, through [`super::hyperlink::file_uri`].
+    pub(crate) images: Vec<(u32, std::path::PathBuf)>,
 }
 
 /// One thing a turn did, in the order it did it.
@@ -210,6 +216,16 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         started_at_ms: turn.timing.started_at_ms,
         concluded_at_ms: turn.timing.concluded_at_ms,
         details: super::full_transcript::details_of(&turn.steps),
+        images: turn
+            .images
+            .iter()
+            .map(|image| {
+                (
+                    image.recorded.id,
+                    std::path::PathBuf::from(&image.recorded.path),
+                )
+            })
+            .collect(),
     }
 }
 

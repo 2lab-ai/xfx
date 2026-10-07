@@ -37,6 +37,7 @@
 use std::fmt;
 use std::io;
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -240,6 +241,12 @@ enum CellState {
         grapheme: Glyph,
         width: u8,
         color: Color,
+        /// The hyperlink the cell is part of, as the sequence that opens it:
+        /// on the expected side the one the row's text carried
+        /// ([`super::pacer::SgrState::link`]), on the wire side the one
+        /// [`wire_link`] decoded and spelt again. Two cells are the same only
+        /// when a click on either goes to the same place.
+        link: Option<Arc<str>>,
     },
     Continuation,
     Foreign(u32),
@@ -259,6 +266,7 @@ impl CellState {
                 grapheme: Glyph::new(grapheme),
                 width: *width,
                 color: sgr.color()?,
+                link: sgr.link().cloned(),
             },
         })
     }
@@ -282,13 +290,20 @@ impl CellState {
                     grapheme,
                     width,
                     color,
+                    link,
                 },
                 Self::Lead {
                     grapheme: other_grapheme,
                     width: other_width,
                     color: other_color,
+                    link: other_link,
                 },
-            ) => width == other_width && color == other_color && grapheme == other_grapheme,
+            ) => {
+                width == other_width
+                    && color == other_color
+                    && grapheme == other_grapheme
+                    && link == other_link
+            }
             _ => match (self.shown(), other.shown()) {
                 (Some(shown), Some(other)) => shown == other,
                 _ => self == other,
@@ -301,18 +316,23 @@ impl CellState {
     /// the painter relies on it: [`Grid::diff`] spells an empty target cell as
     /// a space. The text is given as its bytes, which compare exactly as the
     /// text does.
-    fn shown(&self) -> Option<(&[u8], u8, Color)> {
+    fn shown(&self) -> Option<Shown<'_>> {
         match self {
-            Self::Empty => Some((b" ", 1, Color::Default)),
+            Self::Empty => Some((b" ", 1, Color::Default, None)),
             Self::Lead {
                 grapheme,
                 width,
                 color,
-            } => Some((grapheme.as_bytes(), *width, *color)),
+                link,
+            } => Some((grapheme.as_bytes(), *width, *color, link.as_deref())),
             Self::Continuation | Self::Foreign(_) => None,
         }
     }
 }
+
+/// What a terminal shows in one cell: the text, the columns it takes, its
+/// colour, and the link a click on it follows.
+type Shown<'a> = (&'a [u8], u8, Color, Option<&'a str>);
 
 /// One screen's cells.
 ///
@@ -610,6 +630,9 @@ pub(crate) struct TerminalModel {
     /// What the last SGR left switched on, and therefore what the next cell is
     /// painted in.
     pen: Color,
+    /// The hyperlink the next cell is painted into, as [`wire_link`] spelt it
+    /// -- `None` outside one. An SGR reset leaves it, as a terminal does.
+    link: Option<Arc<str>>,
     /// What this vector did, in order.
     effects: Vec<Effect>,
     /// Which buffer each `?1049` in this vector moved the terminal **to**, in
@@ -644,6 +667,7 @@ impl TerminalModel {
             queries: Vec::new(),
             bells: 0,
             pen: Color::Default,
+            link: None,
             effects: Vec::new(),
             moves: Vec::new(),
         }
@@ -1076,6 +1100,7 @@ impl<'a> Expected<'a> {
                     grapheme: Glyph::new(cluster),
                     width: u8::try_from(width).unwrap_or(u8::MAX),
                     color,
+                    link: sgr.link().cloned(),
                 };
                 for offset in 1..width {
                     cells[column + offset] = CellState::Continuation;
@@ -1207,6 +1232,15 @@ pub(crate) fn preflight(
         _ => None,
     };
     apply(&mut model, bytes, expected.as_mut())?;
+    // A link this vector opened and did not close would take in whatever the
+    // next vector paints first -- another emitter's row, or the user's shell
+    // after the exit.
+    if model.link.is_some() {
+        return Err(Reject::new(
+            "a vector that left a hyperlink open",
+            bytes.len(),
+        ));
+    }
     if let Some(expected) = &mut expected {
         expected.finish(model.plane_of(declared.footprint.plane), bytes.len())?;
     }
@@ -1248,8 +1282,10 @@ pub(crate) const RECOVERY_CLEANUP: &str = "\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1
 /// question that state still admits an answer to -- is the vector the one
 /// fixed reset this crate has chosen to try, byte for byte -- and licenses
 /// nothing else, including any of the sequences `RECOVERY_CLEANUP` itself is
-/// built from: [`apply`]'s own alphabet already refuses a bare `CAN` or an
-/// `OSC 8` outside this path, and nothing here loosens that.
+/// built from: [`apply`]'s own alphabet already refuses a bare `CAN`, and the
+/// `BEL`-terminated `OSC 8` close outside this path -- it admits upstream's
+/// `ST`-terminated hyperlinks and only those -- and nothing here loosens
+/// that.
 ///
 /// The confidence this buys is bounded and stated where it is spent
 /// ([`super::frame::Band::recover_primary`]): an independent terminal
@@ -1768,7 +1804,7 @@ fn agree(found: &CellState, wanted: &Cell, at: usize, row: u16, column: u16) -> 
         // A space and an untouched cell are the same thing on a screen, and the
         // painter spells one as the other -- [`Grid::diff`] writes a space
         // where the target cell is empty.
-        Cell::Empty => Some((&b" "[..], 1u8, Color::Default)),
+        Cell::Empty => Some((&b" "[..], 1u8, Color::Default, None)),
         Cell::Continuation => None,
         Cell::Lead {
             grapheme,
@@ -1785,6 +1821,7 @@ fn agree(found: &CellState, wanted: &Cell, at: usize, row: u16, column: u16) -> 
                     column,
                 )
             })?,
+            sgr.link().map(|link| &**link),
         )),
     };
     let agreed = match wanted {
@@ -1888,6 +1925,9 @@ fn linefeed(
     let Caret::Known((row, column)) = model.caret else {
         return Err(Reject::new("a linefeed from a caret nothing can place", at));
     };
+    if model.link.is_some() {
+        return Err(Reject::new("a hyperlink left open across a row", at));
+    }
     if row >= model.screen_ref().rows {
         // **Before the screen moves.** The row at the top is about to be in the
         // terminal's own scrollback, where nothing in this phase reaches it
@@ -1926,6 +1966,7 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             continue;
         }
         let color = model.pen;
+        let link = model.link.clone();
         let plane = model.screen();
         if usize::from(column) + usize::from(width) - 1 > usize::from(plane.cols) {
             return Err(Reject::at_cell(
@@ -1982,6 +2023,7 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             grapheme: Glyph::new(cluster),
             width: u8::try_from(width).unwrap_or(u8::MAX),
             color,
+            link,
         };
         for offset in 1..width {
             if let Some(tail) = plane.index(row, column + offset) {
@@ -2046,6 +2088,9 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
     let length = end + 1 - at;
     match (prefix, final_byte) {
         (b' ', b'H') => {
+            if model.link.is_some() {
+                return Err(Reject::new("a hyperlink left open across a caret move", at));
+            }
             let (row, column) = position(params, at)?;
             let plane = model.screen_ref();
             if row == 0 || column == 0 || row > plane.rows || column > plane.cols {
@@ -2057,6 +2102,9 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
                 ));
             }
             model.caret = Caret::Known((row, column));
+        }
+        (b' ', b'J' | b'K') if model.link.is_some() => {
+            return Err(Reject::new("an erase under an open hyperlink", at));
         }
         (b' ', b'J') => match params {
             "" | "0" => erase_below(model, at)?,
@@ -2214,6 +2262,12 @@ fn private_mode(
         "2004" => model.modes.bracketed_paste = Some(set),
         "7" => model.modes.autowrap = Some(set),
         "2031" => model.modes.theme_notifications = Some(set),
+        "1049" if model.link.is_some() => {
+            return Err(Reject::new(
+                "a hyperlink left open across a buffer change",
+                at,
+            ));
+        }
         "1049" => {
             if set {
                 model.saved_cursor = match model.caret {
@@ -2242,7 +2296,7 @@ fn private_mode(
     Ok(())
 }
 
-/// `OSC 2` and the background query, and nothing else.
+/// `OSC 2`, the background query and an `OSC 8` hyperlink, and nothing else.
 fn operating_system_command(
     model: &mut TerminalModel,
     bytes: &[u8],
@@ -2285,10 +2339,81 @@ fn operating_system_command(
             ));
         }
         model.queries.push(QueryId::Background);
+    } else if let Some(link) = body.strip_prefix("8;") {
+        // Upstream's spelling only (`engine.zig:3262-3272`): the `BEL` form
+        // is the recovery cleanup's, which has an entry point of its own and
+        // licenses nothing here ([`preflight_recovery_cleanup`]).
+        if terminator != 2 {
+            return Err(Reject::new(
+                "a hyperlink this crate does not spell that way",
+                at,
+            ));
+        }
+        model.link = wire_link(link, at)?;
     } else {
         return Err(Reject::new("a string sequence outside the alphabet", at));
     }
     Ok(end + terminator - at)
+}
+
+/// The link an `OSC 8` on the wire leaves open -- `None` for a close -- from
+/// the body after its `8;`.
+///
+/// **A parser of its own**, as [`wire_color`] is beside
+/// [`super::pacer::SgrState::color`]: the painter admits a link with
+/// [`super::hyperlink::link_at`], and an admission rule that went wrong there
+/// would agree with itself if this asked it again. So the rules are restated
+/// here and only the limits are shared -- the parameters are empty or `id=`
+/// and a short run of `[A-Za-z0-9._-]`; the target is no longer than
+/// [`super::hyperlink::MAX_URI_BYTES`], holds no control character of any kind
+/// (C0, `DEL`, C1), and begins with `http:`, `https:`, `file:` or `mailto:`
+/// in any case. A close carries no parameters.
+///
+/// The open is returned spelt as upstream spells one, which is the spelling
+/// the expected side holds; the rejection names the rule and never the target.
+fn wire_link(body: &str, at: usize) -> Result<Option<Arc<str>>, Reject> {
+    let refused = |rule: &'static str| Reject::new(rule, at);
+    let Some((params, uri)) = body.split_once(';') else {
+        return Err(refused("a hyperlink with no target field"));
+    };
+    if uri.is_empty() {
+        if !params.is_empty() {
+            return Err(refused("a hyperlink close carrying parameters"));
+        }
+        return Ok(None);
+    }
+    if !params.is_empty() {
+        let id = params
+            .strip_prefix("id=")
+            .ok_or_else(|| refused("hyperlink parameters this crate does not write"))?;
+        let well_formed = (1..=64).contains(&id.len())
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
+        if !well_formed {
+            return Err(refused("hyperlink parameters this crate does not write"));
+        }
+    }
+    if uri.len() > super::hyperlink::MAX_URI_BYTES {
+        return Err(refused("a hyperlink target longer than a link may be"));
+    }
+    if uri.chars().any(|c| c.is_control()) {
+        return Err(refused("a hyperlink target carrying a control character"));
+    }
+    let colon = uri
+        .find(':')
+        .ok_or_else(|| refused("a hyperlink target with no scheme"))?;
+    let scheme = uri[..colon].to_ascii_lowercase();
+    let starts = scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic());
+    if !starts || !matches!(scheme.as_str(), "http" | "https" | "file" | "mailto") {
+        return Err(refused(
+            "a hyperlink target in a scheme this crate does not link",
+        ));
+    }
+    Ok(Some(Arc::from(format!("\u{1b}]8;{params};{uri}\u{1b}\\"))))
 }
 
 /// The colour a `CSI ... m` on the wire leaves the pen in, or `None` for one
@@ -2457,6 +2582,207 @@ mod tests {
             anywhere(24, 0),
         );
         preflight(&seed(&before, None), &bytes, &declared).expect("the frame it declared");
+    }
+
+    /// Upstream's link around `docs` (`inline_render.zig:535-560`).
+    const DOCS_OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\";
+    const LINK_CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+
+    /// A frame turning a blank screen into `after`, exactly as the band
+    /// writes one, and its declaration.
+    fn framed(after: &Grid) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"\x1b[?2026h\x1b[?25l");
+        Grid::blank(24, 80).diff(after, &geometry(), &mut bytes);
+        bytes.extend_from_slice(b"\x1b[10;1H");
+        bytes.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
+        bytes
+    }
+
+    fn declared_frame(after: &Grid) -> Declared<'_> {
+        Declared::new(
+            Intent::Primary {
+                grid: after,
+                caret: Some((10, 1)),
+                cursor_visible: Some(true),
+                title: None,
+            },
+            anywhere(24, 0),
+        )
+    }
+
+    #[test]
+    fn a_frame_that_paints_a_link_it_declares_is_accepted() {
+        let after = painted(
+            10,
+            &format!("see {DOCS_OPEN}\u{1b}[4mdocs\u{1b}[24m{LINK_CLOSE} now"),
+        );
+        let bytes = framed(&after);
+        assert!(
+            String::from_utf8_lossy(&bytes).contains(DOCS_OPEN),
+            "the diff wrote no link"
+        );
+        preflight(
+            &seed(&Grid::blank(24, 80), None),
+            &bytes,
+            &declared_frame(&after),
+        )
+        .expect("the linked frame it declared");
+    }
+
+    /// The decoded model after `bytes`, from a caret on row 10.
+    fn decoded(bytes: &[u8]) -> Result<TerminalModel, Reject> {
+        let grid = Grid::blank(24, 80);
+        let mut model = seed(&grid, Some((10, 1)));
+        apply_for_tests(&mut model, bytes)?;
+        Ok(model)
+    }
+
+    #[test]
+    fn a_link_left_open_across_a_caret_move_a_row_or_a_buffer_change_is_refused() {
+        for (bytes, shape) in [
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[11;1Hmore"),
+                "a hyperlink left open across a caret move",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\n"),
+                "a hyperlink left open across a row",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[?1049h"),
+                "a hyperlink left open across a buffer change",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[K"),
+                "an erase under an open hyperlink",
+            ),
+            (
+                format!("{DOCS_OPEN}docs\u{1b}[J"),
+                "an erase under an open hyperlink",
+            ),
+        ] {
+            let reject = decoded(bytes.as_bytes()).expect_err(shape);
+            assert_eq!(reject.shape(), shape, "{bytes:?}");
+        }
+        // Closed first, the same moves are the ordinary alphabet.
+        decoded(format!("{DOCS_OPEN}docs{LINK_CLOSE}\u{1b}[11;1H\u{1b}[K").as_bytes())
+            .expect("a link closed on its row");
+    }
+
+    #[test]
+    fn a_vector_that_ends_inside_a_link_is_refused() {
+        let after = painted(10, &format!("{DOCS_OPEN}docs{LINK_CLOSE}"));
+        let bytes = format!("\u{1b}[10;1H{DOCS_OPEN}docs");
+        let reject = preflight(
+            &seed(&Grid::blank(24, 80), None),
+            bytes.as_bytes(),
+            &Declared::new(
+                Intent::Primary {
+                    grid: &after,
+                    caret: None,
+                    cursor_visible: None,
+                    title: None,
+                },
+                anywhere(24, 0),
+            ),
+        )
+        .expect_err("a link the next vector would paint into");
+        assert_eq!(reject.shape(), "a vector that left a hyperlink open");
+    }
+
+    #[test]
+    fn a_cell_linked_somewhere_the_emitter_did_not_ask_for_is_refused() {
+        // Three disagreements, each one cell: a link nobody declared, a
+        // declared link that never went on the wire, and the right text under
+        // another target.
+        let linked = painted(10, &format!("{DOCS_OPEN}docs{LINK_CLOSE}"));
+        let plain = painted(10, "docs");
+        let elsewhere = painted(
+            10,
+            &format!("\u{1b}]8;id=fx-1;https://example.com/other\u{1b}\\docs{LINK_CLOSE}"),
+        );
+        for (wire, declared) in [(&linked, &plain), (&plain, &linked), (&elsewhere, &linked)] {
+            let bytes = framed(wire);
+            let reject = preflight(
+                &seed(&Grid::blank(24, 80), None),
+                &bytes,
+                &declared_frame(declared),
+            )
+            .expect_err("a link that is not the one declared");
+            assert_eq!(
+                reject.shape(),
+                "a cell the vector did not leave as intended"
+            );
+        }
+    }
+
+    #[test]
+    fn the_wire_parser_holds_every_link_to_the_painters_rules() {
+        let open =
+            |params: &str, uri: &str| format!("\u{1b}]8;{params};{uri}\u{1b}\\x{LINK_CLOSE}");
+        for (bytes, shape) in [
+            (
+                open("id=fx-1", "javascript:alert(1)"),
+                "a hyperlink target in a scheme this crate does not link",
+            ),
+            (open("", "README.md"), "a hyperlink target with no scheme"),
+            (
+                open("", "ftp://example.com"),
+                "a hyperlink target in a scheme this crate does not link",
+            ),
+            (
+                open("", "https://a\u{9c}b"),
+                "a hyperlink target carrying a control character",
+            ),
+            (
+                open("", "https://a\u{7f}b"),
+                "a hyperlink target carrying a control character",
+            ),
+            (
+                open("", &format!("https://e.x/{}", "a".repeat(2083))),
+                "a hyperlink target longer than a link may be",
+            ),
+            (
+                open("x=1", "https://example.com"),
+                "hyperlink parameters this crate does not write",
+            ),
+            (
+                open("id=a:b", "https://example.com"),
+                "hyperlink parameters this crate does not write",
+            ),
+            (
+                "\u{1b}]8;id=fx-1;\u{1b}\\".to_string(),
+                "a hyperlink close carrying parameters",
+            ),
+            (
+                "\u{1b}]8;https://example.com\u{1b}\\".to_string(),
+                "a hyperlink with no target field",
+            ),
+            (
+                "\u{1b}]8;;https://example.com\u{7}x\u{1b}]8;;\u{7}".to_string(),
+                "a hyperlink this crate does not spell that way",
+            ),
+        ] {
+            let reject = decoded(bytes.as_bytes()).expect_err(shape);
+            assert_eq!(reject.shape(), shape, "{bytes:?}");
+        }
+        // A control byte inside the target ends the string early as far as the
+        // scanner is concerned, so it is refused by whatever it leaves behind
+        // rather than admitted.
+        decoded(b"\x1b]8;;https://a\x1bb\x1b\\x\x1b]8;;\x1b\\").expect_err("an ESC in a target");
+        // And the four schemes, any case, are the ordinary alphabet.
+        for uri in ["http://x", "HTTPS://x", "file:///tmp/a.png", "mailto:a@b.c"] {
+            decoded(open("", uri).as_bytes()).expect(uri);
+        }
+    }
+
+    #[test]
+    fn a_rejected_link_carries_no_target_in_its_message() {
+        let secret = "https://example.com/?token=fake-key-not-real";
+        let reject = decoded(format!("{DOCS_OPEN}x\u{1b}]8;id=a:b;{secret}\u{1b}\\").as_bytes())
+            .expect_err("bad parameters");
+        assert!(!reject.to_string().contains("fake-key"), "{reject}");
     }
 
     #[test]
@@ -3726,9 +4052,10 @@ mod tests {
     #[test]
     fn the_ordinary_parser_still_refuses_the_recovery_vectors_bytes_on_their_own() {
         // The recovery-only entry point licenses this vector; the general one
-        // still refuses the `CAN` and the `OSC 8` inside it exactly as it
-        // refuses them anywhere else -- this entry point loosens nothing in
-        // `apply`'s alphabet.
+        // still refuses the `CAN` and the `BEL`-terminated `OSC 8` inside it
+        // exactly as it refuses them anywhere else -- this entry point
+        // loosens nothing in `apply`'s alphabet, and admitting upstream's
+        // `ST`-terminated hyperlinks did not admit this spelling.
         let grid = Grid::blank(24, 80);
         let declared = Declared::new(
             Intent::Primary {
@@ -3741,6 +4068,12 @@ mod tests {
         );
         preflight(&seed(&grid, None), RECOVERY_CLEANUP.as_bytes(), &declared)
             .expect_err("the ordinary alphabet accepted the recovery vector");
+        let close = preflight(&seed(&grid, None), b"\x1b]8;;\x07", &declared)
+            .expect_err("the ordinary alphabet accepted the cleanup's hyperlink close");
+        assert_eq!(
+            close.shape(),
+            "a hyperlink this crate does not spell that way"
+        );
     }
 
     #[test]
@@ -3755,8 +4088,9 @@ mod tests {
         // The entry point that licenses it is a byte comparison and knows
         // nothing about planes, so it accepts the vector whichever one is up;
         // what this asserts is the vector itself. Its head is the `CAN` and the
-        // `OSC 8` close this decoder's alphabet refuses on purpose -- a byte
-        // and a string sequence, neither of which can carry a mode -- and
+        // `BEL`-terminated `OSC 8` close this decoder's alphabet refuses on
+        // purpose -- a byte and a string sequence, neither of which can carry
+        // a mode -- and
         // everything after them is decoded here, from a terminal that is on
         // the borrowed buffer, and must end on it having made no transition.
         preflight_recovery_cleanup(RECOVERY_CLEANUP.as_bytes())

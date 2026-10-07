@@ -1,0 +1,32 @@
+# Markdown links in an answer (`.prd/tui-phase4` F5 links): an inline link,
+# a bare URL, an angle autolink and an email one, a URL in a code span, links
+# with a relative target, a `javascript:` and an `ftp:` scheme (linked by fx,
+# text by xfx -- the scheme rule in `src/tui/hyperlink.rs`), a link whose text
+# wraps past the row's edge, and a link in a table cell. Then the full
+# transcript (Ctrl-O, closed with Ctrl-O), a second answer whose link takes
+# the next id, and a relaunch that replays the session.
+gateway links-turns.json
+wait 4
+type show me the links
+key Enter
+wait 6
+snap answered
+key C-o
+wait 1.5
+snap full
+key C-o
+wait 1.5
+type and one more
+key Enter
+wait 5
+snap second
+snapfull second
+keep
+type /quit
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 6
+snap resumed
+snapfull resumed
