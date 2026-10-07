@@ -746,6 +746,7 @@ mod trace;
 mod transcript;
 mod usage_menu;
 mod worker;
+mod workspace_menu;
 mod wrap;
 
 #[cfg(test)]
