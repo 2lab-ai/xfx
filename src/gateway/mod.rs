@@ -20,6 +20,7 @@
 pub mod generation;
 pub mod protocol;
 pub mod sse;
+pub mod tool_call_ids;
 
 use std::fmt;
 use std::io;

@@ -782,6 +782,75 @@ fn slash_clear_and_slash_reset_are_slash_new_and_erase_nothing() {
 }
 
 #[test]
+fn slash_setup_switches_provider_and_the_next_prompt_carries_the_conversation() {
+    // The line shell's `/setup llmux` keeps the conversation as the TUI's
+    // switch does, as upstream's `/provider` keeps its session
+    // (`app_auth_runtime.zig:1377-1381`): one session, and the daemon's first
+    // request carries the Gateway's turn in Anthropic's shape.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["GATEWAY-SAID-IT"]))]);
+    let daemon = FakeLlmux::start(vec![Reply::Sse(support::fake_llmux::anthropic_answer(&[
+        "DAEMON-SAID-IT",
+    ]))]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_both(&gateway, &daemon));
+
+    session.type_line("remember the gateway");
+    session.wait_for("GATEWAY-SAID-IT");
+    session.type_line("/setup llmux");
+    let text = session.wait_for("[shell] provider=llmux");
+    session.wait_for_count(PROMPT, 3);
+    assert!(
+        !text.contains("fresh conversation"),
+        "the switch said it dropped the conversation: {text}"
+    );
+    session.type_line("and the daemon?");
+    session.wait_for("DAEMON-SAID-IT");
+    assert_eq!(session.quit().code(), Some(0));
+
+    assert_eq!(
+        sandbox.session_ids().len(),
+        1,
+        "the switch opened a session"
+    );
+    let body: Value =
+        serde_json::from_str(&daemon.only_message_request().body).expect("a json body");
+    let messages = body["messages"].as_array().expect("messages");
+    let said: Vec<(&str, &str)> = messages
+        .iter()
+        .map(|message| {
+            (
+                message["role"].as_str().expect("a role"),
+                message["content"][0]["text"]
+                    .as_str()
+                    .expect("a text block"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("user", "remember the gateway"),
+            ("assistant", "GATEWAY-SAID-IT"),
+            ("user", "and the daemon?"),
+        ]
+    );
+    let log = fs::read_to_string(
+        sandbox
+            .sessions_dir()
+            .join(&sandbox.session_ids()[0])
+            .join("events.jsonl"),
+    )
+    .expect("the log");
+    assert!(
+        log.lines()
+            .any(|line| line.contains("\"kind\":\"preferences_changed\"")
+                && line.contains("\"provider\":\"llmux\"")),
+        "the switch was not recorded: {log}"
+    );
+}
+
+#[test]
 fn slash_new_starts_a_second_session_that_remembers_nothing() {
     let gateway = FakeGateway::start(vec![
         Reply::Sse(content_only(&["first"])),

@@ -1347,8 +1347,9 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
     /// When the session `/usage` calls the session began, for its wall clock:
-    /// this runtime's start, the moment `/new` or a provider switch dropped
-    /// the conversation, or the resumed session's own creation.
+    /// this runtime's start, the moment `/new` dropped the conversation, or
+    /// the resumed session's own creation. A provider switch keeps the
+    /// conversation and so the clock.
     ///
     /// Upstream's session exists from launch and its clock with it (`reset`,
     /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
@@ -1699,8 +1700,10 @@ impl Runtime {
     /// `/undo` against the conversation as it stands: its newest change as of
     /// `through` taken back ([`crate::tools::mutate::undo_through`]), or
     /// nothing when there is no conversation -- a session that has asked
-    /// nothing has changed nothing, and one `/new` or a provider switch
-    /// dropped took its changes with it.
+    /// nothing has changed nothing, and one `/new` dropped took its changes
+    /// with it. A provider switch keeps them, as upstream's keeps its tracker
+    /// (`runProviderCommand`, `app_auth_runtime.zig:387`, never reaches the
+    /// clear at `app_session_runtime.zig:1999`).
     fn undo(&self, through: crate::tools::undo::Mark) -> crate::tools::undo::Undone {
         self.conversation
             .as_ref()
@@ -2020,11 +2023,23 @@ impl Runtime {
     /// outranks the profile still outranks it and the session says what it will
     /// really do rather than what the write intended.
     ///
-    /// The bundle and the conversation are dropped **here and not earlier**, so
-    /// a transaction that failed anywhere above leaves a working session alone.
-    /// They are dropped rather than kept because a conversation carried across a
-    /// switch would replay one provider's history into another's wire format,
-    /// and a bundle is a connection to an endpoint that is no longer configured.
+    /// The bundle is dropped **here and not earlier**, so a transaction that
+    /// failed anywhere above leaves a working session alone; it is a connection
+    /// to an endpoint that is no longer configured.
+    ///
+    /// **The conversation is kept**, as upstream's `/provider` keeps its
+    /// session (`app.provider_selection.adoptOwned`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_auth_runtime.zig:1377-1381`, touches nothing of it):
+    /// its log, its grants, its read proofs and its `/undo` journal go on, and
+    /// the next turn replays its history in the new provider's wire. That is
+    /// safe because the history is never one wire's bytes: it is rebuilt from
+    /// the log for every request ([`crate::session::DurableState::history_messages`]),
+    /// a step's replay state goes only to the wire that sealed it -- upstream's
+    /// `projectProviderReplay`, `types.zig:1548-1563` -- and a call id the new
+    /// wire cannot take goes under a portable alias
+    /// ([`crate::gateway::tool_call_ids`]). The switch itself is written into
+    /// the log, provider and model both, as upstream's patch writes them
+    /// (`commitRuntimePreferences`, `app_session_runtime.zig:3539-3550`).
     fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
         // **Except the session's permission mode**, which is not what the file
         // says but what the person last chose: `/permissions` and Shift-Tab
@@ -2061,9 +2076,29 @@ impl Runtime {
         // session was in.
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
-        self.conversation = None;
+        let provider = self.config.provider.label().to_string();
+        let model = self.model().to_string();
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation
+                .recorder
+                .commit(SessionEvent::PreferencesChanged {
+                    model: Some(model),
+                    permission_mode: None,
+                    provider: Some(provider),
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
+                });
+        }
+        // The bills the Gateway still owes this session are asked with the
+        // Gateway's credential, and only while it is the provider: upstream
+        // drops its asking credential on a switch to a provider that is not
+        // the Gateway and starts again with the new one on a switch to it
+        // (`reconcileGatewayCredential`, `app_auth_runtime.zig:2039-2070`).
+        // Forgotten here, the requests stay pending in the log, and the asking
+        // after this work ([`Runtime::ask_for_bills`]) starts again on the
+        // Gateway.
         self.bills.forget();
-        self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
@@ -2584,8 +2619,8 @@ async fn turn_loop(
             }
         };
         // After **every** piece of work rather than in the arms that change
-        // the conversation: a provider switch replaces it, and a piece of work
-        // added later that does either is covered without remembering to be.
+        // the conversation: a resume replaces it, and a piece of work added
+        // later that does either is covered without remembering to be.
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
@@ -4097,7 +4132,9 @@ async fn one_turn(
         .recorder
         .state()
         .history_messages(state.config.provider.wire());
-    for notice in &replay.notices {
+    // Once each for the conversation ([`Conversation::unsaid`]): the history
+    // is rebuilt for every turn, and so are these.
+    for notice in conversation.unsaid(replay.notices) {
         // Best effort by construction: a notice about the history is worth
         // less than the turn it precedes, and the only ways this fails are a
         // turn that was cancelled before it began and a UI that is gone --
@@ -4105,7 +4142,8 @@ async fn one_turn(
         // A warning under `session`: the turn goes ahead, without what the
         // history could not carry. The store's sentence is the line shell's
         // too, so its `xfx: ` comes off here where the glyph says it.
-        let notice = super::notice::Notice::warning("session", super::notice::unattributed(notice));
+        let notice =
+            super::notice::Notice::warning("session", super::notice::unattributed(&notice));
         let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice)).await;
     }
 
@@ -9186,12 +9224,15 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_switch_drops_the_old_bundle_and_the_conversation() {
-        // Step (g), and the two things it must not keep. A conversation carried
-        // across a switch would replay one provider's history into another's
-        // wire format; a bundle is a connection to an endpoint that is no longer
-        // configured. `ready()` builds whatever it does not have, so dropping
-        // them here is exactly what makes the next prompt select the new one.
+    fn a_provider_switch_drops_the_old_bundle_and_keeps_the_conversation() {
+        // Step (g). The bundle goes: it is a connection to an endpoint that is
+        // no longer configured, and `ready()` builds whatever it does not
+        // have, so dropping it is exactly what makes the next prompt select
+        // the new one. **Changed claim**: the conversation stays, as
+        // upstream's session does across `/provider` (`app_auth_runtime.zig:
+        // 1377-1381`), with the switch written into its log, provider and
+        // model both (`app_session_runtime.zig:3539-3550`), and its clock
+        // where it was.
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A credential, because a bundle cannot be selected without one and the
@@ -9234,6 +9275,15 @@ mod tests {
             .expect("open a conversation"),
         );
 
+        let id = runtime
+            .conversation
+            .as_ref()
+            .expect("opened")
+            .recorder
+            .id()
+            .clone();
+        runtime.began_ms = 1_234;
+
         let mut after = before.clone();
         after.provider = ProviderId::Llmux;
         after.model = "fable".to_string();
@@ -9247,10 +9297,14 @@ mod tests {
             runtime.provider.is_none(),
             "the old bundle survived the swap"
         );
-        assert!(
-            runtime.conversation.is_none(),
-            "the old conversation survived the swap"
-        );
+        let kept = runtime
+            .conversation
+            .as_ref()
+            .expect("the switch dropped the conversation");
+        assert_eq!(kept.recorder.id(), &id, "the switch opened another session");
+        assert_eq!(kept.recorder.state().provider.as_deref(), Some("llmux"));
+        assert_eq!(kept.recorder.state().model, "fable");
+        assert_eq!(runtime.began_ms, 1_234, "the switch restarted the clock");
         assert_eq!(
             runtime.config.llmux_url.as_deref(),
             Some("http://127.0.0.1:3456"),
@@ -9412,12 +9466,12 @@ mod tests {
     }
 
     #[test]
-    fn a_conversation_rebuilt_after_a_provider_switch_can_still_ask() {
-        // `adopt` drops the conversation on purpose, and `ready()` builds
-        // whatever it does not have. A requester attached only at the first
-        // `ready` would leave every session that switched provider -- or typed
-        // `/new`, which drops the same field -- unable to ask, and the failure
-        // would look like a model that stopped using the tool.
+    fn a_conversation_kept_across_a_provider_switch_or_rebuilt_after_new_can_still_ask() {
+        // `adopt` keeps the conversation, tools and requester with it, and
+        // `ready()` builds whatever it does not have -- after `/new`, which
+        // drops the field. A requester attached only at the first `ready`
+        // would leave such a session unable to ask, and the failure would
+        // look like a model that stopped using the tool.
         let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
         state.ready(&CancelToken::new()).expect("a conversation");
 
@@ -9426,11 +9480,19 @@ mod tests {
         after.model = "fable".to_string();
         after.llmux_url = Some("http://127.0.0.1:3456".to_string());
         state.adopt(after);
+        state.ready(&CancelToken::new()).expect("a conversation");
         assert!(
-            state.conversation.is_none(),
-            "the switch kept the old conversation, so the rebuild is not what is measured"
+            state
+                .conversation
+                .as_ref()
+                .expect("kept")
+                .tools
+                .questioner()
+                .is_some(),
+            "the conversation kept across the switch has nobody to ask"
         );
 
+        state.conversation = None;
         state.ready(&CancelToken::new()).expect("a conversation");
         assert!(
             state

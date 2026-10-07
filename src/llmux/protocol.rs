@@ -42,6 +42,7 @@ use serde_json::{Map, Value};
 use crate::gateway::protocol::{
     CompletionRequest, ContentPart, ProtocolError, RequestOptions, Role, ToolChoice,
 };
+use crate::gateway::tool_call_ids::Projection;
 
 /// The output ceiling xfx asks for, in tokens.
 ///
@@ -104,14 +105,22 @@ pub fn body_with(
     // can still render to something Anthropic refuses. Checking the *rendered*
     // shape is the only way to catch that before it costs a round trip and
     // arrives as a 400 xfx would then have to explain.
-    let messages = wire_messages(&request.messages);
+    //
+    // The ids first: Anthropic's `tool_use.id` takes only a portable id, and a
+    // call the Gateway recorded may not have one, so it goes under an alias
+    // (`Projection.init`, `vercel-labs/fx@c1db9191
+    // src/gateway/tool_call_ids.zig:14-87`). A message carrying this wire's
+    // own blocks keeps every id it names, because the blocks go back as they
+    // arrived.
+    let ids = Projection::of(&request.messages, true)?;
+    let messages = wire_messages(&request.messages, &ids);
     if messages.is_empty() {
         return Err(ProtocolError::EmptyPrompt);
     }
     if messages[0].role != "user" {
         return Err(ProtocolError::AssistantFirst);
     }
-    Ok(serde_json::to_string(&WireRequest(request, options))
+    Ok(serde_json::to_string(&WireRequest(request, options, &ids))
         .expect("a validated request is always serializable"))
 }
 
@@ -158,12 +167,12 @@ fn schema_of(tool: &Map<String, Value>) -> Option<&Value> {
 }
 
 /// The request body, in the key order above.
-struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions);
+struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions, &'a Projection);
 
 impl Serialize for WireRequest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let system = system_text(&self.0.messages);
-        let messages = wire_messages(&self.0.messages);
+        let messages = wire_messages(&self.0.messages, self.2);
         // An empty tool list is omitted rather than written as `[]`: an empty
         // array beside a `tool_choice` asks the model to choose among nothing,
         // which is a request Anthropic can legitimately refuse.
@@ -230,13 +239,16 @@ impl WireMessage {
 /// Three steps, in this order, because each one depends on the last: map every
 /// message to its blocks, drop the ones that have no blocks left, then merge the
 /// consecutive same-role runs the drop may have created.
-fn wire_messages(messages: &[crate::gateway::protocol::Message]) -> Vec<WireMessage> {
+fn wire_messages(
+    messages: &[crate::gateway::protocol::Message],
+    ids: &Projection,
+) -> Vec<WireMessage> {
     let mut merged: Vec<WireMessage> = Vec::new();
     for message in messages {
         let mapped = match message.role {
             // System content is the top-level `system` field, never a message.
             Role::System => continue,
-            Role::User | Role::Assistant | Role::Tool => map_message(message),
+            Role::User | Role::Assistant | Role::Tool => map_message(message, ids),
         };
         if mapped.is_empty() {
             continue;
@@ -253,7 +265,7 @@ fn wire_messages(messages: &[crate::gateway::protocol::Message]) -> Vec<WireMess
 }
 
 /// One xfx message's content blocks, before merging.
-fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
+fn map_message(message: &crate::gateway::protocol::Message, ids: &Projection) -> WireMessage {
     // When the provider's own blocks are present they *are* the message, tool
     // calls included; emitting the parallel `ToolCall` parts as well would send
     // every call twice.
@@ -282,7 +294,7 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
             ContentPart::ToolCall(_) if raw => {}
             ContentPart::ToolCall(call) => wire.blocks.push(json_block([
                 ("type", Value::from("tool_use")),
-                ("id", Value::from(call.id.as_str())),
+                ("id", Value::from(ids.resolve(&call.id))),
                 ("name", Value::from(call.name.as_str())),
                 ("input", call.input.clone()),
             ])),
@@ -320,7 +332,7 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 };
                 let mut block = json_block([
                     ("type", Value::from("tool_result")),
-                    ("tool_use_id", Value::from(call_id.as_str())),
+                    ("tool_use_id", Value::from(ids.resolve(call_id))),
                     ("content", content),
                 ]);
                 // Anthropic's own flag for a result that is an error
@@ -482,14 +494,14 @@ mod tests {
                 text: String::new(),
             }],
         };
-        assert!(map_message(&message).is_empty());
+        assert!(map_message(&message, &Projection::identity()).is_empty());
     }
 
     #[test]
     fn a_call_that_never_produced_a_result_is_answered_as_an_error() {
         let message =
             crate::gateway::protocol::Message::tool_error("toolu_1", "terminal", "aborted by user");
-        let wire = map_message(&message);
+        let wire = map_message(&message, &Projection::identity());
         assert_eq!(
             wire.results,
             vec![json!({
@@ -500,16 +512,20 @@ mod tests {
             })]
         );
         // A refusal too: the Messages tool result has no denial of its own.
-        let refused = map_message(&crate::gateway::protocol::Message::tool_ended(
-            "toolu_1",
-            "write_file",
-            "write_file was not permitted: no",
-            crate::gateway::protocol::ResultStatus::Denied,
-        ));
+        let refused = map_message(
+            &crate::gateway::protocol::Message::tool_ended(
+                "toolu_1",
+                "write_file",
+                "write_file was not permitted: no",
+                crate::gateway::protocol::ResultStatus::Denied,
+            ),
+            &Projection::identity(),
+        );
         assert_eq!(refused.results[0]["is_error"], json!(true));
-        let ordinary = map_message(&crate::gateway::protocol::Message::tool_result(
-            "toolu_1", "terminal", "ok",
-        ));
+        let ordinary = map_message(
+            &crate::gateway::protocol::Message::tool_result("toolu_1", "terminal", "ok"),
+            &Projection::identity(),
+        );
         assert!(ordinary.results[0].get("is_error").is_none());
     }
 

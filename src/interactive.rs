@@ -1022,9 +1022,29 @@ impl Interrupts {
 pub(crate) struct Conversation {
     pub(crate) recorder: SessionRecorder,
     pub(crate) tools: ToolContext,
+    /// The history notices this conversation has already said
+    /// ([`Self::unsaid`]).
+    said: std::collections::BTreeSet<String>,
 }
 
 impl Conversation {
+    /// The lines of `notices` this conversation has not said yet, which are
+    /// now said.
+    ///
+    /// The history is rebuilt for every request, and so are the notices about
+    /// what it could not carry -- a reasoning state sealed by another wire, an
+    /// image that could not be read back -- so the same line would otherwise
+    /// open every turn after a switch or a resume. Said once, it stays true
+    /// for the rest of the conversation, as `.prd/04-providers.md`
+    /// §Provenance asks ("a one-line user-visible notice"). A new
+    /// conversation starts with nothing said.
+    pub(crate) fn unsaid(&mut self, notices: Vec<String>) -> Vec<String> {
+        notices
+            .into_iter()
+            .filter(|notice| self.said.insert(notice.clone()))
+            .collect()
+    }
+
     /// What `/status` says about this conversation: the turns it holds and the
     /// "always" answers its authority has been given.
     ///
@@ -1227,7 +1247,11 @@ pub(crate) fn bind_conversation(
     if let Some(questioner) = questioner {
         tools = tools.with_questioner(questioner);
     }
-    Conversation { recorder, tools }
+    Conversation {
+        recorder,
+        tools,
+        said: std::collections::BTreeSet::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,7 +1607,7 @@ async fn one_turn(
     let stdout = io::stdout();
     let stderr = io::stderr();
     let mut stderr_lock = stderr.lock();
-    for notice in &replay.notices {
+    for notice in conversation.unsaid(replay.notices) {
         writeln!(stderr_lock, "{notice}")?;
     }
     drop(stderr_lock);
@@ -1737,10 +1761,13 @@ pub fn setup_usage() -> String {
 /// writer believed it wrote; a layer that outranks the profile still outranks it
 /// after the write, and the report says which one.
 ///
-/// The bundle and the conversation go with it. A conversation carried across a
-/// provider switch would replay one provider's history into another's wire
-/// format, and a bundle is a connection to the endpoint that is no longer the
-/// one configured.
+/// The bundle goes with it: it is a connection to the endpoint that is no
+/// longer the one configured. **The conversation stays**, as the TUI's does
+/// and as upstream's `/provider` keeps its session (`vercel-labs/fx@c1db9191
+/// src/core/app/app_auth_runtime.zig:1377-1381`): its history is rebuilt from
+/// the log for each request in the wire then in force, and the switch is
+/// written into that log, provider and model both
+/// (`app_session_runtime.zig:3539-3550`).
 async fn apply_setup(
     argument: &str,
     env: &Environment,
@@ -1781,11 +1808,22 @@ async fn apply_setup(
             *config = reloaded;
             *selector = ModelSelector::new(config);
             *bundle = None;
-            *conversation = None;
             let model = selector.model().to_string();
+            if let Some(conversation) = conversation.as_mut() {
+                conversation
+                    .recorder
+                    .commit(SessionEvent::PreferencesChanged {
+                        model: Some(model.clone()),
+                        permission_mode: None,
+                        provider: Some(config.provider.label().to_string()),
+                        effort: None,
+                        fast_mode: None,
+                        ultrafast_mode: None,
+                    });
+            }
             writeln!(
                 io::stdout(),
-                "[shell] provider={} model={model}; the next prompt starts a fresh conversation",
+                "[shell] provider={} model={model}",
                 config.provider.label()
             )?;
             Ok(model)

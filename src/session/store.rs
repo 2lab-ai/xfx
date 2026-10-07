@@ -867,7 +867,7 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 if state.is_empty() && !(raw_content.is_empty() && responses_state.is_empty()) {
                     notices.push(format!(
                         "xfx: this session recorded reasoning on the {} wire and is \
-                         resuming on {}, so that reasoning was not carried over",
+                         continuing on {}, so that reasoning was not carried over",
                         recorded.label(),
                         active.label()
                     ));
@@ -5523,3 +5523,7 @@ mod tests {
         );
     }
 }
+
+/// A conversation carried across a provider switch, as each wire is sent it.
+#[cfg(test)]
+mod carry_tests;

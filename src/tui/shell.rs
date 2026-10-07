@@ -3365,14 +3365,19 @@ impl Shell {
                 self.provider = provider;
                 self.model = model;
                 self.missing_credential = missing_credential;
-                // The old provider's catalog is not this one's, and the
-                // conversation the meter was counting was dropped with the
-                // bundle. Keeping either would put another daemon's window --
-                // or a dead conversation's tokens -- on the hint row.
+                // The old provider's catalog is not this one's: keeping it
+                // would put another daemon's window under this one's model.
+                // **The tokens stay**, because the conversation does -- the
+                // runtime keeps it across a switch, as upstream keeps its
+                // session, and upstream's meter keeps `total_input_tokens`
+                // (reset only by a session transition,
+                // `app_session_runtime.zig:1646`, `:1672`, `:1693`) and
+                // measures it against the new model's window. Until this
+                // provider's catalog is read there is no window to measure
+                // against, and the meter waits for it.
                 self.catalog.clear();
                 self.catalog_known = CatalogKnown::Unasked;
                 self.column.reset();
-                self.context_used = None;
                 // The speed switches went off with the model the switch
                 // replaced, on the runtime too (`super::worker`'s `adopt`), and
                 // a `/fast` held for the old provider's catalog is about a
@@ -3381,21 +3386,12 @@ impl Shell {
                 self.settings.fast = false;
                 self.settings.ultrafast = false;
                 self.held_speed.clear();
-                // The conversation went with the bundle, and the session its
-                // title named with it.
-                self.forget_session_title();
-                // Upstream's sentence for a finished switch
+                // Upstream's sentence for a finished switch, and all of it
                 // (`app_auth_runtime.zig:1383-1386`, topic `provider` at
-                // `:1410-1414`), with xfx's one more fact: the runtime dropped
-                // the conversation with the bundle, so the next prompt is the
-                // first of a new one.
+                // `:1410-1414`): the session, and with it the title, go on.
                 self.announce(notice::Notice::neutral(
                     "provider",
-                    format!(
-                        "Switched to {} with {}. The next prompt starts a fresh conversation.",
-                        provider.entry().name,
-                        self.model
-                    ),
+                    format!("Switched to {} with {}.", provider.entry().name, self.model),
                 ));
                 // A column standing open was built against the old provider's
                 // `current`.
@@ -20333,9 +20329,11 @@ mod tests {
 
     #[test]
     fn dropping_the_conversation_takes_the_window_title_back_to_the_workspace() {
-        // `/new` and a provider switch both start the next prompt in a fresh
-        // conversation, and upstream's `/new` clears the cached title
-        // (`clearCachedSessionTitle`, `app_session_runtime.zig:1982`).
+        // `/new` starts the next prompt in a fresh conversation, and
+        // upstream's `/new` clears the cached title (`clearCachedSessionTitle`,
+        // `app_session_runtime.zig:1982`). A provider switch does not: it
+        // keeps the session, as upstream's `/provider` does
+        // (`app_auth_runtime.zig:1377-1381`), and so its title.
         let mut shell = shell(24, 80);
         let fallback = shell.take_title().expect("the launch owes a title");
         turn_running(&mut shell, b"say the marker\r");
@@ -20373,12 +20371,12 @@ mod tests {
             model: "fable".to_string(),
             missing_credential: false,
         });
-        assert!(
-            switched
-                .take_title()
-                .is_some_and(|title| title.starts_with("xfx v")),
-            "a provider switch kept the dropped conversation's title"
+        assert_eq!(
+            switched.take_title(),
+            None,
+            "a provider switch took the conversation's title back"
         );
+        assert_eq!(switched.session_title.as_deref(), Some("say the marker"));
     }
 
     #[test]
@@ -27303,6 +27301,7 @@ mod tests {
         let mut shell = shell(24, 120);
         shell.shell.missing_credential = true;
         shell.shell.model = "old".to_string();
+        shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
@@ -27310,7 +27309,7 @@ mod tests {
         shell.shell.apply(UiEvent::Usage {
             input: Some(50_000),
         });
-        assert!(shell.shell.context_meter().is_some(), "the meter was armed");
+        assert_eq!(shell.shell.context_meter(), Some((50_000, Some(100_000))));
 
         shell.shell.apply(UiEvent::ProviderSelected {
             provider: ProviderId::Llmux,
@@ -27324,20 +27323,35 @@ mod tests {
             shell.shell.catalog.is_empty(),
             "the old provider's catalog survived the switch"
         );
+        // **Changed claim**: the conversation is kept across a switch, as
+        // upstream's session is, so its tokens and its title stay -- upstream
+        // resets `total_input_tokens` only on a session transition
+        // (`app_session_runtime.zig:1646`). The old window does not: the
+        // meter has no denominator until this provider's catalog arrives,
+        // and then it is that catalog's.
+        assert_eq!(shell.shell.context_meter(), Some((50_000, None)));
         assert_eq!(
-            shell.shell.context_meter(),
-            None,
-            "the dropped conversation's tokens survived the switch"
+            shell.shell.session_title.as_deref(),
+            Some("the first prompt")
         );
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(1_000_000), &[])],
+        });
+        assert_eq!(shell.shell.context_meter(), Some((50_000, Some(1_000_000))));
         let document = shell.document();
-        // **Changed claim**: upstream's sentence for a finished switch
-        // (`Switched to {route} with {model}.`, `app_auth_runtime.zig:1385`)
-        // and xfx's fact about the conversation, rather than `[shell]`-era
-        // `key=value` words.
+        // Upstream's sentence for a finished switch, word for word
+        // (`Switched to {route} with {model}.`, `app_auth_runtime.zig:1385`).
         assert!(
-            document.iter().any(|row| row
-                == "* provider: Switched to llmux with fable. The next prompt starts a \
-                    fresh conversation."),
+            document
+                .iter()
+                .any(|row| row == "* provider: Switched to llmux with fable."),
+            "{document:?}"
+        );
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("fresh conversation")),
             "{document:?}"
         );
     }

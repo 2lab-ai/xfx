@@ -7824,6 +7824,357 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
     );
 }
 
+/// The frames of every session log in the sandbox, oldest first.
+fn session_frames(sandbox: &Sandbox) -> Vec<Value> {
+    sandbox
+        .session_ids()
+        .iter()
+        .filter_map(|id| {
+            std::fs::read_to_string(sandbox.sessions_dir().join(id).join("events.jsonl")).ok()
+        })
+        .flat_map(|raw| {
+            raw.lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// A Gateway turn that reads `notes.txt` under a call id no Anthropic
+/// `tool_use` takes -- upstream's own vector, `functions.read:0`
+/// (`tool_call_ids.zig:139`) -- and then answers `answer`.
+fn reads_the_notes(answer: &str) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "functions.read:0",
+                "read_file",
+                serde_json::json!({"path": "notes.txt"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&[answer])),
+    ]
+}
+
+#[test]
+fn a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire() {
+    // Upstream's `/provider` swaps the selection and leaves the session where
+    // it is (`app.provider_selection.adoptOwned`, `app_auth_runtime.zig:
+    // 1377-1381`; nothing there touches `app.session`), so the next prompt
+    // goes to the new provider with every earlier turn in its history. Here
+    // the earlier turn was the Gateway's -- a tool call, its result, an
+    // answer -- and the next request is llmux's: Anthropic messages, the call
+    // a `tool_use` under a portable alias of its id, the result a
+    // `tool_result` naming the same alias.
+    let gateway = FakeGateway::start(reads_the_notes("MARKER-GATEWAY-READ-IT"));
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-THE-DAEMON-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(
+        &pty,
+        tui_with_both(&sandbox, &gateway, &daemon),
+    );
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("MARKER-GATEWAY-READ-IT");
+    wait_for_conclusions(&sandbox, 1);
+
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-THE-DAEMON-ANSWERED");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Upstream's sentence, and nothing after it.
+    let text = session.settled_text();
+    assert!(
+        !text.contains("fresh conversation"),
+        "the switch said it dropped the conversation: {text:?}"
+    );
+
+    let body: Value =
+        serde_json::from_str(&daemon.only_message_request().body).expect("a json body");
+    let messages = body["messages"].as_array().expect("messages");
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "user", "assistant", "user"],
+        "{messages:#?}"
+    );
+    assert_eq!(messages[0]["content"][0]["text"], "read the notes");
+    let call = &messages[1]["content"][0];
+    assert_eq!(call["type"], "tool_use");
+    assert_eq!(call["name"], "read_file");
+    assert_eq!(call["input"], serde_json::json!({"path": "notes.txt"}));
+    let alias = call["id"].as_str().expect("an id");
+    assert!(
+        alias.starts_with("fx_")
+            && alias
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'),
+        "the Gateway's id went to Anthropic as it was: {alias}"
+    );
+    let result = &messages[2]["content"][0];
+    assert_eq!(result["type"], "tool_result");
+    assert_eq!(result["tool_use_id"], alias);
+    assert!(
+        result["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("NOTE-BODY")),
+        "{result}"
+    );
+    assert_eq!(messages[3]["content"][0]["text"], "MARKER-GATEWAY-READ-IT");
+    assert_eq!(messages[4]["content"][0]["text"], "and now?");
+
+    // One session, and its log says where the conversation went: the
+    // preference upstream's switch writes (`commitRuntimePreferences`,
+    // `app_session_runtime.zig:3539-3550`), between the two turns. The id the
+    // Gateway minted is the one recorded -- only the request was projected.
+    assert_eq!(
+        sandbox.session_ids().len(),
+        1,
+        "the switch opened a session"
+    );
+    let frames = session_frames(&sandbox);
+    let kinds: Vec<&str> = frames
+        .iter()
+        .filter_map(|frame| frame["event"]["kind"].as_str())
+        .collect();
+    let switched = frames
+        .iter()
+        .position(|frame| {
+            frame["event"]["kind"] == "preferences_changed" && frame["event"]["provider"] == "llmux"
+        })
+        .unwrap_or_else(|| panic!("no provider change was recorded: {kinds:?}"));
+    let concluded: Vec<usize> = frames
+        .iter()
+        .enumerate()
+        .filter(|(_, frame)| frame["event"]["kind"] == "turn_concluded")
+        .map(|(at, _)| at)
+        .collect();
+    assert!(
+        concluded[0] < switched && switched < concluded[1],
+        "{kinds:?}"
+    );
+    let log = serde_json::to_string(&frames).expect("frames");
+    assert!(log.contains("functions.read:0"), "the recorded id changed");
+    assert_eq!(gateway.request_count(), 2, "the Gateway was asked after it");
+}
+
+#[test]
+fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind() {
+    // The other way, and the one part that does not translate: Anthropic's
+    // signed `thinking` blocks. Upstream sends a message's replay state only
+    // to the provider that produced it and the rest of the message as it is
+    // (`projectProviderReplay`, `types.zig:1548-1563`, called by every
+    // encoder -- `builtins/gateway.zig:183`): here the Gateway gets the call
+    // and the answer, and no thinking. Upstream drops it silently (a debug
+    // trace, `:185`); xfx says so (`.prd/04-providers.md` §Provenance) --
+    // once for the conversation, not once per step on every turn after.
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
+            "SECRET-THOUGHT",
+            "sig-abc123",
+            "toolu_01",
+            "read_file",
+            "{\"path\":\"notes.txt\"}",
+        )),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-THE-DAEMON-READ-IT",
+        ])),
+    ]);
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-THE-GATEWAY-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-THE-GATEWAY-AGAIN",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut command = sandbox.command_with_llmux(&daemon);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    command.env("AI_GATEWAY_API_KEY", support::sandbox::TEST_KEY);
+    command.env("XFX_GATEWAY_URL", gateway.chat_url());
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("MARKER-THE-DAEMON-READ-IT");
+    wait_for_conclusions(&sandbox, 1);
+
+    session.type_bytes(b"/setup gateway\r");
+    session.wait_for("Switched to Vercel AI Gateway with");
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-THE-GATEWAY-ANSWERED");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(b"once more\r");
+    session.wait_for("MARKER-THE-GATEWAY-AGAIN");
+    wait_for_conclusions(&sandbox, 3);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    assert_eq!(text.matches("not carried over").count(), 1, "{text:?}");
+    assert!(
+        text.contains("continuing on") && !text.contains("resuming on"),
+        "the notice still speaks of a resume: {text:?}"
+    );
+
+    let body = gateway.requests()[0].json();
+    let prompt = body["prompt"].as_array().expect("a prompt");
+    let roles: Vec<&str> = prompt
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "tool", "assistant", "user"],
+        "{prompt:#?}"
+    );
+    let sent = serde_json::to_string(&body).expect("body");
+    assert!(
+        !sent.contains("SECRET-THOUGHT") && !sent.contains("sig-abc123"),
+        "llmux's signed reasoning went to the Gateway: {sent}"
+    );
+    let call = prompt
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["type"] == "tool-call")
+        .expect("the call went");
+    assert_eq!(call["toolCallId"], "toolu_01");
+    assert_eq!(call["toolName"], "read_file");
+    assert_eq!(user_messages(&body), ["read the notes", "and now?"]);
+    assert_eq!(gateway.request_count(), 2);
+    assert_eq!(
+        sandbox.session_ids().len(),
+        1,
+        "the switch opened a session"
+    );
+}
+
+#[test]
+fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resumes_on() {
+    // A log that holds a Gateway turn, the switch, and a llmux turn that
+    // thought before it called a tool. Resumed on llmux -- the provider the
+    // switch wrote into the profile -- the next request carries both turns:
+    // the Gateway's as text, llmux's own blocks verbatim with their
+    // signature, since this wire produced them (`ProviderReplay.matches`,
+    // `types.zig:1512-1515`).
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-GATEWAY-FIRST"]),
+    )]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
+            "SIGNED-THOUGHT",
+            "sig-resume-1",
+            "toolu_02",
+            "read_file",
+            "{\"path\":\"notes.txt\"}",
+        )),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-DAEMON-SECOND",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-DAEMON-RESUMED",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(
+        &pty,
+        tui_with_both(&sandbox, &gateway, &daemon),
+    );
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-GATEWAY-FIRST");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-DAEMON-SECOND");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "the switch opened a session");
+    assert_eq!(
+        sandbox.settings().expect("a profile")["provider"],
+        "llmux",
+        "the switch was not saved for the resume to read"
+    );
+
+    // The profile the switch wrote is the one the resume reads: llmux, the
+    // daemon's url. `command` rather than `command_with_both`, which would
+    // seed the Gateway over it.
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut resumed = tui(&sandbox);
+    resumed.env("AI_GATEWAY_API_KEY", support::sandbox::TEST_KEY);
+    resumed.env("XFX_GATEWAY_URL", gateway.chat_url());
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    second.type_bytes(b"third question\r");
+    second.wait_for("MARKER-DAEMON-RESUMED");
+    wait_for_conclusions(&sandbox, 3);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+
+    let requests = daemon.message_requests();
+    assert_eq!(requests.len(), 3);
+    let body: Value = serde_json::from_str(&requests[2].body).expect("a json body");
+    let messages = body["messages"].as_array().expect("messages");
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user"
+        ],
+        "{messages:#?}"
+    );
+    assert_eq!(messages[0]["content"][0]["text"], "first question");
+    assert_eq!(messages[1]["content"][0]["text"], "MARKER-GATEWAY-FIRST");
+    assert_eq!(messages[2]["content"][0]["text"], "second question");
+    let replayed = messages[3]["content"].as_array().expect("blocks");
+    assert_eq!(replayed[0]["type"], "thinking");
+    assert_eq!(replayed[0]["signature"], "sig-resume-1");
+    assert_eq!(replayed[1]["type"], "tool_use");
+    assert_eq!(replayed[1]["id"], "toolu_02");
+    assert_eq!(messages[4]["content"][0]["type"], "tool_result");
+    assert_eq!(messages[5]["content"][0]["text"], "MARKER-DAEMON-SECOND");
+    assert_eq!(messages[6]["content"][0]["text"], "third question");
+    assert_eq!(gateway.request_count(), 1, "the Gateway was asked after it");
+}
+
 #[test]
 fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch() {
     // Scenario 19. Four claims: the rows carry what a daemon publishes (a
