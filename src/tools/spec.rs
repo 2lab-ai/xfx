@@ -399,7 +399,9 @@ pub struct ToolResult {
     /// The text the model sees.
     pub output: String,
     /// A one-line summary for the `tool_result` event a human watches.
-    pub detail: String,
+    /// `Box<str>`, as [`Self::feedback`] is: never grown once made, and every
+    /// byte of a result is carried through every refusal path.
+    pub detail: Box<str>,
     /// Whether this result ends the turn instead of going back to the model.
     ///
     /// Almost always false: a refusal is information the model can act on. It is
@@ -431,6 +433,14 @@ pub struct ToolResult {
     /// result is returned by value through every refusal path, and most
     /// carry no change.
     pub change: Option<Box<ApprovalDiff>>,
+    /// What the person watching is shown of the call where that is not what
+    /// the model is told: a command its turn stopped, whose model-facing
+    /// answer is only `aborted by user` while upstream's full transcript
+    /// shows the command's output and the signal it died of
+    /// (`fx-resume-tools-40x120-live-ctrl-o`: `│ signal 15`). Never part of
+    /// [`Self::output`] or of the session's log. Boxed for the reason
+    /// [`Self::change`] is.
+    pub presented: Option<Box<String>>,
     /// The image the result carries for the model beside [`Self::output`]:
     /// `read_file` of an image file (`read_file.zig:228-278`), and none for
     /// any other call. Only a result that succeeded carries one. Boxed: a
@@ -458,12 +468,13 @@ impl ToolResult {
         Self {
             ok: true,
             output: output.into(),
-            detail: summarize(&detail.into()),
+            detail: summarize(&detail.into()).into_boxed_str(),
             fatal: false,
             feedback: None,
             outcome: Outcome::Finished,
             changes: None,
             change: None,
+            presented: None,
             image: None,
         }
     }
@@ -496,7 +507,7 @@ impl ToolResult {
     /// a long filesystem error cannot flood a human's event stream.
     pub fn failure(output: impl Into<String>) -> Self {
         let output = output.into();
-        let detail = summarize(&output);
+        let detail = summarize(&output).into_boxed_str();
         Self {
             ok: false,
             output,
@@ -506,8 +517,27 @@ impl ToolResult {
             outcome: Outcome::Finished,
             changes: None,
             change: None,
+            presented: None,
             image: None,
         }
+    }
+
+    /// The same result, showing the person watching `presented` instead of
+    /// its output ([`Self::presented`]).
+    pub fn presenting(mut self, presented: String) -> Self {
+        self.presented = Some(Box::new(presented));
+        self
+    }
+
+    /// The same failure with no summary for the row: an in-call failure of a
+    /// built-in tool, whose row upstream writes as `Failed <target>` and
+    /// nothing after it -- its status detail is set only for a preflight's
+    /// refusal and a dynamic tool's (`failureStatusDetail`,
+    /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/tool_presentation.zig:
+    /// 1253-1301`; `fx-read-failures-40x120-live`: `Failed src`).
+    pub fn unexplained(mut self) -> Self {
+        self.detail = Box::default();
+        self
     }
 
     /// A call the permission policy or the person refused: `{tool} was not
@@ -547,6 +577,172 @@ fn summarize(text: &str) -> String {
         Some(clipped) => format!("{clipped}..."),
         None => line.to_string(),
     }
+}
+
+/// Upstream's model-facing failure of a tool call that got past its
+/// preflight and then could not be done (`toolExecutionFailureJson`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_result_errors.zig:323-347`),
+/// byte for byte: `{"error":{"type":"tool_execution_failed","tool_name":…,
+/// "message":…,"details":{…},"suggestion":…}}`, the details in the order
+/// given. Upstream sends it for these failures only -- its decoders, its
+/// validations and its preflight answer in plain sentences
+/// (`read_file.zig:40-101`, `tool_admission.zig:2465-2495`) -- and so does xfx.
+/// What upstream masks in it (`writeMaskedJsonString`) is a secret's shape,
+/// which a path or an error name does not have.
+pub(crate) fn execution_failure(
+    tool: &str,
+    message: &str,
+    details: &[(&str, &str)],
+    suggestion: Option<&str>,
+) -> String {
+    let quoted = |text: &str| serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+    let mut out = format!(
+        r#"{{"error":{{"type":"tool_execution_failed","tool_name":{},"message":{}"#,
+        quoted(tool),
+        quoted(message)
+    );
+    if !details.is_empty() {
+        out.push_str(r#","details":{"#);
+        for (index, (name, value)) in details.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            out.push_str(&quoted(name));
+            out.push(':');
+            out.push_str(&quoted(value));
+        }
+        out.push('}');
+    }
+    if let Some(suggestion) = suggestion {
+        out.push_str(r#","suggestion":"#);
+        out.push_str(&quoted(suggestion));
+    }
+    out.push_str("}}");
+    out
+}
+
+/// Upstream's envelope for a filesystem tool the operating system refused
+/// (`filesystemAccessDeniedJson` and its suggestion,
+/// `tool_result_errors.zig:382-409`), `name` the refusal's error name
+/// ([`zig_error_name`]: `AccessDenied` or `PermissionDenied`).
+pub(crate) fn access_denied(tool: &str, path: &str, name: &str) -> String {
+    let suggestion = if cfg!(target_os = "macos") {
+        "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. If the path is in a protected folder such as Desktop, Documents, or Downloads, ask the user to grant the terminal app Files and Folders or Full Disk Access. Otherwise, ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
+    } else {
+        "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. Ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
+    };
+    execution_failure(
+        tool,
+        "Operating system denied filesystem access",
+        &[("path", path), ("error", name)],
+        Some(suggestion),
+    )
+}
+
+/// Whether upstream calls an error a refusal by the operating system
+/// (`isFilesystemAccessDenied`, `tool_result_errors.zig:382-384`).
+pub(crate) fn is_access_denied(name: &str) -> bool {
+    name == "AccessDenied" || name == "PermissionDenied"
+}
+
+/// The system call an I/O error came from, as upstream's runtime names the
+/// error each one fails with differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Syscall {
+    /// `fstatat` (`posixStatFile`, `std/Io/Threaded.zig:3673`).
+    Stat,
+    /// `openat` of a file (`dirOpenFilePosix`, `:4789`).
+    Open,
+    /// `openat` of a directory (`dirOpenDirPosix`, `:5237`).
+    OpenDir,
+    /// `preadv`, which a file reader reads with (`fileReadPositionalPosix`,
+    /// `:9766`).
+    PositionalRead,
+}
+
+/// The name upstream's envelope gives `err`, the Zig error its runtime
+/// returns for the same errno from the same call (Zig 0.16, upstream's
+/// `minimum_zig_version`, `build.zig.zon:28`; the switches in
+/// `lib/std/Io/Threaded.zig` cited on [`Syscall`]). An errno that switch
+/// does not name, or a Rust error that carries none, is upstream's
+/// `Unexpected` (`posix.unexpectedErrno`, `errnoBug`).
+pub(crate) fn zig_error_name(call: Syscall, err: &std::io::Error) -> &'static str {
+    let Some(errno) = err.raw_os_error() else {
+        return "Unexpected";
+    };
+    zig_errno_name(call, errno)
+}
+
+fn zig_errno_name(call: Syscall, errno: i32) -> &'static str {
+    use libc::*;
+    let table: &[(i32, &str)] = match call {
+        Syscall::Stat => &[
+            (ENOMEM, "SystemResources"),
+            (EACCES, "AccessDenied"),
+            (EPERM, "PermissionDenied"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ELOOP, "SymLinkLoop"),
+            (ENOENT, "FileNotFound"),
+            (ENOTDIR, "FileNotFound"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::Open => &[
+            (EINVAL, "BadPathName"),
+            (EACCES, "AccessDenied"),
+            (EFBIG, "FileTooBig"),
+            (EOVERFLOW, "FileTooBig"),
+            (EISDIR, "IsDir"),
+            (ELOOP, "SymLinkLoop"),
+            (EMFILE, "ProcessFdQuotaExceeded"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ENFILE, "SystemFdQuotaExceeded"),
+            (ENODEV, "NoDevice"),
+            (ENOENT, "FileNotFound"),
+            (ESRCH, "FileNotFound"),
+            (ENOMEM, "SystemResources"),
+            (ENOSPC, "NoSpaceLeft"),
+            (ENOTDIR, "NotDir"),
+            (EPERM, "PermissionDenied"),
+            (EEXIST, "PathAlreadyExists"),
+            (EBUSY, "DeviceBusy"),
+            (EOPNOTSUPP, "FileLocksUnsupported"),
+            (EAGAIN, "WouldBlock"),
+            (ETXTBSY, "FileBusy"),
+            (ENXIO, "NoDevice"),
+            (EROFS, "ReadOnlyFileSystem"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::OpenDir => &[
+            (EINVAL, "BadPathName"),
+            (EACCES, "AccessDenied"),
+            (ELOOP, "SymLinkLoop"),
+            (EMFILE, "ProcessFdQuotaExceeded"),
+            (ENAMETOOLONG, "NameTooLong"),
+            (ENFILE, "SystemFdQuotaExceeded"),
+            (ENODEV, "NoDevice"),
+            (ENOENT, "FileNotFound"),
+            (ENOMEM, "SystemResources"),
+            (ENOTDIR, "NotDir"),
+            (EPERM, "PermissionDenied"),
+            (ENXIO, "NoDevice"),
+            (EILSEQ, "BadPathName"),
+        ],
+        Syscall::PositionalRead => &[
+            (ENXIO, "Unseekable"),
+            (ESPIPE, "Unseekable"),
+            (EOVERFLOW, "Unseekable"),
+            (ENOBUFS, "SystemResources"),
+            (ENOMEM, "SystemResources"),
+            (EAGAIN, "WouldBlock"),
+            (EIO, "InputOutput"),
+            (EISDIR, "IsDir"),
+            (EBADF, "NotOpenForReading"),
+        ],
+    };
+    table
+        .iter()
+        .find(|(known, _)| *known == errno)
+        .map_or("Unexpected", |(_, name)| name)
 }
 
 /// `text` clipped to at most `limit` bytes, or `None` when it already fits.
@@ -1154,6 +1350,83 @@ mod tests {
         assert!(!optional_bool("t", object, "missing").unwrap());
     }
 
+    /// Upstream's names for every errno each call it makes names, by call
+    /// (`std/Io/Threaded.zig`, Zig 0.16): the table this crate's envelope
+    /// text is held to.
+    #[test]
+    fn an_errno_is_named_as_upstreams_runtime_names_it_for_the_call_it_came_from() {
+        use libc::*;
+        let cases: &[(Syscall, i32, &str)] = &[
+            // `posixStatFile`, `:3673-3704`: a missing directory on the way
+            // is `FileNotFound` here, not `NotDir`.
+            (Syscall::Stat, ENOENT, "FileNotFound"),
+            (Syscall::Stat, ENOTDIR, "FileNotFound"),
+            (Syscall::Stat, EACCES, "AccessDenied"),
+            (Syscall::Stat, EPERM, "PermissionDenied"),
+            (Syscall::Stat, ELOOP, "SymLinkLoop"),
+            (Syscall::Stat, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::Stat, ENOMEM, "SystemResources"),
+            (Syscall::Stat, EILSEQ, "BadPathName"),
+            (Syscall::Stat, EIO, "Unexpected"),
+            // `dirOpenFilePosix`, `:4789-4880`.
+            (Syscall::Open, ENOENT, "FileNotFound"),
+            (Syscall::Open, ENOTDIR, "NotDir"),
+            (Syscall::Open, EISDIR, "IsDir"),
+            (Syscall::Open, EACCES, "AccessDenied"),
+            (Syscall::Open, EPERM, "PermissionDenied"),
+            (Syscall::Open, ELOOP, "SymLinkLoop"),
+            (Syscall::Open, EMFILE, "ProcessFdQuotaExceeded"),
+            (Syscall::Open, ENFILE, "SystemFdQuotaExceeded"),
+            (Syscall::Open, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::Open, ENODEV, "NoDevice"),
+            (Syscall::Open, ENXIO, "NoDevice"),
+            (Syscall::Open, ENOMEM, "SystemResources"),
+            (Syscall::Open, ENOSPC, "NoSpaceLeft"),
+            (Syscall::Open, EEXIST, "PathAlreadyExists"),
+            (Syscall::Open, EBUSY, "DeviceBusy"),
+            (Syscall::Open, EAGAIN, "WouldBlock"),
+            (Syscall::Open, ETXTBSY, "FileBusy"),
+            (Syscall::Open, EROFS, "ReadOnlyFileSystem"),
+            (Syscall::Open, EFBIG, "FileTooBig"),
+            (Syscall::Open, EOVERFLOW, "FileTooBig"),
+            (Syscall::Open, EINVAL, "BadPathName"),
+            (Syscall::Open, EOPNOTSUPP, "FileLocksUnsupported"),
+            (Syscall::Open, EIO, "Unexpected"),
+            // `dirOpenDirPosix`, `:5237-5300`.
+            (Syscall::OpenDir, ENOENT, "FileNotFound"),
+            (Syscall::OpenDir, ENOTDIR, "NotDir"),
+            (Syscall::OpenDir, EACCES, "AccessDenied"),
+            (Syscall::OpenDir, EPERM, "PermissionDenied"),
+            (Syscall::OpenDir, ELOOP, "SymLinkLoop"),
+            (Syscall::OpenDir, EMFILE, "ProcessFdQuotaExceeded"),
+            (Syscall::OpenDir, ENFILE, "SystemFdQuotaExceeded"),
+            (Syscall::OpenDir, ENAMETOOLONG, "NameTooLong"),
+            (Syscall::OpenDir, ENOMEM, "SystemResources"),
+            (Syscall::OpenDir, EINVAL, "BadPathName"),
+            (Syscall::OpenDir, EISDIR, "Unexpected"),
+            // `fileReadPositionalPosix`, `:9766-9842`.
+            (Syscall::PositionalRead, EIO, "InputOutput"),
+            (Syscall::PositionalRead, EISDIR, "IsDir"),
+            (Syscall::PositionalRead, EAGAIN, "WouldBlock"),
+            (Syscall::PositionalRead, ESPIPE, "Unseekable"),
+            (Syscall::PositionalRead, ENOMEM, "SystemResources"),
+            (Syscall::PositionalRead, EBADF, "NotOpenForReading"),
+            (Syscall::PositionalRead, EACCES, "Unexpected"),
+        ];
+        for (call, errno, name) in cases {
+            assert_eq!(
+                zig_error_name(*call, &std::io::Error::from_raw_os_error(*errno)),
+                *name,
+                "{call:?} errno {errno}"
+            );
+        }
+        // A Rust error that carries no errno.
+        assert_eq!(
+            zig_error_name(Syscall::Open, &std::io::Error::other("x")),
+            "Unexpected"
+        );
+    }
+
     #[test]
     fn a_missing_required_field_names_the_tool_and_the_field() {
         let object = json!({});
@@ -1236,7 +1509,7 @@ mod tests {
     fn a_failure_summary_is_the_first_line_and_is_bounded() {
         let result = ToolResult::failure("no such path: `x`\nmore detail");
         assert!(!result.ok);
-        assert_eq!(result.detail, "no such path: `x`");
+        assert_eq!(&*result.detail, "no such path: `x`");
 
         let long = ToolResult::failure("e".repeat(400));
         assert!(long.detail.len() <= 164, "{}", long.detail.len());

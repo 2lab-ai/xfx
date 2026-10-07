@@ -410,9 +410,6 @@ pub enum TurnStep {
         /// The change, as its review showed it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<super::event::RecordedChange>,
-        /// When the result was recorded, if the log says.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -702,9 +699,17 @@ impl DurableState {
     /// say the same thing. `None` where no prompt gives one, which a surface
     /// names `Untitled session`, as upstream's fallback does.
     pub fn title(&self) -> Option<String> {
-        self.renamed
-            .clone()
-            .or_else(|| self.turns.iter().find_map(|turn| title_of(&turn.user)))
+        self.renamed.clone().or_else(|| self.derived_title())
+    }
+
+    /// The title the session's prompts give it, whatever title is on record:
+    /// the first prompt that gives one (D1's derivation, `title_of`). Also
+    /// what a generated title may replace -- upstream compares the title on
+    /// record with its derived one (`installGeneratedTitle`,
+    /// `vercel-labs/fx@c1db9191 src/core/session/session_title_generation.zig:378-394`),
+    /// and this is the one derivation both read.
+    pub fn derived_title(&self) -> Option<String> {
+        self.turns.iter().find_map(|turn| title_of(&turn.user))
     }
 
     /// The durable history, as the messages a next request would carry on
@@ -2826,7 +2831,6 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             ending,
             lines,
             change,
-            created_at_ms,
         } => {
             open_turn(state, "a tool result", envelope.seq)?
                 .steps
@@ -2839,7 +2843,6 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     ending: *ending,
                     lines: *lines,
                     change: change.clone(),
-                    created_at_ms: *created_at_ms,
                 });
         }
         SessionEvent::ToolImagesAttached { call_id, images } => {
@@ -2945,7 +2948,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             turn.outcome = Some(outcome.clone());
             turn.timing.concluded_at_ms = Some(envelope.timestamp_ms);
         }
-        SessionEvent::SessionRenamed { title } => {
+        SessionEvent::SessionRenamed { title, .. } => {
             // A title the reader would have to second-guess is not one this
             // build wrote: [`validate_title`] runs before every write.
             if validate_title(title) != Ok(title.as_str()) {
@@ -3501,7 +3504,7 @@ fn verify_private(_path: &Path, _expected: u32) -> Result<(), SessionError> {
 mod tests {
     use super::*;
     use crate::gateway::protocol::{ContentPart, Role};
-    use crate::session::event::TurnConclusion;
+    use crate::session::event::{TitleSource, TurnConclusion};
 
     fn frame(seq: u64, event: SessionEvent) -> EventEnvelope {
         EventEnvelope {
@@ -3621,7 +3624,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3680,7 +3682,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3690,7 +3691,6 @@ mod tests {
                 output: "wrote a.md".to_string(),
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -4118,7 +4118,6 @@ mod tests {
             },
             assistant("", &[("c1", "read_file"), ("c2", "glob_files")]),
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -4128,7 +4127,6 @@ mod tests {
                 change: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "c2".to_string(),
                 tool: "glob_files".to_string(),
                 ok: true,
@@ -4158,7 +4156,6 @@ mod tests {
 
     fn result(call_id: &str, tool: &str, ok: bool, output: &str) -> SessionEvent {
         SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: call_id.to_string(),
             tool: tool.to_string(),
             ok,
@@ -4325,7 +4322,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -4418,6 +4414,7 @@ mod tests {
         let mut renamed = asked.clone();
         renamed.push(SessionEvent::SessionRenamed {
             title: "My Title".to_string(),
+            source: TitleSource::User,
         });
         assert_eq!(
             reduce(renamed.clone())
@@ -4428,6 +4425,7 @@ mod tests {
         );
         renamed.push(SessionEvent::SessionRenamed {
             title: "Second name".to_string(),
+            source: TitleSource::User,
         });
         assert_eq!(
             reduce(renamed).expect("a valid log").title().as_deref(),
@@ -4440,6 +4438,7 @@ mod tests {
             started(),
             SessionEvent::SessionRenamed {
                 title: "Before asking".to_string(),
+                source: TitleSource::User,
             },
         ])
         .expect("a valid log");
@@ -4452,6 +4451,7 @@ mod tests {
             started(),
             SessionEvent::SessionRenamed {
                 title: wide.clone(),
+                source: TitleSource::User,
             },
         ])
         .expect("a valid log");
@@ -4474,6 +4474,7 @@ mod tests {
                 started(),
                 SessionEvent::SessionRenamed {
                     title: title.to_string(),
+                    source: TitleSource::User,
                 },
             ]);
             assert!(refused.is_err(), "{title:?} was replayed");
@@ -4648,6 +4649,7 @@ mod tests {
                 &mut session,
                 SessionEvent::SessionRenamed {
                     title: "My Title".to_string(),
+                    source: TitleSource::User,
                 },
             )
             .expect("appended");
@@ -4883,7 +4885,6 @@ mod tests {
             ending: None,
             lines: None,
             change: None,
-            created_at_ms: None,
         });
         let image = crate::image::ToolImage {
             media_type: crate::image::MediaType::Png,
@@ -4951,7 +4952,6 @@ mod tests {
             ending: None,
             lines: None,
             change: None,
-            created_at_ms: None,
         };
         let opened = |extra: Vec<SessionEvent>| {
             let mut events = vec![

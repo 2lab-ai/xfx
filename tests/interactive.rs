@@ -41,6 +41,21 @@ fn start(sandbox: &Sandbox, pty: &Pty, command: Command) -> Session {
     session
 }
 
+/// Types `line` and waits for the answer `reply`, received **once more than
+/// it had been** before the line went.
+///
+/// Not `wait_for(reply)`: the banner prints the workspace, whose temporary
+/// directory has a random name (`.tmp48fOS3` holds `ok`) under whatever
+/// `TMPDIR` is, so a short reply can be on the terminal before anything was
+/// asked, and a test that then reads the Gateway's requests reads none --
+/// `slash_model_reports_the_active_model_and_changes_it_for_later_turns`
+/// failed so, every run, with `ok` in `TMPDIR`.
+fn type_and_wait(session: &Session, line: &str, reply: &str) -> String {
+    let seen = session.text().matches(reply).count();
+    session.type_line(line);
+    session.wait_for_count(reply, seen + 1)
+}
+
 /// The JSON body of the request the Gateway received at `index`.
 fn request_body(gateway: &FakeGateway, index: usize) -> Value {
     let requests = gateway.requests();
@@ -220,10 +235,8 @@ fn a_second_prompt_continues_the_same_conversation() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("one");
-    session.wait_for("first");
-    session.type_line("two");
-    session.wait_for("second");
+    type_and_wait(&session, "one", "first");
+    type_and_wait(&session, "two", "second");
 
     let body = request_body(&gateway, 1);
     assert_eq!(
@@ -245,10 +258,8 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("first");
-    session.wait_for("401");
-    session.type_line("second");
-    session.wait_for("recovered");
+    type_and_wait(&session, "first", "401");
+    type_and_wait(&session, "second", "recovered");
 
     assert_eq!(session.quit().code(), Some(0));
 }
@@ -473,8 +484,7 @@ fn slash_status_reports_this_shells_own_model_and_conversation() {
 
     session.type_line("/model acme/model-9");
     session.wait_for("model=acme/model-9");
-    session.type_line("hello");
-    session.wait_for("ok");
+    type_and_wait(&session, "hello", "ok");
     session.type_line("/status");
     let text = session.wait_for("[status] history_turns=1");
     assert!(text.contains("[status] model=acme/model-9"), "{text}");
@@ -588,8 +598,7 @@ fn slash_model_reports_the_active_model_and_changes_it_for_later_turns() {
 
     session.type_line("/model acme/model-9");
     session.wait_for("model=acme/model-9");
-    session.type_line("hello");
-    session.wait_for("ok");
+    type_and_wait(&session, "hello", "ok");
 
     // The model travels as the Gateway's own header, exactly as `ask` sends it.
     let requests = gateway.requests();
@@ -750,8 +759,7 @@ fn slash_clear_and_slash_reset_are_slash_new_and_erase_nothing() {
         let pty = Pty::open();
         let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-        session.type_line("remember this");
-        session.wait_for("before");
+        type_and_wait(&session, "remember this", "before");
         let ids_before = sandbox.session_ids();
         assert_eq!(ids_before.len(), 1);
 
@@ -766,8 +774,7 @@ fn slash_clear_and_slash_reset_are_slash_new_and_erase_nothing() {
             "{command} did not say what it did: {text:?}"
         );
 
-        session.type_line("and now");
-        session.wait_for("after");
+        type_and_wait(&session, "and now", "after");
 
         let ids_after = sandbox.session_ids();
         assert_eq!(ids_after.len(), 2, "{command} kept the old identity");
@@ -860,15 +867,13 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("one");
-    session.wait_for("first");
+    type_and_wait(&session, "one", "first");
     let ids_before = sandbox.session_ids();
     assert_eq!(ids_before.len(), 1);
 
     session.type_line("/new");
     session.wait_for_count(PROMPT, 3);
-    session.type_line("two");
-    session.wait_for("second");
+    type_and_wait(&session, "two", "second");
 
     let ids_after = sandbox.session_ids();
     assert_eq!(ids_after.len(), 2, "a new identity was not created");
@@ -1099,8 +1104,7 @@ fn a_prompt_that_merely_mentions_a_slash_is_still_a_prompt() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("what does a/b /help mean");
-    session.wait_for("answered");
+    type_and_wait(&session, "what does a/b /help mean", "answered");
     assert_eq!(
         user_messages(&request_body(&gateway, 0)),
         vec!["what does a/b /help mean".to_string()]
@@ -1132,8 +1136,7 @@ fn ctrl_c_stops_a_running_turn_and_the_shell_survives_it() {
     assert!(text.contains("stopping the turn"), "{text}");
 
     // Still alive, and still able to run a turn.
-    session.type_line("again");
-    session.wait_for("done");
+    type_and_wait(&session, "again", "done");
     assert_eq!(session.quit().code(), Some(0));
 }
 
@@ -1309,8 +1312,7 @@ fn the_shell_runs_tools_under_the_configured_permission_mode() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("read notes.txt");
-    session.wait_for("read it");
+    type_and_wait(&session, "read notes.txt", "read it");
 
     let body = request_body(&gateway, 1);
     let text = serde_json::to_string(&body).expect("serialize");
@@ -1326,8 +1328,7 @@ fn the_shell_records_a_session_the_command_line_can_read() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("remember me");
-    session.wait_for("recorded");
+    type_and_wait(&session, "remember me", "recorded");
     assert_eq!(session.quit().code(), Some(0));
 
     let listed = sandbox
@@ -1355,8 +1356,7 @@ fn the_shell_reads_its_own_workspace_instructions() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
-    session.type_line("hello");
-    session.wait_for("noted");
+    type_and_wait(&session, "hello", "noted");
 
     let body = serde_json::to_string(&request_body(&gateway, 0)).expect("serialize");
     assert!(body.contains("Always answer in haiku."), "{body}");
@@ -1433,8 +1433,7 @@ fn a_model_chosen_in_the_shell_is_what_the_session_records() {
 
     session.type_line("/model acme/model-9");
     session.wait_for("model=acme/model-9");
-    session.type_line("hello");
-    session.wait_for("ok");
+    type_and_wait(&session, "hello", "ok");
     assert_eq!(session.quit().code(), Some(0));
 
     // The durable record agrees with what the terminal was told, so a later

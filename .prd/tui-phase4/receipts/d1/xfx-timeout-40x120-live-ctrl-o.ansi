@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-7f3587b [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-10-07 05:42:35.611 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 9 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal, +1
+[39m  [38;5;250mmore)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-10-07 05:42:39.753 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 3ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 05:44:40.363 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 238ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 05:42:39.646 UTC · Prompt[39m
+[38;5;255m┃[39m [1mrun the slow one[0m
+
+[38;5;245m  2026-10-07 05:42:39.781 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command · 1 timed out[39m
+└ Timed out [38;5;252mecho[39m started[38;5;252m;[39m [38;5;252msleep[39m 130
+│[38;5;245m started[39m
+│[38;5;245m timed out[39m
+
+[38;5;245m  2026-10-07 05:44:41.472 UTC · Response[39m
+  Done.
+
+[38;5;245m  2026-10-07 05:44:41.472 UTC · Usage[39m
+[38;5;245m  2m 1s (↑4 ↓80)[39m
+
+
+
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mfull access[38;5;245m · model-a[39m

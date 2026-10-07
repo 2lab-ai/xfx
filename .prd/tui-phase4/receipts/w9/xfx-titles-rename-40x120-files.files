@@ -1,0 +1,24 @@
+=== ~/.xfx/history.jsonl (430 bytes)
+{"schema_version":1,"timestamp_ms":1791350843032,"workspace_root":"<scratch>/work","text":"fix the renderer loop, it redraws every row twice"}
+{"schema_version":1,"timestamp_ms":1791350844092,"workspace_root":"<scratch>/work","text":"/rename Mine"}
+{"schema_version":1,"timestamp_ms":1791350853687,"workspace_root":"<scratch>/work","text":"/trace"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/sessions/1791350843033-b768a58bf1f7463e/events.jsonl (2012 bytes)
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":1,"event_id":"437df8813047085a9dfede6ba231d3a6","timestamp_ms":1791350843033,"event":{"kind":"session_started","id":"1791350843033-b768a58bf1f7463e","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":2,"event_id":"64cf4d05d948e0bc0b1df67d5c0e4b12","timestamp_ms":1791350843055,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":3,"event_id":"7ad0e415d30ffd6b43efa6cdfd6d72ee","timestamp_ms":1791350843066,"event":{"kind":"user_message","text":"fix the renderer loop, it redraws every row twice"}}
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":4,"event_id":"200f9b1d1128412776a645a295c12935","timestamp_ms":1791350848084,"event":{"kind":"assistant_message","text":"Working on the renderer.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":5,"event_id":"6ee2dcd753b48329b7b753bcbd772162","timestamp_ms":1791350848097,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1791350848083,"duration_ms":5004,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":6,"event_id":"557b8ae8bbb452f5e0504d2f19627c1b","timestamp_ms":1791350848118,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"acff09dc5cb300597a9baca4df3fcd7d","seq":7,"event_id":"f91c8f54d95997a84ce95f860ae18fb9","timestamp_ms":1791350848133,"event":{"kind":"session_renamed","title":"Mine"}}
+
+=== ~/.xfx/sessions/1791350843033-b768a58bf1f7463e/session.json (614 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791350843033-b768a58bf1f7463e","log_generation":"acff09dc5cb300597a9baca4df3fcd7d","created_at_ms":1791350843033,"updated_at_ms":1791350848133,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"Mine","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":7,"event_log_bytes":2012,"event_log_sha256":"0cd2c95e349705f28611e3b6f666cb70dc73276dc37b52eed3e79466218ddd19"}
+
+=== ~/.xfx/settings.json (34 bytes)
+{"statusLine": {"session": true}}
+
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791350848097}
+

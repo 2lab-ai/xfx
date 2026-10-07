@@ -534,7 +534,11 @@ fn command_result(output: &str) -> Option<(String, Option<String>)> {
     let rest = output.strip_prefix("<command>")?;
     let (_, rest) = rest.split_once("</command>\n<cwd>")?;
     let (_, rest) = rest.split_once("</cwd>\n")?;
-    let (status, rest) = if let Some(rest) = rest.strip_prefix("<exit_code>") {
+    let (status, rest) = if let Some(rest) = rest.strip_prefix("<timed_out/>\n") {
+        // One xfx killed at its deadline: upstream's `timed out` row
+        // (`fx-timeout-40x120-live-ctrl-o`).
+        (Some("timed out".to_string()), rest)
+    } else if let Some(rest) = rest.strip_prefix("<exit_code>") {
         let (code, rest) = rest.split_once("</exit_code>\n")?;
         let code: i32 = code.parse().ok()?;
         ((code != 0).then(|| format!("exit code {code}")), rest)
@@ -662,6 +666,13 @@ impl TurnJournal for Teed<'_> {
     fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
         self.journal.change_made(call_id, change);
         self.hand_over(call_id.to_string(), Detail::Change(change.clone()));
+    }
+
+    /// The screen's account of the call, after the result whose detail it
+    /// replaces: a stopped command's output and the signal it died of.
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str) {
+        self.journal.presented(call_id, tool, text);
+        self.hand_over(call_id.to_string(), result(tool, text));
     }
 
     /// The log's alone: a prompt's images are on its card already.
@@ -1518,7 +1529,7 @@ impl FullTranscript {
                 // 6618-6642`: a stored result leaves `ends_with_newline`
                 // false) -- a glob's list is followed by two blank rows.
                 let body = text.strip_suffix('\n');
-                rows.extend(railed(body.unwrap_or(text), "  ", cols, palette));
+                rows.extend(literal(body.unwrap_or(text), cols, palette));
                 if body.is_some() {
                     rows.push(String::new());
                 }
@@ -1665,6 +1676,39 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));
         }
+    }
+    rows
+}
+
+/// A tool's result as upstream's full transcript writes a stored one
+/// (`appendStoredResultContent`, `full_transcript_screen.zig:5035-5070`,
+/// through `appendWithSoftWrapPrefix`, `:3811-3870`): each line behind the
+/// rail and the result's two-cell gutter, and a line too long for the screen
+/// broken at its last column, mid-word, with the rail and gutter repeated --
+/// not word by word as [`railed`] breaks an argument. A line with nothing on
+/// it keeps its rail, as there.
+fn literal(text: &str, cols: u16, palette: Palette) -> Vec<String> {
+    use unicode_segmentation::UnicodeSegmentation;
+    const GUTTER: &str = "  ";
+    let room = cols.saturating_sub(1 + wrap::width(GUTTER)).max(1);
+    let dim = palette.dim();
+    let reset = palette.reset();
+    let mut rows = Vec::new();
+    for line in text.split('\n') {
+        let line = line.trim_end_matches('\r');
+        let mut piece = String::new();
+        let mut used = 0u16;
+        for cluster in line.graphemes(true) {
+            let width = wrap::width(cluster);
+            if used + width > room && !piece.is_empty() {
+                rows.push(format!("\u{2502}{dim}{GUTTER}{piece}{reset}"));
+                piece.clear();
+                used = 0;
+            }
+            piece.push_str(cluster);
+            used += width;
+        }
+        rows.push(format!("\u{2502}{dim}{GUTTER}{piece}{reset}"));
     }
     rows
 }
@@ -2166,6 +2210,42 @@ mod tests {
         record.tool_finished("t", true, "", Outcome::Exited(0), None);
         let rows = screen(&record);
         assert_eq!(&rows[2..5], ["\u{2514} Ran ls", "\u{2502}  cwd: sub", ""]);
+    }
+
+    #[test]
+    fn a_result_wraps_at_the_screens_edge_by_character_as_upstreams_stored_result_does() {
+        // `fx-read-failures-40x120-ctrl-o`: the envelope's rows are 120 cells,
+        // broken mid-word (`…"message":"read_file requires a regular
+        // file","detai` / `│  ls":{…`): a stored result is written through
+        // the row walker, which breaks at the screen's last column and
+        // repeats the rail (`appendWithSoftWrapPrefix`,
+        // `full_transcript_screen.zig:3811-3870`), not word by word as an
+        // argument is.
+        let mut record = record();
+        let input = json!({"path": "src"});
+        record.tool_started("r", &read("src"));
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "r".into(),
+            detail: Detail::Arguments(arguments("read_file", &input)),
+        });
+        let text = format!("{} {}", "a".repeat(100), "b".repeat(30));
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "r".into(),
+            detail: result("read_file", &text),
+        });
+        record.tool_finished("r", false, "", Outcome::Finished, None);
+        let rows = screen(&record);
+        let at = rows
+            .iter()
+            .position(|row| row.ends_with("Failed src"))
+            .expect("the row");
+        assert_eq!(
+            &rows[at + 1..at + 3],
+            [
+                format!("\u{2502}  {} {}", "a".repeat(100), "b".repeat(16)),
+                format!("\u{2502}  {}", "b".repeat(14)),
+            ]
+        );
     }
 
     #[test]
@@ -2703,7 +2783,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 images: Vec::new(),
                 call_id: "e".into(),
                 tool: "edit_file".into(),
@@ -2796,7 +2875,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -3137,7 +3215,6 @@ mod tests {
                 wire: None,
             });
             teed.record(SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3185,13 +3262,47 @@ mod tests {
             }
         );
 
+        // A stopped command's account goes to the screen alone, read as a
+        // command's: what it wrote and the signal it died of
+        // (`fx-resume-tools-40x120-live-ctrl-o`: `│ signal 15`).
+        let (events, mut received) = tokio::sync::mpsc::channel(8);
+        let mut kept = Kept(Vec::new());
+        Teed::new(&mut kept, events, CancellationToken::new()).presented(
+            "t",
+            "terminal",
+            "<command>sleep 4</command>\n<cwd>.</cwd>\n<signal>15</signal>\n<stdout>\nstarted\n</stdout>\n<stderr>\n</stderr>\n",
+        );
+        assert!(kept.0.is_empty(), "the screen's account was journalled");
+        assert_eq!(
+            received.try_recv().expect("the account"),
+            UiEvent::ToolDetail {
+                call_id: "t".into(),
+                detail: Detail::Command {
+                    output: "started".into(),
+                    status: Some("signal 15".into()),
+                },
+            }
+        );
+
+        // And one killed at its deadline: what it wrote, then `timed out`
+        // (`fx-timeout-40x120-live-ctrl-o`).
+        assert_eq!(
+            result(
+                "terminal",
+                "<command>x</command>\n<cwd>.</cwd>\n<timed_out/>\n<stdout>\nstarted\n</stdout>\n<stderr>\n</stderr>\n",
+            ),
+            Detail::Command {
+                output: "started".into(),
+                status: Some("timed out".into()),
+            }
+        );
+
         // A cancelled turn still journals everything and hands nothing over.
         let (events, mut received) = tokio::sync::mpsc::channel(8);
         let cancel = CancellationToken::new();
         cancel.cancel();
         let mut kept = Kept(Vec::new());
         Teed::new(&mut kept, events, cancel).record(SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,

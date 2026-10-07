@@ -1,0 +1,40 @@
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 05:41:40.047 UTC · Prompt[39m
+[38;5;255m┃[39m [1msearch the file[0m
+
+[38;5;245m  2026-10-07 05:41:40.672 UTC · Response[39m
+  Searching.
+
+[38;5;245m  2026-10-07 05:41:40.688 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m3 tool calls · 2 list · 1 read[39m
+├ Matched *.txt
+│[38;5;245m  path: a.txt[39m
+│[38;5;245m  [glob] 1 matches for *.txt[39m
+│[38;5;245m   - a.txt[39m
+
+
+[38;5;245m  2026-10-07 05:41:40.688 UTC · Tool[39m
+├ Matched *.rs
+│[38;5;245m  path: a.txt[39m
+│[38;5;245m  [glob] no matches for *.rs[39m
+
+
+[38;5;245m  2026-10-07 05:41:40.688 UTC · Tool[39m
+└ Searched alpha
+│[38;5;245m  path: a.txt[39m
+│[38;5;245m  [grep] 3 matches for alpha[39m
+│[38;5;245m   - a.txt:1: alpha line 1[39m
+│[38;5;245m   - a.txt:2: alpha line 2[39m
+│[38;5;245m   - a.txt:3: alpha line 3[39m
+
+
+[38;5;245m  2026-10-07 05:41:41.143 UTC · Response[39m
+  Done.
+
+[38;5;245m  2026-10-07 05:41:41.143 UTC · Usage[39m
+[38;5;245m  1s (↑4 ↓80)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

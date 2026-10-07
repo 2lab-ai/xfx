@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run the slow one
+
+● 1 tool call · 1 command · 1 timed out
+└ Timed out echo started; sleep 5
+
+  Done.
+
+  1s (↑4 ↓80)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

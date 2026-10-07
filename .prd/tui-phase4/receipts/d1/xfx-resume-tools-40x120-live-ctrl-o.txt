@@ -2,38 +2,38 @@
 │  content: new file
 │  second line
 
-  2026-10-07 03:09:06.875 UTC · Tool
+  2026-10-07 05:45:38.117 UTC · Tool
 ├ Failed missing.txt: Path not found: missing.txt
 │  Path not found: missing.txt
 
-  2026-10-07 03:09:06.904 UTC · Tool
+  2026-10-07 05:45:38.279 UTC · Tool
 └ Exited 3 echo boom; echo err >&2; exit 3
 │ boom
 │ err
 │ exit code 3
 
-  2026-10-07 03:09:10.259 UTC · Response
+  2026-10-07 05:45:41.502 UTC · Response
   All done. The files were updated.
 
-  2026-10-07 03:09:10.260 UTC · Usage
-  13s (↑8 ↓320)
+  2026-10-07 05:45:41.502 UTC · Usage
+  14s (↑8 ↓320)
 
-  2026-10-07 03:09:11.901 UTC · Prompt
+  2026-10-07 05:45:43.110 UTC · Prompt
 ┃ and once more
 
-  2026-10-07 03:09:11.972 UTC · Tool
+  2026-10-07 05:45:43.181 UTC · Tool
 ● 1 tool call · 1 write · 1 cancelled
 └ Cancelled file
 │  path: d.txt
 │  content: one more
 
-  2026-10-07 03:09:16.107 UTC · Prompt
+  2026-10-07 05:45:47.200 UTC · Prompt
 ┃ run the long one
 
-  2026-10-07 03:09:16.184 UTC · Tool
+  2026-10-07 05:45:47.263 UTC · Tool
 ● 1 tool call · 1 command · 1 cancelled
 └ Cancelled sleep 4
-│  aborted by user
+│ signal 15
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
 

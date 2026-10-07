@@ -30,6 +30,9 @@
 #                          GET /coding-agent/v1/models (default: one model)
 #   credits <credits.json> what it answers for GET /coding-agent/v1/credits
 #                          (default: 404 `not found`)
+#   titled <title.json>    what it answers a session-title request with
+#                          ({chunks, delayMs, status, body}; default: a
+#                          stream with no text, so no title is generated)
 #   nomodel                launch without FX_MODEL / XFX_MODEL, so the model
 #                          comes from the profile and no process override
 #                          shadows what a command saves there
@@ -61,6 +64,9 @@
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
 #   title <label>          writes the pane's window title (OSC 2) to
 #                          <bin>-<scenario>-<size>-<label>.title
+#   cursor <label>         writes where the terminal's cursor is, `x,y` from
+#                          the pane's top left, to
+#                          <bin>-<scenario>-<size>-<label>.cursor
 #   keep                   keeps the pane after the program exits, so a title
 #                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
@@ -168,7 +174,7 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]' extra_env='' models='' credits='' nomodel=''
+  local turns='[]' extra_env='' models='' credits='' titled='' nomodel=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -187,6 +193,7 @@ main() {
     fi
     [[ $line == models\ * ]] && models=$scenarios/${line#models }
     [[ $line == credits\ * ]] && credits=$scenarios/${line#credits }
+    [[ $line == titled\ * ]] && titled=$scenarios/${line#titled }
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
@@ -219,7 +226,7 @@ main() {
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  FAKEGW_MODELS=$models FAKEGW_CREDITS=$credits bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_MODELS=$models FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -320,7 +327,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -375,6 +382,11 @@ $xfx_model $extra_env $bin"
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
         echo "$name.title"
+        ;;
+      cursor)
+        local name=$out/$which-$scenario-$size-$rest
+        tmux -f /dev/null -S "$sock" display-message -p -t cap '#{cursor_x},#{cursor_y}' > "$name.cursor"
+        echo "$name.cursor"
         ;;
       keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
       clip)

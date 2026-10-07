@@ -1,0 +1,38 @@
+# read_file's in-call failure (a directory), a path with spaces around it
+# that does not resolve, and the search tools' unresolved roots (D1 round 5):
+# the rows and Ctrl-O live, then the same after `/new` and `/resume`.
+gateway read-failures-turns.json
+work toolgroup-ws
+wait 4
+type read them
+key Enter
+wait 4
+snap live
+key C-o
+wait 1.5
+snap live-ctrl-o
+key PPage
+wait 0.5
+snap live-ctrl-o-up1
+key Escape
+wait 1
+type /new
+wait 0.5
+key Enter
+wait 2
+type /resume
+wait 0.5
+key Enter
+wait 2
+key Enter
+wait 3
+snap resumed
+key C-o
+wait 1.5
+snap ctrl-o
+key PPage
+wait 0.5
+snap ctrl-o-up1
+key Escape
+wait 1
+gwlog

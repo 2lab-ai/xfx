@@ -1,0 +1,8 @@
+[
+  {"chunks": ["Searching.\n"], "tools": [
+    {"name": "glob_files", "input": {"pattern": "*.txt", "path": "a.txt"}},
+    {"name": "glob_files", "input": {"pattern": "*.rs", "path": "a.txt"}},
+    {"name": "grep_files", "input": {"pattern": "alpha", "path": "a.txt"}}
+  ]},
+  {"delayMs": 100, "chunks": ["Done."]}
+]

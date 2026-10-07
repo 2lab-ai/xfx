@@ -227,7 +227,6 @@ fn reduce(events: Vec<SessionEvent>) -> DurableState {
 
 fn result(call_id: &str, tool: &str, ok: bool, output: &str) -> SessionEvent {
     SessionEvent::ToolResult {
-        created_at_ms: None,
         ending: None,
         lines: None,
         change: None,

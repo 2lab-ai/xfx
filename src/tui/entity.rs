@@ -431,22 +431,6 @@ impl Entities {
         self.reindex();
     }
 
-    /// `draft` with each image badge spelled as the token the prompt carries,
-    /// `[Image N]` as `[Image #N]`, and every paste left as its summary: the
-    /// text upstream's composer holds, whose estimate a turn's summary counts
-    /// (`TurnSummaryAccumulator.init`, `telemetry.zig:87-96`).
-    pub(crate) fn with_image_tokens(&self, draft: &str) -> String {
-        let mut out = String::with_capacity(draft.len());
-        let mut cut = 0usize;
-        for span in self.spans.iter().filter(|span| span.image().is_some()) {
-            out.push_str(&draft[cut..span.start]);
-            out.push_str(span.text());
-            cut = span.end;
-        }
-        out.push_str(&draft[cut..]);
-        out
-    }
-
     /// What a history entry has to remember to be able to put these blocks
     /// back.
     ///
@@ -849,7 +833,7 @@ mod tests {
     #[test]
     fn every_block_goes_back_where_it_stands_and_words_that_look_like_one_do_not() {
         // The whole reason a span replaces a name search: the draft below holds
-        // *three* copies of `[Pasted text #1, 1 lines]` and exactly one of them
+        // *three* copies of `[Pasted text #1, 1 line]` and exactly one of them
         // is the block.
         let (mut draft, mut entities) = one(&format!("{} see ", summary(1, 1)), 1, "y");
         let tail = format!(" {}", summary(1, 1));
