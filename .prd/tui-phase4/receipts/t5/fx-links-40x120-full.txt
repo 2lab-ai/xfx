@@ -1,0 +1,40 @@
+  skills: loading
+  mcp: none
+
+  2026-10-07 00:17:01.599 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 494ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-07 00:17:01.078 UTC · Prompt
+┃ show me the links
+
+  2026-10-07 00:17:01.110 UTC · Response
+  Here are the links.
+
+  See the docs and https://example.org/path for more.
+
+  Mail someone@example.com or visit https://example.net/a.
+
+  Run https://example.com/code locally.
+
+  Also readme, script and ftp.
+
+  A long one: this link text wraps across the edge of the row because it is very long indeed and it keeps going on past
+  the right edge then text.
+
+  ┌──────┬──────┐
+  │ Name │ Link │
+  ├──────┼──────┤
+  │ docs │ site │
+  └──────┴──────┘
+
+  2026-10-07 00:17:01.424 UTC · Response
+  Done.
+
+  2026-10-07 00:17:01.590 UTC · Usage
+  0s (↑5 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a
