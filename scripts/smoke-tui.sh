@@ -2714,6 +2714,36 @@ FRAME_BEGIN_BYTES = pty.FRAME_BEGIN.encode()
 FRAME_CLOSE_BYTES = pty.FRAME_CLOSE.encode()
 FRAME_END_BYTES = pty.FRAME_END.encode()
 
+# The tail of a capture that a read of the pty cut inside something: an escape
+# whose final byte has not arrived yet, or a UTF-8 character whose last bytes
+# have not.
+UNFINISHED = re.compile(
+    rb"(?:\x1b(?:\[[<=>?]?[0-9;]*[ -/]*|\][^\x07\x1b]*\x1b?)?|[\xc0-\xff][\x80-\xbf]*)\Z"
+)
+
+
+def received(captured):
+    """`captured` without the sequence a terminal would still be receiving.
+
+    A read of the pty ends wherever the kernel's buffer did, which can be
+    inside a sequence: `ESC [ ?` with the `2026h` still on its way. A terminal
+    holds those bytes in its parser until the rest arrives, and draws nothing
+    of them; an emulator fed them as they stand would report the half sequence
+    as one xfx does not declare -- a finding about the harness's read, not
+    about the product. So the unfinished tail is left for the next reading,
+    exactly as a terminal leaves it, and everything before it is fed.
+    """
+    found = UNFINISHED.search(captured)
+    if found is None:
+        return captured
+    tail = found.group(0)
+    if tail[:1] != b"\x1b":
+        lead = tail[0]
+        wanted = 1 if lead < 0xE0 else 2 if lead < 0xF0 else 3
+        if len(tail) - 1 >= wanted:
+            return captured
+    return captured[: found.start()]
+
 
 class Failure(Exception):
     """A scenario that could not be driven far enough to assert anything."""
@@ -2944,7 +2974,7 @@ class Trial:
         per poll: the evidence directory is for the states a scenario
         *asserted on*.
         """
-        captured = bytes(self.session.captured)
+        captured = received(bytes(self.session.captured))
         begins = captured.rfind(FRAME_BEGIN_BYTES)
         if begins >= 0 and captured.find(FRAME_CLOSE_BYTES, begins) < 0:
             captured = captured[:begins]
@@ -4158,7 +4188,7 @@ def recovered_peek(trial, after, record_frames=False):
     asserts on or an ordinary later frame, and both are real, complete,
     synchronized ones.
     """
-    captured = bytes(trial.session.captured)[after:]
+    captured = received(bytes(trial.session.captured)[after:])
     begins = captured.rfind(FRAME_BEGIN_BYTES)
     if begins >= 0 and captured.find(FRAME_CLOSE_BYTES, begins) < 0:
         captured = captured[:begins]
@@ -4384,7 +4414,7 @@ def excised(trial, torn_at, cleanup_end, until=None):
     captured = bytes(trial.session.captured)
     if until is not None:
         captured = captured[:until]
-    spliced = captured[:torn_at] + captured[cleanup_end:]
+    spliced = received(captured[:torn_at] + captured[cleanup_end:])
     begins = spliced.rfind(FRAME_BEGIN_BYTES)
     if begins >= 0 and spliced.find(FRAME_CLOSE_BYTES, begins) < 0:
         spliced = spliced[:begins]
