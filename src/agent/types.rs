@@ -98,7 +98,7 @@ pub trait StepCompactor {
     async fn before_step(
         &mut self,
         check: StepCheck<'_>,
-    ) -> Result<Option<Vec<crate::gateway::protocol::Message>>, TurnError>;
+    ) -> Result<Option<StepCompaction>, TurnError>;
 
     /// What its notes requests cost since it was last asked, and whether one
     /// was lost after it was sent: the turn's `/usage` record carries them.
@@ -107,11 +107,32 @@ pub trait StepCompactor {
     }
 }
 
+/// What a compaction before a step did to the request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepCompaction {
+    /// What the turn carries before its own message from now on: the
+    /// compacted form, and the turns after it but the one in progress.
+    pub history: Vec<crate::gateway::protocol::Message>,
+    /// How many of the turn's own exchanges -- a step that called tools, with
+    /// its results -- the compacted form now holds, counted from the turn's
+    /// start. The turn sends its steps from the next one on
+    /// (`retainedMessageOffset`, `orchestrator.zig:7432-7433`).
+    pub exchanges: usize,
+}
+
 /// One step's question to a [`StepCompactor`].
 pub struct StepCheck<'a> {
     /// The request about to be sent, by the token estimate
-    /// (`crate::agent::compact::text_tokens` of its body).
+    /// (`crate::agent::compact::text_tokens` of its body, images left out).
     pub request_tokens: usize,
+    /// Its body's length, images left out, for `/trace`.
+    pub request_bytes: usize,
+    /// Whether it carries an image, for `/trace`.
+    pub has_images: bool,
+    /// The same request with no messages, measured the same way: the part
+    /// compaction cannot shrink (`request_fixed_tokens`,
+    /// `orchestrator.zig:7307-7316`). `None` when it could not be built.
+    pub fixed_tokens: Option<usize>,
     /// The provider refused the last request as too large.
     pub overflow: bool,
     /// Whether anything new can be compacted: not straight after a
@@ -182,12 +203,17 @@ pub enum TurnError {
     StepLimit { limit: u32 },
     /// The attempt budget was exhausted, or was zero to begin with.
     AttemptLimit { limit: u32 },
-    /// The conversation had to be made smaller before the next request, and
-    /// could not be: its earlier turns' notes could not be written, or the
-    /// request was too large even so. `reason` is upstream's error name
-    /// (`ModelFailed`, `ContextCapacityExceeded`, ...). Said in words that
-    /// do not name the compaction, whose own row says what went wrong.
+    /// The request is too large for the model's window even with
+    /// everything before it compacted (`ContextCapacityExceeded`,
+    /// `orchestrator.zig:7344-7350`).
     ContextNotReduced { reason: &'static str },
+    /// A compaction the turn needed did not finish: its notes could not be
+    /// written, or the log would not take it. `reason` is upstream's error
+    /// name. **The row says what went wrong and the turn says nothing**
+    /// (`compactionErrorHandled`, `app_process_runtime.zig:10-17`): the turn
+    /// keeps the steps it ran, and concludes with no error of its own
+    /// (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:213-246`).
+    CompactionEnded { reason: &'static str },
     /// The turn was cancelled.
     Cancelled,
     /// Turn events could not be written.
@@ -225,11 +251,8 @@ impl fmt::Display for TurnError {
                 "the model finished with `tool-calls` but named no tool to call"
             ),
             Self::ProviderFailure { detail } => write!(f, "the provider failed: {detail}"),
-            Self::ContextNotReduced { reason } => write!(
-                f,
-                "the conversation could not be made small enough for the model's window \
-                 ({reason})"
-            ),
+            Self::ContextNotReduced { reason } => write!(f, "request failed: {reason}"),
+            Self::CompactionEnded { reason } => write!(f, "the turn stopped ({reason})"),
             Self::StepLimit { limit } => {
                 write!(f, "the turn reached its limit of {limit} model steps")
             }

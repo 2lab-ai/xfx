@@ -154,6 +154,15 @@ impl Ring {
 
 static RING: Mutex<Ring> = Mutex::new(Ring::new());
 
+static TURN_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The next turn id of this process, from 1: one per prompt run and per
+/// `/compact` admitted, as upstream numbers its work (`nextTurnId`,
+/// `debug_trace.zig`; `worker_runtime.zig:989`).
+pub fn next_turn_id() -> u64 {
+    TURN_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+}
+
 /// An event made of `detail`, cut to what an event keeps.
 fn event(context: Context, kind: Kind, failed: bool, detail: String) -> Event {
     let mut detail = detail;

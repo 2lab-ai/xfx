@@ -28,10 +28,11 @@
 //! (`records.zig`); xfx has no such tool, so the request says what upstream
 //! says for a session it cannot save records for -- "the tool calls will not
 //! be available later" -- and an earlier compaction is never folded away. The
-//! window is chosen at whole turns, and the turn in progress is never
-//! compacted ([`plan_before_open`]): upstream can also cut inside a turn's
-//! tool steps, the running turn's included (`window.zig:169-251`,
-//! `:271-295`). The notes request is always the transcript written out,
+//! window is cut at an exchange, as upstream's is: the newest exchanges stay,
+//! and a turn cut inside of -- the one in progress, or an older one -- keeps
+//! its first message after the checkpoint while its earlier part is carried
+//! as the turn in progress ([`choose`], [`plan_in_turn`]; `window.zig:169-295`).
+//! The notes request is always the transcript written out,
 //! never sent after the conversation for the provider's cache
 //! (`summarize.zig:572-595`). The notes are not linted (`lint.zig`), and a
 //! conversation too large for one notes request is clipped rather than sent
@@ -55,7 +56,8 @@ use crate::gateway::protocol::{
 use crate::gateway::{DeltaSink, Provider, ProviderError};
 use crate::provider::Wire;
 use crate::session::checkpoint::{
-    highest_ids, is_entry_id, Compacted, CompactedTurn, Entry, ToolLine, ENTRY_KINDS, REPLACED_MARK,
+    highest_ids, is_entry_id, Compacted, CompactedTurn, Entry, OpenTurn, ToolLine, ENTRY_KINDS,
+    REPLACED_MARK,
 };
 use crate::session::store::TURN_ABORTED;
 use crate::session::{turn_messages, DurableState, HistoryTurn, RequestUsage, SessionEvent};
@@ -185,6 +187,11 @@ pub struct Size {
     /// low and the room after compaction is bounded by the request instead
     /// (`overflow`, `window.zig:44-46`).
     pub overflow: bool,
+    /// What compaction cannot shrink: the request's instructions and tool
+    /// definitions, measured like the request. When unknown, a share of the
+    /// room after compaction is set aside for it (`fixed_tokens`,
+    /// `window.zig:36-40`).
+    pub fixed: Option<usize>,
 }
 
 impl Size {
@@ -198,6 +205,7 @@ impl Size {
             usable,
             request: None,
             overflow: false,
+            fixed: None,
         }
     }
 
@@ -242,7 +250,7 @@ impl Size {
         if after == usize::MAX {
             return after;
         }
-        let fixed = after / 2;
+        let fixed = self.fixed.unwrap_or(after / 2);
         after.saturating_sub(fixed).max(after / 4)
     }
 
@@ -256,7 +264,7 @@ impl Size {
         if let Some(rejected) = self.rejected() {
             most = most.min(rejected / 2);
         }
-        let fixed = most / 4;
+        let fixed = self.fixed.unwrap_or(most / 4);
         most.saturating_sub(fixed)
             .max(most / 4)
             .saturating_sub(kept_used)
@@ -301,15 +309,36 @@ fn percent_of(tokens: usize, percent: usize) -> usize {
 // window
 // ---------------------------------------------------------------------------
 
+/// Where the part kept as it is starts (`ContextHistoryCut`): the first
+/// `turns` turns are compacted whole, and of the turn after them its first
+/// `exchanges` exchanges -- each an assistant step that called tools, with
+/// the results and notes that answered it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Cut {
+    pub turns: usize,
+    pub exchanges: usize,
+}
+
 /// What [`choose`] picked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Window {
-    /// How many of the uncovered turns are compacted, oldest first.
-    pub cut: usize,
-    /// Estimated tokens of the turns kept as they are.
+    pub cut: Cut,
+    /// Estimated tokens of the part kept as it is.
     pub kept_used: usize,
-    /// The room the turns kept as they are were chosen within.
+    /// The room the part kept as it is was chosen within.
     pub kept_tokens: usize,
+}
+
+impl Window {
+    /// The cut falls inside a turn: that turn's first user message stays with
+    /// the part kept (`splitsLastTurn`, `window.zig:267-269`).
+    pub fn splits(&self) -> bool {
+        self.cut.exchanges > 0
+    }
+
+    fn compacts_anything(&self) -> bool {
+        self.cut.turns > 0 || self.cut.exchanges > 0
+    }
 }
 
 /// Why a compaction did not happen.
@@ -352,25 +381,48 @@ impl Failure {
     }
 }
 
-/// Chooses what to compact of `turns`, the ones no compaction covers yet.
-/// `None` when nothing needs compacting (`choose`, `window.zig:297-318`).
+/// A turn's exchanges, as ranges of its steps: each starts at an assistant
+/// step that called tools and runs to the next one, or to the reply after
+/// the last (`ExecutionMemory.tool_steps`).
+pub(crate) fn exchanges(turn: &HistoryTurn) -> Vec<std::ops::Range<usize>> {
+    let starts: Vec<usize> = (0..turn.steps.len())
+        .filter(|index| turn.starts_exchange(*index))
+        .collect();
+    starts
+        .iter()
+        .enumerate()
+        .map(|(at, start)| {
+            let end = starts.get(at + 1).copied().unwrap_or_else(|| {
+                (start + 1..turn.steps.len())
+                    .find(|index| {
+                        matches!(
+                            &turn.steps[*index],
+                            crate::session::TurnStep::Assistant { tool_calls, .. }
+                                if tool_calls.is_empty()
+                        )
+                    })
+                    .unwrap_or(turn.steps.len())
+            });
+            *start..end
+        })
+        .collect()
+}
+
+/// Chooses what to compact (`choose`, `window.zig:297-318`): `history`, the
+/// turns no compaction covers yet as the model reads them, and `active`, the
+/// turn in progress, whose first user message always stays. `None` when
+/// nothing needs compacting. When the request cannot be sent otherwise,
+/// everything is compacted before giving up.
 pub fn choose(
-    turns: &[HistoryTurn],
+    history: &[&HistoryTurn],
+    active: Option<&HistoryTurn>,
     size: &Size,
     context: Context,
 ) -> Result<Option<Window>, Failure> {
     let mut kept = percent_of(size.conversation_tokens(), KEPT_PERCENT);
     loop {
-        let window = if kept == 0 {
-            Window {
-                cut: turns.len(),
-                kept_used: 0,
-                kept_tokens: 0,
-            }
-        } else {
-            select_recent(turns, kept, size.usable)
-        };
-        if window.cut > 0 {
+        let window = split(history, active, kept, size.usable);
+        if window.compacts_anything() {
             return Ok(Some(window));
         }
         if !size.required() {
@@ -396,71 +448,150 @@ pub fn choose(
     }
 }
 
-/// The newest turns within `target` tokens and [`MAX_KEPT_TURNS`] turns
-/// (`selectRecentContext`, `window.zig:169-251`, at whole turns). The oldest
-/// turn is never kept once a newer one is, so two turns compact one.
-fn select_recent(turns: &[HistoryTurn], target: usize, capacity: Option<usize>) -> Window {
-    let mut selected = Window {
-        cut: turns.len(),
-        kept_used: 0,
-        kept_tokens: target,
+/// The newest exchanges stay, at most [`MAX_KEPT_TURNS`] turns of them
+/// within `kept_tokens`; everything older is compacted. Zero keeps nothing.
+/// Compacting all of a turn in progress means cutting after its last
+/// exchange, so its first message stays (`split`, `window.zig:271-295`).
+fn split(
+    history: &[&HistoryTurn],
+    active: Option<&HistoryTurn>,
+    kept_tokens: usize,
+    capacity: Option<usize>,
+) -> Window {
+    let mut combined: Vec<&HistoryTurn> = history.to_vec();
+    combined.extend(active);
+    let (mut cut, kept_used) = if kept_tokens == 0 {
+        (
+            Cut {
+                turns: combined.len(),
+                exchanges: 0,
+            },
+            0,
+        )
+    } else {
+        select_recent(&combined, kept_tokens, capacity)
     };
+    if let Some(turn) = active {
+        if cut.turns > history.len() {
+            cut = Cut {
+                turns: history.len(),
+                exchanges: exchanges(turn).len(),
+            };
+        }
+    }
+    Window {
+        cut,
+        kept_used,
+        kept_tokens,
+    }
+}
+
+/// Where the kept part starts: the newest complete exchanges within `target`
+/// tokens and [`MAX_KEPT_TURNS`] turns, and their estimated tokens. A newest
+/// exchange larger than `target` is not kept; payloads are measured, never
+/// shortened. The oldest turn is never kept whole once a newer one is
+/// (`selectRecentContext`, `window.zig:169-251`).
+fn select_recent(turns: &[&HistoryTurn], target: usize, capacity: Option<usize>) -> (Cut, usize) {
+    let mut raw_count = turns.len();
+    let mut selected = (
+        Cut {
+            turns: raw_count,
+            exchanges: 0,
+        },
+        0usize,
+    );
     let mut total = 0usize;
-    // `used` is how many turns are kept so far: every one before this was.
-    for (used, (index, turn)) in turns.iter().enumerate().rev().enumerate() {
-        let selected_any = used > 0;
-        if selected_any && used >= MAX_KEPT_TURNS {
+    let mut selected_any = false;
+    let mut turns_used = 0usize;
+    for turn in turns.iter().rev() {
+        if selected_any && turns_used >= MAX_KEPT_TURNS {
             break;
         }
-        let cost = turn_cost(turn);
-        let has_steps = turn.steps.iter().any(|step| match step {
-            crate::session::TurnStep::Assistant { tool_calls, .. } => !tool_calls.is_empty(),
-            _ => true,
-        });
-        // A newest turn that did work and is larger than the room for the
-        // kept part is not kept (`:236`); one larger than the whole input
-        // never is (`:216-218`, `:237-239`).
-        if !selected_any && has_steps && cost > target {
-            break;
+        raw_count -= 1;
+        let mut base = base_tokens(turn);
+        let ranges = exchanges(turn);
+        if ranges.is_empty() {
+            if !selected_any && capacity.is_some_and(|capacity| base >= capacity) {
+                break;
+            }
+            if selected_any && (raw_count == 0 || total.saturating_add(base) > target) {
+                break;
+            }
+            total = total.saturating_add(base);
+            selected = (
+                Cut {
+                    turns: raw_count,
+                    exchanges: 0,
+                },
+                total,
+            );
+            selected_any = true;
+            turns_used += 1;
+            continue;
         }
-        if !selected_any && capacity.is_some_and(|capacity| cost >= capacity) {
-            break;
+        let mut turn_counted = false;
+        for (index, range) in ranges.iter().enumerate().rev() {
+            let cost = base.saturating_add(exchange_tokens(turn, range.clone()));
+            if !selected_any && cost > target {
+                return selected;
+            }
+            if !selected_any && capacity.is_some_and(|capacity| cost >= capacity) {
+                return selected;
+            }
+            if selected_any
+                && ((raw_count == 0 && index == 0) || total.saturating_add(cost) > target)
+            {
+                return selected;
+            }
+            total = total.saturating_add(cost);
+            selected = (
+                Cut {
+                    turns: raw_count,
+                    exchanges: index,
+                },
+                total,
+            );
+            selected_any = true;
+            if !turn_counted {
+                turns_used += 1;
+            }
+            turn_counted = true;
+            base = 0;
         }
-        if selected_any && (index == 0 || total.saturating_add(cost) > target) {
-            break;
-        }
-        total = total.saturating_add(cost);
-        selected = Window {
-            cut: index,
-            kept_used: total,
-            kept_tokens: target,
-        };
     }
     selected
 }
 
-/// A turn's estimated tokens: its user message and final reply, plus each
-/// step as upstream counts an execution step (`window.zig:208`, `:259-269`).
-fn turn_cost(turn: &HistoryTurn) -> usize {
+/// A turn's estimated tokens besides its exchanges: its user message and its
+/// replies, and a message's overhead (`window.zig:208`).
+fn base_tokens(turn: &HistoryTurn) -> usize {
+    let ranges = exchanges(turn);
     let mut total = text_tokens(&turn.user).saturating_add(8);
-    for step in &turn.steps {
+    for (index, step) in turn.steps.iter().enumerate() {
+        if ranges.iter().any(|range| range.contains(&index)) {
+            continue;
+        }
+        if let crate::session::TurnStep::Assistant { text, .. } = step {
+            total = total.saturating_add(text_tokens(text));
+        }
+    }
+    total
+}
+
+/// One exchange's estimated tokens, as upstream counts an execution step
+/// (`executionStepTokens`, `window.zig:259-269`).
+fn exchange_tokens(turn: &HistoryTurn, range: std::ops::Range<usize>) -> usize {
+    let mut total = 8usize;
+    for step in &turn.steps[range] {
         total = total.saturating_add(match step {
             crate::session::TurnStep::Assistant {
                 text, tool_calls, ..
-            } => {
-                let mut cost = text_tokens(text);
-                if !tool_calls.is_empty() {
-                    cost = cost.saturating_add(8);
-                }
-                for call in tool_calls {
-                    cost = cost
-                        .saturating_add(text_tokens(&call.id))
-                        .saturating_add(text_tokens(&call.name))
-                        .saturating_add(text_tokens(&call.input.to_string()))
-                        .saturating_add(8);
-                }
-                cost
-            }
+            } => tool_calls.iter().fold(text_tokens(text), |cost, call| {
+                cost.saturating_add(text_tokens(&call.id))
+                    .saturating_add(text_tokens(&call.name))
+                    .saturating_add(text_tokens(&call.input.to_string()))
+                    .saturating_add(8)
+            }),
             crate::session::TurnStep::ToolResult {
                 call_id,
                 tool,
@@ -578,8 +709,17 @@ struct PendingTool {
 /// One turn ready to compact (`Prepared`, `summarize.zig:729-750`).
 #[derive(Debug, Clone)]
 struct Prepared {
+    /// Its number; zero for the turn in progress, which takes one only once
+    /// it is compacted to its end.
     number: usize,
+    /// Its first user message, which stays after the checkpoint while the
+    /// turn is in progress.
     user: String,
+    /// The user messages its compacted form shows: the first, unless it is in
+    /// progress, and those the earlier part of it held.
+    users: Vec<String>,
+    /// The earlier part of this turn, from the previous compaction.
+    continued: Option<OpenTurn>,
     items: Vec<Item>,
     /// Each item's tool number, zero for items that are not tools.
     tool_numbers: Vec<usize>,
@@ -593,8 +733,16 @@ struct Prepared {
 }
 
 /// Pairs every call with its result, numbers both, and finds the final reply
-/// (`prepare`, `summarize.zig:759-833`).
-fn prepare(number: usize, turn: &HistoryTurn, next_tool: &mut usize) -> Prepared {
+/// (`prepare`, `summarize.zig:759-833`). `continued` is the earlier part of
+/// this turn a previous compaction kept; a turn `open` -- in progress, or
+/// cut inside of -- has no final reply yet.
+fn prepare(
+    number: usize,
+    turn: &HistoryTurn,
+    continued: Option<OpenTurn>,
+    open: bool,
+    next_tool: &mut usize,
+) -> Prepared {
     let items = items_of(turn);
     let mut numbers = vec![0usize; items.len()];
     let mut tools: Vec<PendingTool> = Vec::new();
@@ -642,20 +790,40 @@ fn prepare(number: usize, turn: &HistoryTurn, next_tool: &mut usize) -> Prepared
             _ => {}
         }
     }
-    let final_index = final_index(&items);
-    let has_work = items.iter().enumerate().any(|(index, item)| match item {
-        Item::Assistant(_) => Some(index) != final_index,
-        _ => true,
-    });
+    let final_index = if open { None } else { final_index(&items) };
+    let mut users = Vec::new();
+    if !open {
+        users.push(turn.user.clone());
+    }
+    if let Some(earlier) = &continued {
+        users.extend(earlier.users.iter().cloned());
+    }
+    let has_work = continued
+        .as_ref()
+        .is_some_and(|earlier| !earlier.work.is_empty() || earlier.first_tool > 0)
+        || items.iter().enumerate().any(|(index, item)| match item {
+            Item::Assistant(_) => Some(index) != final_index,
+            _ => true,
+        });
     let final_reply = match final_index.map(|index| &items[index]) {
         Some(Item::Assistant(text)) => text.clone(),
         _ => String::new(),
     };
+    let first_own = tools.first().map_or(0, |tool| tool.number);
+    let last_own = tools.last().map_or(0, |tool| tool.number);
+    let first_earlier = continued.as_ref().map_or(0, |earlier| earlier.first_tool);
+    let last_earlier = continued.as_ref().map_or(0, |earlier| earlier.last_tool);
     Prepared {
         number,
         user: turn.user.clone(),
-        first_tool: tools.first().map_or(0, |tool| tool.number),
-        last_tool: tools.last().map_or(0, |tool| tool.number),
+        users,
+        continued,
+        first_tool: if first_earlier > 0 {
+            first_earlier
+        } else {
+            first_own
+        },
+        last_tool: if last_own > 0 { last_own } else { last_earlier },
         items,
         tool_numbers: numbers,
         tools,
@@ -816,7 +984,7 @@ fn candidates(turns: &[Prepared], filed: &[Entry]) -> Vec<Candidate> {
     for turn in turns {
         let mut before: [String; 2] = [String::new(), String::new()];
         let mut fenced = false;
-        for raw in turn.user.split('\n') {
+        for raw in turn.users.iter().flat_map(|user| user.split('\n')) {
             let line = raw.trim_matches([' ', '\t', '\r']);
             if line.starts_with("```") {
                 fenced = !fenced;
@@ -1002,9 +1170,16 @@ pub struct Plan {
     /// Whether there is one: the first compaction of a session has none.
     has_earlier: bool,
     turns: Vec<Prepared>,
+    /// The last of [`Self::turns`] is cut inside of, and stays in progress
+    /// after the checkpoint (`Plan.complete_end`, `summarize.zig:922-932`).
+    open: bool,
     candidates: Vec<Candidate>,
-    /// The last frame of the last turn this compacts.
+    /// The last frame it covers.
     covers_through_seq: u64,
+    /// How many exchanges of the turn in progress the compacted form holds
+    /// once this is saved, counted from that turn's start; zero when it
+    /// holds none of it.
+    active_exchanges: usize,
     max_prompt_tokens: usize,
     max_text_tokens: usize,
     /// The room it was chosen in, as `/trace` reports it.
@@ -1018,66 +1193,116 @@ pub struct Plan {
 #[derive(Debug, Clone, Copy)]
 struct Room {
     after_tokens: usize,
+    fixed_tokens: Option<usize>,
     kept_tokens: usize,
     kept_used: usize,
 }
 
-/// Chooses and prepares a compaction of `state`'s conversation within
-/// `size`. `None` when nothing needs compacting -- no turn the compaction in
-/// force does not cover, or none older than the turns kept as they are
+/// Chooses and prepares a compaction of `state`'s conversation between
+/// turns. `None` when nothing needs compacting -- no turn the compaction in
+/// force does not cover, or none older than the part kept as it is
 /// (`compact`, `compactor.zig:160-180`).
 pub fn plan(state: &DurableState, size: &Size, context: Context) -> Result<Option<Plan>, Failure> {
-    plan_of(state, state.uncovered_turns(), size, context)
+    let retained = state.retained_turns();
+    let history: Vec<&HistoryTurn> = retained.iter().map(AsRef::as_ref).collect();
+    plan_of(state, &history, None, size, context)
 }
 
-/// [`plan`], in the middle of a turn: the turn in progress is not compacted
-/// -- it goes on in the request as it is -- so only the turns before it are.
-pub fn plan_before_open(
+/// [`plan`], in the middle of a turn: the log's newest turn is the one in
+/// progress, and its exchanges so far may be compacted too, while its first
+/// user message stays (`request.active`, `orchestrator.zig:7351-7357`).
+pub fn plan_in_turn(
     state: &DurableState,
     size: &Size,
     context: Context,
 ) -> Result<Option<Plan>, Failure> {
-    let mut turns = state.uncovered_turns();
-    if turns.last().is_some_and(|turn| turn.outcome.is_none()) {
-        turns = &turns[..turns.len() - 1];
+    let retained = state.retained_turns();
+    let mut history: Vec<&HistoryTurn> = retained.iter().map(AsRef::as_ref).collect();
+    let active = history
+        .last()
+        .filter(|turn| turn.outcome.is_none())
+        .copied();
+    if active.is_some() {
+        history.pop();
     }
-    plan_of(state, turns, size, context)
+    plan_of(state, &history, active, size, context)
 }
 
 fn plan_of(
     state: &DurableState,
-    turns: &[HistoryTurn],
+    history: &[&HistoryTurn],
+    active: Option<&HistoryTurn>,
     size: &Size,
     context: Context,
 ) -> Result<Option<Plan>, Failure> {
-    if turns.is_empty() {
+    if history.is_empty() && active.is_none_or(|turn| exchanges(turn).is_empty()) {
         return Ok(None);
     }
-    let Some(window) = choose(turns, size, context)? else {
+    let Some(window) = choose(history, active, size, context)? else {
         return Ok(None);
     };
+    let mut combined: Vec<&HistoryTurn> = history.to_vec();
+    combined.extend(active);
     let earlier = state
         .checkpoint
         .as_ref()
         .map(|checkpoint| checkpoint.compacted.clone())
         .unwrap_or_default();
     let mut next_tool = earlier.tool_count + 1;
-    let prepared: Vec<Prepared> = turns[..window.cut]
-        .iter()
-        .enumerate()
-        .map(|(offset, turn)| prepare(earlier.turn_count + 1 + offset, turn, &mut next_tool))
-        .collect();
+    let mut continued = earlier.open.clone();
+    let mut prepared: Vec<Prepared> = Vec::new();
+    for (number, turn) in (earlier.turn_count + 1..).zip(&combined[..window.cut.turns]) {
+        prepared.push(prepare(
+            number,
+            turn,
+            continued.take(),
+            false,
+            &mut next_tool,
+        ));
+    }
+    // The covered part of the turn the cut falls inside, and where it ends.
+    let (covers_through_seq, split) = if window.splits() {
+        let turn = combined[window.cut.turns];
+        let ranges = exchanges(turn);
+        let end = ranges[window.cut.exchanges - 1].end;
+        let part = turn.until_step(end);
+        prepared.push(prepare(0, &part, continued.take(), true, &mut next_tool));
+        (turn.seqs.steps[end - 1], Some(turn))
+    } else {
+        (combined[window.cut.turns - 1].seqs.last, None)
+    };
+    // How much of the turn in progress the compacted form now holds: what
+    // the earlier compaction held of it, and this one's exchanges.
+    let active_exchanges = match (active, split) {
+        (Some(turn), Some(cut)) if std::ptr::eq(turn, cut) => {
+            let before = state.checkpoint.as_ref().map_or(0, |checkpoint| {
+                if checkpoint.covered_turns + 1 == state.turns.len() {
+                    let running = &state.turns[checkpoint.covered_turns];
+                    (0..checkpoint.covered_steps)
+                        .filter(|index| running.starts_exchange(*index))
+                        .count()
+                } else {
+                    0
+                }
+            });
+            before + window.cut.exchanges
+        }
+        _ => 0,
+    };
     let candidates = candidates(&prepared, &earlier.entries);
     Ok(Some(Plan {
-        covers_through_seq: turns[window.cut - 1].seqs.last,
+        covers_through_seq,
+        active_exchanges,
         earlier,
         has_earlier: state.checkpoint.is_some(),
+        open: window.splits(),
         turns: prepared,
         candidates,
         max_prompt_tokens: size.summary_request_tokens(),
         max_text_tokens: size.compacted_tokens(window.kept_used),
         room: Room {
             after_tokens: size.after_tokens(),
+            fixed_tokens: size.fixed,
             kept_tokens: window.kept_tokens,
             kept_used: window.kept_used,
         },
@@ -1087,38 +1312,49 @@ fn plan_of(
 
 impl Plan {
     /// Whether the model is asked for notes: a turn did something besides its
-    /// exact message and reply, or a message may set a rule
-    /// (`needsNotes`, `summarize.zig:937-945`). Otherwise the compacted form
-    /// is those texts alone and nothing is sent.
+    /// exact message and reply, a message may set a rule, or a turn stays in
+    /// progress (`needsNotes`, `summarize.zig:937-945`). Otherwise the
+    /// compacted form is those texts alone and nothing is sent.
     pub fn needs_model(&self) -> bool {
-        !self.candidates.is_empty() || self.turns.iter().any(|turn| turn.has_work)
+        self.open || !self.candidates.is_empty() || self.complete().iter().any(|turn| turn.has_work)
     }
 
-    /// How many turns it compacts.
+    /// How many turns it compacts to their end.
     pub fn turn_count(&self) -> usize {
-        self.turns.len()
+        self.complete().len()
+    }
+
+    /// How many exchanges of the turn in progress the compacted form holds
+    /// once this is saved, counted from that turn's start.
+    pub fn active_exchanges(&self) -> usize {
+        self.active_exchanges
+    }
+
+    fn complete(&self) -> &[Prepared] {
+        &self.turns[..self.turns.len() - usize::from(self.open)]
+    }
+
+    fn in_progress(&self) -> Option<&Prepared> {
+        self.open.then(|| self.turns.last()).flatten()
     }
 
     fn headings(&self, noted: &[usize]) -> Vec<Heading> {
-        self.turns
+        self.complete()
             .iter()
             .filter(|turn| turn.has_work && !noted.contains(&turn.number))
-            .map(|turn| Heading {
-                number: turn.number,
-                first_tool: turn.first_tool,
-                last_tool: turn.last_tool,
-            })
+            .map(heading)
             .collect()
     }
 
     fn known(&self) -> Known {
         Known {
-            turns: self.turns.iter().map(|turn| turn.number).collect(),
+            turns: self.complete().iter().map(|turn| turn.number).collect(),
             tools: self
                 .turns
                 .iter()
                 .flat_map(|turn| turn.tools.iter().map(|tool| tool.number))
                 .collect(),
+            open: self.open,
         }
     }
 
@@ -1126,27 +1362,26 @@ impl Plan {
     /// `summarize.zig:515-559`).
     fn checkpoint(&self, written: &Written) -> SessionEvent {
         let mut compacted = self.earlier.clone();
-        for turn in &self.turns {
+        for turn in self.complete() {
             compacted.turns.push(CompactedTurn {
                 number: turn.number,
-                users: vec![turn.user.clone()],
-                work: written.work(turn.number).to_string(),
+                users: turn.users.clone(),
+                work: turn_work(turn, written.work(turn.number)),
                 final_reply: turn.final_reply.clone(),
                 first_tool: turn.first_tool,
                 last_tool: turn.last_tool,
-                tools: turn
-                    .tools
-                    .iter()
-                    .map(|tool| ToolLine {
-                        number: tool.number,
-                        line: code_line(tool),
-                        why: written.tool(tool.number).to_string(),
-                    })
-                    .collect(),
+                tools: tool_lines(turn, written),
             });
         }
+        compacted.open = self.in_progress().map(|turn| OpenTurn {
+            users: turn.users.clone(),
+            work: turn_work(turn, written.work(0)),
+            first_tool: turn.first_tool,
+            last_tool: turn.last_tool,
+            tools: tool_lines(turn, written),
+        });
         compacted.entries.extend(written.entries.iter().cloned());
-        compacted.turn_count = self.earlier.turn_count + self.turns.len();
+        compacted.turn_count = self.earlier.turn_count + self.complete().len();
         compacted.tool_count = self
             .turns
             .iter()
@@ -1166,6 +1401,47 @@ impl Plan {
     pub fn local(&self) -> SessionEvent {
         self.checkpoint(&Written::default())
     }
+}
+
+/// A turn's heading in a request, with the tool calls of its own it shows
+/// (`heading`, `summarize.zig:990-1005`).
+fn heading(turn: &Prepared) -> Heading {
+    Heading {
+        number: turn.number,
+        first_tool: turn.tools.first().map_or(0, |tool| tool.number),
+        last_tool: turn.tools.last().map_or(0, |tool| tool.number),
+    }
+}
+
+/// What the assistant did in between: in a turn the previous compaction left
+/// in progress, what it wrote then, followed by `new` (`turnWork`,
+/// `summarize.zig:668-673`).
+fn turn_work(turn: &Prepared, new: &str) -> String {
+    let before = turn
+        .continued
+        .as_ref()
+        .map_or("", |part| part.work.as_str());
+    match (before.is_empty(), new.is_empty()) {
+        (true, _) => new.to_string(),
+        (false, true) => before.to_string(),
+        (false, false) => format!("{before}\n{new}"),
+    }
+}
+
+/// A line for each tool call: those the previous compaction listed for the
+/// turn, unchanged, then its own (`toolLines`, `summarize.zig:678-684`).
+fn tool_lines(turn: &Prepared, written: &Written) -> Vec<ToolLine> {
+    let mut lines: Vec<ToolLine> = turn
+        .continued
+        .as_ref()
+        .map(|part| part.tools.clone())
+        .unwrap_or_default();
+    lines.extend(turn.tools.iter().map(|tool| ToolLine {
+        number: tool.number,
+        line: code_line(tool),
+        why: written.tool(tool.number).to_string(),
+    }));
+    lines
 }
 
 /// While the compacted text is over `limit`, clips its longest user
@@ -1318,11 +1594,39 @@ fn transcript(plan: &Plan, clip: usize, earlier_clip: usize) -> (String, usize) 
         text.push('\n');
     }
     for turn in &plan.turns {
-        text.push_str(&format!(
-            "[Turn {}]\n[User]\n{}\n\n",
-            turn.number,
-            clipped(&turn.user, clip)
-        ));
+        if turn.number > 0 {
+            text.push_str(&format!(
+                "[Turn {}]\n[User]\n{}\n\n",
+                turn.number,
+                clipped(&turn.user, clip)
+            ));
+        } else {
+            text.push_str(&format!(
+                "[Turn in progress]\n[User, this message stays in the conversation after the \
+                 summary]\n{}\n\n",
+                clipped(&turn.user, clip)
+            ));
+        }
+        if let Some(part) = &turn.continued {
+            if !part.work.is_empty() {
+                text.push_str(&format!(
+                    "[Earlier part of this turn, summarized]\n{}\n\n",
+                    clipped(&part.work, earlier_clip)
+                ));
+            }
+            for user in &part.users {
+                text.push_str(&format!(
+                    "[User, added while the assistant worked]\n{}\n\n",
+                    clipped(user, earlier_clip)
+                ));
+            }
+            if part.first_tool > 0 {
+                text.push_str(&format!(
+                    "[Its tools so far: T{} to T{}]\n\n",
+                    part.first_tool, part.last_tool
+                ));
+            }
+        }
         for (item, number) in turn.items.iter().zip(&turn.tool_numbers) {
             match item {
                 Item::Assistant(assistant) => {
@@ -1352,42 +1656,62 @@ fn transcript(plan: &Plan, clip: usize, earlier_clip: usize) -> (String, usize) 
         }
     }
     let start = text.len();
-    write_request(&mut text, &plan.headings(&[]), &plan.earlier.highest_ids());
+    write_request(
+        &mut text,
+        &plan.headings(&[]),
+        plan.in_progress().map(heading),
+        &plan.earlier.highest_ids(),
+    );
     write_candidates(&mut text, &plan.candidates);
     (text, start)
 }
 
 /// The request for the notes, for a session whose tool calls cannot be
 /// opened later (`writeRequest`, `ledger.zig:68-106`, `saved = false`).
-fn write_request(text: &mut String, headings: &[Heading], highest: &[usize; 5]) {
+fn write_request(
+    text: &mut String,
+    headings: &[Heading],
+    open: Option<Heading>,
+    highest: &[usize; 5],
+) {
     text.push_str(
         "Write the compaction notes for the new turns above. The user's messages and the \
          assistant's final replies stay in the conversation word for word, so do not repeat \
          them. The tool calls will not be available later, so keep in your notes the details \
          from them that the work still needs.",
     );
-    if headings.is_empty() {
+    if headings.is_empty() && open.is_none() {
         text.push_str("\n\n");
     } else {
         text.push_str(
             "\n\nWrite these headings, in this order and without skipping any, each followed by \
              its notes:\n\n",
         );
-        write_headings(text, headings);
+        write_headings(text, headings, open);
         text.push_str(
             "\nUnder each heading:\nIn between: one to three sentences on what the assistant did \
              before its final reply: what it looked at, what it found, what it changed or \
              decided. Leave out what the final reply already says. Write \"none\" when there was \
              nothing.\nThen one line for every tool call of the turn, starting with its ID like \
              `T<number>:`, at most 15 words: why it was used and what it showed that matters. \
-             Calls with one purpose may share a line that starts `T<first>\u{2013}T<last>:`.\n\n",
+             Calls with one purpose may share a line that starts `T<first>\u{2013}T<last>:`.\n",
         );
+        if open.is_some() {
+            text.push_str("For the turn in progress, give its notes so far.\n");
+        }
+        text.push('\n');
     }
     text.push_str(
         "Then only the new entries of these sections, each starting with its ID and the turn or \
          tool call it comes from, like `F<number> (T<number>):`:\n\nRules:\nR1, R2, ...: each new \
          instruction, rule or preference from the user, quoted word for word in double quotes, \
-         with its turn, like `(turn <number>)`.\n\nFacts:\nF1, F2, ...: facts the work depends \
+         with its turn, like `(turn <number>)`",
+    );
+    if open.is_some() {
+        text.push_str(", or `(turn in progress)` for the turn still in progress");
+    }
+    text.push_str(
+        ".\n\nFacts:\nF1, F2, ...: facts the work depends \
          on, from these turns: names, paths, values, results, causes.\n\nDecisions:\nD1, D2, \
          ...: each decision and why. When it changes an earlier entry, end with \"replaces\" and \
          that entry's ID.\n\nStatus:\nS1, S2, ...: where each part of the work stands now. When \
@@ -1411,7 +1735,7 @@ fn write_follow_up(text: &mut String, missing: &[Heading], highest: &[usize; 5])
         "Your notes on the turns above left some out. Write the notes for only these turns now, \
          each heading followed by its notes:\n\n",
     );
-    write_headings(text, missing);
+    write_headings(text, missing, None);
     text.push_str(
         "\nUnder each heading, In between: with what the assistant did before its final reply, \
          then a line for every tool call, starting with its ID, on why it was used and what it \
@@ -1422,10 +1746,15 @@ fn write_follow_up(text: &mut String, missing: &[Heading], highest: &[usize; 5])
     text.push_str(" Write only these notes.");
 }
 
-/// `Turn 3 (T10–T19)` lines (`writeHeadings`, `ledger.zig:147-170`).
-fn write_headings(text: &mut String, headings: &[Heading]) {
-    for heading in headings {
-        text.push_str(&format!("Turn {}", heading.number));
+/// `Turn 3 (T10–T19)` lines, then `Turn in progress` (`writeHeadings`,
+/// `ledger.zig:147-170`).
+fn write_headings(text: &mut String, headings: &[Heading], open: Option<Heading>) {
+    for heading in headings.iter().chain(open.as_ref()) {
+        if heading.number > 0 {
+            text.push_str(&format!("Turn {}", heading.number));
+        } else {
+            text.push_str("Turn in progress");
+        }
         if heading.first_tool == 0 {
             text.push_str(" (no tool calls)");
         } else if heading.first_tool == heading.last_tool {
@@ -1491,6 +1820,8 @@ fn write_candidates(text: &mut String, found: &[Candidate]) {
 struct Known {
     turns: Vec<usize>,
     tools: Vec<usize>,
+    /// A turn in progress may be written for, as turn zero.
+    open: bool,
 }
 
 /// A note for one turn or tool call.
@@ -1606,7 +1937,12 @@ fn read(reply: &str, known: &Known, earlier: &[Entry], highest: &[usize; 5]) -> 
         };
         if let Some(work) = in_between_rest(&plain) {
             current = Current::None;
-            if !known.turns.contains(&number) {
+            let allowed = if number == 0 {
+                known.open
+            } else {
+                known.turns.contains(&number)
+            };
+            if !allowed {
                 unknown += 1;
                 continue;
             }
@@ -1661,7 +1997,12 @@ fn read(reply: &str, known: &Known, earlier: &[Entry], highest: &[usize; 5]) -> 
     // A reply in none of the asked form is kept whole as the notes of the
     // newest turn rather than lost (`ledger.zig:504-517`).
     if works.is_empty() && tool_notes.is_empty() && sections.is_empty() && unknown == 0 {
-        if let Some(newest) = known.turns.last() {
+        let newest = if known.open {
+            Some(&0)
+        } else {
+            known.turns.last()
+        };
+        if let Some(newest) = newest {
             let text = reply.trim_matches([' ', '\t', '\r', '\n']);
             works.push(Building {
                 number: *newest,
@@ -1878,15 +2219,18 @@ fn undecorated(line: &str) -> String {
         .replace("**", "")
 }
 
-/// The turn a heading line starts the notes of (`turnNumber`,
-/// `ledger.zig:613-625`). xfx asks for no turn in progress, so one is not a
-/// turn here.
+/// The turn a heading line starts the notes of; zero for the turn in
+/// progress (`turnNumber`, `ledger.zig:613-625`).
 fn turn_number(plain: &str) -> Option<usize> {
     let rest = plain.trim_matches(['[', ']', ':', ' ']);
     if !starts_with_ignore_case(rest, "Turn ") {
         return None;
     }
     let rest = rest["Turn".len()..].trim_start_matches(['[', ' ']);
+    const IN_PROGRESS: &str = "in progress";
+    if starts_with_ignore_case(rest, IN_PROGRESS) {
+        return ends_heading(&rest[IN_PROGRESS.len()..]).then_some(0);
+    }
     let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
     if digits == 0 || !ends_heading(&rest[digits..]) {
         return None;
@@ -2147,10 +2491,20 @@ async fn ask(
     };
     let began = Instant::now();
     let outcome = caller.provider.stream(&request, &mut Discard).await;
-    let usage = outcome
-        .as_ref()
-        .map(|completion| completion.usage)
-        .unwrap_or_default();
+    // What the provider reported the request used; the cache counts come
+    // with a bill, when the provider sent one (`text_completion.zig:272-275`).
+    let (usage, cached) = match &outcome {
+        Ok(completion) => (
+            completion.usage,
+            match &completion.billing {
+                Some(crate::gateway::protocol::Bill::Exact(bill)) => {
+                    (Some(bill.cache_read_tokens), Some(bill.cache_write_tokens))
+                }
+                _ => (None, None),
+            },
+        ),
+        Err(_) => (Default::default(), (None, None)),
+    };
     if !matches!(outcome, Err(ProviderError::Cancelled)) {
         trace::log(
             false,
@@ -2158,8 +2512,8 @@ async fn ask(
                 "compaction model call model={model} after_conversation=false input_tokens={} \
                  cache_read_tokens={} cache_write_tokens={} output_tokens={}",
                 trace::any(usage.input_tokens),
-                trace::any(None::<u64>),
-                trace::any(None::<u64>),
+                trace::any(cached.0),
+                trace::any(cached.1),
                 trace::any(usage.output_tokens),
             ),
         );
@@ -2277,9 +2631,10 @@ pub async fn finish(plan: &Plan, caller: &Caller<'_>) -> Result<SessionEvent, Fa
     trace::log(
         false,
         format!(
-            "room after compaction after_tokens={} fixed_tokens=null kept_tokens={} \
+            "room after compaction after_tokens={} fixed_tokens={} kept_tokens={} \
              kept_used={} compacted_tokens={}",
             plan.room.after_tokens,
+            trace::any(plan.room.fixed_tokens),
             plan.room.kept_tokens,
             plan.room.kept_used,
             plan.max_text_tokens
@@ -2338,7 +2693,7 @@ async fn notes(plan: &Plan, caller: &Caller<'_>, asked: &Asked) -> Result<Sessio
             "compaction notes: turns_noted={}/{} tool_notes={} tools={} entries={} \
              earlier_bytes=0 reply_bytes={} after_conversation=false",
             written.works.len(),
-            known.turns.len(),
+            known.turns.len() + usize::from(known.open),
             written.tools.len(),
             known.tools.len(),
             written.entries.len(),
@@ -2413,6 +2768,7 @@ mod tests {
             seqs: TurnSeqs {
                 opened: seq,
                 last: seq + 2,
+                steps: vec![seq + 1],
             },
         }
     }
@@ -2454,8 +2810,13 @@ mod tests {
             seqs: TurnSeqs {
                 opened: seq,
                 last: seq + 4,
+                steps: vec![seq + 1, seq + 2, seq + 3],
             },
         }
+    }
+
+    fn refs(turns: &[HistoryTurn]) -> Vec<&HistoryTurn> {
+        turns.iter().collect()
     }
 
     fn state(turns: Vec<HistoryTurn>) -> DurableState {
@@ -2594,9 +2955,9 @@ mod tests {
     fn one_turn_has_nothing_older_than_the_kept_window() {
         // fx: `/compact` after one turn is `No context to compact.`
         // (`cap/fx-compact-40x120-compacting-0.4s`).
-        let turns = vec![said("one", "ONE", 2)];
+        let turns = [said("one", "ONE", 2)];
         assert_eq!(
-            choose(&turns, &Size::default(), Context::default()),
+            choose(&refs(&turns), None, &Size::default(), Context::default()),
             Ok(None)
         );
     }
@@ -2606,17 +2967,25 @@ mod tests {
         // With no window known the newest four are kept and anything older
         // compacted; two turns compact one (`receipts/w4/fx-compact-text`,
         // request 4: the first turn compacted, the second as it was).
-        let two = vec![said("one", "ONE", 2), said("two", "TWO", 5)];
+        let whole = |turns: usize| {
+            Ok(Some(Cut {
+                turns,
+                exchanges: 0,
+            }))
+        };
+        let two = [said("one", "ONE", 2), said("two", "TWO", 5)];
         assert_eq!(
-            choose(&two, &Size::default(), Context::default()).map(|w| w.map(|w| w.cut)),
-            Ok(Some(1))
+            choose(&refs(&two), None, &Size::default(), Context::default())
+                .map(|w| w.map(|w| w.cut)),
+            whole(1)
         );
         let five: Vec<_> = (0..5u64)
             .map(|n| said(&format!("q{n}"), "answer", 2 + n * 3))
             .collect();
         assert_eq!(
-            choose(&five, &Size::default(), Context::default()).map(|w| w.map(|w| w.cut)),
-            Ok(Some(1))
+            choose(&refs(&five), None, &Size::default(), Context::default())
+                .map(|w| w.map(|w| w.cut)),
+            whole(1)
         );
     }
 
@@ -2627,10 +2996,221 @@ mod tests {
         let big = "word ".repeat(3_000);
         let turns = vec![said("a", &big, 2), said("b", &big, 5), said("c", &big, 8)];
         let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
-        let window = choose(&turns, &size, Context::default())
+        let window = choose(&refs(&turns), None, &size, Context::default())
             .expect("chooses")
             .expect("something to compact");
-        assert_eq!(window.cut, 2, "only the newest fits the kept room");
+        assert_eq!(
+            window.cut,
+            Cut {
+                turns: 2,
+                exchanges: 0
+            },
+            "only the newest fits the kept room"
+        );
+    }
+
+    /// A turn of `reads` reads of `big` lines each, then `reply`, its frames
+    /// from `seq`: the prompt, then a call and a result per read, the reply,
+    /// the conclusion. `reply` empty leaves it in progress.
+    fn reading_turn(user: &str, reads: usize, big: &str, reply: &str, seq: u64) -> HistoryTurn {
+        let mut steps = Vec::new();
+        for n in 0..reads {
+            steps.push(TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: format!("read{n}"),
+                    name: "read_file".to_string(),
+                    input: json!({"path": format!("f{n}.txt")}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            });
+            steps.push(TurnStep::ToolResult {
+                call_id: format!("read{n}"),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: big.to_string(),
+            });
+        }
+        if !reply.is_empty() {
+            steps.push(TurnStep::Assistant {
+                text: reply.to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            });
+        }
+        let step_seqs: Vec<u64> = (0..steps.len() as u64).map(|n| seq + 1 + n).collect();
+        let last = step_seqs.last().copied().unwrap_or(seq) + u64::from(!reply.is_empty());
+        HistoryTurn {
+            user: user.to_string(),
+            images: Vec::new(),
+            steps,
+            outcome: if reply.is_empty() { None } else { concluded() },
+            timing: TurnTiming::default(),
+            seqs: TurnSeqs {
+                opened: seq,
+                last,
+                steps: step_seqs,
+            },
+        }
+    }
+
+    #[test]
+    fn the_newest_exchanges_stay_and_the_older_ones_of_their_turn_are_compacted() {
+        // `selectRecentContext` (`window.zig:169-251`) counts a turn's
+        // exchanges one by one, newest first: the kept room at a 128K window
+        // is 4_792 tokens, so the last read of about 3_000 stays and the two
+        // before it go, the turn's message staying after the checkpoint.
+        let big = "word ".repeat(3_000);
+        let turn = reading_turn("read them", 3, &big, "DONE", 2);
+        let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
+        let window = choose(&[&turn], None, &size, Context::default())
+            .expect("chooses")
+            .expect("something to compact");
+        assert_eq!(
+            window.cut,
+            Cut {
+                turns: 0,
+                exchanges: 2
+            }
+        );
+        assert!(window.splits());
+        let plan = plan(&state(vec![turn.clone()]), &size, Context::default())
+            .expect("plans")
+            .expect("a part to compact");
+        assert!(
+            plan.needs_model(),
+            "a part in progress always asks for notes"
+        );
+        assert_eq!(plan.turn_count(), 0);
+        let (asked, _) = fitting_transcript(&plan);
+        assert!(asked.starts_with(
+            "[Turn in progress]\n[User, this message stays in the conversation after the \
+             summary]\nread them\n\n[Tool call T1: read_file]"
+        ));
+        assert!(asked.contains("[Tool result T2: read_file]"));
+        assert!(!asked.contains("T3"), "the newest read stays: {asked}");
+        assert!(
+            asked.contains("Turn in progress (T1\u{2013}T2)\n"),
+            "{asked}"
+        );
+        assert!(asked.contains("For the turn in progress, give its notes so far.\n"));
+        assert!(asked.contains("`(turn in progress)` for the turn still in progress"));
+        let SessionEvent::ContextCheckpoint {
+            covers_through_seq,
+            compacted,
+        } = plan.checkpoint(&read(
+            "Turn in progress\nIn between: read two.\nT1: one\nT2: two\n",
+            &plan.known(),
+            &[],
+            &[0; 5],
+        ))
+        else {
+            panic!("a checkpoint");
+        };
+        // Through the second read's result: frames 3-6.
+        assert_eq!(covers_through_seq, 6);
+        assert!(compacted.turns.is_empty());
+        let open = compacted.open.expect("the part in progress");
+        assert_eq!((open.first_tool, open.last_tool), (1, 2));
+        assert_eq!(open.work, "read two.");
+        assert_eq!(open.tools[1].why, "two");
+        assert!(open.users.is_empty(), "its first message stays after it");
+        assert_eq!(compacted.turn_count, 0);
+        assert_eq!(compacted.tool_count, 2);
+    }
+
+    #[test]
+    fn a_turn_in_progress_is_never_compacted_whole() {
+        // `split`: compacting all of it cuts after its last exchange, and its
+        // first message stays (`window.zig:286-291`).
+        let big = "word ".repeat(1_000);
+        let before = said("one", "ONE", 2);
+        let running = reading_turn("go", 2, &big, "", 5);
+        let window = split(&[&before], Some(&running), 0, None);
+        assert_eq!(
+            window.cut,
+            Cut {
+                turns: 1,
+                exchanges: 2
+            }
+        );
+        // With no exchange yet, there is nothing of it to take.
+        let opening = reading_turn("go", 0, &big, "", 5);
+        assert_eq!(
+            split(&[&before], Some(&opening), 0, None).cut,
+            Cut {
+                turns: 1,
+                exchanges: 0
+            }
+        );
+    }
+
+    #[test]
+    fn a_later_compaction_carries_the_part_in_progress_into_its_turn() {
+        // `prepare`'s `continued` (`summarize.zig:759-833`): the earlier part's
+        // summary, tools and numbers go on in the turn once it is compacted
+        // to its end; its first message joins it then.
+        let big = "word ".repeat(3_000);
+        let turn = reading_turn("read them", 3, &big, "DONE", 2);
+        let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
+        let first = plan(&state(vec![turn.clone()]), &size, Context::default())
+            .expect("plans")
+            .expect("a part");
+        let SessionEvent::ContextCheckpoint { compacted, .. } = first.checkpoint(&read(
+            "Turn in progress\nIn between: read two.\nT1: one\nT2: two\n",
+            &first.known(),
+            &[],
+            &[0; 5],
+        )) else {
+            panic!("a checkpoint");
+        };
+        let mut later = state(vec![turn, said("next", "NEXT", 11)]);
+        later.checkpoint = Some(crate::session::Checkpoint {
+            covers_through_seq: 6,
+            covered_turns: 0,
+            covered_steps: 4,
+            compacted,
+            count: 1,
+        });
+        let second = plan(&later, &Size::default(), Context::default())
+            .expect("plans")
+            .expect("the rest of the turn");
+        assert_eq!(second.turn_count(), 1);
+        let (asked, _) = fitting_transcript(&second);
+        assert!(
+            asked.starts_with(
+                "[Turn 1]\n[User]\nread them\n\n[Earlier part of this turn, summarized]\n\
+                 read two.\n\n[Its tools so far: T1 to T2]\n\n[Tool call T3: read_file]"
+            ),
+            "{asked}"
+        );
+        let SessionEvent::ContextCheckpoint { compacted, .. } = second.checkpoint(&read(
+            "Turn 1\nIn between: read the third.\nT3: three\n",
+            &second.known(),
+            &[],
+            &[0; 5],
+        )) else {
+            panic!("a checkpoint");
+        };
+        assert!(compacted.open.is_none());
+        let whole = &compacted.turns[0];
+        assert_eq!(whole.number, 1);
+        assert_eq!(whole.users, ["read them"]);
+        assert_eq!(whole.work, "read two.\nread the third.");
+        assert_eq!((whole.first_tool, whole.last_tool), (1, 3));
+        assert_eq!(
+            whole
+                .tools
+                .iter()
+                .map(|tool| tool.why.as_str())
+                .collect::<Vec<_>>(),
+            ["one", "two", "three"]
+        );
+        assert_eq!(whole.final_reply, "DONE");
     }
 
     #[test]
@@ -2902,6 +3482,7 @@ these notes.";
         let known = Known {
             turns: vec![1, 2],
             tools: vec![1],
+            open: false,
         };
         let written = read("Just some prose.", &known, &[], &[0; 5]);
         assert_eq!(written.work(2), "Just some prose.");
@@ -2913,6 +3494,7 @@ these notes.";
         let known = Known {
             turns: vec![3],
             tools: vec![4, 5, 6],
+            open: false,
         };
         let written = read(
             "## Turn 3 (T4\u{2013}T6)\nIn between: looked around\n  and found it.\n\
@@ -3003,6 +3585,7 @@ these notes.";
         state.checkpoint = Some(crate::session::Checkpoint {
             covers_through_seq,
             covered_turns: 1,
+            covered_steps: 0,
             compacted: compacted.clone(),
             count: 1,
         });
@@ -3038,6 +3621,7 @@ these notes.";
                 last_tool: 0,
                 tools: Vec::new(),
             }],
+            open: None,
             turn_count: 1,
             tool_count: 0,
         };

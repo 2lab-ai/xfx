@@ -1234,6 +1234,12 @@ struct Runtime {
     /// scope rather than the somewhere else in it
     /// (`crate::workspace::AccessScope::with_observed_roots`).
     workspace: WorkspaceAccess,
+    /// What the last request measured of the part compaction cannot shrink
+    /// -- its instructions and tool definitions -- for a `/compact` between
+    /// turns to size its room by, as upstream's keeps the agent's last
+    /// measurement (`request_fixed_tokens`, `orchestrator.zig:6191-6192`).
+    /// Zero until a turn has measured one.
+    fixed_tokens: Arc<AtomicUsize>,
 }
 
 impl Runtime {
@@ -1292,6 +1298,7 @@ impl Runtime {
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
             workspace,
+            fixed_tokens: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -1730,11 +1737,13 @@ impl Runtime {
     /// nothing compacts by itself (`window.zig:127-131`).
     fn compaction_size(&self) -> Size {
         let entry = self.selector.entry(self.selector.model());
-        Size::of(
+        let mut size = Size::of(
             entry.and_then(|entry| entry.max_context),
             entry.and_then(|entry| entry.facts.max_output),
             compact::DEFAULT_PERCENT,
-        )
+        );
+        size.fixed = Some(self.fixed_tokens.load(Ordering::Relaxed)).filter(|fixed| *fixed > 0);
+        size
     }
 
     /// Whether the conversation holds a turn no compaction covers yet
@@ -2619,12 +2628,18 @@ async fn compact_between_turns(
     if !state.has_context_to_compact() {
         return Feedback::NoOp;
     }
+    // A compaction admitted as work takes the next turn id, as upstream's does
+    // (`queued.turn_id = debug_trace.nextTurnId()`, `worker_runtime.zig:989`).
+    let context = Context {
+        turn: compaction_trace::next_turn_id(),
+        step: 0,
+    };
     if state.ready(&turn.mirror).is_err() {
         // Upstream's compaction is unavailable without a credential it may
         // ask with (`ContextCompactionUnavailable`, `compactor.zig:185-193`),
         // and `/trace` says which.
         compaction_trace::failure(
-            Context::default(),
+            context,
             TraceKind::CredentialUnauthorized,
             format!(
                 "provider={} credential_source=none",
@@ -2632,7 +2647,7 @@ async fn compact_between_turns(
             ),
         );
         transaction_failed(
-            Context::default(),
+            context,
             "preparation",
             Origin::Manual,
             "ContextCompactionUnavailable",
@@ -2640,16 +2655,16 @@ async fn compact_between_turns(
         return Feedback::NotStarted;
     }
     let size = state.compaction_size();
-    compact_conversation(
-        state,
-        size,
-        Origin::Manual,
-        Context::default(),
-        events,
-        turn,
-    )
-    .await
+    compact_conversation(state, size, Origin::Manual, context, events, turn).await
 }
+
+/// Upstream's name for a write to the log that may or may not have landed
+/// (`rollbackAppend`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_log.zig:561-574`), and its row says to reopen
+/// the session (`compaction_activity.zig:22`, `activity_status.zig:44-45`).
+/// xfx's recorder takes no rollback: a write it could not finish stops every
+/// write after it, so whether the checkpoint landed is not known either.
+const UNCONFIRMED_WRITE: &str = "SessionPersistenceUncertain";
 
 /// `/trace`'s record of a compaction that did not finish
 /// (`compactContext`'s `errdefer`, `orchestrator.zig:6222-6228`): a failure,
@@ -2767,11 +2782,8 @@ async fn compact_conversation(
         .as_ref()
         .filter(|_| saved.last_event_seq != before)
     else {
-        // The log would not take it; the conversation is what it was. Not a
-        // name upstream has: its log reports how the write failed, and xfx's
-        // recorder keeps that for the session-log problem `/trace` lists.
-        transaction_failed(context, "publication", origin, "SessionWriteFailed");
-        return Feedback::Failed;
+        transaction_failed(context, "publication", origin, UNCONFIRMED_WRITE);
+        return Feedback::Unconfirmed;
     };
     compaction_trace::info(
         context,
@@ -2803,6 +2815,14 @@ fn feedback_of(failure: Failure) -> Feedback {
 /// describe never compacts by itself, as upstream's does not (`due` with no
 /// window). Raced against the turn's own cancellation, as the effort's read
 /// is.
+///
+/// **Not before a session's first turn**, where upstream has read its catalog
+/// at launch already: xfx makes no network call at launch and reads the
+/// catalog when something needs it, and reading it before every first turn
+/// would add a catalog request, and a catalog state, to every session's
+/// first turn. That turn compacts only when the provider refuses a request
+/// as too large ([`crate::agent::StepCheck::overflow`]), which needs no
+/// window.
 async fn read_catalog_for_compaction(
     state: &mut Runtime,
     events: &Sender<UiEvent>,
@@ -2851,6 +2871,9 @@ struct TurnCompactor {
     /// The turn's number in the session, for `/trace`.
     turn: u64,
     spent: compact::Spent,
+    /// Where each check's measurement of the fixed part is kept for a
+    /// `/compact` after the turn ([`Runtime::fixed_tokens`]).
+    fixed_tokens: Arc<AtomicUsize>,
     /// How a compaction that ended the turn ended.
     ended: std::rc::Rc<std::cell::Cell<Option<Feedback>>>,
 }
@@ -2879,10 +2902,12 @@ impl TurnCompactor {
             events: events.clone(),
             token: turn.token.clone(),
             mirror: turn.mirror.clone(),
-            turn: state.conversation.as_ref().map_or(1, |conversation| {
-                conversation.recorder.state().turns.len() as u64 + 1
-            }),
+            // Every turn takes the next id, compacting or not, so the ids
+            // `/trace` prints are the ones upstream's would
+            // (`debug_trace.nextTurnId`).
+            turn: compaction_trace::next_turn_id(),
             spent: compact::Spent::default(),
+            fixed_tokens: Arc::clone(&state.fixed_tokens),
             ended: std::rc::Rc::default(),
         }
     }
@@ -2896,11 +2921,12 @@ impl TurnCompactor {
         bridge::send_terminal(&self.events, UiEvent::Compaction(Update::Settled(feedback))).await;
     }
 
-    /// The turn's error for a compaction that ended it.
+    /// The turn's error for a compaction that ended it: the row says why,
+    /// and the turn says nothing (`compactionErrorHandled`).
     fn ended_turn(failure: &Failure) -> crate::agent::TurnError {
         match failure {
             Failure::Cancelled => crate::agent::TurnError::Cancelled,
-            other => crate::agent::TurnError::ContextNotReduced {
+            other => crate::agent::TurnError::CompactionEnded {
                 reason: other.name(),
             },
         }
@@ -2912,10 +2938,14 @@ impl crate::agent::StepCompactor for TurnCompactor {
     async fn before_step(
         &mut self,
         check: crate::agent::StepCheck<'_>,
-    ) -> Result<Option<Vec<crate::gateway::protocol::Message>>, crate::agent::TurnError> {
+    ) -> Result<Option<crate::agent::StepCompaction>, crate::agent::TurnError> {
         let mut size = self.size;
         size.request = Some(check.request_tokens);
         size.overflow = check.overflow;
+        size.fixed = check.fixed_tokens;
+        if let Some(fixed) = check.fixed_tokens {
+            self.fixed_tokens.store(fixed, Ordering::Relaxed);
+        }
         let context = Context {
             turn: self.turn,
             step: u64::from(check.step) + 1,
@@ -2954,21 +2984,30 @@ impl crate::agent::StepCompactor for TurnCompactor {
             }
             return Ok(None);
         }
+        // Upstream's line, field for field (`orchestrator.zig:7323-7339`).
+        // xfx calibrates no estimate against the provider's count, so there
+        // is no prior count and no image baseline, and its requests ask for
+        // no output limit.
         compaction_trace::info(
             context,
             TraceKind::Decision,
             format!(
-                "decision=compact overflow={} estimated_tokens={} usable_tokens={} \
-                 compact_at_tokens={} compact_at_percent={}",
+                "decision=compact overflow={} request_bytes={} estimated_tokens={} \
+                 text_tokens={} has_images={} image_baseline=false prior_input_tokens=null \
+                 usable_tokens={} compact_at_tokens={} compact_at_percent={} \
+                 max_output_tokens=null",
                 check.overflow,
+                check.request_bytes,
                 check.request_tokens,
+                check.request_tokens,
+                check.has_images,
                 compaction_trace::any(size.usable),
                 compaction_trace::any(size.compact_at),
                 compact::DEFAULT_PERCENT
             ),
         );
         let planned = match check.journal.state() {
-            Some(state) => compact::plan_before_open(state, &size, context),
+            Some(state) => compact::plan_in_turn(state, &size, context),
             None => Ok(None),
         };
         let plan = match planned {
@@ -3055,10 +3094,10 @@ impl crate::agent::StepCompactor for TurnCompactor {
             })
         });
         let Some((count, text, tools, history)) = committed else {
-            transaction_failed(context, "publication", origin, "SessionWriteFailed");
-            self.settle(Feedback::Failed).await;
-            return Err(crate::agent::TurnError::ContextNotReduced {
-                reason: "SessionWriteFailed",
+            transaction_failed(context, "publication", origin, UNCONFIRMED_WRITE);
+            self.settle(Feedback::Unconfirmed).await;
+            return Err(crate::agent::TurnError::CompactionEnded {
+                reason: UNCONFIRMED_WRITE,
             });
         };
         compaction_trace::info(
@@ -3071,17 +3110,23 @@ impl crate::agent::StepCompactor for TurnCompactor {
                 text.len()
             ),
         );
+        // `orchestrator.zig:7452-7457`.
         compaction_trace::info(
             context,
             TraceKind::Installed,
             format!(
-                "estimated_tokens_before={} summary_bytes={} tools={tools}",
+                "request_bytes_before={} estimated_tokens_before={} summary_bytes={} \
+                 tools={tools}",
+                check.request_bytes,
                 check.request_tokens,
                 text.len()
             ),
         );
         self.settle(Feedback::Succeeded).await;
-        Ok(Some(history))
+        Ok(Some(crate::agent::StepCompaction {
+            history,
+            exchanges: plan.active_exchanges(),
+        }))
     }
 
     fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
