@@ -1,0 +1,27 @@
+# W9: a generated session title (`.prd/tui-phase4` W9). The fake gateway
+# answers the title request with titles-answer.json -- a quoted first line and
+# a second line, so the cleaning shows -- and the turn with titles-turns.json.
+# The status line's session segment is on (seeded), so the title is drawn in
+# the footer as well as the window; then `/new`, so the titled session is one
+# the `/resume` picker lists (neither binary lists the session it is in).
+gateway titles-turns.json
+titled titles-answer.json
+seed titles-seed.json
+xfx: env XFX_SOUND=off
+wait 3
+snap launch
+title launch
+type fix the renderer loop, it redraws every row twice
+key Enter
+wait 4
+snap answered
+title answered
+type /new
+key Enter
+wait 2
+type /resume
+key Enter
+wait 2
+snap resume
+gwlog
+home files
