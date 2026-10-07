@@ -54,6 +54,12 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/fast`. It takes nothing: `/fast on` never reaches it ([`classify`]).
+    fn fast(&mut self);
+    /// `/ultrafast`, with the rest of the line -- already trimmed, and empty
+    /// for the status. `on`, `off` and `status` are what it means; refusing
+    /// anything else is the handler's, with upstream's usage line.
+    fn ultrafast(&mut self, argument: &str);
     /// `/undo`: the newest file change the conversation's tools made, taken
     /// back. It takes nothing: `/undo now` never reaches it ([`classify`]).
     fn undo(&mut self);
@@ -201,6 +207,8 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Allowlist => handlers.allowlist(argument),
         Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
+        Slash::Fast => handlers.fast(),
+        Slash::Ultrafast => handlers.ultrafast(argument),
         Slash::Image => handlers.image(argument),
         Slash::Images => handlers.images(argument),
         Slash::Paste => handlers.paste(),
@@ -274,6 +282,12 @@ mod tests {
         }
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
+        }
+        fn fast(&mut self) {
+            self.calls.push("fast".to_string());
+        }
+        fn ultrafast(&mut self, argument: &str) {
+            self.calls.push(format!("ultrafast {argument}"));
         }
         fn undo(&mut self) {
             self.calls.push("undo".to_string());
@@ -351,6 +365,8 @@ mod tests {
             ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/fast", "fast"),
+            ("/ultrafast", "ultrafast "),
             ("/trace", "trace"),
             ("/compact", "compact"),
             ("/sound", "sound "),

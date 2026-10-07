@@ -1319,15 +1319,28 @@ fn body_rows(
             state.observe(&text[seen.min(row.start)..row.start]);
             let reopen = state.reopen();
             let (shown, past) = slice.split_at(cut);
-            state.observe(shown);
-            let close = if state.reopen().is_empty() {
-                ""
+            // The spaces a wrap leaves at the end of a row that another row
+            // follows are the break, not part of the run they fell inside:
+            // upstream's wrap drops them (`assistant_wrap.zig:1306-1324`,
+            // `alpha beta` -> `alpha` / `beta`), so the cell after the last
+            // word is a blank one there. Written after the close here, they
+            // are blank cells too -- where an underline under them, or a link
+            // a click on them would follow, is a cell upstream does not paint.
+            let hung = if row.end < text.len() {
+                shown.len() - shown.trim_end_matches([' ', '\n']).len()
             } else {
-                palette.reset()
+                0
             };
+            let (shown, spaces) = shown.split_at(shown.len() - hung);
+            state.observe(shown);
+            // A reset for the attributes and a close for a link, each only
+            // when the row leaves it open: a wrap inside a link's text closes
+            // the link on this row and the reopen above carries it onto the
+            // next, as upstream's wrap does (`assistant_wrap.zig:1306-1311`).
+            let close = state.close();
             state.observe(past);
             seen = row.end;
-            format!("{reopen}{shown}{close}{past}")
+            format!("{reopen}{shown}{close}{spaces}{past}")
         })
         .collect()
 }
@@ -1725,6 +1738,41 @@ mod tests {
             super::super::check::Color::Default,
             "the terminal was left painting in the dim row's colour"
         );
+    }
+
+    #[test]
+    fn a_link_whose_text_wraps_is_closed_on_each_row_and_opened_again_on_the_next() {
+        // Upstream's wrap (`assistant_wrap.zig:1306-1311`): the row the link
+        // breaks on ends `\x1b[0m\x1b]8;;\x1b\\`, and the next opens the
+        // attributes and then the link again -- so a click on either half goes
+        // to the target, and no link is open across the `CUP` between them.
+        const OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com\u{1b}\\";
+        const CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+        let mut transcript = Transcript::new(6);
+        let rows = transcript
+            .push_as(
+                &format!("{OPEN}\u{1b}[4mabc def\u{1b}[24m{CLOSE} tail"),
+                Role::Plain,
+                DARK_256,
+            )
+            .rows;
+        assert_eq!(
+            rows,
+            vec![
+                // The break space after `abc` is outside the link and the
+                // underline: a blank cell, as upstream's wrap leaves it.
+                format!("{OPEN}\u{1b}[4mabc{RESET}{CLOSE} "),
+                format!("\u{1b}[4m{OPEN}def\u{1b}[24m{CLOSE} "),
+                "tail".to_string(),
+            ]
+        );
+        for row in rows.iter().map(|row| super::super::frame::row_text(row, 6)) {
+            assert_eq!(
+                row.matches("\u{1b}]8;id=").count(),
+                row.matches(CLOSE).count(),
+                "{row:?} leaves a link open"
+            );
+        }
     }
 
     #[test]

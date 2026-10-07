@@ -35,7 +35,7 @@
 //! reach a child (design, "Risks and controls").
 
 use std::io::Read;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -418,12 +418,12 @@ impl Captured {
 fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
     let mut command = match plan.route() {
         CommandRoute::Direct { argv } => {
-            let mut command = Command::new(&argv[0]);
+            let mut command = crate::process::command(&argv[0]);
             command.args(&argv[1..]);
             command
         }
         CommandRoute::Shell { program } => {
-            let mut command = Command::new(program);
+            let mut command = crate::process::command(program);
             command.arg("-c").arg(plan.command());
             command
         }
@@ -1352,6 +1352,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::cell::Cell;
+    use std::process::Command;
     use std::rc::Rc;
 
     #[test]

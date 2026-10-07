@@ -1,0 +1,14 @@
+# A turn in Fast mode when the catalog that would say the model offers Fast
+# cannot be read: fx says so above the answer and goes at standard speed
+# (`orchestrator.zig:7253-7262`).
+models models-broken.json
+gateway speed-standard-turns.json
+seed fast-seed-opus-on.json
+nomodel
+wait 2.5
+snap start
+type say something
+key Enter
+wait 2.5
+snap turn
+gwlog

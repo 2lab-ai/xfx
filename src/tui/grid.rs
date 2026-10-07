@@ -25,7 +25,9 @@
 //!   the untouched prefix opened is not on the terminal any more and has to be
 //!   re-opened at the first cell that is written.
 //!
-//! What the diff emits is `CUP`, replacement text, and `EL`. **No `ECH`**: it
+//! What the diff emits is `CUP`, replacement text with its attributes and its
+//! OSC 8 links (`super::hyperlink`, closed at the end of every row), and `EL`.
+//! **No `ECH`**: it
 //! is not in the subset `scripts/smoke-tui.sh`'s oracle models, and an erase to
 //! the end of a row says the same thing about a row that got shorter without
 //! adding a sequence the emulator -- and therefore the acceptance suite --
@@ -144,10 +146,10 @@ pub(crate) fn tokenize_row(
     let mut rest = text.as_ref();
     while !rest.is_empty() {
         if let Some(len) = super::pacer::escape_at(rest) {
-            // `row_text` keeps colours and removes everything else, so the
-            // only sequences that reach here are the ones a cell is allowed
-            // to remember. Handed to the model whole; what it does not
-            // model, it drops.
+            // `row_text` keeps colours and admitted links and removes
+            // everything else, so the only sequences that reach here are the
+            // ones a cell is allowed to remember. Handed to the model whole;
+            // what it does not model, it drops.
             sgr.observe(&rest[..len]);
             rest = &rest[len..];
             continue;
@@ -630,7 +632,7 @@ impl Grid {
         // being *equal* rather than merely unwritten buys: a row the full diff
         // would have found nothing to say about opens nothing either, so the
         // narrowed run meets the first row it does compare in the same state.
-        let mut open = String::new();
+        let mut open = Pen::default();
         for line in first_row.max(1)..=rows {
             let (Some(before), Some(after)) = (self.span(line), target.span(line)) else {
                 continue;
@@ -684,11 +686,11 @@ impl Grid {
                     // Carried by the lead in front of it.
                     Cell::Continuation => {}
                     Cell::Empty => {
-                        reopen(out, &mut open, "");
+                        reopen(out, &mut open, "", None);
                         out.push(b' ');
                     }
                     Cell::Lead { grapheme, sgr, .. } => {
-                        reopen(out, &mut open, &sgr.reopen());
+                        reopen(out, &mut open, &sgr.attributes(), sgr.link());
                         out.extend_from_slice(grapheme.as_bytes());
                     }
                 }
@@ -704,14 +706,21 @@ impl Grid {
                 // switched on -- and the file picker's marked row is one
                 // (`super::theme::Palette::selected`), so a row that ended on
                 // it would otherwise have the bar painted to the right edge.
-                reopen(out, &mut open, "");
+                reopen(out, &mut open, "", None);
                 out.extend_from_slice(ERASE_LINE.as_bytes());
             }
+            // A link ends with the row it is on, before the `CUP` that starts
+            // the next run: upstream closes one there for the reason it gives
+            // -- tmux ends an active hyperlink at an automatic wrap
+            // (`engine.zig:2400-2406`) -- and a link carried across a `CUP`
+            // would take in whatever the next run paints first. The colours
+            // carry on as they did: a pen survives a `CUP` on every terminal.
+            close_link(out, &mut open);
             touched += 1;
         }
         // Whatever the last run opened, closed: the next frame assumes a
         // terminal in the default state, and this is what makes that true.
-        reopen(out, &mut open, "");
+        reopen(out, &mut open, "", None);
         touched
     }
 }
@@ -765,22 +774,50 @@ fn column_of(index: usize) -> u16 {
     u16::try_from(index.saturating_add(1)).unwrap_or(u16::MAX)
 }
 
-/// Puts the terminal into `wanted`, if it is not there already.
+/// What a diff has left switched on, so far into its frame.
 ///
-/// A reset in front of anything that is not a pure addition, because [`SgrState`]
-/// replays a *state* rather than a delta: replaying it onto a terminal that
-/// still has the previous run's attributes on would leave whatever the new run
-/// does not mention switched on.
-fn reopen(out: &mut Vec<u8>, open: &mut String, wanted: &str) {
-    if open == wanted {
-        return;
+/// The attributes and the link apart, because they are closed apart: a reset
+/// turns every attribute off and leaves a hyperlink open.
+#[derive(Default)]
+struct Pen {
+    attributes: String,
+    link: Option<std::sync::Arc<str>>,
+}
+
+/// Puts the terminal into `attributes` under `link`, if it is not there
+/// already -- the attributes first and the link second, upstream's order for
+/// one cell (`engine.zig:2421-2428`).
+///
+/// A reset in front of any attributes that are not a pure addition, because
+/// [`SgrState`] replays a *state* rather than a delta: replaying it onto a
+/// terminal that still has the previous run's attributes on would leave
+/// whatever the new run does not mention switched on. A link needs no close in
+/// front of another one -- an open replaces the link that was open, which is
+/// what OSC 8 says and what upstream writes -- and a cell with none closes the
+/// one that was.
+fn reopen(out: &mut Vec<u8>, open: &mut Pen, attributes: &str, link: Option<&std::sync::Arc<str>>) {
+    if open.attributes != attributes {
+        if !open.attributes.is_empty() {
+            out.extend_from_slice(RESET.as_bytes());
+        }
+        out.extend_from_slice(attributes.as_bytes());
+        open.attributes.clear();
+        open.attributes.push_str(attributes);
     }
-    if !open.is_empty() {
-        out.extend_from_slice(RESET.as_bytes());
+    if open.link.as_ref() != link {
+        match link {
+            Some(link) => out.extend_from_slice(link.as_bytes()),
+            None => out.extend_from_slice(super::hyperlink::CLOSE.as_bytes()),
+        }
+        open.link = link.cloned();
     }
-    out.extend_from_slice(wanted.as_bytes());
-    open.clear();
-    open.push_str(wanted);
+}
+
+/// Closes the link the pen has open, and nothing else.
+fn close_link(out: &mut Vec<u8>, open: &mut Pen) {
+    if open.link.take().is_some() {
+        out.extend_from_slice(super::hyperlink::CLOSE.as_bytes());
+    }
 }
 
 #[cfg(test)]
@@ -1397,6 +1434,92 @@ mod tests {
             diffed(&grid, &expected),
             "",
             "the retint took the row's other attributes with it"
+        );
+    }
+
+    /// Upstream's link around `docs` (`inline_render.zig:535-560`).
+    const DOCS_OPEN: &str = "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\";
+    const LINK_CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+
+    #[test]
+    fn a_linked_run_opens_its_link_after_its_attributes_and_closes_it_with_the_row() {
+        // Upstream's order for one cell (`engine.zig:2421-2428`): the SGR
+        // transition, then the hyperlink transition -- and the link closed when
+        // a cell outside it comes, with the reset in front of it.
+        let after = painted(
+            10,
+            &format!("a{DOCS_OPEN}\u{1b}[4mbc\u{1b}[24m{LINK_CLOSE}d"),
+        );
+        assert_eq!(
+            diffed(&Grid::blank(24, 80), &after),
+            format!("\u{1b}[10;1Ha\u{1b}[4m{DOCS_OPEN}bc{RESET}{LINK_CLOSE}d")
+        );
+    }
+
+    #[test]
+    fn a_link_on_two_rows_is_closed_before_the_second_rows_cup_and_opened_again() {
+        // tmux ends an active hyperlink at an automatic wrap
+        // (`engine.zig:2400-2406`), and a link carried across a `CUP` would
+        // take in whatever the next run paints first.
+        let after = painted_rows(&[
+            (10, &format!("{DOCS_OPEN}ab{LINK_CLOSE}")),
+            (11, &format!("{DOCS_OPEN}cd{LINK_CLOSE}")),
+        ]);
+        assert_eq!(
+            diffed(&Grid::blank(24, 80), &after),
+            format!("\u{1b}[10;1H{DOCS_OPEN}ab{LINK_CLOSE}\u{1b}[11;1H{DOCS_OPEN}cd{LINK_CLOSE}")
+        );
+    }
+
+    #[test]
+    fn two_badges_that_name_one_file_are_one_run_and_a_second_file_switches_without_a_close() {
+        // `emitHyperlinkTransition` (`engine.zig:3245-3260`): an open replaces
+        // the link that was open.
+        let one = "\u{1b}]8;;file:///a.png\u{1b}\\";
+        let two = "\u{1b}]8;;file:///b.png\u{1b}\\";
+        let after = painted(1, &format!("{one}[1]{one}[2]{two}[3]{LINK_CLOSE}"));
+        assert_eq!(
+            diffed(&Grid::blank(24, 80), &after),
+            format!("\u{1b}[1;1H{one}[1][2]{two}[3]{LINK_CLOSE}")
+        );
+    }
+
+    #[test]
+    fn a_cell_that_changed_only_its_link_is_repainted() {
+        let before = painted(10, &format!("{DOCS_OPEN}docs{LINK_CLOSE}"));
+        let other = "\u{1b}]8;id=fx-2;https://example.com/docs\u{1b}\\";
+        let after = painted(10, &format!("{other}docs{LINK_CLOSE}"));
+        assert_eq!(
+            diffed(&before, &after),
+            format!("\u{1b}[10;1H{other}docs{LINK_CLOSE}")
+        );
+        // A frame starts outside every link -- the one before it closed what
+        // it opened -- so the cells that lost theirs are written plain.
+        let unlinked = painted(10, "docs");
+        assert_eq!(diffed(&before, &unlinked), "\u{1b}[10;1Hdocs");
+    }
+
+    #[test]
+    fn a_retint_keeps_the_link_a_cell_was_painted_under() {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(
+            3,
+            &format!("{BODY_DARK}see {DOCS_OPEN}docs{LINK_CLOSE}{RESET}"),
+            &geometry,
+        );
+        assert_eq!(grid.retint_document(10, &light()), "see docs".len());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(
+            3,
+            &format!("{BODY_LIGHT}see {DOCS_OPEN}docs{LINK_CLOSE}{RESET}"),
+            &geometry,
+        );
+        assert_eq!(
+            diffed(&grid, &expected),
+            "",
+            "the retint took the row's link with it"
         );
     }
 

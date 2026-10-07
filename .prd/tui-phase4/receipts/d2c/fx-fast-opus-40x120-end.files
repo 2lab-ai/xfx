@@ -1,0 +1,27 @@
+=== ~/.fx/backups/settings.json.backup.1791336566630-0000000000000001-44dade06e8f954fe55256642c345c5d5 (70 bytes)
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway"}
+
+=== ~/.fx/backups/settings.json.backup.1791336567751-0000000000000002-57534f12849e4874c96ff48a668e21fd (139 bytes)
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/history.jsonl (260 bytes)
+{"schema_version":1,"timestamp_ms":1791336566629,"workspace_root":"<scratch>/work","text":"/fast"}
+{"schema_version":1,"timestamp_ms":1791336568802,"workspace_root":"<scratch>/work","text":"/ultrafast on"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/AjZsOQJ3iyw_/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/AjZsOQJ3iyw_/owner.live (43 bytes)
+{"pid":12513,"opened_at_ms":1791336564110}
+
+=== ~/.fx/sessions/AjZsOQJ3iyw_/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/AjZsOQJ3iyw_/session.json (371 bytes)
+{"schema_version":4,"id":"AjZsOQJ3iyw_","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791336564109,"updated_at_ms":1791336567752,"conversation_language":"und","provider":"gateway","model":"anthropic/claude-opus-5","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/AjZsOQJ3iyw_/session.lock (0 bytes)
+=== ~/.fx/sessions/AjZsOQJ3iyw_/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"AjZsOQJ3iyw_","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (140 bytes)
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
+=== ~/.fx/settings.lock (0 bytes)

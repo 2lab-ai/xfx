@@ -8,9 +8,10 @@
 //! the text after it filters them, Enter on a model opens a second column
 //! under the next token -- `default`, then the levels the catalog lists for
 //! that model, in its order (`fx-model-40x120-gpt-enter`) -- and Enter there
-//! makes the change. Left steps back a column; Tab writes the marked row into
-//! the composer; Escape puts the column away until the text stops being a
-//! `/model` line.
+//! opens a third, the speed -- `normal`, then `fast` and `ultrafast` where the
+//! model offers them -- for a model that offers Fast, or makes the change.
+//! Left steps back a column; Tab writes the marked row into the composer;
+//! Escape puts the column away until the text stops being a `/model` line.
 //!
 //! **A view of the composer, not a second place to type.** Every stage is
 //! read back out of the text ([`Column::query`]): the model stage is
@@ -21,16 +22,29 @@
 //! of a later stage throws the stage away ([`Column::edited`]), as upstream's
 //! picker policy does (`shouldPreserveModelPickerInsert`, `:1308-1316`).
 //!
-//! # What it does not do yet
+//! # The speed column, and when there is one
 //!
-//! Upstream's third column -- `normal`, `fast`, `ultrafast` -- opens after the
-//! effort for a model that offers Fast (`submitModelPicker`, `:1183`). xfx
-//! sends no speed, so the effort column always commits, and a model with no
-//! levels commits from the model column at once (`beginModelPickerOptions`,
-//! `:1227-1240`, for a model with neither). `docs/parity.md` names the speed
-//! column as the work that remains.
+//! Upstream's rules, which are not symmetric (`submitModelPicker`,
+//! `beginModelPickerOptions`, `advanceModelPickerOnSpace`, `:1123-1258`):
+//!
+//! - **Enter on a level opens it only for a model that offers Fast**
+//!   (`:1183`), with `fast` marked. A model that offers Ultra and not Fast
+//!   commits from its effort column, keeping the session's Fast as far as the
+//!   model offers it -- which is not at all -- so Ultra cannot be chosen there.
+//! - A model with no levels and a speed opens it straight from the model
+//!   column, the composer reading `/model <id> auto `.
+//! - A space after a level spelled exactly opens it for a model that offers
+//!   either, `fast` marked only where Fast is offered.
+//! - A model with neither commits from the model column at once.
+//!
+//! What is marked is a speed, not a row: an index into all three
+//! ([`Speed::ALL`], `model_picker_fast_index`), shown on the row that names
+//! it, or the first row when the filter hid it (`speedPickerIndex`,
+//! `:1396-1404`). The footer previews it from the moment the effort column
+//! opens, which is the `⚡︎` a model with Fast shows before its speed column
+//! does (`fx-model-column-40x120-gpt-enter`).
 
-use crate::provider::effort::Effort;
+use crate::provider::effort::{Effort, Speed};
 use crate::provider::model::CatalogEntry;
 
 use super::picker::{edge_start, ellipsized};
@@ -57,6 +71,8 @@ pub(crate) enum Stage {
     Model,
     /// The pending model's reasoning levels, filtered by the next token.
     Effort,
+    /// The pending model's speeds, filtered by the token after the level.
+    Speed,
 }
 
 /// The composer, read as the column reads it.
@@ -116,9 +132,26 @@ pub(crate) enum Chosen {
     /// The model has levels to choose from: the composer becomes this, and the
     /// effort column is open under its last token.
     Efforts(String),
-    /// The model has none: the change is made at once, with the session's
-    /// effort as it stands.
+    /// The model has no levels and a speed to choose: the composer becomes
+    /// this -- `/model <id> auto ` -- and the speed column is open under its
+    /// last token.
+    Speeds(String),
+    /// The model has neither: the change is made at once, with the session's
+    /// effort and speed as they stand.
     Commit(String),
+}
+
+/// What the footer previews while a later column is open
+/// (`app_render_runtime.zig:653-668`, `:712-714`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Preview {
+    /// The pending model.
+    pub(crate) model: String,
+    /// The level the text spells or the mark is on.
+    pub(crate) effort: Effort,
+    /// The speed the text spells or the mark is on -- as asked for, before the
+    /// model's row is asked whether it offers it.
+    pub(crate) speed: Speed,
 }
 
 /// The column's memory between keystrokes.
@@ -131,6 +164,10 @@ pub(crate) struct Column {
     model_window: usize,
     effort_index: usize,
     effort_window: usize,
+    /// The marked speed, as an index into [`Speed::ALL`] whatever the model
+    /// offers (`model_picker_fast_index`).
+    speed_index: usize,
+    speed_window: usize,
     /// Escape put the column away; it stays away until the text stops being a
     /// `/model` line (`dismissed_until_trigger_change`, `picker_state.zig:156-159`).
     dismissed: bool,
@@ -155,13 +192,23 @@ impl Column {
                 query: &trimmed[PREFIX.len()..],
                 token_start: lead + PREFIX.len(),
             }),
-            Stage::Effort => {
+            Stage::Effort | Stage::Speed => {
                 let model = self.pending.as_deref()?;
                 let after = trimmed[PREFIX.len()..].strip_prefix(model)?;
-                let blanks = after.len() - after.trim_start_matches([' ', '\t']).len();
-                let start = PREFIX.len() + model.len() + blanks;
+                let mut start = PREFIX.len() + model.len() + blanks(after);
+                // The speed's query starts after the level's token and the
+                // blanks after it, and there is none until that token is
+                // there (`modelPickerTokenStart`, `picker_state.zig:556-573`).
+                if self.stage == Stage::Speed {
+                    let level = &trimmed[start..];
+                    if level.is_empty() {
+                        return None;
+                    }
+                    let word = level.find([' ', '\t']).unwrap_or(level.len());
+                    start += word + blanks(&level[word..]);
+                }
                 Some(Query {
-                    stage: Stage::Effort,
+                    stage: self.stage,
                     query: &trimmed[start..],
                     token_start: lead + start,
                 })
@@ -177,10 +224,10 @@ impl Column {
         self.query(text)
     }
 
-    /// The model the effort column is open for, if it is.
+    /// The model a later column is open for, if one is.
     pub(crate) fn pending(&self) -> Option<&str> {
         match self.stage {
-            Stage::Effort => self.pending.as_deref(),
+            Stage::Effort | Stage::Speed => self.pending.as_deref(),
             Stage::Model => None,
         }
     }
@@ -231,8 +278,20 @@ impl Column {
                 Edit::Written | Edit::Other => false,
             };
         if kept {
-            self.effort_index = 0;
-            self.effort_window = 0;
+            // `resetActiveModelPickerIndex`: the open column's mark only -- a
+            // level typed at goes back to `default` with the speed it was
+            // offered with, and a speed typed at goes back to `normal`.
+            match self.stage {
+                Stage::Effort => {
+                    self.effort_index = 0;
+                    self.effort_window = 0;
+                }
+                Stage::Speed => {
+                    self.speed_index = 0;
+                    self.speed_window = 0;
+                }
+                Stage::Model => {}
+            }
         } else {
             self.reset();
         }
@@ -287,7 +346,7 @@ impl Column {
 
     /// The level `query` spells, when the pending model offers it
     /// (`exactEffortCompletion`, `:1340-1346`).
-    fn exact_effort(&self, query: &str, catalog: Known<'_>) -> Option<Effort> {
+    pub(crate) fn exact_effort(&self, query: &str, catalog: Known<'_>) -> Option<Effort> {
         let entry = catalog.entry(self.pending.as_deref()?)?;
         let effort = Effort::parse(query.trim_matches([' ', '\t']))?;
         effort.supported_by(entry).then_some(effort)
@@ -317,27 +376,144 @@ impl Column {
         (!efforts.is_empty()).then(|| efforts[self.effort_index % efforts.len()].clone())
     }
 
+    /// The speeds the pending model offers that `query` matches, in the
+    /// column's order (`speedPickerLabels`, `:1377-1394`).
+    pub(crate) fn speeds(&self, query: &str, catalog: Known<'_>) -> Vec<Speed> {
+        let Some(entry) = self.pending.as_deref().and_then(|id| catalog.entry(id)) else {
+            return Vec::new();
+        };
+        let query = query.trim_matches([' ', '\t']);
+        Speed::options(entry)
+            .into_iter()
+            .filter(|speed| query.is_empty() || contains_ignoring_case(speed.label(), query))
+            .collect()
+    }
+
+    /// Where the marked speed is among `listed`: on the row that names it, or
+    /// the first when the filter hid it (`speedPickerIndex`, `:1396-1404`).
+    fn speed_row(&self, listed: &[Speed]) -> usize {
+        let marked = Speed::ALL[self.speed_index % Speed::ALL.len()];
+        listed
+            .iter()
+            .position(|speed| *speed == marked)
+            .unwrap_or(0)
+    }
+
+    /// The speed Enter takes (`selectedSpeedCompletion`, `:1426-1441`): with
+    /// nothing listed, none; one spelled out, if it is listed, and none if it
+    /// is not; else the marked one.
+    pub(crate) fn chosen_speed(&self, query: &Query<'_>, catalog: Known<'_>) -> Option<Speed> {
+        let typed = query.query.trim_matches([' ', '\t']);
+        let listed = self.speeds(typed, catalog);
+        if listed.is_empty() {
+            return None;
+        }
+        if let Some(spelled) = Speed::parse(typed) {
+            return listed.contains(&spelled).then_some(spelled);
+        }
+        Some(listed[self.speed_row(&listed)])
+    }
+
+    /// The level a speed column was opened with: the one at the effort
+    /// column's mark (`reasoningEffortAtIndex`), `default` for a model with
+    /// none.
+    pub(crate) fn speed_effort(&self, catalog: Known<'_>) -> Effort {
+        self.pending
+            .as_deref()
+            .and_then(|id| catalog.entry(id))
+            .and_then(|entry| Effort::options(entry).into_iter().nth(self.effort_index))
+            .unwrap_or_default()
+    }
+
     /// Opens what comes after `entry` (`beginModelPickerOptions`,
-    /// `:1227-1258`): its levels, with the default marked, or -- for a model
-    /// with none -- nothing, and the change is made.
+    /// `:1227-1258`): its levels, with the default marked; or, for a model
+    /// with none, its speeds; or -- for a model with neither -- nothing, and
+    /// the change is made. Fast is marked for a model that offers it, which
+    /// the footer previews from here on.
     pub(crate) fn choose(&mut self, entry: &CatalogEntry) -> Chosen {
-        if Effort::options(entry).is_empty() {
+        let levels = !Effort::options(entry).is_empty();
+        if !levels && !Speed::chosen_for(entry) {
             self.reset();
             return Chosen::Commit(entry.id.clone());
         }
-        self.stage = Stage::Effort;
-        self.pending = Some(entry.id.clone());
-        self.effort_index = 0;
-        self.effort_window = 0;
-        Chosen::Efforts(format!("{PREFIX}{} ", entry.id))
+        self.open(
+            entry,
+            if levels { Stage::Effort } else { Stage::Speed },
+            0,
+            Speed::of(entry.facts.fast, false),
+        );
+        if levels {
+            Chosen::Efforts(format!("{PREFIX}{} ", entry.id))
+        } else {
+            Chosen::Speeds(format!("{PREFIX}{} {} ", entry.id, Effort::Auto.label()))
+        }
     }
 
-    /// Left: back one column (`stepBackModelPicker`, `:1263-1281`), and the
-    /// text the composer goes back to -- the model spelled out, with the mark
-    /// on it. `None` from the model column, where Left moves the caret.
-    pub(crate) fn step_back(&mut self, catalog: Known<'_>) -> Option<String> {
+    /// Enter on `effort` in the effort column (`submitModelPicker`,
+    /// `:1174-1191`): the speed column, with `fast` marked, for a model that
+    /// offers Fast -- the composer becomes the text returned -- and `None`
+    /// for one that does not, whose change is made with that level.
+    pub(crate) fn chose_effort(&mut self, entry: &CatalogEntry, effort: &Effort) -> Option<String> {
+        if !entry.facts.fast {
+            return None;
+        }
+        Some(self.open_speeds(entry, effort, Speed::Fast))
+    }
+
+    /// A space after a level spelled exactly (`advanceModelPickerOnSpace`,
+    /// `:1133-1144`): the speed column for a model that offers either speed,
+    /// with `fast` marked where it is offered, and `None` -- the space does
+    /// nothing -- for one that offers neither.
+    pub(crate) fn advance_effort(
+        &mut self,
+        entry: &CatalogEntry,
+        effort: &Effort,
+    ) -> Option<String> {
+        if !Speed::chosen_for(entry) {
+            return None;
+        }
+        Some(self.open_speeds(entry, effort, Speed::of(entry.facts.fast, false)))
+    }
+
+    /// Opens the speed column after `effort`, with `marked` marked.
+    fn open_speeds(&mut self, entry: &CatalogEntry, effort: &Effort, marked: Speed) -> String {
+        let index = level_index(entry, effort);
+        self.open(entry, Stage::Speed, index, marked);
+        format!("{PREFIX}{} {} ", entry.id, effort.label())
+    }
+
+    /// `beginModelPickerFlow` (`picker_state.zig:399-419`): `entry` pending
+    /// at `stage`, the level at `effort_index` and `speed` marked, every
+    /// window at its top.
+    fn open(&mut self, entry: &CatalogEntry, stage: Stage, effort_index: usize, speed: Speed) {
+        self.stage = stage;
+        self.pending = Some(entry.id.clone());
+        self.effort_index = effort_index;
+        self.effort_window = 0;
+        self.speed_index = speed.index();
+        self.speed_window = 0;
+    }
+
+    /// Left: back one column (`stepBackModelPicker`, `:1263-1287`), and the
+    /// text the composer goes back to. From the speeds, the levels of a model
+    /// that has them -- the level it was opened with still marked, and the
+    /// session's own speed marked for the footer, as upstream passes its
+    /// `fast_mode` and `ultrafast_mode` there -- and the model column for one
+    /// that has none; from the levels, the model column: the model spelled
+    /// out, with the mark on it. `None` from the model column, where Left
+    /// moves the caret.
+    pub(crate) fn step_back(&mut self, catalog: Known<'_>, session: Speed) -> Option<String> {
         if self.stage == Stage::Model {
             return None;
+        }
+        if self.stage == Stage::Speed {
+            let entry = catalog.entry(self.pending.as_deref()?)?;
+            let levels = Effort::options(entry);
+            if !levels.is_empty() {
+                let index = self.effort_index % levels.len();
+                self.open(entry, Stage::Effort, index, session);
+                return Some(format!("{PREFIX}{} ", entry.id));
+            }
         }
         let model = self.pending.take()?;
         self.reset();
@@ -365,12 +541,27 @@ impl Column {
             Stage::Effort => {
                 let effort = self.chosen_effort(query, catalog)?;
                 let entry = catalog.entry(self.pending.as_deref()?)?;
-                self.effort_index = Effort::options(entry)
-                    .iter()
-                    .position(|offered| *offered == effort)
-                    .unwrap_or(0);
-                self.effort_window = 0;
+                let index = level_index(entry, &effort);
+                self.open(
+                    entry,
+                    Stage::Effort,
+                    index,
+                    Speed::of(entry.facts.fast, false),
+                );
                 Some(format!("{PREFIX}{} {}", entry.id, effort.label()))
+            }
+            Stage::Speed => {
+                let speed = self.chosen_speed(query, catalog)?;
+                let entry = catalog.entry(self.pending.as_deref()?)?;
+                let effort = self.speed_effort(catalog);
+                let index = level_index(entry, &effort);
+                self.open(entry, Stage::Speed, index, speed);
+                Some(format!(
+                    "{PREFIX}{} {} {}",
+                    entry.id,
+                    effort.label(),
+                    speed.label()
+                ))
             }
         }
     }
@@ -378,47 +569,63 @@ impl Column {
     /// Up or Down in the open column, wrapping (`advanceSelection`,
     /// `list_window.zig:38-47`). Says whether the mark moved.
     pub(crate) fn step(&mut self, query: &Query<'_>, catalog: Known<'_>, down: bool) -> bool {
+        if query.stage == Stage::Speed {
+            // Walked over the rows listed, and kept as the speed the new row
+            // names (`navigateModelPicker`, `:1001-1013`).
+            let listed = self.speeds(query.query, catalog);
+            if listed.is_empty() {
+                return false;
+            }
+            let mut row = self.speed_row(&listed);
+            advance(&mut row, &mut self.speed_window, listed.len(), down);
+            self.speed_index = listed[row].index();
+            return true;
+        }
         let count = match query.stage {
             Stage::Model => Self::models(query.query, catalog).len(),
-            Stage::Effort => self.efforts(query.query, catalog).len(),
+            Stage::Effort | Stage::Speed => self.efforts(query.query, catalog).len(),
         };
         if count == 0 {
             return false;
         }
         let (index, window) = match query.stage {
             Stage::Model => (&mut self.model_index, &mut self.model_window),
-            Stage::Effort => (&mut self.effort_index, &mut self.effort_window),
+            Stage::Effort | Stage::Speed => (&mut self.effort_index, &mut self.effort_window),
         };
-        let current = *index % count;
-        *index = match (down, current) {
-            (true, last) if last + 1 == count => 0,
-            (true, current) => current + 1,
-            (false, 0) => count - 1,
-            (false, current) => current - 1,
-        };
-        *window = edge_start(*window, count, *index, MOST_ROWS);
+        advance(index, window, count, down);
         true
     }
 
-    /// What the footer previews while the effort column is open
-    /// (`app_render_runtime.zig:653-668`, `pendingPickerEffort` at `:862-873`):
-    /// the pending model, and the level the text spells or the mark is on.
-    pub(crate) fn preview(
-        &self,
-        query: &Query<'_>,
-        catalog: Known<'_>,
-    ) -> Option<(String, Effort)> {
+    /// What the footer previews while a later column is open
+    /// (`app_render_runtime.zig:653-668`, `pendingPickerEffort` and
+    /// `pendingPickerSpeed` at `:862-916`): the pending model; the level the
+    /// text spells while the effort column is open, else the marked one; and
+    /// the speed the text spells -- any of the three -- while the speed column
+    /// is open, else the marked one, which the effort column already has.
+    pub(crate) fn preview(&self, query: &Query<'_>, catalog: Known<'_>) -> Option<Preview> {
         let model = self.pending()?;
-        let effort = match query.stage {
-            Stage::Effort => self.exact_effort(query.query, catalog).unwrap_or_else(|| {
-                catalog
-                    .entry(model)
-                    .and_then(|entry| Effort::options(entry).into_iter().nth(self.effort_index))
-                    .unwrap_or_default()
-            }),
-            Stage::Model => Effort::Auto,
+        let marked = || {
+            catalog
+                .entry(model)
+                .and_then(|entry| Effort::options(entry).into_iter().nth(self.effort_index))
+                .unwrap_or_default()
         };
-        Some((model.to_string(), effort))
+        let effort = match query.stage {
+            Stage::Effort => self
+                .exact_effort(query.query, catalog)
+                .unwrap_or_else(marked),
+            Stage::Speed | Stage::Model => marked(),
+        };
+        let speed = match query.stage {
+            Stage::Speed => Speed::parse(query.query.trim_matches([' ', '\t'])),
+            Stage::Effort | Stage::Model => None,
+        }
+        .unwrap_or(Speed::ALL[self.speed_index % Speed::ALL.len()]);
+        Some(Preview {
+            model: model.to_string(),
+            effort,
+            speed,
+        })
     }
 
     /// The column's rows, exactly `height` of them: the open column's items
@@ -453,6 +660,17 @@ impl Column {
                 self.effort_index,
                 self.effort_window,
             ),
+            Stage::Speed => {
+                let listed = self.speeds(query.query, catalog);
+                (
+                    listed
+                        .iter()
+                        .map(|speed| speed.label().to_string())
+                        .collect(),
+                    self.speed_row(&listed),
+                    self.speed_window,
+                )
+            }
         };
         let indent = usize::from(anchor);
         let room = usize::from(cols).saturating_sub(indent);
@@ -464,6 +682,7 @@ impl Column {
                     (Stage::Model, Known::Failed) => "unable to load models",
                     (Stage::Model, Known::Rows(_)) => "no matching models",
                     (Stage::Effort, _) => "no matching effort",
+                    (Stage::Speed, _) => "no matching mode",
                 };
                 rows.push(format!(
                     "{}{}{}{}",
@@ -521,6 +740,33 @@ fn shaped(trimmed: &str) -> bool {
         .is_some_and(|head| head.eq_ignore_ascii_case(PREFIX))
 }
 
+/// How many blanks `text` begins with, in bytes (`skipPickerSpaces`).
+fn blanks(text: &str) -> usize {
+    text.len() - text.trim_start_matches([' ', '\t']).len()
+}
+
+/// Where `effort` is among the levels `entry` offers, `default` first
+/// (`reasoningEffortIndex`); the default's place for one it does not offer.
+fn level_index(entry: &CatalogEntry, effort: &Effort) -> usize {
+    Effort::options(entry)
+        .iter()
+        .position(|offered| offered == effort)
+        .unwrap_or(0)
+}
+
+/// One step of a mark over `count` rows, wrapping, and the window kept over
+/// it (`advanceSelection`, `list_window.zig:38-47`).
+fn advance(index: &mut usize, window: &mut usize, count: usize, down: bool) {
+    let current = *index % count;
+    *index = match (down, current) {
+        (true, last) if last + 1 == count => 0,
+        (true, current) => current + 1,
+        (false, 0) => count - 1,
+        (false, current) => current - 1,
+    };
+    *window = edge_start(*window, count, *index, MOST_ROWS);
+}
+
 /// Whether `needle` occurs in `haystack`, ASCII case ignored
 /// (`text_utils.containsIgnoreCase`).
 fn contains_ignoring_case(haystack: &str, needle: &str) -> bool {
@@ -551,14 +797,45 @@ mod tests {
         }
     }
 
+    /// `entry`, offering Fast and Ultra as told.
+    fn sped(id: &str, efforts: &[&str], fast: bool, ultrafast: bool) -> CatalogEntry {
+        let mut entry = entry(id, efforts);
+        entry.facts.fast = fast;
+        entry.facts.ultrafast = ultrafast;
+        entry
+    }
+
     /// The research harness's catalog, in the menu's order
-    /// (`account-model/scenarios/models.json`, `fx-model-40x120-space`).
+    /// (`scripts/fxcap/scenarios/models.json`, `fx-model-40x120-space`):
+    /// astra offers Fast (its `priority` tier) and Ultra, opus Fast (its
+    /// `fast_options` toggle), and the other two neither.
     fn catalog() -> Vec<CatalogEntry> {
         vec![
-            entry("openai/gpt-6-astra", &["low", "medium", "high", "xhigh"]),
-            entry("anthropic/claude-opus-5", &["low", "medium", "high", "max"]),
+            sped(
+                "openai/gpt-6-astra",
+                &["low", "medium", "high", "xhigh"],
+                true,
+                true,
+            ),
+            sped(
+                "anthropic/claude-opus-5",
+                &["low", "medium", "high", "max"],
+                true,
+                false,
+            ),
             entry("fake/model-a", &[]),
             entry("xai/grok-4.7", &[]),
+        ]
+    }
+
+    /// The column shapes the research catalog has no row for: levels and Ultra
+    /// alone, Ultra alone, Fast alone, and levels with no speed.
+    fn shapes() -> Vec<CatalogEntry> {
+        vec![
+            sped("openai/ultra-leveled", &["low", "high"], false, true),
+            sped("openai/ultra-only", &[], false, true),
+            sped("acme/fast-only", &[], true, false),
+            entry("zai/glm-5.2", &["low", "high"]),
         ]
     }
 
@@ -707,10 +984,14 @@ mod tests {
         let rows = catalog();
         let known = Known::Rows(&rows);
         let mut column = Column::default();
-        assert_eq!(column.step_back(known), None, "Left moves the caret here");
+        assert_eq!(
+            column.step_back(known, Speed::Normal),
+            None,
+            "Left moves the caret here"
+        );
         column.choose(&rows[1]);
         assert_eq!(
-            column.step_back(known),
+            column.step_back(known, Speed::Normal),
             Some("/model anthropic/claude-opus-5".to_string())
         );
         let query = column
@@ -832,18 +1113,273 @@ mod tests {
         assert_eq!(column.preview(&query, known), None, "nothing pending yet");
         column.choose(&rows[0]);
         let query = column.query("/model openai/gpt-6-astra ").expect("query");
+        let preview = |effort: Effort, speed: Speed| {
+            Some(Preview {
+                model: "openai/gpt-6-astra".to_string(),
+                effort,
+                speed,
+            })
+        };
+        // Fast marked from the moment the effort column opens, for a model
+        // that offers it: the `⚡︎` of `fx-model-column-40x120-gpt-enter`.
         assert_eq!(
             column.preview(&query, known),
-            Some(("openai/gpt-6-astra".to_string(), Effort::Auto))
+            preview(Effort::Auto, Speed::Fast)
         );
         column.step(&query, known, true);
         assert_eq!(
             column.preview(&query, known),
-            Some((
-                "openai/gpt-6-astra".to_string(),
-                Effort::Named("low".to_string())
-            ))
+            preview(Effort::Named("low".to_string()), Speed::Fast)
         );
+        // Typing at the level keeps the speed marked (`resetActiveModelPickerIndex`
+        // resets only the open column's mark).
+        column.edited(
+            "/model openai/gpt-6-astra ",
+            "/model openai/gpt-6-astra hi",
+            Edit::Typed,
+            true,
+        );
+        let typed = column.query("/model openai/gpt-6-astra hi").expect("query");
+        assert_eq!(
+            column.preview(&typed, known),
+            preview(Effort::Auto, Speed::Fast)
+        );
+        // A model with no Fast marks `normal`.
+        let mut opus = Column::default();
+        opus.choose(&shapes()[0]);
+        let shaped = shapes();
+        let query = opus.query("/model openai/ultra-leveled ").expect("query");
+        assert_eq!(
+            opus.preview(&query, Known::Rows(&shaped))
+                .map(|preview| preview.speed),
+            Some(Speed::Normal)
+        );
+    }
+
+    #[test]
+    fn enter_on_a_level_opens_the_speeds_only_for_a_model_that_offers_fast() {
+        let rows = catalog();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        column.choose(&rows[0]);
+        let high = Effort::Named("high".to_string());
+        // `submitModelPicker` `:1183`: on to the speeds, `fast` marked.
+        assert_eq!(
+            column.chose_effort(&rows[0], &high),
+            Some("/model openai/gpt-6-astra high ".to_string())
+        );
+        let text = "/model openai/gpt-6-astra high ";
+        let query = column.query(text).expect("a speed query");
+        assert_eq!(
+            (query.stage, query.query, query.token_start),
+            (Stage::Speed, "", 31)
+        );
+        assert_eq!(
+            column.speeds(query.query, known),
+            [Speed::Normal, Speed::Fast, Speed::Ultrafast]
+        );
+        assert_eq!(column.chosen_speed(&query, known), Some(Speed::Fast));
+        assert_eq!(column.speed_effort(known), high);
+        assert_eq!(column.pending(), Some("openai/gpt-6-astra"));
+        // Ultra and no Fast: the level commits (`None`), so Ultra cannot be
+        // chosen this way -- as upstream's cannot.
+        let shaped = shapes();
+        let mut ultra = Column::default();
+        ultra.choose(&shaped[0]);
+        assert_eq!(ultra.chose_effort(&shaped[0], &high), None);
+        // But a space after a level spelled out opens it for Ultra too, with
+        // `normal` marked (`advanceModelPickerOnSpace`, `:1133-1144`).
+        assert_eq!(
+            ultra.advance_effort(&shaped[0], &high),
+            Some("/model openai/ultra-leveled high ".to_string())
+        );
+        let shaped_known = Known::Rows(&shaped);
+        let query = ultra
+            .query("/model openai/ultra-leveled high ")
+            .expect("query");
+        assert_eq!(
+            ultra.speeds(query.query, shaped_known),
+            [Speed::Normal, Speed::Ultrafast]
+        );
+        assert_eq!(
+            ultra.chosen_speed(&query, shaped_known),
+            Some(Speed::Normal)
+        );
+        // A model with levels and no speed: a space does nothing.
+        let mut glm = Column::default();
+        glm.choose(&shaped[3]);
+        assert_eq!(glm.advance_effort(&shaped[3], &high), None);
+    }
+
+    #[test]
+    fn a_model_with_no_levels_and_a_speed_opens_the_speeds_at_auto() {
+        let shaped = shapes();
+        let known = Known::Rows(&shaped);
+        let mut column = Column::default();
+        assert_eq!(
+            column.choose(&shaped[1]),
+            Chosen::Speeds("/model openai/ultra-only auto ".to_string())
+        );
+        let query = column
+            .query("/model openai/ultra-only auto ")
+            .expect("query");
+        assert_eq!(query.stage, Stage::Speed);
+        assert_eq!(column.speeds("", known), [Speed::Normal, Speed::Ultrafast]);
+        assert_eq!(column.chosen_speed(&query, known), Some(Speed::Normal));
+        assert_eq!(column.speed_effort(known), Effort::Auto);
+        // Left goes back to the models: there are no levels to go back to.
+        assert_eq!(
+            column.step_back(known, Speed::Normal),
+            Some("/model openai/ultra-only".to_string())
+        );
+        assert_eq!(column.pending(), None);
+        // Fast alone marks `fast`.
+        let mut fast = Column::default();
+        fast.choose(&shaped[2]);
+        let query = fast.query("/model acme/fast-only auto ").expect("query");
+        assert_eq!(fast.chosen_speed(&query, known), Some(Speed::Fast));
+    }
+
+    #[test]
+    fn the_speed_column_filters_marks_a_speed_and_takes_one_spelled_out() {
+        let rows = catalog();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        column.choose(&rows[0]);
+        column.chose_effort(&rows[0], &Effort::Named("low".to_string()));
+        let at = |column: &Column, text: &'static str| column.query(text).expect("query");
+        // The token starts after the level's word, whatever it is, and the
+        // blanks after it; with no level token there is no speed query.
+        assert_eq!(
+            column
+                .query("/model openai/gpt-6-astra low   fa")
+                .map(|q| (q.query, q.token_start)),
+            Some(("fa", 32))
+        );
+        assert_eq!(column.query("/model openai/gpt-6-astra "), None);
+        assert_eq!(column.query("/model openai/gpt-6-astr"), None);
+        // `fast` matches two rows and keeps the mark on `fast`; Down walks the
+        // rows listed and keeps the speed the new row names.
+        let filtered = at(&column, "/model openai/gpt-6-astra low fast");
+        assert_eq!(
+            column.speeds(filtered.query, known),
+            [Speed::Fast, Speed::Ultrafast]
+        );
+        assert_eq!(column.chosen_speed(&filtered, known), Some(Speed::Fast));
+        // Spelled out exactly: taken whatever is marked.
+        let ultra = at(&column, "/model openai/gpt-6-astra low ULTRAFAST");
+        assert_eq!(column.chosen_speed(&ultra, known), Some(Speed::Ultrafast));
+        let open = at(&column, "/model openai/gpt-6-astra low ");
+        assert!(column.step(&open, known, true));
+        assert_eq!(column.chosen_speed(&open, known), Some(Speed::Ultrafast));
+        assert!(column.step(&open, known, true));
+        assert_eq!(
+            column.chosen_speed(&open, known),
+            Some(Speed::Normal),
+            "wrapped"
+        );
+        // A mark the filter hides shows on the first row listed.
+        let hidden = at(&column, "/model openai/gpt-6-astra low fa");
+        assert_eq!(column.chosen_speed(&hidden, known), Some(Speed::Fast));
+        // Nothing listed: nothing taken, and the column says so.
+        let none = at(&column, "/model openai/gpt-6-astra low slow");
+        assert_eq!(column.chosen_speed(&none, known), None);
+        assert_eq!(
+            plain(&column.rows(&none, known, 30, 120, 6, PALETTE))[0],
+            format!("{}no matching mode", " ".repeat(30))
+        );
+        // A speed spelled out that the model does not offer is not taken.
+        let opus_rows = catalog();
+        let mut opus = Column::default();
+        opus.choose(&opus_rows[1]);
+        opus.chose_effort(&opus_rows[1], &Effort::Auto);
+        let query = opus
+            .query("/model anthropic/claude-opus-5 auto ultrafast")
+            .expect("query");
+        assert_eq!(opus.chosen_speed(&query, Known::Rows(&opus_rows)), None);
+    }
+
+    #[test]
+    fn typing_a_speed_marks_normal_and_the_preview_follows_the_typed_word() {
+        let rows = catalog();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        column.choose(&rows[0]);
+        column.chose_effort(&rows[0], &Effort::Named("low".to_string()));
+        let before = "/model openai/gpt-6-astra low ";
+        let open = column.query(before).expect("query");
+        assert_eq!(
+            column.preview(&open, known).map(|p| p.speed),
+            Some(Speed::Fast)
+        );
+        assert_eq!(
+            column.preview(&open, known).map(|p| p.effort),
+            Some(Effort::Named("low".to_string()))
+        );
+        // `resetActiveModelPickerIndex` at the speed stage: `normal`.
+        let after = "/model openai/gpt-6-astra low u";
+        column.edited(before, after, Edit::Typed, true);
+        let typed = column.query(after).expect("query");
+        assert_eq!(
+            column.preview(&typed, known).map(|p| p.speed),
+            Some(Speed::Normal)
+        );
+        // A whole word is what the footer previews, offered or not -- the
+        // footer asks the row (`pendingPickerSpeed`).
+        let word = "/model openai/gpt-6-astra low ultrafast";
+        column.edited(after, word, Edit::Typed, true);
+        let typed = column.query(word).expect("query");
+        assert_eq!(
+            column.preview(&typed, known).map(|p| p.speed),
+            Some(Speed::Ultrafast)
+        );
+    }
+
+    #[test]
+    fn left_from_the_speeds_goes_back_to_the_levels_with_the_sessions_speed_marked() {
+        let rows = catalog();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        column.choose(&rows[0]);
+        column.chose_effort(&rows[0], &Effort::Named("high".to_string()));
+        // `stepBackModelPicker` `:1276-1285`: the level it was opened with
+        // still marked, and the session's speed -- not the model's -- marked.
+        assert_eq!(
+            column.step_back(known, Speed::Normal),
+            Some("/model openai/gpt-6-astra ".to_string())
+        );
+        let query = column.query("/model openai/gpt-6-astra ").expect("query");
+        assert_eq!(query.stage, Stage::Effort);
+        assert_eq!(
+            column.chosen_effort(&query, known),
+            Some(Effort::Named("high".to_string()))
+        );
+        assert_eq!(
+            column.preview(&query, known).map(|p| p.speed),
+            Some(Speed::Normal)
+        );
+    }
+
+    #[test]
+    fn tab_at_the_speeds_writes_all_three_tokens_and_keeps_the_column() {
+        let rows = catalog();
+        let known = Known::Rows(&rows);
+        let mut column = Column::default();
+        column.choose(&rows[0]);
+        column.chose_effort(&rows[0], &Effort::Named("medium".to_string()));
+        let query = column
+            .query("/model openai/gpt-6-astra medium ")
+            .expect("query");
+        assert!(column.step(&query, known, true));
+        assert_eq!(
+            column.complete(&query, known),
+            Some("/model openai/gpt-6-astra medium ultrafast".to_string())
+        );
+        let written = column
+            .query("/model openai/gpt-6-astra medium ultrafast")
+            .expect("still the speeds");
+        assert_eq!(written.stage, Stage::Speed);
+        assert_eq!(column.chosen_speed(&written, known), Some(Speed::Ultrafast));
     }
 
     #[test]

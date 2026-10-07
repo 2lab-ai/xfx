@@ -3448,8 +3448,11 @@ mod tests {
                 started_at_ms: 0,
                 concluded_at_ms: None,
                 details: Vec::new(),
+                images: Vec::new(),
             }],
             model: None,
+            settings: None,
+            keeps_fast_binding: true,
             next_image: 1,
         }
     }

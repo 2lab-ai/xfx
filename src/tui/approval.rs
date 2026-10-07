@@ -786,20 +786,24 @@ pub(crate) struct ControlChannel {
     /// can stop one. Consuming it without this queue would make a cancel typed
     /// at a panel a refusal *instead of* a cancel.
     put_back: Mutex<VecDeque<TurnControl>>,
-    /// Model changes and undos read while work was running, waiting for it
-    /// to end ([`Self::defer`], [`Self::defer_undo`]), in the order they were
-    /// read.
+    /// Model and speed changes and undos read while work was running,
+    /// waiting for it to end ([`Self::defer`], [`Self::defer_speed`],
+    /// [`Self::defer_undo`]), in the order they were read.
     deferred: Mutex<Vec<Deferred>>,
 }
 
 /// One message put aside while work ran, for the turn loop once it is over.
 ///
-/// One queue for both rather than one each, so they are done in the order the
-/// person typed them: a `/model` then an `/undo` are answered in that order.
+/// One queue for all of them rather than one each, so they are done in the
+/// order the person typed them: a `/model`, a `/fast` and an `/undo` are
+/// answered in that order -- the speed after the model change it may follow,
+/// which turns the switches off.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Deferred {
     /// [`TurnControl::Model`].
     Model(super::bridge::ModelChange),
+    /// [`TurnControl::Speed`].
+    Speed(super::bridge::SpeedChange),
     /// [`TurnControl::Undo`].
     ///
     /// `through` is the position the keystroke saw, carried as it came.
@@ -837,6 +841,14 @@ impl ControlChannel {
     /// user never refused.
     pub(crate) fn defer(&self, change: super::bridge::ModelChange) {
         self.deferred.guarded().push(Deferred::Model(change));
+    }
+
+    /// Puts a speed change aside until the work that is running ends
+    /// ([`TurnControl::Speed`]), for [`Self::defer`]'s reasons: the turn that
+    /// is running keeps the speed it began with, and **a speed change answers
+    /// no question**.
+    pub(crate) fn defer_speed(&self, change: super::bridge::SpeedChange) {
+        self.deferred.guarded().push(Deferred::Speed(change));
     }
 
     /// Puts an `/undo` aside until the work that is running ends
@@ -1112,6 +1124,11 @@ impl ApprovalPrompter for TuiPrompter {
                     // call the user never refused.
                     Some(TurnControl::Model(change)) => {
                         self.control.defer(change);
+                        continue;
+                    }
+                    // `/fast` or `/ultrafast` likewise.
+                    Some(TurnControl::Speed(change)) => {
+                        self.control.defer_speed(change);
                         continue;
                     }
                     // `/undo` typed while this question is up: done once the
@@ -2166,6 +2183,8 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            speed: None,
+            provider: crate::provider::ProviderId::Gateway,
             effort_only: false,
         };
         tx.send(TurnControl::Model(change.clone()))
@@ -2207,15 +2226,27 @@ mod tests {
         let change = super::super::bridge::ModelChange {
             name: "next/model".to_string(),
             effort: None,
+            speed: None,
             picker: false,
             announced: true,
             next_turn: true,
+            provider: crate::provider::ProviderId::Gateway,
             effort_only: false,
+        };
+        let speed = super::super::bridge::SpeedChange {
+            fast: true,
+            ultrafast: false,
+            topic: "fast",
+            provider: crate::provider::ProviderId::Gateway,
         };
         let typed = crate::tools::undo::Mark::now();
         tx.send(TurnControl::Undo { through: typed })
             .expect("the channel is open");
         tx.send(TurnControl::Model(change.clone()))
+            .expect("the channel is open");
+        // A `/fast` too: it answers no question either, and waits behind the
+        // model change it was typed after.
+        tx.send(TurnControl::Speed(speed.clone()))
             .expect("the channel is open");
         tx.send(TurnControl::Answer {
             id: ApprovalId(1),
@@ -2241,7 +2272,8 @@ mod tests {
                     through: typed,
                     after_reset: false
                 },
-                Deferred::Model(change)
+                Deferred::Model(change),
+                Deferred::Speed(speed)
             ]
         );
         assert_eq!(control.waiting(), None, "the undo was handed on as a stop");

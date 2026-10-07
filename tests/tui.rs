@@ -4093,15 +4093,35 @@ fn a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation() {
         let name = String::from_utf8_lossy(command).trim().to_string();
 
         session.type_bytes(command);
-        let text = session.wait_for_count("Run /help for commands", 2);
+        // **The reset's own frame, and not the one before it.** The fresh
+        // screen is three writes (`commit_frame`): the handoff that carries the
+        // document into scrollback, the welcome line on row 1, and the band's
+        // frame under it. The second welcome is on the wire before that frame
+        // is, and the last complete frame at that moment is the one painted
+        // before the reset -- so a read taken on the welcome alone judged the
+        // old screen whenever the session was descheduled between the two
+        // writes, and said the old answer was still there while the terminal
+        // had already scrolled it away. What is read is the first frame that
+        // ends after the fresh welcome: fixed by the bytes rather than by when
+        // the wait looked, and a reset that painted the old answer back is
+        // still caught on it rather than waited past.
+        let fresh = |text: &str| {
+            text.match_indices("Run /help for commands")
+                .nth(1)
+                .map(|(at, _)| at)
+        };
+        let text = session.wait_until("the band painted under the fresh welcome", |text| {
+            fresh(text).is_some_and(|at| text[at..].contains(FRAME_END))
+        });
         assert!(
             !text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"),
             "{name} erased the screen or the scrollback: {text:?}"
         );
-        let reset_at = text
-            .rfind("Run /help for commands")
-            .expect("the fresh welcome");
-        let painted = Screen::painted(&text, 24, 80).expect("a frame after the reset");
+        let reset_at = fresh(&text).expect("the fresh welcome");
+        let frame_end = reset_at
+            + text[reset_at..].find(FRAME_END).expect("the reset's frame")
+            + FRAME_END.len();
+        let painted = Screen::painted(&text[..frame_end], 24, 80).expect("a frame after the reset");
         assert_eq!(
             painted.find("Run /help for commands"),
             Some(1),
@@ -4112,15 +4132,18 @@ fn a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation() {
             None,
             "{name} left the old answer on the screen"
         );
-        assert!(
-            !text[reset_at..].contains("MARKER-BEFORE-THE-RESET"),
-            "{name} wrote the old answer again after the reset"
-        );
 
         session.type_bytes(b"and now\r");
         session.wait_for("MARKER-AFTER-THE-RESET");
         session.type_bytes(&[0x04]);
         assert_eq!(session.wait_exit().code(), Some(0));
+        // An absence, so asked of everything the terminal will ever receive
+        // ([`Session::settled_text`]) rather than of a snapshot taken while
+        // the session was still writing.
+        assert!(
+            !session.settled_text()[reset_at..].contains("MARKER-BEFORE-THE-RESET"),
+            "{name} wrote the old answer again after the reset"
+        );
 
         assert_eq!(
             user_messages(&gateway.requests()[1].json()),
@@ -4493,6 +4516,67 @@ fn status_counts_the_turn_the_live_conversation_just_held() {
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     assert_eq!(gateway.request_count(), 1, "a command reached the provider");
+}
+
+#[test]
+fn a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed() {
+    // Upstream's summary row sums out over every request a turn made, each at
+    // what the provider reported for it (`vercel-labs/fx@c1db9191
+    // src/core/agent/runtime/telemetry.zig:136-168`), and a resumed session
+    // shows the summary the turn saved (`app_session_runtime.zig:4776-4778`):
+    // fx's `allowlist-turn` reads `↓80` under a turn of two requests. Red
+    // before: `↓40`, the answering request's count alone, live and resumed.
+    use support::fake_gateway::{finish_with_usage, sse_body, text_delta, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish_with_usage("tool-calls", 1200, 40),
+        ])),
+        Reply::Sse(sse_body(&[
+            text_delta("answer_0", "MARKER-READ"),
+            finish_with_usage("stop", 1300, 40),
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "one\n").expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut live = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    live.wait_for(READY);
+    // `read it` is two spans of one token each: in is 2, whatever the
+    // requests said they read.
+    live.type_bytes(b"read it\r");
+    on_screen(
+        &live,
+        (40, 120),
+        &["MARKER-READ", "(\u{2191}2 \u{2193}80)"],
+        &[],
+    );
+    wait_for_the_turn_to_conclude(&sandbox);
+    live.type_bytes(b"/quit\r");
+    assert_eq!(live.wait_exit().code(), Some(0));
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.arg("--resume").arg(&ids[0]);
+    let mut resumed = Session::spawn_without_taking_the_terminal(&pty, command);
+    resumed.wait_for(READY);
+    on_screen(
+        &resumed,
+        (40, 120),
+        &["MARKER-READ", "(\u{2191}2 \u{2193}80)"],
+        &[],
+    );
+    resumed.type_bytes(b"/quit\r");
+    assert_eq!(resumed.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 2, "{:?}", gateway.requests());
 }
 
 /// `minutes` before now as the Gateway writes a time: `YYYY-MM-DDTHH:MM:SSZ`.
@@ -7917,11 +8001,25 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
         "a row that is not a language model was listed"
     );
 
-    // Down to opus, Enter: applied, saved, and the footer follows it.
+    // Down to opus and Enter: this catalog lists no levels for it and it
+    // offers Fast, so the menu goes on into the speed column at `auto`, `fast`
+    // marked (`beginExactModelSelection` -> `beginModelPickerOptions`,
+    // `input_completion_runtime.zig:1227-1262`); `normal` and Enter applies
+    // it, saved, and the footer follows it.
     session.type_bytes(b"\x1b[B");
     session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} /model anthropic/claude-opus-5 auto",
+            "auto \u{b7} opus 5 \u{b7} \u{26a1}\u{fe0e}",
+        ],
+        &[],
+    );
+    session.type_bytes(b"normal\r");
     session.wait_for("Switched to anthropic/claude-opus-5 (effort: default, speed: normal)");
-    on_screen(&session, (40, 120), &["auto \u{b7} opus 5"], &[]);
+    on_screen(&session, (40, 120), &["auto \u{b7} opus 5"], &["\u{26a1}"]);
     // The router form, over the same catalog without asking for it again.
     session.type_bytes(b"/model grok\r");
     session.wait_for("Switched to xai/grok-4.7 (effort: default, speed: normal)");
@@ -7936,8 +8034,18 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     session.type_bytes(b"\x1b[200~/model fake/model-a high\x1b[201~\r");
     session.wait_for("usage: /model <id> <effort> [normal|fast|ultrafast]");
     session.type_bytes(&[0x15]);
+    // Typed, `/model opus` and Enter take the column's marked row, which goes
+    // on into the speed column for the same reason; Enter there takes the
+    // marked `fast`.
     session.type_bytes(b"/model opus\r");
-    session.wait_for_count("Switched to anthropic/claude-opus-5", 2);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} /model anthropic/claude-opus-5 auto"],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    session.wait_for("Switched to anthropic/claude-opus-5 (effort: default, speed: fast)");
     session.type_bytes(b"say something\r");
     session.wait_for("MARKER-A-MODEL-MENU-ANSWERED");
     session.type_bytes(&[0x04]);
@@ -7956,6 +8064,11 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     assert_eq!(
         gateway.only_request().header("ai-language-model-id"),
         Some("anthropic/claude-opus-5")
+    );
+    assert_eq!(
+        gateway.only_request().json()["providerOptions"],
+        serde_json::json!({"gateway": {"speed": "fast"}}),
+        "the speed taken in the column was not sent"
     );
     assert_eq!(
         sandbox.settings().expect("a profile")["models"]["gateway"],
@@ -8229,6 +8342,122 @@ fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it
     let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     again.wait_for(READY);
     on_screen(&again, (40, 120), &["auto \u{b7} model-a \u{b7} low"], &[]);
+    again.type_bytes(&[0x04]);
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn the_speed_column_and_the_switches_ride_as_upstreams_provider_options() {
+    // `fx-model3-40x120-paste-ok` and the account-model research §5-§6: Enter
+    // on a level of a model that offers Fast opens the speed column, Ultra is
+    // sent as `providerOptions.gateway.only` and `providerOptions.openai.
+    // serviceTier` (`vercel_protocol.zig:478-494`), `/fast` as
+    // `providerOptions.gateway.speed` (`:469-472`), and the switches are saved
+    // where the next launch reads them back.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-A-ULTRA-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-B-FAST-ANSWERED",
+        ])),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "openai/gpt-6-astra", "type": "language", "owned_by": "openai",
+         "released": 1_780_000_000, "tags": ["tool-use", "reasoning"],
+         "reasoning_options": [{"type": "effort", "values": ["low", "high"]}],
+         "pricing": {"input": "0.000002", "output": "0.00001", "input_cache_read": "0.0000002",
+                     "service_tiers": {"priority": {"input": "0.000004", "output": "0.00002"},
+                                       "ultrafast": {"input": "0.00006", "output": "0.0003",
+                                                     "input_cache_read": "0.000006"}}}},
+        {"id": "fake/model-a", "type": "language", "owned_by": "fake",
+         "released": 1_700_000_000, "tags": ["tool-use"]}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/model ");
+    on_screen(&session, (40, 120), &["         openai/gpt-6-astra"], &[]);
+    session.type_bytes(b"gpt\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["                            high"],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} /model openai/gpt-6-astra auto",
+            "                                 normal",
+            "                                 fast",
+            "                                 ultrafast",
+        ],
+        &[],
+    );
+    session.type_bytes(b"\x1b[B\r");
+    session.wait_for("Switched to openai/gpt-6-astra (effort: default, speed: ultrafast)");
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-ULTRA-ANSWERED");
+    // This fake confirms no tier, so the turn says so above its answer, in
+    // upstream's words (`orchestrator.zig:8015-8022`).
+    on_screen(
+        &session,
+        (40, 120),
+        &["  Ultrafast was requested, but Gateway did not confirm it was served;"],
+        &[],
+    );
+    session.type_bytes(b"/fast\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "* fast: on",
+            "auto \u{b7} gpt-6-astra \u{b7} \u{26a1}\u{fe0e}",
+        ],
+        &[],
+    );
+    session.type_bytes(b"say more\r");
+    session.wait_for("MARKER-B-FAST-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert_eq!(
+        requests[0].json()["providerOptions"],
+        serde_json::json!({"gateway": {"only": ["openai"]}, "openai": {"serviceTier": "ultrafast"}}),
+        "{}",
+        requests[0].json()
+    );
+    assert_eq!(
+        requests[1].json()["providerOptions"],
+        serde_json::json!({"gateway": {"speed": "fast"}}),
+        "{}",
+        requests[1].json()
+    );
+    let settings = sandbox.settings().expect("a profile");
+    assert_eq!(settings["fast_mode"], true);
+    assert_eq!(settings["ultrafast_mode"], false);
+    assert_eq!(settings["fast_mode_model_bound"], true);
+
+    // The next launch is in Fast, bound to the model, and marks it.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    again.wait_for(READY);
+    on_screen(
+        &again,
+        (40, 120),
+        &["auto \u{b7} gpt-6-astra \u{b7} \u{26a1}\u{fe0e}"],
+        &[],
+    );
     again.type_bytes(&[0x04]);
     assert_eq!(again.wait_exit().code(), Some(0));
 }

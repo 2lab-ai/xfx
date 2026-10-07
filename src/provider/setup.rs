@@ -182,8 +182,31 @@ pub struct PreparedSetup {
     pub settings_path: PathBuf,
     /// The exact bytes, from `profile::document_for` -- the same serializer the
     /// pre-seam `profile::write` used, so `xfx setup` still produces the same
-    /// file byte for byte.
+    /// file byte for byte. [`commit`] sets it to the bytes it wrote, which are
+    /// these unless another writer changed the file in between.
     pub document: Vec<u8>,
+    /// What `document` merged into the file, kept so [`commit`] can merge it
+    /// again into the file as it stands under the lock.
+    pub selection: SetupSelection,
+}
+
+/// [`crate::provider::profile::Selection`], owned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupSelection {
+    pub provider: ProviderId,
+    pub model: String,
+    pub llmux_url: Option<String>,
+}
+
+impl SetupSelection {
+    /// The borrowed form `profile::document_for` merges.
+    pub fn as_selection(&self) -> Selection<'_> {
+        Selection {
+            provider: self.provider,
+            model: &self.model,
+            llmux_url: self.llmux_url.as_deref(),
+        }
+    }
 }
 
 /// Runs the provider setup command: decide everything, then write it.
@@ -199,8 +222,8 @@ pub async fn run(
     provider: ProviderId,
     explicit_url: Option<&str>,
 ) -> Result<SetupReport, SetupError> {
-    let prepared = prepare(config, env, provider, explicit_url).await?;
-    commit(&prepared)?;
+    let mut prepared = prepare(config, env, provider, explicit_url).await?;
+    commit(&mut prepared)?;
     Ok(prepared.report)
 }
 
@@ -222,21 +245,37 @@ pub async fn prepare(
     }
 }
 
-/// Writes exactly [`PreparedSetup::document`], and nothing else.
+/// Writes the prepared selection under upstream's `settings.lock`, and leaves
+/// [`PreparedSetup::document`] holding exactly the bytes it wrote.
 ///
-/// The only I/O this module performs after [`prepare`] has returned. It does not
-/// re-read, re-merge or re-decide: a commit that recomputed the document could
-/// write something the caller never saw and could therefore never recognize
-/// afterwards -- and recognizing its own bytes on disk is exactly how the
-/// caller tells "the rename landed" from "another writer owns this file".
-pub fn commit(prepared: &PreparedSetup) -> Result<(), SetupError> {
-    crate::provider::profile::write_document(&prepared.settings_path, &prepared.document).map_err(
-        |err| SetupError::Write {
-            provider: prepared.report.provider,
-            path: prepared.settings_path.clone(),
-            detail: err.to_string(),
-        },
-    )
+/// The only I/O this module performs after [`prepare`] has returned, and a
+/// settings write like every other (`crate::provider::profile::rewrite_document`):
+/// the file is read again under the lock and the **selection** -- not a
+/// re-decision; the model, the URL and the provider are what `prepare` chose --
+/// merged into it. With nobody else writing in between, the bytes are
+/// `prepare`'s byte for byte (one serializer, one input). With somebody, their
+/// keys are kept, and `document` is updated to the bytes actually written
+/// **before** they are written, so the caller still recognizes its own bytes
+/// on disk afterwards -- which is how it tells "the rename landed" from
+/// "another writer owns this file". A write that failed leaves `document`
+/// holding the bytes it attempted, for the same classification.
+pub fn commit(prepared: &mut PreparedSetup) -> Result<(), SetupError> {
+    let PreparedSetup {
+        report,
+        settings_path,
+        document,
+        selection,
+    } = prepared;
+    crate::provider::profile::rewrite_document(settings_path, |existing| {
+        let merged = crate::provider::profile::document_for(existing, &selection.as_selection());
+        document.clone_from(&merged);
+        merged
+    })
+    .map_err(|err| SetupError::Write {
+        provider: report.provider,
+        path: settings_path.clone(),
+        detail: err.to_string(),
+    })
 }
 
 /// Set up the Vercel AI Gateway as the provider.
@@ -295,15 +334,15 @@ async fn prepare_gateway(config: &RuntimeConfig) -> Result<PreparedSetup, SetupE
         }
     })?;
 
-    let selection = Selection {
+    let selection = SetupSelection {
         provider: ProviderId::Gateway,
-        model: &model,
+        model: model.clone(),
         llmux_url: None,
     };
 
     // The document, not the write. Nothing has touched the file except the read
     // above, so a caller that drops this leaves the machine untouched.
-    let document = crate::provider::profile::document_for(existing, &selection);
+    let document = crate::provider::profile::document_for(existing, &selection.as_selection());
 
     // Step 6: Report what outranks the file and what is missing.
     let overridden_by = overriding_layers(config);
@@ -329,6 +368,7 @@ async fn prepare_gateway(config: &RuntimeConfig) -> Result<PreparedSetup, SetupE
         },
         settings_path,
         document,
+        selection,
     })
 }
 
@@ -474,10 +514,12 @@ const CONFLICT: &str = "xfx: another process wrote ~/.xfx/settings.json while th
 /// The only serialization claimed is the one actually enforced: `WORK_LIMIT` is
 /// two, so a second `Setup` can be *accepted*, but [`turn_loop`] takes work one
 /// item at a time on a single thread, so only one transaction ever *executes*.
-/// There is no cross-process lock -- file replacement is atomic, the
-/// read-modify-write around it is last-writer-wins by its own documented
-/// contract (`crate::provider::profile`) -- which is exactly why (e) and (f)
-/// classify by rereading and why a third state is never overwritten.
+/// The commit's own read-modify-write is under `settings.lock`
+/// ([`commit`]), so a key another writer set between (b) and (d) is merged
+/// with rather than lost; the lock is not held across the whole transaction --
+/// prepare probes a daemon, and nothing may hold a settings lock across a
+/// socket -- which is exactly why (e) and (f) classify by rereading and why a
+/// third state is never overwritten.
 ///
 /// `cancelled` and `reload` are arguments rather than statements so that every
 /// branch above is a claim a unit test can make without a daemon, a terminal or
@@ -512,8 +554,10 @@ pub(crate) async fn setup_transaction(
         return Err(SetupProblem::Cancelled);
     }
 
-    // (d) Commit, and (e) classify a failure by rereading.
-    if let Err(err) = commit(&prepared) {
+    // (d) Commit, and (e) classify a failure by rereading -- against the bytes
+    // the commit decided under the lock, which it left in `document`.
+    let mut prepared = prepared;
+    if let Err(err) = commit(&mut prepared) {
         match classify(&settings_path, &prepared.document, &preimage) {
             // The rename landed; the directory sync did not. The document is on
             // disk, so the switch happened -- it is merely less durable than it
@@ -647,12 +691,73 @@ mod tests {
             !fixture.settings().exists(),
             "prepare wrote something; it must decide everything and write nothing"
         );
-        commit(&prepared).expect("commit");
+        let mut committed = prepared.clone();
+        commit(&mut committed).expect("commit");
         assert_eq!(
             fs::read(fixture.settings()).expect("read"),
             prepared.document,
             "the bytes on disk are not the bytes prepare promised"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn commit_waits_for_settings_lock_like_every_other_settings_write() {
+        // `xfx setup` is a settings write like `/model`'s and `/statusline`'s,
+        // and takes upstream's `settings.lock` beside the file
+        // (`settings_store.zig:491`). `flock` is per open file description, so
+        // a second open here stands in for another process.
+        use rustix::fs::{flock, FlockOperation};
+        let fixture = Fixture::new();
+        let prepared = prepare(&fixture.config(), &fixture.env(), ProviderId::Gateway, None)
+            .await
+            .expect("prepare");
+        let dir = fixture.settings().parent().expect("a parent").to_path_buf();
+        fs::create_dir_all(&dir).expect("profile dir");
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("settings.lock"))
+            .expect("open the lock");
+        flock(&held, FlockOperation::NonBlockingLockExclusive).expect("hold the lock");
+        let writer = std::thread::spawn(move || {
+            let mut prepared = prepared;
+            commit(&mut prepared).map(|()| prepared.document)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(
+            !fixture.settings().exists(),
+            "setup wrote through a lock another process holds"
+        );
+        drop(held);
+        let written = writer.join().expect("the writer panicked").expect("commit");
+        assert_eq!(fs::read(fixture.settings()).expect("read"), written);
+    }
+
+    #[tokio::test]
+    async fn a_key_written_between_prepare_and_commit_survives_the_setup() {
+        // The read-modify-write is under the lock, as every other settings
+        // write's is: a `/model` saved by another xfx while this setup probed
+        // its daemon is merged with, not written over. What is on disk is
+        // still exactly the document the transaction holds afterwards.
+        let fixture = Fixture::new();
+        let mut prepared = prepare(&fixture.config(), &fixture.env(), ProviderId::Gateway, None)
+            .await
+            .expect("prepare");
+        crate::provider::profile::write_preference(
+            &fixture.settings(),
+            &["effort"],
+            serde_json::json!("high"),
+        )
+        .expect("another writer");
+        commit(&mut prepared).expect("commit");
+        let on_disk = fs::read(fixture.settings()).expect("read");
+        assert_eq!(on_disk, prepared.document);
+        let written: serde_json::Value = serde_json::from_slice(&on_disk).expect("json");
+        assert_eq!(written["effort"], "high", "the other writer's key was lost");
+        assert_eq!(written["provider"], "gateway");
     }
 
     #[tokio::test]
@@ -798,12 +903,13 @@ mod tests {
             before,
             "the file was changed by a write that was supposed not to have landed"
         );
-        // And no stage was left behind to be mistaken for state.
+        // And no stage was left behind to be mistaken for state. The lock the
+        // write took stays, as it does beside every settings write.
         let strays: Vec<_> = fs::read_dir(fixture.home.join(".xfx"))
             .expect("read dir")
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .filter(|name| name != "settings.json")
+            .filter(|name| name != "settings.json" && name != "settings.lock")
             .collect();
         assert_eq!(strays, Vec::<String>::new(), "a stage survived the failure");
     }

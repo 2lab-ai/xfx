@@ -8,6 +8,7 @@
 
 pub mod compact;
 pub mod machine;
+pub mod tokens;
 pub mod types;
 
 pub use machine::{allows_step, run_turn, run_turn_saved, TurnMachine};

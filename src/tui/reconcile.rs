@@ -93,6 +93,7 @@ impl Answered {
         crate::session::SessionEvent::UsageRecorded {
             input_tokens: None,
             output_tokens: None,
+            turn_output_tokens: None,
             requests: Vec::new(),
             unaccounted: false,
             lines_added: 0,

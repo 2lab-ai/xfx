@@ -80,6 +80,20 @@ pub const PROMPT_HISTORY_KEY: &str = "prompt_history";
 /// wants their model to think is theirs, not a repository's.
 pub const EFFORT_KEY: &str = "effort";
 
+/// Fast mode, upstream's key: a `bool`. Profile-only, as upstream's is.
+pub const FAST_MODE_KEY: &str = "fast_mode";
+
+/// Ultra mode, upstream's key: a `bool`. Profile-only, as upstream's is.
+pub const ULTRAFAST_MODE_KEY: &str = "ultrafast_mode";
+
+/// Whether the profile's Fast mode was chosen for the model it holds,
+/// upstream's key (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+/// Upstream writes it `true` beside every model, effort or speed change; what
+/// it governs is the footer's `⚡︎`, which marks a Fast mode that is bound and
+/// on. A `fast_mode` an operator wrote by hand without it is on and sent, and
+/// not marked.
+pub const FAST_MODE_MODEL_BOUND_KEY: &str = "fast_mode_model_bound";
+
 /// The configured permission table (`config_runtime.zig:1845-1850`): an
 /// action for everything, or categories to actions or to patterns to actions
 /// (`crate::permission::rules::RuleSet::parse`). Profile-only, as upstream's is
@@ -159,6 +173,9 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     COLLAPSE_TOOL_CALLS_KEY,
     "credential_source",
     EFFORT_KEY,
+    FAST_MODE_KEY,
+    FAST_MODE_MODEL_BOUND_KEY,
+    ULTRAFAST_MODE_KEY,
     "llmux_url",
     "model",
     "models",
@@ -409,6 +426,17 @@ pub struct Sources {
     /// `setup` has to be able to tell the operator that the file it just wrote
     /// is not the layer their next turn will read.
     pub llmux_url: SettingSource,
+    /// Where `fast_mode` and `fast_mode_model_bound` came from: the binding
+    /// holds only when they and the model came from one layer
+    /// (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+    pub fast_mode: SettingSource,
+    pub fast_mode_model_bound: SettingSource,
+    /// Where `effort` and `ultrafast_mode` came from: they decide nothing at
+    /// launch, and are kept only so a save can say that a layer above the
+    /// profile -- this workspace's entry -- will still decide them
+    /// (`appendShadowedUserSources`, `session_commands.zig:182-184`).
+    pub effort: SettingSource,
+    pub ultrafast_mode: SettingSource,
 }
 
 impl Default for Sources {
@@ -419,6 +447,10 @@ impl Default for Sources {
             max_agent_steps: SettingSource::CompiledDefault,
             provider: SettingSource::CompiledDefault,
             llmux_url: SettingSource::CompiledDefault,
+            fast_mode: SettingSource::CompiledDefault,
+            fast_mode_model_bound: SettingSource::CompiledDefault,
+            effort: SettingSource::CompiledDefault,
+            ultrafast_mode: SettingSource::CompiledDefault,
         }
     }
 }
@@ -794,6 +826,13 @@ pub struct RuntimeConfig {
     /// catalog's question, asked per request
     /// (`crate::provider::effort::Effort::for_request`).
     pub effort: crate::provider::effort::Effort,
+    /// Fast mode as the profile left it ([`FAST_MODE_KEY`]); off when Ultra is
+    /// on, because the two are never on together.
+    pub fast_mode: bool,
+    /// Whether that Fast mode is bound to the model ([`FAST_MODE_MODEL_BOUND_KEY`]).
+    pub fast_mode_model_bound: bool,
+    /// Ultra mode as the profile left it ([`ULTRAFAST_MODE_KEY`]).
+    pub ultrafast_mode: bool,
     /// The directories `/workspace` saved for this workspace, as the profile
     /// spells them: `workspaces["<workspace>"].additional_directories`
     /// (`crate::workspace::access`). Profile-only, because `workspaces` is: a
@@ -1136,6 +1175,16 @@ impl RuntimeConfig {
             startup_scrollback: settings.startup_scrollback.unwrap_or(true),
             prompt_history: settings.prompt_history.unwrap_or(true),
             effort: settings.effort.unwrap_or_default(),
+            // Ultra outranks Fast, as turning it on turns Fast off.
+            fast_mode: settings.fast_mode.unwrap_or(false)
+                && !settings.ultrafast_mode.unwrap_or(false),
+            // Bound only to a model chosen in the layer Fast was
+            // (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
+            fast_mode_model_bound: settings.fast_mode.unwrap_or(false)
+                && settings.fast_mode_model_bound.unwrap_or(false)
+                && sources.model == sources.fast_mode
+                && sources.fast_mode == sources.fast_mode_model_bound,
+            ultrafast_mode: settings.ultrafast_mode.unwrap_or(false),
             additional_directories,
             permission,
             sources,
@@ -1203,6 +1252,11 @@ struct Settings {
     prompt_history: Option<bool>,
     /// `effort`, when a layer wrote a readable one.
     effort: Option<crate::provider::effort::Effort>,
+    /// `fast_mode`, `fast_mode_model_bound` and `ultrafast_mode`, each merged
+    /// on its own.
+    fast_mode: Option<bool>,
+    fast_mode_model_bound: Option<bool>,
+    ultrafast_mode: Option<bool>,
 }
 
 impl Settings {
@@ -1227,6 +1281,18 @@ impl Settings {
         if let Some(on) = incoming.statusline_workspace {
             self.statusline_workspace = Some(on);
         }
+        if let Some(on) = incoming.fast_mode {
+            self.fast_mode = Some(on);
+            sources.fast_mode = source;
+        }
+        if let Some(on) = incoming.fast_mode_model_bound {
+            self.fast_mode_model_bound = Some(on);
+            sources.fast_mode_model_bound = source;
+        }
+        if let Some(on) = incoming.ultrafast_mode {
+            self.ultrafast_mode = Some(on);
+            sources.ultrafast_mode = source;
+        }
         // The three `/settings` switches, each on its own and with no
         // provenance kept, for the reason the segments above keep none.
         if let Some(on) = incoming.slash_menu_categories {
@@ -1243,6 +1309,7 @@ impl Settings {
         }
         if let Some(effort) = incoming.effort {
             self.effort = Some(effort);
+            sources.effort = source;
         }
         if let Some(mode) = incoming.permission_mode {
             self.permission_mode = Some(mode);
@@ -1376,6 +1443,27 @@ fn parse_layer(
         // Upstream's reading (`config_runtime.zig:1798-1805`): a string it can
         // parse, or `null` for the default. Anything else is a diagnostic and
         // the effort an earlier layer chose stands.
+        // The speed switches: each a `bool`, and a value of any other type a
+        // diagnostic that leaves what an earlier layer said.
+        for (key, slot) in [
+            (FAST_MODE_KEY, &mut settings.fast_mode),
+            (
+                FAST_MODE_MODEL_BOUND_KEY,
+                &mut settings.fast_mode_model_bound,
+            ),
+            (ULTRAFAST_MODE_KEY, &mut settings.ultrafast_mode),
+        ] {
+            if let Some(value) = object.get(key) {
+                match value.as_bool() {
+                    Some(on) => *slot = Some(on),
+                    None => diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        key,
+                    )),
+                }
+            }
+        }
         if let Some(value) = object.get(EFFORT_KEY) {
             let effort = match value {
                 Value::Null => Some(crate::provider::effort::Effort::Auto),
@@ -2167,6 +2255,9 @@ mod tests {
             startup_scrollback: Some(false),
             prompt_history: Some(false),
             effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
+            fast_mode: Some(true),
+            fast_mode_model_bound: None,
+            ultrafast_mode: None,
         };
         let mut sources = Sources::default();
         settings.merge(
@@ -2846,6 +2937,81 @@ mod tests {
                 config.diagnostics
             );
         }
+    }
+
+    #[test]
+    fn fast_is_bound_only_to_a_model_chosen_where_fast_was() {
+        // `resolveStartupFastMode` (`app_lifecycle.zig:827-844`): the binding
+        // holds only when the model, `fast_mode` and the binding all come from
+        // the same layer -- a model an `XFX_MODEL` names, or the compiled
+        // default, was not the one Fast was chosen for, so the footer does not
+        // mark it (Fast is still on, and still sent).
+        let profile = r#"{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":true,"fast_mode_model_bound":true}"#;
+        let (_root, config) = loaded_with_profile(profile);
+        assert!(config.fast_mode && config.fast_mode_model_bound);
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        let env = Environment::new(
+            Some(home),
+            BTreeMap::from([(ENV_MODEL.to_string(), "openai/gpt-6-astra".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, &workspace).expect("load");
+        assert!(config.fast_mode, "Fast is still on");
+        assert!(
+            !config.fast_mode_model_bound,
+            "bound to a model the environment replaced"
+        );
+        // The compiled default model is not the profile's either.
+        let (_root, config) =
+            loaded_with_profile(r#"{"fast_mode":true,"fast_mode_model_bound":true}"#);
+        assert!(config.fast_mode && !config.fast_mode_model_bound);
+    }
+
+    #[test]
+    fn the_speed_switches_are_the_profiles_and_ultra_outranks_fast() {
+        let (_root, config) = loaded_with_profile("{}");
+        assert!(!config.fast_mode && !config.ultrafast_mode && !config.fast_mode_model_bound);
+        let (_root, config) = loaded_with_profile(
+            r#"{"model":"acme/one","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}"#,
+        );
+        assert!(config.fast_mode && config.fast_mode_model_bound && !config.ultrafast_mode);
+        // Fast written by hand without the binding is on, and not bound.
+        let (_root, config) = loaded_with_profile(r#"{"fast_mode":true}"#);
+        assert!(config.fast_mode && !config.fast_mode_model_bound);
+        // Never both.
+        let (_root, config) = loaded_with_profile(r#"{"fast_mode":true,"ultrafast_mode":true}"#);
+        assert!(config.ultrafast_mode && !config.fast_mode);
+        let (_root, config) = loaded_with_profile(r#"{"fast_mode":"yes"}"#);
+        assert!(!config.fast_mode);
+        assert!(
+            config
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.detail()
+                    == "user config diagnostic: invalid_value key=fast_mode"),
+            "{:?}",
+            config.diagnostics
+        );
+        // A repository does not choose it.
+        let object = serde_json::from_str::<Value>(r#"{"ultrafast_mode":true}"#).unwrap();
+        let mut diagnostics = Vec::new();
+        report_ignored_profile_keys(object.as_object().unwrap(), &mut diagnostics);
+        assert_eq!(
+            diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::Project,
+                DiagnosticCause::IgnoredProjectProfileSetting,
+                ULTRAFAST_MODE_KEY
+            )]
+        );
     }
 
     #[test]
