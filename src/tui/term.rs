@@ -116,16 +116,23 @@ pub(crate) fn capture(fd: BorrowedFd<'_>) -> io::Result<Termios> {
     tcgetattr(fd).map_err(io::Error::from)
 }
 
-/// Raw mode, as upstream defines it (`shell_runtime.zig:108-138`).
+/// Raw mode, as upstream defines it (`shell_runtime.zig:103-129`).
 ///
 /// Not `cfmakeraw`: that clears `OPOST` as well, and output processing is not
 /// xfx's to take -- the acceptance matrix names `c_lflag`, `c_iflag`, `CS8`,
 /// and `VMIN`/`VTIME`, and nothing else.
+///
+/// All three carriage-return translations go, as upstream's do
+/// (`raw.iflag.IGNCR/ICRNL/INLCR = false`, `:106-108`): a terminal its user
+/// left with `IGNCR` set would otherwise swallow every Return before the
+/// composer saw it, and one with `INLCR` would turn `C-j` into a Return.
 pub(crate) fn raw_from(saved: &Termios) -> Termios {
     let mut raw = saved.clone();
     raw.input_modes.remove(
         InputModes::BRKINT
+            | InputModes::IGNCR
             | InputModes::ICRNL
+            | InputModes::INLCR
             | InputModes::INPCK
             | InputModes::ISTRIP
             | InputModes::IXON
@@ -628,7 +635,9 @@ mod tests {
         let mut termios = tcgetattr(&slave).expect("read the pty's termios");
         termios.input_modes.insert(
             InputModes::BRKINT
+                | InputModes::IGNCR
                 | InputModes::ICRNL
+                | InputModes::INLCR
                 | InputModes::INPCK
                 | InputModes::ISTRIP
                 | InputModes::IXON
@@ -669,7 +678,9 @@ mod tests {
         let cooked = cooked();
         for mode in [
             InputModes::BRKINT,
+            InputModes::IGNCR,
             InputModes::ICRNL,
+            InputModes::INLCR,
             InputModes::INPCK,
             InputModes::ISTRIP,
             InputModes::IXON,
@@ -700,7 +711,9 @@ mod tests {
         let raw = raw_from(&cooked());
         for mode in [
             InputModes::BRKINT,
+            InputModes::IGNCR,
             InputModes::ICRNL,
+            InputModes::INLCR,
             InputModes::INPCK,
             InputModes::ISTRIP,
             InputModes::IXON,
@@ -977,6 +990,44 @@ mod tests {
             output_before,
             "the restore was stamped onto the output terminal"
         );
+    }
+
+    #[test]
+    fn entering_raw_mode_keeps_a_carriage_return_a_carriage_return() {
+        // Upstream's "enableRawMode preserves carriage return input"
+        // (`shell_runtime.zig:683-722`), ported: a terminal left with every
+        // carriage-return translation on comes out of raw mode with none of
+        // them, and a Return typed then reads as `\r` -- not swallowed by
+        // `IGNCR`, not made a line feed by `ICRNL`.
+        let (master, input) = open_pty();
+        let mut original = tcgetattr(&input).expect("read the terminal");
+        original
+            .input_modes
+            .insert(InputModes::IGNCR | InputModes::ICRNL | InputModes::INLCR);
+        tcsetattr(&input, OptionalActions::Now, &original).expect("set the terminal");
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let raw = tcgetattr(&input).expect("read the terminal");
+        for mode in [InputModes::IGNCR, InputModes::ICRNL, InputModes::INLCR] {
+            assert!(!raw.input_modes.contains(mode), "{mode:?} survived");
+        }
+        rustix::io::write(&master, b"\r").expect("press Return");
+        let mut ready = [rustix::event::PollFd::new(
+            &input,
+            rustix::event::PollFlags::IN,
+        )];
+        let wait = rustix::event::Timespec {
+            tv_sec: 5,
+            tv_nsec: 0,
+        };
+        assert_eq!(
+            rustix::event::poll(&mut ready, Some(&wait)).expect("poll"),
+            1,
+            "the Return was swallowed"
+        );
+        let mut buffer = [0u8; 1];
+        assert_eq!(rustix::io::read(&input, &mut buffer).expect("read"), 1);
+        assert_eq!(buffer[0], b'\r');
     }
 
     #[test]

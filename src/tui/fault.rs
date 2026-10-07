@@ -98,6 +98,11 @@ pub(crate) enum Fault {
     /// back, and therefore no second painter that has to keep working in the
     /// field.
     FullPaintReference,
+    /// A `/trace` report whose bytes are written and synced and not yet
+    /// published under its name: the report's thread waits there a minute, so
+    /// a test can kill the process at exactly that moment and find no report
+    /// (`crate::trace::write_report`).
+    TraceBeforePublish,
 }
 
 /// The variable a run is asked to fail through.
@@ -120,6 +125,7 @@ impl Fault {
             Self::PartialAlternateOnce => "partial-alternate-once",
             Self::RefusesFrames => "frame-refusal",
             Self::FullPaintReference => "full-paint-reference",
+            Self::TraceBeforePublish => "trace-before-publish",
         }
     }
 }
