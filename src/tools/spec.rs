@@ -399,7 +399,9 @@ pub struct ToolResult {
     /// The text the model sees.
     pub output: String,
     /// A one-line summary for the `tool_result` event a human watches.
-    pub detail: String,
+    /// `Box<str>`, as [`Self::feedback`] is: never grown once made, and every
+    /// byte of a result is carried through every refusal path.
+    pub detail: Box<str>,
     /// Whether this result ends the turn instead of going back to the model.
     ///
     /// Almost always false: a refusal is information the model can act on. It is
@@ -431,6 +433,14 @@ pub struct ToolResult {
     /// result is returned by value through every refusal path, and most
     /// carry no change.
     pub change: Option<Box<ApprovalDiff>>,
+    /// What the person watching is shown of the call where that is not what
+    /// the model is told: a command its turn stopped, whose model-facing
+    /// answer is only `aborted by user` while upstream's full transcript
+    /// shows the command's output and the signal it died of
+    /// (`fx-resume-tools-40x120-live-ctrl-o`: `│ signal 15`). Never part of
+    /// [`Self::output`] or of the session's log. Boxed for the reason
+    /// [`Self::change`] is.
+    pub presented: Option<Box<String>>,
     /// The image the result carries for the model beside [`Self::output`]:
     /// `read_file` of an image file (`read_file.zig:228-278`), and none for
     /// any other call. Only a result that succeeded carries one. Boxed: a
@@ -458,12 +468,13 @@ impl ToolResult {
         Self {
             ok: true,
             output: output.into(),
-            detail: summarize(&detail.into()),
+            detail: summarize(&detail.into()).into_boxed_str(),
             fatal: false,
             feedback: None,
             outcome: Outcome::Finished,
             changes: None,
             change: None,
+            presented: None,
             image: None,
         }
     }
@@ -496,7 +507,7 @@ impl ToolResult {
     /// a long filesystem error cannot flood a human's event stream.
     pub fn failure(output: impl Into<String>) -> Self {
         let output = output.into();
-        let detail = summarize(&output);
+        let detail = summarize(&output).into_boxed_str();
         Self {
             ok: false,
             output,
@@ -506,8 +517,27 @@ impl ToolResult {
             outcome: Outcome::Finished,
             changes: None,
             change: None,
+            presented: None,
             image: None,
         }
+    }
+
+    /// The same result, showing the person watching `presented` instead of
+    /// its output ([`Self::presented`]).
+    pub fn presenting(mut self, presented: String) -> Self {
+        self.presented = Some(Box::new(presented));
+        self
+    }
+
+    /// The same failure with no summary for the row: an in-call failure of a
+    /// built-in tool, whose row upstream writes as `Failed <target>` and
+    /// nothing after it -- its status detail is set only for a preflight's
+    /// refusal and a dynamic tool's (`failureStatusDetail`,
+    /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/tool_presentation.zig:
+    /// 1253-1301`; `fx-read-failures-40x120-live`: `Failed src`).
+    pub fn unexplained(mut self) -> Self {
+        self.detail = Box::default();
+        self
     }
 
     /// A call the permission policy or the person refused: `{tool} was not
@@ -546,6 +576,80 @@ fn summarize(text: &str) -> String {
     match clip(line, 160) {
         Some(clipped) => format!("{clipped}..."),
         None => line.to_string(),
+    }
+}
+
+/// Upstream's model-facing failure of a tool call that got past its
+/// preflight and then could not be done (`toolExecutionFailureJson`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_result_errors.zig:323-347`),
+/// byte for byte: `{"error":{"type":"tool_execution_failed","tool_name":…,
+/// "message":…,"details":{…},"suggestion":…}}`, the details in the order
+/// given. Upstream sends it for these failures only -- its decoders, its
+/// validations and its preflight answer in plain sentences
+/// (`read_file.zig:40-101`, `tool_admission.zig:2465-2495`) -- and so does xfx.
+/// What upstream masks in it (`writeMaskedJsonString`) is a secret's shape,
+/// which a path or an error name does not have.
+pub(crate) fn execution_failure(
+    tool: &str,
+    message: &str,
+    details: &[(&str, &str)],
+    suggestion: Option<&str>,
+) -> String {
+    let quoted = |text: &str| serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+    let mut out = format!(
+        r#"{{"error":{{"type":"tool_execution_failed","tool_name":{},"message":{}"#,
+        quoted(tool),
+        quoted(message)
+    );
+    if !details.is_empty() {
+        out.push_str(r#","details":{"#);
+        for (index, (name, value)) in details.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            out.push_str(&quoted(name));
+            out.push(':');
+            out.push_str(&quoted(value));
+        }
+        out.push('}');
+    }
+    if let Some(suggestion) = suggestion {
+        out.push_str(r#","suggestion":"#);
+        out.push_str(&quoted(suggestion));
+    }
+    out.push_str("}}");
+    out
+}
+
+/// Upstream's envelope for a filesystem tool the operating system refused
+/// (`filesystemAccessDeniedJson` and its suggestion,
+/// `tool_result_errors.zig:382-409`).
+pub(crate) fn access_denied(tool: &str, path: &str) -> String {
+    let suggestion = if cfg!(target_os = "macos") {
+        "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. If the path is in a protected folder such as Desktop, Documents, or Downloads, ask the user to grant the terminal app Files and Folders or Full Disk Access. Otherwise, ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
+    } else {
+        "Do not retry this path unchanged or propose a symlink. fx permissions cannot override the operating system. Ask the user to correct OS filesystem permissions or move/copy the project to an accessible location."
+    };
+    execution_failure(
+        tool,
+        "Operating system denied filesystem access",
+        &[("path", path), ("error", "AccessDenied")],
+        Some(suggestion),
+    )
+}
+
+/// The name upstream's envelope gives an I/O error (its Zig error's name,
+/// `@errorName`), for the kinds both runtimes meet; anything else by the
+/// kind's own name.
+pub(crate) fn error_name(err: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::NotFound => "FileNotFound".to_string(),
+        ErrorKind::PermissionDenied => "AccessDenied".to_string(),
+        ErrorKind::IsADirectory => "IsDir".to_string(),
+        ErrorKind::NotADirectory => "NotDir".to_string(),
+        ErrorKind::InvalidData => "InvalidUtf8".to_string(),
+        other => format!("{other:?}"),
     }
 }
 
@@ -1236,7 +1340,7 @@ mod tests {
     fn a_failure_summary_is_the_first_line_and_is_bounded() {
         let result = ToolResult::failure("no such path: `x`\nmore detail");
         assert!(!result.ok);
-        assert_eq!(result.detail, "no such path: `x`");
+        assert_eq!(&*result.detail, "no such path: `x`");
 
         let long = ToolResult::failure("e".repeat(400));
         assert!(long.detail.len() <= 164, "{}", long.detail.len());

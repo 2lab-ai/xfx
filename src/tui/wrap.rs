@@ -1,26 +1,26 @@
-//! The composer's soft-wrap: text in, rows out, measured in cells.
+//! Soft-wrap: text in, rows out, measured in cells.
 //!
-//! Two surfaces need the same answer to "where does this text break" -- the
-//! transcript, which turns finished text into document rows, and the composer,
-//! which turns typed text into band rows and has to put a caret on one of them.
-//! Wrapping them separately is how the caret ends up a row away from the
-//! character it is supposed to sit on, so there is one function and both call
-//! it -- for every transcript row upstream lays out the way its composer does
-//! (`visual_layout.zig`). The assistant's answer is not one of them: upstream
-//! wraps it with its assistant wrap, and so does xfx ([`super::prose`], which
-//! measures with this module's [`width`] and tiles the text into the same
-//! [`Row`]s).
+//! Two rules live here. [`composer`] is the composer's: upstream's composer
+//! layout (`visual_layout.zig`), which keeps a badge or a pasted block whole,
+//! breaks a word wider than a row where it starts, and puts a tab on a tab
+//! stop -- with its caret ([`composer_point`]) measured by the same rule, so
+//! the caret is never a row away from the character it is supposed to sit on.
+//! [`wrap`] is the transcript's rows' and the panels'. The assistant's answer
+//! is neither: upstream wraps it with its assistant wrap, and so does xfx
+//! ([`super::prose`], which measures with this module's [`width`] and tiles
+//! the text into the same [`Row`]s).
 //!
 //! A [`Row`] is a **range of the text**, not a copy of it. The caller already
 //! owns the string; handing back byte offsets is what lets the composer map a
-//! cursor into a row ([`cursor_point`]) without a second pass over anything.
+//! cursor into a row ([`composer_point`]) without a second pass over anything.
 //!
-//! Three rules, and each of them is a decision rather than an accident:
+//! [`wrap`]'s three rules, each a decision rather than an accident:
 //!
 //! * **A word moves whole.** A word that does not fit what is left of a row
 //!   starts the next one (`visual_layout.zig:278-282`); a word longer than a
 //!   whole row is the exception, and breaks at the grapheme that would cross
-//!   the margin, because the alternative is a row with nothing on it.
+//!   the margin, because the alternative is a row with nothing on it -- where
+//!   [`composer`] breaks it from the row it began on.
 //! * **Spaces hang.** The run of spaces that ends a row is *measured* -- so a
 //!   [`Row`]'s `width` may be wider than `cols` -- and left on that row rather
 //!   than carried down, because the painter clips them
@@ -595,12 +595,329 @@ fn cluster_cells(cluster: &str) -> usize {
     cluster.width()
 }
 
+/// The cells the composer's gutter takes in front of every row, the first
+/// and every continuation alike (`inputPrefix`, `visual_layout.zig:689-694`):
+/// what a tab stop is counted from.
+const COMPOSER_GUTTER: u16 = 2;
+
+/// The composer's rows on a screen whose text is `cols` wide, tiling the
+/// whole of `text`: upstream's composer layout (`Iterator`,
+/// `visual_layout.zig:100-330`), which is [`wrap`]'s rule with four
+/// differences.
+///
+/// * **A word wider than a whole row starts where it is.** A word moves to
+///   the next row only when it fits there (`shouldSoftWrapWord`, `:265-282`);
+///   one wider than a row is broken at the margin from the row it began on,
+///   rather than leaving that row nearly empty.
+/// * **An entity is one unit** (`peekRawUnit`, `:174-231`). `units` are the
+///   draft's badges and pasted-text blocks, sorted: each is placed whole, on
+///   this row if it fits and on the next if not, and never broken at the
+///   spaces inside its own words. A word ends where one begins, and the text
+///   after one starts a word (`consumeRawUnit`, `:244-247`; `wordEndsAt`,
+///   `:299-310`).
+/// * **A tab advances to the next tab stop**: every eighth column of the
+///   screen, gutter included, and none at the right margin
+///   (`tabAdvance`, `:714-723`). It ends a word, as a space does
+///   (`isWordBreakByte`, `:331-333`), and is painted as that many spaces
+///   ([`composer_expand`]).
+/// * **Nothing wider than the row is refused.** A unit wider than a whole row
+///   takes the row it starts and the next unit begins a new one
+///   (`oversized_empty_row`, `:251-255`), as [`wrap`]'s too-wide glyph does.
+///
+/// Spaces hang past the margin as in [`wrap`] (`shouldBreakBefore`,
+/// `:134-138`), a line break ends its row and belongs to it, and a cluster
+/// that paints nothing never begins a row.
+pub(crate) fn composer(text: &str, cols: u16, units: &[std::ops::Range<usize>]) -> Vec<Row> {
+    let available = cols.max(1);
+    let mut rows = Vec::new();
+    let mut start = 0usize;
+    let mut used = 0u16;
+    let mut at_word_start = true;
+    let mut force_wrap = false;
+    let mut units = units.iter().peekable();
+    let mut index = 0usize;
+    while index < text.len() {
+        while units.peek().is_some_and(|unit| unit.end <= index) {
+            units.next();
+        }
+        let unit = units
+            .peek()
+            .filter(|unit| unit.start == index)
+            .map(|unit| (*unit).clone());
+        let (end, cells, text_cluster) = match &unit {
+            Some(unit) => (unit.end, width(&text[unit.clone()]), None),
+            None => {
+                let cluster = text[index..]
+                    .graphemes(true)
+                    .next()
+                    .unwrap_or(&text[index..]);
+                let cells = if cluster == "\t" {
+                    composer_tab(used, cols)
+                } else {
+                    cluster_width(cluster)
+                };
+                (index + cluster.len(), cells, Some(cluster))
+            }
+        };
+        if text_cluster.is_some_and(is_line_break) {
+            rows.push(Row {
+                start,
+                end,
+                width: used,
+            });
+            start = end;
+            index = end;
+            used = 0;
+            at_word_start = true;
+            force_wrap = false;
+            continue;
+        }
+        let space = text_cluster == Some(" ");
+        let word_moves = text_cluster.is_some_and(|cluster| cluster != "\t")
+            && at_word_start
+            && used > 0
+            && !force_wrap
+            && used < available
+            && {
+                let word = word_width(text, index, units.peek().map(|unit| unit.start), available);
+                word > available - used && word <= available
+            };
+        let crosses = cells > 0
+            && (force_wrap || (used > 0 && (used >= available || used + cells > available)));
+        if !space && (word_moves || crosses) {
+            rows.push(Row {
+                start,
+                end: index,
+                width: used,
+            });
+            start = index;
+            used = 0;
+            at_word_start = true;
+            force_wrap = false;
+            continue;
+        }
+        if used == 0 && cells > available {
+            force_wrap = true;
+        }
+        used = used.saturating_add(cells);
+        at_word_start = match text_cluster {
+            Some(cluster) => cluster == " " || cluster == "\t",
+            None => true,
+        };
+        index = end;
+    }
+    rows.push(Row {
+        start,
+        end: text.len(),
+        width: used,
+    });
+    rows
+}
+
+/// The cells of the word that begins at `index`, counted until a space, a
+/// tab, a line break or the next unit (`next_unit`), and no further than one
+/// past `cap` (`measureWordWidth`, `visual_layout.zig:284-297`).
+fn word_width(text: &str, index: usize, next_unit: Option<usize>, cap: u16) -> u16 {
+    let mut cells = 0u16;
+    let mut at = index;
+    for cluster in text[index..].graphemes(true) {
+        if next_unit == Some(at) || cluster == " " || cluster == "\t" || is_line_break(cluster) {
+            break;
+        }
+        cells = cells.saturating_add(cluster_width(cluster));
+        if cells > cap {
+            break;
+        }
+        at += cluster.len();
+    }
+    cells
+}
+
+/// How far a tab at `column` of a composer row `cols` wide advances: to the
+/// next eighth column of the screen, counted with the gutter, and none at
+/// the right margin or past it (`tabAdvance`, `visual_layout.zig:714-723`;
+/// `nextTabStopColumn`, `display_width.zig:290-300`).
+pub(crate) fn composer_tab(column: u16, cols: u16) -> u16 {
+    let screen = cols.max(1).saturating_add(COMPOSER_GUTTER);
+    // One-based, as upstream counts, and never past the right margin.
+    let at = COMPOSER_GUTTER
+        .saturating_add(column)
+        .min(screen - 1)
+        .saturating_add(1);
+    if at >= screen {
+        return 0;
+    }
+    let stop = ((at - 1) / 8 + 1).saturating_mul(8).saturating_add(1);
+    stop.min(screen) - at
+}
+
+/// The cells a composer row paints from its start to `offset`: [`width`],
+/// with each tab the advance it has where it stands ([`composer_tab`]).
+pub(crate) fn composer_cells(text: &str, row: &Row, offset: usize, cols: u16) -> u16 {
+    let end = offset.clamp(row.start, row.end);
+    let part = &text[row.start..end];
+    if !part.contains('\t') {
+        return width(part);
+    }
+    part.graphemes(true).fold(0u16, |used, cluster| {
+        let cells = if cluster == "\t" {
+            composer_tab(used, cols)
+        } else {
+            cluster_width(cluster)
+        };
+        used.saturating_add(cells)
+    })
+}
+
+/// A composer row's text as it is painted: each tab the spaces it advances
+/// ([`composer_tab`]), so the painter writes the cells the layout counted.
+pub(crate) fn composer_expand<'a>(row: &'a str, cols: u16) -> Cow<'a, str> {
+    if !row.contains('\t') {
+        return Cow::Borrowed(row);
+    }
+    let mut out = String::with_capacity(row.len() + 8);
+    let mut used = 0u16;
+    for cluster in row.graphemes(true) {
+        if cluster == "\t" {
+            let cells = composer_tab(used, cols);
+            out.extend(std::iter::repeat_n(' ', usize::from(cells)));
+            used = used.saturating_add(cells);
+        } else {
+            out.push_str(cluster);
+            used = used.saturating_add(cluster_width(cluster));
+        }
+    }
+    Cow::Owned(out)
+}
+
+/// Which composer row a byte offset is on, and the cells to the left of it
+/// there: [`cursor_point`]'s rule -- an offset on a soft-wrap boundary belongs
+/// to the following row (`pendingResolvesAt`, `visual_layout.zig:415-417`) --
+/// measured with the composer's tab stops ([`composer_cells`]).
+pub(crate) fn composer_point(text: &str, rows: &[Row], cursor: usize, cols: u16) -> (usize, u16) {
+    for (index, row) in rows.iter().enumerate() {
+        let last = index + 1 == rows.len();
+        if cursor >= row.end && !last {
+            continue;
+        }
+        if cursor >= row.end {
+            return (index, row.width);
+        }
+        return (index, composer_cells(text, row, cursor, cols));
+    }
+    (0, 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn texts<'a>(text: &'a str, rows: &[Row]) -> Vec<&'a str> {
         rows.iter().map(|row| &text[row.start..row.end]).collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // the composer's layout: upstream's own cases (`visual_layout.zig`), whose
+    // `cols` counts the two-cell gutter this module's does not
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn the_composer_wraps_whole_words_that_fit_the_next_row() {
+        // `:1248-1269`, at 12 columns: ten for the text.
+        let text = "hello brave world";
+        let rows = composer(text, 10, &[]);
+        assert_eq!(texts(text, &rows), ["hello ", "brave ", "world"]);
+        assert_eq!(composer_point(text, &rows, "hello ".len(), 10), (1, 0));
+        // `:1306-1316`: the space a word wraps after stays on its row.
+        let text = "aaaa bbbbbb cc";
+        assert_eq!(
+            texts(text, &composer(text, 10, &[])),
+            ["aaaa ", "bbbbbb cc"]
+        );
+    }
+
+    #[test]
+    fn the_composer_breaks_a_word_wider_than_a_row_where_it_starts() {
+        // `:1271-1281`: an 11-cell word after `ab ` fills the first row
+        // rather than leaving it nearly empty -- where `wrap` moves it down.
+        let text = "ab cdefghijklm";
+        let rows = composer(text, 10, &[]);
+        assert_eq!(texts(text, &rows), ["ab cdefghi", "jklm"]);
+        assert_eq!(rows[0].width, 10);
+        assert_eq!(texts(text, &wrap(text, 10)), ["ab ", "cdefghijkl", "m"]);
+    }
+
+    #[test]
+    fn the_composer_hangs_the_spaces_at_its_margin() {
+        // `:1283-1304`.
+        for text in ["abcdefghij kl", "abcdefghij   kl"] {
+            let rows = composer(text, 10, &[]);
+            assert_eq!(texts(text, &rows)[1], "kl", "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_soft_wrap_boundary_in_the_composer_belongs_to_the_following_row() {
+        // `:802-813`, and a wide glyph at the margin (`:825-828`).
+        let text = "abcd";
+        let rows = composer(text, 3, &[]);
+        assert_eq!(texts(text, &rows), ["abc", "d"]);
+        assert_eq!(composer_point(text, &rows, 3, 3), (1, 0));
+        let text = "a\u{754c}";
+        let rows = composer(text, 2, &[]);
+        assert_eq!(texts(text, &rows), ["a", "\u{754c}"]);
+        assert_eq!(composer_point(text, &rows, 1, 2), (1, 0));
+    }
+
+    #[test]
+    fn a_composer_unit_is_never_broken_at_its_own_spaces() {
+        // `peekRawUnit` (`:174-231`): a badge or a block is one unit. At 13
+        // cells, `a [Image 1]` puts the badge on the next row whole; `wrap`
+        // breaks it after `[Image`.
+        let text = "aaaaa [Image 1]";
+        let badge = 6..text.len();
+        let rows = composer(text, 13, std::slice::from_ref(&badge));
+        assert_eq!(texts(text, &rows), ["aaaaa ", "[Image 1]"]);
+        assert_eq!(texts(text, &wrap(text, 13)), ["aaaaa [Image ", "1]"]);
+        // A word straight after a unit is a word of its own
+        // (`consumeRawUnit`, `:244-247`), and moves whole.
+        let text = "[Image 1]abcdef";
+        let rows = composer(text, 12, std::slice::from_ref(&(0..9)));
+        assert_eq!(texts(text, &rows), ["[Image 1]", "abcdef"]);
+        // And a word ends where a unit begins (`wordEndsAt`, `:299-310`):
+        // `ab` is measured alone, so it stays.
+        let text = "x ab[Image 1]";
+        let rows = composer(text, 10, std::slice::from_ref(&(4..13)));
+        assert_eq!(texts(text, &rows), ["x ab", "[Image 1]"]);
+    }
+
+    #[test]
+    fn a_composer_unit_wider_than_its_row_takes_the_row() {
+        // `:1083-1114`: the badge is placed, and what follows starts a row.
+        let text = "[Image 1]x";
+        let rows = composer(text, 8, std::slice::from_ref(&(0..9)));
+        assert_eq!(texts(text, &rows), ["[Image 1]", "x"]);
+        assert_eq!(composer_point(text, &rows, 9, 8), (1, 0));
+    }
+
+    #[test]
+    fn a_composer_tab_advances_to_the_next_tab_stop() {
+        // `:889-899`, at 10 columns: eight for the text.
+        assert_eq!(composer_tab(0, 8), 6);
+        assert_eq!(composer_tab(6, 8), 1);
+        assert_eq!(composer_tab(7, 8), 0);
+        assert_eq!(composer("\tX", 8, &[]).len(), 1);
+        assert_eq!(composer("aaaaaa\t\u{754c}", 8, &[]).len(), 2);
+        assert_eq!(composer("aaaaaa\tXY", 8, &[]).len(), 2);
+        let rows = composer("\tX", 8, &[]);
+        assert_eq!(composer_point("\tX", &rows, 1, 8), (0, 6));
+        assert_eq!(composer_expand("a\tbb\tc", 78), "a     bb      c");
+        // `:1005-1018`: at the margin a tab advances nothing and breaks
+        // nothing.
+        let rows = composer("\tX", 1, &[]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(composer_point("\tX", &rows, 1, 1), (0, 0));
+        assert_eq!(composer_point("\tX", &rows, 2, 1), (0, 1));
     }
 
     #[test]

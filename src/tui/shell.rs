@@ -2696,8 +2696,7 @@ impl Shell {
         if !text.is_char_boundary(start) {
             return PROMPT_CELLS;
         }
-        let rows = super::wrap::wrap(text, self.text_cols());
-        let (_, at) = super::wrap::cursor_point(text, &rows, start);
+        let (_, at) = self.editor.point_of(start, self.text_cols());
         PROMPT_CELLS.saturating_add(at)
     }
 
@@ -2774,9 +2773,15 @@ impl Shell {
         let last = self.geometry.input_rows().saturating_sub(1);
         let offset =
             u16::try_from(row.saturating_sub(window.start).min(usize::from(last))).unwrap_or(last);
+        // A caret after a row that fills the screen -- its last cell taken, or
+        // spaces hanging past it -- sits on the last column, as upstream's
+        // does (`terminalColumn`, `visual_layout.zig:696-702`): one past it is
+        // off the screen, and the output check refuses that frame.
         (
             self.geometry.input_first.saturating_add(offset),
-            PROMPT_CELLS.saturating_add(column),
+            PROMPT_CELLS
+                .saturating_add(column)
+                .min(self.geometry.cols.saturating_sub(1)),
         )
     }
 
@@ -2997,11 +3002,16 @@ impl Shell {
     /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
     /// carries its start on the card and what it did on the way, and its
     /// conclusion on the answer after its last call and the summary. Any other
-    /// carries `carried`, the stamp the replay had reached, throughout. A
-    /// call's entry carries its result's own time where the log has one
-    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
-    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
-    /// turn is to carry.
+    /// carries `carried`, the stamp the replay had reached, throughout. Every
+    /// call's entry carries the turn's conclusion: upstream's header prefers
+    /// the call's persisted result's time (`full_transcript_screen.zig:
+    /// 5801-5814`, set `transcript/runtime.zig:5826`), and that is the moment
+    /// the turn was committed, when its results are built
+    /// (`PersistedToolResult.created_at_ms`, `execution_memory.zig:52`, from
+    /// `buildNormalExecutionMemory` `:421` at `orchestrator.zig:9260`; an
+    /// interrupted turn's at its own commit, `runtime/interruption.zig`) --
+    /// `fx-read-failures-40x120-ctrl-o`, every call at the Usage's instant.
+    /// Answers the stamp the next turn is to carry.
     fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
@@ -3020,6 +3030,7 @@ impl Shell {
         } else {
             (carried, carried)
         };
+        let committed = turn.concluded_at_ms.unwrap_or(concluded);
         self.full.stamp_with(Some(started));
         self.full.replay(true);
         let concluding = turn
@@ -3039,8 +3050,8 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown, at_ms } => {
-                    self.full.stamp_call(at_ms);
+                HydratedStep::ToolStart { id, shown } => {
+                    self.full.stamp_call(Some(committed));
                     self.run_mark(Mark::ToolStart { id, shown });
                     self.full.stamp_call(None);
                 }
@@ -5098,10 +5109,9 @@ impl Shell {
     /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
     /// break after it).
     fn column_anchor(&self, offset: usize) -> u16 {
-        let text = self.editor.text();
-        let rows = super::wrap::wrap(text, self.text_cols());
-        let (row, cells) = super::wrap::cursor_point(text, &rows, offset);
-        let (caret_row, _) = super::wrap::cursor_point(text, &rows, self.editor.caret());
+        let cols = self.text_cols();
+        let (row, cells) = self.editor.point_of(offset, cols);
+        let (caret_row, _) = self.editor.point(cols);
         if row != caret_row {
             return PROMPT_CELLS;
         }
@@ -8688,7 +8698,7 @@ impl Shell {
     /// **A paste past the budget puts nothing in the composer at all.** There
     /// is no block registered for it ([`super::paste::Paste::finish`]), so the
     /// summary would be words rather than a stand-in for the text -- a draft
-    /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
+    /// that submitted `[Pasted text #1, 1 line]` as a prompt is worse than a
     /// paste that plainly did not happen, and the hint row says which it was.
     fn pasted(&mut self) {
         // `/model`'s search is typed in the composer, and an image attached
@@ -13165,11 +13175,11 @@ mod tests {
         );
         let _echo = shell.document();
 
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string()),
             "a block the draft no longer held was expanded into a later prompt"
         );
     }
@@ -13186,12 +13196,12 @@ mod tests {
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
-        shell.route_bytes(b" and [Pasted text #1, 1 lines]");
+        shell.route_bytes(b" and [Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 lines]")),
+            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 line]")),
             "a summary the user typed was sent as a second copy of the paste"
         );
     }
@@ -13203,7 +13213,7 @@ mod tests {
         // whichever of the two a search for the name would have found first.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
-        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
+        shell.route_bytes(b"[Pasted text #1, 1 line] ");
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -13211,7 +13221,7 @@ mod tests {
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("[Pasted text #1, 1 lines] {block}")),
+            TurnWork::Submit(format!("[Pasted text #1, 1 line] {block}")),
             "the words the user had already typed were expanded in the \
              placeholder's place"
         );
@@ -13227,7 +13237,7 @@ mod tests {
         // never it.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x01]); // C-a: the caret goes back to the start
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
@@ -13236,7 +13246,7 @@ mod tests {
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("{block}[Pasted text #1, 1 lines]")),
+            TurnWork::Submit(format!("{block}[Pasted text #1, 1 line]")),
             "the copies were counted in the whole draft rather than in front \
              of the caret"
         );
@@ -13294,7 +13304,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the block was not collapsed, so this case proves nothing"
         );
 
@@ -13328,12 +13338,12 @@ mod tests {
         // The whole budget less the name that will stand in for it, which is
         // the largest block a draft can hold: a collapsed paste is charged its
         // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 line]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         let summary = shell.editor.text().to_string();
-        assert_eq!(summary, "[Pasted text #1, 1 lines]");
+        assert_eq!(summary, "[Pasted text #1, 1 line]");
 
         for _ in 0..summary.chars().count() {
             shell.route_bytes(&[0x7f]);
@@ -13418,7 +13428,7 @@ mod tests {
         // than inside it, so the name survives and its megabytes are still
         // going to be sent -- and the draft is at the cap.
         let mut shell = shell(24, 80);
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 line]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -13474,7 +13484,7 @@ mod tests {
         // nothing.
         let mut shell = shell(24, 80);
         let _block = collapsed(&mut shell, 1);
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 line]");
 
         shell.route_bytes(&[0x7f]);
         assert!(
@@ -13515,7 +13525,7 @@ mod tests {
         shell.route_bytes(b"!");
         assert_eq!(
             shell.editor.text(),
-            "![Pasted text #1, 1 lines]",
+            "![Pasted text #1, 1 line]",
             "a left step landed inside the name"
         );
         shell.route_bytes(&[0x0d]);
@@ -13539,7 +13549,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
+            "[Pasted text #2, 1 line]",
             "the recalled summary kept a number this session had already used"
         );
         shell.route_bytes(&[0x0d]);
@@ -13569,7 +13579,7 @@ mod tests {
             shell
                 .editor
                 .text()
-                .contains(&format!("[Pasted text #{BLOCKS}, 1 lines]")),
+                .contains(&format!("[Pasted text #{BLOCKS}, 1 line]")),
             "the last block is not in the draft"
         );
         shell.route_bytes(&[0x0d]);
@@ -13617,7 +13627,7 @@ mod tests {
         // `submit` would send.
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #4, 1 lines]",
+            "[Pasted text #4, 1 line]",
             "the walk handed back numbers this session had already spent"
         );
     }
@@ -13634,7 +13644,7 @@ mod tests {
         shell.route_bytes(b"  ");
         let block = collapsed(&mut shell, 1);
         shell.route_bytes(b"  ");
-        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 lines]  ");
+        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 line]  ");
 
         shell.route_bytes(&[0x0d]);
         assert_eq!(
@@ -13703,15 +13713,15 @@ mod tests {
         assert_eq!(shell.edit_depths(), (0, 0), "the paste was an entry");
         shell.document();
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
         assert_eq!(shell.editor.expanded(), format!("look {block}"));
         assert!(shell.document().is_empty(), "the undo said something");
         // A keystroke after it is an entry of its own, and only it is taken.
         shell.route_bytes(b"!");
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
         // Backspace takes the block whole, and that too is a boundary: the
         // undo after it finds nothing, the block stays gone, and so does the
         // redo (capture `fx-paste-block-undo-40x120-deleted`).
@@ -14124,7 +14134,7 @@ mod tests {
                 .edit_history
                 .killed()
                 .expect("the slot is still loaded");
-            assert_eq!(text, "[Pasted text #1, 1 lines]");
+            assert_eq!(text, "[Pasted text #1, 1 line]");
             assert_eq!(spans.len(), 1);
             assert_eq!(
                 spans[0].text().len(),
@@ -14208,18 +14218,18 @@ mod tests {
         // lines identical. Folding them would drop the entry that stands on the
         // block and hand back the one that stands on nothing.
         let mut shell = shell(24, 80);
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string())
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string())
         );
         let _echo = shell.document();
 
         let block = collapsed(&mut shell, 1);
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the paste did not take the number the typed line names, so this \
              case proves nothing"
         );
@@ -14229,7 +14239,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A"); // Up: one step back
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
+            "[Pasted text #2, 1 line]",
             "the pasted line was folded into the typed one: {:?}",
             shell.editor.text()
         );
@@ -14256,7 +14266,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A"); // Up
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the recalled line is not the one that was submitted"
         );
         assert!(
@@ -14266,7 +14276,7 @@ mod tests {
         assert_eq!(shell.notice, Some(RECALL_UNNUMBERED));
         assert_eq!(
             shell.editor.expanded(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the summary still stood for eight megabytes"
         );
     }
@@ -21040,7 +21050,6 @@ mod tests {
         lines: Option<crate::session::LineCounts>,
     ) -> crate::session::TurnStep {
         crate::session::TurnStep::ToolResult {
-            created_at_ms: None,
             images: Vec::new(),
             call_id: id.to_string(),
             tool: "t".to_string(),
@@ -21076,7 +21085,6 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -21096,8 +21104,6 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
-                    // Its result came back a second in.
-                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
@@ -21153,7 +21159,8 @@ mod tests {
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
+                // At the turn's commit, as upstream's results are stamped.
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
@@ -21334,7 +21341,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 images: Vec::new(),
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
@@ -29115,7 +29121,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("first[Pasted text #1, 1 lines]")
+            composer_row("first[Pasted text #1, 1 line]")
         );
 
         older(&mut shell);
@@ -29163,7 +29169,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
@@ -29172,7 +29178,7 @@ mod tests {
         shell.route_bytes(&[0x0e]);
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #2, 1 lines]"),
+            composer_row("[Pasted text #2, 1 line]"),
             "the draft the walk began from did not come back, or came back \
              under a number this session had already used"
         );
@@ -29194,27 +29200,27 @@ mod tests {
         // installed and keep the block alive, and the recalled line would then
         // be expanded into megabytes nobody pasted into it.
         let mut shell = shell(24, 80);
-        submitted(&mut shell, "[Pasted text #1, 1 lines]");
+        submitted(&mut shell, "[Pasted text #1, 1 line]");
         let block = "y".repeat(1200);
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
         older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the recalled line is not the one whose words match the summary"
         );
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string()),
             "a block survived the recall and expanded into the line the walk handed back"
         );
     }
@@ -31005,6 +31011,24 @@ mod tests {
         // Nor is there anything to redo.
         shell.route_bytes(b"\x1b[122;10u");
         assert_eq!(shell.editor.text(), "look ");
+    }
+
+    #[test]
+    fn a_caret_at_the_end_of_a_full_row_stays_on_the_screen() {
+        // `fx-composer-wrap-24x80-full-78`: a draft that fills its row exactly
+        // leaves the caret after its last cell, and upstream clamps the column
+        // to the screen's last one (`terminalColumn`, `visual_layout.zig:696-702`).
+        // xfx put it one past, and the output check refused the frame and
+        // ended the session: `caret placed off the screen ... column 81`.
+        for (rows, cols) in [(24, 80), (40, 120)] {
+            let mut shell = shell(rows, cols);
+            let text = usize::from(cols - PROMPT_CELLS);
+            shell.route_bytes("b".repeat(text).as_bytes());
+            assert_eq!(shell.cursor().1, cols - 1, "{cols} columns");
+            // Hanging spaces past the margin are clamped the same way.
+            shell.route_bytes(b"   ");
+            assert_eq!(shell.cursor().1, cols - 1, "{cols} columns, spaces");
+        }
     }
 
     #[test]
