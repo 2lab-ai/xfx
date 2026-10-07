@@ -69,6 +69,13 @@ Round 2 (`06def9e`): every `fast-override` and `model-speed` dump parses to fx's
 
 xfx's home also holds `settings.lock` (0 bytes), the cross-process lock every settings write takes -- now `xfx setup`'s too.
 
+## Round 3 (`ba7fd53`, after merging plan `20d1482`)
+
+- **`/settings`' model list** (D4d's `settings-model-list`, its `used` snap copied here): Left on `anthropic/claude-opus-5` says `* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)` then `* model picker: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override`, in fx's order (`selectModelFromPicker` announces before it persists, `session_commands.zig:913-914`), and the profile now parses to fx's exactly: `{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","effort":"auto","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}` -- the leveled row's effort is the session's, as `applyInlineSettingsModelSelection` passes `app.effort` (`app_input_runtime.zig:2517-2529`). D4d's receipt recorded `{"models":…}` alone before.
+- **`/sound`** says a failed save before its level now (`app_commands.zig:4014-4027`); a capture cannot make the profile unwritable without a seed the harness does not have, so `src/tui/shell.rs` `a_save_that_failed_says_so_before_the_level` is the receipt. The `sound` scenario retaken at `ba7fd53` shows the same notice rows as D4c's (`bare` 6/6, `on` 7/7, `off` 8/9 -- the one differing row is the `max` line above it, `* sound: max` against xfx's usage line, D4c's by-design difference); not copied.
+- **A reset behind a held save**: `src/tui/event_loop.rs` `a_reset_hands_to_scrollback_what_a_held_speed_save_said_before_it` -- the save's line and `* fast: on` land on the old screen, and the handoff's scroll carries them; `src/tui/shell.rs` `a_reset_typed_behind_a_save_in_flight_waits_for_it_and_keeps_what_it_said_for_the_old_screen` with the real writers. A capture types too slowly to land a `/clear` inside a save, so none is kept for it.
+- `fast-override` and `fast-opus` retaken at `ba7fd53`: every row and every settings dump as round 2's.
+
 ## What does not match, and why
 
 - **The unconfirmed-Ultra line's wrap** (`fast-unconfirmed`): closed in the follow-up but for one word. fx's assistant wrap keeps no word alone on a line's last row -- when the word that overflows is the line's final one, the word before it moves down too (`assistant_wrap.zig:219-267`, `:269-298`, `isFinalWordOnLine` `:862-883`) -- and `tui::wrap::wrap` has no such rule, so at 120 columns xfx fits `lower` on the first row. The rule is fx's for every assistant row; recorded in `ssot.md` Tensions for the prose wrap.
