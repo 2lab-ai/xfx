@@ -2048,6 +2048,7 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
+                    created_at_ms: None,
                     call_id: "read1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,

@@ -132,32 +132,54 @@ Every comparison of the first round holds on this tree, the same way:
   that came back and the turn's cancellation line. The replay is faithful to
   xfx's own log; the live stop is the divergence (the terminal tool's
   cancellation, not this unit's surface).
-- **`resume-tools/ctrl-o`, the stamps.** The previous round's reading of
-  fx's stamps was wrong: fx does not stamp a replay with the resume. Its TUI
-  has `beginResumeProjection` (`main.zig:1366-1372`), so a resume takes the
-  `DetachedHistorySink` (`app_session_runtime.zig:2426-2451`), whose
-  `setCreatedAtMs` sets the projection's stamp (`:4272-4274`,
-  `resume_projection.zig:76-78`); the no-op at `:3972` is the other sink's.
-  `ctrl-o-up2` shows it: the notice at the resume, the Prompt at the turn's
-  start. The round-2 capture's single `21:44:45.685` was the first turn's
-  conclusion, carried on. xfx stamps as fx does but in two places:
-  (a) **a call's entry** -- fx's carries its persisted result's own time
-  (`PersistedToolResult.created_at_ms`, `transcript/runtime.zig:5826`),
-  which fx records at the turn's end (`01:36:08.962` on all nine), and xfx's
-  the turn's start, since the log's steps keep no time of their own (it
-  would take one on each `tool_result` step); (b) **a turn with no summary**
-  -- both stopped turns: fx sets no stamp for them, so they carry the turn
-  before's conclusion (`01:36:08.962`), and xfx stamps each with its own
-  start. Neither is copied here; (b) is an artifact of upstream's stamp
-  being state, and is the coordinator's call.
-- **`resume-tools/ctrl-o`, the rest.** fx lists its shell call's own
-  arguments (`action: run`, `yield_time_ms: 30000`), live and replayed;
-  xfx's terminal call has only `action: exec`, which fx's own rule leaves out
-  for a captured command (`full_transcript_screen.zig:6501-6504`,
-  `captured_command.zig:26`) -- F5's row #1. The edit's result line is each
-  tool's (`edited a.txt (41 bytes)` against `Edited a.txt`) and so is the
-  failure (`Path not found: missing.txt` against xfx's `read_file` refusal,
-  F5's row #3); live and replayed alike on each side.
+- **`resume-tools/ctrl-o`, the stamps** (round 4). fx's TUI replays into a
+  projection (`beginResumeProjection`, `main.zig:1366-1372`, through
+  `DetachedHistorySink`, `app_session_runtime.zig:2424-2451`) whose stamp
+  starts at the resume and changes only when a turn with a summary sets it
+  (`:4764-4772`, `:4780-4790`; `ResumeProjection.setCreatedAtMs`,
+  `resume_projection.zig:76-78`). fx gives a summary to its finished turns
+  only (`setHistoryTurnSummary`, `orchestrator.zig:9267`, `:12313`,
+  `finalization.zig:194`), so a stopped turn carries the stamp before it.
+  A call's header prefers its persisted result's own time
+  (`full_transcript_screen.zig:5801-5814`, set `transcript/runtime.zig:5826`
+  from `PersistedToolResult.created_at_ms`, `execution_memory.zig:52`), which
+  fx writes when the turn is committed (`buildNormalExecutionMemory`,
+  `execution_memory.zig:421`, from `orchestrator.zig:9260`) -- `01:36:08.962`
+  on all nine. xfx now does both: each `tool_result` records when it came
+  back, which its replayed entry carries (xfx writes each result as it
+  arrives, so these are the results' own moments, not one end-of-turn
+  instant), and a turn that did not conclude carries the stamp the replay had
+  reached -- the resume's before any concluded turn, the last conclusion
+  after one. A log written before the field stamps its calls with their
+  turn's start. The previous round's `:3972` reading (the no-op sink) was
+  wrong: that sink is the one the TUI does not take.
+- **`resume-tools/ctrl-o`, the shell's arguments.** fx lists `action: run`
+  and `yield_time_ms: 30000` under its `shell` call by its own rule -- every
+  argument but a captured command's `exec` and a value the row shows
+  (`full_transcript_screen.zig:6498-6511`, `captured_command.zig:26`). xfx
+  applies the same rule; its `terminal` call is `{action: exec, command}`,
+  which that rule leaves out entirely, and its one other field, `cwd`, is
+  listed when given (`src/tui/full_transcript.rs`
+  `arguments_the_row_already_shows_are_left_out_and_the_rest_listed_in_schema_order`).
+  The two rows are fx's `shell` schema, not a rendering difference.
+- **`read_file`'s failures** are fx's sentences now, live and replayed: a
+  path that does not resolve says `Path not found: missing.txt` /
+  `Path is outside the workspace: …` / `Cannot resolve path "…": …`, fx's
+  permission preflight's (`tool_admission.zig:2465-2495`), and the decoder
+  and validation say `read_file arguments must be an object`,
+  `read_file requires string field "path"`, `read_file field "path" must be
+  a string`, `read_file field "path" must not be empty`, `read_file field
+  "start_line" must be a positive integer` (`read_file.zig:44-52`, `:85`,
+  `:101`). Not ported: fx's in-call failures (a directory or other
+  non-regular file, an I/O error) are `tool_execution_failed` JSON envelopes
+  (`read_file.zig:184-216`, `tool_result_errors.zig:323-347`) whose
+  `message` its row reads (`tool_presentation.zig:1339-1342`); adopting that
+  envelope is a protocol change for every tool, and xfx keeps its sentences
+  (`read_file cannot read \`dir\`: it is a directory; use list_files`).
+  The same preflight sentence is fx's for `glob_files`, `grep_files` and
+  `list_files` too; those keep xfx's `… refused the path: …`.
+- **`resume-tools/ctrl-o`, the edit's result line** is each tool's own
+  (`edited a.txt (41 bytes)` against `Edited a.txt`).
 - **`resume-tools`, the approval snaps** (`cmd-ask`, `edit-ask`,
   `write-ask`, `exit-ask`) and `live.full`: there to show that each key
   reached the prompt it was meant for; the panels and the live screens are
@@ -205,6 +227,20 @@ Every comparison of the first round holds on this tree, the same way:
   resumes the session and finds neither `Cancelled` nor `✗ system`;
   `src/tui/shell.rs`
   `a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed`.
+- **How a stopped turn ended**, by its own field (round 4):
+  `src/session/event.rs`
+  `how_a_turn_ended_is_written_beside_its_sentence_and_an_older_frame_reads_without_it`,
+  `src/tui/hydration.rs`
+  `a_turn_that_says_how_it_ended_is_read_by_that_and_not_by_its_sentence`,
+  `tests/tool_loop.rs` `an_interrupted_turn_records_whether_it_was_stopped_or_failed`.
+- **The replay's stamps** (round 4): `src/tui/shell.rs`
+  `a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times`
+  (the resume, a call's own time, a stopped turn before and after a concluded
+  one); `src/tui/hydration.rs` `a_turn_replays_its_steps_in_the_order_the_log_holds_them`;
+  `tests/tool_loop.rs`
+  `the_journal_keeps_how_each_call_ended_for_the_row_and_the_lines_it_changed`.
+- **`read_file`'s sentences** (round 4): `tests/tool_loop.rs`
+  `read_file_refuses_in_upstreams_words`.
 - **The derived title** (`src/session/store.rs`
   `a_title_is_the_first_line_of_the_first_prompt_and_is_bounded`,
   `a_session_is_titled_by_the_first_prompt_that_gives_a_title`).

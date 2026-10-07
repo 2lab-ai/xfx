@@ -40,7 +40,10 @@ use xfx::permission::{
 };
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
-use xfx::session::{LineCounts, NewSession, SessionEvent, SessionId, SessionStore, ToolEnding};
+use xfx::session::{
+    LineCounts, NewSession, SessionEvent, SessionId, SessionStore, TerminalReason, ToolEnding,
+    TurnConclusion,
+};
 use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
 use xfx::workspace::{AccessScope, PathError, ProjectContext};
 
@@ -660,6 +663,59 @@ fn read_file_rejects_arguments_that_do_not_match_its_schema() {
             result.output.contains("read_file"),
             "{bad} produced {result:?}"
         );
+    }
+}
+
+/// `read_file`'s refusals in upstream's words: its decoder's
+/// (`vercel-labs/fx@c1db9191 src/tools/filesystem/read_file.zig:44-52, 85`),
+/// its validation's (`:101`), and its permission preflight's for a path that
+/// does not resolve (`permissionTargetResolutionFailureMessage`,
+/// `src/core/tooling/tool_admission.zig:2465-2495`) -- the sentence the row
+/// shows after `Failed missing.txt:` (`fx-resume-tools-40x120-live-ctrl-o`).
+#[test]
+fn read_file_refuses_in_upstreams_words() {
+    let tree = Tree::new();
+    let context = context(&tree);
+    let outside = TempDir::new().expect("outside");
+    fs::write(outside.path().join("o.txt"), "o\n").expect("write");
+    let outside_path = outside.path().join("o.txt").display().to_string();
+    for (input, said) in [
+        (
+            json!({ "path": "missing.txt" }),
+            "Path not found: missing.txt".to_string(),
+        ),
+        (
+            json!({ "path": outside_path }),
+            format!("Path is outside the workspace: {outside_path}"),
+        ),
+        (
+            json!(["path"]),
+            "read_file arguments must be an object".to_string(),
+        ),
+        (
+            json!({}),
+            "read_file requires string field \"path\"".to_string(),
+        ),
+        (
+            json!({ "path": 7 }),
+            "read_file field \"path\" must be a string".to_string(),
+        ),
+        (
+            json!({ "path": "  " }),
+            "read_file field \"path\" must not be empty".to_string(),
+        ),
+        (
+            json!({ "path": "x.txt", "start_line": 0 }),
+            "read_file field \"start_line\" must be a positive integer".to_string(),
+        ),
+        (
+            json!({ "path": "x.txt", "line_count": "many" }),
+            "read_file field \"line_count\" must be a positive integer".to_string(),
+        ),
+    ] {
+        let result = call(&context, "read_file", input.clone());
+        assert!(!result.ok, "{input}: {result:?}");
+        assert_eq!(result.output, said, "{input}");
     }
 }
 
@@ -1975,6 +2031,57 @@ async fn amended_batch(tree: &Tree) -> (Vec<CompletionRequest>, Vec<SessionEvent
     (provider.requests(), journal.events)
 }
 
+/// How an interrupted turn ended is written beside its sentence, as
+/// upstream's `terminal_reason` is (`runtime/interruption.zig:254`): a stop is
+/// `cancelled`, anything else `failed`.
+#[tokio::test]
+async fn an_interrupted_turn_records_whether_it_was_stopped_or_failed() {
+    let tree = Tree::new();
+    let concluded = |journal: &RecordingJournal| {
+        journal.events.iter().find_map(|event| match event {
+            SessionEvent::TurnConcluded {
+                outcome:
+                    TurnConclusion::Interrupted {
+                        terminal_reason, ..
+                    },
+            } => Some(*terminal_reason),
+            _ => None,
+        })
+    };
+    let stopped = CancelToken::new();
+    stopped.cancel();
+    let provider = ScriptedProvider::new(vec![final_step("never")]);
+    let mut journal = RecordingJournal::default();
+    let err = run_turn_saved(
+        asking_turn("stop", context(&tree), stopped),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect_err("a stopped turn");
+    assert!(matches!(err, TurnError::Cancelled), "{err}");
+    assert_eq!(concluded(&journal), Some(Some(TerminalReason::Cancelled)));
+
+    let provider = ScriptedProvider::new(vec![calls_step(vec![ToolCall {
+        id: "c1".to_string(),
+        name: "delete_file".to_string(),
+        input: json!({ "path": "x" }),
+    }])]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("delete", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect_err("xfx does not advertise delete_file");
+    assert_eq!(concluded(&journal), Some(Some(TerminalReason::Failed)));
+}
+
 /// The screen's half of a result reaches the log beside the model's half: a
 /// change's line counts and a denial, so a resumed session's rows say what
 /// the live ones did (`xfx::session::ToolEnding`).
@@ -2076,6 +2183,22 @@ async fn the_journal_keeps_how_each_call_ended_for_the_row_and_the_lines_it_chan
         plain.get("ending").is_none() && plain.get("lines").is_none(),
         "{plain}"
     );
+    // Every result says when it was recorded, which a resumed session's
+    // full transcript stamps its call with (upstream's
+    // `PersistedToolResult.created_at_ms`, `execution_memory.zig:52`).
+    for event in &journal.events {
+        if let SessionEvent::ToolResult {
+            call_id,
+            created_at_ms,
+            ..
+        } = event
+        {
+            assert!(
+                created_at_ms.is_some_and(|at_ms| at_ms > 1_700_000_000_000),
+                "{call_id}: {created_at_ms:?}"
+            );
+        }
+    }
 }
 
 #[tokio::test]

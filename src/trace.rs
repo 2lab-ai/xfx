@@ -2238,6 +2238,7 @@ mod tests {
                     wire: None,
                 },
                 SessionEvent::ToolResult {
+                    created_at_ms: None,
                     call_id: "call-1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
@@ -2247,6 +2248,7 @@ mod tests {
                     change: None,
                 },
                 SessionEvent::ToolResult {
+                    created_at_ms: None,
                     call_id: "call-2".to_string(),
                     tool: "terminal".to_string(),
                     ok: false,
@@ -2272,6 +2274,7 @@ mod tests {
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {
                         reason: "cancelled by the user".to_string(),
+                        terminal_reason: None,
                         cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 },

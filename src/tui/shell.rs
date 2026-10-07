@@ -2675,10 +2675,19 @@ impl Shell {
         if let Some(model) = replay.model {
             self.model = model;
         }
+        // Upstream's projection starts stamped with the moment of the resume
+        // (`beginResumeProjection`, `main.zig:1366-1372`) and keeps whatever
+        // stamp it was last given (`ResumeProjection.setCreatedAtMs`,
+        // `resume_projection.zig:76-78`): the notice and any turn before the
+        // first one with a summary carry the resume, and a turn with no
+        // summary carries the one before's conclusion.
+        let mut stamp = self.full.now();
+        self.full.stamp_with(Some(stamp));
         self.resumed(replay.title);
         for turn in replay.turns {
-            self.replay_turn(turn);
+            stamp = self.replay_turn(turn, stamp);
         }
+        self.full.stamp_with(None);
         self.render.request(Reason::Footer);
     }
 
@@ -2694,10 +2703,18 @@ impl Shell {
     /// `app_session_runtime.zig:4753-4810`, which the TUI's resume sink passes
     /// on -- `DetachedHistorySink`, `:4272-4274`, into `ResumeProjection`,
     /// `resume_projection.zig:76-78` -- rather than the no-op of the sink it
-    /// does not take, `:3972`): the turn's start for the card and what it did
-    /// on the way, its conclusion for the answer after its last call and the
-    /// summary; the resume notice above them is stamped with the resume.
-    fn replay_turn(&mut self, turn: HydratedTurn) {
+    /// does not take, `:3972`). A turn with a summary -- one that concluded:
+    /// upstream gives one to its finished turns only (`setHistoryTurnSummary`,
+    /// `orchestrator.zig:9267`, `:12313`, `finalization.zig:194`, each an
+    /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
+    /// carries its start on the card and what it did on the way, and its
+    /// conclusion on the answer after its last call and the summary. Any other
+    /// carries `carried`, the stamp the replay had reached, throughout. A
+    /// call's entry carries its result's own time where the log has one
+    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
+    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
+    /// turn is to carry.
+    fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
             // handed over without crossing it.
@@ -2706,9 +2723,16 @@ impl Shell {
                 detail: detail.made_inert(),
             });
         }
-        // A turn the log has no conclusion for keeps its start throughout.
-        let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
-        self.full.stamp_with(Some(turn.started_at_ms));
+        let summarized = matches!(turn.ending, Ending::Concluded { .. });
+        let (started, concluded) = if summarized {
+            (
+                turn.started_at_ms,
+                turn.concluded_at_ms.unwrap_or(turn.started_at_ms),
+            )
+        } else {
+            (carried, carried)
+        };
+        self.full.stamp_with(Some(started));
         self.full.replay(true);
         let concluding = turn
             .steps
@@ -2726,8 +2750,10 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown } => {
+                HydratedStep::ToolStart { id, shown, at_ms } => {
+                    self.full.stamp_call(at_ms);
                     self.run_mark(Mark::ToolStart { id, shown });
+                    self.full.stamp_call(None);
                 }
                 HydratedStep::ToolResult {
                     id,
@@ -2781,8 +2807,8 @@ impl Shell {
             // nothing reached the log of a turn that never concluded.
             Ending::CompactionCancelled | Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
-        self.full.stamp_with(None);
         self.full.replay(false);
+        concluded
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -18751,6 +18777,7 @@ mod tests {
         lines: Option<crate::session::LineCounts>,
     ) -> crate::session::TurnStep {
         crate::session::TurnStep::ToolResult {
+            created_at_ms: None,
             call_id: id.to_string(),
             tool: "t".to_string(),
             ok,
@@ -18785,6 +18812,7 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -18803,6 +18831,8 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
+                    // Its result came back a second in.
+                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
@@ -18819,8 +18849,29 @@ mod tests {
         turn.started_at_ms = 1_790_899_200_000;
         turn.concluded_at_ms = Some(1_790_899_202_000);
         turn.details = full_transcript::details_of(&steps);
+        // Turns with no summary, before it and after it: upstream sets no
+        // stamp for them (`app_session_runtime.zig:4780-4783`), so they carry
+        // the one the replay had reached -- the resume's, then this turn's
+        // conclusion -- whatever the log says of their own times.
+        let stopped = |user: &str, started_at_ms: i64| {
+            let mut turn = saved(user, Vec::new(), 0, None);
+            turn.ending = Ending::Cancelled;
+            turn.started_at_ms = started_at_ms;
+            turn.concluded_at_ms = Some(started_at_ms + 500);
+            turn
+        };
         let mut shell = shell(40, 120);
-        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.hydrate(
+            replay(
+                Some("look"),
+                vec![
+                    stopped("before", 1_790_899_100_000),
+                    turn,
+                    stopped("after", 1_790_899_300_000),
+                ],
+            ),
+            false,
+        );
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);
         let headers: Vec<&str> = screen
@@ -18828,14 +18879,19 @@ mod tests {
             .filter(|row| row.contains(" UTC \u{b7} "))
             .map(String::as_str)
             .collect();
+        let resumed_at = headers[0]
+            .strip_suffix(" Notice")
+            .expect("the resume notice first");
+        assert_eq!(headers[1], format!("{resumed_at} Prompt"), "{screen:#?}");
         assert_eq!(
-            headers[1..],
+            headers[2..],
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:00.000 UTC \u{b7} Tool",
+                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
             ],
             "{screen:#?}"
         );
@@ -19013,6 +19069,7 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -19087,6 +19144,7 @@ mod tests {
                     cut_off,
                     TurnConclusion::Interrupted {
                         reason: crate::agent::TurnError::Cancelled.to_string(),
+                        terminal_reason: None,
                         cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 ),
@@ -19095,6 +19153,7 @@ mod tests {
                     Vec::new(),
                     TurnConclusion::Interrupted {
                         reason: "the provider failed: overloaded".to_string(),
+                        terminal_reason: None,
                         cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 ),
@@ -19107,6 +19166,7 @@ mod tests {
                         reason: super::super::compaction::Feedback::Cancelled
                             .label()
                             .to_string(),
+                        terminal_reason: None,
                         cancellation_origin: crate::session::CancellationOrigin::Compaction,
                     },
                 ),

@@ -58,7 +58,7 @@ use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
 use crate::session::{
     CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent,
-    ToolEnding, TurnConclusion,
+    TerminalReason, ToolEnding, TurnConclusion,
 };
 use crate::tools::{LineChanges, Outcome, Registry};
 use crate::workspace::ProjectContext;
@@ -475,6 +475,15 @@ impl TurnMachine {
                 },
                 Err(err) => TurnConclusion::Interrupted {
                     reason: err.to_string(),
+                    // A stop is the one interruption upstream calls
+                    // cancelled; every other is a failure
+                    // (`persistFailedPartialTurnOnce`,
+                    // `runtime/interruption.zig:254`).
+                    terminal_reason: Some(if matches!(err, TurnError::Cancelled) {
+                        TerminalReason::Cancelled
+                    } else {
+                        TerminalReason::Failed
+                    }),
                     cancellation_origin: CancellationOrigin::Turn,
                 },
             },
@@ -713,6 +722,7 @@ impl TurnMachine {
             // With what the row said beyond `ok`, so a resumed session's row
             // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
+                created_at_ms: Some(crate::session::event::system_now_ms()),
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,

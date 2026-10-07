@@ -25,7 +25,7 @@
 //! of those -- upstream records no result for it, xfx's log does, marked.
 
 use crate::agent::TurnError;
-use crate::session::{DurableState, HistoryTurn, LineCounts, ToolEnding, TurnStep};
+use crate::session::{DurableState, HistoryTurn, LineCounts, TerminalReason, ToolEnding, TurnStep};
 use crate::tools::{LineChanges, Outcome, Registry, Shown};
 
 /// A resumed session, ready to be written.
@@ -73,8 +73,16 @@ pub(crate) struct HydratedTurn {
 pub(crate) enum HydratedStep {
     /// Answer text, raw markdown, for the presenter.
     Text(String),
-    /// A call, named as a live turn named it before it ran.
-    ToolStart { id: String, shown: Shown },
+    /// A call, named as a live turn named it before it ran, and when its
+    /// result was recorded, if the log says (`created_at_ms`): the time its
+    /// full-transcript entry carries, as upstream's carries its persisted
+    /// result's (`transcript/runtime.zig:5826`, read `full_transcript_screen.zig:
+    /// 5801-5814`).
+    ToolStart {
+        id: String,
+        shown: Shown,
+        at_ms: Option<i64>,
+    },
     /// What came back, as the live row said it: the outcome and the lines a
     /// change made, as the log recorded them ([`ToolEnding`], [`LineCounts`]).
     /// A log written before they were recorded settles every call as done or
@@ -139,16 +147,25 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
     let registry = Registry::builtin();
     // The calls that came back, and with what: a result the turn's stop
     // cancelled is not one of them.
-    let answered: Vec<&str> = turn
+    let answered: Vec<(&str, Option<i64>)> = turn
         .steps
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult {
-                call_id, ending, ..
-            } if *ending != Some(ToolEnding::Cancelled) => Some(call_id.as_str()),
+                call_id,
+                ending,
+                created_at_ms,
+                ..
+            } if *ending != Some(ToolEnding::Cancelled) => Some((call_id.as_str(), *created_at_ms)),
             _ => None,
         })
         .collect();
+    let came_back_at = |id: &str| {
+        answered
+            .iter()
+            .find(|(answered, _)| *answered == id)
+            .map(|(_, at_ms)| *at_ms)
+    };
     let mut steps = Vec::new();
     for step in &turn.steps {
         match step {
@@ -157,7 +174,7 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             } => {
                 let came_back: Vec<_> = tool_calls
                     .iter()
-                    .filter(|call| answered.contains(&call.id.as_str()))
+                    .filter_map(|call| came_back_at(&call.id).map(|at_ms| (call, at_ms)))
                     .collect();
                 if !tool_calls.is_empty() && came_back.is_empty() {
                     continue;
@@ -168,12 +185,13 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
                 // A call to a tool this build does not offer never started on
                 // a live screen either: the turn ended on it before any row
                 // (`agent::machine`'s `ToolCallUnsupported`).
-                steps.extend(came_back.into_iter().filter_map(|call| {
+                steps.extend(came_back.into_iter().filter_map(|(call, at_ms)| {
                     registry
                         .spec(&call.name)
                         .map(|spec| HydratedStep::ToolStart {
                             id: call.id.clone(),
                             shown: spec.shown(&call.input),
+                            at_ms,
                         })
                 }));
             }
@@ -216,13 +234,24 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             cancellation_origin: crate::session::CancellationOrigin::Compaction,
             ..
         }) => Ending::CompactionCancelled,
-        // The log keeps the sentence the live turn ended on, and a stop's is
-        // always this one ([`TurnError::Cancelled`]).
-        Some(crate::session::TurnConclusion::Interrupted { reason, .. })
-            if *reason == TurnError::Cancelled.to_string() =>
-        {
-            Ending::Cancelled
-        }
+        // How it ended, as the log says: upstream's line is chosen by this
+        // and nothing else (`terminal_reason`, `app_session_runtime.zig:
+        // 4796-4803`).
+        Some(crate::session::TurnConclusion::Interrupted {
+            terminal_reason: Some(TerminalReason::Cancelled),
+            ..
+        }) => Ending::Cancelled,
+        Some(crate::session::TurnConclusion::Interrupted {
+            terminal_reason: Some(TerminalReason::Failed),
+            ..
+        }) => Ending::Failed,
+        // A log from before the field: the sentence the live turn ended on,
+        // and a stop's is always this one ([`TurnError::Cancelled`]).
+        Some(crate::session::TurnConclusion::Interrupted {
+            reason,
+            terminal_reason: None,
+            ..
+        }) if *reason == TurnError::Cancelled.to_string() => Ending::Cancelled,
         Some(crate::session::TurnConclusion::Interrupted { .. }) => Ending::Failed,
         None => Ending::Unconcluded,
     };
@@ -270,7 +299,7 @@ fn changes(lines: LineCounts) -> LineChanges {
 mod tests {
     use super::*;
 
-    use crate::session::{RecordedToolCall, TurnConclusion, TurnTiming};
+    use crate::session::{RecordedToolCall, TerminalReason, TurnConclusion, TurnTiming};
     use serde_json::json;
 
     fn concluded(user: &str, steps: Vec<TurnStep>, timing: TurnTiming) -> HistoryTurn {
@@ -363,6 +392,7 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
+                    created_at_ms: Some(11_500),
                     ending: None,
                     lines: None,
                     change: None,
@@ -397,9 +427,11 @@ mod tests {
             HydratedStep::Text("Looking.".to_string())
         );
         match &replayed.steps[1] {
-            HydratedStep::ToolStart { id, shown } => {
+            HydratedStep::ToolStart { id, shown, at_ms } => {
                 assert_eq!(id, "c1");
                 assert_eq!(shown.target.as_deref(), Some("a.txt"));
+                // When its result was recorded, for its full-transcript entry.
+                assert_eq!(*at_ms, Some(11_500));
             }
             other => panic!("{other:?}"),
         }
@@ -467,6 +499,7 @@ mod tests {
         lines: Option<LineCounts>,
     ) -> TurnStep {
         TurnStep::ToolResult {
+            created_at_ms: None,
             call_id: id.to_string(),
             tool: "t".to_string(),
             ok,
@@ -564,6 +597,7 @@ mod tests {
         );
         turn.outcome = Some(TurnConclusion::Interrupted {
             reason: TurnError::Cancelled.to_string(),
+            terminal_reason: None,
             cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         let replayed = super::turn(&turn);
@@ -589,11 +623,13 @@ mod tests {
         assert_eq!(TurnError::Cancelled.to_string(), "the turn was cancelled");
         stopped.outcome = Some(TurnConclusion::Interrupted {
             reason: "the turn was cancelled".to_string(),
+            terminal_reason: None,
             cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         assert_eq!(super::turn(&stopped).ending, Ending::Cancelled);
         stopped.outcome = Some(TurnConclusion::Interrupted {
             reason: "the provider failed: overloaded".to_string(),
+            terminal_reason: None,
             cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         assert_eq!(super::turn(&stopped).ending, Ending::Failed);
@@ -607,16 +643,46 @@ mod tests {
         for reason in [compaction.clone(), TurnError::Cancelled.to_string()] {
             stopped.outcome = Some(TurnConclusion::Interrupted {
                 reason,
+                terminal_reason: None,
                 cancellation_origin: crate::session::CancellationOrigin::Compaction,
             });
             assert_eq!(super::turn(&stopped).ending, Ending::CompactionCancelled);
         }
         stopped.outcome = Some(TurnConclusion::Interrupted {
             reason: compaction,
+            terminal_reason: None,
             cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         assert_eq!(super::turn(&stopped).ending, Ending::Failed);
         stopped.outcome = None;
         assert_eq!(super::turn(&stopped).ending, Ending::Unconcluded);
+    }
+
+    #[test]
+    fn a_turn_that_says_how_it_ended_is_read_by_that_and_not_by_its_sentence() {
+        // Upstream's replay picks the line by `terminal_reason` alone
+        // (`app_session_runtime.zig:4796-4803`): a recorded `cancelled` is the
+        // cancellation whatever the sentence, a recorded `failed` the failure
+        // even with the stop's sentence; without the field the sentence
+        // decides, as it always has.
+        let mut turn = concluded("q", Vec::new(), TurnTiming::default());
+        let with = |reason: &str, terminal_reason| {
+            Some(TurnConclusion::Interrupted {
+                reason: reason.to_string(),
+                terminal_reason,
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
+            })
+        };
+        turn.outcome = with("anything at all", Some(TerminalReason::Cancelled));
+        assert_eq!(super::turn(&turn).ending, Ending::Cancelled);
+        turn.outcome = with(
+            &TurnError::Cancelled.to_string(),
+            Some(TerminalReason::Failed),
+        );
+        assert_eq!(super::turn(&turn).ending, Ending::Failed);
+        turn.outcome = with(&TurnError::Cancelled.to_string(), None);
+        assert_eq!(super::turn(&turn).ending, Ending::Cancelled);
+        turn.outcome = with("the provider failed: overloaded", None);
+        assert_eq!(super::turn(&turn).ending, Ending::Failed);
     }
 }

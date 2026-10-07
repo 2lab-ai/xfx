@@ -9233,6 +9233,9 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
         "Compaction cancelled. Try /compact again when ready."
     );
     assert_eq!(concluded["outcome"]["cancellation_origin"], "compaction");
+    // And stopped, as upstream's compaction stop is (`terminal_reason`'s
+    // default, `persistCompactionInterruptedTurnOnce`).
+    assert_eq!(concluded["outcome"]["terminal_reason"], "cancelled");
     // Nothing about it in the document.
     on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
     session.type_bytes(b"/quit\r");

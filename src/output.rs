@@ -981,9 +981,11 @@ fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::sessio
         },
         TurnConclusion::Interrupted {
             reason,
+            terminal_reason,
             cancellation_origin,
         } => TurnConclusion::Interrupted {
             reason: clip_text(&one_line(reason)),
+            terminal_reason: *terminal_reason,
             cancellation_origin: *cancellation_origin,
         },
     }
@@ -1531,6 +1533,7 @@ mod tests {
         let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
             &long,
             vec![crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,

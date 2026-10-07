@@ -232,6 +232,11 @@ pub enum TurnConclusion {
     /// refused. `reason` is the same sentence the user was shown.
     Interrupted {
         reason: String,
+        /// Whether the turn was stopped or failed, as upstream records it
+        /// beside every interruption ([`TerminalReason`]). Absent from a log
+        /// written before the field, whose turn is then told by `reason`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        terminal_reason: Option<TerminalReason>,
         /// Whose stop it was, written only when it was not the turn's own,
         /// as upstream writes its field (`ConversationInterruption.jsonStringify`,
         /// `session_event.zig:138-160`) -- so a log from before the field
@@ -239,6 +244,25 @@ pub enum TurnConclusion {
         #[serde(default, skip_serializing_if = "CancellationOrigin::is_turn")]
         cancellation_origin: CancellationOrigin,
     },
+}
+
+/// How an interrupted turn ended: stopped, or failed -- upstream's
+/// `InterruptedTerminalReason` (`vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig:2296-2299`). Upstream writes it on every
+/// interruption -- `failed` from `persistFailedPartialTurnOnce`
+/// (`runtime/interruption.zig:254`), `cancelled` by default -- as the event's
+/// `reason` (`session_event.zig:101`, written `:537`, read back
+/// `session_log.zig:2621`), and its replay chooses the turn's line by it
+/// alone (`app_session_runtime.zig:4796-4803`, `interruptedTurnNotice`
+/// `session.zig:45-50`). A name it does not know is refused, as upstream's
+/// reader refuses one (`session_codec.zig:820-821`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalReason {
+    /// Stopped: a Ctrl-C, a `/stop`, a compaction's cancel.
+    Cancelled,
+    /// Ended by anything else: the provider, a budget, a refusal.
+    Failed,
 }
 
 /// Which stop interrupted a turn: its own, or that of the automatic compaction
@@ -380,6 +404,18 @@ pub enum SessionEvent {
         /// for the full transcript of a resumed session.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<RecordedChange>,
+        /// When the result was recorded, as upstream keeps each persisted
+        /// result's own moment (`PersistedToolResult.created_at_ms`,
+        /// `vercel-labs/fx@c1db9191 src/core/agent/execution_memory.zig:52`)
+        /// and stamps a resumed call's full-transcript entry with it
+        /// (`transcript/runtime.zig:5826`). Upstream's is the turn's end,
+        /// because it writes a turn's results only then
+        /// (`buildNormalExecutionMemory`, `execution_memory.zig:421`, from
+        /// `orchestrator.zig:9260`); xfx writes each as it comes back, so
+        /// this is that moment. Absent in a log written before the field,
+        /// whose calls a resume stamps with their turn's start.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -775,6 +811,7 @@ mod tests {
         let frame = envelope(
             1,
             SessionEvent::ToolResult {
+                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -791,6 +828,7 @@ mod tests {
     #[test]
     fn a_result_keeps_how_its_row_ended_and_an_older_or_newer_one_still_reads() {
         let result = SessionEvent::ToolResult {
+            created_at_ms: None,
             call_id: "c".to_string(),
             tool: "terminal".to_string(),
             ok: true,
@@ -827,9 +865,30 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
+                created_at_ms: None,
                 ..
             }
         ));
+        // When it was recorded, written beside the rest when known.
+        let stamped = SessionEvent::ToolResult {
+            call_id: "c".to_string(),
+            tool: "t".to_string(),
+            ok: true,
+            output: "o".to_string(),
+            ending: None,
+            lines: None,
+            change: None,
+            created_at_ms: Some(1_790_899_201_000),
+        };
+        let encoded = serde_json::to_string(&stamped).expect("encodes");
+        assert!(
+            encoded.ends_with(r#","created_at_ms":1790899201000}"#),
+            "{encoded}"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
+            stamped
+        );
         // A kind a later build adds is not a reason to refuse the log.
         let newer: SessionEvent = serde_json::from_str(
             r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","ending":{"kind":"paused","for":3}}"#,
@@ -845,12 +904,57 @@ mod tests {
     }
 
     #[test]
+    fn how_a_turn_ended_is_written_beside_its_sentence_and_an_older_frame_reads_without_it() {
+        // Upstream's event field, `reason: cancelled|failed`
+        // (`session_event.zig:101`), under xfx's name for it, since xfx's
+        // `reason` is the sentence.
+        let ended = |terminal_reason| SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "r".to_string(),
+                terminal_reason,
+                cancellation_origin: CancellationOrigin::Turn,
+            },
+        };
+        for (reason, name) in [
+            (TerminalReason::Cancelled, "cancelled"),
+            (TerminalReason::Failed, "failed"),
+        ] {
+            let line = serde_json::to_string(&ended(Some(reason))).expect("encodes");
+            assert_eq!(
+                line,
+                format!(
+                    r#"{{"kind":"turn_concluded","outcome":{{"kind":"interrupted","reason":"r","terminal_reason":"{name}"}}}}"#
+                )
+            );
+            assert_eq!(
+                serde_json::from_str::<SessionEvent>(&line).expect("decodes"),
+                ended(Some(reason))
+            );
+        }
+        let older = r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r"}}"#;
+        assert_eq!(
+            serde_json::to_string(&ended(None)).expect("encodes"),
+            older,
+            "a frame without it is written as before"
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionEvent>(older).expect("decodes"),
+            ended(None)
+        );
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","terminal_reason":"future"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn a_stop_the_compaction_took_says_so_and_any_other_reads_as_it_always_did() {
         // Upstream writes the origin only when it is the compaction's
         // (`session_event.zig:138-160`) and reads a missing one as the turn's.
         let stopped = |cancellation_origin| SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Interrupted {
                 reason: "r".to_string(),
+                terminal_reason: None,
                 cancellation_origin,
             },
         };
@@ -920,6 +1024,7 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -950,6 +1055,7 @@ mod tests {
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "cancelled".to_string(),
+                    terminal_reason: None,
                     cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
             },
@@ -1116,6 +1222,7 @@ mod tests {
         assert_eq!(
             TurnConclusion::Interrupted {
                 reason: "cancelled".to_string(),
+                terminal_reason: None,
                 cancellation_origin: crate::session::CancellationOrigin::Turn,
             }
             .label(),

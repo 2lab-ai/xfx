@@ -761,6 +761,9 @@ pub(crate) struct FullTranscript {
     stamp: Option<i64>,
     /// Whether the calls drawn now are a resumed session's ([`Self::replay`]).
     replaying: bool,
+    /// The time the next call's entry is stamped with instead
+    /// ([`Self::stamp_call`]).
+    call_stamp: Option<i64>,
     /// Whether the document opened with the welcome line, which upstream's
     /// screen shows first and without a header.
     welcome: bool,
@@ -842,6 +845,7 @@ impl FullTranscript {
             clock,
             stamp: None,
             replaying: false,
+            call_stamp: None,
             welcome: false,
             records: Vec::new(),
             entries: Vec::new(),
@@ -876,6 +880,19 @@ impl FullTranscript {
     /// `ResumeProjection.setCreatedAtMs`, `resume_projection.zig:76-78`).
     pub(crate) fn stamp_with(&mut self, at_ms: Option<i64>) {
         self.stamp = at_ms;
+    }
+
+    /// Stamps the next call's entry, and only it, with `at_ms`: a resumed
+    /// call's result's own time, which upstream's header prefers to its
+    /// entry's (`full_transcript_screen.zig:5801-5814`). The answer text
+    /// before the call is not that call's, so it keeps [`Self::stamp_with`]'s.
+    pub(crate) fn stamp_call(&mut self, at_ms: Option<i64>) {
+        self.call_stamp = at_ms;
+    }
+
+    /// The clock's time now: the moment a resume's stamps start from.
+    pub(crate) fn now(&self) -> i64 {
+        (self.clock)()
     }
 
     /// Whether the calls drawn from here are a resumed session's, replayed
@@ -987,6 +1004,10 @@ impl FullTranscript {
         }
         let group = self.groups.len() - 1;
         let pending = self.pending.remove(id).unwrap_or_default();
+        let stamp = self.stamp;
+        if let Some(at_ms) = self.call_stamp.take() {
+            self.stamp = Some(at_ms);
+        }
         self.push(Body::Tool(Box::new(Call {
             id: id.to_string(),
             shown: shown.clone(),
@@ -997,6 +1018,7 @@ impl FullTranscript {
             change: pending.change,
             replayed: self.replaying,
         })));
+        self.stamp = stamp;
         self.calls.insert(id.to_string(), self.entries.len() - 1);
         self.touch_group(group);
     }
@@ -2117,6 +2139,24 @@ mod tests {
         let rows = screen(&record);
         assert_eq!(rows[2], "\u{2514} Ran ls");
         assert_eq!(rows[3], "");
+
+        // Upstream's own rule, and only it: every argument but the captured
+        // command's `exec` and a value the row already shows
+        // (`full_transcript_screen.zig:6498-6511`; `exec` is the captured
+        // `terminal` action, `captured_command.zig:26`). Its `shell` lists
+        // `action: run` and `yield_time_ms` by the same rule
+        // (`fx-resume-tools-40x120-live-ctrl-o`); `terminal`'s one other
+        // field is `cwd`, listed when given.
+        let mut record = self::record();
+        let input = json!({"action": "exec", "command": "ls", "cwd": "sub"});
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "t".into(),
+            detail: Detail::Arguments(arguments("terminal", &input)),
+        });
+        record.tool_started("t", &command("ls"));
+        record.tool_finished("t", true, "", Outcome::Exited(0), None);
+        let rows = screen(&record);
+        assert_eq!(&rows[2..5], ["\u{2514} Ran ls", "\u{2502}  cwd: sub", ""]);
     }
 
     #[test]
@@ -2653,6 +2693,7 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "e".into(),
                 tool: "edit_file".into(),
                 ok: true,
@@ -2744,6 +2785,7 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -3083,6 +3125,7 @@ mod tests {
                 wire: None,
             });
             teed.record(SessionEvent::ToolResult {
+                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3136,6 +3179,7 @@ mod tests {
         cancel.cancel();
         let mut kept = Kept(Vec::new());
         Teed::new(&mut kept, events, cancel).record(SessionEvent::ToolResult {
+            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,

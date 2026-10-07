@@ -756,12 +756,14 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
     use super::hydration::HydratedStep;
     match step {
         HydratedStep::Text(text) => HydratedStep::Text(inert_owned(text)),
-        HydratedStep::ToolStart { id, shown } => HydratedStep::ToolStart {
+        HydratedStep::ToolStart { id, shown, at_ms } => HydratedStep::ToolStart {
             id: inert_owned(id),
             shown: Shown {
                 presentation: shown.presentation,
                 target: shown.target.map(inert_owned),
             },
+            // A number.
+            at_ms,
         },
         HydratedStep::ToolResult {
             id,

@@ -104,7 +104,8 @@ use crate::provider::model::{
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{
-    CancellationOrigin, SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession,
+    CancellationOrigin, SessionEvent, SessionId, SessionStore, TerminalReason, TurnConclusion,
+    WritableSession,
 };
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
@@ -2855,6 +2856,7 @@ async fn compact_if_due(
                     conversation.recorder.commit(SessionEvent::TurnConcluded {
                         outcome: TurnConclusion::Interrupted {
                             reason: Feedback::Cancelled.label().to_string(),
+                            terminal_reason: Some(TerminalReason::Cancelled),
                             cancellation_origin: CancellationOrigin::Compaction,
                         },
                     });
@@ -5756,6 +5758,7 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -5793,7 +5796,7 @@ mod tests {
             for step in &turn.steps {
                 match step {
                     HydratedStep::Text(text) | HydratedStep::Feedback(text) => all.push_str(text),
-                    HydratedStep::ToolStart { id, shown } => {
+                    HydratedStep::ToolStart { id, shown, .. } => {
                         all.push_str(id);
                         all.push_str(shown.target.as_deref().unwrap_or(""));
                     }
@@ -6336,6 +6339,7 @@ mod tests {
             }
         }
         let refused = || SessionEvent::ToolResult {
+            created_at_ms: None,
             call_id: "w".to_string(),
             tool: "write_file".to_string(),
             ok: false,
