@@ -217,17 +217,13 @@ impl EditHistory {
             !delta.is_empty(),
             "an edit that changed nothing was recorded as history"
         );
-        // **An image's badge comes back as words.** The badge is the
-        // attachment: deleting it dropped the image, as upstream's line delete
-        // does (`kill_ring.zig:562-584`), so neither an undo nor a yank of the
-        // text it stood in may attach it again -- and neither stack holds up to
-        // twenty megabytes of bytes for a badge that is gone.
-        delta.removed_entities.retain(|span| span.image().is_none());
-        delta
-            .inserted_entities
-            .retain(|span| span.image().is_none());
         let weight = delta.weight();
         if delta.kind() == DeltaKind::Kill {
+            // **A killed badge takes its image with it**, and a yank brings
+            // the image back under a fresh number, as upstream's kill ring
+            // does (`kill_ring.zig:120-190`, `tui-composer-edit-contracts.test.ts:763-797`).
+            // The slot holds the image's bytes by reference: the same bytes
+            // the draft held, not a copy.
             // Replaced whole, never appended to: consecutive kills do not
             // coalesce (`kill_ring.zig:86-116`). A kill past the slot's own cap
             // **empties** it -- a truncated payload behind a summary would yank
@@ -245,6 +241,15 @@ impl EditHistory {
                     .collect(),
             });
         }
+        // **On the two stacks an image's badge is words.** Upstream's undo
+        // refuses outright over a draft that holds a badge
+        // (`composer_undo.zig:252-268`); here an undo takes the text back and
+        // the image stays dropped, so neither stack holds twenty megabytes for
+        // a badge that is gone, and an undo can never attach it twice.
+        delta.removed_entities.retain(|span| span.image().is_none());
+        delta
+            .inserted_entities
+            .retain(|span| span.image().is_none());
         if weight > MAX_RETAINED_BYTES {
             self.boundary();
             return;

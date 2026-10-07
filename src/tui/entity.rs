@@ -416,15 +416,18 @@ impl Entities {
     /// What a history entry has to remember to be able to put these blocks
     /// back.
     ///
-    /// Pastes only. A recalled line is the words it was, and an image's badge
-    /// among them is words too: the image went with the prompt that sent it,
-    /// and a recall that brought it back would attach it twice.
+    /// Pastes and images both: a recalled line brings its images back, each
+    /// under a fresh number ([`Self::renumber_recalled_with_images`]), as
+    /// upstream's recall does (`tui-composer-edit-contracts.test.ts:852-878`).
+    /// The bytes are held by reference -- the same ones the prompt carried.
     pub(crate) fn snapshots(&self) -> Vec<EntitySnapshot> {
         self.spans
             .iter()
-            .filter(|span| span.is_paste())
-            .map(|span| {
-                EntitySnapshot::new(span.start, span.end, Arc::clone(span.text()), span.lines())
+            .map(|span| match span.image() {
+                Some(image) => EntitySnapshot::image(span.start, span.end, Arc::clone(image)),
+                None => {
+                    EntitySnapshot::new(span.start, span.end, Arc::clone(span.text()), span.lines())
+                }
             })
             .collect()
     }
@@ -439,14 +442,21 @@ impl Entities {
         let mut entities = Self::new();
         for (index, snapshot) in snapshots.iter().enumerate() {
             let id = u32::try_from(index).unwrap_or(u32::MAX);
-            entities.spans.push(Span {
-                start: snapshot.span().start,
-                end: snapshot.span().end,
-                kind: EntityKind::Paste {
+            let kind = match &snapshot.image {
+                Some(image) => EntityKind::Image {
+                    token: Arc::clone(snapshot.text()),
+                    image: Arc::clone(image),
+                },
+                None => EntityKind::Paste {
                     id,
                     text: Arc::clone(snapshot.text()),
                     lines: snapshot.lines(),
                 },
+            };
+            entities.spans.push(Span {
+                start: snapshot.span().start,
+                end: snapshot.span().end,
+                kind,
             });
         }
         entities.reindex();
@@ -467,7 +477,24 @@ impl Entities {
     /// The draft is rebuilt rather than patched, because a new number can be a
     /// digit longer or shorter than the old one and every span after it moves
     /// by that difference.
+    #[cfg(test)]
     pub(crate) fn renumber_recalled(&mut self, draft: &mut String, next: &mut u32) {
+        let mut images = None;
+        self.renumber_recalled_with_images(draft, next, &mut images);
+    }
+
+    /// [`Self::renumber_recalled`], and every image badge too, from `images`
+    /// -- the next image number this session would mint, advanced past the
+    /// ones spent here -- as upstream gives a yanked or recalled image a
+    /// fresh id (`tui-composer-edit-contracts.test.ts:763-797`, `:852-878`).
+    /// With `images` `None` an image is dropped and its badge stays as the
+    /// words it is.
+    pub(crate) fn renumber_recalled_with_images(
+        &mut self,
+        draft: &mut String,
+        next: &mut u32,
+        images: &mut Option<&mut u32>,
+    ) {
         #[cfg(test)]
         scans::note();
         if self.spans.is_empty() {
@@ -478,9 +505,33 @@ impl Entities {
         let mut cut = 0usize;
         let mut exhausted = false;
         for span in std::mem::take(&mut self.spans) {
-            // An image is not renumbered: it is dropped, and its badge stays
-            // as the words it is -- one image, one badge.
-            if exhausted || !span.is_paste() {
+            if let Some(image) = span.image() {
+                // One image, one badge: a fresh number for it, or none at all.
+                let Some(counter) = images.as_deref_mut() else {
+                    continue;
+                };
+                let id = *counter;
+                let Some(after) = id.checked_add(1) else {
+                    continue;
+                };
+                *counter = after;
+                let mut renamed = crate::image::Image::clone(image);
+                renamed.id = id;
+                out.push_str(&draft[cut..span.start]);
+                let start = out.len();
+                out.push_str(&crate::image::badge(id));
+                cut = span.end;
+                kept.push(Span {
+                    start,
+                    end: out.len(),
+                    kind: EntityKind::Image {
+                        token: Arc::from(crate::image::token(id)),
+                        image: Arc::new(renamed),
+                    },
+                });
+                continue;
+            }
+            if exhausted {
                 continue;
             }
             let Some(id) = next.checked_add(1) else {
@@ -547,6 +598,10 @@ pub(crate) struct EntitySnapshot {
     text: Arc<str>,
     /// How many lines that text has -- the number the summary says out loud.
     lines: usize,
+    /// The image, when the run is an image's badge rather than a paste's
+    /// summary: its bytes by reference, the same ones the prompt that sent it
+    /// carried, so a recall brings the image back under a fresh number.
+    image: Option<Arc<crate::image::Image>>,
 }
 
 impl EntitySnapshot {
@@ -556,6 +611,18 @@ impl EntitySnapshot {
             end,
             text,
             lines,
+            image: None,
+        }
+    }
+
+    /// An image's badge at `start..end`.
+    pub(crate) fn image(start: usize, end: usize, image: Arc<crate::image::Image>) -> Self {
+        Self {
+            start,
+            end,
+            text: Arc::from(crate::image::token(image.id)),
+            lines: 1,
+            image: Some(image),
         }
     }
 

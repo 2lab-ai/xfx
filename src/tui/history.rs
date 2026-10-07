@@ -64,7 +64,8 @@ pub(crate) enum HistoryStep {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct HistoryEntry {
     text: String,
-    /// The collapsed pastes the line stood on, as runs of [`Self::text`].
+    /// The collapsed pastes and image badges the line stood on, as runs of
+    /// [`Self::text`].
     entities: Vec<EntitySnapshot>,
 }
 

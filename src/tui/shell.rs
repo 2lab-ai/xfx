@@ -8192,7 +8192,10 @@ impl Shell {
         // name for an edit that did not happen -- press `C-y` at a full
         // composer often enough and the ids run out for pastes nobody made.
         let mut next = *self.paste.ids();
-        entities.renumber_recalled(&mut text, &mut next);
+        // And the images, from a copy of their own counter: each yank of a
+        // killed badge is a fresh image (`kill_ring.zig:120-190`).
+        let mut images = self.images_next;
+        entities.renumber_recalled_with_images(&mut text, &mut next, &mut Some(&mut images));
         // The same question a typed character asks, and for the same reason: a
         // yank brings its payload back too, so the draft plus what its blocks
         // stand for has to stay inside one budget (`super::paste::fits`).
@@ -8213,6 +8216,7 @@ impl Shell {
         // a refusal of its own (`super::editor::Editor::insert`) and a name on
         // no summary is the same leak by another door.
         *self.paste.ids() = next;
+        self.images_next = images;
         if entities.len() < wanted {
             // The end of the id space, seen from the yank: those summaries are
             // words now, and a line that would be sent as its own description is
@@ -10259,7 +10263,10 @@ impl Shell {
         let wanted = entry.entities().len();
         let mut text = entry.text().to_string();
         let mut entities = Entities::recalled(entry.entities());
-        entities.renumber_recalled(&mut text, self.paste.ids());
+        // An image comes back too, under a fresh number
+        // (`tui-composer-edit-contracts.test.ts:852-878`).
+        let mut images = self.images_next;
+        entities.renumber_recalled_with_images(&mut text, self.paste.ids(), &mut Some(&mut images));
         if entities.len() < wanted {
             // The end of the id space, seen from the recall: those summaries
             // are words now, and a line that will be sent as its own
@@ -10288,6 +10295,7 @@ impl Shell {
         // `set_text` is the one whole-draft disposal that does not go through
         // [`Self::take_draft`], which is why the boundary is named here.
         self.edit_history.boundary();
+        self.images_next = images;
         self.recalled_slash = Trigger::of(self.editor.text()) == Some(Trigger::Slash);
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited(None);
@@ -27502,7 +27510,7 @@ mod tests {
     }
 
     #[test]
-    fn deleting_the_badge_drops_the_image_and_nothing_brings_it_back() {
+    fn deleting_the_badge_drops_the_image_and_an_undo_brings_back_only_its_words() {
         // `fx-image-cu-40x120-after.ansi`: Ctrl-U, then `/images` says none
         // (`kill_ring.zig:562-584`: `placeholder backing dropped kind=image`).
         let mut shell = attaching();
@@ -27515,13 +27523,9 @@ mod tests {
             shell.document(),
             said(notice::Notice::neutral("images", "no pending images"))
         );
-        // A yank of the killed badge is its words, and so is an undo of the
-        // delete: neither attaches the image again.
-        shell.route_bytes(b"/image shot.png\r");
-        shell.route_bytes(b"\x15\x19");
-        assert_eq!(shell.editor.text(), "[Image 2]");
-        assert!(attached_ids(&shell).is_empty());
-        shell.route_bytes(b"\x15");
+        // An undo of the delete is its words: upstream refuses an undo over a
+        // badge (`composer_undo.zig:252-268`), and this one never attaches it
+        // twice.
         shell.route_bytes(b"/image shot.png\r");
         shell.route_bytes(b"\x7f");
         assert!(
@@ -27529,10 +27533,54 @@ mod tests {
             "a backspace at a badge takes it whole"
         );
         shell.route_bytes(b"\x1f");
-        assert_eq!(shell.editor.text(), "[Image 3]");
+        assert_eq!(shell.editor.text(), "[Image 2]");
         assert!(attached_ids(&shell).is_empty());
         shell.route_bytes(b"\r");
-        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 3]".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 2]".to_string()));
+    }
+
+    #[test]
+    fn a_killed_badge_is_yanked_back_as_a_fresh_image_each_time() {
+        // `tui-composer-edit-contracts.test.ts:763-797` and
+        // `fx-image-composer-40x120-yanked`: Ctrl-U then Ctrl-Y twice is two
+        // images, each under a number of its own; Ctrl-K then Ctrl-Y is one.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b"\x15\x19\x19");
+        assert_eq!(shell.editor.text(), "[Image 2][Image 3]");
+        assert_eq!(attached_ids(&shell), [2, 3]);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2][Image #3]".to_string(), vec![2, 3])
+        );
+        shell.work.finished_one();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b"\x01\x0b\x19");
+        assert_eq!(shell.editor.text(), "[Image 5]");
+        assert_eq!(attached_ids(&shell), [5]);
+        // A kill spends no number; only a yank does.
+        shell.route_bytes(b"\x15");
+        assert_eq!(shell.images_next, 6);
+    }
+
+    #[test]
+    fn a_recalled_prompt_brings_its_image_back_under_a_fresh_number() {
+        // `tui-composer-edit-contracts.test.ts:852-878` and
+        // `fx-image-composer-40x120-recalled`.
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png");
+        shell.route_bytes(b" describe history image\r");
+        let _ = shell.picks_up();
+        shell.work.finished_one();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "[Image 2] describe history image");
+        assert_eq!(attached_ids(&shell), [2]);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] describe history image".to_string(), vec![2])
+        );
     }
 
     #[test]
@@ -28990,7 +29038,7 @@ mod tests {
             ["/image shot.png", "plain"]
         );
         assert_eq!(recalled(&mut shell), "plain");
-        assert_eq!(recalled(&mut shell), "[Image 1] look");
+        assert_eq!(recalled(&mut shell), "[Image 2] look");
     }
 
     #[test]
