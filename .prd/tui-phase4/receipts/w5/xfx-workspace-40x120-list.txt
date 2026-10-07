@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1aa1153 [debug] · Run /help for commands
+
+* workspace: primary=<scratch>/work
+  saved_suppressed=false limit=16
+  additional directories: (none)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
