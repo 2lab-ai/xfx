@@ -215,6 +215,11 @@ fn assert_bounded_property(schema: &Value, name: &str, property: &Value) {
     );
     match property["type"].as_str() {
         Some("string" | "integer" | "boolean") => {}
+        // Upstream's two string maps (`tools.zig:675-676`): advertised as a
+        // bare object, as upstream does, and held to string values and a size
+        // by `mcp_features`' decoder. No other property may be one.
+        Some("object")
+            if schema["name"] == "mcp_features" && matches!(name, "arguments" | "context") => {}
         Some("array") => assert_bounded_array_of_closed_objects(schema, name, property),
         other => panic!("`{name}` in {schema} has an unbounded type: {other:?}"),
     }
@@ -353,8 +358,6 @@ fn the_advertisement_names_no_deferred_tool() {
         "install_skill",
         "subagent",
         "mcp_search_tools",
-        "mcp_select_tool",
-        "mcp_features",
         "vision",
         "read_tool_result",
     ] {
@@ -1477,7 +1480,16 @@ async fn the_first_request_advertises_the_registry_and_lets_the_model_choose() {
 
     let request = &provider.requests()[0];
     assert_eq!(request.tool_choice, ToolChoice::Auto);
-    assert_eq!(request.tools, Registry::builtin().advertisement());
+    // The registry, less the MCP meta-tools a context with no MCP client does
+    // not offer (`Registry::advertisement_for`).
+    let expected: Vec<serde_json::Value> = Registry::builtin()
+        .advertisement()
+        .into_iter()
+        .filter(|tool| {
+            !xfx::tools::mcp::META_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
+        })
+        .collect();
+    assert_eq!(request.tools, expected);
 }
 
 #[tokio::test]
@@ -3557,7 +3569,13 @@ fn ask_advertises_the_whole_registry_in_its_first_request() {
         .iter()
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
-    assert_eq!(names, ADVERTISED_TOOLS);
+    // `ask` runs no MCP client, so the three MCP meta-tools are not offered.
+    let expected: Vec<&str> = ADVERTISED_TOOLS
+        .iter()
+        .copied()
+        .filter(|name| !xfx::tools::mcp::META_TOOLS.contains(name))
+        .collect();
+    assert_eq!(names, expected);
     assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
     run.assert_no_secret();
 }

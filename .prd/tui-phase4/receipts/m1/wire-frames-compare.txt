@@ -1,0 +1,5 @@
+# fx-mcp-wire.ndjson vs xfx-mcp-wire.ndjson, pid removed
+1c1
+< {"sequence":1,"message":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"elicitation":{"form":{},"url":{}}},"clientInfo":{"name":"fx","version":"0.0.13"}}}}
+---
+> {"sequence":1,"message":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"xfx","version":"0.1.0"}}}}

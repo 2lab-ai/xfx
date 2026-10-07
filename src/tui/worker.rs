@@ -303,6 +303,10 @@ pub(crate) struct WorkHandle {
     spend: SessionSpend,
     /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
     credits: CreditsBoard,
+    /// The session's MCP servers ([`crate::mcp::McpRuntime`]): the same
+    /// runtime the conversation's tools call, which `/mcp` reads and changes
+    /// on the UI thread without waiting on it.
+    mcp: Arc<crate::mcp::McpRuntime>,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -697,6 +701,7 @@ impl WorkHandle {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
             },
             work_rx,
             control_rx,
@@ -708,6 +713,11 @@ impl WorkHandle {
     /// the UI thread to read and to replace ([`LiveRules`]).
     pub(crate) fn rules(&self) -> &LiveRules {
         &self.rules
+    }
+
+    /// The session's MCP servers.
+    pub(crate) fn mcp(&self) -> &Arc<crate::mcp::McpRuntime> {
+        &self.mcp
     }
 
     /// Stands in for the runtime's publication of the grants list, as of the
@@ -1063,6 +1073,18 @@ pub(crate) fn spawn(
     // first publication asks what that publication would say.
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
+    // The session's MCP servers: read and connected from now on, off this
+    // thread and off the runtime's ([`crate::mcp::McpRuntime::start`]).
+    let mcp = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+        profile: config
+            .profile_dir
+            .as_deref()
+            .map(crate::mcp::config::profile_path),
+        settings: config.user_settings_path.clone(),
+        workspace: config.workspace_root.clone(),
+    });
+    mcp.start();
+    let loops_mcp = Arc::clone(&mcp);
     let session_cancel = cancel.clone();
     let stop = cancel.mirror();
     let steering = Steering::new();
@@ -1099,6 +1121,7 @@ pub(crate) fn spawn(
         state.rules = loops_rules;
         state.spend = publishes_spend;
         state.credits = publishes_credits;
+        state.mcp = loops_mcp;
         if let Some(resumed) = resumed {
             state.resume(resumed, &session_cancel.mirror());
             state.ask_for_bills();
@@ -1141,6 +1164,7 @@ pub(crate) fn spawn(
                 saved_rules,
                 spend,
                 credits,
+                mcp,
             },
             resumable: None,
         },
@@ -1363,6 +1387,9 @@ struct Runtime {
     /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     credits: CreditsBoard,
+    /// The session's MCP servers, which every conversation this runtime
+    /// opens calls ([`Runtime::ready`]).
+    mcp: Arc<crate::mcp::McpRuntime>,
     /// The directories `/workspace` saved for this workspace, each as the real
     /// path it was when it was read: at launch, from the profile, and after
     /// each change, from what the change read back.
@@ -1436,6 +1463,7 @@ impl Runtime {
             began_ms: crate::session::event::system_now_ms(),
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
+            mcp: crate::mcp::McpRuntime::inert(),
             workspace,
         }
     }
@@ -1669,6 +1697,11 @@ impl Runtime {
             .map_err(|err| err.to_string())?;
         if let Some(conversation) = self.conversation.as_mut() {
             conversation.tools.set_scope(scope);
+            // Every conversation of this session calls its MCP servers,
+            // however it was opened -- a first prompt, a `/rename`, a resume.
+            if conversation.tools.mcp().is_none() {
+                conversation.tools = conversation.tools.clone().with_mcp(Arc::clone(&self.mcp));
+            }
         }
         Ok(())
     }
@@ -4468,6 +4501,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
             },
             resumable: None,
         };
@@ -4534,6 +4568,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
             },
             resumable: None,
         };
@@ -4579,6 +4614,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
             },
             resumable: None,
         };
@@ -4942,6 +4978,7 @@ mod tests {
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
             credits: CreditsBoard::default(),
+            mcp: crate::mcp::McpRuntime::inert(),
         };
         drop(work_rx);
         assert_eq!(
@@ -6816,6 +6853,7 @@ mod tests {
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
+                mcp: crate::mcp::McpRuntime::inert(),
             },
             resumable: None,
         };

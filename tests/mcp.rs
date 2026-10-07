@@ -1,0 +1,192 @@
+//! `/mcp` and the MCP client, end to end: the real binary on a real
+//! pseudoterminal, a stdio MCP server written for the test
+//! (`support/mcp_fixture.sh`), and the scripted loopback Gateway. No network.
+//!
+//! The claims are the ones a person and a model can check: the menu names the
+//! configured server and its state, a turn's request carries upstream's servers
+//! block and meta-tools and -- once a search selects it -- the server's own
+//! tool, and the tool's answer is what reaches the next request.
+
+#![cfg(unix)]
+
+mod support;
+
+use std::path::{Path, PathBuf};
+
+use serde_json::{json, Value};
+use support::fake_gateway::{content_only, finish, sse_body, tool_call, FakeGateway, Reply};
+use support::pty::{Pty, Session};
+use support::sandbox::Sandbox;
+
+/// What every frame the TUI paints starts with once it is up.
+const READY: &str = "\u{1b}[?2004h";
+
+fn fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/mcp_fixture.sh")
+}
+
+/// The profile, owner-only as xfx requires, with `mcp` and `settings`.
+fn profile(sandbox: &Sandbox, mcp: &Value, settings: &Value) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = sandbox.home.join(".xfx");
+    std::fs::create_dir_all(&dir).expect("profile dir");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("0700");
+    for (name, value) in [("mcp.json", mcp), ("settings.json", settings)] {
+        let path = dir.join(name);
+        std::fs::write(&path, value.to_string()).expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("0600");
+    }
+}
+
+fn tui(sandbox: &Sandbox, gateway: &FakeGateway) -> std::process::Command {
+    let mut command = sandbox.command_with(gateway);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    command
+}
+
+fn system_texts(body: &Value) -> Vec<String> {
+    body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "system")
+        .filter_map(|message| message["content"].as_str().map(str::to_string))
+        .collect()
+}
+
+fn tool_names(body: &Value) -> Vec<String> {
+    body["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+#[test]
+fn a_profile_server_is_ready_in_the_menu_and_its_tool_runs_once_a_search_selects_it() {
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "s1",
+                "capability_search",
+                json!({"query": "echo text back"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            tool_call("e1", "mcp_fixture_echo", json!({"text": "hi"})),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-MCP-DONE"])),
+    ]);
+    let sandbox = Sandbox::new();
+    profile(
+        &sandbox,
+        &json!({"mcp": {"fixture": {"type": "local", "command": ["/bin/sh", fixture()]}}}),
+        // A rule naming the tool admits its call in `auto`, which otherwise
+        // holds a server's tool (there is no reviewer to clear it).
+        &json!({"permission": {"mcp_fixture_echo": "allow"}}),
+    );
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/mcp\r");
+    session.wait_for("[Servers]");
+    // The row may first be painted `Reloading` while the server starts; the
+    // frame that follows rewrites only the cells that change, `ady    `.
+    session.wait_until("the server row to say Ready", |text| {
+        text.contains("Ready") || (text.contains("Reloading") && text.contains("ady    "))
+    });
+    session.wait_for("stdio \u{b7} Profile");
+    // Esc closes the menu once it is known to be a lone Esc; a letter typed
+    // before that would make it Alt+letter, so the closing frame is awaited.
+    let before = session.text().len();
+    session.type_bytes(b"\x1b");
+    session.wait_until("the menu to close", |text| {
+        text.get(before..)
+            .is_some_and(|after| after.contains("\u{1b}[?2026l"))
+    });
+
+    session.type_bytes(b"use the echo tool\r");
+    session.wait_for("MARKER-MCP-DONE");
+    session.wait_for("Ran ");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3, "one request per step");
+    let first = requests[0].json();
+    assert!(
+        system_texts(&first).iter().any(|text| text.ends_with(
+            "<mcp_servers>\n  <server name=\"fixture\" state=\"ready\" tools=\"1\" />\n</mcp_servers>\n"
+        )),
+        "{first:#}"
+    );
+    let names = tool_names(&first);
+    for meta in ["capability_search", "mcp_select_tool", "mcp_features"] {
+        assert!(names.iter().any(|name| name == meta), "{names:?}");
+    }
+    assert!(
+        !names.iter().any(|name| name == "mcp_fixture_echo"),
+        "advertised before it was selected"
+    );
+
+    let second = requests[1].json();
+    let echo = second["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "mcp_fixture_echo")
+        .expect("the selected tool is advertised from the next step on");
+    assert_eq!(
+        echo["inputSchema"],
+        json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]})
+    );
+
+    let third = requests[2].json();
+    let wire = third.to_string();
+    assert!(
+        wire.contains(r#"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"FIXTURE_ECHO:hi\"}]}}"#),
+        "{third:#}"
+    );
+}
+
+#[test]
+fn a_project_server_asks_first_and_three_rejects_it_into_settings() {
+    let gateway = FakeGateway::start(Vec::new());
+    let sandbox = Sandbox::new();
+    profile(&sandbox, &json!({"mcp": {}}), &json!({}));
+    std::fs::write(
+        sandbox.workspace.join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .expect("project config");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
+    session.wait_for("Project MCP server 'proj' is defined in .mcp.json.");
+    session.wait_for("[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts");
+    // A letter typed at the prompt is not a draft: the prompt owns the keys.
+    session.type_bytes(b"x3");
+    session.wait_for("Rejecting project MCP server 'proj'.");
+    session.wait_for("MCP configuration reloaded successfully.");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settings: Value = serde_json::from_str(
+        &std::fs::read_to_string(sandbox.home.join(".xfx/settings.json")).expect("settings"),
+    )
+    .expect("json");
+    assert_eq!(
+        settings["workspaces"][sandbox.workspace.to_str().unwrap()]["disabledMcpjsonServers"],
+        json!(["proj"])
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "a trust answer is never a prompt"
+    );
+}

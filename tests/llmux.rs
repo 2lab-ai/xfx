@@ -1633,7 +1633,13 @@ fn ask_advertises_the_registry_to_llmux_in_the_anthropic_envelope() {
         .iter()
         .map(|tool| tool["name"].as_str().expect("a name").to_string())
         .collect();
-    assert_eq!(names, xfx::tools::ADVERTISED_TOOLS);
+    // `ask` runs no MCP client, so the three MCP meta-tools are not offered.
+    let expected: Vec<&str> = xfx::tools::ADVERTISED_TOOLS
+        .iter()
+        .copied()
+        .filter(|name| !xfx::tools::mcp::META_TOOLS.contains(name))
+        .collect();
+    assert_eq!(names, expected);
     for tool in tools.as_array().unwrap() {
         assert!(tool.get("input_schema").is_some(), "{tool}");
         assert!(tool.get("inputSchema").is_none(), "{tool}");

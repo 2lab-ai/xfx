@@ -1086,6 +1086,12 @@ pub(crate) struct Shell {
     /// focus like the `/statusline` picker, the composer row hidden while it
     /// is.
     workspace_menu: Option<workspace_menu::Menu>,
+    /// `/mcp`'s menu, while it is up ([`super::mcp_menu`]).
+    mcp_menu: Option<super::mcp_menu::McpMenu>,
+    /// The project server the trust prompt is up for, while it is: the
+    /// person's next `1`, `2`, `3` or Escape answers it (`routeProjectMcpPromptByte`,
+    /// `app_input_runtime.zig:884-937`).
+    mcp_prompt: Option<String>,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -1769,6 +1775,9 @@ enum Slot<'a> {
     /// The `/workspace` picker. The same kind: the focus, and the composer's
     /// rows.
     Workspace(&'a workspace_menu::Menu),
+    /// `/mcp`'s menu: the focus, under the composer, which stays where it
+    /// was (`cap/fx-mcp-fixture-40x120-menu`, rows 15-22).
+    Mcp(&'a super::mcp_menu::McpMenu),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1998,6 +2007,8 @@ impl Shell {
                 &config.additional_directories,
             ),
             workspace_menu: None,
+            mcp_menu: None,
+            mcp_prompt: None,
             rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
@@ -2217,6 +2228,18 @@ impl Shell {
                 Some(Slot::Usage(dashboard)) => {
                     dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // In the rows the geometry gave it, with the servers as they
+                // stand now.
+                Some(Slot::Mcp(menu)) => {
+                    let runtime = self.work.mcp();
+                    menu.rows(
+                        &runtime.views(),
+                        &runtime.issues(),
+                        self.geometry.cols,
+                        self.geometry.panel,
+                        self.palette,
+                    )
+                }
                 // The same, with the directories in force.
                 Some(Slot::Workspace(menu)) => menu.rows(
                     self.geometry.cols,
@@ -2338,6 +2361,12 @@ impl Shell {
             Some(Slot::Usage(_)) => self.painted(
                 self.palette.dim(),
                 usage_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // And `/mcp`'s, for the screen it is on
+            // (`composeMcpMenuHintRow`, `input_presentation.zig:607-692`).
+            Some(Slot::Mcp(menu)) => self.painted(
+                self.palette.dim(),
+                menu.key_help(&self.work.mcp().views(), self.geometry.cols),
             ),
             // And the `/workspace` picker's (`input_presentation.zig:782-786`).
             Some(Slot::Workspace(_)) => self.painted(
@@ -2641,6 +2670,9 @@ impl Shell {
         if let Some(menu) = self.workspace_menu.as_ref() {
             return Some(Slot::Workspace(menu));
         }
+        if let Some(menu) = self.mcp_menu.as_ref() {
+            return Some(Slot::Mcp(menu));
+        }
         // Ahead of the catalog and the pickers, as upstream ranks it
         // (`show_settings_menu`, `surface_frame.zig:399-403`) -- though the
         // ranking never decides anything: it opens with them closed and none
@@ -2853,6 +2885,7 @@ impl Shell {
             self.provider.label(),
             &self.model,
             crate::tools::ADVERTISED_TOOLS,
+            &self.work.mcp().views(),
         ));
     }
 
@@ -5679,6 +5712,158 @@ impl Shell {
         }
     }
 
+    /// One keystroke, while `/mcp`'s menu has the focus
+    /// ([`super::mcp_menu::McpMenu::key`]): what it binds it acts on, as a
+    /// repaint, a catalog read, a reload, a subcommand, or a line put in the
+    /// composer; what it does not bind it swallows.
+    fn offer_to_mcp(&mut self, event: Input) {
+        use super::mcp_menu::{Effect, KeyAction};
+        use crate::mcp::runtime::Job;
+        let action = match event {
+            Input::Text(character) => KeyAction::Char(character),
+            Input::Action(action) => match KeyAction::of(action) {
+                Some(action) => action,
+                None => return,
+            },
+            Input::PasteByte(_) | Input::Report(_) => return,
+        };
+        let runtime = std::sync::Arc::clone(self.work.mcp());
+        let servers = runtime.views();
+        let visible = usize::from(self.geometry.panel.saturating_sub(2)).max(1);
+        let Some(menu) = self.mcp_menu.as_mut() else {
+            return;
+        };
+        match menu.key(action, &servers, visible) {
+            Effect::Ignored => return,
+            Effect::Repaint => {}
+            Effect::Close => self.mcp_menu = None,
+            Effect::Load {
+                request,
+                section,
+                server,
+            } => runtime.submit(Job::Catalog {
+                request,
+                section,
+                server,
+            }),
+            Effect::Reload => runtime.submit(Job::MenuReload),
+            Effect::Command(line) => runtime.submit(Job::Command(line)),
+            Effect::Compose(line) => {
+                if !self.editor.set_text(&line, Entities::new()) {
+                    return;
+                }
+                self.mcp_menu = None;
+                self.edit_history.boundary();
+                self.edited(None);
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// One keystroke while the project trust prompt is up: `1` approves the
+    /// server, `2` approves every pending one, `3` rejects it, and Escape
+    /// dismisses the prompts for this process (`routeProjectMcpPromptByte`,
+    /// `app_input_runtime.zig:884-937`, `:1012-1033`). Anything else is
+    /// swallowed, as upstream's prompt swallows it -- except Ctrl-C and Ctrl-D,
+    /// which still reach the session: a prompt is no reason a person cannot
+    /// leave.
+    fn offer_to_trust_prompt(&mut self, event: &Input) -> bool {
+        use crate::mcp::config::TrustAction;
+        use crate::mcp::runtime::Job;
+        let Some(name) = self.mcp_prompt.clone() else {
+            return false;
+        };
+        let shown = crate::mcp::terminal_safe(&name);
+        let job = match event {
+            Input::Text('1') => Job::Trust {
+                body: format!("Approving project MCP server '{shown}'."),
+                action: TrustAction::Approve(name),
+            },
+            Input::Text('2') => Job::Trust {
+                action: TrustAction::ApproveAll,
+                body: "Approving all project MCP servers for this workspace.".to_string(),
+            },
+            Input::Text('3') => Job::Trust {
+                body: format!("Rejecting project MCP server '{shown}'."),
+                action: TrustAction::Reject(name),
+            },
+            Input::Action(Action::Escape) => {
+                self.mcp_prompt = None;
+                self.work.mcp().suppress_prompts();
+                self.write_notice(&notice::Notice::neutral(
+                    "mcp",
+                    "Project MCP approval prompts dismissed for this process.",
+                ));
+                return true;
+            }
+            Input::Action(Action::Cancel | Action::Eof) | Input::Report(_) => return false,
+            _ => return true,
+        };
+        self.mcp_prompt = None;
+        self.work.mcp().submit(job);
+        true
+    }
+
+    /// Writes what the MCP runtime has said since the last tick: its notices
+    /// -- a usage line under no topic, as upstream files one
+    /// (`noticeTopicForBody`, `app_commands.zig:1851-1853`) -- the trust
+    /// prompt's rows, and what the menu was waiting for. Everything a server
+    /// supplied is made inert first: a resource's text is the server's, not
+    /// xfx's.
+    fn settle_mcp(&mut self) {
+        use crate::mcp::runtime::Event;
+        let events = self.work.mcp().take_events();
+        if events.is_empty() {
+            return;
+        }
+        for event in events {
+            match event {
+                Event::Notice { warning, body } => {
+                    let body = super::bridge::inert(&body).into_owned();
+                    let topic = if body.starts_with("usage:") {
+                        ""
+                    } else {
+                        "mcp"
+                    };
+                    let notice = if warning {
+                        notice::Notice::warning(topic, body)
+                    } else {
+                        notice::Notice::neutral(topic, body)
+                    };
+                    self.write_notice(&notice);
+                }
+                Event::Raw(text) => {
+                    let text = super::bridge::inert(&text).into_owned();
+                    self.close_answer();
+                    self.finish_document_line();
+                    if !self.transcript.ends_blank() {
+                        self.end_transcript_line();
+                    }
+                    for line in text.trim_end_matches('\n').split('\n') {
+                        self.write_document_line(line, Role::Plain);
+                    }
+                }
+                Event::TrustPrompt { name } => self.mcp_prompt = Some(name),
+                Event::MenuFeedback(text) => {
+                    if let Some(menu) = self.mcp_menu.as_mut() {
+                        menu.tell(super::bridge::inert(&text).into_owned());
+                    }
+                }
+                Event::Catalog { request, result } => {
+                    if let Some(menu) = self.mcp_menu.as_mut() {
+                        menu.loaded(request, result);
+                    }
+                }
+                Event::Changed => {}
+            }
+        }
+        if self.mcp_menu.is_some() {
+            self.refit();
+        }
+        self.render.request(Reason::Modal);
+    }
+
     /// Puts `scope` on the dashboard (`refreshUsageMenu`,
     /// `app_commands.zig:1064-1092`): the session at once, from what the
     /// runtime last published; a rolling window from the last read when there
@@ -7475,6 +7660,8 @@ impl Shell {
         self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
+        // And what the MCP runtime has to say.
+        self.settle_mcp();
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
         // And how a `/fast` or `/ultrafast` save went.
@@ -8470,6 +8657,8 @@ impl Shell {
                 | Input::Report(_) => false,
                 Input::Action(Action::Escape) => {
                     self.ask.is_some()
+                        || self.mcp_menu.is_some()
+                        || self.mcp_prompt.is_some()
                         || self.asking()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
@@ -8537,6 +8726,23 @@ impl Shell {
             // The `/workspace` picker the same way.
             if self.workspace_menu.is_some() {
                 self.offer_to_workspace(event);
+                continue;
+            }
+            // `/mcp`'s menu the same way: it binds its keys and swallows the
+            // rest, as upstream's does while it is active.
+            if self.mcp_menu.is_some() {
+                self.offer_to_mcp(event);
+                continue;
+            }
+            // The project trust prompt, while it is up and no menu is
+            // (`projectMcpPromptMayOwnInput`, `app_input_runtime.zig:124-131`).
+            if self.mcp_prompt.is_some()
+                && self.settings_menu.is_none()
+                && self.sessions.is_none()
+                && self.help_menu.is_none()
+                && self.model_menu.is_none()
+                && self.offer_to_trust_prompt(&event)
+            {
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -10373,6 +10579,34 @@ impl CommandHandlers for Shell {
         }
     }
 
+    /// `/mcp` (`commandHandleMcp`, `app_commands.zig:1312-1405`): bare or
+    /// `list` opens the menu with the menus that share its slot closed
+    /// (`:1315-1332`); anything else is a subcommand, answered in order on
+    /// the MCP runtime's own thread so no server holds up the band
+    /// ([`crate::mcp::command`]).
+    fn mcp(&mut self, argument: &str) {
+        let argument = argument.trim_matches([' ', '\t']);
+        if argument.is_empty() || argument == "list" {
+            self.picker = None;
+            self.file_picker = None;
+            self.help_menu = None;
+            self.sessions = None;
+            self.model_menu = None;
+            self.provider_picker = None;
+            self.statusline_menu = None;
+            self.usage_menu = None;
+            self.settings_menu = None;
+            self.workspace_menu = None;
+            self.mcp_menu = Some(super::mcp_menu::McpMenu::open());
+            self.refit();
+            self.render.request(Reason::Modal);
+            return;
+        }
+        self.work
+            .mcp()
+            .submit(crate::mcp::runtime::Job::Command(argument.to_string()));
+    }
+
     /// `/compact` (`request_context_compaction`, `input_submit_runtime.zig:
     /// 139-161`), in upstream's order: a compaction already running is
     /// answered by nothing; a conversation with no turn in it is `No context
@@ -11691,6 +11925,7 @@ impl Shell {
             Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
+            | Some(Slot::Mcp(_))
             | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
@@ -11701,6 +11936,10 @@ impl Shell {
         let snapshot = self.settings_snapshot();
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Mcp(menu)) => menu.height(
+                &self.work.mcp().views(),
+                help_menu::row_budget(rows, input_rows.saturating_sub(1)),
+            ),
             Some(Slot::Settings(menu)) => {
                 menu.height(&snapshot, rows, input_rows.saturating_sub(1))
             }
@@ -18394,6 +18633,15 @@ mod tests {
                 assert_eq!(
                     shell.document().first().map(String::as_str),
                     Some("* fast: This model does not come with a fast mode."),
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/mcp" {
+                // A bare `/mcp` is upstream's menu (`cap/fx-mcp-empty-40x120-menu`),
+                // under the composer, and says nothing in the document.
+                assert!(shell.mcp_menu.is_some(), "/mcp opened no menu");
+                assert!(
+                    document.is_empty(),
+                    "/mcp wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/workspace" {
@@ -29933,11 +30181,11 @@ mod tests {
             screen[at + 1..at + 4],
             [
                 format!(
-                    "  tools: {} advertised ({}, +1",
+                    "  tools: {} advertised ({},",
                     crate::tools::ADVERTISED_TOOLS.len(),
                     crate::tools::ADVERTISED_TOOLS[..8].join(", ")
                 ),
-                "  more)".to_string(),
+                format!("  +{} more)", crate::tools::ADVERTISED_TOOLS.len() - 8),
                 "  mcp: none".to_string(),
             ]
         );

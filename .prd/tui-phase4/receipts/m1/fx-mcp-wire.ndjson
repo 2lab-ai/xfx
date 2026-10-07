@@ -1,0 +1,4 @@
+{"pid":17941,"sequence":1,"message":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"elicitation":{"form":{},"url":{}}},"clientInfo":{"name":"fx","version":"0.0.13"}}}}
+{"pid":17941,"sequence":2,"message":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"pid":17941,"sequence":3,"message":{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}}
+{"pid":17941,"sequence":4,"message":{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}}}

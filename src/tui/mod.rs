@@ -497,6 +497,10 @@ fn hold(
         &mut worker,
         &mut events,
     )?;
+    // The session's MCP servers stop with it, each by its own process group
+    // ([`crate::mcp::McpRuntime::shutdown`]): a server that ignores the end of
+    // its input is not left running after the person has gone.
+    worker.handle().mcp().shutdown();
     // Asked of the worker after the loop, because the loop's exit is what
     // joined the thread that knows ([`worker::Worker::resumable`]); formatted
     // by the shell, because the palette and the width are its.
@@ -762,6 +766,7 @@ mod hyperlink;
 mod image_paths;
 mod input;
 mod layout;
+mod mcp_menu;
 mod model_column;
 mod model_menu;
 mod notice;

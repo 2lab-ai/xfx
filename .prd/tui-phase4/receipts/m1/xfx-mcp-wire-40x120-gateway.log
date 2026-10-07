@@ -1,0 +1,6 @@
+[fakegw] listening 65383
+[fakegw] completion /v4/ai/language-model -> tool capability_search
+[fakegw] completion /v4/ai/language-model -> tool mcp_fixture_echo
+[fakegw] completion /v4/ai/language-model -> tool mcp_features
+[fakegw] completion /v4/ai/language-model -> tool mcp_select_tool
+[fakegw] completion /v4/ai/language-model -> text

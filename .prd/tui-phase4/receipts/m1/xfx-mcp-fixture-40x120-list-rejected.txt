@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-8891d04 [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Rejecting project MCP server 'proj'.
+
+* mcp: MCP configuration reloaded successfully.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 1  [Servers]  Tools  Resources  Prompts
+
+  proj                  Disabled              stdio · Project
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

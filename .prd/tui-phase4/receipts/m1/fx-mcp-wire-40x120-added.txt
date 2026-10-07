@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* mcp: Saved MCP server 'fixture'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: MCP configuration reloaded successfully.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

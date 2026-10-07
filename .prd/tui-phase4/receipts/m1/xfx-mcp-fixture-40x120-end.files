@@ -1,0 +1,38 @@
+=== ~/.xfx/history.jsonl (2155 bytes)
+{"schema_version":1,"timestamp_ms":1791355164430,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1791355166323,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs"}
+{"schema_version":1,"timestamp_ms":1791355170448,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1791355176632,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1791355178523,"workspace_root":"<scratch>/work","text":"/mcp resource list fixture"}
+{"schema_version":1,"timestamp_ms":1791355180641,"workspace_root":"<scratch>/work","text":"/mcp resource read fixture legacy://alpha"}
+{"schema_version":1,"timestamp_ms":1791355182723,"workspace_root":"<scratch>/work","text":"/mcp prompt list fixture"}
+{"schema_version":1,"timestamp_ms":1791355184783,"workspace_root":"<scratch>/work","text":"/mcp prompt get fixture review {\"tone\":\"brief\"}"}
+{"schema_version":1,"timestamp_ms":1791355186842,"workspace_root":"<scratch>/work","text":"/mcp auth fixture"}
+{"schema_version":1,"timestamp_ms":1791355187914,"workspace_root":"<scratch>/work","text":"/mcp logout fixture"}
+{"schema_version":1,"timestamp_ms":1791355189072,"workspace_root":"<scratch>/work","text":"what MCP tools do you have?"}
+{"schema_version":1,"timestamp_ms":1791355193163,"workspace_root":"<scratch>/work","text":"/mcp trust approve proj"}
+{"schema_version":1,"timestamp_ms":1791355197230,"workspace_root":"<scratch>/work","text":"/mcp remove fixture"}
+{"schema_version":1,"timestamp_ms":1791355200316,"workspace_root":"<scratch>/work","text":"/mcp trust reset"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (10 bytes)
+{"mcp":{}}
+=== ~/.xfx/mcp.lock (0 bytes)
+=== ~/.xfx/sessions/1791355189073-935766956c03858e/events.jsonl (1779 bytes)
+{"schema_version":1,"log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","seq":1,"event_id":"5d6daa24c9e6141ab81e17f6261354db","timestamp_ms":1791355189074,"event":{"kind":"session_started","id":"1791355189073-935766956c03858e","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","provider":"gateway"}}
+{"schema_version":1,"log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","seq":2,"event_id":"7f59250db61187697d92b62c880c7ee0","timestamp_ms":1791355189098,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","seq":3,"event_id":"5abc622c36e99bbdb6bd562f5ebbb94e","timestamp_ms":1791355189112,"event":{"kind":"user_message","text":"what MCP tools do you have?"}}
+{"schema_version":1,"log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","seq":4,"event_id":"21ba88905eaef78b729abe0e05cbe0cf","timestamp_ms":1791355189245,"event":{"kind":"assistant_message","text":"Saw the MCP surface.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","seq":5,"event_id":"0e57ae427e5dde048684c67f2ec85f7e","timestamp_ms":1791355189264,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40,"turn_output_tokens":40,"requests":[{"at_ms":1791355189245,"duration_ms":112,"model":"fake/model-a","input_tokens":1200,"output_tokens":40,"cache_read_tokens":0,"cache_write_tokens":0}]}}
+{"schema_version":1,"log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","seq":6,"event_id":"ad440ac63088d8584b6859aba7dcbd29","timestamp_ms":1791355189283,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1791355189073-935766956c03858e/session.json (637 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791355189073-935766956c03858e","log_generation":"f4b8e22c3d6b6e55e5de28169937e70a","created_at_ms":1791355189074,"updated_at_ms":1791355189283,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"what MCP tools do you have?","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":6,"event_log_bytes":1779,"event_log_sha256":"cc181b7d8c9bbe2b8cb48b2a1737182492e17175e0df4f35afa12c641f7427d7"}
+
+=== ~/.xfx/settings.json (3 bytes)
+{}
+
+=== ~/.xfx/settings.lock (0 bytes)
+=== ~/.xfx/usage.json (41 bytes)
+{"tracking_started_at_ms":1791355189264}
+

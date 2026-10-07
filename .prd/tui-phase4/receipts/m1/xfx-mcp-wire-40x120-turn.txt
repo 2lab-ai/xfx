@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-8891d04 [debug] · Run /help for commands
+
+* mcp: Saved MCP server 'fixture'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: MCP configuration reloaded successfully.
+
+┃ use the fixture echo tool
+
+● 4 tool calls · 3 read · 1 command
+├ Searched capabilities echo text through the fixture
+├ Ran MCP mcp_fixture_echo
+├ Used MCP feature resource_list
+└ Selected MCP tool mcp_fixture_echo
+
+  done.
+
+  0s (↑6 ↓200)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
