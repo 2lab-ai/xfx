@@ -1,0 +1,66 @@
+[
+ {
+  "chunks": [
+   "ANSWER-HELLO."
+  ]
+ },
+ {
+  "tool": {
+   "id": "read-1",
+   "name": "read_file",
+   "input": {
+    "path": "a.txt"
+   }
+  },
+  "billing": {
+   "gen": "gen-read-1",
+   "slug": "fake/model-a",
+   "cost": 0.01,
+   "input": 8707,
+   "output": 40
+  }
+ },
+ {
+  "tool": {
+   "id": "read-2",
+   "name": "read_file",
+   "input": {
+    "path": "b.txt"
+   }
+  },
+  "billing": {
+   "gen": "gen-read-2",
+   "slug": "fake/model-a",
+   "cost": 0.01,
+   "input": 9795,
+   "output": 40
+  }
+ },
+ {
+  "tool": {
+   "id": "read-3",
+   "name": "read_file",
+   "input": {
+    "path": "c.txt"
+   }
+  },
+  "billing": {
+   "gen": "gen-read-3",
+   "slug": "fake/model-a",
+   "cost": 0.01,
+   "input": 10883,
+   "output": 40
+  }
+ },
+ {
+  "hangMs": 2500,
+  "chunks": [
+   "Turn 1\nIn between: none\n\nTurn in progress\nIn between: Read the three logs.\nT1: the first log\nT2: the second log\nT3: the third log\n\nFacts:\nF1 (T3): the logs hold only evidence lines\n"
+  ]
+ },
+ {
+  "chunks": [
+   "ANSWER-READ: three logs of evidence."
+  ]
+ }
+]

@@ -7,7 +7,7 @@
 
   ANSWER-ONE: the notes are read.
 
-  0s (↑4 ↓40)
+  0s (↑4 ↓80)
 
 ┃ second question
 
