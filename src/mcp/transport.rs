@@ -407,14 +407,14 @@ impl Transport for StdioTransport {
     }
 
     fn diagnostic(&self) -> Option<String> {
-        // A server that has gone may still have its last words in the pipe:
-        // its output ends before its standard error is read to the end, so
-        // the tail is waited for, briefly.
-        if !self.alive() {
-            let deadline = Instant::now() + STDERR_SETTLE;
-            while !self.stderr_closed.load(Ordering::Acquire) && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(5));
-            }
+        // Asked only once a handshake failed. A server that has gone may
+        // still have its last words in the pipe -- the failure is seen at a
+        // write to its closed input or at the end of its output, either one
+        // before its standard error is read to the end -- so the tail is
+        // waited for, briefly.
+        let deadline = Instant::now() + STDERR_SETTLE;
+        while !self.stderr_closed.load(Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
         }
         let tail = self.stderr.lock().unwrap_or_else(PoisonError::into_inner);
         let tail = tail.trim();
@@ -983,6 +983,33 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         assert_eq!(
             transport.request("x", json!({}), Duration::from_secs(60), Some(&cancel)),
             Err(McpError::Named("Cancelled"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_that_shut_its_input_is_diagnosed_by_what_it_says_on_its_way_out() {
+        // The request fails at the write, with the server's output still
+        // open: the connection is not known to be gone yet, and its last
+        // words come after.
+        let transport = StdioTransport::spawn(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "exec 0<&-; sleep 0.3; echo 'npm error code E401' >&2; exit 7".into(),
+            ],
+            &[],
+            None,
+        )
+        .expect("spawned");
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            transport.request("initialize", json!({}), Duration::from_secs(60), None),
+            Err(McpError::Named("McpConnectionClosed"))
+        );
+        assert_eq!(
+            transport.diagnostic().as_deref(),
+            Some("npm error code E401")
         );
     }
 }
