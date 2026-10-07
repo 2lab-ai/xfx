@@ -4075,15 +4075,24 @@ fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
         .rfind("Run /help for commands")
         .expect("the fresh welcome");
     session.type_bytes(b"second\r");
-    let text = session.wait_for("MARKER-AFTER-THE-RESET");
-    // No cancelled notice and no summary of the cancelled turn reached the
-    // fresh screen: upstream's reset says nothing.
-    let after = &text[reset_at..];
-    assert!(!after.contains("interrupted"), "{after:?}");
-    assert!(!after.contains("FIRST-TURN-RUNNING"), "{after:?}");
+    session.wait_for("MARKER-AFTER-THE-RESET");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+    // No cancelled notice -- neither the line a stop writes nor the failure
+    // the cancelled turn concluded with -- and nothing of the cancelled turn
+    // reached the fresh screen: upstream's reset says nothing. Absences, so
+    // asked of everything the terminal will ever receive
+    // ([`Session::settled_text`]) rather than of a snapshot taken while the
+    // runtime was still draining the turn the reset cancelled.
+    let settled = session.settled_text();
+    let after = &settled[reset_at..];
+    for stray in [CANCELLED, "interrupted", "FIRST-TURN-RUNNING"] {
+        assert!(
+            !after.contains(stray),
+            "{stray:?} after the reset: {after:?}"
+        );
+    }
     assert_eq!(
         user_messages(&gateway.requests()[1].json()),
         vec!["second".to_string()],
