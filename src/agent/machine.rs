@@ -1973,6 +1973,18 @@ mod tests {
         fn record(&mut self, event: SessionEvent) {
             self.0.push(event);
         }
+
+        fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+        fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+            None
+        }
+
+        fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
+
+        fn state(&self) -> Option<&crate::session::DurableState> {
+            None
+        }
     }
 
     #[tokio::test]

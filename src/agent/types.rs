@@ -42,7 +42,7 @@ pub struct TurnRequest {
 /// Where a turn's durable evidence goes.
 ///
 /// The turn emits typed [`SessionEvent`]s and knows nothing about files: the
-/// session store implements this, and so does a recorder in a test. Two
+/// session store implements this, and so does a recorder in a test. Three
 /// decisions are deliberate.
 ///
 /// **It returns nothing.** A turn's outcome is what the user asked for, and it
@@ -56,6 +56,26 @@ pub struct TurnRequest {
 /// still done real work, and the evidence of that work is exactly what a resume
 /// needs. Events accumulated in memory until a tidy ending would be the events
 /// most worth keeping and the ones most likely to be lost.
+///
+/// **No method has a default.** A journal that wraps another -- one that
+/// rewrites a record, one that tees the turn to a surface -- answers each of
+/// them, by forwarding or on purpose; a default would let a wrapper written
+/// later drop the inner journal's answer without a word, as one dropped
+/// [`Self::state`] and with it every compaction between a turn's steps. A
+/// method added here is a compile error in every journal until each says
+/// what it does with it. One that keeps no log answers that it has none.
+///
+/// So a wrapper that forwards only the record does not build:
+///
+/// ```compile_fail,E0046
+/// struct Wrapper<'a>(&'a mut dyn xfx::agent::TurnJournal);
+///
+/// impl xfx::agent::TurnJournal for Wrapper<'_> {
+///     fn record(&mut self, event: xfx::session::SessionEvent) {
+///         self.0.record(event);
+///     }
+/// }
+/// ```
 pub trait TurnJournal {
     fn record(&mut self, event: SessionEvent);
 
@@ -66,7 +86,7 @@ pub trait TurnJournal {
     /// for a resumed session (`SessionEvent::ToolResult`'s `change`); this is
     /// how a surface watching the turn gets it as it happens. A journal that
     /// only keeps the log needs nothing from it.
-    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+    fn change_made(&mut self, call_id: &str, change: &crate::permission::ApprovalDiff);
 
     /// The images the user message just recorded carries.
     ///
@@ -77,22 +97,19 @@ pub trait TurnJournal {
     ///
     /// Answers the directory their copies were saved in -- each under
     /// [`crate::image::Image::snapshot_name`] -- or `None` when none was.
-    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
-        None
-    }
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf>;
 
     /// The images the result of `call_id` carried, recorded with it so later
     /// requests send them again ([`crate::session::SessionRecorder::attach_tool_images`]).
     /// Called right after that result's [`SessionEvent::ToolResult`], and only
     /// for a result that carried any.
-    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]);
 
     /// The session as the log now holds it, this turn's steps so far
     /// included, for a journal that keeps one: what a compaction in the
-    /// middle of a turn plans from ([`StepCompactor`]).
-    fn state(&self) -> Option<&crate::session::DurableState> {
-        None
-    }
+    /// middle of a turn plans from ([`StepCompactor`]). `None` for one that
+    /// keeps no log.
+    fn state(&self) -> Option<&crate::session::DurableState>;
 }
 
 /// What a turn asks before each model step: whether its conversation is to be
@@ -181,6 +198,18 @@ pub struct NoJournal;
 
 impl TurnJournal for NoJournal {
     fn record(&mut self, _event: SessionEvent) {}
+
+    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        None
+    }
 }
 
 /// What a completed turn produced.

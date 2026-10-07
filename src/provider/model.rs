@@ -1180,7 +1180,25 @@ pub struct ModelSelector {
 /// A catalog load running beside whatever else the thread does. Dropped
 /// with its selector -- a provider switch replaces both -- it is stopped
 /// rather than left to finish for nobody.
-struct PendingLoad(tokio::task::JoinHandle<Result<Vec<CatalogEntry>, CatalogError>>);
+struct PendingLoad(tokio::task::JoinHandle<Loaded>);
+
+/// What a load leaves the selector holding: the catalog's state, and whether
+/// asking again could change a failure ([`ModelSelector::failure_retry`]).
+type Loaded = (CatalogState, Option<CatalogRetry>);
+
+/// [`Loaded`] for one attempt's answer.
+fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
+    match answer {
+        Ok(entries) => (CatalogState::Loaded(entries), None),
+        Err(err) => {
+            let retry = match &err {
+                CatalogError::Gateway { retry, .. } => *retry,
+                _ => None,
+            };
+            (CatalogState::Failed(err.to_string()), retry)
+        }
+    }
+}
 
 impl Drop for PendingLoad {
     fn drop(&mut self) {
@@ -1270,9 +1288,21 @@ impl ModelSelector {
     /// load runs while the thread waits on anything else, and the first
     /// thing to need the catalog takes its answer ([`Self::ensure_catalog`]).
     ///
+    /// **`told` is given the answer the moment it arrives**, whatever the
+    /// thread is doing then -- a turn included -- as upstream's interface
+    /// polls its cache on every tick of its own loop and redraws an open menu
+    /// and the footer when a load has ended (`pollLoadTransition`,
+    /// `model_cache_runtime.zig:549-557`, from `loopCollectFacts`,
+    /// `main.zig:3050-3083`). The selector itself takes the answer later,
+    /// when something asks it ([`Self::is_loading`]).
+    ///
     /// **Must be called inside a [`tokio::task::LocalSet`]**: the fetchers
     /// are not `Send`, so the load is a local task.
-    pub(crate) fn begin_load(&mut self) {
+    pub(crate) fn begin_load<Told, Telling>(&mut self, told: Told)
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
+        Telling: std::future::Future<Output = ()> + 'static,
+    {
         if !matches!(self.catalog_state, CatalogState::NotLoaded) || self.pending.is_some() {
             return;
         }
@@ -1280,11 +1310,15 @@ impl ModelSelector {
             return;
         };
         self.pending = Some(PendingLoad(tokio::task::spawn_local(async move {
-            fetcher.fetch().await
+            let answer = loaded(fetcher.fetch().await);
+            told(answer.0.clone(), answer.1).await;
+            answer
         })));
     }
 
-    /// Whether a background load is on its way ([`Self::begin_load`]).
+    /// Whether a background load is on its way, or has ended and not been
+    /// taken yet ([`Self::begin_load`]): its answer has been told, or is
+    /// being told, already.
     pub(crate) fn is_loading(&self) -> bool {
         self.pending.is_some()
     }
@@ -1299,25 +1333,16 @@ impl ModelSelector {
         };
         let answer = handle.await;
         self.pending = None;
-        self.adopt(match answer {
+        (self.catalog_state, self.failure_retry) = match answer {
             Ok(answer) => answer,
-            Err(join) => Err(CatalogError::Unavailable {
+            Err(join) => loaded(Err(CatalogError::Unavailable {
                 detail: join.to_string(),
-            }),
-        });
+            })),
+        };
     }
 
     fn adopt(&mut self, answer: Result<Vec<CatalogEntry>, CatalogError>) {
-        match answer {
-            Ok(entries) => self.catalog_state = CatalogState::Loaded(entries),
-            Err(err) => {
-                self.failure_retry = match &err {
-                    CatalogError::Gateway { retry, .. } => *retry,
-                    _ => None,
-                };
-                self.catalog_state = CatalogState::Failed(err.to_string());
-            }
-        }
+        (self.catalog_state, self.failure_retry) = loaded(answer);
     }
 
     /// Lets the next [`ensure_catalog`](Self::ensure_catalog) ask again after

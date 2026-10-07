@@ -2687,6 +2687,11 @@ impl TurnJournal for SessionRecorder {
         self.commit(event);
     }
 
+    // The log keeps a change in its result's record
+    // (`SessionEvent::ToolResult`'s `change`); this hand-over is for a
+    // surface watching the turn, which a recorder is not.
+    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
     fn state(&self) -> Option<&DurableState> {
         Some(SessionRecorder::state(self))
     }

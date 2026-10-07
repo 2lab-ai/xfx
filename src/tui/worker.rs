@@ -2154,7 +2154,10 @@ impl Runtime {
     /// ([`Runtime::catalog_event`]), because its rows are what the band
     /// resolves a query and fills the effort column from.
     async fn load_catalog(&mut self) -> bool {
-        let unasked = matches!(self.selector.catalog(), CatalogState::NotLoaded);
+        // A read already on its way tells the UI itself, when it answers
+        // ([`begin_catalog_read`]).
+        let unasked = matches!(self.selector.catalog(), CatalogState::NotLoaded)
+            && !self.selector.is_loading();
         self.selector.ensure_catalog().await;
         unasked && !matches!(self.selector.catalog(), CatalogState::NotLoaded)
     }
@@ -2163,7 +2166,11 @@ impl Runtime {
     /// in the menu's order; no rows, for a provider with none; or that it
     /// could not be read, and whether asking again could help.
     fn catalog_event(&self) -> UiEvent {
-        catalog_event_of(self.config.provider, &self.selector)
+        catalog_event_of(
+            self.config.provider,
+            self.selector.catalog(),
+            self.selector.failure_retry(),
+        )
     }
 
     /// What every request of the next turn asks for beside its prompt: the
@@ -2393,10 +2400,15 @@ enum CatalogAnswer {
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
-/// What the UI is told about `selector`'s catalog for `provider`
+/// What the UI is told about `provider`'s catalog in `catalog`, `retry`
+/// saying whether asking again could change a failure
 /// ([`Runtime::catalog_event`]).
-fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
-    match from_state(selector.catalog()) {
+fn catalog_event_of(
+    provider: ProviderId,
+    catalog: &CatalogState,
+    retry: Option<crate::provider::model::CatalogRetry>,
+) -> UiEvent {
+    match from_state(catalog) {
         CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
         // The provider has no catalog; nothing went wrong, and the menu
         // says there is nothing in it.
@@ -2404,10 +2416,7 @@ fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
             provider,
             entries: Vec::new(),
         },
-        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
-            provider,
-            retry: selector.failure_retry(),
-        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread { provider, retry },
     }
 }
 
@@ -2467,10 +2476,10 @@ async fn turn_loop(
         // read with changes (`applyCredentialChange`,
         // `app_auth_runtime.zig:2026-2036`). Nothing waits for it here: the
         // first thing that needs it takes its answer, waiting if it has not
-        // come ([`await_catalog_for_window`]), and when it comes first it is
-        // told to the UI below. A failed one is not read again until `/model`
+        // come ([`await_catalog_for_window`]); the UI is told it the moment it
+        // comes, a turn running or not. A failed one is not read again until `/model`
         // asks ([`ModelSelector::retry_after_failure`]).
-        state.selector.begin_load();
+        begin_catalog_read(&mut state, events);
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
         // happens below, outside that borrow.
@@ -2527,8 +2536,7 @@ async fn turn_loop(
             // may be writing that log itself.
             answered = state.bills.next() => Taken::Bill(answered),
             // The catalog read in the background, answered while nothing
-            // needed it yet: the band's menu, column and meter read its rows
-            // (upstream's `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
+            // needed it yet: taken now, the UI having been told already.
             () = state.selector.settle_load(), if state.selector.is_loading() => Taken::Catalog,
             item = queue.work.recv() => Taken::Work(item),
         };
@@ -2575,10 +2583,7 @@ async fn turn_loop(
                 state.settle_bill(&answered);
                 continue;
             }
-            Taken::Catalog => {
-                bridge::send_terminal(events, state.catalog_event()).await;
-                continue;
-            }
+            Taken::Catalog => continue,
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
                 // Not a terminal event -- nothing is waiting on one for a
@@ -2775,7 +2780,8 @@ enum Taken {
     Rename { title: String, announced: bool },
     /// What the Gateway said about a pending request's bill.
     Bill(super::reconcile::Answered),
-    /// The catalog read in the background has answered.
+    /// The catalog read in the background has answered, and its answer is
+    /// taken.
     Catalog,
     /// The session is over.
     Shutdown,
@@ -3184,6 +3190,25 @@ fn feedback_of(failure: Failure) -> Feedback {
         Failure::Cancelled => Feedback::Cancelled,
         Failure::Summary(_) => Feedback::Failed,
     }
+}
+
+/// Starts the background read of the catalog, if the session holds none and
+/// is not reading one ([`ModelSelector::begin_load`]), with the UI told its
+/// answer the moment it arrives: upstream's interface takes a load's end on
+/// its own loop's next tick and redraws an open menu and the footer then,
+/// whatever its worker is doing (`pollLoadTransition`,
+/// `vercel-labs/fx@c1db9191 src/core/app/model_cache_runtime.zig:549-557`,
+/// from `loopCollectFacts`, `src/main.zig:3050-3083`). Here the read is a
+/// task beside the loop's work, so it tells the band itself -- through the
+/// send that does not depend on a turn's token, since a turn may be running
+/// or none at all -- and the selector takes the answer when it is next
+/// asked.
+fn begin_catalog_read(state: &mut Runtime, events: &Sender<UiEvent>) {
+    let provider = state.config.provider;
+    let events = events.clone();
+    state.selector.begin_load(move |catalog, retry| async move {
+        bridge::send_terminal(&events, catalog_event_of(provider, &catalog, retry)).await;
+    });
 }
 
 /// Waits for the catalog the session began reading at launch
@@ -3938,8 +3963,8 @@ impl TurnJournal for StoppedAtApproval<'_> {
         self.inner.change_made(call_id, change);
     }
 
-    // Every method the trait has, forwarded: a default left in place here
-    // would be the wrapped journal's work silently not done.
+    // Every method the trait has, forwarded (the trait has no defaults, so a
+    // method added to it stops this from compiling until it is).
     fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
         self.inner.attach_images(images)
     }
@@ -4385,11 +4410,17 @@ impl ToolImageGate<'_> {
         }
         let selector = self.selector.borrow_mut().take()?;
         if matches!(selector.catalog(), CatalogState::NotLoaded) {
+            // A read already on its way tells the UI itself.
+            let told = selector.is_loading();
             tokio::select! {
                 biased;
                 () = self.token.cancelled() => {}
-                _ = selector.ensure_catalog() => {
-                    let event = catalog_event_of(self.provider, selector);
+                _ = selector.ensure_catalog() => if !told {
+                    let event = catalog_event_of(
+                        self.provider,
+                        selector.catalog(),
+                        selector.failure_retry(),
+                    );
                     let _ = bridge::send_ui(&self.events, &self.token, event).await;
                 }
             }
@@ -8039,6 +8070,71 @@ mod tests {
             self.asked.fetch_add(1, Ordering::SeqCst);
             Ok(self.entries.clone())
         }
+    }
+
+    /// A catalog that answers `entries` once `gate` opens.
+    struct Gated {
+        entries: Vec<CatalogEntry>,
+        gate: std::cell::RefCell<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for Gated {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            let gate = self.gate.borrow_mut().take().expect("asked once");
+            let _ = gate.await;
+            Ok(self.entries.clone())
+        }
+    }
+
+    #[test]
+    fn a_catalog_that_answers_while_a_turn_runs_is_told_to_the_band_at_once() {
+        // Upstream's interface redraws an open menu and the footer on the
+        // first tick after a load ends, whatever its worker is doing
+        // (`pollLoadTransition`, `model_cache_runtime.zig:549-557`, from
+        // `loopCollectFacts`, `main.zig:3050-3083`). Here a stand-in turn holds
+        // the runtime the whole time; the rows reach the UI before it ends,
+        // once, and the selector takes them when it is next asked.
+        let (_home, _workspace, mut state) = recording();
+        let (open, gate) = tokio::sync::oneshot::channel();
+        state.selector.set_fetcher_for_test(Box::new(Gated {
+            entries: vec![published("anthropic/claude-opus-5")],
+            gate: std::cell::RefCell::new(Some(gate)),
+        }));
+        let (events, mut received) = mpsc::channel(bridge::UI_EVENTS);
+        let (turn_over, ended) = tokio::sync::oneshot::channel::<()>();
+        let told = on_a_runtime(async {
+            begin_catalog_read(&mut state, &events);
+            let held = &mut state;
+            let turn = async move {
+                let _ = ended.await;
+                held.selector.is_loading()
+            };
+            let watch = async {
+                open.send(()).expect("the read is waiting");
+                let told = tokio::time::timeout(TEST_DRAIN, received.recv())
+                    .await
+                    .expect("the band was not told while the turn ran")
+                    .expect("told");
+                turn_over.send(()).expect("the turn is waiting");
+                told
+            };
+            let (still_loading, told) = tokio::join!(turn, watch);
+            assert!(still_loading, "the selector took it before it was asked");
+            told
+        });
+        assert_eq!(
+            told,
+            UiEvent::CatalogLoaded {
+                provider: state.config.provider,
+                entries: vec![published("anthropic/claude-opus-5")],
+            }
+        );
+        // Taken when asked, and not told a second time.
+        let fresh = on_a_runtime(state.load_catalog());
+        assert!(!fresh, "a read that told the UI itself was told again");
+        assert!(state.selector.entry("anthropic/claude-opus-5").is_some());
+        assert!(received.try_recv().is_err());
     }
 
     /// One catalog row offering `efforts`.
