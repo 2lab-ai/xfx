@@ -550,6 +550,12 @@ pub(crate) struct Transcript {
 }
 
 impl Transcript {
+    /// How many of the document's last rows are the open line or block this
+    /// module may still write over ([`Self::painted`]).
+    pub(crate) fn open_rows(&self) -> usize {
+        self.painted
+    }
+
     pub(crate) fn new(cols: u16) -> Self {
         Self {
             cols,

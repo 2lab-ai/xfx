@@ -70,7 +70,7 @@ use tokio::sync::mpsc::Receiver;
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
 use super::deliver::{Counted, Emit, RawTty, Sink};
-use super::frame::{Band, Commit, Retint};
+use super::frame::{Band, Collapse, Commit, Retint};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
@@ -1352,6 +1352,22 @@ fn commit_document(
             }
         }
     }
+    // The tool groups on the screen, collapsed where they stand, before
+    // anything moves the rows they are on. The same rules as the recolour
+    // above: settled is paid, deferred stands and the tick goes on, refused is
+    // still owed.
+    if shell.owes_collapse() {
+        match band.collapse_groups(out, &shell.geometry, shell.open_document_rows()) {
+            Ok(Collapse::Settled(rows)) => shell.document_collapsed(rows),
+            Ok(Collapse::Deferred) => {}
+            Err(emit) => {
+                return match disposed(emit, failures, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(false),
+                }
+            }
+        }
+    }
     match band.carry_document(out, &shell.geometry) {
         Ok(carried) => shell.document_carried(carried),
         Err(emit) => {
@@ -1900,6 +1916,11 @@ mod tests {
     }
 
     fn shell() -> Fixture {
+        shell_of(24, 80)
+    }
+
+    /// [`shell`] on a screen of `rows` x `cols`.
+    fn shell_of(rows: u16, cols: u16) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         // A workspace with the same last component in every fixture, because
@@ -1916,7 +1937,7 @@ mod tests {
         Fixture {
             shell: Shell::new(
                 &config,
-                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                crate::tui::layout::solve(rows, cols, 1).expect("a band"),
                 crate::tui::theme::Palette {
                     mode: crate::tui::theme::Mode::Dark,
                     depth: crate::tui::theme::Depth::Ansi256,
@@ -3083,6 +3104,69 @@ mod tests {
                 "the text after the group never landed: {written:?}"
             );
         }
+    }
+
+    #[test]
+    fn switching_collapse_on_collapses_the_groups_still_on_the_screen() {
+        // `fx-settings-collapse-40x120-collapse-on`: a closed group on the
+        // screen loses its call rows at once, the answer under it moves up,
+        // and the band floats up with the document -- before anything else
+        // the tick writes. On upstream's 40 rows, where the menu leaves the
+        // group on the screen.
+        let mut shell = shell_of(40, 120);
+        shell.document_landed(0);
+        let mut band = Band::new();
+        let now = Instant::now();
+        shell.route_bytes(b"look\r");
+        committed(&mut shell, &mut band);
+        shell.apply(UiEvent::TurnStarted);
+        for event in a_call("call-1", "a.txt")
+            .into_iter()
+            .chain(a_call("call-2", "b.txt"))
+        {
+            shell.apply(event);
+        }
+        shell.apply(UiEvent::Delta("Read both.\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        shell.settle_band(now);
+        let painted = committed(&mut shell, &mut band);
+        assert!(painted.contains("Read b.txt"), "{painted:?}");
+        let before = shell.document_rows();
+
+        shell.route_bytes(b"/settings\r");
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B\x1b[B\x1b[C");
+        assert!(shell.owes_collapse(), "the switch owed the screen nothing");
+        let written = committed(&mut shell, &mut band);
+        assert!(!shell.owes_collapse(), "the collapse is still owed");
+
+        let moved = written
+            .find("Read both.")
+            .unwrap_or_else(|| panic!("the line under the group did not move: {written:?}"));
+        let saved = written
+            .find("saved to user settings")
+            .unwrap_or_else(|| panic!("the switch said nothing: {written:?}"));
+        assert!(
+            moved < saved,
+            "the collapse came after the append: {written:?}"
+        );
+        assert!(
+            !written[..moved].contains('\n'),
+            "the collapse scrolled the screen: {written:?}"
+        );
+        // Two rows fewer, and the notice's two rows more.
+        assert_eq!(shell.document_rows(), before - 2 + 2);
+        assert_eq!(
+            shell.geometry.band_top(),
+            u16::try_from(shell.document_rows()).expect("a short document") + 1,
+            "the band is not under the document"
+        );
+
+        // Switched off, nothing on the screen is owed anything: the calls of a
+        // group written collapsed were never there to put back.
+        shell.route_bytes(b"\x1b[C");
+        assert!(!shell.owes_collapse());
     }
 
     #[test]

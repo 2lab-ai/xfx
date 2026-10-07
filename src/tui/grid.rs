@@ -200,6 +200,10 @@ pub(crate) struct Grid {
     kinds: Vec<DocumentRow>,
 }
 
+/// What a tool group's header row opens with (`super::toolgroup`'s header,
+/// upstream's `●`).
+const GROUP_MARK: &str = "\u{25cf}";
+
 impl Grid {
     /// A screen with nothing on it.
     pub(crate) fn blank(rows: u16, cols: u16) -> Self {
@@ -426,6 +430,88 @@ impl Grid {
             }
         }
         moved
+    }
+
+    /// The rows of `1..=last` a switch to collapsed tool groups takes out of
+    /// the screen (`formatGroupBlock`'s `collapse_tool_calls`,
+    /// `tool_group_projection.zig:561-565`, re-projected over the visible
+    /// transcript by `markTranscriptStructureDirty`, `app_commands.zig:4120-4133`),
+    /// ascending: every call row of a group whose header is on the screen, and
+    /// each cancelled call's own line with the blank row its writer put under
+    /// it. The header and the group's blank row stay -- what a collapsed group
+    /// is (`super::toolgroup`).
+    ///
+    /// **Read off what the writers recorded, never guessed.** A row is a group's
+    /// when its writer said so ([`DocumentRow::ToolGroup`],
+    /// [`DocumentRow::ToolStopped`]), and its header is the one of them that
+    /// opens with the group's mark. A run of call rows whose header has left
+    /// the top of the screen is left as it is: what would say which group
+    /// they are, and that they are one, is in scrollback.
+    pub(crate) fn collapsible_rows(&self, last: u16) -> Vec<u16> {
+        let last = last.min(self.rows);
+        let mut removed = Vec::new();
+        let mut in_group = false;
+        let mut line = 1;
+        while line <= last {
+            match self.kind(line) {
+                DocumentRow::ToolGroup if self.opens_with(line, GROUP_MARK) => in_group = true,
+                DocumentRow::ToolGroup if in_group => removed.push(line),
+                DocumentRow::ToolStopped if in_group => {
+                    removed.push(line);
+                    if line < last && self.is_blank(line + 1) {
+                        line += 1;
+                        removed.push(line);
+                    }
+                }
+                // The group's own blank row, after which its cancelled calls'
+                // lines still belong to it.
+                DocumentRow::Plain if self.is_blank(line) => {}
+                _ => in_group = false,
+            }
+            line += 1;
+        }
+        removed
+    }
+
+    /// Takes `removed` -- rows of `1..=last`, ascending -- off the screen:
+    /// every row of `1..=last` under one moves up past it, records and all,
+    /// and the rows that frees at the bottom of that range are blank. Nothing
+    /// below `last` moves, and nothing above the first removed row changes.
+    pub(crate) fn remove_rows(&mut self, removed: &[u16], last: u16) {
+        let last = last.min(self.rows);
+        let width = usize::from(self.cols);
+        let end = usize::from(last) * width;
+        let mut cells = Vec::with_capacity(end);
+        let mut kinds = Vec::with_capacity(usize::from(last));
+        for line in 1..=last {
+            if removed.binary_search(&line).is_ok() {
+                continue;
+            }
+            if let Some(span) = self.span(line) {
+                cells.extend_from_slice(&self.cells[span]);
+                kinds.push(self.kind(line));
+            }
+        }
+        cells.resize(end, Cell::Empty);
+        kinds.resize(usize::from(last), DocumentRow::Plain);
+        self.cells.splice(..end, cells);
+        self.kinds.splice(..usize::from(last), kinds);
+    }
+
+    /// Whether row `line`'s first cell is `grapheme`.
+    fn opens_with(&self, line: u16, grapheme: &str) -> bool {
+        matches!(self.cell(line, 1), Some(Cell::Lead { grapheme: first, .. }) if first == grapheme)
+    }
+
+    /// Whether row `line` holds nothing a terminal would draw.
+    fn is_blank(&self, line: u16) -> bool {
+        self.span(line).is_some_and(|span| {
+            self.cells[span].iter().all(|cell| match cell {
+                Cell::Empty => true,
+                Cell::Lead { grapheme, .. } => grapheme == " ",
+                Cell::Continuation => false,
+            })
+        })
     }
 
     /// The band's own rows, and the erase in front of them.
@@ -1106,6 +1192,109 @@ mod tests {
             &geometry,
         );
         assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    /// A grid holding `rows` from row 1 down, each with its writer's record.
+    fn document(rows: &[(&str, DocumentRow)]) -> Grid {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        for (index, (text, kind)) in rows.iter().enumerate() {
+            let line = u16::try_from(index + 1).expect("a row");
+            grid.place_row(line, text, &geometry);
+            grid.set_kind(line, *kind);
+        }
+        grid
+    }
+
+    /// Row `line`'s text, without the blank cells after it.
+    fn text_of(grid: &Grid, line: u16) -> String {
+        (1..=grid.cols())
+            .filter_map(|column| match grid.cell(line, column) {
+                Some(Cell::Lead { grapheme, .. }) => Some(grapheme.as_str()),
+                Some(Cell::Empty) => Some(" "),
+                _ => None,
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    #[test]
+    fn a_collapse_takes_each_groups_calls_and_cancelled_lines_and_keeps_its_header() {
+        use DocumentRow::{Plain, ToolGroup, ToolStopped};
+        let mut grid = document(&[
+            // A group whose header is in scrollback: left as it is.
+            ("\u{251c} Read old.txt", ToolGroup),
+            ("\u{2514} Read older.txt", ToolGroup),
+            ("", Plain),
+            ("\u{2503} look", Plain),
+            ("", Plain),
+            ("\u{25cf} 2 tool calls \u{b7} 2 read", ToolGroup),
+            ("\u{251c} Read a.txt", ToolGroup),
+            ("\u{2514} Read b.txt", ToolGroup),
+            ("", Plain),
+            ("  Read both.", Plain),
+            ("", Plain),
+            ("\u{25cf} 1 tool call \u{b7} 1 command", ToolGroup),
+            ("\u{2514} Cancelled sleep 4", ToolGroup),
+            ("", Plain),
+            ("\u{25a0} Cancelled sleep 4", ToolStopped),
+            ("", Plain),
+            ("  after", Plain),
+        ]);
+        let removed = grid.collapsible_rows(17);
+        assert_eq!(removed, [7, 8, 13, 15, 16]);
+        // And nothing at or past a row it was not given.
+        assert_eq!(grid.collapsible_rows(7), [7]);
+
+        grid.remove_rows(&removed, 17);
+        let texts: Vec<String> = (1..=17).map(|line| text_of(&grid, line)).collect();
+        assert_eq!(
+            texts,
+            [
+                "\u{251c} Read old.txt",
+                "\u{2514} Read older.txt",
+                "",
+                "\u{2503} look",
+                "",
+                "\u{25cf} 2 tool calls \u{b7} 2 read",
+                "",
+                "  Read both.",
+                "",
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "",
+                "  after",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ]
+        );
+        // The records went with their rows, and the freed rows have none.
+        assert_eq!(grid.kind(6), ToolGroup);
+        assert_eq!(grid.kind(10), ToolGroup);
+        assert_eq!(grid.kind(13), Plain);
+        assert_eq!(
+            grid.collapsible_rows(17),
+            [] as [u16; 0],
+            "a second pass took more"
+        );
+    }
+
+    #[test]
+    fn rows_past_the_range_a_removal_was_given_do_not_move() {
+        use DocumentRow::{Plain, ToolGroup};
+        let mut grid = document(&[
+            ("\u{25cf} 1 tool call \u{b7} 1 read", ToolGroup),
+            ("\u{2514} Read a.txt", ToolGroup),
+            ("", Plain),
+            ("band", Plain),
+        ]);
+        grid.remove_rows(&[2], 3);
+        assert_eq!(text_of(&grid, 2), "");
+        assert_eq!(text_of(&grid, 3), "");
+        assert_eq!(text_of(&grid, 4), "band");
     }
 
     #[test]

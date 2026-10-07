@@ -603,6 +603,14 @@ pub(crate) struct Shell {
     /// reaches the screen converges on dark and costs nothing -- which a debt
     /// remembering an old-to-new pair could not do.
     retint_debt: bool,
+    /// Whether the tool groups still on the screen are owed a collapse:
+    /// `Collapse tool calls` was switched on, and the rows each group's calls
+    /// took are still there ([`super::frame::Band::collapse_groups`]). A debt
+    /// for the reason [`Self::retint_debt`] is one -- the paint tick is the one
+    /// writer -- and dropped wherever that one is, for the same reasons: rows
+    /// that are erased, re-wrapped or on their way into scrollback are not
+    /// this session's to move.
+    collapse_debt: bool,
     /// Whether something that is not the band has written on the screen and
     /// the band has not been told yet.
     ///
@@ -1637,6 +1645,7 @@ impl Shell {
             // Nothing on the screen to recolour, and nothing the band has not
             // been told: a session that has painted nothing has neither.
             retint_debt: false,
+            collapse_debt: false,
             damage_untold: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
@@ -2539,6 +2548,7 @@ impl Shell {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
             self.retint_debt = false;
+            self.collapse_debt = false;
             self.handoff = None;
             self.wipe = true;
             self.transcript = Transcript::new(self.geometry.cols);
@@ -4043,10 +4053,20 @@ impl Shell {
                 let changed = on != self.collapse_tool_calls;
                 self.collapse_tool_calls = on;
                 // The open group is the document's last thing and is drawn
-                // again at once; a group the document has already moved past
-                // keeps the rows it was written with.
+                // again at once. The groups above it that are still on the
+                // screen are collapsed there by the next tick, their rows
+                // taken out and the rows under them moved up
+                // ([`super::frame::Band::collapse_groups`]) -- while this
+                // session can still say what those rows are, which is the
+                // retint's rule. Switched off, they keep the rows they have:
+                // a group written collapsed never had its calls on the screen,
+                // and nothing here holds them to put back.
                 if changed {
                     self.redraw_group();
+                    if on && !self.damage_untold && self.handoff.is_none() {
+                        self.collapse_debt = true;
+                        self.render.request(Reason::Transcript);
+                    }
                 }
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
@@ -6792,6 +6812,28 @@ impl Shell {
         self.retint_debt = false;
     }
 
+    /// Whether the tool groups on the screen are owed a collapse
+    /// ([`Self::collapse_debt`]).
+    pub(crate) fn owes_collapse(&self) -> bool {
+        self.collapse_debt
+    }
+
+    /// The document rows at the bottom that are the transcript's open block or
+    /// line: its to rewrite, so a collapse takes nothing out of them.
+    pub(crate) fn open_document_rows(&self) -> u16 {
+        u16::try_from(self.transcript.open_rows()).unwrap_or(u16::MAX)
+    }
+
+    /// Records a collapse that landed, or that had nothing knowable to do:
+    /// the document is `rows` shorter, and the band floats up under it.
+    pub(crate) fn document_collapsed(&mut self, rows: u16) {
+        self.collapse_debt = false;
+        if rows > 0 {
+            self.document_carried(rows);
+            self.render.request(Reason::Transcript);
+        }
+    }
+
     /// Records that something which is not the band has written on the screen.
     ///
     /// The **one** door for that fact: the frame the reason asks for is a whole
@@ -6811,6 +6853,7 @@ impl Shell {
         self.handoff = self.handoff.map(|_| 0);
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
     }
 
@@ -8941,8 +8984,10 @@ impl Shell {
         self.trailer.clear();
         self.abandoned.clear();
         // A recolour owed against the old rows is owed against rows on their
-        // way into scrollback, which is never recoloured ([`Self::retint`]).
+        // way into scrollback, which is never recoloured ([`Self::retint`]),
+        // and so is a collapse.
         self.retint_debt = false;
+        self.collapse_debt = false;
         // The blank row the document ends on, when this session can say so:
         // everything it wrote has landed, so the transcript's own record of
         // its tail is a record of the screen, and no resize has left the rows
@@ -9524,6 +9569,7 @@ impl Shell {
         // shadow on this same road (`super::event_loop`'s `adopt_resize`),
         // which is where the band is told.
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
         Resize::Repaint(geometry)
     }
