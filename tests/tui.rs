@@ -3987,15 +3987,35 @@ fn a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation() {
         let name = String::from_utf8_lossy(command).trim().to_string();
 
         session.type_bytes(command);
-        let text = session.wait_for_count("Run /help for commands", 2);
+        // **The reset's own frame, and not the one before it.** The fresh
+        // screen is three writes (`commit_frame`): the handoff that carries the
+        // document into scrollback, the welcome line on row 1, and the band's
+        // frame under it. The second welcome is on the wire before that frame
+        // is, and the last complete frame at that moment is the one painted
+        // before the reset -- so a read taken on the welcome alone judged the
+        // old screen whenever the session was descheduled between the two
+        // writes, and said the old answer was still there while the terminal
+        // had already scrolled it away. What is read is the first frame that
+        // ends after the fresh welcome: fixed by the bytes rather than by when
+        // the wait looked, and a reset that painted the old answer back is
+        // still caught on it rather than waited past.
+        let fresh = |text: &str| {
+            text.match_indices("Run /help for commands")
+                .nth(1)
+                .map(|(at, _)| at)
+        };
+        let text = session.wait_until("the band painted under the fresh welcome", |text| {
+            fresh(text).is_some_and(|at| text[at..].contains(FRAME_END))
+        });
         assert!(
             !text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"),
             "{name} erased the screen or the scrollback: {text:?}"
         );
-        let reset_at = text
-            .rfind("Run /help for commands")
-            .expect("the fresh welcome");
-        let painted = Screen::painted(&text, 24, 80).expect("a frame after the reset");
+        let reset_at = fresh(&text).expect("the fresh welcome");
+        let frame_end = reset_at
+            + text[reset_at..].find(FRAME_END).expect("the reset's frame")
+            + FRAME_END.len();
+        let painted = Screen::painted(&text[..frame_end], 24, 80).expect("a frame after the reset");
         assert_eq!(
             painted.find("Run /help for commands"),
             Some(1),
@@ -4006,15 +4026,18 @@ fn a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation() {
             None,
             "{name} left the old answer on the screen"
         );
-        assert!(
-            !text[reset_at..].contains("MARKER-BEFORE-THE-RESET"),
-            "{name} wrote the old answer again after the reset"
-        );
 
         session.type_bytes(b"and now\r");
         session.wait_for("MARKER-AFTER-THE-RESET");
         session.type_bytes(&[0x04]);
         assert_eq!(session.wait_exit().code(), Some(0));
+        // An absence, so asked of everything the terminal will ever receive
+        // ([`Session::settled_text`]) rather than of a snapshot taken while
+        // the session was still writing.
+        assert!(
+            !session.settled_text()[reset_at..].contains("MARKER-BEFORE-THE-RESET"),
+            "{name} wrote the old answer again after the reset"
+        );
 
         assert_eq!(
             user_messages(&gateway.requests()[1].json()),
