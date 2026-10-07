@@ -175,10 +175,11 @@ ANSWER-ONE: plain text.` -- then `second question` and `third question` (`Plan.n
   (`Compaction was not started. Try /compact again.`, no request), as fx's e2e
   (`tui-compaction-activity.test.ts:551-584`).
 - **A compaction between a turn's steps** (`orchestrator.zig:7286-7322`). Not captured as a pair: by
-  the same estimate fx's opening request is about 8,700 tokens (`rcpt/fx-compact-40x120-bodies/002`)
-  and xfx's about 3,000, so one catalog window puts the two products' compaction points at different
-  steps; and at that point fx compacts the read of the turn in progress too, which xfx does not (its
-  `/compact` row's "Not ported"), so the two notes requests and the requests after them differ by
+  the same estimate fx's opening request is about 8,700 tokens and xfx's about 3,000 (the `compact`
+  scenario's first completion bodies, which are not committed), so one catalog window puts the two
+  products' compaction points at different steps; and fx's window can take the steps of the turn in
+  progress into the compaction as well (`split`, `window.zig:271-295`), which xfx's never does (its
+  `/compact` row's "Not ported"), so the notes requests and the requests after them would differ by
   construction. `tests/tui.rs`
   `a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step` shows the
   second turn's first request sent as it was, the notes request after its read, the next step
