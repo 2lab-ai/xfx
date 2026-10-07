@@ -298,6 +298,7 @@ mod tests {
                     tool: "read_file".to_string(),
                     ok: false,
                     output: "no such path: `a.txt`\nmore".to_string(),
+                    images: Vec::new(),
                 },
                 TurnStep::ToolFeedback {
                     call_id: "c1".to_string(),

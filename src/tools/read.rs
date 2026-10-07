@@ -55,7 +55,7 @@ const GLOB_FILES_DESCRIPTION: &str = "Find file paths matching a glob pattern be
 
 const GREP_FILES_DESCRIPTION: &str = "Search text files for a literal substring, optionally narrowed by path and include glob, with modes for matching lines, files with matches, or counts, plus head_limit/offset paging and bounded context_lines. Paths are relative to the workspace root, or absolute inside an authorized root. Regular expressions are not supported: the pattern is matched literally. The search does not see every file: symlinks are not followed, build directories such as .git and node_modules are pruned, paths excluded by .gitignore are skipped, hidden dot-paths are skipped unless the include glob itself names one, and files that are not UTF-8 text or are above the size cap are not searched. Any file skipped for the last two reasons is counted on a ... skipped line, so no matches means no matches among the files actually searched. When to use: find an exact symbol, string, or usage site. When NOT to use: filename lookup, reading a known path, or regex search.";
 
-const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path. When NOT to use: list a directory, search many files, or read binary data.";
+const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range; image files (PNG, JPEG, GIF, WebP up to 3.9MB) attach to the result so you can see them. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path, or view an image file. When NOT to use: list a directory, search many files, or read non-image binary data.";
 
 const PATH_DESCRIPTION: &str =
     "Path relative to the workspace root, or an absolute path inside an authorized root.";
@@ -911,7 +911,32 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         // The bytes are named and counted rather than shown. Dumping them would
         // fill the model's context with noise it cannot use and might not
         // survive as valid UTF-8 on the wire.
-        Ok(_) | Err(_) => return binary_result(&display, file_bytes),
+        //
+        // An image is the one binary file shown: attached for the model to see
+        // when a request can carry it, and refused in words when it cannot
+        // (`imageToolResult`, `read_file.zig:157`, `:228-278`).
+        Ok(_) | Err(_) => {
+            return match crate::image::read_file_image(
+                &display,
+                if snapshot_complete { &bytes } else { snapshot },
+                file_bytes as u64,
+                snapshot_complete,
+            ) {
+                Some((output, image)) => {
+                    let detail = match &image {
+                        Some(image) => {
+                            format!(
+                                "{display} ({}, {file_bytes} bytes)",
+                                image.media_type.label()
+                            )
+                        }
+                        None => format!("{display} (image not attached, {file_bytes} bytes)"),
+                    };
+                    ToolResult::success(output, detail).with_image(image)
+                }
+                None => binary_result(&display, file_bytes),
+            };
+        }
     };
 
     // The model may ask for fewer lines than the cap but never for more: a

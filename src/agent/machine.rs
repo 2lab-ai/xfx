@@ -706,6 +706,14 @@ impl TurnMachine {
                 ok: result.ok,
                 output: result.output.clone(),
             });
+            let images: Vec<crate::image::ToolImage> = result
+                .image
+                .filter(|_| result.ok)
+                .map(|image| vec![*image])
+                .unwrap_or_default();
+            if !images.is_empty() {
+                journal.attach_tool_images(&call.id, &images);
+            }
             if let Some(change) = &result.change {
                 journal.change_made(&call.id, change);
             }
@@ -713,7 +721,7 @@ impl TurnMachine {
             // every result whose status is a failure (`error-text`,
             // `vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:742-747`).
             self.suffix.push(if result.ok {
-                Message::tool_result(&call.id, &call.name, result.output)
+                Message::tool_result_with_images(&call.id, &call.name, result.output, images)
             } else {
                 Message::tool_error(&call.id, &call.name, result.output)
             });
@@ -723,7 +731,7 @@ impl TurnMachine {
             // can contribute one -- which is what makes the disposition of
             // every exit below decidable rather than incidental.
             if let Some(text) = result.feedback {
-                amendments.push((call.id.clone(), text));
+                amendments.push((call.id.clone(), String::from(text)));
             }
 
             // Almost every refusal goes back to the model, which can correct

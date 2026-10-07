@@ -399,6 +399,9 @@ pub enum TurnStep {
         tool: String,
         ok: bool,
         output: String,
+        /// The images the result carried (`tool_images_attached`).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        images: Vec<TurnImage>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -842,10 +845,34 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 tool,
                 ok,
                 output,
+                images,
             } => {
+                // The images it carried go again with it, read back like a
+                // prompt's; one that cannot be is left out and said so.
+                let mut carried = Vec::new();
+                for image in images {
+                    let label = crate::image::MediaType::parse(&image.recorded.media_type);
+                    match (&image.snapshot, label) {
+                        (Snapshot::Loaded { bytes, .. }, Some(media_type)) => {
+                            carried.push(crate::image::ToolImage {
+                                media_type,
+                                data: Arc::clone(bytes),
+                                path: image.recorded.path.clone(),
+                            });
+                        }
+                        (Snapshot::Unusable(reason), _) => notices.push(format!(
+                            "xfx: an image `{tool}` returned could not be read back ({reason}), \
+                             so it was not sent again"
+                        )),
+                        _ => notices.push(format!(
+                            "xfx: an image `{tool}` returned was not read back, so it was not \
+                             sent again"
+                        )),
+                    }
+                }
                 // Replayed as it was sent: a failure as a failure.
                 pending.push(if *ok {
-                    Message::tool_result(call_id, tool, output.clone())
+                    Message::tool_result_with_images(call_id, tool, output.clone(), carried)
                 } else {
                     Message::tool_error(call_id, tool, output.clone())
                 });
@@ -2363,6 +2390,66 @@ impl SessionRecorder {
     }
 }
 
+impl SessionRecorder {
+    /// Saves a copy of each image the result of `call_id` carried and records
+    /// them right behind that result, as [`Self::attach_images`] does a
+    /// prompt's: the copies first, under [`crate::image::snapshot_name`] of
+    /// each one's place in the result.
+    pub fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        if images.is_empty() || self.failure.is_some() {
+            return;
+        }
+        let recorded: Vec<RecordedImage> = images
+            .iter()
+            .zip(1u32..)
+            .map(|(image, id)| RecordedImage {
+                id,
+                path: image.path.clone(),
+                media_type: image.media_type.label().to_string(),
+                sha256: crate::image::digest(&image.data),
+                bytes: image.data.len() as u64,
+            })
+            .collect();
+        let copies = recorded.iter().zip(images).map(|(record, image)| {
+            (
+                crate::image::snapshot_name(record.id, &record.sha256),
+                record.sha256.as_str(),
+                &image.data[..],
+            )
+        });
+        if let Err(err) = save_copies(self.session.dir(), copies) {
+            self.failure = Some(format!("cannot save a tool's images: {err}"));
+            return;
+        }
+        let folder = self.session.dir().join(IMAGES_DIR);
+        self.commit(SessionEvent::ToolImagesAttached {
+            call_id: call_id.to_string(),
+            images: recorded,
+        });
+        if self.failure.is_some() {
+            return;
+        }
+        // Held as they were handed over, as a prompt's are.
+        if let Some(TurnStep::ToolResult { images: kept, .. }) = self
+            .session
+            .state
+            .turns
+            .last_mut()
+            .and_then(|turn| turn.steps.last_mut())
+        {
+            for (kept, image) in kept.iter_mut().zip(images) {
+                kept.snapshot = Snapshot::Loaded {
+                    bytes: Arc::clone(&image.data),
+                    path: Arc::from(folder.join(crate::image::snapshot_name(
+                        kept.recorded.id,
+                        &kept.recorded.sha256,
+                    ))),
+                };
+            }
+        }
+    }
+}
+
 impl TurnJournal for SessionRecorder {
     fn record(&mut self, event: SessionEvent) {
         self.commit(event);
@@ -2371,6 +2458,10 @@ impl TurnJournal for SessionRecorder {
     fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<PathBuf> {
         SessionRecorder::attach_images(self, images)
     }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        SessionRecorder::attach_tool_images(self, call_id, images);
+    }
 }
 
 /// Writes each image's copy into `dir`'s [`IMAGES_DIR`], creating it
@@ -2378,6 +2469,24 @@ impl TurnJournal for SessionRecorder {
 /// construction -- the name carries the digest -- and is checked rather than
 /// trusted.
 fn save_snapshots(dir: &Path, images: &[crate::image::Image]) -> Result<(), SessionError> {
+    save_copies(
+        dir,
+        images.iter().map(|image| {
+            (
+                image.snapshot_name(),
+                image.sha256.as_str(),
+                &image.bytes[..],
+            )
+        }),
+    )
+}
+
+/// Writes each `(name, sha256, bytes)` into `dir`'s [`IMAGES_DIR`] as
+/// [`save_snapshots`] says.
+fn save_copies<'a>(
+    dir: &Path,
+    copies: impl Iterator<Item = (String, &'a str, &'a [u8])>,
+) -> Result<(), SessionError> {
     let folder = dir.join(IMAGES_DIR);
     match fs::create_dir(&folder) {
         Ok(()) => set_private_dir_mode(&folder)?,
@@ -2385,18 +2494,18 @@ fn save_snapshots(dir: &Path, images: &[crate::image::Image]) -> Result<(), Sess
         Err(err) => return Err(io_error(&folder, err)),
     }
     verify_private(&folder, 0o700)?;
-    for image in images {
-        let path = folder.join(image.snapshot_name());
+    for (name, sha256, bytes) in copies {
+        let path = folder.join(name);
         match create_private_file(&path) {
             Ok(mut file) => {
-                file.write_all(&image.bytes)
+                file.write_all(bytes)
                     .and_then(|()| file.sync_all())
                     .map_err(|err| io_error(&path, err))?;
             }
             Err(SessionError::Io { source, .. })
                 if source.kind() == io::ErrorKind::AlreadyExists =>
             {
-                if let Err(reason) = read_snapshot(&path, &image.sha256, image.bytes.len() as u64) {
+                if let Err(reason) = read_snapshot(&path, sha256, bytes.len() as u64) {
                     return Err(SessionError::Io {
                         path,
                         source: io::Error::new(io::ErrorKind::AlreadyExists, reason),
@@ -2409,6 +2518,21 @@ fn save_snapshots(dir: &Path, images: &[crate::image::Image]) -> Result<(), Sess
     sync_directory(&folder)
 }
 
+/// Whether a recorded image is one xfx could have written: a type it
+/// attaches, a digest, and a size within the ceiling.
+fn check_recorded(image: &RecordedImage) -> Result<(), String> {
+    if crate::image::MediaType::parse(&image.media_type).is_none() {
+        return Err(format!("an image names the type `{}`", image.media_type));
+    }
+    if !is_digest(&image.sha256) || image.bytes > crate::image::MAX_IMAGE_BYTES {
+        return Err(format!(
+            "image #{} has a digest or a size xfx would not have written",
+            image.id
+        ));
+    }
+    Ok(())
+}
+
 /// Reads back the copy of every image `state`'s turns carried, from `dir`.
 ///
 /// Each is checked before it is believed: a regular file reached without
@@ -2418,7 +2542,11 @@ fn save_snapshots(dir: &Path, images: &[crate::image::Image]) -> Result<(), Sess
 fn read_snapshots(dir: &Path, state: &mut DurableState) {
     let folder = dir.join(IMAGES_DIR);
     for turn in &mut state.turns {
-        for image in &mut turn.images {
+        let tool_images = turn.steps.iter_mut().flat_map(|step| match step {
+            TurnStep::ToolResult { images, .. } => images.iter_mut(),
+            _ => [].iter_mut(),
+        });
+        for image in turn.images.iter_mut().chain(tool_images) {
             let path = folder.join(crate::image::snapshot_name(
                 image.recorded.id,
                 &image.recorded.sha256,
@@ -2550,15 +2678,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                 return Err("a turn's images appear after its first step or twice".to_string());
             }
             for image in images {
-                if crate::image::MediaType::parse(&image.media_type).is_none() {
-                    return Err(format!("an image names the type `{}`", image.media_type));
-                }
-                if !is_digest(&image.sha256) || image.bytes > crate::image::MAX_IMAGE_BYTES {
-                    return Err(format!(
-                        "image #{} has a digest or a size xfx would not have written",
-                        image.id
-                    ));
-                }
+                check_recorded(image)?;
                 turn.images.push(TurnImage {
                     recorded: image.clone(),
                     snapshot: Snapshot::Unread,
@@ -2595,7 +2715,32 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     tool: tool.clone(),
                     ok: *ok,
                     output: output.clone(),
+                    images: Vec::new(),
                 });
+        }
+        SessionEvent::ToolImagesAttached { call_id, images } => {
+            let turn = open_turn(state, "a tool's images", envelope.seq)?;
+            // Right behind the result they belong to, once, and only on one
+            // that succeeded: the order the machine writes them in.
+            let Some(TurnStep::ToolResult {
+                call_id: result,
+                ok: true,
+                images: kept,
+                ..
+            }) = turn.steps.last_mut()
+            else {
+                return Err("a tool's images do not follow a result that succeeded".to_string());
+            };
+            if result != call_id || !kept.is_empty() || images.is_empty() {
+                return Err("a tool's images name another result, or appear twice".to_string());
+            }
+            for image in images {
+                check_recorded(image)?;
+                kept.push(TurnImage {
+                    recorded: image.clone(),
+                    snapshot: Snapshot::Unread,
+                });
+            }
         }
         SessionEvent::ToolFeedback { call_id, text } => {
             // A step of the open turn, exactly as a result is. Reducing it the
@@ -4298,6 +4443,117 @@ mod tests {
             "{:?}",
             replay.notices
         );
+    }
+
+    #[test]
+    fn a_tool_results_image_is_saved_and_sent_again_with_its_result_after_a_resume() {
+        // Upstream retains a result's tool images for later requests
+        // (`retainToolImages`, `execution_memory.zig:672-688`).
+        let root = tempfile::TempDir::new().expect("a root");
+        let (store, mut recorder, id, workspace) = recorder_in(root.path());
+        recorder.commit(SessionEvent::UserMessage {
+            text: "look at the picture".to_string(),
+        });
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: "c1".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "shot.png"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        });
+        recorder.commit(SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            output: "image attached".to_string(),
+        });
+        let image = crate::image::ToolImage {
+            media_type: crate::image::MediaType::Png,
+            data: Arc::from(crate::image::fixture::SHOT_PNG),
+            path: "shot.png".to_string(),
+        };
+        recorder.attach_tool_images("c1", std::slice::from_ref(&image));
+        recorder.commit(SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        });
+        assert_eq!(recorder.failure(), None);
+        let carried = |messages: &[Message]| -> Vec<crate::image::ToolImage> {
+            messages
+                .iter()
+                .flat_map(|message| message.content.iter())
+                .flat_map(|part| match part {
+                    crate::gateway::protocol::ContentPart::ToolResult { images, .. } => {
+                        images.clone()
+                    }
+                    _ => Vec::new(),
+                })
+                .collect()
+        };
+        let live = recorder.state().history_messages(Wire::VercelGateway);
+        assert_eq!(carried(&live.messages), std::slice::from_ref(&image));
+        let log = std::fs::read_to_string(store.session_dir(&id).join(EVENTS_FILE)).expect("log");
+        assert!(log.contains("\"kind\":\"tool_images_attached\""), "{log}");
+        assert!(
+            !log.contains(crate::image::fixture::SHOT_PNG_BASE64),
+            "{log}"
+        );
+        drop(recorder);
+        let resumed = store
+            .resume(&Selector::Id(id.clone()), &workspace)
+            .expect("resumed");
+        let replay = resumed
+            .session
+            .state()
+            .history_messages(Wire::AnthropicMessages);
+        assert_eq!(carried(&replay.messages), [image]);
+        assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+    }
+
+    #[test]
+    fn a_tools_images_belong_right_behind_the_result_that_succeeded() {
+        let record = RecordedImage {
+            id: 1,
+            path: "shot.png".to_string(),
+            media_type: "image/png".to_string(),
+            sha256: crate::image::digest(crate::image::fixture::SHOT_PNG),
+            bytes: crate::image::fixture::SHOT_PNG.len() as u64,
+        };
+        let images = |call_id: &str| SessionEvent::ToolImagesAttached {
+            call_id: call_id.to_string(),
+            images: vec![record.clone()],
+        };
+        let result = |ok: bool| SessionEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "read_file".to_string(),
+            ok,
+            output: "x".to_string(),
+        };
+        let opened = |extra: Vec<SessionEvent>| {
+            let mut events = vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "look".to_string(),
+                },
+            ];
+            events.extend(extra);
+            reduce(events)
+        };
+        let state = opened(vec![result(true), images("c1")]).expect("reduced");
+        assert!(matches!(
+            &state.turns[0].steps[0],
+            TurnStep::ToolResult { images, .. } if images.len() == 1
+        ));
+        assert!(opened(vec![images("c1")]).is_err());
+        assert!(opened(vec![result(false), images("c1")]).is_err());
+        assert!(opened(vec![result(true), images("c2")]).is_err());
+        assert!(opened(vec![result(true), images("c1"), images("c1")]).is_err());
     }
 
     #[test]

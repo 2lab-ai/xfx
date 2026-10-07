@@ -463,11 +463,15 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
             }
             Role::Tool => {
                 for part in message.content {
+                    // The notes are text: a result's images are not
+                    // summarized -- upstream's compactor has no image in it
+                    // (`src/core/compactor/compactor.zig`).
                     if let ContentPart::ToolResult {
                         call_id,
                         tool,
                         output,
                         error,
+                        ..
                     } = part
                     {
                         items.push(Item::ToolResult {
@@ -2052,6 +2056,7 @@ mod tests {
                     tool: "read_file".to_string(),
                     ok: true,
                     output: "1\tseed notes line one\n2\tSEED_VALUE_42\n".to_string(),
+                    images: Vec::new(),
                 },
                 TurnStep::Assistant {
                     text: "ANSWER_1: I read the notes.".to_string(),

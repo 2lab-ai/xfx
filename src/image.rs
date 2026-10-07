@@ -612,10 +612,8 @@ fn extension(media_type: MediaType) -> &'static str {
 /// upstream's sentences. Upstream's `source_ref` branch (a host reference
 /// with no bytes) has no counterpart: an xfx image is always bytes.
 ///
-/// The note tells the model to `read_file the copy`; upstream's `read_file`
-/// returns an image, xfx's names a binary file without reading it
-/// (`binary_result`, `tools/read.rs`), so here the copy can be made but not
-/// seen until the user attaches it.
+/// The note tells the model to `read_file the copy`, and `read_file` returns
+/// an image as upstream's does ([`read_file_image`]), on either wire.
 pub fn withheld_note(
     id: u32,
     media_type: MediaType,
@@ -661,16 +659,40 @@ pub fn withhold(
     mut messages: Vec<crate::gateway::protocol::Message>,
 ) -> Vec<crate::gateway::protocol::Message> {
     use crate::gateway::protocol::ContentPart;
+    // Every image the request carries counts, a tool result's with the
+    // user's (`countRequestImages`, `image_data.zig:171-178`).
     let count = messages
         .iter()
         .flat_map(|message| message.content.iter())
-        .filter(|part| matches!(part, ContentPart::Image { .. }))
-        .count();
+        .map(|part| match part {
+            ContentPart::Image { .. } => 1,
+            ContentPart::ToolResult { images, .. } => images.len(),
+            _ => 0,
+        })
+        .sum::<usize>();
     if count == 0 {
         return messages;
     }
     let limit = request_max_dimension(count);
     for message in &mut messages {
+        // A tool result's own images, with upstream's note for each in front
+        // of its output (`withholdRequestToolImages`,
+        // `execution_memory.zig:730-766`).
+        for part in &mut message.content {
+            let ContentPart::ToolResult { output, images, .. } = part else {
+                continue;
+            };
+            let mut notes = String::new();
+            images.retain(|image| {
+                let size = dimensions(&image.data);
+                if size.is_some_and(|size| !size.exceeds(limit)) && fits_encoded(image.data.len()) {
+                    return true;
+                }
+                notes.push_str(&withheld_tool_note(image.media_type, size, limit));
+                false
+            });
+            output.insert_str(0, &notes);
+        }
         let mut notes = String::new();
         message.content.retain(|part| {
             let ContentPart::Image {
@@ -707,6 +729,140 @@ pub fn withhold(
         }
     }
     messages
+}
+
+/// What a tool result says in place of an image of its own that a request
+/// does not carry (`withholdRequestToolImages`, `execution_memory.zig:745-756`).
+/// Upstream's sentences; its host-reference branch has no counterpart here.
+pub fn withheld_tool_note(media_type: MediaType, size: Option<Dimensions>, limit: u32) -> String {
+    let mut note = match size {
+        Some(size) => format!(
+            "[Image not sent: {} is {}x{} pixels; this request permits at most {limit} per side \
+             and 5 MiB encoded per image. ",
+            media_type.label(),
+            size.width,
+            size.height
+        ),
+        None => "[Image not sent: its dimensions could not be verified. ".to_string(),
+    };
+    note.push_str(
+        "If this tool result names a local file, use an available image tool to save a smaller \
+         copy, then read_file the copy. If no tool or path is available, ask the user; ask \
+         before installing software.]\n",
+    );
+    note
+}
+
+// ---------------------------------------------------------------------------
+// an image a tool hands the model
+// ---------------------------------------------------------------------------
+
+/// An image a tool returned with its result: `read_file` of an image file
+/// (`imageToolResult`, `read_file.zig:228-278`). The model sees it after the
+/// result's text -- on the Gateway in a user message after the tool results,
+/// on llmux inside the `tool_result` block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolImage {
+    pub media_type: MediaType,
+    pub data: Arc<[u8]>,
+    /// The file it was read from, as the tool named it.
+    pub path: String,
+}
+
+/// The text a user message carries the tool results' images under on the
+/// Gateway (`tool_image_followup_text`, `vercel_protocol.zig:677`).
+pub const TOOL_IMAGES_FOLLOWUP: &str = "Attached image(s) from the tool result.";
+
+/// What a tool result says in place of its images for a model that does not
+/// read them inline, on the Gateway (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`): a model the catalog lists without `vision` and
+/// `file-input`, with no `vision` tool to fall back on.
+pub const TOOL_IMAGES_NOT_NATIVE: &str = "[Tool images were retained but not sent: this model does not accept inline images and no vision fallback is available. Ask the user to attach the image directly or switch to a vision-capable model.]\n";
+
+/// The same, for a model whose image input nobody can vouch for: unlisted,
+/// or the catalog unread. Upstream's sentence with this product's name.
+pub const TOOL_IMAGES_UNKNOWN: &str = "[Tool images were retained but not sent: xfx could not confirm image input support for this model (the model is not listed in the model catalog, or the catalog is unavailable). This can recover later in the session, so a retry may succeed; otherwise ask the user to attach the image directly.]\n";
+
+/// Every tool result's images in `request` taken out, `note` put in front of
+/// each output that had any (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`). `None` when there were none to take.
+pub fn strip_tool_images(
+    request: &crate::gateway::protocol::CompletionRequest,
+    note: &str,
+) -> Option<crate::gateway::protocol::CompletionRequest> {
+    use crate::gateway::protocol::ContentPart;
+    let carries = request.messages.iter().any(|message| {
+        message.content.iter().any(
+            |part| matches!(part, ContentPart::ToolResult { images, .. } if !images.is_empty()),
+        )
+    });
+    if !carries {
+        return None;
+    }
+    let mut stripped = request.clone();
+    for message in &mut stripped.messages {
+        for part in &mut message.content {
+            if let ContentPart::ToolResult { output, images, .. } = part {
+                if !images.is_empty() {
+                    images.clear();
+                    output.insert_str(0, note);
+                }
+            }
+        }
+    }
+    Some(stripped)
+}
+
+/// What `read_file` returns for a file whose bytes are an image
+/// (`imageToolResult`, `read_file.zig:228-278`), or `None` for bytes that are
+/// not one -- which `read_file` names as binary.
+///
+/// An image the request could carry -- read whole, its size known, at most
+/// 8000 pixels a side and 5 MiB once encoded -- is attached, the text saying
+/// so; any other is not, and the text says why and what the model can do.
+/// `complete` is whether `bytes` is the whole file.
+pub fn read_file_image(
+    display: &str,
+    bytes: &[u8],
+    file_size: u64,
+    complete: bool,
+) -> Option<(String, Option<ToolImage>)> {
+    let media_type = MediaType::sniff(bytes)?;
+    let size = dimensions(bytes);
+    let reason = if !complete {
+        Some("the file exceeds read_file's 10 MiB read limit")
+    } else if size.is_none() {
+        Some("the image dimensions could not be verified")
+    } else if !fits_encoded(bytes.len()) {
+        Some("the image exceeds the 5 MiB encoded attach limit")
+    } else if size.is_some_and(|size| size.exceeds(MAX_SINGLE_DIMENSION)) {
+        Some("the image exceeds 8000 pixels per side")
+    } else {
+        None
+    };
+    let label = media_type.label();
+    Some(match reason {
+        Some(reason) => (
+            format!(
+                "<path>{display}</path>\n<content>image not attached: {label} ({file_size} \
+                 bytes); {reason}. Use an available image tool to save a smaller copy to a new \
+                 file, then read_file the copy. If no image tool is available, ask the user \
+                 before installing one.</content>"
+            ),
+            None,
+        ),
+        None => (
+            format!(
+                "<path>{display}</path>\n<content>image attached ({label}, {file_size} \
+                 bytes)</content>"
+            ),
+            Some(ToolImage {
+                media_type,
+                data: Arc::from(bytes),
+                path: display.to_string(),
+            }),
+        ),
+    })
 }
 
 /// `bytes` as standard base64 with padding (RFC 4648 §4) -- what both wires
@@ -942,6 +1098,136 @@ mod tests {
             "{}",
             sent[2].text()
         );
+    }
+
+    #[test]
+    fn read_file_attaches_an_image_a_request_can_carry_and_says_why_not_otherwise() {
+        // `imageToolResult` (`read_file.zig:228-278`) and its cases
+        // (`:728-890`).
+        let (text, image) =
+            read_file_image("shot.png", fixture::SHOT_PNG, 73, true).expect("an image");
+        assert_eq!(
+            text,
+            "<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"
+        );
+        let image = image.expect("attached");
+        assert_eq!(image.media_type, MediaType::Png);
+        assert_eq!(&image.data[..], fixture::SHOT_PNG);
+        let refused = |bytes: &[u8], complete: bool| {
+            let (text, image) =
+                read_file_image("p.png", bytes, bytes.len() as u64, complete).expect("an image");
+            assert!(image.is_none(), "{text}");
+            text
+        };
+        let edge = png_header(8000, 8000);
+        assert!(read_file_image("e.png", &edge, 24, true)
+            .expect("an image")
+            .1
+            .is_some());
+        let wide = refused(&png_header(8001, 1), true);
+        assert_eq!(
+            wide,
+            "<path>p.png</path>\n<content>image not attached: image/png (24 bytes); the image \
+             exceeds 8000 pixels per side. Use an available image tool to save a smaller copy to \
+             a new file, then read_file the copy. If no image tool is available, ask the user \
+             before installing one.</content>"
+        );
+        let mut no_size = png_header(10, 10);
+        no_size[12..16].copy_from_slice(b"IDAT");
+        assert!(refused(&no_size, true).contains("the image dimensions could not be verified."));
+        let mut big = png_header(10, 10);
+        big.resize(MAX_ENCODED_BYTES / 4 * 3 + 1, 0);
+        assert!(refused(&big, true).contains("the image exceeds the 5 MiB encoded attach limit."));
+        assert!(refused(fixture::SHOT_PNG, false)
+            .contains("the file exceeds read_file's 10 MiB read limit."));
+        assert_eq!(read_file_image("a.bin", b"\x00\x01binary", 8, true), None);
+    }
+
+    fn tool_message(images: Vec<ToolImage>) -> crate::gateway::protocol::Message {
+        crate::gateway::protocol::Message::tool_result_with_images(
+            "c1",
+            "read_file",
+            "seen",
+            images,
+        )
+    }
+
+    fn tool_image(bytes: Vec<u8>) -> ToolImage {
+        ToolImage {
+            media_type: MediaType::Png,
+            data: Arc::from(bytes),
+            path: "x.png".to_string(),
+        }
+    }
+
+    fn tool_parts(message: &crate::gateway::protocol::Message) -> (String, usize) {
+        match &message.content[0] {
+            crate::gateway::protocol::ContentPart::ToolResult { output, images, .. } => {
+                (output.clone(), images.len())
+            }
+            other => panic!("not a result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_tool_image_counts_toward_the_request_and_is_withheld_with_upstreams_tool_note() {
+        // `countRequestImages` counts both kinds (`image_data.zig:171-178`);
+        // `withholdRequestToolImages` writes its own note
+        // (`execution_memory.zig:730-766`).
+        use crate::gateway::protocol::Message;
+        let users = Message::user_with_images(
+            "many",
+            (1..=20).map(|id| image_part(id, fixture::SHOT_PNG.to_vec(), None)),
+        );
+        let sent = withhold(vec![
+            users,
+            tool_message(vec![tool_image(png_header(2001, 10))]),
+        ]);
+        assert_eq!(images_on(&sent[0]).len(), 20, "the user images fit 2000");
+        assert_eq!(
+            tool_parts(&sent[1]),
+            (
+                "[Image not sent: image/png is 2001x10 pixels; this request permits at most 2000 \
+                 per side and 5 MiB encoded per image. If this tool result names a local file, \
+                 use an available image tool to save a smaller copy, then read_file the copy. If \
+                 no tool or path is available, ask the user; ask before installing software.]\n\
+                 seen"
+                    .to_string(),
+                0
+            )
+        );
+        // Alone in a request, the same image is within 8000 and goes.
+        let alone = withhold(vec![tool_message(vec![tool_image(png_header(2001, 10))])]);
+        assert_eq!(tool_parts(&alone[0]), ("seen".to_string(), 1));
+    }
+
+    #[test]
+    fn a_model_that_cannot_read_tool_images_gets_upstreams_sentence_in_their_place() {
+        use crate::gateway::protocol::{CompletionRequest, Message, ToolChoice};
+        let request = CompletionRequest {
+            model: "m".to_string(),
+            messages: vec![
+                Message::user("read it"),
+                tool_message(vec![tool_image(fixture::SHOT_PNG.to_vec())]),
+            ],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let stripped = strip_tool_images(&request, TOOL_IMAGES_NOT_NATIVE).expect("stripped");
+        assert_eq!(
+            tool_parts(&stripped.messages[1]),
+            (format!("{TOOL_IMAGES_NOT_NATIVE}seen"), 0)
+        );
+        assert_eq!(
+            tool_parts(&request.messages[1]).1,
+            1,
+            "the history is left alone"
+        );
+        let plain = CompletionRequest {
+            messages: vec![Message::user("hi")],
+            ..request
+        };
+        assert!(strip_tool_images(&plain, TOOL_IMAGES_UNKNOWN).is_none());
     }
 
     #[test]

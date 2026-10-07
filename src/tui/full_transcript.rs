@@ -652,6 +652,10 @@ impl TurnJournal for Teed<'_> {
     fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
         self.journal.attach_images(images)
     }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        self.journal.attach_tool_images(call_id, images);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2537,6 +2541,7 @@ mod tests {
                 tool: "read_file".into(),
                 ok: true,
                 output: "<path>a.txt</path>\n<content>\n1\tsaved line\n</content>".into(),
+                images: Vec::new(),
             },
             TurnStep::ToolFeedback {
                 call_id: "c".into(),

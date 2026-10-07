@@ -854,6 +854,7 @@ impl Report<'_> {
                         tool,
                         ok,
                         output,
+                        ..
                     } => {
                         let _ = writeln!(
                             out,

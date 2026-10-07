@@ -19097,6 +19097,7 @@ mod tests {
                 output:
                     "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
                         .into(),
+                images: Vec::new(),
             },
         ];
         let mut turn = saved(

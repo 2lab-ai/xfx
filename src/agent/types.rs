@@ -80,6 +80,12 @@ pub trait TurnJournal {
     fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
         None
     }
+
+    /// The images the result of `call_id` carried, recorded with it so later
+    /// requests send them again ([`crate::session::SessionRecorder::attach_tool_images`]).
+    /// Called right after that result's [`SessionEvent::ToolResult`], and only
+    /// for a result that carried any.
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
 }
 
 /// A journal that keeps nothing.

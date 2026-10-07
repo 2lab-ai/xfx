@@ -817,6 +817,7 @@ impl SessionDetailSnapshot {
                             tool,
                             ok,
                             output,
+                            ..
                         } => SessionStepRow::Tool {
                             call_id: clip_text(&one_line(call_id)),
                             tool: clip_text(&one_line(tool)),
@@ -1530,6 +1531,7 @@ mod tests {
                 tool: "read_file".to_string(),
                 ok: true,
                 output: long.clone(),
+                images: Vec::new(),
             }],
         )])));
         assert!(snapshot.turns[0].user.ends_with("bytes]"), "the user text");

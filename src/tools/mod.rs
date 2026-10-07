@@ -248,7 +248,9 @@ mod tests {
     #[test]
     fn the_eight_original_schemas_are_byte_identical() {
         // Captured at the tip before the array extension. A byte that moves here is
-        // a change to what every model already sees.
+        // a change to what every model already sees. `read_file`'s moved once,
+        // on purpose: it reads images now, and says so in upstream's words
+        // (`read_file_description`, `builtins/tools.zig:42-43`).
         const PINNED: &[(&str, &str)] = &[
             (
                 "list_files",
@@ -264,7 +266,7 @@ mod tests {
             ),
             (
                 "read_file",
-                r#"{"description":"Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path. When NOT to use: list a directory, search many files, or read binary data.","inputSchema":{"additionalProperties":false,"properties":{"line_count":{"description":"Positive number of lines to return. Defaults to the read cap.","type":"integer"},"path":{"description":"Path relative to the workspace root, or an absolute path inside an authorized root.","type":"string"},"start_line":{"description":"1-based first line to return. Defaults to 1.","type":"integer"}},"required":["path"],"type":"object"},"name":"read_file","type":"function"}"#,
+                r#"{"description":"Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range; image files (PNG, JPEG, GIF, WebP up to 3.9MB) attach to the result so you can see them. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path, or view an image file. When NOT to use: list a directory, search many files, or read non-image binary data.","inputSchema":{"additionalProperties":false,"properties":{"line_count":{"description":"Positive number of lines to return. Defaults to the read cap.","type":"integer"},"path":{"description":"Path relative to the workspace root, or an absolute path inside an authorized root.","type":"string"},"start_line":{"description":"1-based first line to return. Defaults to 1.","type":"integer"}},"required":["path"],"type":"object"},"name":"read_file","type":"function"}"#,
             ),
             (
                 "write_file",

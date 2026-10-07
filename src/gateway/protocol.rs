@@ -75,6 +75,12 @@ pub enum ContentPart {
         /// (`src/gateway/vercel_protocol.zig:742-747`), and Anthropic's
         /// `is_error`.
         error: bool,
+        /// The images the tool returned with its text -- `read_file` of an
+        /// image file (`read_file.zig:228-278`) -- empty for almost every
+        /// result. Each wire carries them its own way: the Gateway in a user
+        /// message after the run of results (`vercel_protocol.zig:679-713`),
+        /// Anthropic inside the `tool_result` block.
+        images: Vec<crate::image::ToolImage>,
     },
     /// The provider's own content blocks, kept exactly as they arrived.
     ///
@@ -232,6 +238,26 @@ impl Message {
                 tool: tool.into(),
                 output: output.into(),
                 error: false,
+                images: Vec::new(),
+            }],
+        }
+    }
+
+    /// A result that came back with images ([`ContentPart::ToolResult::images`]).
+    pub fn tool_result_with_images(
+        call_id: impl Into<String>,
+        tool: impl Into<String>,
+        output: impl Into<String>,
+        images: Vec<crate::image::ToolImage>,
+    ) -> Self {
+        Self {
+            role: Role::Tool,
+            content: vec![ContentPart::ToolResult {
+                call_id: call_id.into(),
+                tool: tool.into(),
+                output: output.into(),
+                error: false,
+                images,
             }],
         }
     }
@@ -250,6 +276,7 @@ impl Message {
                 tool: tool.into(),
                 output: output.into(),
                 error: true,
+                images: Vec::new(),
             }],
         }
     }
@@ -490,11 +517,79 @@ struct WireMessages<'a>(&'a [Message]);
 
 impl Serialize for WireMessages<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for message in self.0 {
+        let mut seq = serializer.serialize_seq(None)?;
+        for (index, message) in self.0.iter().enumerate() {
             seq.serialize_element(&WireMessage(message))?;
+            // **The tool results' images ride in a user message after the run
+            // of results**, upstream's one image position every Gateway route
+            // reads (`write_tool_image_user_message`,
+            // `vercel_protocol.zig:679-713`): its sentence, then a file part
+            // per image in the order the results stand.
+            let run_ends = message.role == Role::Tool
+                && self
+                    .0
+                    .get(index + 1)
+                    .is_none_or(|next| next.role != Role::Tool);
+            if !run_ends {
+                continue;
+            }
+            let start = self.0[..index]
+                .iter()
+                .rposition(|earlier| earlier.role != Role::Tool)
+                .map_or(0, |at| at + 1);
+            let images: Vec<&crate::image::ToolImage> = self.0[start..=index]
+                .iter()
+                .flat_map(|result| result.content.iter())
+                .flat_map(|part| match part {
+                    ContentPart::ToolResult { images, .. } => images.iter(),
+                    _ => [].iter(),
+                })
+                .collect();
+            if !images.is_empty() {
+                seq.serialize_element(&ToolImagesMessage(&images))?;
+            }
         }
         seq.end()
+    }
+}
+
+/// The user message after a run of tool results that returned images.
+struct ToolImagesMessage<'a>(&'a [&'a crate::image::ToolImage]);
+
+impl Serialize for ToolImagesMessage<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        struct Parts<'a>(&'a [&'a crate::image::ToolImage]);
+        impl Serialize for Parts<'_> {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut seq = serializer.serialize_seq(Some(self.0.len() + 1))?;
+                seq.serialize_element(&TextPart {
+                    r#type: "text",
+                    text: crate::image::TOOL_IMAGES_FOLLOWUP,
+                })?;
+                for image in self.0 {
+                    seq.serialize_element(&file_part(image.media_type, &image.data))?;
+                }
+                seq.end()
+            }
+        }
+        let mut map = serializer.serialize_map(Some(2))?;
+        map.serialize_entry("role", Role::User.label())?;
+        map.serialize_entry("content", &Parts(self.0))?;
+        map.end()
+    }
+}
+
+/// The v4 file part (`writeVerifiedImageFilePartJsonWithBudget`,
+/// `image_attachments.zig:1685-1705`): `mediaType`, then the bytes as standard
+/// base64 under `data.data`.
+fn file_part(media_type: crate::image::MediaType, data: &[u8]) -> FilePart {
+    FilePart {
+        r#type: "file",
+        media_type: media_type.label(),
+        data: FileData {
+            r#type: "data",
+            data: crate::image::base64(data),
+        },
     }
 }
 
@@ -569,7 +664,8 @@ impl Serialize for WireParts<'_> {
                     tool,
                     output,
                     error,
-                } => seq.serialize_element(&ToolResultPart {
+                    images,
+                } if images.is_empty() => seq.serialize_element(&ToolResultPart {
                     r#type: "tool-result",
                     tool_call_id: call_id,
                     tool_name: tool,
@@ -578,19 +674,37 @@ impl Serialize for WireParts<'_> {
                         value: output,
                     },
                 })?,
-                // The v4 file part (`writeVerifiedImageFilePartJsonWithBudget`,
-                // `image_attachments.zig:1685-1705`): `mediaType`, then the
-                // bytes as standard base64 under `data.data`.
+                // A result whose images follow in a user message keeps only
+                // its text here, as a `content` output (`write_tool_result_part`,
+                // `vercel_protocol.zig:728-739`).
+                ContentPart::ToolResult {
+                    call_id,
+                    tool,
+                    output,
+                    error,
+                    ..
+                } => {
+                    let text = if *error {
+                        format!("Tool error: {output}")
+                    } else {
+                        output.clone()
+                    };
+                    seq.serialize_element(&ContentResultPart {
+                        r#type: "tool-result",
+                        tool_call_id: call_id,
+                        tool_name: tool,
+                        output: ContentOutput {
+                            r#type: "content",
+                            value: [TextPart {
+                                r#type: "text",
+                                text: &text,
+                            }],
+                        },
+                    })?;
+                }
                 ContentPart::Image {
                     media_type, data, ..
-                } => seq.serialize_element(&FilePart {
-                    r#type: "file",
-                    media_type: media_type.label(),
-                    data: FileData {
-                        r#type: "data",
-                        data: crate::image::base64(data),
-                    },
-                })?,
+                } => seq.serialize_element(&file_part(*media_type, data))?,
             }
         }
         seq.end()
@@ -624,6 +738,21 @@ struct ToolCallPart<'a> {
     tool_call_id: &'a str,
     tool_name: &'a str,
     input: &'a Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentResultPart<'a> {
+    r#type: &'static str,
+    tool_call_id: &'a str,
+    tool_name: &'a str,
+    output: ContentOutput<'a>,
+}
+
+#[derive(Serialize)]
+struct ContentOutput<'a> {
+    r#type: &'static str,
+    value: [TextPart<'a>; 1],
 }
 
 #[derive(Serialize)]
@@ -925,6 +1054,67 @@ mod tests {
         );
     }
 
+    /// A `read_file` call and its result carrying `shot.png`, then a second
+    /// call whose result carries nothing.
+    fn read_an_image() -> Vec<Message> {
+        let call = |id: &str| ToolCall {
+            id: id.to_string(),
+            name: "read_file".to_string(),
+            input: json!({"path": "shot.png"}),
+        };
+        vec![
+            Message::user("look"),
+            Message::assistant(None, vec![call("c1"), call("c2")]),
+            Message::tool_result_with_images(
+                "c1",
+                "read_file",
+                "<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>",
+                vec![crate::image::ToolImage {
+                    media_type: crate::image::MediaType::Png,
+                    data: std::sync::Arc::from(crate::image::fixture::SHOT_PNG),
+                    path: "shot.png".to_string(),
+                }],
+            ),
+            Message::tool_result("c2", "read_file", "labels"),
+        ]
+    }
+
+    #[test]
+    fn a_tool_results_images_follow_the_run_of_results_in_a_user_message() {
+        // `write_tool_result_part` and `write_tool_image_user_message`
+        // (`vercel_protocol.zig:679-739`), and their case
+        // `grouped tool results retain images and individual error status`
+        // (`:1915-1965`): the result keeps its text as a `content` output, a
+        // result without images is the `text` it always was, and one user
+        // message after the run carries upstream's sentence and the file.
+        let request = CompletionRequest {
+            model: "m".to_string(),
+            messages: read_an_image(),
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let parsed: Value = serde_json::from_str(&request.body().expect("valid")).expect("json");
+        let prompt = parsed["prompt"].as_array().expect("a prompt");
+        assert_eq!(prompt.len(), 5, "{parsed}");
+        assert_eq!(
+            prompt[2]["content"][0]["output"],
+            json!({"type": "content", "value": [{"type": "text",
+                "text": "<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"}]})
+        );
+        assert_eq!(
+            prompt[3]["content"][0]["output"],
+            json!({"type": "text", "value": "labels"})
+        );
+        assert_eq!(
+            prompt[4],
+            json!({"role": "user", "content": [
+                {"type": "text", "text": "Attached image(s) from the tool result."},
+                {"type": "file", "mediaType": "image/png",
+                 "data": {"type": "data", "data": crate::image::fixture::SHOT_PNG_BASE64}},
+            ]})
+        );
+    }
+
     #[test]
     fn every_earlier_image_is_sent_again_with_the_history_that_holds_it() {
         // `002-completion.json`: the second request carries the first turn's
@@ -1009,6 +1199,7 @@ mod tests {
             tool: "t".to_string(),
             output: "o".to_string(),
             error: false,
+            images: Vec::new(),
         };
         assert!(text.allowed_on(Role::System) && text.allowed_on(Role::User));
         assert!(!text.allowed_on(Role::Tool));
