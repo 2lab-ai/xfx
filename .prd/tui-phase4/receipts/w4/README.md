@@ -37,7 +37,10 @@ W8's rules merged in) and not committed: every request body is the same JSON as 
 take's, and the screens differ only in a marker's blink phase and a turn summary's second. They were
 taken a third time after the follow-ups (`66eb7f2`: the meter, `/usage`, `/trace`, the per-step and
 refusal compaction points) with the same result -- every body the same JSON, one blink phase apart.
-The follow-ups change no screen of these four; where each is proven is at the end.
+The follow-ups change no screen of these four; where each is proven is at the end. The xfx files of
+these four and of `compact-overflow` are now the take at `e2fcdf0` (`e17dd02` merged in): every
+request body the same JSON as before, and the first turn's summary now `↓80`, as fx's, since T6
+counts every request of a turn (below).
 
 ## What every snap shares
 
@@ -50,10 +53,9 @@ The follow-ups change no screen of these four; where each is proven is at the en
   `activity_status.zig:147-155`; `activity.rs` `spoken`), and the two processes start their clocks a
   few milliseconds apart.
 - The marker cell blinks on both (`•` lit, blank dark); which phase a snap catches is timing.
-- **Not this work's, and not closed by it:** the first turn's summary reads `(↑4 ↓80)` on fx and
-  `(↑4 ↓40)` on xfx. That turn made two requests (the read, then the answer) at 40 output tokens
-  each; fx's summary adds them and xfx's shows one. D4d's receipt has the same pair
-  (`receipts/d4d/*-settings-collapse-40x120-cmd-ask.txt`, `↓80` vs `↓40`), so it predates `/compact`.
+- The first turn's summary reads `(↑4 ↓80)` on both: that turn made two requests (the read, then the
+  answer) at 40 output tokens each, and since T6 xfx's summary adds them as fx's does. (The takes
+  before `e17dd02` showed `↓40` on xfx; D4d's receipt has the same pair, so it was not this work's.)
 
 ## `compact`
 

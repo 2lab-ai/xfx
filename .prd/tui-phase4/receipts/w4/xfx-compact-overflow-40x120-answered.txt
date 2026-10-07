@@ -1,10 +1,10 @@
-x𝒇x v0.1.0-eb49413 [debug] · Run /help for commands
+x𝒇x v0.1.0-7093f67 [debug] · Run /help for commands
 
 ┃ first question
 
   ANSWER-ONE: plain text.
 
-  1s (↑4 ↓40)
+  0s (↑4 ↓40)
 
 ┃ second question
 
