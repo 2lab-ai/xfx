@@ -2092,6 +2092,8 @@ mod tests {
                     unaccounted: false,
                     lines_added: 0,
                     lines_removed: 0,
+                    settled: Vec::new(),
+                    rejected: Vec::new(),
                 },
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {

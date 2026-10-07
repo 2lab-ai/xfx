@@ -744,6 +744,31 @@ pub struct Billing {
     pub reasoning_tokens: Option<u64>,
 }
 
+/// What is known of a response's bill.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Bill {
+    /// The stream said all of it ([`Billing`]).
+    Exact(Billing),
+    /// The stream named its generation and said nothing of what it cost:
+    /// upstream's `.deferred` usage (`gatewayUsageOutcome`,
+    /// `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:650-660`), whose bill
+    /// the Gateway is asked for later, by that id ([`crate::gateway::generation`]).
+    Deferred(Deferred),
+}
+
+/// A generation whose bill is still to be asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deferred {
+    /// The Gateway's id for it (`gen_…`).
+    pub generation_id: String,
+    /// Where it was made, and so where to ask -- the scheme and authority of
+    /// the endpoint the request went to, as upstream records the `scope` of a
+    /// deferred reference at request time (`gatewayUsageReference`,
+    /// `gateway.zig:668-686`). Empty when the decoder was not told, which is
+    /// no origin a lookup trusts ([`crate::gateway::is_trusted_generation_origin`]).
+    pub origin: String,
+}
+
 /// One completed model response.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Completion {
@@ -771,9 +796,10 @@ pub struct Completion {
     /// provider it *asked*, the decoder knows which wire actually answered, and
     /// the second is the one a replay contract is written against.
     pub wire: Wire,
-    /// What the response cost, when the provider accounted for it
-    /// ([`Billing`]). `None` is "unknown", never "free".
-    pub billing: Option<Billing>,
+    /// What the response cost, when the provider accounted for it, or the
+    /// generation to ask about it ([`Bill`]). `None` is "unknown", never
+    /// "free".
+    pub billing: Option<Bill>,
 }
 
 #[cfg(test)]

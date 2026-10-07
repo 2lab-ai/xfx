@@ -1,0 +1,11 @@
+[fakegw] listening 53548
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] title /v4/ai/language-model
+[fakegw] completion /v4/ai/language-model -> text, bill deferred
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> not yet
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> not yet
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> not yet
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> not yet
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> not yet
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> not yet
+[fakegw] GET /v1/generation?id=gen_01JABCDEFGHJKMNPQRSTVWXYZ2 bearer=yes -> record
