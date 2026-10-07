@@ -233,7 +233,7 @@ terminal's own parser resynchronized on the fragment it was left holding.
 | The same update, inside the band after its rows | The rows are kept; the band is recovered as its own frame is | The rows reached the terminal whole, and what tore is the band's frame, whose whole content is in hand. |
 | A reset's scrollback handoff (`/clear`, `/new`, `/reset`) | Contained; the session ends | It scrolls, and a row already carried into native scrollback cannot be taken back. |
 | The theme query | Contained; the session ends | Not a repaint: a prefix of it never completed the query and it moves no cell, so there is nothing to rebuild -- only a second asking, which would be a replay. |
-| The recolour of the visible document rows | Contained; the session ends | The recoloured cells are in hand, but the rows they sit on can hold what the terminal had before xfx ran, which the band's own record of the screen does not, so an erase-and-rebuild would erase the user's document; offscreen native scrollback is never recoloured at all. |
+| The recolour of the visible document rows, torn inside the update that carries it | Closed by the same cleanup; the session ends | The recoloured cells are in hand, but the rows they sit on can hold what the terminal had before xfx ran, which the band's own record of the screen does not, so an erase-and-rebuild would erase the user's document; offscreen native scrollback is never recoloured at all. |
 
 ## Embedding surfaces
 
