@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn a_providers_error_text_is_masked_flattened_and_cut() {
-        let detail = provider_detail("bad key sk-abcdef0123456789abcdef0123456789xyz\nsecond line");
+        let detail = provider_detail("bad key sk-abcdef0123456789\nsecond line");
         assert!(!detail.contains("abcdef0123456789"), "{detail}");
         assert!(detail.contains("[redacted]"), "{detail}");
         assert!(!detail.contains('\n'));
