@@ -29,7 +29,8 @@
 //!   half-taken: a [`Pasted::Refused`] puts nothing in the composer, so there
 //!   is no summary standing for a truncated half of what the user pasted.
 //! * **A collapse.** More than [`COLLAPSE_ABOVE`] codepoints becomes
-//!   `[Pasted text #N, M lines]` in the composer (`pasted_blocks.zig:7`) and
+//!   `[Pasted text #N, M lines]` (`1 line` for one) in the composer
+//!   (`pasted_blocks.zig:7`, `:59-62`) and
 //!   the text travels with it as an entity. Two reasons, and the second is the
 //!   load-bearing one: 1800 codepoints painted into a band is a band that has
 //!   eaten the screen, and every later keystroke re-wraps whatever the composer
@@ -322,9 +323,11 @@ pub(crate) fn accepted(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7e | 0x80..=0xff)
 }
 
-/// What the composer shows in place of a collapsed block.
+/// What the composer shows in place of a collapsed block: `line` for one,
+/// `lines` for any other count (`formatPlaceholder`, `pasted_blocks.zig:59-62`).
 pub(crate) fn summary(id: u32, lines: usize) -> String {
-    format!("[Pasted text #{id}, {lines} lines]")
+    let noun = if lines == 1 { "line" } else { "lines" };
+    format!("[Pasted text #{id}, {lines} {noun}]")
 }
 
 #[cfg(test)]
@@ -405,6 +408,9 @@ mod tests {
         assert_eq!(summary, "[Pasted text #1, 2 lines]");
         assert_eq!(id, 1);
         assert_eq!(lines, 2);
+        // One line is `line`, as upstream's noun is (`formatPlaceholder`,
+        // `pasted_blocks.zig:59-62`).
+        assert_eq!(super::summary(3, 1), "[Pasted text #3, 1 line]");
         // pasted_blocks.zig:53-63 -- what is submitted is what was pasted, and
         // the text travels with the block rather than being kept here to be
         // found again by name.

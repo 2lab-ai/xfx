@@ -239,15 +239,15 @@ mod tests {
             |text: &str, at: usize| EntitySnapshot::new(at, at + 25, std::sync::Arc::from(text), 1);
         let mut history = History::new();
         history.record(HistoryEntry::new(
-            "older [Pasted text #1, 1 lines]".to_string(),
+            "older [Pasted text #1, 1 line]".to_string(),
             vec![block("older block", 6)],
         ));
         history.record(HistoryEntry::new(
-            "newer [Pasted text #2, 1 lines]".to_string(),
+            "newer [Pasted text #2, 1 line]".to_string(),
             vec![block("newer block", 6)],
         ));
         let draft = HistoryEntry::new(
-            "[Pasted text #3, 1 lines] half typed".to_string(),
+            "[Pasted text #3, 1 line] half typed".to_string(),
             vec![block("draft block", 0)],
         );
 
@@ -427,13 +427,13 @@ mod tests {
     fn a_repeat_that_stands_on_a_different_block_is_a_line_of_its_own() {
         // **Adjacent repeats are folded by what a line *is*, not by how it
         // reads.** A summary is ordinary text, so a user can type
-        // `[Pasted text #1, 1 lines]` by hand and then paste a block that the
+        // `[Pasted text #1, 1 line]` by hand and then paste a block that the
         // session numbers `#1` -- two lines that look identical, one of which
         // stands on eight megabytes. Folding them by text alone throws the
         // block away and hands the words back in its place, which is the one
         // thing a recall must never do.
         let block = EntitySnapshot::new(0, 25, std::sync::Arc::from("the block"), 1);
-        let words = "[Pasted text #1, 1 lines]";
+        let words = "[Pasted text #1, 1 line]";
         let mut history = History::new();
         history.record(HistoryEntry::new(words.to_string(), Vec::new()));
         history.record(HistoryEntry::new(words.to_string(), vec![block]));
@@ -462,7 +462,7 @@ mod tests {
         // blocks are one line to walk back through, exactly as two `/help`s
         // are. What is folded is what a recall could not tell apart.
         let block = || EntitySnapshot::new(0, 25, std::sync::Arc::from("the block"), 1);
-        let words = "[Pasted text #1, 1 lines]";
+        let words = "[Pasted text #1, 1 line]";
         let mut history = History::new();
         history.record(HistoryEntry::new(words.to_string(), vec![block()]));
         history.record(HistoryEntry::new(words.to_string(), vec![block()]));
