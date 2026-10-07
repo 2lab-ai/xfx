@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-7093f67 [debug] · Run /help for commands
+
+┃ hello
+
+  ANSWER-HELLO.
+
+  0s (↑2 ↓40)
+
+┃ read the logs
+
+● 3 tool calls · 3 read
+├ Read a.txt
+├ Read b.txt
+└ Read c.txt
+
+• Compacting (1s)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

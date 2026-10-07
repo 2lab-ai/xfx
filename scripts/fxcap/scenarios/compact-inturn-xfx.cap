@@ -1,0 +1,20 @@
+# W4 round 3: the cut inside a running turn, on xfx (`compact-inturn-fx.cap` and
+# `compact-inturn-xfx.cap` differ only in their workspace: three logs of 65 lines,
+# sized so the turn's request crosses the compaction point after its third read
+# on this product -- fx previews a long read, xfx sends it whole). A 16 250-token
+# window keeping 2 000 for output: 14 250 usable, compacting at 11 400. The short
+# first turn is what reads xfx's catalog before the long one.
+gateway compact-inturn-turns.json
+models compact-inturn-models.json
+work compact-inturn-xfx-ws
+wait 3
+type hello
+key Enter
+wait 3
+type read the logs
+key Enter
+wait 1.2
+snap compacting
+wait 4
+snap answered
+gwlog

@@ -1,6 +1,6 @@
 # W4 `/compact` — fx `c1db919` vs xfx, 40x120
 
-Five scenarios, driven identically on both binaries by `scripts/fxcap/capture.sh` (isolated tmux
+Six scenarios, driven identically on both binaries by `scripts/fxcap/capture.sh` (isolated tmux
 socket, empty `HOME`, fake key, loopback fake gateway, the desktop shims and fx's sound guard kept),
 with one turns file each that both products read (`read_file` takes `{"path"}` on both):
 
@@ -16,6 +16,8 @@ FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-text   40x120 <ou
 scripts/fxcap/capture.sh                            xfx compact-text   40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-overflow 40x120 <out>
 scripts/fxcap/capture.sh                            xfx compact-overflow 40x120 <out>
+FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-inturn-fx  40x120 <out>
+scripts/fxcap/capture.sh                            xfx compact-inturn-xfx 40x120 <out>
 ```
 
 The first three scenarios seed the same two turns on the `compact-ws` workspace: `first question` → a
@@ -184,6 +186,60 @@ carries `<compacted_conversation>` holding turn 1's exact texts, then `second qu
 M1. …` line, as in `compact-text`. fx reads the catalog at launch and xfx before its second turn, as
 in `compact`.
 
+## `compact-inturn-fx` / `compact-inturn-xfx`: the cut inside a running turn
+
+`hello`, then `read the logs`: three reads, each answered at once, then the notes reply held 2.5 s,
+then the answer (`compact-inturn-turns.json`). The catalog gives `fake/model-a` a 16 250-token
+window keeping 2 000 for output: 14 250 usable, compacting at 11 400 (`compact-inturn-models.json`).
+The two scenarios differ only in their workspace, **sized for each product** so both cross the point
+after the third read: fx previews a long read (`<tool_result_preview …>`, about 1 090 tokens a read
+whatever the file) and xfx sends it whole, so fx reads 160-line logs and xfx 65-line ones. Each read's
+step reports, as its billed input, the size fx estimated for its request: fx scales its estimate by
+the provider's last count (`calibrateProviderRequest`, `prompt_context.zig:153-171`), and the fake's
+default count would hold it far below the point; xfx does not calibrate (its `/compact` row). Taken at
+`7093f67` (`e17dd02` merged in).
+
+| snap | fx | xfx | result |
+|---|---|---|---|
+| `compacting` | the turn's tool group (`3 tool calls · 3 read`, `Read a.txt` … `Read c.txt`), then `ESC[38;5;252m• Compacting (1s)ESC[39m` on the turn's clock | same bytes | **match**: the row the turn's own takes while it compacts (`compactionClock`, `activity_status.zig:9-14`). |
+| `answered` | `ANSWER-READ: three logs of evidence.`, the summary `(↑3 ↓160)` | same, one second apart | **match**: the turn goes on after the compaction and answers. `↓160` is the four agent requests' 40 each on both -- the notes request is not counted in the turn's out (upstream feeds the summary only from the agent's own requests, `orchestrator.zig:7493`, `:8176`). |
+
+The requests (`*-gateway.log`; bodies not committed): both send three reads, then the notes request,
+then the step after the third read, then nothing more. The step after carries, on both, the
+compacted form and `read the logs`, and no tool result:
+
+```
+Turn 1
+User 1:
+hello
+
+Assistant 1, final reply:
+ANSWER-HELLO.
+
+Turn in progress, whose first user message follows this:
+Assistant, in between so far:
+Read the three logs.
+
+Its tools so far:
+  T1 read_file a.txt (N lines): the first log
+  T2 read_file b.txt (N lines): the second log
+  T3 read_file c.txt (N lines): the third log
+
+Facts of the session:
+F1 (T3): the logs hold only evidence lines
+```
+
+-- `N` is 24 on fx and 68 on xfx: each counts the lines of the result it kept, and fx kept a
+preview of a longer file; and fx's ends with its `Saved word for word: turn M1 and tool calls T1–T3. …` line, as in every
+pair here. **The notes requests differ by construction**: fx sends its notes request after the
+conversation (`006`: the agent's own request with its 17 tools and `toolChoice: auto`, then one user
+message, "Write the compaction notes for the turns of the conversation above that are listed below
+…", `text_completion.zig:68-80`, `summarize.zig:572-595`), because the room after the conversation
+fits it; xfx always writes the turns out (`005`: no tools, `toolChoice: none`, `[Turn 1]` …
+`[Turn in progress]\n[User, this message stays in the conversation after the summary]\nread the
+logs`, then `Turn 1 (no tool calls)\nTurn in progress (T1–T3)\n` and `For the turn in progress,
+give its notes so far.`) -- the cache path is its `/compact` row's "Not ported".
+
 ## Not captured here, and where it is proven instead
 
 - **The automatic trigger.** The fake gateway's catalog publishes no window, and with no window neither
@@ -193,16 +249,11 @@ in `compact`.
 - **No credential.** `tests/tui.rs` `compact_with_no_credential_is_not_started_and_asks_nobody`
   (`Compaction was not started. Try /compact again.`, no request), as fx's e2e
   (`tui-compaction-activity.test.ts:551-584`).
-- **A compaction between a turn's steps** (`orchestrator.zig:7286-7322`). Not captured as a pair: by
-  the same estimate fx's opening request is about 8,700 tokens and xfx's about 3,000 (the `compact`
-  scenario's first completion bodies, which are not committed), so one catalog window puts the two
-  products' compaction points at different steps; and fx's window can take the steps of the turn in
-  progress into the compaction as well (`split`, `window.zig:271-295`), which xfx's never does (its
-  `/compact` row's "Not ported"), so the notes requests and the requests after them would differ by
-  construction. `tests/tui.rs`
-  `a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step` shows the
-  second turn's first request sent as it was, the notes request after its read, the next step
-  carrying the compacted form, the checkpoint inside the turn, and a resume continuing from it.
+- **A compaction that fails between steps** keeps the turn's steps with no error text, live and on a
+  resume (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:213-246`): `tests/tui.rs`
+  `a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own`. A session's
+  first turn, before any catalog read, compacts its own reads when the provider refuses it:
+  `a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused`.
 - **A request refused as too large** is the `compact-overflow` pair above; `tests/tui.rs`
   `a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again` asserts the same, and
   `agent::machine` tests hold the once-per-turn rule and the eight phrasings.
