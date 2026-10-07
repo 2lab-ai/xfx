@@ -1,0 +1,33 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ first question alpha
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑6 ↓40)
+x𝒇x v0.1.0 · Run /help for commands
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

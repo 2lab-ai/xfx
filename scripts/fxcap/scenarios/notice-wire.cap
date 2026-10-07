@@ -1,0 +1,17 @@
+# The bytes of a notice written while an answer streams (T8): `/version`
+# typed mid-stream, then the wire -- whether the notice's rows and the
+# answer's are each inside the update that paints the band under them.
+gateway notice-midstream-turn.json
+wait 2
+type stream a long answer please
+key Enter
+wait 2
+type /version
+wait 0.3
+key Enter
+wait 0.7
+snap version
+wait 5
+snap end
+snapfull end
+wire end
