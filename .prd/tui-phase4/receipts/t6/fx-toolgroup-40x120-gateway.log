@@ -1,0 +1,13 @@
+[fakegw] listening 60038
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] title /v4/ai/language-model
+[fakegw] completion /v4/ai/language-model -> tool read_file,read_file
+[fakegw] completion /v4/ai/language-model -> tool glob_files,grep_files
+[fakegw] completion /v4/ai/language-model -> tool shell
+[fakegw] completion /v4/ai/language-model -> tool edit_file
+[fakegw] completion /v4/ai/language-model -> tool write_file
+[fakegw] completion /v4/ai/language-model -> tool read_file
+[fakegw] completion /v4/ai/language-model -> tool shell
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] completion /v4/ai/language-model -> tool write_file
+[fakegw] completion /v4/ai/language-model -> tool shell
