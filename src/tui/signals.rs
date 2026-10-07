@@ -494,13 +494,12 @@ pub(crate) fn release() {
 /// finish on its own** rather than waited for before [`release`]: a socket a
 /// user stopped caring about is not a reason to hold the terminal.
 ///
-/// **A child process such a thread starts inherits the mask too**: the
-/// standard library's `Command` does not reset it (measured, and pinned by
-/// `a_child_process_inherits_the_mask_its_thread_was_started_with`). So a
-/// command run from one of these threads starts with `SIGINT`, `SIGTERM`,
-/// `SIGHUP`, `SIGTSTP`, `SIGCONT` and `SIGWINCH` blocked -- a `kill -TERM` or a
-/// `timeout` inside it does nothing until the command unblocks them itself,
-/// while the `SIGKILL` every caller here gives up a child with still lands.
+/// **A child process such a thread starts would inherit the mask too**: the
+/// standard library's `Command` does not reset it (pinned by
+/// `a_child_process_inherits_the_mask_its_thread_was_started_with`), and a
+/// command born with `SIGTERM` blocked ignores a `timeout`. So every child xfx
+/// starts is made by [`crate::process::command`], which empties the mask
+/// between `fork` and `exec`.
 ///
 /// A signal that arrives during the spawn stays pending on this thread and is
 /// delivered into its handler the moment the mask is put back.
@@ -743,11 +742,10 @@ mod tests {
         assert_eq!(after, before);
     }
 
-    /// What `spawn_unsignalled` says of a child process: it is born with its
-    /// thread's mask, because `Command` does not reset it -- so a `SIGTERM`
-    /// stays pending and the child keeps running. Pinned, so a standard
-    /// library that starts resetting the mask fails here and the comment is
-    /// read again.
+    /// Why [`crate::process::command`] exists: a child made by a bare
+    /// `Command` is born with its thread's mask -- so a `SIGTERM` stays
+    /// pending and the child keeps running. Pinned, so a standard library that
+    /// starts resetting the mask fails here and that module is read again.
     #[test]
     fn a_child_process_inherits_the_mask_its_thread_was_started_with() {
         let mut child = spawn_unsignalled("xfx-test", || {

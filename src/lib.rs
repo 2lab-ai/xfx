@@ -39,6 +39,7 @@ pub mod llmux;
 pub mod markdown;
 pub mod output;
 pub mod permission;
+pub mod process;
 pub mod provider;
 pub mod session;
 pub mod sound;
