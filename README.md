@@ -96,8 +96,11 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 - **`auto` (the default)** runs reads directly, runs bounded reversible
   workspace writes after structural validation, and admits only a narrow
   reporting command grammar: no `&&`, no shell, no package-manager build or test
-  families, nothing that compiles or runs your project's code. It will not write
-  into a directory added with `--add-dir`.
+  families, nothing that compiles or runs your project's code. A directory added
+  with `--add-dir` or `/workspace add` is a root like the workspace, and `auto`
+  writes there as it does in the workspace -- except the files that decide what
+  runs later (`.zshrc` and the other shell startup files, `.ssh/authorized_keys`,
+  launch agents, `.git/hooks`, `.git/config`), which it leaves to `ask`.
 - **`yolo` runs no permission check at all.** It prints a warning to stderr
   every time. Use it in a container you are willing to lose.
 - **Approvals are scoped.** Answering "always" grants exactly one tool and one

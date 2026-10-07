@@ -276,6 +276,42 @@ fn set_preferences(document: &mut Map<String, Value>, preferences: &[(&[&str], V
     }
 }
 
+/// One read, change and rename of the settings document, under the same two
+/// locks [`write_preferences`] takes, for a change that is not "set these
+/// keys".
+///
+/// `/workspace` is the one that needs it: it **removes** keys as well as
+/// setting them, and an entry it empties has to leave the file rather than
+/// stay behind as `{}` (`removeWorkspaceIfEmpty`, `vercel-labs/fx@c1db9191
+/// src/core/config/settings_store.zig:1498-1505`). A second writer beside this
+/// one would be a second place a concurrent key could be lost.
+///
+/// `edit` says whether it changed the document, and **nothing is written when
+/// it did not**: the file stays byte-identical, which is what lets a caller
+/// report `saved_changed=false` and mean it. An `Err` from `edit` is returned
+/// as it is, with nothing written.
+///
+/// The document keeps its key order (`serde_json`'s `preserve_order`), so an
+/// `edit` that removes a key removes it with `shift_remove`: `remove` would
+/// move the last key into the hole.
+pub fn edit_document<E: From<io::Error>>(
+    path: &Path,
+    edit: impl FnOnce(&mut Map<String, Value>) -> Result<bool, E>,
+) -> Result<bool, E> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    let mut document = read_existing(path)?;
+    if !edit(&mut document)? {
+        return Ok(false);
+    }
+    write_settings(path, document)?;
+    Ok(true)
+}
+
 /// One read-modify-write of the whole settings file, under the same two locks
 /// as [`write_preferences`]: the file as it stands **now** is read and handed
 /// to `decide`, and the bytes `decide` answers are what is written.

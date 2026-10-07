@@ -814,6 +814,11 @@ pub struct RuntimeConfig {
     pub fast_mode_model_bound: bool,
     /// Ultra mode as the profile left it ([`ULTRAFAST_MODE_KEY`]).
     pub ultrafast_mode: bool,
+    /// The directories `/workspace` saved for this workspace, as the profile
+    /// spells them: `workspaces["<workspace>"].additional_directories`
+    /// (`crate::workspace::access`). Profile-only, because `workspaces` is: a
+    /// repository cannot add a directory to its cloner's session.
+    pub additional_directories: Vec<String>,
     /// The configured permission tables ([`PERMISSION_KEY`]), user and this
     /// workspace's, and which one is in force.
     pub permission: PermissionTables,
@@ -867,6 +872,7 @@ impl RuntimeConfig {
         };
         let user_settings_present = user.present;
         let user_settings_loaded = user.object.is_some();
+        let mut additional_directories = Vec::new();
         let mut permission = PermissionTables::default();
         if let Some(object) = &user.object {
             let layer = parse_layer(
@@ -888,6 +894,16 @@ impl RuntimeConfig {
                     &mut diagnostics,
                 );
                 settings.merge(layer, SettingSource::UserWorkspace, &mut sources);
+                // Only in the workspace's own entry: a directory saved for one
+                // workspace is not one every workspace may use.
+                match crate::workspace::access::saved_from_entry(entry) {
+                    Ok(saved) => additional_directories = saved,
+                    Err(_) => diagnostics.push(Diagnostic::with_key(
+                        ConfigLayer::User,
+                        DiagnosticCause::InvalidValue,
+                        crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
+                    )),
+                }
                 if let Some(table) = permission_table(entry, &mut diagnostics) {
                     permission.local = table;
                     permission.user_shadowed_by_local = true;
@@ -1149,6 +1165,7 @@ impl RuntimeConfig {
                 && sources.model == sources.fast_mode
                 && sources.fast_mode == sources.fast_mode_model_bound,
             ultrafast_mode: settings.ultrafast_mode.unwrap_or(false),
+            additional_directories,
             permission,
             sources,
             diagnostics,
@@ -2719,6 +2736,84 @@ mod tests {
                 "statusLine"
             )]
         );
+    }
+
+    /// The configuration for a workspace beside `home`, with `profile` as its
+    /// settings and `project` as its `.xfx.json` when there is one.
+    fn loaded_in(
+        root: &Path,
+        profile: impl Fn(&str) -> Value,
+        project: Option<Value>,
+    ) -> RuntimeConfig {
+        let home = root.join("home");
+        let workspace = root.join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile(&canonical.to_string_lossy()).to_string(),
+        )
+        .expect("a profile");
+        if let Some(project) = project {
+            fs::write(workspace.join(PROJECT_SETTINGS_FILE), project.to_string())
+                .expect("a project file");
+        }
+        RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+            .expect("load")
+    }
+
+    #[test]
+    fn the_saved_directories_are_this_workspaces_entry_and_nobody_elses() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = loaded_in(
+            root.path(),
+            |key| {
+                serde_json::json!({
+                    "additional_directories": ["/global"],
+                    "workspaces": {
+                        key: {"additional_directories": ["/one", "/two"]},
+                        "/some/other/workspace": {"additional_directories": ["/three"]}
+                    }
+                })
+            },
+            None,
+        );
+        assert_eq!(config.additional_directories, ["/one", "/two"]);
+        assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+    }
+
+    #[test]
+    fn a_saved_directory_list_out_of_upstreams_shape_is_reported_and_unused() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = loaded_in(
+            root.path(),
+            |key| serde_json::json!({"workspaces": {key: {"additional_directories": ["relative"]}}}),
+            None,
+        );
+        assert!(config.additional_directories.is_empty());
+        assert!(config.diagnostics.iter().any(|diagnostic| {
+            diagnostic.cause == DiagnosticCause::InvalidValue
+                && diagnostic.setting_key.as_deref() == Some("additional_directories")
+        }));
+    }
+
+    #[test]
+    fn a_project_file_cannot_add_a_directory_to_its_cloners_session() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = loaded_in(
+            root.path(),
+            |_| serde_json::json!({}),
+            Some(serde_json::json!({
+                "workspaces": {"/anything": {"additional_directories": ["/etc"]}},
+                "additional_directories": ["/etc"]
+            })),
+        );
+        assert!(config.additional_directories.is_empty());
+        assert!(config
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.ignored_setting_key() == Some("workspaces")));
     }
 
     #[test]

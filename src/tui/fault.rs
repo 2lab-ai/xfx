@@ -98,6 +98,11 @@ pub(crate) enum Fault {
     /// back, and therefore no second painter that has to keep working in the
     /// field.
     FullPaintReference,
+    /// A `/trace` report whose bytes are written and synced and not yet
+    /// published under its name: the report's thread waits there a minute, so
+    /// a test can kill the process at exactly that moment and find no report
+    /// (`crate::trace::write_report`).
+    TraceBeforePublish,
 }
 
 /// The variable a run is asked to fail through.
@@ -120,6 +125,7 @@ impl Fault {
             Self::PartialAlternateOnce => "partial-alternate-once",
             Self::RefusesFrames => "frame-refusal",
             Self::FullPaintReference => "full-paint-reference",
+            Self::TraceBeforePublish => "trace-before-publish",
         }
     }
 }
@@ -282,15 +288,19 @@ pub(crate) fn frame_refusal_answer(bytes: &[u8]) -> Option<std::io::Error> {
 /// stays single-threaded.
 ///
 /// Two properties keep it from disturbing the contract it is measuring. The
-/// thread is created after [`super::signals::block_owned`], so it inherits a
-/// mask with the owned signals blocked and can never take one from the UI
-/// thread -- the standing single-threaded-startup constraint is about a thread
-/// that *waits*, and this one only dies. And it is joined before the caller
+/// thread is started the way every other thread of a session is
+/// ([`super::signals::spawn_unsignalled`]), with the owned signals blocked, so
+/// it can never take one from the UI thread -- the standing
+/// single-threaded-startup constraint is about a thread that *waits*, and this
+/// one only dies. And it is joined before the caller
 /// continues, so the session that follows is not racing the panic it asked for:
 /// what the terminal looks like afterwards is a settled fact rather than a
 /// timing question.
 pub(crate) fn panic_off_the_ui_thread() {
-    let worker = std::thread::spawn(|| panic!("a turn came apart off the ui thread"));
+    let worker = super::signals::spawn_unsignalled("xfx-fault", || -> () {
+        panic!("a turn came apart off the ui thread")
+    })
+    .expect("a thread for the injected panic");
     // `Err` is the whole point of this call, so the payload is dropped rather
     // than resumed: resuming it here would move the panic back onto the UI
     // thread and measure the opposite of what is being asked.

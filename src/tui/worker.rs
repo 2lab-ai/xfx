@@ -21,12 +21,13 @@
 //! hook that restored for any thread would cook the terminal while the thread
 //! actually holding it still believed it was raw.
 //!
-//! **The runtime thread takes no signal from the UI thread.** It is spawned
-//! while [`super::signals::block_owned`]'s mask is still whole -- before
-//! `install` lifts the death signals -- so it inherits a mask with `SIGINT`,
-//! `SIGTERM`, `SIGHUP` and `SIGTSTP` blocked and can never be the thread the
-//! kernel picks to deliver one to. That was Task 3's standing constraint on
-//! whichever task added the process's second thread, and this is the task.
+//! **The runtime thread takes no signal from the UI thread.** It is started
+//! with every owned signal blocked ([`super::signals::spawn_unsignalled`]) --
+//! `SIGINT`, `SIGTERM`, `SIGHUP` and `SIGTSTP`, and the flag-setting
+//! `SIGCONT` and `SIGWINCH` with them -- so it, and every thread it starts,
+//! can never be the thread the kernel picks to deliver one to. That was Task
+//! 3's standing constraint on whichever task added the process's second
+//! thread, and `signals::release`'s safety argument rests on it.
 //!
 //! **Exactly one terminal event per turn.** `agent::machine` emits its
 //! conclusion *and* returns it (`machine.rs:334-345`); the sink drops the
@@ -82,6 +83,7 @@ use super::bridge::{
     UiEvent, UiEventSink,
 };
 use super::compaction::{Feedback, Update};
+use super::notice::Notice;
 use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
@@ -91,7 +93,8 @@ use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{
-    bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
+    bind_conversation, conversation_scope, open_conversation, rename_conversation, status_snapshot,
+    Conversation,
 };
 use crate::output::StatusSnapshot;
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
@@ -101,6 +104,7 @@ use crate::provider::model::{
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// How long the UI keeps painting what the worker has already produced before
@@ -900,11 +904,23 @@ impl Drop for Finished {
     }
 }
 
+/// One runtime thread, and its owned signals with whether each was blocked.
+#[cfg(test)]
+type ThreadMask = (std::thread::ThreadId, Vec<(libc::c_int, bool)>);
+
+/// Each runtime thread's owned-signal mask as the thread itself read it, the
+/// first thing it did: what a case looks up by the thread's id.
+#[cfg(test)]
+static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
+
 /// Starts the runtime thread, and hands back the channel the UI reads.
 ///
-/// **Called while the owned signals are still blocked**, so the thread inherits
-/// a mask in which none of them can be delivered to it. `hold` does that by
-/// calling this before [`super::signals::install`] consumes the block.
+/// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
+/// so none can be delivered to it -- nor to the threads it starts, its runtime's
+/// blocking pool and the bills it asks for ([`super::reconcile`]) included --
+/// and every handler runs on the UI thread, as `signals::release` requires.
+/// `hold` calls this before [`super::signals::install`] as well, which is the
+/// order its own startup needs; the mask no longer depends on it.
 ///
 /// The session store is opened *here*, on the calling thread, rather than
 /// lazily inside the first turn: "xfx cannot write here" is a fact about the
@@ -970,51 +986,57 @@ pub(crate) fn spawn(
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
     let session_cancel = cancel.clone();
-    let thread = std::thread::Builder::new()
-        .name(THREAD_NAME.to_string())
-        .spawn(move || {
-            // Declared first so it is dropped **last**: the flag must be set
-            // after the sender below has gone, or the UI could join a thread
-            // whose channel has not closed yet and wait out its own deadline
-            // for a message that will never come.
-            let _done = Finished(done);
-            let events_tx = events_tx;
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                // Nothing can run. Say so through the one channel the UI reads.
-                fatal_before_the_runtime(&events_tx, NO_RUNTIME);
-                return None;
-            };
-            let mut state = Runtime::new(config, store, prompter, questioner);
-            state.reply = loops_reply;
-            state.grants = publishes_grants;
-            state.saved_rules = publishes_saved_rules;
-            state.live = loops_live;
-            state.rules = loops_rules;
-            state.spend = publishes_spend;
-            state.credits = publishes_credits;
-            if let Some(resumed) = resumed {
-                state.resume(resumed, &session_cancel.mirror());
-                state.ask_for_bills();
-                // A resumed conversation's last reply is `/copy`'s from the
-                // start, as fx's hydrated history is (`session.zig:2067-2079`).
-                state.publish_reply();
-            }
-            // `/status` reads the resumed conversation's counts from the start
-            // too: `publishing_to` publishes what the runtime is now.
-            let state = state.publishing_to(publishes);
-            runtime.block_on(turn_loop(
-                state,
-                &events_tx,
-                &mut work_rx,
-                &mut permissions_rx,
-                control,
-                session_cancel,
-                &loops_outstanding,
-            ))
-        })?;
+    let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+        #[cfg(test)]
+        RUNTIME_MASKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                std::thread::current().id(),
+                super::signals::owned_blocked_here(),
+            ));
+        // Declared first so it is dropped **last**: the flag must be set
+        // after the sender below has gone, or the UI could join a thread
+        // whose channel has not closed yet and wait out its own deadline
+        // for a message that will never come.
+        let _done = Finished(done);
+        let events_tx = events_tx;
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            // Nothing can run. Say so through the one channel the UI reads.
+            fatal_before_the_runtime(&events_tx, NO_RUNTIME);
+            return None;
+        };
+        let mut state = Runtime::new(config, store, prompter, questioner);
+        state.reply = loops_reply;
+        state.grants = publishes_grants;
+        state.saved_rules = publishes_saved_rules;
+        state.live = loops_live;
+        state.rules = loops_rules;
+        state.spend = publishes_spend;
+        state.credits = publishes_credits;
+        if let Some(resumed) = resumed {
+            state.resume(resumed, &session_cancel.mirror());
+            state.ask_for_bills();
+            // A resumed conversation's last reply is `/copy`'s from the
+            // start, as fx's hydrated history is (`session.zig:2067-2079`).
+            state.publish_reply();
+        }
+        // `/status` reads the resumed conversation's counts from the start
+        // too: `publishing_to` publishes what the runtime is now.
+        let state = state.publishing_to(publishes);
+        runtime.block_on(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut permissions_rx,
+            control,
+            session_cancel,
+            &loops_outstanding,
+        ))
+    })?;
     Ok((
         Worker {
             thread: Some(thread),
@@ -1061,7 +1083,7 @@ impl Resumption {
         config: &RuntimeConfig,
         selector: &crate::session::Selector,
     ) -> io::Result<Self> {
-        let scope = AccessScope::primary_only(&config.workspace_root).map_err(io::Error::other)?;
+        let scope = conversation_scope(config).map_err(io::Error::other)?;
         let store = open_store(config)?;
         let resumed = store
             .resume(selector, &config.workspace_root)
@@ -1216,6 +1238,16 @@ struct Runtime {
     /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
     /// [`Runtime::publish`] beside the others.
     credits: CreditsBoard,
+    /// The directories `/workspace` saved for this workspace, each as the real
+    /// path it was when it was read: at launch, from the profile, and after
+    /// each change, from what the change read back.
+    ///
+    /// The **identities** a turn's scope is made of ([`Runtime::ready`]),
+    /// looked at again before every turn and never resolved again: a saved
+    /// directory that has since become a link to somewhere else is out of the
+    /// scope rather than the somewhere else in it
+    /// (`crate::workspace::AccessScope::with_observed_roots`).
+    workspace: WorkspaceAccess,
 }
 
 impl Runtime {
@@ -1254,6 +1286,8 @@ impl Runtime {
             ultrafast: config.ultrafast_mode,
         };
         let config_mode = config.permission_mode;
+        let workspace =
+            WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
         let config_rules = config.permission.effective().clone();
         Self {
             config,
@@ -1275,6 +1309,7 @@ impl Runtime {
             began_ms: crate::session::event::system_now_ms(),
             bills: super::reconcile::Reconciler::new(),
             credits: CreditsBoard::default(),
+            workspace,
         }
     }
 
@@ -1496,6 +1531,18 @@ impl Runtime {
                 mirror,
             )?);
         }
+        // **The scope this turn runs in**, made now from the saved directories
+        // that are still themselves ([`Runtime::workspace`]): a `/workspace`
+        // change between turns is in force from the next one, and a directory
+        // that vanished or was swapped for a link since is not.
+        let scope = self
+            .workspace
+            .refreshed()
+            .scope(&self.config.workspace_root)
+            .map_err(|err| err.to_string())?;
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation.tools.set_scope(scope);
+        }
         Ok(())
     }
 
@@ -1548,6 +1595,43 @@ impl Runtime {
     fn rename(&mut self, title: &str, mirror: &CancelToken) -> Result<(), String> {
         let conversation = self.conversation(mirror)?;
         rename_conversation(conversation, title)
+    }
+
+    /// One `/workspace` change, between turns, and what the band is told of
+    /// it (`handleWorkspaceCommand`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:245-328`).
+    ///
+    /// The profile is changed and read back ([`workspace_access::execute`]);
+    /// what was read back is what the next turn's scope is made of
+    /// ([`Runtime::ready`]) -- this runs only between turns, so no tool call
+    /// sees half of it -- and what a conversation `/new` opens is made of. A
+    /// change the profile did not take changes nothing here either, as
+    /// upstream's durable-or-nothing rule has it.
+    fn change_workspace(&mut self, action: &workspace_access::Action) -> UiEvent {
+        let primary = self.config.workspace_root.clone();
+        let updated = match workspace_access::execute(
+            &primary,
+            self.config.user_settings_path.as_deref(),
+            &self.workspace,
+            action,
+        ) {
+            Ok(updated) => updated,
+            Err(failure) => {
+                return UiEvent::Workspace {
+                    notice: Notice::error(workspace_access::TOPIC, failure.message()),
+                    access: None,
+                }
+            }
+        };
+        self.config.additional_directories = updated.access.saved();
+        self.workspace = updated.access.clone();
+        UiEvent::Workspace {
+            notice: Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::snapshot(&primary, &updated.access, Some(&updated.mutation)),
+            ),
+            access: Some(updated.access),
+        }
     }
 
     /// What a `/resume` picker lists, read now: both scopes, newest first,
@@ -1614,8 +1698,7 @@ impl Runtime {
     ) -> Result<super::hydration::Hydration, super::session_picker::ResumeFailure> {
         use super::session_picker::ResumeFailure;
         let id = crate::session::SessionId::parse(id).map_err(|_| ResumeFailure::Unavailable)?;
-        let scope = AccessScope::primary_only(&self.config.workspace_root)
-            .map_err(|_| ResumeFailure::Unavailable)?;
+        let scope = conversation_scope(&self.config).map_err(|_| ResumeFailure::Unavailable)?;
         let resumed = self
             .store
             .resume_without_waiting(
@@ -1827,6 +1910,12 @@ impl Runtime {
             // a stale `fast_mode` is read with the binding it carries.
             let _ = self.save_speed("provider");
         }
+        // The directories too: the file was read again, and what it saves
+        // for this workspace is what a turn runs in.
+        self.workspace = WorkspaceAccess::load(
+            &self.config.workspace_root,
+            &self.config.additional_directories,
+        );
         // The model comes back with it, because the selector is where the model
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
@@ -2332,6 +2421,11 @@ async fn turn_loop(
             }
             TurnWork::Rename(title) => {
                 run_rename(&mut state, &title, events, &cancel.mirror()).await;
+                Ended::Turn
+            }
+            TurnWork::Workspace(action) => {
+                let answer = state.change_workspace(&action);
+                bridge::send_terminal(events, answer).await;
                 Ended::Turn
             }
             TurnWork::Compact => {
@@ -5529,6 +5623,52 @@ mod tests {
         assert_eq!(detail.state.usage.requests[0], *settled);
     }
 
+    /// `signals::release`'s argument is that no handler runs off the UI
+    /// thread, so the runtime thread is started with **every** owned signal
+    /// blocked -- the four whose default ends or stops the process and the
+    /// two whose handlers only set a flag -- read back by the thread itself.
+    /// Started here from a test thread that blocks nothing, so what it has is
+    /// what its own start gave it, not what it inherited.
+    #[test]
+    fn the_runtime_thread_is_started_with_every_owned_signal_blocked() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let (mut worker, mut events) = spawn(
+            config(home.path(), workspace.path()),
+            Cancellation::new(CancelToken::new()),
+            None,
+        )
+        .expect("a runtime");
+        let id = worker
+            .thread
+            .as_ref()
+            .expect("the thread is held")
+            .thread()
+            .id();
+        let deadline = Instant::now() + TEST_DRAIN;
+        let mask = loop {
+            let found = RUNTIME_MASKS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|(thread, _)| *thread == id)
+                .map(|(_, mask)| mask.clone());
+            if let Some(mask) = found {
+                break mask;
+            }
+            assert!(Instant::now() < deadline, "the runtime never started");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert_eq!(mask.len(), 6, "{mask:?}");
+        for (signal, blocked) in mask {
+            assert!(
+                blocked,
+                "signal {signal} is deliverable on the runtime thread"
+            );
+        }
+    }
+
     #[test]
     fn credits_on_llmux_asks_nobody_and_says_upstreams_sentence() {
         let home = tempfile::tempdir().expect("a home");
@@ -7796,6 +7936,109 @@ mod tests {
             .expect("open the store");
         let runtime = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         (home, workspace, runtime)
+    }
+
+    /// The roots a conversation's next turn runs in, besides the workspace.
+    fn turn_roots(state: &mut Runtime) -> Vec<std::path::PathBuf> {
+        state.ready(&CancelToken::new()).expect("a conversation");
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .scope()
+            .additional_roots()
+            .to_vec()
+    }
+
+    #[test]
+    fn a_workspace_change_is_saved_and_in_force_from_the_next_turn() {
+        let (home, workspace, mut state) = a_runtime_that_can_open_one();
+        let extra = tempfile::tempdir().expect("extra");
+        let extra_path = extra.path().canonicalize().expect("canonical");
+        assert!(turn_roots(&mut state).is_empty());
+
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add(extra.path().to_string_lossy().into_owned()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+        assert_eq!(notice.topic, "workspace");
+        assert!(
+            notice
+                .body
+                .contains("saved_changed=true runtime_changed=true"),
+            "{}",
+            notice.body
+        );
+        assert_eq!(
+            access.expect("in force").saved(),
+            [extra_path.to_string_lossy().into_owned()]
+        );
+        // The open conversation's next turn, and the profile a launch reads.
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra_path));
+        let reloaded = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(
+            reloaded.additional_directories,
+            [extra_path.to_string_lossy().into_owned()]
+        );
+
+        let UiEvent::Workspace { notice, access } =
+            state.change_workspace(&workspace_access::Action::Clear)
+        else {
+            panic!("not a workspace answer");
+        };
+        assert!(
+            notice.body.ends_with("additional directories: (none)"),
+            "{}",
+            notice.body
+        );
+        assert!(access.expect("in force").entries().is_empty());
+        assert!(turn_roots(&mut state).is_empty());
+    }
+
+    #[test]
+    fn a_refused_workspace_change_changes_nothing() {
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add("../no-such-directory".to_string()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Error);
+        assert_eq!(
+            notice.body,
+            "Workspace update rejected: directory does not exist"
+        );
+        assert!(access.is_none());
+        assert!(state.config.additional_directories.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_directory_swapped_for_a_link_is_out_of_the_next_turn() {
+        // Resolved once, when it was added, and never again: the turn after
+        // the swap does not run in the link's target.
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let base = tempfile::tempdir().expect("base");
+        let base = base.path().canonicalize().expect("canonical");
+        let extra = base.join("extra");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir(&extra).expect("extra");
+        std::fs::create_dir(&elsewhere).expect("elsewhere");
+        state.change_workspace(&workspace_access::Action::Add(
+            extra.to_string_lossy().into_owned(),
+        ));
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra));
+
+        std::fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("swap");
+        assert!(turn_roots(&mut state).is_empty());
     }
 
     #[test]
