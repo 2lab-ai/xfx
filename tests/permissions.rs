@@ -3355,6 +3355,51 @@ async fn full_access_offers_every_tool_whatever_the_table_says() {
 }
 
 #[tokio::test]
+async fn a_terminal_hidden_by_a_shell_deny_and_called_anyway_is_judged_as_a_command_and_never_runs_unasked(
+) {
+    // `shell: deny` leaves the terminal out of the request, as upstream's
+    // `shell` is left out (`permissionNameForTool` maps `shell` to nothing,
+    // `permissions.zig:1455-1464`). A call to it anyway is judged as every
+    // command is, `bash`/`run_command`, which the rule does not name: in
+    // `ask`, with nobody to ask, it is refused -- not run because it was
+    // hidden, and not run because no rule matched it.
+    let tree = Tree::new();
+    let context = ruled(
+        &tree,
+        PermissionMode::Ask,
+        &[("shell", "*", RuleAction::Deny)],
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![ToolCall {
+            id: "c1".to_string(),
+            name: "terminal".to_string(),
+            input: json!({ "action": "exec", "command": "touch made" }),
+        }]),
+        answer_step("refused"),
+    ]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("run it", context), &provider, &mut sink)
+        .await
+        .expect("a refused call is a result");
+    assert!(!offered(&provider.requests()[0]).contains(&"terminal".to_string()));
+    let refusal = sink
+        .events()
+        .iter()
+        .find_map(|event| match event {
+            Event::ToolResult { ok, detail, .. } => Some((*ok, detail.clone())),
+            _ => None,
+        })
+        .expect("the call was answered");
+    assert!(!refusal.0, "{}", refusal.1);
+    assert!(
+        refusal.1.contains("needs an interactive approval"),
+        "{}",
+        refusal.1
+    );
+    assert!(!tree.root().join("made").exists());
+}
+
+#[tokio::test]
 async fn a_mutation_that_loses_its_authority_ends_the_turn_without_continuing() {
     let tree = Tree::new();
     tree.write("notes.md", "original\n");
