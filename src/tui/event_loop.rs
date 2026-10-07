@@ -3484,6 +3484,49 @@ mod tests {
         (&update[OPENS.len()..at], &update[at..])
     }
 
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    fn a_first_update_with_long_rows_and_a_short_band_is_torn_inside_its_band() {
+        // The premise of the band-tear rows of the matrix (smoke 3d's
+        // `partial-frame-once`, 3c's `partial-frame`), held by the composer
+        // rather than by a launch that happens to be short: those faults tear
+        // the first update's **band**, and only a tear past every row is one.
+        // Half of a first update whose rows outweigh its band is inside the
+        // rows. The mark the composer hands the fault (`fault::mark_update`)
+        // is where the band's part begins, and the tear is halfway into it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        for n in 1..=12 {
+            shell.write_transcript(&format!("{n:02} {}\n", "w".repeat(70)));
+        }
+        let vectors = vectors_of(&mut shell, &mut band);
+        assert_eq!(vectors.len(), 1, "the first tick is one write: {vectors:?}");
+        let update = &vectors[0];
+        let (opener, rows_end, len) = super::super::fault::marked().expect("the update was marked");
+        assert_eq!(len, update.len(), "the mark is not this update's");
+        let (rows, frame) = parts(update, &band);
+        let lead = update.len() - untitled(update).len();
+        assert!(lead > 0, "the first frame owes the title: {update:?}");
+        assert_eq!(opener, lead + OPENS.len());
+        assert_eq!(
+            rows_end,
+            opener + rows.len(),
+            "the mark is not where the band's part begins: {update:?}"
+        );
+        assert!(rows.contains(&format!("12 {}", "w".repeat(70))), "{rows:?}");
+        assert!(frame.contains(COMPOSER_MARKER), "{frame:?}");
+        assert!(
+            len / 2 < rows_end,
+            "the premise: half of this update ({}) is inside its rows (to {rows_end})",
+            len / 2
+        );
+        let at = super::super::fault::band_tear(rows_end, len).expect("a band after the rows");
+        assert!(
+            rows_end < at && at < len - CLOSES.len(),
+            "the tear ({at}) is not inside the band's part ({rows_end}..{len})"
+        );
+    }
+
     #[test]
     fn a_streamed_answers_rows_land_in_the_update_that_paints_the_band_under_them() {
         // T4's finding: every document append was its own vector **ahead** of

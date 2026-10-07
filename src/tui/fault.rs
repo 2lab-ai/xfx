@@ -178,6 +178,27 @@ static PARTIAL_FRAME_ONCE: std::sync::atomic::AtomicU8 = std::sync::atomic::Atom
 /// whose parts are known ([`mark_update`]); `usize::MAX` for "half of it".
 static TEAR_AT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
 
+/// The length of the write [`TEAR_AT`] was worked out for. A mark is a fact
+/// about **one** vector: an update the output check refused before it reached
+/// the terminal leaves its mark behind, and the write that comes next -- of
+/// another length -- is cut at its own half instead of at a point measured on
+/// bytes it does not have.
+static TEAR_LEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+thread_local! {
+    /// The parts the last [`mark_update`] on this thread was told, armed or
+    /// not: what lets a test read where the composer said the rows end.
+    static MARKED: std::cell::Cell<Option<(usize, usize, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+/// The parts the last [`mark_update`] on this thread was told: `(opener,
+/// rows_end, len)`.
+#[cfg(test)]
+pub(crate) fn marked() -> Option<(usize, usize, usize)> {
+    MARKED.with(std::cell::Cell::get)
+}
+
 /// Says where the parts of the update about to be written lie: its opener
 /// ends at `opener`, its document rows at `rows_end`, and it is `len` bytes
 /// long. Called right before that update's one write.
@@ -188,27 +209,55 @@ static TEAR_AT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize:
 ///
 /// * [`Fault::PartialFrame`] and [`Fault::PartialFrameOnce`] tear a **band
 ///   frame**, so they land halfway into the band's part of the update, past
-///   every row -- a tear there is the band tear their rows recover from, or
-///   contain, wherever the rows end.
+///   every row ([`band_tear`]) -- a tear there is the band tear their rows
+///   recover from, or contain, wherever the rows end. An update with no rows
+///   is all band, and is cut at its half as before.
 /// * [`Fault::PartialRows`] tears **inside the rows**, halfway between the
 ///   opener and the band: armed here, on the first update that carries any,
 ///   as a containing fault whose cleanup is refused too.
+///
+/// The boundary is the composer's own -- the length of the vector when the
+/// band's bytes were appended -- rather than one found again in the bytes:
+/// nothing a row can contain is then mistaken for where the band begins.
 pub(crate) fn mark_update(opener: usize, rows_end: usize, len: usize) {
     use std::sync::atomic::Ordering;
 
+    #[cfg(test)]
+    MARKED.with(|marked| marked.set(Some((opener, rows_end, len))));
+    // Whatever an earlier update left here was about that update.
+    TEAR_AT.store(usize::MAX, Ordering::Release);
     if rows_end <= opener {
         return;
     }
-    if injected(Fault::PartialRows) && rows_end > opener + 1 {
+    let at = if injected(Fault::PartialRows) && rows_end > opener + 1 {
         arm(1);
-        if PARTIAL_FRAME.load(Ordering::Acquire) == 1 {
-            TEAR_AT.store(opener + (rows_end - opener) / 2, Ordering::Release);
-        }
-        return;
+        Some(opener + (rows_end - opener) / 2)
+    } else {
+        band_tear(rows_end, len)
+    };
+    if let Some(at) = at.filter(|_| PARTIAL_FRAME.load(Ordering::Acquire) == 1) {
+        TEAR_LEN.store(len, Ordering::Release);
+        TEAR_AT.store(at, Ordering::Release);
     }
-    if PARTIAL_FRAME.load(Ordering::Acquire) == 1 && len > rows_end {
-        TEAR_AT.store(rows_end + (len - rows_end).div_ceil(2), Ordering::Release);
-    }
+}
+
+/// Halfway into the band's part of an update `len` bytes long whose rows end
+/// at `rows_end` -- past every row and short of the end -- or `None` when the
+/// update has no band after its rows.
+pub(crate) fn band_tear(rows_end: usize, len: usize) -> Option<usize> {
+    (len > rows_end).then(|| rows_end + (len - rows_end).div_ceil(2))
+}
+
+/// How much of a write of `len` bytes the tear takes: the marked point when
+/// the mark was made for a write of this length, half of it otherwise -- and
+/// never all of it or none, either of which would be another fault entirely.
+fn tear_for(len: usize, marked_at: usize, marked_len: usize) -> usize {
+    let at = if marked_at != usize::MAX && marked_len == len {
+        marked_at
+    } else {
+        len / 2
+    };
+    at.max(1).min(len.saturating_sub(1).max(1))
 }
 
 /// What the injected terminal does to the next `write`.
@@ -274,14 +323,10 @@ pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
         // would be a zero-progress failure, which is the other case entirely.
         1 => {
             PARTIAL_FRAME.store(2, Ordering::Release);
-            // Where `mark_update` put it, and half the vector otherwise --
-            // never all of it and never none, either of which would be another
-            // fault entirely.
-            let at = match TEAR_AT.swap(usize::MAX, Ordering::AcqRel) {
-                usize::MAX => len / 2,
-                at => at,
-            };
-            Some(Prefix::Takes(at.max(1).min(len.saturating_sub(1).max(1))))
+            // Where `mark_update` put it, and half the vector otherwise.
+            let at = TEAR_AT.swap(usize::MAX, Ordering::AcqRel);
+            let marked_len = TEAR_LEN.swap(0, Ordering::AcqRel);
+            Some(Prefix::Takes(tear_for(len, at, marked_len)))
         }
         2 => {
             // The original tear. A containing fault (`PartialFrame`,
@@ -369,4 +414,42 @@ pub(crate) fn panic_off_the_ui_thread() {
     // thread and measure the opposite of what is being asked.
     let outcome = worker.join();
     assert!(outcome.is_err(), "the injected worker panic did not happen");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{band_tear, tear_for};
+
+    #[test]
+    fn a_band_tear_lands_past_every_row_however_long_the_rows_are() {
+        // A first update of 12 opener bytes, 300 of rows and a 40-byte band:
+        // half the write is inside the rows, half the band's part is not.
+        let (opener, rows_end, len) = (12, 312, 352);
+        let at = band_tear(rows_end, len).expect("a band after the rows");
+        assert!(rows_end < at && at < len, "{at}");
+        assert_eq!(at, 332);
+        assert!(
+            len / 2 < rows_end,
+            "the premise: half the write is in the rows"
+        );
+        // And with no rows the band is the whole update after the opener.
+        assert_eq!(band_tear(opener, len), Some(182));
+        assert_eq!(
+            band_tear(len, len),
+            None,
+            "an update with no band after its rows"
+        );
+    }
+
+    #[test]
+    fn a_mark_is_honoured_only_for_the_write_it_was_made_for() {
+        assert_eq!(tear_for(352, 332, 352), 332);
+        // A refused update left its mark; the next write is another length.
+        assert_eq!(tear_for(200, 332, 352), 100);
+        // Unmarked: half, and never none or all of a write.
+        assert_eq!(tear_for(200, usize::MAX, 0), 100);
+        assert_eq!(tear_for(1, usize::MAX, 0), 1);
+        assert_eq!(tear_for(2, 2, 2), 1);
+        assert_eq!(tear_for(2, 0, 2), 1);
+    }
 }
