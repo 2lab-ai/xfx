@@ -747,6 +747,7 @@ mod paste;
 mod permissions;
 mod picker;
 mod probe;
+mod prose;
 mod provider_picker;
 mod question;
 mod recall;
