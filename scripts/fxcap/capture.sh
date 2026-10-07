@@ -36,9 +36,16 @@
 #                          a file of <bytes> in the workspace that begins with
 #                          the PNG signature and is a hole after it -- an image
 #                          over a size limit, without one in the repository
+#   pnghdr <name> <width> <height>
+#                          a PNG signature and an IHDR declaring <width> x
+#                          <height> and nothing else, in the workspace -- an
+#                          image over a pixel limit, as fx's own tests make one
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
+#   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
+#                          the run directory -- a paste too large for a
+#                          command line, such as one past the prompt's budget
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
@@ -171,6 +178,18 @@ main() {
       dd if=/dev/zero of="$run/work/${png%% *}" bs=1 count=0 seek="${png#* }" 2>/dev/null
       printf '\211PNG\r\n\032\n' | dd of="$run/work/${png%% *}" conv=notrunc 2>/dev/null
     fi
+    if [[ $line == pnghdr\ * ]]; then
+      local header name width height value bits
+      read -r name width height <<< "${line#pnghdr }"
+      header='\211PNG\r\n\032\n\000\000\000\015IHDR'
+      for value in "$width" "$height"; do
+        for bits in 24 16 8 0; do
+          header+=$(printf '\\%03o' $(( (value >> bits) & 255 )))
+        done
+      done
+      # shellcheck disable=SC2059 # the format is the bytes, built above
+      printf "$header" > "$run/work/$name"
+    fi
     if [[ $line == dir\ * ]]; then
       local name from
       read -r name from <<< "${line#dir }"
@@ -273,10 +292,15 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng|dir) ;;
+      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
+      pastex)
+        head -c "$rest" /dev/zero | tr '\0' x > "$run/pastex"
+        tmux -f /dev/null -S "$sock" load-buffer -b capbuf "$run/pastex"
+        tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap
+        rm -f "$run/pastex" ;;
       key) # shellcheck disable=SC2086
         tmux -f /dev/null -S "$sock" send-keys -t cap $rest ;;
       snap)

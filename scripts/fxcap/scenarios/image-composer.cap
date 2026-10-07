@@ -1,0 +1,41 @@
+# The image badge in the composer's edits: a typed `[Image #1]` beside a
+# badge that is #1 (the badge is sent under a fresh number), a badge killed
+# with Ctrl-U and yanked back twice (each yank a fresh image), a history
+# recall that brings the image back, and a paste one byte past the prompt's
+# 8 MiB budget, then a prompt that goes through after it.
+models models-image.json
+gateway image-composer-turns.json
+work image-ws
+wait 5
+paste shot.png
+wait 1.5
+type  duplicate [Image #1]
+wait 0.5
+snap lookalike
+key Enter
+wait 4
+snap lookalike-sent
+paste shot.png
+wait 1.5
+key C-u
+key C-y
+key C-y
+wait 1
+snap yanked
+key Enter
+wait 4
+snap yanked-sent
+key Up
+wait 1
+snap recalled
+key Enter
+wait 4
+snap recalled-sent
+pastex 8388609
+wait 8
+snap oversized
+type RECOVERY
+key Enter
+wait 4
+snap recovered
+gwlog

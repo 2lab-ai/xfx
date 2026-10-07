@@ -1,0 +1,20 @@
+# Answer prose wrapped by upstream's assistant wrap (`.prd/tui-phase4` T7,
+# `assistant_wrap.zig`): one answer whose paragraphs are each aimed at one rule
+# at one content width -- 118 cells (120 columns less the answer's gutter) or
+# 78 (80 less it): a paragraph-final word reached by the space that crosses
+# and by the word itself, a mid-paragraph overflow, a final word the word
+# before it cannot join, bullet, ordered and nested items, a quote and a
+# nested quote, a heading and a link that wrap. The turn arrives in 37-byte
+# chunks, cut inside words and across line ends. The answer is longer than a
+# 24-row screen, so the whole history is kept too.
+# The waits are long because the receipt was taken on a loaded machine: a
+# key typed before the binary is in raw mode reaches it as the terminal's
+# cooked line, and an Enter there arrives as a line feed.
+gateway prose-wrap-turns.json
+wait 10
+type show me the wrap
+wait 1
+key Enter
+wait 20
+snap answered
+snapfull answered

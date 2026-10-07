@@ -1,0 +1,34 @@
+# An amendment past its 4 KiB budget: the edit's question, Tab to amend,
+# a paste one byte too large, a second one, a typed word that fits, and a
+# third paste too large. fx says each refusal run once, in the document.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 5
+type edit the files
+key Enter
+wait 10
+snap asked
+key Tab
+wait 0.5
+type keep
+wait 0.5
+pastex 4097
+wait 2
+snap refused
+pastex 4097
+wait 2
+snap refused-again
+type  this
+wait 0.5
+pastex 4097
+wait 2
+snap refused-after-edit
+key Escape
+wait 1
+key Escape
+wait 2
+snap end

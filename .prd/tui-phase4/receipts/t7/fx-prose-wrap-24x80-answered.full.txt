@@ -1,0 +1,60 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ show me the wrap
+
+  Prose wrap receipt.
+
+  Space path at 118 columns: the wrap keeps each word whole and moves it down
+  when it does not fit what is left of the-x end.
+
+  Space path at 78 columns: the wrap keeps each word whole and moves it
+  down-xxx end.
+
+  Overflow path at 118 columns: the wrap keeps each word whole and moves it down
+  when it does not fit what is left finale.
+
+  Overflow path at 78 columns: the wrap keeps each word whole and moves
+  it finale.
+
+  Mid-paragraph overflow: the wrap keeps each word whole and moves it down when
+  it does not fit what is left of the row so a reader sees whole words on every
+  line of the answer and nothing is cut in the middle while the paragraph goes
+  on the wrap keeps each word whole and moves it down when it and then the
+  paragraph ends here.
+
+  No room 118:
+  Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  aaaaaaaaaaa Bbbbbbbbbbbbbbbbbbbbbbbbbbbbb.
+
+  No room 78: Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  Bbbbbbbbbbbbbbbbbbbbbbbbbbbbb.
+
+  • A bullet item whose text is long enough to wrap at both widths, so its
+    continuation rows line up under the text after the bullet rather than
+    under it.
+  • A bullet with a bold run that keeps going across the place where the row
+    breaks at eighty columns and beyond and plain text after it to close.
+  1. An ordered item that wraps: its continuation rows begin under the first
+     letter after the number and the period, three columns in from the
+     left edge.
+     • A nested bullet under the ordered item, long enough to wrap at eighty
+       columns as well, indented by its own two plus the bullet's two cells.
+
+  │ A quote that wraps: every continuation row repeats the quote's dim rule in
+  │ front of the text, and the last word of the quote is not left alone.
+  │ │ A nested quote line that wraps too, so both rules repeat on its
+  │ │ continuation rows, at either of the two widths this receipt is taken at.
+
+  A heading long enough to wrap at eighty columns keeps its underline on every
+  row it wraps onto here
+
+  A paragraph with a link whose text wraps across the edge of the row at eighty
+  columns and the end.
+
+  Done.
+
+  1s (↑4 ↓40)
+
+┃
+
+auto · model-a

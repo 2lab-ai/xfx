@@ -1191,6 +1191,32 @@ impl Resumption {
         self.session.state().turn_settings.as_ref()
     }
 
+    /// Whether a Fast binding held for the selection `provider`, `model` and
+    /// `fast` survives continuing this session: only when the session last ran
+    /// under that very selection (`restoredFastModeModelBound`,
+    /// `app_session_runtime.zig:6318-6328` -- the provider's authority, the
+    /// model and `fast_mode`, all three).
+    ///
+    /// The provider is compared by label: upstream's `same_authority` is
+    /// `eql` plus the binding identity of a configured provider
+    /// (`model_provider.zig:65-71`), and xfx has none -- its providers are
+    /// [`ProviderId::ALL`]. A log written before the provider was recorded
+    /// says nothing about it, and the binding is then decided by the other
+    /// two, as it was before; one that recorded no switches leaves `fast` out
+    /// the same way.
+    pub(crate) fn keeps_fast_binding(&self, provider: ProviderId, model: &str, fast: bool) -> bool {
+        let state = self.session.state();
+        state
+            .provider
+            .as_deref()
+            .is_none_or(|recorded| recorded == provider.label())
+            && state.model == model
+            && state
+                .turn_settings
+                .as_ref()
+                .is_none_or(|settings| settings.fast == fast)
+    }
+
     /// What the session replays as on the screen it continues on
     /// ([`super::hydration`]): read off the state this value already holds, so
     /// the launch builds it with no read of its own.
@@ -1816,8 +1842,9 @@ impl Runtime {
         };
         // The selection this session was configured with, before the resume
         // moves it: what a restored Fast binding is judged against
-        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
-        let configured = (self.model().to_string(), self.settings.fast);
+        // ([`Resumption::keeps_fast_binding`]).
+        let keeps_fast_binding =
+            resumption.keeps_fast_binding(self.config.provider, self.model(), self.settings.fast);
         if self.config.sources.model == crate::config::SettingSource::CompiledDefault
             && self.model() != resumption.model()
         {
@@ -1828,9 +1855,7 @@ impl Runtime {
         // resume restores them (`restoreRuntimePreferences`,
         // `app_session_runtime.zig:6126-6175`); a session that never recorded
         // them keeps the ones in force.
-        let mut keeps_fast_binding = configured.0 == resumption.model();
         if let Some(settings) = resumption.session.state().turn_settings.clone() {
-            keeps_fast_binding = keeps_fast_binding && configured.1 == settings.fast;
             self.settings = settings;
         }
         let mut replay = super::hydration::Hydration::of(
@@ -1925,15 +1950,21 @@ impl Runtime {
         );
         let model = self.model().to_string();
         let mode = self.config.permission_mode;
+        let provider = self.config.provider.label();
         let recorded = conversation.recorder.state();
         let model_changed = recorded.model != model;
         let mode_changed = recorded.permission_mode != mode;
-        if model_changed || mode_changed {
+        // And the provider, as upstream's resume records the selection it
+        // goes on with: a session opened under the other one, or written
+        // before the provider was recorded, now says which.
+        let provider_changed = recorded.provider.as_deref() != Some(provider);
+        if model_changed || mode_changed || provider_changed {
             conversation
                 .recorder
                 .commit(SessionEvent::PreferencesChanged {
                     model: model_changed.then_some(model),
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
+                    provider: provider_changed.then(|| provider.to_string()),
                     effort: None,
                     fast_mode: None,
                     ultrafast_mode: None,
@@ -2079,20 +2110,7 @@ impl Runtime {
     /// in the menu's order; no rows, for a provider with none; or that it
     /// could not be read, and whether asking again could help.
     fn catalog_event(&self) -> UiEvent {
-        let provider = self.config.provider;
-        match from_state(self.selector.catalog()) {
-            CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
-            // The provider has no catalog; nothing went wrong, and the menu
-            // says there is nothing in it.
-            CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
-                provider,
-                entries: Vec::new(),
-            },
-            CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
-                provider,
-                retry: self.selector.failure_retry(),
-            },
-        }
+        catalog_event_of(self.config.provider, &self.selector)
     }
 
     /// What every request of the next turn asks for beside its prompt: the
@@ -2140,6 +2158,7 @@ impl Runtime {
             .commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: None,
+                provider: None,
                 effort: Some(settings.effort.label().to_string()),
                 fast_mode: Some(settings.fast),
                 ultrafast_mode: Some(settings.ultrafast),
@@ -2185,6 +2204,7 @@ impl Runtime {
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        provider: None,
                         effort: None,
                         fast_mode: None,
                         ultrafast_mode: None,
@@ -2196,75 +2216,26 @@ impl Runtime {
 
     /// The three speed keys as the session stands, as upstream writes them:
     /// the binding always `true`, because an interactive change is always made
-    /// for the model in force.
+    /// for the model in force ([`super::speed_save::switches`]).
     fn speed_preferences(&self) -> [(&'static [&'static str], serde_json::Value); 3] {
-        [
-            (
-                &[crate::config::FAST_MODE_KEY],
-                serde_json::Value::Bool(self.settings.fast),
-            ),
-            (
-                &[crate::config::ULTRAFAST_MODE_KEY],
-                serde_json::Value::Bool(self.settings.ultrafast),
-            ),
-            (
-                &[crate::config::FAST_MODE_MODEL_BOUND_KEY],
-                serde_json::Value::Bool(true),
-            ),
-        ]
+        super::speed_save::switches(self.settings.fast, self.settings.ultrafast)
     }
 
-    /// Saves the speed switches (`/fast`, `/ultrafast`) with what upstream
-    /// writes beside them (`applyFastMode`, `applyUltrafastMode`,
-    /// `session_commands.zig:781-790`, `:839-848`): the provider and the model
-    /// in force -- under an `XFX_MODEL`, that model, as upstream writes
-    /// `provider_runtime.model(app)` -- and the binding. Says what upstream's
-    /// commit report keeps when the caller has announced the change
-    /// (`reportUserSettingsCommit`, `:27-85`): that a layer above the profile
-    /// will still choose a fresh session's model, or that the write failed.
+    /// Saves the speed switches with what upstream writes beside them, for
+    /// the provider and the model in force -- under an `XFX_MODEL`, that model
+    /// -- and says what upstream's report keeps ([`super::speed_save::save`]).
     /// `topic` is upstream's label for the write.
-    /// What a write of the model and the speed switches beside it -- and the
-    /// effort, when `effort` says one was written -- says when a layer above
-    /// the profile will still decide any of them for a fresh session: each,
-    /// in upstream's order (`appendShadowedUserSources`,
-    /// `session_commands.zig:170-186` -- `model`, `effort`, `fast_mode`,
-    /// `ultrafast_mode`).
-    fn saved_model_and_speed(&self, effort: bool) -> Option<String> {
-        let sources = &self.config.sources;
-        let mut fields = vec![("model", sources.model)];
-        if effort {
-            fields.push(("effort", sources.effort));
-        }
-        fields.push(("fast_mode", sources.fast_mode));
-        fields.push(("ultrafast_mode", sources.ultrafast_mode));
-        crate::provider::profile::saved_but_any_shadowed(&fields)
-    }
-
     fn save_speed(&self, topic: &'static str) -> Option<super::notice::Notice> {
         let path = self.config.user_settings_path.as_ref()?;
-        let provider = self.config.provider;
-        let model_key = [crate::config::MODELS_KEY, provider.label()];
-        let provider_key = [crate::config::PROVIDER_KEY];
-        let mut preferences: Vec<(&[&str], serde_json::Value)> = vec![
-            (
-                &model_key,
-                serde_json::Value::String(self.model().to_string()),
-            ),
-            (
-                &provider_key,
-                serde_json::Value::String(provider.label().to_string()),
-            ),
-        ];
-        preferences.extend(self.speed_preferences());
-        match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => self
-                .saved_model_and_speed(false)
-                .map(|said| super::notice::Notice::neutral(topic, said)),
-            Err(err) => Some(super::notice::Notice::error(
-                topic,
-                format!("active for this process but not saved to user settings ({err})"),
-            )),
-        }
+        super::speed_save::save(
+            path,
+            self.config.provider,
+            self.model(),
+            self.settings.fast,
+            self.settings.ultrafast,
+            &self.config.sources,
+            topic,
+        )
     }
 
     /// Records `model` as the configured provider's in the profile
@@ -2323,8 +2294,7 @@ impl Runtime {
         // `"fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true`).
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => self
-                .saved_model_and_speed(effort.is_some())
+            Ok(()) => super::speed_save::shadowed(&self.config.sources, effort.is_some())
                 .map(|said| super::notice::Notice::neutral(topic, said)),
             Err(err) => Some(super::notice::Notice::error(
                 topic,
@@ -2370,6 +2340,24 @@ enum CatalogAnswer {
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
+/// What the UI is told about `selector`'s catalog for `provider`
+/// ([`Runtime::catalog_event`]).
+fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
+    match from_state(selector.catalog()) {
+        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+        // The provider has no catalog; nothing went wrong, and the menu
+        // says there is nothing in it.
+        CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+            provider,
+            entries: Vec::new(),
+        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
+            provider,
+            retry: selector.failure_retry(),
+        },
+    }
+}
+
 fn from_state(state: &CatalogState) -> CatalogAnswer {
     match state {
         CatalogState::Loaded(entries) => CatalogAnswer::Rows(in_menu_order(entries)),
@@ -2505,7 +2493,7 @@ async fn turn_loop(
                 continue;
             }
             Taken::Speed(change) => {
-                change_speed(&mut state, change, events).await;
+                change_speed(&mut state, change);
                 continue;
             }
             Taken::Undo(through) => {
@@ -3394,6 +3382,29 @@ async fn change_model(
     state.settings = after;
     state.record_settings();
     state.publish();
+    // The effort a pick writes beside the model: the one it chose, or -- for
+    // a pick that kept the session's, as `/settings`' model list does -- the
+    // session's, for a model whose row lists levels (`selectModelFromPicker`
+    // sets `patch.effort` whenever `reasoning_efforts` is not empty, with the
+    // effort it was given or `app.effort`, `session_commands.zig:892-901`;
+    // `applyInlineSettingsModelSelection`, `app_input_runtime.zig:2517-2529`).
+    // A query writes none (`setResolvedModel`, `:1172-1188`).
+    let effort = match effort {
+        Some(chosen) => Some(chosen),
+        None if change.picker
+            && matches!(
+                outcome,
+                ModelOutcome::Selected { .. } | ModelOutcome::Unchanged { .. }
+            )
+            && state
+                .selector
+                .entry(state.selector.model())
+                .is_some_and(|entry| !entry.efforts.is_empty()) =>
+        {
+            Some(state.settings.effort.clone())
+        }
+        None => None,
+    };
     let (answered, chosen) = match outcome {
         ModelOutcome::Selected {
             unverified, model, ..
@@ -3470,8 +3481,12 @@ impl TurnJournal for StoppedAtApproval<'_> {
 
     // Every method the trait has, forwarded: a default left in place here
     // would be the wrapped journal's work silently not done.
-    fn attach_images(&mut self, images: &[crate::image::Image]) {
-        self.inner.attach_images(images);
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        self.inner.attach_images(images)
+    }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        self.inner.attach_tool_images(call_id, images);
     }
 }
 
@@ -3529,7 +3544,7 @@ async fn apply_deferred(
                 // The same for a speed: it needs no socket, and the band has
                 // said it already.
                 Deferred::Speed(change) => {
-                    change_speed(state, change, events).await;
+                    change_speed(state, change);
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -3551,14 +3566,22 @@ async fn apply_deferred(
 }
 
 /// Applies one `/fast` or `/ultrafast on|off` ([`TurnControl::Speed`]): the
-/// switches as the band decided them, recorded in the session log and saved,
-/// with nothing said unless the save failed -- the band has said `fast: on`
-/// already, as upstream says it the moment the command is given.
+/// switches as the band decided them, recorded in the session log and saved
+/// again, saying nothing.
+///
+/// **The band has saved it and said how that went** already, above its
+/// `* fast: on`, as upstream persists before it announces
+/// ([`super::speed_save`]). The write here is the file's order rather than a
+/// second report: this thread writes the model changes, and one put aside
+/// behind a turn is saved when the turn ends, with the switches as they then
+/// stand -- so a `/fast` typed after it has to be written after it too, or
+/// the profile would end on the switches the model change turned off. Its
+/// outcome is the band's write's, said once.
 ///
 /// A change the band decided under another provider is dropped: a
 /// `/provider` switch took the switches off with the model it replaced, and
 /// the band's own record of them went off with the same switch.
-async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<UiEvent>) {
+fn change_speed(state: &mut Runtime, change: SpeedChange) {
     if change.provider != state.config.provider {
         return;
     }
@@ -3566,9 +3589,7 @@ async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<
     state.settings.ultrafast = change.ultrafast;
     state.record_settings();
     state.publish();
-    if let Some(notice) = state.save_speed(change.topic) {
-        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
-    }
+    let _ = state.save_speed(change.topic);
 }
 
 /// `/undo`, and what became of it (`commandUndoLast`,
@@ -3865,6 +3886,86 @@ async fn image_refusal(
     }
 }
 
+/// Whether a request's tool images go to the model, decided the way a
+/// prompt's are and asked only when a request carries one.
+///
+/// **On the Gateway, the catalog decides** ([`image_refusal`]): a model it
+/// tags `vision` and `file-input` is sent them; any other request goes with
+/// the images taken out and upstream's sentence in front of each result that
+/// had any -- [`crate::image::TOOL_IMAGES_NOT_NATIVE`] for a listed model
+/// without the tags, [`crate::image::TOOL_IMAGES_UNKNOWN`] for one the catalog
+/// does not list or could not be read (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`). Upstream resolves the catalog the first time a
+/// tool image appears (`orchestrator.zig:7206-7214`); so does this, raced
+/// against the turn's cancellation and told to the UI when it is fresh.
+///
+/// **On llmux the daemon decides**, as it does a prompt's image: it is sent,
+/// and a model that cannot read it is the daemon's 400.
+struct ToolImageGate<'a> {
+    inner: &'a dyn crate::gateway::Provider,
+    provider: ProviderId,
+    /// Lent out while the catalog is read, so no borrow is held across that
+    /// wait.
+    selector: std::cell::RefCell<Option<&'a mut ModelSelector>>,
+    events: Sender<UiEvent>,
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl ToolImageGate<'_> {
+    /// The note a request's tool images are replaced by, or `None` when the
+    /// model is sent them.
+    async fn refusal(&self) -> Option<&'static str> {
+        if self.provider != ProviderId::Gateway {
+            return None;
+        }
+        let selector = self.selector.borrow_mut().take()?;
+        if matches!(selector.catalog(), CatalogState::NotLoaded) {
+            tokio::select! {
+                biased;
+                () = self.token.cancelled() => {}
+                _ = selector.ensure_catalog() => {
+                    let event = catalog_event_of(self.provider, selector);
+                    let _ = bridge::send_ui(&self.events, &self.token, event).await;
+                }
+            }
+        }
+        let note = match selector.entry(selector.model()) {
+            Some(entry) if entry.facts.image_input => None,
+            Some(_) => Some(crate::image::TOOL_IMAGES_NOT_NATIVE),
+            None => Some(crate::image::TOOL_IMAGES_UNKNOWN),
+        };
+        *self.selector.borrow_mut() = Some(selector);
+        note
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::gateway::Provider for ToolImageGate<'_> {
+    async fn stream(
+        &self,
+        request: &crate::gateway::protocol::CompletionRequest,
+        deltas: &mut dyn crate::gateway::DeltaSink,
+    ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
+        let carries = request.messages.iter().any(|message| {
+            message.content.iter().any(|part| {
+                matches!(part, crate::gateway::protocol::ContentPart::ToolResult { images, .. } if !images.is_empty())
+            })
+        });
+        if carries {
+            if let Some(note) = self.refusal().await {
+                if let Some(stripped) = crate::image::strip_tool_images(request, note) {
+                    return self.inner.stream(&stripped, deltas).await;
+                }
+            }
+        }
+        self.inner.stream(request, deltas).await
+    }
+
+    fn set_options(&self, options: crate::gateway::protocol::RequestOptions) {
+        self.inner.set_options(options);
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
@@ -3964,15 +4065,18 @@ async fn one_turn(
     // owns it: the model this turn is sent under is the model `/model` last
     // applied, whatever the configuration said at launch.
     let model = state.model().to_string();
+    let provider_id = state.config.provider;
     // Two fields of one struct rather than one method returning both: the
     // provider is read and the conversation is written, and the borrow checker
-    // is what keeps that honest.
+    // is what keeps that honest. The selector is a third: the tool-image gate
+    // below reads the catalog through it.
     let provider = state
         .provider
         .as_ref()
         .expect("the bundle was just built")
         .stream
         .as_ref();
+    let selector = &mut state.selector;
     let conversation = state
         .conversation
         .as_mut()
@@ -4037,10 +4141,17 @@ async fn one_turn(
     // record (`super::full_transcript::Networked`).
     let provider = super::full_transcript::Networked::new(
         provider,
-        state.config.provider.label(),
+        provider_id.label(),
         events.clone(),
         turn.token.clone(),
     );
+    let provider = ToolImageGate {
+        inner: &provider,
+        provider: provider_id,
+        selector: std::cell::RefCell::new(Some(selector)),
+        events: events.clone(),
+        token: turn.token.clone(),
+    };
     // And, in Ultra, whether each response was served at it
     // ([`ServedUltra`]).
     let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
@@ -6309,7 +6420,7 @@ mod tests {
         use super::super::hydration::HydratedStep;
         let mut all = format!("{:?}", replay.title);
         for turn in &replay.turns {
-            all.push_str(&turn.user);
+            all.push_str(&turn.sent);
             for step in &turn.steps {
                 match step {
                     HydratedStep::Text(text)
@@ -6856,8 +6967,16 @@ mod tests {
             fn change_made(&mut self, call_id: &str, _change: &crate::permission::ApprovalDiff) {
                 self.1.push(format!("change {call_id}"));
             }
-            fn attach_images(&mut self, images: &[crate::image::Image]) {
+            fn attach_images(
+                &mut self,
+                images: &[crate::image::Image],
+            ) -> Option<std::path::PathBuf> {
                 self.1.push(format!("images {}", images.len()));
+                Some(std::path::PathBuf::from("kept-images"))
+            }
+            fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+                self.1
+                    .push(format!("tool images {call_id} {}", images.len()));
             }
         }
         let refused = || SessionEvent::ToolResult {
@@ -6912,13 +7031,26 @@ mod tests {
             control: &control,
         };
         wrapper.change_made("w", &crate::permission::ApprovalDiff::of("a\n", "b\n"));
-        wrapper.attach_images(&[crate::image::Image::new(
-            1,
-            std::path::PathBuf::from("shot.png"),
-            crate::image::MediaType::Png,
-            std::sync::Arc::from(&b"png"[..]),
-        )]);
-        assert_eq!(kept.1, ["change w", "images 1"]);
+        // The directory the images were copied into is the recorder's
+        // answer, which the card's badges link to.
+        assert_eq!(
+            wrapper.attach_images(&[crate::image::Image::new(
+                1,
+                std::path::PathBuf::from("shot.png"),
+                crate::image::MediaType::Png,
+                std::sync::Arc::from(&b"png"[..]),
+            )]),
+            Some(std::path::PathBuf::from("kept-images"))
+        );
+        wrapper.attach_tool_images(
+            "r",
+            &[crate::image::ToolImage {
+                media_type: crate::image::MediaType::Png,
+                data: std::sync::Arc::from(&b"png"[..]),
+                path: "shot.png".to_string(),
+            }],
+        );
+        assert_eq!(kept.1, ["change w", "images 1", "tool images r 1"]);
         // And the loop reads its stop as before.
         assert!(control.stopping());
         assert_eq!(
@@ -7741,6 +7873,59 @@ mod tests {
     }
 
     #[test]
+    fn every_pick_writes_upstreams_fields_and_a_row_with_levels_takes_the_sessions_effort() {
+        // `selectModelFromPicker` (`session_commands.zig:886-915`), the one
+        // path a menu row, the column, `/model <id> <effort>`, a `C-p` row and
+        // `/settings`' model list (`applyInlineSettingsModelSelection`,
+        // `app_input_runtime.zig:2517-2529`) all reach: the provider, the
+        // model, the switches and the binding -- and the effort whenever the
+        // model's row lists levels, the session's when the pick chose none.
+        let (home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        state.settings.effort = crate::provider::effort::Effort::Named("max".to_string());
+        let kept = |name: &str| ModelChange {
+            name: name.to_string(),
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: false,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        };
+        let said = ran_change(&mut state, kept("anthropic/claude-opus-5"));
+        assert!(
+            said.iter()
+                .all(|event| !matches!(event, UiEvent::Notice(_))),
+            "{said:?}"
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "anthropic/claude-opus-5"},
+                               "provider": "gateway", "effort": "max",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        // A row with no levels takes no effort, so none is written; the one
+        // already there stays.
+        std::fs::remove_file(home.path().join(".xfx").join("settings.json")).expect("emptied");
+        ran_change(&mut state, kept("fake/model-a"));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "fake/model-a"},
+                               "provider": "gateway",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        // And a query writes none either (`setResolvedModel`).
+        std::fs::remove_file(home.path().join(".xfx").join("settings.json")).expect("emptied");
+        ran_model(&mut state, "openai/gpt-6-astra", false);
+        assert_eq!(settings(home.path()).get("effort"), None);
+    }
+
+    #[test]
     fn a_pick_keeps_the_speed_its_row_offers_and_a_query_turns_both_off() {
         // `selectModelFromPicker` and `setResolvedModel`
         // (`session_commands.zig:886-915`, `:1168-1190`), recorded in the
@@ -7819,8 +8004,7 @@ mod tests {
     #[test]
     fn a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not() {
         let (home, _workspace, mut state) = recording();
-        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -7828,18 +8012,13 @@ mod tests {
                 topic: "fast",
                 provider: ProviderId::Gateway,
             },
-            &events_tx,
-        ));
+        );
         assert!(state.settings.fast && !state.settings.ultrafast);
         assert_eq!(recorded(&state).map(|settings| settings.fast), Some(true));
         assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
-        assert!(
-            events_rx.try_recv().is_err(),
-            "a save that landed says nothing"
-        );
         // Decided under the provider a switch replaced: dropped, because the
         // switches went off with the model the switch replaced.
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: false,
@@ -7847,9 +8026,48 @@ mod tests {
                 topic: "ultrafast",
                 provider: ProviderId::Llmux,
             },
-            &events_tx,
-        ));
+        );
         assert!(state.settings.fast && !state.settings.ultrafast);
+    }
+
+    #[test]
+    fn a_speed_the_band_saved_before_a_model_change_this_thread_saves_later_is_still_the_files() {
+        // A `/model` put aside behind a turn, then `/fast`: the band writes
+        // the speed at once (`super::speed_save`), the model change is saved
+        // when the turn ends with the switches it turned off -- and the
+        // speed, applied after it, is written again so the file ends where
+        // the commands did.
+        let (home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        assert_eq!(
+            super::super::speed_save::save(
+                &path,
+                ProviderId::Gateway,
+                "acme/two",
+                true,
+                false,
+                &state.config.sources,
+                "fast",
+            ),
+            None
+        );
+        ran_model(&mut state, "acme/two", false);
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(false));
+        change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "acme/two"}, "provider": "gateway",
+                               "fast_mode": true, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
     }
 
     #[test]
@@ -7984,6 +8202,7 @@ mod tests {
                 .commit(SessionEvent::PreferencesChanged {
                     model: None,
                     permission_mode: None,
+                    provider: None,
                     effort: Some("max".to_string()),
                     fast_mode: Some(true),
                     ultrafast_mode: Some(false),
@@ -8007,6 +8226,93 @@ mod tests {
         // The runtime was in Normal: the session's Fast is not the configured
         // selection, so it comes back unbound (`restoredFastModeModelBound`).
         assert!(!replay.keeps_fast_binding);
+    }
+
+    #[test]
+    fn a_restored_fast_binding_needs_the_provider_the_model_and_fast_the_session_ran_under() {
+        // `restoredFastModeModelBound` (`app_session_runtime.zig:6318-6328`):
+        // the provider's authority, the model and `fast_mode`.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let recorded_fast = |provider: Option<ProviderId>| {
+            let session = store
+                .create(
+                    SessionId::generate(),
+                    crate::session::NewSession {
+                        origin_workspace_root: config.workspace_root.clone(),
+                        workspace_root: config.workspace_root.clone(),
+                        model: config.model.clone(),
+                        permission_mode: config.permission_mode,
+                        provider,
+                    },
+                )
+                .expect("a session");
+            let mut recorder = crate::session::SessionRecorder::new(store.clone(), session);
+            recorder.commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: None,
+                provider: None,
+                effort: Some("auto".to_string()),
+                fast_mode: Some(true),
+                ultrafast_mode: Some(false),
+            });
+            recorder.id().clone()
+        };
+        let opened = |id: &SessionId| {
+            Resumption::open(&config, &crate::session::Selector::Id(id.clone())).expect("opens")
+        };
+        let model = config.model.as_str();
+
+        let gateway = opened(&recorded_fast(Some(ProviderId::Gateway)));
+        assert!(gateway.keeps_fast_binding(ProviderId::Gateway, model, true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Llmux, model, true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Gateway, "other/model", true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Gateway, model, false));
+        drop(gateway);
+
+        // A session opened through the runtime's own path names its provider.
+        let through_open = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        assert_eq!(
+            through_open.recorder.state().provider.as_deref(),
+            Some(config.provider.label())
+        );
+        drop(through_open);
+
+        // A log written before the provider was recorded: decided by the
+        // model and Fast, as before -- and a resume writes down which
+        // provider it goes on under.
+        let older = recorded_fast(None);
+        let resumed = opened(&older);
+        assert!(resumed.keeps_fast_binding(ProviderId::Llmux, model, true));
+        assert!(!resumed.keeps_fast_binding(ProviderId::Llmux, model, false));
+        let mut state = Runtime::new(
+            config.clone(),
+            open_store(&config).expect("a store"),
+            a_prompter(),
+            a_questioner(),
+        );
+        state.resume(resumed, &CancelToken::new());
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("bound")
+                .recorder
+                .state()
+                .provider
+                .as_deref(),
+            Some(config.provider.label())
+        );
     }
 
     /// Runs one tool call through the conversation's own tools, as a turn's
@@ -8370,8 +8676,7 @@ mod tests {
         let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
-        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -8379,21 +8684,22 @@ mod tests {
                 topic: "fast",
                 provider: ProviderId::Gateway,
             },
-            &events_tx,
-        ));
+        );
         assert_eq!(
             settings(home.path()),
             serde_json::json!({"models": {"gateway": "pinned/model"}, "provider": "gateway",
                                "fast_mode": true, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
         );
+        // What the band's write of the same change says, above its `* fast:
+        // on` (`super::speed_save`).
         assert_eq!(
-            events_rx.try_recv().ok(),
-            Some(UiEvent::Notice(super::super::notice::Notice::neutral(
+            state.save_speed("fast"),
+            Some(super::super::notice::Notice::neutral(
                 "fast",
                 "saved to user settings (scope=user); fresh sessions here use \
                  higher-precedence model=process_override"
-            )))
+            ))
         );
     }
 

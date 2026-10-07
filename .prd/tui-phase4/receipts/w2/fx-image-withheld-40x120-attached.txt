@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* images: attached image: wide.png
+
+┃ [Image 1]
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

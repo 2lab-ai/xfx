@@ -3393,6 +3393,75 @@ mod tests {
     }
 
     #[test]
+    fn a_reset_hands_to_scrollback_what_a_held_speed_save_said_before_it() {
+        // Upstream saves on the command's own thread and then says `* fast:
+        // on` (`applyFastMode`, `session_commands.zig:781-797`), so a `/clear`
+        // typed after `/fast` hands a screen that already holds it. Here the
+        // write is the band's writer's; the reset waits for it, writes what it
+        // held, and hands the old screen off only once those rows have
+        // landed -- the handoff's scroll carries them.
+        let mut shell = floating();
+        let mut band = Band::new();
+        shell.save_speeds_by_hand();
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: crate::provider::ProviderId::Gateway,
+            entries: vec![crate::provider::model::CatalogEntry {
+                // The model a session over an empty profile is in.
+                id: crate::config::DEFAULT_MODEL.to_string(),
+                aliases: Vec::new(),
+                name: None,
+                efforts: Vec::new(),
+                max_context: None,
+                facts: crate::provider::model::ModelFacts {
+                    fast: true,
+                    ..Default::default()
+                },
+            }],
+        });
+        committed(&mut shell, &mut band);
+        let before = shell.document_rows();
+
+        shell.route_bytes(b"/fast\r");
+        shell.deliver_speed_save(
+            1,
+            Some(super::super::notice::Notice::neutral(
+                "fast",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override",
+            )),
+        );
+        shell.route_bytes(b"/clear\r");
+        // The first frame lands the old screen's last rows and hands off
+        // nothing yet.
+        let landed = committed(&mut shell, &mut band);
+        let shadow_at = landed
+            .find("higher-precedence model=process_override")
+            .unwrap_or_else(|| panic!("the save's line was dropped: {landed:?}"));
+        // The notice's words are painted piece by piece.
+        let on_at = landed
+            .find("fast:\u{1b}[0m\u{1b}[38;5;250m on\u{1b}[0m")
+            .unwrap_or_else(|| panic!("the change was dropped: {landed:?}"));
+        assert!(shadow_at < on_at, "{landed:?}");
+        let welcome = super::super::shell::welcome_line(shell.palette());
+        assert!(!landed.contains(&welcome), "{landed:?}");
+        assert!(shell.owes_handoff());
+        let carried = shell.document_rows();
+        assert!(carried > before, "{before} -> {carried}");
+        // The next hands all of it off -- the save's rows with the rest --
+        // and the fresh screen starts on the welcome line.
+        let handed = committed(&mut shell, &mut band);
+        assert!(!shell.owes_handoff());
+        let scroll_at = handed
+            .find("\u{1b}[J\u{1b}[24;1H")
+            .unwrap_or_else(|| panic!("no handoff: {handed:?}"));
+        let welcome_at = handed
+            .find(&format!("\u{1b}[1;1H{welcome}"))
+            .unwrap_or_else(|| panic!("no welcome line: {handed:?}"));
+        assert!(scroll_at < welcome_at, "{handed:?}");
+        assert!(!handed.contains("fast:"), "written again: {handed:?}");
+    }
+
+    #[test]
     fn the_reset_vector_for_a_ten_row_document_on_a_24_row_screen() {
         // The report's own case, spelled out byte for byte. A floating band
         // under ten document rows sits on rows 11 to 13; the reset erases from
@@ -3444,7 +3513,6 @@ mod tests {
         Hydration {
             title: Some("first question alpha".to_string()),
             turns: vec![HydratedTurn {
-                user: "first question alpha".to_string(),
                 sent: "first question alpha".to_string(),
                 steps: vec![HydratedStep::Text("ALPHA answer line one.".to_string())],
                 ending: Ending::Concluded {

@@ -423,10 +423,16 @@ async fn run_ask(
     if let Some(recorder) = opened.recorder.as_mut() {
         let model_changed = recorder.state().model != model;
         let mode_changed = recorder.state().permission_mode != mode;
-        if model_changed || mode_changed {
+        // The provider too, so a later resume judges a restored Fast binding by
+        // the selection this one went on with (`restoredFastModeModelBound`,
+        // `app_session_runtime.zig:6318-6328`).
+        let provider = config.provider.label();
+        let provider_changed = recorder.state().provider.as_deref() != Some(provider);
+        if model_changed || mode_changed || provider_changed {
             recorder.commit(SessionEvent::PreferencesChanged {
                 model: model_changed.then(|| model.clone()),
                 permission_mode: mode_changed.then(|| mode.label().to_string()),
+                provider: provider_changed.then(|| provider.to_string()),
                 effort: None,
                 fast_mode: None,
                 ultrafast_mode: None,
@@ -604,6 +610,7 @@ fn open_session(
                     workspace_root: config.workspace_root.clone(),
                     model: config.model.clone(),
                     permission_mode: mode,
+                    provider: Some(config.provider),
                 },
             )?;
             Ok(OpenedSession {

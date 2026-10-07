@@ -749,7 +749,6 @@ pub(crate) fn inert_hydration(
                 // Image numbers and the paths the session's own store gave
                 // them, which nothing paints.
                 images: turn.images,
-                user: inert_owned(turn.user),
                 sent: inert_owned(turn.sent),
                 steps: turn.steps.into_iter().map(inert_step).collect(),
                 ending: turn.ending,
