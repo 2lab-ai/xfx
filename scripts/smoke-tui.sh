@@ -1137,6 +1137,11 @@ from socketserver import TCPServer
 # than hanging the whole run.
 HANG_TIMEOUT = 90.0
 
+# What a session-title request's instructions begin with (`src/tui/titles.rs`,
+# upstream's `instructions_text`, `vercel-labs/fx@c1db9191
+# src/core/session/session_title_generation.zig:23`).
+TITLE_INSTRUCTIONS = "Generate a short title for a conversation"
+
 
 def text_delta(stream_id, delta):
     return {"type": "text-delta", "id": stream_id, "delta": delta}
@@ -1482,6 +1487,7 @@ class Fixture:
         self.captured = []
         self.lock = threading.Lock()
         self.served = 0
+        self.title_requests = 0
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -1525,6 +1531,16 @@ class Fixture:
     def _answer(self, handler):
         length = int(handler.headers.get("content-length", "0"))
         body = handler.rfile.read(length).decode("utf-8", "replace")
+        if handler.command == "POST" and TITLE_INSTRUCTIONS in body:
+            # A fresh session's first prompt asks for the session's title
+            # beside its turn (`src/tui/titles.rs`). Not a turn, so not a
+            # step of any scenario's script: answered with a stream that has
+            # no text in it -- the session keeps the title its prompt gives
+            # it, which is what the scenarios read -- and kept apart, as
+            # `tests/support/fake_gateway.rs` keeps it.
+            with self.lock:
+                self.title_requests += 1
+            return self._stream(handler, {"events": [finish("stop")]})
         record = {
             "method": handler.command,
             "path": handler.path,

@@ -1250,6 +1250,15 @@ pub(crate) struct Shell {
     /// The title the running turn's prompt would give its session, held from
     /// the turn's start to its end ([`Self::title_session`]).
     turn_title: Option<String>,
+    /// Whether a turn of this conversation has ended -- upstream's history is
+    /// no longer empty then (`session_untitled`, `app_session_runtime.zig:3674-3675`),
+    /// and a prompt asks for no title ([`Self::asks_for_title`]).
+    turned: bool,
+    /// Whether [`Self::session_title`] is one the user gave with `/rename`:
+    /// a generated title that reaches the band after it changes nothing, as
+    /// upstream's finds the user's on record (`installGeneratedTitle`,
+    /// `session_title_generation.zig:378-394`).
+    titled_by_user: bool,
     /// Whether the band has not yet been told the window title the session
     /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
     /// carries one.
@@ -1840,6 +1849,11 @@ impl Shell {
         theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
+        // The profile's `session_titles`, in the one switch the runtime reads
+        // too: launched from the same configuration, so in a session this
+        // writes what is there already, and a handle a test built starts where
+        // the test's configuration says.
+        work.set_session_titles(config.session_titles);
         // The user's clipboard -- except in a shell a test built, which
         // reaches none unless the test hands it a fake one: typing `/copy`
         // in a case about something else must not be able to write the
@@ -2038,6 +2052,8 @@ impl Shell {
             prompts: VecDeque::new(),
             steers: Vec::new(),
             session_title: None,
+            turned: false,
+            titled_by_user: false,
             turn_title: None,
             title_owed: true,
             workspace: config.workspace_root.clone(),
@@ -2927,6 +2943,9 @@ impl Shell {
         // Past every image number the session's prompts already name, so a
         // new attachment's `[Image #N]` is never one of theirs.
         self.images_next = self.images_next.max(replay.next_image);
+        // A replayed session has had its turns: no prompt in it asks for a
+        // title, as upstream's resumed history is not empty.
+        self.turned = !replay.turns.is_empty();
         if wipe {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
@@ -3563,6 +3582,11 @@ impl Shell {
                 // (`postTurnEndHandler`). Owed once the answer is presented,
                 // which [`Self::settle_band`] notices.
                 self.sound.turn_ended(summary.is_some());
+                // A turn the runtime ran has ended, whichever way: upstream's
+                // history holds an interrupted turn too.
+                if self.tally.started.is_some() {
+                    self.turned = true;
+                }
                 self.tally.started = None;
                 // A turn this session stopped has already been answered for,
                 // at the keystroke: no summary under an answer that was cut
@@ -3676,6 +3700,15 @@ impl Shell {
             // A rename said nothing yet: the log has it now
             // (`app_commands.zig:3852-3857`).
             UiEvent::Renamed(title) => self.announce(renamed(&title)),
+            // A model named the session. The window and the status line take
+            // the title, and nothing is said about it.
+            UiEvent::SessionTitled(title) => {
+                let title = title.trim().to_string();
+                if !title.is_empty() && !self.titled_by_user {
+                    self.session_title = Some(title);
+                    self.retitle();
+                }
+            }
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -4275,6 +4308,7 @@ impl Shell {
                 .catalog_row(&self.model)
                 .is_some_and(|entry| entry.facts.ultrafast),
             permission_mode: self.mode,
+            session_titles: self.work.session_titles(),
             sound: self.sound.notifications(),
             startup_scrollback: self.startup_scrollback,
             prompt_history: self.recall.enabled,
@@ -4607,6 +4641,20 @@ impl Shell {
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
                     &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            // `applySettingsCatalogChange`'s `.session_titles`
+            // (`app_commands.zig:4149-4166`): in force at once -- for the next
+            // fresh session's first prompt, a title already asked for is not
+            // taken back -- then saved and announced.
+            Setting::SessionTitles => {
+                let changed = on != self.work.session_titles();
+                self.work.set_session_titles(on);
+                self.save_preference(
+                    settings::SESSION_TITLES_TOPIC,
+                    &[crate::config::SESSION_TITLES_KEY],
                     serde_json::Value::Bool(on),
                     changed,
                 );
@@ -4964,7 +5012,11 @@ impl Shell {
         let Some(id) = self.sessions.as_ref().and_then(SessionPicker::selected) else {
             return;
         };
-        match self.work.submit(TurnWork::Resume(id.clone())) {
+        // A switch, as a provider switch is: Escape can take the picker down
+        // before the runtime has resumed, and a prompt typed then waits for
+        // the resume before it asks about its title
+        // ([`super::worker::WorkHandle::submit_switch`]).
+        match self.work.submit_switch(TurnWork::Resume(id.clone())) {
             Ok(()) => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.resuming(id);
@@ -6377,7 +6429,9 @@ impl Shell {
             ));
             return;
         }
-        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
+        // A switch: a prompt submitted before the runtime has made it asks
+        // about its title only once it has ([`super::worker::WorkHandle::submit_switch`]).
+        if let Err(rejected) = self.work.submit_switch(TurnWork::Setup(provider)) {
             self.refused(rejected);
             return;
         }
@@ -9503,6 +9557,9 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // What a model would be asked to title the session from, if this is
+        // the prompt that asks ([`Self::asks_for_title`]).
+        let excerpt = super::titles::excerpt(&prompt).map(str::to_string);
         // The images whose badges the draft holds, in the order they stand:
         // what goes after the prompt's text on the wire.
         let images: Vec<crate::image::Image> = self
@@ -9526,6 +9583,13 @@ impl Shell {
         // (`sameTurnSteeringEligible`, `worker_runtime.zig:1109-1113`).
         if images.is_empty() && self.activity.working() && !self.cancelling {
             if let Some(id) = self.work.steer(prompt.clone()) {
+                // A steer asks too: upstream's steer is admitted through the
+                // same `snapshotPrompt` that asks for every prompt
+                // (`snapshotAndAdmitInteractivePromptWithSkillBindings`,
+                // `src/main.zig:1407-1420`, then `admitInteractivePrompt` ->
+                // `admitPrompt(.., steer_if_active = true)`,
+                // `worker_runtime.zig:966-968`, `:1064-1104`).
+                self.ask_for_title(excerpt.as_deref(), None);
                 self.take_draft();
                 self.edited(None);
                 self.steers.push((id, prompt, text.to_string()));
@@ -9554,6 +9618,7 @@ impl Shell {
         let waits = self.activity.working();
         match self.work.submit(work) {
             Ok(()) => {
+                self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
                 // (`super::worker::WORK_LIMIT`), and the band already says so
@@ -10037,6 +10102,7 @@ impl CommandHandlers for Shell {
             announced,
         });
         self.session_title = Some(title.clone());
+        self.titled_by_user = true;
         self.retitle();
         if announced {
             self.announce(renamed(&title));
@@ -10519,6 +10585,13 @@ impl CommandHandlers for Shell {
             outstanding: self.work.outstanding(),
             timeline,
             network,
+            // `## Session Title`: the switch, the title the window shows, and
+            // how asking a model for one stands.
+            title: crate::trace::TitleTrace {
+                setting: self.work.session_titles(),
+                title: self.session_title.clone(),
+                generation: self.work.title_generation(),
+            },
         };
         if !self.traces.start(job) {
             self.announce(notice::Notice::error("", crate::trace::UNAVAILABLE));
@@ -11234,6 +11307,11 @@ impl Shell {
         // new one.
         let through = self.work.accepted();
         self.work.control(TurnControl::Reset { through });
+        // After the reset is sent, so work the runtime takes before reading
+        // it is the old conversation's: a title asked about that one is
+        // cancelled now, as upstream clears its session at the keystroke, and
+        // one a prompt typed after this asks is the next one's.
+        self.work.new_title_lineage();
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
@@ -11367,6 +11445,9 @@ impl Shell {
                 self.gestures.turn_ended();
                 true
             }
+            // A title for the conversation the reset dropped: the session it
+            // names is in scrollback now, and the next one has none yet.
+            UiEvent::SessionTitled(_) => true,
             // A compaction the reset stopped: its sentence is about the
             // conversation that was dropped.
             UiEvent::Compaction(_) => {
@@ -11436,8 +11517,53 @@ impl Shell {
     /// conversation being dropped, and its end must not title the next one.
     fn forget_session_title(&mut self) {
         self.turn_title = None;
+        self.turned = false;
+        self.titled_by_user = false;
         if self.session_title.take().is_some() {
             self.retitle();
+        }
+    }
+
+    /// The band's half of upstream's gate for asking a model to title the
+    /// session (`shouldGenerate`, `vercel-labs/fx@c1db9191
+    /// src/core/session/session_title_generation.zig:40-46`, as
+    /// `maybeStartSessionTitleGeneration` assembles it,
+    /// `app_session_runtime.zig:3671-3678`): the session has no title yet --
+    /// none renamed, generated or derived, which is upstream's cached title
+    /// -- and no turn of it has ended. The switch, the provider and a
+    /// question already out are the desk's half ([`WorkHandle::ask_title`]).
+    fn asks_for_title(&self) -> bool {
+        self.session_title.is_none() && !self.turned
+    }
+
+    /// Asks for the session's title from a prompt the runtime has just taken
+    /// -- to run, to wait, or steered into the turn that runs -- when the gate
+    /// says this prompt is the one that asks. `at` is the prompt's position
+    /// in the runtime's queue, `None` for a steer.
+    ///
+    /// **At the keystroke**, as upstream's `snapshotPrompt` asks for every
+    /// prompt it hands its worker (`src/main.zig:1479-1481`), with the switch
+    /// as it stands now. On a thread of its own: the turn never waits for it
+    /// ([`super::titles`]). Not for a steer handed on as a prompt when its
+    /// turn ended without it, nor one sent back into the turn: neither is a
+    /// new submission, and upstream snapshots a prompt once.
+    ///
+    /// **Except behind a switch still to be made** -- a `/resume` or a
+    /// `/provider` the runtime has been handed and not yet done: what this
+    /// band shows is the conversation the prompt will *not* run in, so the
+    /// prompt is held for the runtime, which asks once it has made the switch,
+    /// of the conversation the prompt runs in -- as upstream holds a prompt
+    /// while its provider is prepared and asks when it finalizes it
+    /// (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`).
+    fn ask_for_title(&self, excerpt: Option<&str>, at: Option<usize>) {
+        let Some(excerpt) = excerpt else {
+            return;
+        };
+        if self.work.defer_title(excerpt, at) {
+            return;
+        }
+        if self.asks_for_title() {
+            self.work.ask_title(excerpt);
         }
     }
 
@@ -21869,6 +21995,267 @@ mod tests {
     }
 
     #[test]
+    fn a_generated_title_names_the_window_and_the_status_line_and_writes_nothing() {
+        // `pollSessionTitleGeneration` asks for a footer frame and writes no
+        // notice (`app_session_runtime.zig:3706-3779`, `src/main.zig:3141-3143`).
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.statusline.session = true;
+        turn_running(&mut shell, b"fix the renderer please\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        // Mid-turn, as the runtime sends it the moment it comes back.
+        shell.apply(UiEvent::SessionTitled("Fix the renderer".to_string()));
+        assert_eq!(shell.take_title().as_deref(), Some("Fix the renderer"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        assert!(
+            visible_text(&shell.hint_row()).contains("Fix the renderer"),
+            "{}",
+            visible_text(&shell.hint_row())
+        );
+        // The turn's end does not put the prompt's title back.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+        assert!(visible_text(&shell.hint_row()).contains("Fix the renderer"));
+    }
+
+    /// The fixture's desk, with somewhere to ask published as the runtime
+    /// publishes it, and answered by `answer` -- no network.
+    fn asking_desk(shell: &mut Fixture) -> super::super::titles::Answers {
+        asking_desk_answered(
+            shell,
+            super::super::titles::Outcome::Generated("Titled".to_string()),
+        )
+    }
+
+    /// [`asking_desk`], answered by `outcome`.
+    fn asking_desk_answered(
+        shell: &mut Fixture,
+        outcome: super::super::titles::Outcome,
+    ) -> super::super::titles::Answers {
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let credential = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                None,
+                std::collections::BTreeMap::from([(
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "fake-key-not-real".to_string(),
+                )]),
+            ),
+            workspace.path(),
+        )
+        .expect("a configuration")
+        .credential
+        .expect("a credential");
+        let (desk, answers) =
+            super::super::titles::TitleDesk::answering(true, move |_| outcome.clone());
+        desk.publish_asker(Some((
+            crate::gateway::Endpoint::resolve(Some("http://127.0.0.1:9/v4/ai/language-model"))
+                .expect("a loopback endpoint"),
+            credential,
+        )));
+        shell.work.titles_for_tests(desk);
+        answers
+    }
+
+    #[test]
+    fn a_fresh_sessions_first_prompt_asks_for_a_title_at_the_keystroke() {
+        // `snapshotPrompt` (`src/main.zig:1479-1481`): asked as the prompt is
+        // handed over, before its turn has started -- and, as the gate has it
+        // (`shouldGenerate`, `session_title_generation.zig:40-46`), not again
+        // while that question is out.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.route_bytes(b"fix the renderer\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("fix the renderer".to_string())
+        );
+        assert!(
+            shell.work.title_desk().running(),
+            "the first prompt asked for no title"
+        );
+        assert_eq!(shell.work.title_desk().lineage(), 0);
+    }
+
+    #[test]
+    fn a_prompt_asks_for_no_title_once_the_session_has_one_or_a_turn_has_ended() {
+        // The band's half of `session_untitled`
+        // (`app_session_runtime.zig:3674-3675`): the cached title is empty
+        // and the history is.
+        let mut titled = shell(24, 120);
+        let _answers = asking_desk(&mut titled);
+        titled.route_bytes(b"/rename Mine\r");
+        titled.route_bytes(b"fix the renderer\r");
+        let _ = titled.picks_up();
+        assert!(
+            !titled.work.title_desk().running(),
+            "a titled session asked"
+        );
+
+        // A first turn that ended -- interrupted too, as upstream's history
+        // holds an interrupted turn -- with no title given.
+        let mut turned = shell(24, 120);
+        let _answers = asking_desk(&mut turned);
+        turned.work.title_desk().set_on(false);
+        turn_running(&mut turned, b"first\r");
+        let _ = turned.picks_up();
+        turned.work.give_back();
+        turned.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: interrupted".to_string()),
+        });
+        turned.work.title_desk().set_on(true);
+        turned.route_bytes(b"second\r");
+        let _ = turned.picks_up();
+        assert!(
+            !turned.work.title_desk().running(),
+            "a session with a turn behind it asked"
+        );
+
+        // The switch, read at the keystroke.
+        let mut off = shell(24, 120);
+        let _answers = asking_desk(&mut off);
+        off.work.set_session_titles(false);
+        off.route_bytes(b"fix the renderer\r");
+        let _ = off.picks_up();
+        assert!(
+            !off.work.title_desk().running(),
+            "asked with the switch off"
+        );
+    }
+
+    #[test]
+    fn a_prompt_steered_into_the_first_turn_asks_when_no_title_came_back() {
+        // Upstream's steer is admitted through the same `snapshotPrompt` that
+        // asks for every prompt (`snapshotAndAdmitInteractivePromptWithSkillBindings`,
+        // `src/main.zig:1407-1420`, `:1479-1481`; then `admitInteractivePrompt`
+        // -> `admitPrompt(.., steer_if_active = true)`,
+        // `worker_runtime.zig:966-968`, `:1064-1104`), and its history is
+        // empty until the first turn ends: while the first prompt's question
+        // is out nothing more is asked, and once it came back with no title,
+        // a prompt steered into the first turn asks again.
+        let mut shell = shell(24, 120);
+        let mut answers = asking_desk_answered(
+            &mut shell,
+            super::super::titles::Outcome::Unavailable(super::super::titles::Unavailable::Empty),
+        );
+        turn_running(&mut shell, b"first prompt\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let steering = shell.work.steering();
+        steering.open();
+        assert!(shell.work.title_desk().running());
+        shell.route_bytes(b"while it runs\r");
+        assert!(steering.pending(), "the prompt was not steered");
+        // The first answer is read -- by the runtime, here by hand -- and it
+        // carried no title, so the band was told none.
+        let titled = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), answers.next())
+                    .await
+                    .expect("an answer")
+            });
+        assert_eq!(titled.title(), None);
+        assert!(shell.work.title_desk().settle(&titled));
+        assert!(!shell.work.title_desk().running());
+        shell.route_bytes(b"steered after the answer\r");
+        assert_eq!(
+            steering.take().len(),
+            2,
+            "the second prompt was not steered"
+        );
+        assert!(
+            shell.work.title_desk().running(),
+            "a prompt steered into a still-untitled first turn asked nothing"
+        );
+        let second = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), answers.next())
+                    .await
+                    .expect("an answer")
+            });
+        assert!(shell.work.title_desk().settle(&second));
+    }
+
+    #[test]
+    fn a_reset_moves_the_title_lineage_on_at_the_keystroke() {
+        // Upstream clears its session at `/new` before anything else is
+        // read. The question about the old one runs on to an answer that is
+        // dropped (`session_changed`, `app_session_runtime.zig:3720-3728`),
+        // and while it runs a prompt typed straight after asks nothing
+        // (`task_running`, `session_title_generation.zig:40-46`).
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.route_bytes(b"first\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        assert!(shell.work.title_desk().running());
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.work.title_desk().lineage(), 1);
+        assert!(
+            shell.work.title_desk().running(),
+            "the old conversation's question was stopped"
+        );
+        shell.route_bytes(b"straight away\r");
+        let _ = shell.picks_up();
+        assert_eq!(
+            shell.work.title_desk().generation().status,
+            crate::trace::TitleStatus::Running,
+            "the question out changed"
+        );
+    }
+
+    #[test]
+    fn a_generated_title_that_comes_after_a_rename_leaves_the_users_title_in_the_window() {
+        // Upstream writes a `/rename` at the keystroke, and a generated title
+        // that comes back after it finds a title of the user's on record and
+        // is dropped (`installGeneratedTitle`,
+        // `session_title_generation.zig:378-394`): the window keeps the
+        // user's. xfx's runtime writes a rename typed during a turn once the
+        // turn is over, so an answer can reach the band after it.
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        turn_running(&mut shell, b"fix the renderer\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/rename Mine\r");
+        assert_eq!(shell.session_title.as_deref(), Some("Mine"));
+        shell.apply(UiEvent::SessionTitled("Generated Title".to_string()));
+        assert_eq!(
+            shell.session_title.as_deref(),
+            Some("Mine"),
+            "a generated title replaced the user's"
+        );
+    }
+
+    #[test]
+    fn a_prompt_behind_a_provider_switch_asks_nothing_at_the_keystroke() {
+        // Upstream holds a prompt while its provider is prepared
+        // (`app_auth_runtime.zig:1840-1842`): the band hands the runtime the
+        // switch, and a prompt typed before it hears the switch was made is
+        // held for the runtime to ask from, of the conversation it runs in.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.switch_provider(ProviderId::Llmux);
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        shell.route_bytes(b"fix the renderer\r");
+        assert!(
+            !shell.work.title_desk().running(),
+            "asked of the conversation the switch drops"
+        );
+        assert_eq!(
+            shell.work.title_desk().worked_through(1).as_deref(),
+            Some("fix the renderer"),
+            "the prompt was not held for the runtime"
+        );
+    }
+
+    #[test]
     fn a_line_with_a_slash_that_does_not_lead_it_is_a_prompt() {
         // `classify` reads the *first* character, so this is a question about
         // paths and not a command at all.
@@ -23762,6 +24149,8 @@ mod tests {
         shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
         shell.apply(UiEvent::Output(Progress::Settled(40)));
         shell.apply(UiEvent::Usage { input: Some(9_000) });
+        // A generated title for the session the reset dropped.
+        shell.apply(UiEvent::SessionTitled("The dropped session".to_string()));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("xfx: interrupted".to_string()),
         });
@@ -31694,12 +32083,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 15);
+        assert_eq!(shell.geometry.panel, 16);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 13  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 14  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -31711,6 +32100,7 @@ mod tests {
                 "  Fast mode                off",
                 "  Ultra mode               off",
                 "  Permission mode          ask  auto  full access",
+                "  Session titles           off  on",
                 "  Sound level              off  on",
                 "  Startup scrollback       off  on",
                 "  Prompt history           off  on",
@@ -31833,6 +32223,7 @@ mod tests {
                 "  Fast mode           off".to_string(),
                 "  Ultra mode          off".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
+                "  Session titles      off  on".to_string(),
             ]
         );
         // Shift-Tab is the category back, and not the permission mode.
@@ -31860,8 +32251,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[15]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[15].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -31941,7 +32332,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 10);
+        down(&mut shell, 11);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.released(),
@@ -31955,7 +32346,41 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[12].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[13].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn right_on_session_titles_switches_them_saves_and_is_in_force_for_the_runtime() {
+        // `applySettingsCatalogChange`'s `.session_titles`
+        // (`app_commands.zig:4149-4166`): in force at once, saved, and
+        // announced as `persistUserPreferences` announces.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        assert!(shell.work.session_titles(), "upstream's default is on");
+        down(&mut shell, 10);
+        assert_eq!(
+            settings_text(&shell)[12],
+            "  Session titles           off  on"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(!shell.work.session_titles());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                settings::SESSION_TITLES_TOPIC,
+                interactive::STATUSLINE_SAVED
+            ))
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"session_titles\": false\n}\n"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(shell.work.session_titles());
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"session_titles\": true\n}\n"
+        );
     }
 
     #[test]
@@ -32137,8 +32562,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[15]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[15].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -32411,8 +32836,8 @@ mod tests {
         // with no `saved to user settings` line.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
-        down(&mut shell, 11);
-        assert!(visible_text(&menu(&shell)[13]).starts_with("  Startup scrollback"));
+        down(&mut shell, 12);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Startup scrollback"));
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -32422,10 +32847,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            settings_text(&shell)[13],
+            settings_text(&shell)[14],
             "  Startup scrollback       off  on"
         );
-        assert!(menu(&shell)[13].contains(&format!(
+        assert!(menu(&shell)[14].contains(&format!(
             "{}off{}",
             PALETTE.subtitle(),
             PALETTE.reset()

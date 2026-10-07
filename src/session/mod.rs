@@ -32,8 +32,8 @@ pub mod store;
 
 pub use event::{
     new_identifier, CancellationOrigin, EventEnvelope, FrameError, LineCounts, RecordedChange,
-    RecordedImage, RecordedToolCall, RequestUsage, SessionEvent, TerminalReason, ToolEnding,
-    TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
+    RecordedImage, RecordedToolCall, RequestUsage, SessionEvent, TerminalReason, TitleSource,
+    ToolEnding, TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
 };
 pub use store::{
     turn_messages, validate_title, workspace_key, Checkpoint, Clock, DurableState, HistoryTurn,
