@@ -21,12 +21,13 @@
 //! hook that restored for any thread would cook the terminal while the thread
 //! actually holding it still believed it was raw.
 //!
-//! **The runtime thread takes no signal from the UI thread.** It is spawned
-//! while [`super::signals::block_owned`]'s mask is still whole -- before
-//! `install` lifts the death signals -- so it inherits a mask with `SIGINT`,
-//! `SIGTERM`, `SIGHUP` and `SIGTSTP` blocked and can never be the thread the
-//! kernel picks to deliver one to. That was Task 3's standing constraint on
-//! whichever task added the process's second thread, and this is the task.
+//! **The runtime thread takes no signal from the UI thread.** It is started
+//! with every owned signal blocked ([`super::signals::spawn_unsignalled`]) --
+//! `SIGINT`, `SIGTERM`, `SIGHUP` and `SIGTSTP`, and the flag-setting
+//! `SIGCONT` and `SIGWINCH` with them -- so it, and every thread it starts,
+//! can never be the thread the kernel picks to deliver one to. That was Task
+//! 3's standing constraint on whichever task added the process's second
+//! thread, and `signals::release`'s safety argument rests on it.
 //!
 //! **Exactly one terminal event per turn.** `agent::machine` emits its
 //! conclusion *and* returns it (`machine.rs:334-345`); the sink drops the
@@ -896,11 +897,23 @@ impl Drop for Finished {
     }
 }
 
+/// One runtime thread, and its owned signals with whether each was blocked.
+#[cfg(test)]
+type ThreadMask = (std::thread::ThreadId, Vec<(libc::c_int, bool)>);
+
+/// Each runtime thread's owned-signal mask as the thread itself read it, the
+/// first thing it did: what a case looks up by the thread's id.
+#[cfg(test)]
+static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
+
 /// Starts the runtime thread, and hands back the channel the UI reads.
 ///
-/// **Called while the owned signals are still blocked**, so the thread inherits
-/// a mask in which none of them can be delivered to it. `hold` does that by
-/// calling this before [`super::signals::install`] consumes the block.
+/// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
+/// so none can be delivered to it -- nor to the threads it starts, its runtime's
+/// blocking pool and the bills it asks for ([`super::reconcile`]) included --
+/// and every handler runs on the UI thread, as `signals::release` requires.
+/// `hold` calls this before [`super::signals::install`] as well, which is the
+/// order its own startup needs; the mask no longer depends on it.
 ///
 /// The session store is opened *here*, on the calling thread, rather than
 /// lazily inside the first turn: "xfx cannot write here" is a fact about the
@@ -966,51 +979,57 @@ pub(crate) fn spawn(
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
     let session_cancel = cancel.clone();
-    let thread = std::thread::Builder::new()
-        .name(THREAD_NAME.to_string())
-        .spawn(move || {
-            // Declared first so it is dropped **last**: the flag must be set
-            // after the sender below has gone, or the UI could join a thread
-            // whose channel has not closed yet and wait out its own deadline
-            // for a message that will never come.
-            let _done = Finished(done);
-            let events_tx = events_tx;
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                // Nothing can run. Say so through the one channel the UI reads.
-                fatal_before_the_runtime(&events_tx, NO_RUNTIME);
-                return None;
-            };
-            let mut state = Runtime::new(config, store, prompter, questioner);
-            state.reply = loops_reply;
-            state.grants = publishes_grants;
-            state.saved_rules = publishes_saved_rules;
-            state.live = loops_live;
-            state.rules = loops_rules;
-            state.spend = publishes_spend;
-            state.credits = publishes_credits;
-            if let Some(resumed) = resumed {
-                state.resume(resumed, &session_cancel.mirror());
-                state.ask_for_bills();
-                // A resumed conversation's last reply is `/copy`'s from the
-                // start, as fx's hydrated history is (`session.zig:2067-2079`).
-                state.publish_reply();
-            }
-            // `/status` reads the resumed conversation's counts from the start
-            // too: `publishing_to` publishes what the runtime is now.
-            let state = state.publishing_to(publishes);
-            runtime.block_on(turn_loop(
-                state,
-                &events_tx,
-                &mut work_rx,
-                &mut permissions_rx,
-                control,
-                session_cancel,
-                &loops_outstanding,
-            ))
-        })?;
+    let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+        #[cfg(test)]
+        RUNTIME_MASKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                std::thread::current().id(),
+                super::signals::owned_blocked_here(),
+            ));
+        // Declared first so it is dropped **last**: the flag must be set
+        // after the sender below has gone, or the UI could join a thread
+        // whose channel has not closed yet and wait out its own deadline
+        // for a message that will never come.
+        let _done = Finished(done);
+        let events_tx = events_tx;
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            // Nothing can run. Say so through the one channel the UI reads.
+            fatal_before_the_runtime(&events_tx, NO_RUNTIME);
+            return None;
+        };
+        let mut state = Runtime::new(config, store, prompter, questioner);
+        state.reply = loops_reply;
+        state.grants = publishes_grants;
+        state.saved_rules = publishes_saved_rules;
+        state.live = loops_live;
+        state.rules = loops_rules;
+        state.spend = publishes_spend;
+        state.credits = publishes_credits;
+        if let Some(resumed) = resumed {
+            state.resume(resumed, &session_cancel.mirror());
+            state.ask_for_bills();
+            // A resumed conversation's last reply is `/copy`'s from the
+            // start, as fx's hydrated history is (`session.zig:2067-2079`).
+            state.publish_reply();
+        }
+        // `/status` reads the resumed conversation's counts from the start
+        // too: `publishing_to` publishes what the runtime is now.
+        let state = state.publishing_to(publishes);
+        runtime.block_on(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut permissions_rx,
+            control,
+            session_cancel,
+            &loops_outstanding,
+        ))
+    })?;
     Ok((
         Worker {
             thread: Some(thread),
@@ -5359,6 +5378,52 @@ mod tests {
             .detail(&crate::session::Selector::Id(session), workspace.path())
             .expect("the log reads back");
         assert_eq!(detail.state.usage.requests[0], *settled);
+    }
+
+    /// `signals::release`'s argument is that no handler runs off the UI
+    /// thread, so the runtime thread is started with **every** owned signal
+    /// blocked -- the four whose default ends or stops the process and the
+    /// two whose handlers only set a flag -- read back by the thread itself.
+    /// Started here from a test thread that blocks nothing, so what it has is
+    /// what its own start gave it, not what it inherited.
+    #[test]
+    fn the_runtime_thread_is_started_with_every_owned_signal_blocked() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let (mut worker, mut events) = spawn(
+            config(home.path(), workspace.path()),
+            Cancellation::new(CancelToken::new()),
+            None,
+        )
+        .expect("a runtime");
+        let id = worker
+            .thread
+            .as_ref()
+            .expect("the thread is held")
+            .thread()
+            .id();
+        let deadline = Instant::now() + TEST_DRAIN;
+        let mask = loop {
+            let found = RUNTIME_MASKS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|(thread, _)| *thread == id)
+                .map(|(_, mask)| mask.clone());
+            if let Some(mask) = found {
+                break mask;
+            }
+            assert!(Instant::now() < deadline, "the runtime never started");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert_eq!(mask.len(), 6, "{mask:?}");
+        for (signal, blocked) in mask {
+            assert!(
+                blocked,
+                "signal {signal} is deliverable on the runtime thread"
+            );
+        }
     }
 
     #[test]

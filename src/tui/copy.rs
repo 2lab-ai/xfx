@@ -14,11 +14,10 @@
 //! **And none of those threads outlives the session** ([`Errands`]): when the
 //! shell is dropped -- inside `super::hold`, ahead of `super::signals::release`
 //! and the restore's last steps -- a copy still running is given a moment to
-//! land, then its tool is killed, and its thread is joined. The thread is
-//! spawned from the UI thread outside a wait, so the death signals are
-//! deliverable to it while it lives, and `release`'s safety argument is that
-//! no handler is running anywhere but on the UI thread when the dispositions go
-//! back (the reason `super::sound`'s writer is joined there too).
+//! land, then its tool is killed, and its thread is joined, so no tool of the
+//! session is still writing a clipboard once the session is over. Each thread
+//! is started with every owned signal blocked
+//! ([`super::signals::spawn_unsignalled`]), so no handler ever runs on it.
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -67,10 +66,7 @@ impl Errands {
     pub(crate) fn spawn(&self, name: &str, work: impl FnOnce(&Stop) + Send + 'static) -> bool {
         let stop = Stop::default();
         let theirs = stop.clone();
-        let Ok(thread) = std::thread::Builder::new()
-            .name(name.to_string())
-            .spawn(move || work(&theirs))
-        else {
+        let Ok(thread) = super::signals::spawn_unsignalled(name, move || work(&theirs)) else {
             return false;
         };
         let mut running = self.lock();

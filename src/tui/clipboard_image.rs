@@ -49,13 +49,11 @@ impl ClipboardReads {
     pub(crate) fn start(&self) -> bool {
         let clipboard = self.clipboard.clone();
         let done = self.done.clone();
-        std::thread::Builder::new()
-            .name(THREAD_NAME.to_string())
-            .spawn(move || {
-                // Nobody left to tell is a session that has ended.
-                let _ = done.send(clipboard.read_image());
-            })
-            .is_ok()
+        super::signals::spawn_unsignalled(THREAD_NAME, move || {
+            // Nobody left to tell is a session that has ended.
+            let _ = done.send(clipboard.read_image());
+        })
+        .is_ok()
     }
 
     /// What one read that has finished found, or `None` when none has

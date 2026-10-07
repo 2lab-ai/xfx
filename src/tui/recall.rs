@@ -204,9 +204,8 @@ impl Recall {
 }
 
 impl Drop for Recall {
-    /// Lets the lines in flight land before the session is gone, and the
-    /// thread end before the signal handlers do -- [`super::sound`]'s `Drop`,
-    /// for the reasons it gives.
+    /// Lets the lines in flight land before the session is gone --
+    /// [`super::sound`]'s `Drop`, for the reasons it gives.
     fn drop(&mut self) {
         if let Some(Writer { lines, thread }) = self.writer.take() {
             drop(lines);
@@ -225,19 +224,17 @@ fn spawn_writer(
     #[cfg(test)] in_flight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> Result<Writer, String> {
     let (lines, received) = mpsc::channel::<Line>();
-    let thread = std::thread::Builder::new()
-        .name(THREAD_NAME.to_string())
-        .spawn(move || {
-            for line in received {
-                let outcome = store
-                    .append(line.timestamp_ms, &workspace, &line.text)
-                    .map_or_else(|err| err.to_string(), |_| String::new());
-                // Nobody left to tell is a session that has ended.
-                let _ = done.send(outcome);
-                #[cfg(test)]
-                in_flight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            }
-        })
-        .map_err(|err| format!("no thread to save input history with: {err}"))?;
+    let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+        for line in received {
+            let outcome = store
+                .append(line.timestamp_ms, &workspace, &line.text)
+                .map_or_else(|err| err.to_string(), |_| String::new());
+            // Nobody left to tell is a session that has ended.
+            let _ = done.send(outcome);
+            #[cfg(test)]
+            in_flight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    })
+    .map_err(|err| format!("no thread to save input history with: {err}"))?;
     Ok(Writer { lines, thread })
 }
