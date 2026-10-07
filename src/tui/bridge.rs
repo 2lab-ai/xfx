@@ -622,7 +622,19 @@ impl UiEvent {
                     tool: asked.request.tool,
                     target: inert_owned(asked.request.target),
                     summary: inert_owned(asked.request.summary),
-                    always_scope: inert_owned(asked.request.always_scope),
+                    // What `2` would grant quotes the command, so for a command
+                    // it is spelled as the command is (below): the panel shows
+                    // one command in one spelling, above the choices and under
+                    // them. Everything else in the sentence is printable text
+                    // the spelling leaves as it is.
+                    always_scope: if matches!(
+                        asked.request.subject,
+                        ApprovalSubject::Command { .. }
+                    ) {
+                        super::approval_view::command_text(&asked.request.always_scope)
+                    } else {
+                        inert_owned(asked.request.always_scope)
+                    },
                     // Where the window sits is two numbers this crate counted,
                     // so it crosses as it was.
                     diff: asked.request.diff.map(|diff| ApprovalDiff {
@@ -2315,7 +2327,9 @@ mod tests {
                     tool: "write",
                     target: " [2Jsrc/main.rs".into(),
                     summary: "write  [2Jsomething".into(),
-                    always_scope: " [2Jsrc".into(),
+                    // A command's grant quotes the command, so it is spelled
+                    // as the command is.
+                    always_scope: "\\x1b[2Jsrc".into(),
                     diff: Some(ApprovalDiff {
                         before: " [2Jold".into(),
                         after: " ]0;new ".into(),
@@ -2417,6 +2431,44 @@ mod tests {
             UiEvent::RenameUnsaved("a\x1b[2Jb".into()).made_inert(),
             UiEvent::RenameUnsaved("a [2Jb".into())
         );
+    }
+
+    #[test]
+    fn a_commands_grant_is_spelled_as_its_command_and_a_files_is_blanked() {
+        // One panel, one spelling of the command: the rows under `$` and the
+        // `2 = ...` grant that quotes it. A file's grant keeps `inert`'s.
+        let asked = |subject| {
+            UiEvent::Approval(super::super::approval::ApprovalAsked {
+                id: super::super::approval_readiness::ApprovalId(1),
+                request: ApprovalRequest {
+                    tool: "terminal",
+                    target: "t".into(),
+                    summary: "s".into(),
+                    always_scope: "allow `a\x1b[2Jb\r`".into(),
+                    diff: None,
+                    subject,
+                },
+            })
+            .made_inert()
+        };
+        let UiEvent::Approval(command) = asked(ApprovalSubject::Command {
+            command: "a\x1b[2Jb\r".into(),
+            cwd: ".".into(),
+        }) else {
+            panic!("an approval stayed an approval");
+        };
+        assert_eq!(command.request.always_scope, "allow `a\\x1b[2Jb\\x0d`");
+        let ApprovalSubject::Command {
+            command: spelled, ..
+        } = &command.request.subject
+        else {
+            panic!("a command stayed a command");
+        };
+        assert!(command.request.always_scope.contains(spelled.as_str()));
+        let UiEvent::Approval(file) = asked(ApprovalSubject::Path("a.txt".into())) else {
+            panic!("an approval stayed an approval");
+        };
+        assert_eq!(file.request.always_scope, "allow `a [2Jb\r`");
     }
 
     #[test]
