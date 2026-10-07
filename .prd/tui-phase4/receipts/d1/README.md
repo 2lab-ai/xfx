@@ -17,6 +17,7 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> <size>
 | `resume-launch.cap` | 40x120 | Two turns, `/quit`, then the binary again on the latest session, and a third turn in it. |
 | `resume-tools.cap` | 40x120 | The F1 tool-group turns in `ask` mode (`toolgroup-*.json`, `toolgroup-ws`): a group with every outcome form (Read, Matched, Searched, Ran, `Edited a.txt +1 / -1`, `Denied file`, `Failed missing.txt`, `Exited 3`), the closing answer and its summary; a turn stopped with Escape at a write's approval; a turn stopped with Ctrl-C while `sleep 4` runs. Ctrl-O on the live session, paged up to its first call (`live-ctrl-o`, `-up1` … `-up3`); then `/new`, `/resume`, Enter, and Ctrl-O on the replay, paged up to the resume notice (`ctrl-o`, `-up1`, `-up2`). |
 | `resume-paging.cap` | 24x80 | Eighteen sessions (`question one` ... `question eighteen`), then `/resume`: the first page (seventeen), Down fourteen, fifteen, sixteen (the last loaded session -- the next page loads), seventeen; Tab; Shift-Tab and `ve`; Down three. |
+| `read-failures.cap` | 40x120 | One turn of four failed calls (`read-failures-turns.json`, `toolgroup-ws`): `read_file` on the directory `src`, `read_file` on `  missing.txt  ` (spaces kept), `glob_files` and `grep_files` under the missing root `nope`; the rows, Ctrl-O paged up, then `/new`, `/resume` and Ctrl-O again; `gwlog` keeps what the model was sent. |
 | `rename-midturn.cap` | 40x120 | A turn that streams ten chunks half a second apart; `/rename Counted mid turn` while it streams; the screen and the window title then, after the turn, and on a relaunch on the latest session. |
 
 Turns are `scenarios/resume-turns.json`, `slow-line-turn.json`, the F1
@@ -44,6 +45,31 @@ Re-checked at the end of the round on `afd5c83` (plan `b887a7f`): xfx's
 `resume`, `resume-tools`, `resume-paging` and `rename-midturn` retaken, and
 every snap is the receipt's but for session ids, wall-clock stamps and
 seconds, and how many tokens had streamed at the snap.
+
+Round 5 (on `13ad255` with the full-transcript wrap that followed it, plan
+`20d1482` merged; banner `v0.1.0-13ad255`): `read-failures` taken on both
+and `resume-tools` retaken on both, at load averages of 40-65 (the batch's
+builds) -- every take checked for its prompts, a failed check retaken. With
+the clock, the run directory and the request times masked, `read-failures`'s
+`live`, `live-ctrl-o`, `resumed`, `ctrl-o` and `ctrl-o-up1` are **identical**:
+`Failed src` with no reason and the `tool_execution_failed` envelope whole in
+Ctrl-O, broken at the screen's edge mid-word as fx breaks it; `Failed
+missing.txt  : Path not found: missing.txt` with the argument's spaces
+kept on the row and in Ctrl-O's `Path not found:   missing.txt`; `Failed *.rs:
+Path not found: nope` and `Failed alpha: Path not found: nope`. The model was
+sent the same four texts on both (`*-read-failures-40x120-bodies`), the
+envelope with the absolute target. `live-ctrl-o-up1` differs only in the
+session record (F5's row #2). The envelope rows name the run's own
+temporary directory (`/private/tmp/claude-501/fxcap.*`): it is in what the
+model was sent, and replacing it would move the breaks being compared.
+`resume-tools`: `end`, `again-stopped`, `resumed` and `ctrl-o-up2` are
+identical masked; the live Ctrl-O's stopped `sleep 4` is `└ Cancelled sleep
+4` / `│ signal 15` on both; the replayed stamps are fx's on both -- the notice
+at the resume, the Prompt and first Response at the turn's start, every call,
+the Response, the Usage and both stopped turns' Prompts at its conclusion
+(fx `04:31:54.420`, xfx `04:32:45.328` on all of them). What still differs
+is fx's `shell` schema's two argument rows and the edit tool's own result
+line.
 
 Round 4 (on `aed4475`, round 4 with F4 `e17dd02` merged; banner
 `v0.1.0-aed4475`): `resume-tools` retaken on both, the whole set replaced,

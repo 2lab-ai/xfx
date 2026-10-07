@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-13ad255 [debug] · Run /help for commands
+
+┃ read them
+
+  Reading.
+
+● 4 tool calls · 3 read · 1 list · 4 failed
+├ Failed src
+├ Failed   missing.txt  : Path not found: missing.txt
+├ Failed *.rs: Path not found: nope
+└ Failed alpha: Path not found: nope
+
+  Done.
+
+  0s (↑2 ↓80)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
