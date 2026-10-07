@@ -639,6 +639,14 @@ pub(crate) struct Shell {
     /// reaches the screen converges on dark and costs nothing -- which a debt
     /// remembering an old-to-new pair could not do.
     retint_debt: bool,
+    /// Whether the tool groups still on the screen are owed a collapse:
+    /// `Collapse tool calls` was switched on, and the rows each group's calls
+    /// took are still there ([`super::frame::Band::collapse_groups`]). A debt
+    /// for the reason [`Self::retint_debt`] is one -- the paint tick is the one
+    /// writer -- and dropped wherever that one is, for the same reasons: rows
+    /// that are erased, re-wrapped or on their way into scrollback are not
+    /// this session's to move.
+    collapse_debt: bool,
     /// Whether something that is not the band has written on the screen and
     /// the band has not been told yet.
     ///
@@ -1090,6 +1098,11 @@ pub(crate) struct Shell {
     /// Whether a tool group is drawn as its header alone: the profile's
     /// `collapse_tool_calls` at launch, and `/settings` since.
     collapse_tool_calls: bool,
+    /// What the profile says the next launch does with the shell's output:
+    /// `startup_scrollback` as this launch read it, and as `/settings` has
+    /// written it since. Not what this launch did -- that was settled before
+    /// the shell existed (`super::launch_origin`).
+    startup_scrollback: bool,
     /// Whether submitted lines are kept, where, and the thread that writes
     /// them down ([`super::recall`]).
     recall: Recall,
@@ -1615,6 +1628,13 @@ impl Tally {
     }
 }
 
+/// `/rename`'s `* session: renamed to "…"` (`app_commands.zig:3852-3857`),
+/// said by the shell while work runs and on the runtime's word otherwise
+/// ([`UiEvent::Renamed`]).
+fn renamed(title: &str) -> notice::Notice {
+    notice::Notice::neutral("session", format!("renamed to \"{title}\""))
+}
+
 /// A turn's summary row: how long it took, and the tokens it moved when it
 /// moved any (`transcript/runtime.zig:540-547`). A live turn's and a replayed
 /// one's are this one function, so a resumed screen says what the live one
@@ -1809,6 +1829,7 @@ impl Shell {
             // Nothing on the screen to recolour, and nothing the band has not
             // been told: a session that has painted nothing has neither.
             retint_debt: false,
+            collapse_debt: false,
             damage_untold: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
@@ -1923,6 +1944,7 @@ impl Shell {
             settings_menu: None,
             slash_menu_categories: config.slash_menu_categories,
             collapse_tool_calls: config.collapse_tool_calls,
+            startup_scrollback: config.startup_scrollback,
             recall: Recall::new(
                 config.prompt_history,
                 history_store,
@@ -2830,6 +2852,7 @@ impl Shell {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
             self.retint_debt = false;
+            self.collapse_debt = false;
             self.handoff = None;
             self.wipe = true;
             self.transcript = Transcript::new(self.geometry.cols);
@@ -2850,10 +2873,19 @@ impl Shell {
             self.settings = settings;
             self.fast_bound = self.fast_bound && replay.keeps_fast_binding;
         }
+        // Upstream's projection starts stamped with the moment of the resume
+        // (`beginResumeProjection`, `main.zig:1366-1372`) and keeps whatever
+        // stamp it was last given (`ResumeProjection.setCreatedAtMs`,
+        // `resume_projection.zig:76-78`): the notice and any turn before the
+        // first one with a summary carry the resume, and a turn with no
+        // summary carries the one before's conclusion.
+        let mut stamp = self.full.now();
+        self.full.stamp_with(Some(stamp));
         self.resumed(replay.title);
         for turn in replay.turns {
-            self.replay_turn(turn);
+            stamp = self.replay_turn(turn, stamp);
         }
+        self.full.stamp_with(None);
         self.render.request(Reason::Footer);
     }
 
@@ -2865,10 +2897,22 @@ impl Shell {
     /// screen never shows -- each call's arguments and whole result -- before
     /// them, to wait for their rows ([`full_transcript::details_of`]). Its
     /// entries carry the log's times, as upstream's replay stamps them
-    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`): the turn's
-    /// start for the card and what it did on the way, its conclusion for the
-    /// answer after its last call and the summary.
-    fn replay_turn(&mut self, turn: HydratedTurn) {
+    /// (`replayHistoryToSinkIncremental`'s `setCreatedAtMs`,
+    /// `app_session_runtime.zig:4753-4810`, which the TUI's resume sink passes
+    /// on -- `DetachedHistorySink`, `:4272-4274`, into `ResumeProjection`,
+    /// `resume_projection.zig:76-78` -- rather than the no-op of the sink it
+    /// does not take, `:3972`). A turn with a summary -- one that concluded:
+    /// upstream gives one to its finished turns only (`setHistoryTurnSummary`,
+    /// `orchestrator.zig:9267`, `:12313`, `finalization.zig:194`, each an
+    /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
+    /// carries its start on the card and what it did on the way, and its
+    /// conclusion on the answer after its last call and the summary. Any other
+    /// carries `carried`, the stamp the replay had reached, throughout. A
+    /// call's entry carries its result's own time where the log has one
+    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
+    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
+    /// turn is to carry.
+    fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
             // handed over without crossing it.
@@ -2877,9 +2921,17 @@ impl Shell {
                 detail: detail.made_inert(),
             });
         }
-        // A turn the log has no conclusion for keeps its start throughout.
-        let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
-        self.full.stamp_with(Some(turn.started_at_ms));
+        let summarized = matches!(turn.ending, Ending::Concluded { .. });
+        let (started, concluded) = if summarized {
+            (
+                turn.started_at_ms,
+                turn.concluded_at_ms.unwrap_or(turn.started_at_ms),
+            )
+        } else {
+            (carried, carried)
+        };
+        self.full.stamp_with(Some(started));
+        self.full.replay(true);
         let concluding = turn
             .steps
             .iter()
@@ -2897,20 +2949,22 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown } => {
+                HydratedStep::ToolStart { id, shown, at_ms } => {
+                    self.full.stamp_call(at_ms);
                     self.run_mark(Mark::ToolStart { id, shown });
+                    self.full.stamp_call(None);
                 }
                 HydratedStep::ToolResult {
                     id,
                     ok,
-                    detail,
                     outcome,
+                    changes,
                 } => self.run_mark(Mark::ToolResult {
                     id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    detail: String::new(),
                     outcome,
-                    changes: None,
+                    changes,
                 }),
                 HydratedStep::Feedback(text) => self.run_mark(Mark::Line(
                     format!(
@@ -2940,16 +2994,24 @@ impl Shell {
                     output,
                 )));
             }
-            // The sentence the live turn ended on, as its conclusion showed it.
-            Ending::Interrupted(reason) => {
-                self.run_mark(Mark::Notice(notice::Notice::error(
-                    "system",
-                    unattributed(&reason),
-                )));
+            // Upstream's line for a stopped turn, the live one's
+            // ([`cancelled_line`]), as a block so the full transcript records
+            // it as upstream's replay does, and recorded as a stopped row so a
+            // theme report repaints its two greys.
+            Ending::Cancelled => self.run_mark(Mark::Block(vec![(
+                cancelled_line(self.palette),
+                DocumentRow::ToolStopped,
+            )])),
+            // And for one that failed, whatever the live turn's sentence was.
+            Ending::Failed => {
+                self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
             }
-            Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
+            // The card alone: nothing after a stop the compaction took, as
+            // nothing reached the log of a turn that never concluded.
+            Ending::CompactionCancelled | Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
-        self.full.stamp_with(None);
+        self.full.replay(false);
+        concluded
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -3508,17 +3570,18 @@ impl Shell {
             }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
-            UiEvent::Renamed { title, unsaved } => {
-                self.session_title = Some(title.clone());
-                self.retitle();
-                self.announce(match unsaved {
-                    None => notice::Notice::neutral("session", format!("renamed to \"{title}\"")),
-                    Some(problem) => notice::Notice::warning(
-                        "session",
-                        format!("renamed for this process but not saved ({problem})"),
-                    ),
-                });
+            // A title already applied that the log would not take: the
+            // title stays this process's, and the warning says so
+            // (`app_commands.zig:3833-3846`).
+            UiEvent::RenameUnsaved(problem) => {
+                self.announce(notice::Notice::warning(
+                    "session",
+                    format!("renamed for this process but not saved ({problem})"),
+                ));
             }
+            // A rename said nothing yet: the log has it now
+            // (`app_commands.zig:3852-3857`).
+            UiEvent::Renamed(title) => self.announce(renamed(&title)),
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -4108,9 +4171,24 @@ impl Shell {
             model: &self.model,
             effort: self.settings.effort.display(),
             efforts: self.model_levels(),
+            fast: self.settings.fast,
+            ultrafast: self.settings.ultrafast,
+            // `resolvedModelCapabilities`' speeds: the catalog row's, and
+            // none for a model it does not list or before it is read
+            // (`settingsCatalogSnapshot`, `app_commands.zig:4031-4047`).
+            offers_fast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.fast),
+            offers_ultrafast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.ultrafast),
             permission_mode: self.mode,
             sound: self.sound.notifications(),
+            startup_scrollback: self.startup_scrollback,
             prompt_history: self.recall.enabled,
+            // `/model`'s menu beside the settings menu is the Model row's
+            // list: nothing else opens one while the settings menu is up.
+            models: self.model_menu.as_ref(),
         }
     }
 
@@ -4136,10 +4214,20 @@ impl Shell {
     /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
-    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens `/model`'s
-    /// menu and Left does nothing; Enter opens `/model`'s menu on `Model` and
-    /// is spent on every other row; Escape closes the menu and empties its
-    /// search.
+    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
+    /// of models under it and Left does nothing; Enter opens the list on
+    /// `Model` and is spent on every other row; Escape closes the menu and
+    /// empties its search.
+    ///
+    /// **With the list open** the keys are its (`:2489-2552`;
+    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:415-440`): Up
+    /// and Down move its mark, Left and Enter use the marked model and close
+    /// it, Right does nothing, Tab and Shift-Tab close it with the tab change
+    /// (`cycleSettingsMenuCategory`, `app_input_runtime.zig:3014-3018`).
+    /// Escape closes the settings menu and only that
+    /// (`cancelSettingsMenu` is asked first, `:3146`), so the list is left up
+    /// as `/model`'s menu -- upstream's own screen
+    /// (`fx-settings-model-40x120-esc`).
     fn offer_to_settings(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
             return false;
@@ -4153,12 +4241,19 @@ impl Shell {
             return false;
         };
         let snapshot = self.settings_snapshot();
+        let listing = snapshot.models.is_some();
         let mut change = None;
         let mut models = false;
+        let mut use_model = false;
+        let mut step_models = None;
         let mut close = false;
         let mut refit = false;
         let mut repaint = false;
         match request {
+            SettingsAction::Up | SettingsAction::Down if listing => {
+                let visible = menu.visible_models(&snapshot, self.geometry.panel);
+                step_models = Some((request == SettingsAction::Down, visible));
+            }
             SettingsAction::Up | SettingsAction::Down => {
                 let visible = menu.visible_items(&snapshot, self.geometry.panel);
                 repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
@@ -4169,12 +4264,15 @@ impl Shell {
             }
             SettingsAction::Previous | SettingsAction::Next => {
                 let forward = request == SettingsAction::Next;
-                if menu.selected(&snapshot) == Some(Setting::Model) {
+                if listing {
+                    use_model = !forward;
+                } else if menu.selected(&snapshot) == Some(Setting::Model) {
                     models = forward;
                 } else {
                     change = menu.change(forward, &snapshot);
                 }
             }
+            SettingsAction::Open if listing => use_model = true,
             SettingsAction::Open => {
                 models = menu.selected(&snapshot) == Some(Setting::Model);
             }
@@ -4185,8 +4283,26 @@ impl Shell {
             self.close_settings();
             return true;
         }
+        if let Some((down, visible)) = step_models {
+            if let Some(list) = self.model_menu.as_mut() {
+                if list.step_by(if down { 1 } else { -1 }, visible.max(1)) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            return true;
+        }
+        if matches!(
+            request,
+            SettingsAction::NextCategory | SettingsAction::PreviousCategory
+        ) {
+            self.model_menu = None;
+        }
         if models {
-            self.open_models_from_settings();
+            self.open_settings_models();
+            return true;
+        }
+        if use_model {
+            self.use_settings_model();
             return true;
         }
         if let Some(change) = change {
@@ -4285,18 +4401,46 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
-    /// The `Model` row's Enter or Right: `/model`'s menu, as a bare `/model`
-    /// opens it -- the settings menu closed and its search emptied first, so
-    /// what was typed to find the row is not taken for a model's name.
-    ///
-    /// Upstream opens an inline list of models **under the row**, inside the
-    /// settings menu, and Left in it applies the marked one
-    /// (`settings_menu_presentation.zig:15-19`, `:277-310`,
-    /// `app_input_runtime.zig:2489-2529`); this opens the menu `/model` opens,
-    /// which lists the same catalog and applies a model the same way.
-    fn open_models_from_settings(&mut self) {
-        self.close_settings();
-        self.open_models();
+    /// The `Model` row's Enter or Right: `/model`'s menu, opened **under the
+    /// row** and inside the settings menu, with nothing searched for yet --
+    /// what was typed to find the row is not a model's name (`openMenu`'s
+    /// fresh menu, `model_cache_runtime.zig:529-539`; asked from
+    /// `changeSettingsMenuSelection` and `submitSettingsMenuSelection`,
+    /// `app_input_runtime.zig:2489-2552`).
+    fn open_settings_models(&mut self) {
+        self.open_models_with("");
+    }
+
+    /// The list's Left or Enter: the marked model, chosen as a picker chooses
+    /// one, and the list closed with the settings menu still up
+    /// (`applyInlineSettingsModelSelection`, `app_input_runtime.zig:2516-2529`
+    /// -> `selectModelFromPicker` with the session's effort,
+    /// `session_commands.zig:886-915`). Nothing listed yet is nothing to use,
+    /// and the list stays.
+    fn use_settings_model(&mut self) {
+        let Some(id) = self
+            .model_menu
+            .as_ref()
+            .and_then(ModelMenu::selected)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        self.model_menu = None;
+        // `selectModelFromPicker(app, selected, app.effort, app.fast_mode,
+        // false)`: the session's Fast mode, no Ultra -- a picker's `None`.
+        self.request_change(ModelChange {
+            name: id,
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: self.turn_pending(),
+            provider: self.provider,
+            effort_only: false,
+        });
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Applies one `/settings` change through the code path the setting's own
@@ -4325,6 +4469,20 @@ impl Shell {
                     self.set_effort(effort);
                 }
             }
+            // `toggleFast` when the row differs (`app_commands.zig:4183-4186`):
+            // `/fast` itself -- its line, its save, its refusal.
+            Setting::FastMode => {
+                if on != self.settings.fast {
+                    self.speed_command(SpeedCommand::Fast);
+                }
+            }
+            // `handleUltrafast(app, "on"|"off")` when the row differs
+            // (`:4187-4195`): `/ultrafast on|off` itself.
+            Setting::UltraMode => {
+                if on != self.settings.ultrafast {
+                    self.speed_command(SpeedCommand::Ultra(on));
+                }
+            }
             Setting::SlashMenuCategories => {
                 let changed = on != self.slash_menu_categories;
                 self.slash_menu_categories = on;
@@ -4339,10 +4497,20 @@ impl Shell {
                 let changed = on != self.collapse_tool_calls;
                 self.collapse_tool_calls = on;
                 // The open group is the document's last thing and is drawn
-                // again at once; a group the document has already moved past
-                // keeps the rows it was written with.
+                // again at once. The groups above it that are still on the
+                // screen are collapsed there by the next tick, their rows
+                // taken out and the rows under them moved up
+                // ([`super::frame::Band::collapse_groups`]) -- while this
+                // session can still say what those rows are, which is the
+                // retint's rule. Switched off, they keep the rows they have:
+                // a group written collapsed never had its calls on the screen,
+                // and nothing here holds them to put back.
                 if changed {
                     self.redraw_group();
+                    if on && !self.damage_untold && self.handoff.is_none() {
+                        self.collapse_debt = true;
+                        self.render.request(Reason::Transcript);
+                    }
                 }
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
@@ -4352,8 +4520,11 @@ impl Shell {
                 );
             }
             Setting::PromptHistory => self.set_prompt_history(on),
-            // The menu offers no change for the model: its row opens `/model`'s
-            // menu instead ([`settings::SettingsMenu::change`]).
+            // `handleSettings(app, "startup-scrollback on|off")`: the command
+            // itself, and the row reads the profile's answer back.
+            Setting::StartupScrollback => self.save_startup_scrollback(on),
+            // The menu offers no change for the model: its row opens the list
+            // of models instead ([`settings::SettingsMenu::change`]).
             Setting::Model => {}
         }
         self.render.request(Reason::Footer);
@@ -4410,6 +4581,44 @@ impl Shell {
         ) {
             self.recall.enabled = true;
         }
+    }
+
+    /// `/settings startup-scrollback on|off` (`saveStartupScrollbackSetting`,
+    /// `session_commands.zig:1076-1127`): written to the profile and said as
+    /// what the next launch does -- `* settings: startup_scrollback: off
+    /// (applies on next launch)` -- and nothing else, the commit line being
+    /// dropped for a caller that announces the state itself
+    /// (`reportUserSettingsCommit(..., announce_commit = false)`, `:27-84`).
+    /// The source is always the profile's here: the key is profile-only
+    /// ([`crate::config::STARTUP_SCROLLBACK_KEY`]), and xfx reads no
+    /// per-workspace override of it. This launch is not changed -- it already
+    /// pushed, or did not. A write that failed is `✗ startup-scrollback: not
+    /// saved to user settings (<reason>)` (`reportUserSettingsFailure`,
+    /// `:110-133`).
+    fn save_startup_scrollback(&mut self, on: bool) {
+        let written = match self.settings_path.as_deref() {
+            Some(path) => crate::provider::profile::write_preference(
+                path,
+                &[crate::config::STARTUP_SCROLLBACK_KEY],
+                serde_json::Value::Bool(on),
+            )
+            .map_err(|err| err.to_string()),
+            None => Err("no home directory is set".to_string()),
+        };
+        match written {
+            Ok(()) => {
+                self.startup_scrollback = on;
+                self.announce(notice::Notice::neutral(
+                    settings::SETTINGS_TOPIC,
+                    settings::startup_scrollback_saved(on),
+                ));
+            }
+            Err(reason) => self.announce(notice::Notice::error(
+                settings::STARTUP_SCROLLBACK_TOPIC,
+                format!("not saved to user settings ({reason})"),
+            )),
+        }
+        self.render.request(Reason::Modal);
     }
 
     /// Writes one `/settings` preference to the profile and announces it
@@ -4523,6 +4732,8 @@ impl Shell {
             SessionAction::Up | SessionAction::Down => {
                 let visible = sessions.visible_items(self.geometry.panel);
                 if sessions.step(request == SessionAction::Down, visible) {
+                    // A page it loaded on the way can change its height.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -4530,6 +4741,8 @@ impl Shell {
                 let visible = sessions.visible_items(self.geometry.panel);
                 let page = i64::from(layout::input_row_limit(self.geometry.rows));
                 if sessions.step_by(if down { page } else { -page }, visible) {
+                    // As a step, a page can load the next one.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -4539,6 +4752,14 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
             SessionAction::Close => self.close_sessions(true),
+            // On `↓ Load more`, Enter loads the page rather than resuming
+            // (`loadMoreSessionPicker`, `app_input_runtime.zig:1792`).
+            SessionAction::Resume if sessions.on_load_more() => {
+                let visible = sessions.visible_items(self.geometry.panel);
+                sessions.load_more(visible);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
             SessionAction::Resume => self.resume_selected(),
         }
         true
@@ -5685,6 +5906,11 @@ impl Shell {
         // `app_input_runtime.zig:2930-2933`): `sou` typed into it is a search.
         if let Some(menu) = self.settings_menu.as_mut() {
             menu.set_query(self.editor.text());
+            // And the Model row's list, which searches the same text from its
+            // first edit on (`syncCatalogMenus`, `app_input_runtime.zig:2922-2928`).
+            if let Some(list) = self.model_menu.as_mut() {
+                list.set_query(self.editor.text());
+            }
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
@@ -7497,6 +7723,28 @@ impl Shell {
         self.retint_debt = false;
     }
 
+    /// Whether the tool groups on the screen are owed a collapse
+    /// ([`Self::collapse_debt`]).
+    pub(crate) fn owes_collapse(&self) -> bool {
+        self.collapse_debt
+    }
+
+    /// The document rows at the bottom that are the transcript's open block or
+    /// line: its to rewrite, so a collapse takes nothing out of them.
+    pub(crate) fn open_document_rows(&self) -> u16 {
+        u16::try_from(self.transcript.open_rows()).unwrap_or(u16::MAX)
+    }
+
+    /// Records a collapse that landed, or that had nothing knowable to do:
+    /// the document is `rows` shorter, and the band floats up under it.
+    pub(crate) fn document_collapsed(&mut self, rows: u16) {
+        self.collapse_debt = false;
+        if rows > 0 {
+            self.document_carried(rows);
+            self.render.request(Reason::Transcript);
+        }
+    }
+
     /// Records that something which is not the band has written on the screen.
     ///
     /// The **one** door for that fact: the frame the reason asks for is a whole
@@ -7516,6 +7764,7 @@ impl Shell {
         self.handoff = self.handoff.map(|_| 0);
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
     }
 
@@ -7960,19 +8209,30 @@ impl Shell {
                     self.moved();
                     return;
                 }
-                // Up at an empty composer, outside a walk, takes back the
-                // newest steer that still waits for a tool's results, into the
-                // composer to be edited -- before the history is walked
+                let (step, edge) = if matches!(action, Action::Up) {
+                    (HistoryStep::Previous, EditorStep::Up)
+                } else {
+                    (HistoryStep::Next, EditorStep::Down)
+                };
+                // **The draft's edge before the history.** On the first row an
+                // Up with the caret anywhere but the start goes to the start,
+                // and only an Up from there recalls -- so a recalled line, whose
+                // caret is at its end, takes two to step past: the first lands
+                // on its start (`input_completion_runtime.zig:265-284`; the
+                // recall's caret, `editor_state.zig:55-59`). Down the same way,
+                // to the end and then to the newer line.
+                if self.editor.move_to_draft_edge(edge) {
+                    self.moved();
+                    return;
+                }
+                // Then, Up at an empty composer, outside a walk, takes back
+                // the newest steer that still waits for a tool's results, into
+                // the composer to be edited -- before the history is walked
                 // (`restoreQueuedSteerToComposer`, `input_completion_runtime.
                 // zig:290-310`; e2e `tui-interrupt-recovery.test.ts:393`).
                 if matches!(action, Action::Up) && self.retract_steer() {
                     return;
                 }
-                let step = if matches!(action, Action::Up) {
-                    HistoryStep::Previous
-                } else {
-                    HistoryStep::Next
-                };
                 if !self.recall(step) {
                     // A recall that recalled nothing still owes a frame,
                     // because the keystroke was still applied: the move
@@ -9052,14 +9312,17 @@ impl CommandHandlers for Shell {
     /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2650`), on
     /// `Loading sessions…` until the runtime has read the store.
     ///
-    /// **Refused while anything is in hand** -- a turn running, a prompt
-    /// waiting, a `/model` being answered -- with upstream's notice, at once:
-    /// the conversation a resume would replace is the one that work is
-    /// writing into. Upstream refuses while its response streams; xfx's
-    /// outstanding count is that and the prompt queued behind it, which would
-    /// otherwise run in the old conversation after the resume had switched.
+    /// **Refused while a response is in hand** -- a turn running, or a prompt
+    /// sent whose turn has not started -- with upstream's notice, at once:
+    /// the conversation a resume would replace is the one that turn writes
+    /// into. Upstream's rule is `stream.active` (`:2590`), which its turn sets
+    /// as it begins (`begin_prompt`, `app_worker_runtime.zig:975-985`) and
+    /// keeps while prompts wait behind it (`:783-805`): the busy rule a
+    /// provider switch is under too ([`Self::provider_work_busy`]). Other work
+    /// -- a `/model` being answered, a catalog loading -- is no response; the
+    /// picker's listing simply runs after it.
     fn resume(&mut self) {
-        if self.work.outstanding() > 0 {
+        if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", RESUME_BUSY));
             return;
         }
@@ -9074,7 +9337,10 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
-        self.sessions = Some(SessionPicker::open(self.editor.text()));
+        self.sessions = Some(SessionPicker::open(
+            self.editor.text(),
+            session_picker::page_for(self.geometry.rows),
+        ));
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -9085,11 +9351,21 @@ impl CommandHandlers for Shell {
     /// ([`crate::session::validate_title`]), and refused at once in upstream's
     /// words: `✗ usage: /rename <title>` with no topic for an empty one,
     /// `✗ session: title is too long` and `✗ session: title must be printable
-    /// text` for the other two. An accepted one goes to the runtime, which
-    /// writes it into the conversation's session and answers with
-    /// [`UiEvent::Renamed`]: the window takes the title then, and the notice
-    /// says whether the log has it. A rename a Ctrl-C drops from the queue
-    /// before it runs titles nothing.
+    /// text` for the other two.
+    ///
+    /// An accepted one **applies at once**, as upstream's does whether or not
+    /// a response is streaming: the window takes the title, as upstream
+    /// caches it before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
+    /// conversation's session ([`TurnControl::Rename`]) -- at once when idle,
+    /// the moment the running work ends when not. Upstream says one thing,
+    /// what became of the write: between turns that is the runtime's answer,
+    /// `renamed to "…"` ([`UiEvent::Renamed`]) or the warning alone
+    /// ([`UiEvent::RenameUnsaved`]); while work runs, upstream's notice comes
+    /// at once and this write cannot, so `renamed to "…"` is said now and the
+    /// runtime answers only a log that would not take it. One control channel
+    /// carries it and a reset, so a title typed after a `/new` names the
+    /// session that `/new` starts.
     fn rename(&mut self, argument: &str) {
         let title = match crate::session::validate_title(argument) {
             Ok(title) => title.to_string(),
@@ -9106,8 +9382,15 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
-        if let Err(rejected) = self.work.submit(TurnWork::Rename(title)) {
-            self.refused(rejected);
+        let announced = self.work.outstanding() > 0;
+        self.work.control(TurnControl::Rename {
+            title: title.clone(),
+            announced,
+        });
+        self.session_title = Some(title.clone());
+        self.retitle();
+        if announced {
+            self.announce(renamed(&title));
         }
     }
 
@@ -9465,14 +9748,30 @@ impl CommandHandlers for Shell {
     /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
     /// bare, the menu opens on `All` with its first row marked, the composer
     /// -- emptied by the submit that got here -- as its search, and the menus
-    /// that share its slot closed. With anything after it, the usage line as
-    /// an error with no topic, as upstream answers a word its argument form
-    /// does not know (`writeSettingsUsage`, `session_commands.zig:1129-1135`);
-    /// upstream's one argument, `startup-scrollback`, names a setting xfx does
-    /// not have, so the usage does not offer it.
+    /// that share its slot closed. With an argument, upstream's one form
+    /// (`handleSettings`, `session_commands.zig:313-353`):
+    /// `startup-scrollback on|off` saves that, `startup-scrollback` alone
+    /// saves the other one, either word in any case; anything else -- another
+    /// word, a third one -- is the usage line, as an error with no topic
+    /// (`writeSettingsUsage`, `:1129-1135`).
     fn settings(&mut self, argument: &str) {
+        let argument = argument.trim_matches([' ', '\t']);
         if !argument.is_empty() {
-            self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+            let (word, rest) = first_word(argument);
+            let value = (!rest.is_empty()).then(|| first_word(rest));
+            let on = match value {
+                _ if !word.eq_ignore_ascii_case(settings::STARTUP_SCROLLBACK_TOPIC) => None,
+                None => Some(!self.startup_scrollback),
+                Some((value, "")) if value.eq_ignore_ascii_case("on") => Some(true),
+                Some((value, "")) if value.eq_ignore_ascii_case("off") => Some(false),
+                Some(_) => None,
+            };
+            match on {
+                Some(on) => self.save_startup_scrollback(on),
+                None => {
+                    self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+                }
+            }
             return;
         }
         self.picker = None;
@@ -9485,6 +9784,13 @@ impl CommandHandlers for Shell {
         self.file_picker = None;
         self.workspace_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // The effort and speed rows are the catalog's answer for the model in
+        // force, which upstream's menu reads from a cache filled at launch
+        // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
+        // `app_commands.zig:4031-4047`). This side reads the catalog when it
+        // is wanted, so the menu wants it: the rows show their choices once it
+        // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
+        self.want_catalog();
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
         self.refit();
@@ -9803,6 +10109,12 @@ impl Shell {
 
     /// Opens `/model`'s menu over the rows in hand, or asks for them.
     fn open_models(&mut self) {
+        let query = self.editor.text().to_string();
+        self.open_models_with(&query);
+    }
+
+    /// The same, searching for `query` rather than for the draft.
+    fn open_models_with(&mut self, query: &str) {
         // The completion menu shares the slot, and the menu is what the user
         // asked for.
         self.picker = None;
@@ -9811,10 +10123,10 @@ impl Shell {
             .then_some(self.gateway_note)
             .flatten();
         let menu = match self.catalog_known {
-            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, self.editor.text()),
+            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, query),
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
-            CatalogKnown::Asked => ModelMenu::loading(self.editor.text()),
+            CatalogKnown::Asked => ModelMenu::loading(query),
             // Never asked, wanted by the column while the queue was full, or
             // failed -- in which case this is the retry upstream's sentence
             // asks for.
@@ -9824,7 +10136,7 @@ impl Shell {
                     return;
                 }
                 self.catalog_known = CatalogKnown::Asked;
-                ModelMenu::loading(self.editor.text())
+                ModelMenu::loading(query)
             }
         };
         self.model_menu = Some(menu);
@@ -10254,8 +10566,10 @@ impl Shell {
         self.trailer.clear();
         self.abandoned.clear();
         // A recolour owed against the old rows is owed against rows on their
-        // way into scrollback, which is never recoloured ([`Self::retint`]).
+        // way into scrollback, which is never recoloured ([`Self::retint`]),
+        // and so is a collapse.
         self.retint_debt = false;
+        self.collapse_debt = false;
         // The blank row the document ends on, when this session can say so:
         // everything it wrote has landed, so the transcript's own record of
         // its tail is a record of the screen, and no resize has left the rows
@@ -10351,7 +10665,8 @@ impl Shell {
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
-            | UiEvent::Renamed { .. }
+            | UiEvent::RenameUnsaved(_)
+            | UiEvent::Renamed(_)
             | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
@@ -10874,6 +11189,7 @@ impl Shell {
         // shadow on this same road (`super::event_loop`'s `adopt_resize`),
         // which is where the band is told.
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
         Resize::Repaint(geometry)
     }
@@ -10901,6 +11217,16 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn tail_rows(&self) -> usize {
         self.transcript.tail_rows()
+    }
+}
+
+/// The first word of `text` and what follows it, both without the spaces and
+/// tabs between (`splitFirstWord`, `session_commands.zig:1402-1414`).
+fn first_word(text: &str) -> (&str, &str) {
+    let text = text.trim_matches([' ', '\t']);
+    match text.find([' ', '\t']) {
+        Some(at) => (&text[..at], text[at..].trim_start_matches([' ', '\t'])),
+        None => (text, ""),
     }
 }
 
@@ -11541,6 +11867,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["answered".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11570,11 +11897,13 @@ mod tests {
                     scroll: 2,
                     rows: vec!["first".to_string(), String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 0,
                     rows: vec!["second".to_string()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -11614,6 +11943,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11638,6 +11968,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }],
             "the text was written as the one 25-column row the wider screen \
              would have given it"
@@ -11660,6 +11991,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["abc".to_string(), String::new()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
         let _asked = shell.render.begin().expect("the frame the write asked for");
@@ -11806,11 +12138,13 @@ mod tests {
                     scroll: 1,
                     rows: vec![card_row("ask me")],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 1,
                     rows: vec![String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -12409,7 +12743,7 @@ mod tests {
             second,
             "the newest line came back without the block its summary named"
         );
-        shell.route_bytes(b"\x1b[A"); // Up: the one before it
+        older(&mut shell); // Up: the one before it
         assert_eq!(
             shell.editor.expanded(),
             first,
@@ -12695,21 +13029,21 @@ mod tests {
         shell.route_bytes(b"half typed");
         assert_eq!(shell.edit_depths(), (10, 0));
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.editor.text(), "/help");
         assert_eq!(
             shell.edit_depths(),
             (0, 0),
             "the recall left deltas naming a draft that is gone"
         );
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.editor.text(),
             "second line",
             "the second step back handed the newest line over again: the \
              recall ended its own walk"
         );
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.editor.text(),
             "first line",
@@ -13918,6 +14252,7 @@ mod tests {
                 let settled = append.rows.len() - append.scroll.min(append.rows.len());
                 document.truncate(document.len().saturating_sub(settled));
                 document.extend(append.rows.iter().map(|row| colourless(row)));
+                document.truncate(document.len().saturating_sub(append.release));
             }
             document
         }
@@ -16063,6 +16398,41 @@ mod tests {
         assert_eq!(
             steering.take().first().map(|steer| steer.text.clone()),
             Some("change tone and keep it short".to_string())
+        );
+    }
+
+    #[test]
+    fn up_over_a_draft_goes_to_its_start_before_it_takes_a_steer_back() {
+        // `input_completion_runtime.zig:265-284`: the draft's start first,
+        // and only at an empty composer the steer (`restoreQueuedSteerToComposer`
+        // asks for no draft, `:299`) -- so with a draft typed over a waiting
+        // steer, Up moves the caret and takes nothing back.
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"draft");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "draft");
+        assert_eq!(shell.editor.caret(), 0, "the caret did not go to the start");
+        assert!(steering.pending(), "a steer came back over a draft");
+        // From the start of a draft it is the history's step: the newest
+        // line -- the steer's own text, recorded when it was sent -- and the
+        // steer stays the turn's.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(steering.pending(), "an Up over a draft took the steer back");
+        // Back to the draft, emptied: the next Up is the steer's.
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.editor.text(), "draft");
+        shell.route_bytes(&[0x05, 0x15]);
+        assert!(shell.editor.is_empty());
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the empty composer's Up left the steer"
         );
     }
 
@@ -19679,6 +20049,65 @@ mod tests {
         );
     }
 
+    /// A saved session as its log reduces to ([`DurableState`]) and the
+    /// replay the runtime builds from it ([`Hydration::of`]) -- the whole
+    /// path a resume takes but the file.
+    fn logged(turns: Vec<crate::session::HistoryTurn>) -> Hydration {
+        let state = crate::session::DurableState {
+            id: "s".to_string(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            origin_workspace_root: "/w".to_string(),
+            workspace_root: "/w".to_string(),
+            model: "m".to_string(),
+            permission_mode: PermissionMode::Ask,
+            turns,
+            grants: Vec::new(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            context_sources: Vec::new(),
+            last_event_seq: 0,
+            renamed: None,
+            usage: Default::default(),
+            checkpoint: None,
+            turn_settings: None,
+        };
+        Hydration::of(&state, None)
+    }
+
+    fn logged_turn(
+        user: &str,
+        steps: Vec<crate::session::TurnStep>,
+        outcome: crate::session::TurnConclusion,
+    ) -> crate::session::HistoryTurn {
+        crate::session::HistoryTurn {
+            user: user.to_string(),
+            images: Vec::new(),
+            steps,
+            outcome: Some(outcome),
+            timing: crate::session::TurnTiming::default(),
+            seqs: Default::default(),
+        }
+    }
+
+    fn logged_result(
+        id: &str,
+        ok: bool,
+        ending: Option<crate::session::ToolEnding>,
+        lines: Option<crate::session::LineCounts>,
+    ) -> crate::session::TurnStep {
+        crate::session::TurnStep::ToolResult {
+            created_at_ms: None,
+            call_id: id.to_string(),
+            tool: "t".to_string(),
+            ok,
+            output: "no such path: `gone.txt`".to_string(),
+            ending,
+            lines,
+            change: None,
+        }
+    }
+
     #[test]
     fn a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times() {
         // Upstream's resume replays a call through the adapters a live one
@@ -19703,12 +20132,16 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
                 output:
                     "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
                         .into(),
+                ending: None,
+                lines: None,
+                change: None,
             },
         ];
         let mut turn = saved(
@@ -19718,12 +20151,14 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
+                    // Its result came back a second in.
+                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
                     ok: true,
-                    detail: String::new(),
                     outcome: CallOutcome::Finished,
+                    changes: None,
                 },
                 HydratedStep::Text("Done.".to_string()),
             ],
@@ -19734,8 +20169,29 @@ mod tests {
         turn.started_at_ms = 1_790_899_200_000;
         turn.concluded_at_ms = Some(1_790_899_202_000);
         turn.details = full_transcript::details_of(&steps);
+        // Turns with no summary, before it and after it: upstream sets no
+        // stamp for them (`app_session_runtime.zig:4780-4783`), so they carry
+        // the one the replay had reached -- the resume's, then this turn's
+        // conclusion -- whatever the log says of their own times.
+        let stopped = |user: &str, started_at_ms: i64| {
+            let mut turn = saved(user, Vec::new(), 0, None);
+            turn.ending = Ending::Cancelled;
+            turn.started_at_ms = started_at_ms;
+            turn.concluded_at_ms = Some(started_at_ms + 500);
+            turn
+        };
         let mut shell = shell(40, 120);
-        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.hydrate(
+            replay(
+                Some("look"),
+                vec![
+                    stopped("before", 1_790_899_100_000),
+                    turn,
+                    stopped("after", 1_790_899_300_000),
+                ],
+            ),
+            false,
+        );
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);
         let headers: Vec<&str> = screen
@@ -19743,14 +20199,19 @@ mod tests {
             .filter(|row| row.contains(" UTC \u{b7} "))
             .map(String::as_str)
             .collect();
+        let resumed_at = headers[0]
+            .strip_suffix(" Notice")
+            .expect("the resume notice first");
+        assert_eq!(headers[1], format!("{resumed_at} Prompt"), "{screen:#?}");
         assert_eq!(
-            headers[1..],
+            headers[2..],
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:00.000 UTC \u{b7} Tool",
+                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
             ],
             "{screen:#?}"
         );
@@ -19770,108 +20231,306 @@ mod tests {
     }
 
     #[test]
-    fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
-        let read = crate::tools::Registry::builtin()
-            .spec("read_file")
-            .expect("read_file")
-            .shown(&serde_json::json!({"path": "notes.txt"}));
+    fn a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts() {
+        use crate::session::{LineCounts, RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let calls = [
+            (
+                "e",
+                "edit_file",
+                serde_json::json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+            ),
+            (
+                "w",
+                "write_file",
+                serde_json::json!({"path": "c.txt", "content": "c"}),
+            ),
+            (
+                "x",
+                "terminal",
+                serde_json::json!({"action": "exec", "command": "exit 3"}),
+            ),
+            (
+                "n",
+                "edit_file",
+                serde_json::json!({"path": "b.txt", "old_string": "a", "new_string": "a"}),
+            ),
+            ("r", "read_file", serde_json::json!({"path": "gone.txt"})),
+        ];
+        // Live: each outcome form a row can take. The failure's reason is
+        // left out here because upstream's replay leaves it out
+        // (`Failed missing.txt`, capture `fx-resume-tools-40x120-resumed`),
+        // so the live group to hold the replay to is the one without it.
         let mut live = shell(40, 120);
-        live.route_bytes(b"look\r");
+        live.route_bytes(b"fix\r");
         let _ = live.picks_up();
         live.apply(UiEvent::TurnStarted);
         live.apply(UiEvent::Delta("Looking.".to_string()));
-        live.apply(tool_start(
-            "c1",
-            "read_file",
-            serde_json::json!({"path": "notes.txt"}),
-        ));
-        live.apply(tool_result("c1", "read_file", true, "notes.txt"));
-        live.apply(tool_start(
-            "c2",
-            "read_file",
-            serde_json::json!({"path": "gone.txt"}),
-        ));
-        live.apply(tool_result(
-            "c2",
-            "read_file",
-            false,
-            "no such path: `gone.txt`",
-        ));
+        let endings = [
+            (
+                true,
+                CallOutcome::Finished,
+                Some(LineChanges {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            (false, CallOutcome::Denied, None),
+            (true, CallOutcome::Exited(3), None),
+            (true, CallOutcome::Unchanged, None),
+            (false, CallOutcome::Finished, None),
+        ];
+        for ((id, tool, input), (ok, outcome, changes)) in calls.iter().zip(endings) {
+            live.apply(tool_start(id, tool, input.clone()));
+            live.apply(UiEvent::ToolResult {
+                call_id: id.to_string(),
+                tool: tool.to_string(),
+                ok,
+                detail: String::new(),
+                outcome,
+                changes,
+            });
+        }
         live.apply(UiEvent::Delta("Done.".to_string()));
         live.apply(UiEvent::TurnEnded { failure: None });
         live.shell.flush_paced();
         let live_rows = live.painted_document();
 
+        // Replayed: the same turn as the log keeps it.
+        let mut steps = vec![TurnStep::Assistant {
+            text: "Looking.".to_string(),
+            tool_calls: calls
+                .iter()
+                .map(|(id, name, input)| RecordedToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: input.clone(),
+                })
+                .collect(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }];
+        steps.extend([
+            logged_result(
+                "e",
+                true,
+                None,
+                Some(LineCounts {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            logged_result("w", false, Some(ToolEnding::Denied), None),
+            logged_result("x", true, Some(ToolEnding::Exited { code: 3 }), None),
+            logged_result("n", true, Some(ToolEnding::Unchanged), None),
+            logged_result("r", false, None, None),
+            TurnStep::Assistant {
+                text: "Done.".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+        ]);
         let mut resumed = shell(40, 120);
         resumed.hydrate(
-            replay(
-                Some("look"),
-                vec![
-                    saved(
-                        "look",
-                        vec![
-                            HydratedStep::Text("Looking.".to_string()),
-                            HydratedStep::ToolStart {
-                                id: "c1".to_string(),
-                                shown: read.clone(),
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c1".to_string(),
-                                ok: true,
-                                detail: String::new(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::ToolStart {
-                                id: "c2".to_string(),
-                                shown: crate::tools::Shown {
-                                    target: Some("gone.txt".to_string()),
-                                    ..read
-                                },
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c2".to_string(),
-                                ok: false,
-                                detail: "no such path: `gone.txt`".to_string(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::Text("Done.".to_string()),
-                        ],
-                        0,
-                        None,
-                    ),
-                    HydratedTurn {
-                        user: "and then".to_string(),
-                        sent: "and then".to_string(),
-                        steps: Vec::new(),
-                        ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
-                        started_at_ms: 0,
-                        concluded_at_ms: None,
-                        details: Vec::new(),
-                        images: Vec::new(),
-                    },
-                ],
-            ),
+            logged(vec![logged_turn(
+                "fix",
+                steps,
+                TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            )]),
             false,
         );
         let rows = resumed.painted_document();
         // The live turn's summary estimated what streamed, as the replay
         // does when the log recorded no usage: the same row.
-        assert_eq!(rows[2..2 + live_rows.len()], live_rows[..], "{rows:?}");
+        assert_eq!(rows[2..], live_rows[..], "{rows:?}");
         let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
-        assert!(
-            words.contains(&"\u{25cf} 2 tool calls \u{b7} 2 read \u{b7} 1 failed".to_string()),
+        assert_eq!(
+            words[6..12],
+            [
+                "\u{25cf} 5 tool calls \u{b7} 2 edit \u{b7} 1 read \u{b7} 1 write \u{b7} 1 command \u{b7} 2 failed \u{b7} 1 denied",
+                "\u{251c} Edited a.txt +1 / -1",
+                "\u{251c} Denied file",
+                "\u{251c} Exited 3 exit 3",
+                "\u{251c} No changes to b.txt; it already contains the requested content",
+                "\u{2514} Failed gone.txt",
+            ],
             "{words:?}"
         );
-        // The stopped turn: its card and the sentence it ended on, under
-        // `system` as the live conclusion was, and no summary.
+    }
+
+    /// Upstream's stopped turn after a resume is its card and its
+    /// cancellation line -- the call the stop cut off is not replayed -- and
+    /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
+    /// capture `fx-resume-tools-40x120-resumed`, rows 21-28).
+    /// What a hostile log paints, through the one inert step a resume's
+    /// replay takes on either way in (`bridge::inert_hydration`, which the
+    /// worker's `a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker`
+    /// holds both ways to): the document and the full transcript carry none of
+    /// the sequences it held -- only the screen's own colours.
+    #[test]
+    fn a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript() {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let hostile = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: format!("answer {hostile}"),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": format!("p{hostile}")}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                created_at_ms: None,
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {hostile}"),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            &format!("prompt {hostile}"),
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every escape left is an SGR the palette wrote.
+            let foreign: Vec<&str> = bytes
+                .split('\u{1b}')
+                .skip(1)
+                .filter(|sequence| {
+                    !(sequence.starts_with('[')
+                        && sequence[1..]
+                            .split_once('m')
+                            .is_some_and(|(parameters, _)| {
+                                parameters.chars().all(|c| c.is_ascii_digit() || c == ';')
+                            }))
+                })
+                .collect();
+            assert_eq!(foreign, Vec::<&str>::new(), "{surface}: {bytes:?}");
+            assert!(
+                !bytes.contains('\u{9b}') && !bytes.contains('\u{7}'),
+                "{surface}: {bytes:?}"
+            );
+        }
+        assert!(
+            painted.contains("prompt x ]0;pwned y [2Jz 31m"),
+            "{painted:?}"
+        );
+        assert!(full.contains("read x ]0;pwned y [2Jz 31m"), "{full:?}");
+    }
+
+    #[test]
+    fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
+        use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let cut_off = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "w".to_string(),
+                    name: "write_file".to_string(),
+                    input: serde_json::json!({"path": "d.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            logged_result("w", false, Some(ToolEnding::Cancelled), None),
+        ];
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            logged(vec![
+                logged_turn(
+                    "and once more",
+                    cut_off,
+                    TurnConclusion::Interrupted {
+                        reason: crate::agent::TurnError::Cancelled.to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
+                    },
+                ),
+                logged_turn(
+                    "and then",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: "the provider failed: overloaded".to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
+                    },
+                ),
+                // Stopped while its automatic compaction ran: the card and
+                // nothing else (`tui-compaction-activity.test.ts:481-488`).
+                logged_turn(
+                    "Cancel this held response.",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: super::super::compaction::Feedback::Cancelled
+                            .label()
+                            .to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Compaction,
+                    },
+                ),
+            ]),
+            false,
+        );
+        let rows = resumed.painted_document();
+        let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
         assert_eq!(
-            words[2 + live_rows.len()..],
+            words[2..],
             [
+                "\u{2503} and once more",
+                "",
+                "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+                "",
                 "\u{2503} and then",
                 "",
-                "\u{2717} system: the turn was cancelled",
+                "\u{2717} system: failed",
                 "",
-            ]
+                "\u{2503} Cancel this held response.",
+                "",
+            ],
+            "{words:?}"
+        );
+        // And the full transcript after it has the prompt and no
+        // cancellation of it.
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let held = full
+            .split("Cancel this held response.")
+            .nth(1)
+            .expect("the prompt is recorded");
+        assert!(!held.contains("Cancelled"), "{full}");
+        // The mark in the warning colour and closed before the space, the
+        // word in the hint colour (`lifecycleTerminalLine`, unmarked).
+        assert_eq!(
+            rows[4],
+            format!(
+                "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+                PALETTE.warning(),
+                PALETTE.reset(),
+                PALETTE.hint(),
+                PALETTE.reset()
+            )
         );
         assert!(!resumed.owes_wipe(), "a launch's resume reset the terminal");
     }
@@ -20096,6 +20755,100 @@ mod tests {
         );
     }
 
+    /// Upstream refuses while its response is active (`stream.active`,
+    /// `app_session_runtime.zig:2590`), which a turn begins
+    /// (`begin_prompt`, `app_worker_runtime.zig:975-985`) and keeps while
+    /// prompts wait behind it (`:783-805`) -- the busy rule a provider switch
+    /// is under too ([`Shell::provider_work_busy`]). A `/model` the runtime
+    /// has not answered yet is no response, and the picker opens.
+    /// More sessions than a page: the band ends on `↓ Load more`, walking to
+    /// the last loaded session loads the next page and the band grows by the
+    /// row it gave up (`fx-resume-paging-24x80`).
+    #[test]
+    fn a_picker_with_more_sessions_than_a_page_loads_the_next_as_the_mark_reaches_it() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        let current: Vec<ListedSession> = (1..=18)
+            .map(|i| ListedSession {
+                id: format!("s{i}"),
+                title: Some(format!("question {i}")),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            })
+            .collect();
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            all: current.clone(),
+            current,
+            now_ms: 0,
+        })));
+        let band = |shell: &Fixture| -> Vec<String> {
+            shell
+                .band_rows()
+                .iter()
+                .map(|row| visible_text(row))
+                .collect()
+        };
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 17 ")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&"  \u{2193} Load more".to_string()),
+            "{rows:?}"
+        );
+        let panel = shell.geometry.panel;
+        for _ in 0..16 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 18 ")),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains("Load more")),
+            "{rows:?}"
+        );
+        assert_eq!(shell.geometry.panel, panel, "{rows:?}");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("s17".to_string()));
+    }
+
+    #[test]
+    fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/model second-model\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/resume\r");
+        assert!(shell.sessions.is_some(), "{:?}", shell.document());
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.sessions.is_none());
+        // Both answered, as the runtime would have by now.
+        shell.work.give_back();
+        shell.work.give_back();
+
+        // A prompt sent and not started yet runs before anything the picker
+        // could ask for: refused, as one streaming is.
+        shell.route_bytes(b"queued one\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/resume\r");
+        assert!(
+            shell.sessions.is_none(),
+            "a picker opened over a waiting prompt"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", RESUME_BUSY))
+        );
+    }
+
     #[test]
     fn rename_refuses_in_upstreams_words_and_titles_the_window_at_once() {
         // `fx-basic-40x120-rename-empty.txt` and `-rename-title.txt`.
@@ -20107,8 +20860,9 @@ mod tests {
             said(notice::Notice::error("", "usage: /rename <title>"))
         );
         assert_eq!(shell.document(), Vec::<String>::new());
-        assert!(
-            shell.sent.try_recv().is_err(),
+        assert_eq!(
+            shell.controlled(),
+            None,
             "an empty title reached the runtime"
         );
         shell.route_bytes(format!("/rename {}\r", "x".repeat(241)).as_bytes());
@@ -20130,30 +20884,31 @@ mod tests {
             "a refused title titled the window"
         );
 
+        // Accepted: titled at once and handed to the runtime to write, and
+        // said when the runtime says the log has it
+        // (`app_commands.zig:3852-3857`).
         shell.route_bytes(b"/rename   My Title  \r");
-        assert_eq!(shell.picks_up(), TurnWork::Rename("My Title".to_string()));
-        shell.work.give_back();
         assert_eq!(
-            shell.take_title(),
-            None,
-            "titled before the runtime renamed it"
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "My Title".to_string(),
+                announced: false,
+            })
         );
-        shell.apply(UiEvent::Renamed {
-            title: "My Title".to_string(),
-            unsaved: None,
-        });
         assert_eq!(shell.take_title().as_deref(), Some("My Title"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("My Title".to_string()));
+        assert_eq!(shell.take_title(), None, "the answer retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "* session: renamed to \"My Title\""
         );
-        // A store that refused: the title is this process's, and the warning
-        // says so (`app_commands.zig:3833-3846`).
-        shell.apply(UiEvent::Renamed {
-            title: "Kept here".to_string(),
-            unsaved: Some("cannot record the `session_renamed` session event".to_string()),
-        });
-        assert_eq!(shell.take_title().as_deref(), Some("Kept here"));
+        // A store that refused: the title stays this process's, and the
+        // warning says so (`app_commands.zig:3833-3846`).
+        shell.apply(UiEvent::RenameUnsaved(
+            "cannot record the `session_renamed` session event".to_string(),
+        ));
+        assert_eq!(shell.take_title(), None, "the warning retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "! session: renamed for this process but not saved \
@@ -20165,6 +20920,84 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title(), None);
+    }
+
+    /// Between turns the notice is the write's outcome, one row either way,
+    /// as upstream's (`handleRenameCommand`, `app_commands.zig:3815-3858`):
+    /// `renamed to "…"` once the log has the title, or only `renamed for this
+    /// process but not saved (…)` when it would not take it -- the window is
+    /// titled at once in both, as upstream caches the title before it writes
+    /// (`renameActiveSession`, `app_session_runtime.zig:3807`).
+    #[test]
+    fn between_turns_a_rename_says_one_thing_what_became_of_the_write() {
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.route_bytes(b"/rename Refused\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.take_title().as_deref(), Some("Refused"));
+        shell.apply(UiEvent::RenameUnsaved("the disk is full".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::warning(
+                "session",
+                "renamed for this process but not saved (the disk is full)"
+            ))
+        );
+        shell.route_bytes(b"/rename Kept\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("Kept".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", "renamed to \"Kept\""))
+        );
+    }
+
+    /// While a turn runs the title applies at once, as upstream's does --
+    /// it renames whether or not a response streams
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`) -- and goes to
+    /// the runtime as a control message, which stops nothing: the runtime
+    /// writes it once the turn is over. A title typed after a `/new` goes on
+    /// the same channel behind the reset, which is how the runtime knows it
+    /// names the session the reset starts.
+    #[test]
+    fn rename_while_a_turn_runs_applies_at_once_and_follows_a_reset_on_one_channel() {
+        let mut shell = shell(24, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.take_title();
+        let _ = shell.document();
+        shell.route_bytes(b"/rename Mid Turn\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "Mid Turn".to_string(),
+                announced: true,
+            })
+        );
+        assert_eq!(shell.controlled(), None, "a rename stopped the turn");
+        assert_eq!(shell.take_title().as_deref(), Some("Mid Turn"));
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| visible_text(row) == "* session: renamed to \"Mid Turn\""),
+            "the notice waited for the turn"
+        );
+
+        shell.route_bytes(b"/new\r");
+        shell.route_bytes(b"/rename Next One\r");
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Reset { .. })
+        ));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "Next One".to_string(),
+                announced: true,
+            })
+        );
+        assert_eq!(shell.take_title().as_deref(), Some("Next One"));
     }
 
     #[test]
@@ -21796,11 +22629,13 @@ mod tests {
                         scroll: 1,
                         rows: vec!["  the next answer".to_string()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                     Append {
                         scroll: 1,
                         rows: vec![String::new()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                 ],
                 "{}",
@@ -24524,7 +25359,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "/version");
         assert!(shell.picker.is_none(), "a recalled command opened the menu");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.editor.text(), "older");
         shell.route_bytes(b"\x1b[B");
         assert_eq!(shell.editor.text(), "/version");
@@ -26387,6 +27222,28 @@ mod tests {
         let _taken = shell.sent.try_recv();
     }
 
+    /// The Up that recalls the line before, on a one-row draft. From anywhere
+    /// but the draft's start the first Up only takes the caret there
+    /// (`input_completion_runtime.zig:265-284`), so a recalled line -- whose
+    /// caret is at its end (`editor_state.zig:55-59`) -- takes two.
+    fn older(shell: &mut Fixture) {
+        if shell.editor.caret() > 0 {
+            let draft = shell.editor.text().to_string();
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(
+                shell.editor.text(),
+                draft,
+                "an Up off the draft's start recalled a line"
+            );
+            assert_eq!(
+                shell.editor.caret(),
+                0,
+                "an Up on the draft's first row left the caret where it was"
+            );
+        }
+        shell.route_bytes(b"\x1b[A");
+    }
+
     #[test]
     fn up_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
         // The whole of item 15 on this surface: what was sent comes back,
@@ -26397,6 +27254,15 @@ mod tests {
         submitted(&mut shell, "second line");
         shell.route_bytes(b"half typed");
 
+        // The first Up takes the caret to the start of the draft, and only an
+        // Up from there recalls (`input_completion_runtime.zig:265-284`).
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("half typed"));
+        assert_eq!(
+            shell.cursor(),
+            (22, 2),
+            "the first Up did not take the caret to the draft's start"
+        );
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second line"));
         assert_eq!(
@@ -26404,9 +27270,14 @@ mod tests {
             (22, 13),
             "the caret is not at the end of the recalled line"
         );
+        // So a recalled line takes two as well: its start, then the line
+        // before it.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("second line"));
+        assert_eq!(shell.cursor(), (22, 2));
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first line"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first line"),
@@ -26535,11 +27406,24 @@ mod tests {
             "an arrow inside the draft walked the history instead of the rows"
         );
 
+        // On the first row, the start of the draft before the history.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")],
+            "an Up off the draft's start walked the history"
+        );
+        assert_eq!(
+            shell.editor.caret(),
+            0,
+            "the caret is not at the draft's start"
+        );
+
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("sent"),
-            "the arrow at the first row did not reach the history"
+            "the arrow at the draft's start did not reach the history"
         );
     }
 
@@ -26548,7 +27432,7 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "sent");
         shell.route_bytes(b"half typed");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("sent"),
@@ -26582,6 +27466,20 @@ mod tests {
             &[composer_row("top"), composer_row("bottom")],
             "a Down at the last row of a draft nobody had recalled into changed it"
         );
+
+        // And off the draft's end, the last row's Down takes the caret there
+        // first (`input_completion_runtime.zig:275-281`).
+        shell.route_bytes(b"\x1b[D\x1b[D");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")]
+        );
+        assert_eq!(
+            shell.editor.caret(),
+            shell.editor.text().len(),
+            "a Down on the last row did not take the caret to the draft's end"
+        );
     }
 
     #[test]
@@ -26604,7 +27502,10 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.model_menu.is_none());
         assert_eq!(shell.editor.text(), "top\nbottom");
-        // From the last row `Up` moves; from the first it recalls.
+        // From the last row `Up` moves; on the first it goes to the draft's
+        // start, and from there it recalls.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "top\nbottom");
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "top\nbottom");
         shell.route_bytes(b"\x1b[A");
@@ -26651,12 +27552,12 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"!");
         assert_eq!(shell.band_rows()[0], composer_row("first!"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26680,11 +27581,11 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
         shell.route_bytes(&[0x7f]);
         assert_eq!(shell.band_rows()[0], composer_row("firs"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26704,7 +27605,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second"));
         shell.route_bytes(b"\x1b[D");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first"),
@@ -26723,7 +27624,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(&[0x1b]);
@@ -26751,7 +27652,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -26759,7 +27660,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(shell.band_rows()[0], composer_row("first and more"));
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26776,7 +27677,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         // Home first, which is a caret move and must leave the walk open --
@@ -26802,7 +27703,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -26813,7 +27714,7 @@ mod tests {
             composer_row("first[Pasted text #1, 1 lines]")
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26862,7 +27763,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("earlier"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
@@ -26900,7 +27801,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("[Pasted text #1, 1 lines]"),
@@ -29342,12 +30243,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 12);
+        assert_eq!(shell.geometry.panel, 15);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 13  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -29356,8 +30257,11 @@ mod tests {
                 "  Collapse tool calls      off  on",
                 model.as_str(),
                 "  Reasoning effort         default",
+                "  Fast mode                off",
+                "  Ultra mode               off",
                 "  Permission mode          ask  auto  full access",
                 "  Sound level              off  on",
+                "  Startup scrollback       off  on",
                 "  Prompt history           off  on",
             ]
         );
@@ -29379,9 +30283,12 @@ mod tests {
             "the menu took the caret"
         );
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        // The one thing it asks the runtime for is the catalog its effort and
+        // speed rows read.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(
             shell.sent.try_recv().is_err(),
-            "/settings reached the runtime"
+            "/settings asked the runtime for more than the catalog"
         );
     }
 
@@ -29428,6 +30335,9 @@ mod tests {
         // `app_input_runtime.zig:2408-2410`) -- opens no catalog.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
+        // The menu's own ask, for its effort and speed rows; nothing typed
+        // into the search asks for another.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -29469,6 +30379,8 @@ mod tests {
             [
                 format!("  Model               {}", shell.model),
                 "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
             ]
         );
@@ -29480,9 +30392,10 @@ mod tests {
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 1  All  Interface  Agent  Notifications  [Advanced]",
+                "Settings 2  All  Interface  Agent  Notifications  [Advanced]",
                 "",
-                "  Prompt history    off  on",
+                "  Startup scrollback    off  on",
+                "  Prompt history        off  on",
             ]
         );
         assert_eq!(shell.mode, PermissionMode::Auto);
@@ -29496,8 +30409,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -29551,16 +30464,16 @@ mod tests {
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 7);
-        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
+        down(&mut shell, 9);
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Permission mode"));
         shell.route_bytes(RIGHT);
         typed.route_bytes(b"/permissions full-access\r");
         assert_eq!(shell.mode, PermissionMode::Yolo);
         assert_eq!(shell.document(), typed.document());
         assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
-        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
+        assert!(settings_text(&shell)[11].ends_with("ask  auto  full access"));
         assert_eq!(
-            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
+            menu(&shell)[11].matches(PALETTE.subtitle()).count(),
             2,
             "the marked label and `full access`"
         );
@@ -29577,7 +30490,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 8);
+        down(&mut shell, 10);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -29591,7 +30504,7 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[12].ends_with("Sound level              off  on"));
     }
 
     #[test]
@@ -29773,8 +30686,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -29787,7 +30700,11 @@ mod tests {
     }
 
     #[test]
-    fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
+    fn enter_or_right_on_model_opens_the_catalog_under_the_row() {
+        // `fx-settings-model-40x120-enter`: the settings menu stays, and the
+        // catalog `/model` lists is under the `Model` row at the value column
+        // (`settings_menu_presentation.zig:15-19`, `:277-310`), searching for
+        // nothing yet -- what was typed found the row, not a model.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         // `model used` is the Model row's description alone: the effort row's
@@ -29802,29 +30719,326 @@ mod tests {
         assert!(shell.settings_menu.is_some());
         assert!(shell.model_menu.is_none());
         shell.route_bytes(b"\r");
-        assert!(shell.settings_menu.is_none(), "the settings menu stayed up");
-        assert!(shell.model_menu.is_some(), "no model menu");
-        assert!(shell.editor.is_empty(), "the search became the model query");
+        assert!(shell.settings_menu.is_some(), "the settings menu closed");
+        assert!(shell.model_menu.is_some(), "no list under the row");
+        assert_eq!(shell.editor.text(), "model used", "the search was taken");
         assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(shell.document().is_empty());
+        // Waiting for the catalog: one dim line, four columns in.
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model    {}", shell.model),
+                "    Loading models\u{2026}".to_string(),
+            ]
+        );
+        assert_eq!(
+            menu(&shell)[3],
+            format!(
+                "    {}Loading models\u{2026}{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model    {}", shell.model),
+                "           openai/gpt-6-astra".to_string(),
+                "           anthropic/claude-opus-5".to_string(),
+                "           fake/model-a".to_string(),
+                "           xai/grok-4.7".to_string(),
+            ]
+        );
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        assert_eq!(
+            menu(&shell)[3],
+            format!("           {bright}openai/gpt-6-astra{reset}")
+        );
+        assert_eq!(
+            menu(&shell)[4],
+            format!("           {dim}anthropic/claude-opus-5{reset}")
+        );
+        assert_eq!(
+            shell.geometry.panel, 7,
+            "the band did not grow for the list"
+        );
 
+        // The arrows are the list's, and wrap.
+        shell.route_bytes(b"\x1b[B\x1b[B");
+        assert_eq!(
+            menu(&shell)[5],
+            format!("           {bright}fake/model-a{reset}")
+        );
+        shell.route_bytes(b"\x1b[A\x1b[A\x1b[A");
+        assert_eq!(
+            menu(&shell)[6],
+            format!("           {bright}xai/grok-4.7{reset}")
+        );
+        // Right is nothing; Left uses the marked model, as a picker does, and
+        // closes the list with the settings menu still up.
+        shell.route_bytes(RIGHT);
+        assert!(shell.model_menu.is_some());
+        shell.route_bytes(LEFT);
+        assert!(shell.model_menu.is_none(), "the list stayed open");
+        assert!(shell.settings_menu.is_some(), "the settings menu closed");
+        assert_eq!(shell.model, "xai/grok-4.7");
+        let chosen = change(&mut shell);
+        assert_eq!(chosen.name, "xai/grok-4.7");
+        assert!(chosen.picker && chosen.announced && !chosen.effort_only);
+        assert_eq!(chosen.effort, None, "the session's effort was not kept");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to xai/grok-4.7 (effort: default, speed: normal)"
+            ))
+        );
+        assert_eq!(
+            settings_text(&shell)[2..],
+            ["  Model    xai/grok-4.7".to_string()]
+        );
+
+        // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
+        right.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
         down(&mut right, 5);
         right.route_bytes(RIGHT);
-        assert!(right.settings_menu.is_none());
+        assert!(right.settings_menu.is_some());
         assert!(right.model_menu.is_some());
+        // Enter in it uses the marked model as Left does.
+        right.route_bytes(b"\r");
+        assert!(right.model_menu.is_none());
+        assert_eq!(right.model, "openai/gpt-6-astra");
+        right.route_bytes(RIGHT);
+        right.route_bytes(b"\t");
+        assert!(right.model_menu.is_none(), "Tab left the list open");
+        assert!(settings_text(&right)[0].contains("[Interface]"));
     }
 
     #[test]
-    fn an_argument_is_the_usage_line_without_upstreams_startup_scrollback() {
-        // `fx-settings-40x120-bogus`, with this product's grammar.
+    fn escape_over_the_model_list_closes_the_settings_menu_and_leaves_the_list_as_models_menu() {
+        // `fx-settings-model-40x120-esc`: upstream's Escape is the settings
+        // menu's alone (`cancelSettingsMenu` before `cancelModelMenu`,
+        // `app_input_runtime.zig:3146`), so the list it had open stays up as
+        // `/model`'s menu.
         let root = tempfile::tempdir().expect("a root");
-        let mut shell = shell_at_home(root.path(), 40, 120);
-        for argument in ["bogus", "startup-scrollback", "startup-scrollback off"] {
+        let mut shell = with_settings(root.path());
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        down(&mut shell, 5);
+        shell.route_bytes(b"\r");
+        escape(&mut shell);
+        assert!(shell.settings_menu.is_none());
+        assert!(matches!(shell.slot(), Some(Slot::Models(_))));
+        assert!(menu(&shell)[0].contains("Models 4"));
+    }
+
+    #[test]
+    fn the_model_list_searches_the_composer_from_its_first_edit() {
+        // `syncCatalogMenus` (`app_input_runtime.zig:2922-2928`): an edit is
+        // the settings menu's search and the list's.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.route_bytes(b"mod");
+        shell.route_bytes(b"\r");
+        assert_eq!(settings_text(&shell)[3].trim(), "openai/gpt-6-astra");
+        // `model` finds the effort and speed rows too (their descriptions name
+        // the model), so the value column is past `Reasoning effort`.
+        shell.route_bytes(b"el");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model               {}", shell.model),
+                "                      fake/model-a".to_string(),
+                "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
+            ]
+        );
+
+        // A search the Model row matches and no model does: one dim line, and
+        // nothing listed is nothing to use.
+        let mut none = with_settings(root.path());
+        none.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        none.route_bytes(b"used");
+        none.route_bytes(b"\r");
+        assert_eq!(settings_text(&none).len(), 7, "{:?}", settings_text(&none));
+        none.route_bytes(b" ");
+        assert_eq!(
+            settings_text(&none)[2..],
+            [
+                format!("  Model    {}", none.model),
+                "    No models found".to_string(),
+            ]
+        );
+        none.route_bytes(LEFT);
+        assert!(none.model_menu.is_some());
+        assert!(none.controlled().is_none());
+    }
+
+    #[test]
+    fn the_speed_rows_are_fast_and_ultrafast_themselves() {
+        // `applySettingsCatalogChange`'s `fast_mode` and `ultrafast_mode`
+        // (`app_commands.zig:4183-4195`): a row that differs from the session
+        // is `toggleFast` or `handleUltrafast(on|off)` -- the same line, the
+        // same change handed to the runtime (which saves it) -- and a model
+        // with no speed has no choice to move to.
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Fast mode"));
+        assert_eq!(settings_text(&shell)[9], "  Fast mode                off");
+        shell.route_bytes(RIGHT);
+        assert!(
+            shell.document().is_empty(),
+            "a model with no Fast mode moved"
+        );
+        assert!(shell.controlled().is_none());
+
+        let model = "openai/gpt-6-astra".to_string();
+        let mut typed = speed_shell();
+        shell.model.clone_from(&model);
+        typed.model.clone_from(&model);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/fast\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(shell.settings.fast);
+        assert!(menu(&shell)[9].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+
+        // Ultra on is `/ultrafast on`, which turns Fast off with it.
+        down(&mut shell, 1);
+        assert_eq!(
+            settings_text(&shell)[10],
+            "  Ultra mode               off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/ultrafast on\r");
+        assert_eq!(shell.document(), typed.document());
+        let change = speed_change(&mut shell);
+        assert_eq!(change, speed_change(&mut typed));
+        assert!(change.ultrafast && !change.fast);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        // And Left back off is `/ultrafast off`.
+        shell.route_bytes(LEFT);
+        typed.route_bytes(b"/ultrafast off\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(!shell.settings.ultrafast);
+    }
+
+    #[test]
+    fn startup_scrollback_is_saved_for_the_next_launch_and_said_so() {
+        // `fx-settings-scrollback-*`: the row and its command both write
+        // `startup_scrollback` and say what the next launch does
+        // (`saveStartupScrollbackSetting`, `session_commands.zig:1076-1127`),
+        // with no `saved to user settings` line.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        down(&mut shell, 11);
+        assert!(visible_text(&menu(&shell)[13]).starts_with("  Startup scrollback"));
+        shell.route_bytes(RIGHT);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "settings",
+                "startup_scrollback: off (applies on next launch)"
+            ))
+        );
+        assert_eq!(
+            settings_text(&shell)[13],
+            "  Startup scrollback       off  on"
+        );
+        assert!(menu(&shell)[13].contains(&format!(
+            "{}off{}",
+            PALETTE.subtitle(),
+            PALETTE.reset()
+        )));
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"startup_scrollback\": false\n}\n"
+        );
+        escape(&mut shell);
+
+        // The command: `on`/`off` in any case, and alone the other value.
+        for (argument, on) in [
+            ("startup-scrollback ON", true),
+            ("Startup-Scrollback", false),
+            ("startup-scrollback", true),
+            ("  startup-scrollback \t off ", false),
+        ] {
             shell.route_bytes(format!("/settings {argument}\r").as_bytes());
             assert_eq!(
                 shell.document(),
-                said(notice::Notice::error("", "usage: /settings")),
+                said(notice::Notice::neutral(
+                    "settings",
+                    format!(
+                        "startup_scrollback: {} (applies on next launch)",
+                        if on { "on" } else { "off" }
+                    )
+                )),
+                "{argument}"
+            );
+            assert!(profile_at(root.path()).contains(&format!("\"startup_scrollback\": {on}")));
+            assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
+        }
+
+        // A write that failed says so under the argument's name.
+        shell.settings_path = None;
+        shell.route_bytes(b"/settings startup-scrollback on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "startup-scrollback",
+                "not saved to user settings (no home directory is set)"
+            ))
+        );
+        assert!(!shell.startup_scrollback);
+    }
+
+    #[test]
+    fn an_argument_it_does_not_take_is_upstreams_usage_line() {
+        // `fx-settings-40x120-bogus`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in [
+            "bogus",
+            "startup-scrollback maybe",
+            "startup-scrollback on now",
+            "scrollback on",
+        ] {
+            shell.route_bytes(format!("/settings {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /settings [startup-scrollback [on|off]]"
+                )),
                 "{argument}"
             );
             assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
@@ -29867,7 +31081,7 @@ mod tests {
 
     /// What Up puts in the composer.
     fn recalled(shell: &mut Fixture) -> String {
-        shell.route_bytes(b"\x1b[A");
+        older(shell);
         shell.editor.text().to_string()
     }
 
@@ -29918,7 +31132,9 @@ mod tests {
         let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
         assert_eq!(walked[0], "/settings");
         assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
-        shell.route_bytes(&[0x15]);
+        // The walk leaves the caret at the oldest line's start: to its end,
+        // then everything before it.
+        shell.route_bytes(&[0x05, 0x15]);
 
         shell.route_bytes(b"/settings\r");
         shell.route_bytes(b"\x1b[A");

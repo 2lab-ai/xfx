@@ -564,6 +564,133 @@ impl Session {
             thread::sleep(Duration::from_millis(10));
         }
     }
+
+    /// Sends `signal`, which is to stop the child, and waits until the stop has
+    /// **finished** -- the only state a `SIGCONT` may be sent from.
+    ///
+    /// On macOS a stop `waitid` reports and a stop that has finished are two
+    /// moments, and a `SIGCONT` sent between them is lost for good. Sent the
+    /// instant `waitid` reported the stop, it hung the child in 2 of about 4,560
+    /// stop/continue cycles run inside the full suite under load: `waitid`
+    /// said the child was running again, the thread that took the stop never
+    /// came back out of its handler's `raise(SIGSTOP)` (`sample`: parked at a
+    /// `_sigtramp` frame it never entered), and neither a second `SIGCONT` nor
+    /// a fresh `SIGSTOP` and `SIGCONT` revived it. Waiting for no thread of the
+    /// child to be running as well (`proc_taskinfo`'s `pti_numrunning`) still
+    /// hung 1 in 3,600.
+    ///
+    /// What closes it is the parent's `SIGCHLD` for the stop (`CLD_STOPPED`,
+    /// this child's pid), which comes after the stop has taken hold: waiting
+    /// for it, nothing hung in 10,800 cycles. But `SIGCHLD` is not queued, so
+    /// another child's notice landing before this one is delivered takes its
+    /// place -- eight stops of those 10,800 waited out the whole [`WAIT`] for a
+    /// notice that never came. So a reported stop whose notice has not come in
+    /// [`NOTICE_GRACE`] is taken as finished anyway: in a second run of 10,800
+    /// cycles ten stops took that path and none of them hung. Elsewhere the
+    /// report is the stop.
+    pub fn stop_with(&self, signal: Signal, what: &str) -> Wait {
+        let since = stops::mark();
+        self.signal(signal);
+        let stopped = self.wait_state(what, |state| matches!(state, Wait::Stopped(_)));
+        let reported = Instant::now();
+        while !stops::finished_since(since, self.pid()) && reported.elapsed() < NOTICE_GRACE {
+            thread::sleep(IDLE_POLL);
+        }
+        stopped
+    }
+}
+
+/// How long a reported stop waits for its `SIGCHLD` before it is taken as
+/// finished anyway ([`Session::stop_with`]).
+///
+/// Long enough that what it outlasts is a notice another child's replaced
+/// rather than a stop still under way: the hang it guards against needs a
+/// continue within microseconds of the report.
+pub const NOTICE_GRACE: Duration = Duration::from_secs(1);
+
+/// The `SIGCHLD`s this process has been sent, for [`Session::stop_with`].
+#[cfg(target_os = "macos")]
+mod stops {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::Once;
+
+    use rustix::process::Pid;
+
+    /// How many notices are kept: more than any test sends between the mark
+    /// and the wait, by orders of magnitude.
+    const KEPT: usize = 1024;
+
+    /// The child and the code of each notice, `pid << 32 | code`.
+    static NOTICE: [AtomicU64; KEPT] = [const { AtomicU64::new(0) }; KEPT];
+    /// The ordinal each slot holds, plus one, written after the notice: a slot
+    /// whose ordinal is not the one being read is a notice not yet written, or
+    /// one from a lap ago.
+    static ORDINAL: [AtomicUsize; KEPT] = [const { AtomicUsize::new(0) }; KEPT];
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    static INSTALL: Once = Once::new();
+
+    /// Atomics only, so it is async-signal-safe.
+    extern "C" fn record(_: libc::c_int, info: *mut libc::siginfo_t, _: *mut libc::c_void) {
+        // SAFETY: an `SA_SIGINFO` handler is handed a valid `siginfo_t`.
+        let (pid, code) = unsafe { ((*info).si_pid, (*info).si_code) };
+        let ordinal = NEXT.fetch_add(1, Ordering::SeqCst);
+        let slot = ordinal % KEPT;
+        NOTICE[slot].store(
+            (u64::from(pid as u32) << 32) | u64::from(code as u32),
+            Ordering::SeqCst,
+        );
+        ORDINAL[slot].store(ordinal + 1, Ordering::SeqCst);
+    }
+
+    /// Where the notices stand, with the handler installed first.
+    ///
+    /// `SA_RESTART`, so a call another test's thread is blocked in resumes
+    /// rather than failing with `EINTR`; and no `SA_NOCLDSTOP`, because the
+    /// stop notice is the point.
+    pub(super) fn mark() -> usize {
+        INSTALL.call_once(|| {
+            // SAFETY: `action` is a zeroed `sigaction` owned here, given a
+            // valid handler, an empty mask and flags this platform defines.
+            unsafe {
+                let mut action: libc::sigaction = std::mem::zeroed();
+                action.sa_sigaction = record as *const () as usize;
+                libc::sigemptyset(&mut action.sa_mask);
+                action.sa_flags = libc::SA_SIGINFO | libc::SA_RESTART;
+                assert_eq!(
+                    libc::sigaction(libc::SIGCHLD, &action, std::ptr::null_mut()),
+                    0,
+                    "install the SIGCHLD recorder: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+        });
+        NEXT.load(Ordering::SeqCst)
+    }
+
+    /// Whether `pid`'s stop notice has arrived since `since`.
+    pub(super) fn finished_since(since: usize, pid: Pid) -> bool {
+        let wanted = (u64::from(pid.as_raw_nonzero().get() as u32) << 32)
+            | u64::from(libc::CLD_STOPPED as u32);
+        (since..NEXT.load(Ordering::SeqCst)).any(|ordinal| {
+            let slot = ordinal % KEPT;
+            ORDINAL[slot].load(Ordering::SeqCst) == ordinal + 1
+                && NOTICE[slot].load(Ordering::SeqCst) == wanted
+        })
+    }
+}
+
+/// Elsewhere the stop `waitid` reports is the stop.
+#[cfg(not(target_os = "macos"))]
+mod stops {
+    use rustix::process::Pid;
+
+    pub(super) fn mark() -> usize {
+        0
+    }
+
+    pub(super) fn finished_since(_since: usize, _pid: Pid) -> bool {
+        true
+    }
 }
 
 /// What a child is doing, including the three states `Child::try_wait` hides.

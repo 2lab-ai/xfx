@@ -1,0 +1,40 @@
+  │ 2 + ALPHA LINE TWO
+  │ 3   alpha line 3
+
+  2026-10-07 03:08:12.245 UTC · Tool
+├ Denied file
+│  path: c.txt
+│  content: new file
+│  second line
+
+  2026-10-07 03:08:12.245 UTC · Tool
+├ Failed missing.txt
+│  Path not found: missing.txt
+
+  2026-10-07 03:08:12.245 UTC · Tool
+└ Exited 3 echo boom; echo err >&2; exit 3
+│  action: run
+│  yield_time_ms: 30000
+│ boom
+│ err
+│ exit code 3
+
+  2026-10-07 03:08:12.245 UTC · Response
+  All done. The files were updated.
+
+  2026-10-07 03:08:12.245 UTC · Usage
+  13s (↑8 ↓320)
+
+  2026-10-07 03:08:12.245 UTC · Prompt
+┃ and once more
+
+■ Cancelled · What can fx do differently?
+
+  2026-10-07 03:08:12.245 UTC · Prompt
+┃ run the long one
+
+■ Cancelled · What can fx do differently?
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

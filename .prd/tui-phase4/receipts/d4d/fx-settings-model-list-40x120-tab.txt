@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)
+
+* model picker: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 5  All  [Interface]  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

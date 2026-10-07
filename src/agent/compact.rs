@@ -2054,10 +2054,14 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
+                    created_at_ms: None,
                     call_id: "read1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
                     output: "1\tseed notes line one\n2\tSEED_VALUE_42\n".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
                 },
                 TurnStep::Assistant {
                     text: "ANSWER_1: I read the notes.".to_string(),
