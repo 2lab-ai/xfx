@@ -22,22 +22,24 @@ scripts/fxcap/capture.sh {fx,xfx} provider-carry-back 40x120 <dir>
 
 Compared row by row in the `.ansi` files, every row after the banner (the resumed screens have none), first as captured, then with fx's provider words mapped to xfx's (`Codex subscription` → `llmux`, `gpt-5.6-sol` → `model-a`, `1k/272k` → `1k/200k`), then with the two rows this unit does not claim taken out of both (fx's gated `* auth: Switched credential …` leaf, xfx's one-time `! session:` notice, each with its blank row) and tmux's `\e[39m` placement ignored (see below).
 
-| Snap | Identical as captured | After the provider map | Rows that still differ, and why |
-|---|---|---|---|
-| carry `start` | 4/4 | 4/4 | -- |
-| carry `turn1` | 13/13 | 13/13 | -- (the Gateway turn: call group, answer, footer `auto · model-a · read the notes and tell me what  · 1k`) |
-| carry `open` | 17/20 | 17/20 | 14-16: the provider rows (`vercel · current`/`codex`/`grok` against `gateway · current`/`llmux`/blank), D3's label map |
-| carry `switched` | 14/17 | **17/17** | -- `* provider: Preparing <name>.`, `* provider: Switched to <name> with <model>.` and nothing after it; the footer keeps the title and the tokens and measures them against the new window at once: fx `· 1k/272k 0%`, xfx `· 1k/200k 0%` |
-| carry `turn2` | 20/23 | **23/23** | -- the first turn after the switch, under the same transcript |
-| carry `quit` | 35/39 | 37/39 | 22: `Continue session with: fx --resume <id>` / `xfx --resume <id>`, each product's id; 40: tmux's `Pane is dead` timestamp |
-| carry `resumed` | 19/20 | **20/20** | -- one session: `* session resumed: read the notes and tell me what they`, both turns replayed, the switch notices not (neither product replays notices) |
-| carry `turn3` | 25/26 | **26/26** | -- |
-| back `start` | 3/4 | 4/4 | -- |
-| back `turn1` | 12/13 | **13/13** | -- (the turn on the provider that seals its reasoning; fx `· 1k/272k 0%`, xfx `· 1k/200k 0%`) |
-| back `open` | 16/20 | 17/20 | 14-16: the provider rows, `codex · current` against `llmux · current` |
-| back `switched` | 13/19 | 13/19 | **17/17** with the two rows out: fx's extra `* auth: Switched credential to AI_GATEWAY_API_KEY.` is its gated sign-in leaf (D3, zbrain #88) |
-| back `turn2` | 13/26 | 13/26 | **23/23** with the two rows out: xfx's `! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over` -- fx drops the same reasoning without a word (below) |
-| back `turn3` | 13/32 | 13/32 | **29/29** with the two rows out: the notice is not said again |
+| Snap | Identical as captured | After the provider map | And the two rows out, `\e[39m` ignored | Rows that still differ, and why |
+|---|---|---|---|---|
+| carry `start` | 4/4 | 4/4 | 4/4 | -- |
+| carry `turn1` | 13/13 | 13/13 | 13/13 | -- (the Gateway turn: call group, answer, footer `auto · model-a · read the notes and tell me what  · 1k`) |
+| carry `open` | 17/20 | 17/20 | 17/20 | 14-16: the provider rows (`vercel · current`/`codex`/`grok` against `gateway · current`/`llmux`/blank), D3's label map |
+| carry `switched` | 14/17 | 16/17 | **17/17** | -- `* provider: Preparing <name>.`, `* provider: Switched to <name> with <model>.` and nothing after it; the footer keeps the title and the tokens and measures them against the new window at once: fx `· 1k/272k 0%`, xfx `· 1k/200k 0%`. Row 14 as captured: the `\e[39m` below |
+| carry `turn2` | 20/23 | 22/23 | **23/23** | -- the first turn after the switch, under the same transcript (row 14 as above) |
+| carry `quit` | 35/39 | 36/39 | 37/39 | 22: `Continue session with: fx --resume <id>` / `xfx --resume <id>`, each product's id; 40: tmux's `Pane is dead` timestamp |
+| carry `resumed` | 19/20 | 20/20 | **20/20** | -- one session: `* session resumed: read the notes and tell me what they`, both turns replayed, the switch notices not (neither product replays notices) |
+| carry `turn3` | 25/26 | 26/26 | **26/26** | -- |
+| back `start` | 3/4 | 4/4 | 4/4 | -- |
+| back `turn1` | 12/13 | 13/13 | **13/13** | -- (the turn on the provider that seals its reasoning; fx `· 1k/272k 0%`, xfx `· 1k/200k 0%`) |
+| back `open` | 16/20 | 17/20 | 17/20 | 14-16: the provider rows, `codex · current` against `llmux · current` |
+| back `switched` | 13/19 | 13/19 | **17/17** | fx's extra `* auth: Switched credential to AI_GATEWAY_API_KEY.` is its gated sign-in leaf (D3, zbrain #88) |
+| back `turn2` | 13/26 | 13/26 | **23/23** | xfx's `! session: this session recorded reasoning on the anthropic_messages wire and is continuing on vercel_gateway, so that reasoning was not carried over` -- fx drops the same reasoning without a word (below) |
+| back `turn3` | 13/32 | 13/32 | **29/29** | -- the notice is not said again |
+
+The two rows taken out of both sides for the third column are fx's `* auth: Switched credential …` and xfx's `! session: …` (each with the blank row after it); nothing else is removed. The counts are `python3 compare.py .` (the first two columns) and `python3 compare.py . --drop` (the third), run in this directory.
 
 **`\e[39m` on the `Switched to` row.** In carry `switched`/`turn2` fx's capture closes that row's colour on the next row and xfx's on the row itself; in back `switched` both close it on the next row. It is where tmux re-serializes the colour of the blank cells after the text (whichever later write touched them), not the text or its colour: xfx produces both variants.
 
