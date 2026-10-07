@@ -10631,7 +10631,14 @@ F1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
         Reply::Sse(content_only(&["MARKER-ANSWER"])),
         Reply::Sse(content_only(&["MARKER-NEXT"])),
     ])
-    .with_catalog(small_window());
+    // A thousand tokens more than `small_window`: the TUI's requests carry
+    // the three MCP meta-tools (about 800 tokens by the estimate), and the
+    // notes must still fit after the conversation they follow.
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
+         "released": 1_700_000_000, "tags": ["tool-use"],
+         "context_window": 17_000, "max_tokens": 4_000},
+    ]}));
     let sandbox = Sandbox::new();
     for name in ["a.txt", "b.txt", "c.txt"] {
         std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
