@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ first question
+
+  ANSWER-ONE: plain text.
+
+  0s (↑4 ↓40)
+
+┃ second question
+
+  ANSWER-TWO: plain text.
+
+  0s (↑4 ↓40)
+
+┃ third question
+
+  ANSWER-THREE.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

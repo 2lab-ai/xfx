@@ -341,8 +341,6 @@ pub(crate) enum UiEvent {
         title: String,
         unsaved: Option<String>,
     },
-    /// What `/credits` found: the account's fields, or why there are none.
-    Credits(crate::credits::Answer),
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
     /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
     ///
@@ -354,6 +352,24 @@ pub(crate) enum UiEvent {
     /// that happened, and one nobody was told of is a file that changed
     /// invisibly.
     Undone(super::notice::Notice),
+    /// A `/workspace` change reached the runtime: what it says, and -- when it
+    /// happened -- the saved directories now in force, for the picker and the
+    /// `@` index the band keeps. **Terminal**, like every answer to a piece of
+    /// work.
+    ///
+    /// Structured rather than a notice alone for the reason [`Self::Renamed`]
+    /// is: the band's copy of the directories changes only for a change that
+    /// happened, and a change a Ctrl-C dropped from the queue before it ran is
+    /// not one.
+    Workspace {
+        notice: super::notice::Notice,
+        access: Option<crate::workspace::access::WorkspaceAccess>,
+    },
+    /// Where a compaction is: begun, sending its notes request, or over
+    /// ([`super::compaction`]). The band's row only -- upstream writes
+    /// nothing of a compaction into the transcript. Not terminal: an
+    /// automatic one ends inside a turn, and a manual one ends no turn.
+    Compaction(super::compaction::Update),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -546,26 +562,6 @@ impl UiEvent {
             Self::Usage { input, output } => Self::Usage { input, output },
             // A count. There is nothing here a terminal can be made to obey.
             Self::Fresh { through } => Self::Fresh { through },
-            // What a Gateway answered, and the one string a remote end chose
-            // that reaches the screen verbatim. `\n` survives, and it is
-            // the field separator only xfx writes: `crate::credits` quotes an
-            // error body on one line and reads each field as one value, but a
-            // field the Gateway wrote with a line break in it is still its
-            // text, and painted as the notice's own continuation row.
-            Self::Credits(answer) => Self::Credits(match answer {
-                crate::credits::Answer::Failed(reason) => {
-                    crate::credits::Answer::Failed(inert_owned(reason))
-                }
-                crate::credits::Answer::Credits {
-                    balance,
-                    used,
-                    plan,
-                } => crate::credits::Answer::Credits {
-                    balance: balance.map(inert_owned),
-                    used: used.map(inert_owned),
-                    plan: plan.map(inert_owned),
-                },
-            }),
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -709,6 +705,22 @@ impl UiEvent {
                 title: inert_owned(title),
                 unsaved: unsaved.map(inert_owned),
             },
+            // The notice quotes paths, which are the filesystem's words. The
+            // directories travel as paths rather than text: the picker spells
+            // each one through `access::terminal_safe` when it paints it,
+            // which writes a control character out as its code point -- a
+            // stronger rule than this one, and the one upstream paints a path
+            // by (`encodeTerminalSafe`).
+            Self::Workspace { notice, access } => Self::Workspace {
+                notice: super::notice::Notice {
+                    tone: notice.tone,
+                    topic: inert_owned(notice.topic),
+                    body: inert_owned(notice.body),
+                },
+                access,
+            },
+            // No text: phases and outcomes this crate names.
+            Self::Compaction(update) => Self::Compaction(update),
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
     }
@@ -959,12 +971,20 @@ pub(crate) enum TurnWork {
     /// prompt has. Answered with a notice: renamed, or renamed here and not
     /// saved.
     Rename(String),
-    /// Ask the configured provider what its account has left
-    /// ([`crate::credits`]), answered with [`UiEvent::Credits`].
+    /// Make one `/workspace` change ([`UiEvent::Workspace`]).
     ///
-    /// Work rather than a control message because it opens a socket, which
-    /// the thread holding the terminal may not wait on.
-    Credits,
+    /// Work rather than control because it changes the scope a turn's tools
+    /// run in, so it must land **between** turns -- upstream refuses it while
+    /// anything runs or waits (`tryBeginWorkspaceMutation`,
+    /// `app_commands.zig:219-222`), and so does the band before it sends one --
+    /// and because a prompt typed after it must run in the scope it made: the
+    /// queue is what orders the two. It writes the profile, which the thread
+    /// holding the terminal does not wait on.
+    Workspace(crate::workspace::access::Action),
+    /// `/compact`: compact the conversation, between turns. Work because it
+    /// asks the model for notes and writes the session's log; answered with
+    /// [`UiEvent::Compaction`] updates and nothing in the transcript.
+    Compact,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

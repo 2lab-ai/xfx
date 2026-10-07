@@ -1,0 +1,24 @@
+=== ~/.fx/backups/settings.json.backup.1791326659182-0000000000000001-7909aac005e5858407b1e11211f8522a (99 bytes)
+{"workspaces":{"<scratch>/work":{"permission":{"bash":{"x":"allow"}}}}}
+
+=== ~/.fx/history.jsonl (301 bytes)
+{"schema_version":1,"timestamp_ms":1791326658155,"workspace_root":"<scratch>/work","text":"/allowlist add command \"x\""}
+{"schema_version":1,"timestamp_ms":1791326659177,"workspace_root":"<scratch>/work","text":"/allowlist remove command \"x\""}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/vsAka8PmbLVj/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/vsAka8PmbLVj/owner.live (43 bytes)
+{"pid":51805,"opened_at_ms":1791326656147}
+
+=== ~/.fx/sessions/vsAka8PmbLVj/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/vsAka8PmbLVj/session.json (365 bytes)
+{"schema_version":4,"id":"vsAka8PmbLVj","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791326656142,"updated_at_ms":1791326656142,"conversation_language":"und","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/vsAka8PmbLVj/session.lock (0 bytes)
+=== ~/.fx/sessions/vsAka8PmbLVj/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"vsAka8PmbLVj","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (79 bytes)
+{"workspaces":{"<scratch>/work":{"permission":{}}}}
+
+=== ~/.fx/settings.lock (0 bytes)

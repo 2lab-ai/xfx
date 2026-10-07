@@ -18,7 +18,7 @@ use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
     SessionDetailSnapshot, SessionFacts, SessionsSnapshot, SetupSnapshot, StatusSnapshot, TextSink,
 };
-use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
+use crate::permission::{Grant, LiveRules, PermissionSession, TtyPrompter, YOLO_WARNING};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{
     ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
@@ -342,7 +342,23 @@ async fn run_ask(
     // The authority the turn's tools will run under, resolved before anything
     // else. A directory the user named but xfx cannot use is a mistake in the
     // invocation, and reporting it here costs no credential and no round trip.
-    let scope = match AccessScope::new(&config.workspace_root, &request.add_dirs) {
+    //
+    // **The saved directories too**, as upstream's `ask` has them
+    // (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1193`, the launch's
+    // saved and command-line entries in one scope): one `/workspace add`
+    // means the same directory to every surface. A saved one that is not
+    // there is skipped rather than failing the turn -- it is not something
+    // this invocation named.
+    let saved = crate::workspace::access::WorkspaceAccess::load(
+        &config.workspace_root,
+        &config.additional_directories,
+    );
+    let roots = request
+        .add_dirs
+        .iter()
+        .map(PathBuf::as_path)
+        .chain(saved.active_roots());
+    let scope = match AccessScope::new(&config.workspace_root, roots) {
         Ok(scope) => scope,
         Err(err) => {
             let mut sink: Box<dyn EventSink> = if request.json {
@@ -435,13 +451,18 @@ async fn run_ask(
     // unreachable from the binary.
     watch_for_interrupt(cancel.clone());
 
-    let mut permissions = permission_session(mode);
+    let mut permissions =
+        permission_session(mode, LiveRules::new(config.permission.effective().clone()));
     // The prompt has to state the scope it is actually selling. When this turn
     // is being recorded, an "always" answer outlives the process and will be
     // reused by any later `ask --resume-id <id>`, so the id goes into the
     // question rather than being discovered afterwards.
     if let Some(recorder) = opened.recorder.as_ref() {
-        permissions = permissions.with_durable_session(recorder.id().as_str());
+        permissions = permissions
+            .with_durable_session(recorder.id().as_str())
+            // And its saved-session rules decide this turn's calls, as a
+            // resumed upstream session's do.
+            .with_session_rules(recorder.permission_rules_path());
     }
     for grant in &opened.restored_grants {
         permissions.grant(grant.clone());
@@ -670,8 +691,12 @@ where
 /// ends. Without one, `ask` mode denies every mutation rather than hanging on a
 /// question nobody can see -- so a piped or scripted `xfx ask` fails closed by
 /// construction rather than by remembering to check.
-pub(crate) fn permission_session(mode: PermissionMode) -> PermissionSession {
-    let session = PermissionSession::new(mode);
+///
+/// `rules` is the configured table every decision reads: a fresh one from the
+/// profile for a single `ask`, and the line shell's own handle, which
+/// `/allowlist` replaces, for a conversation it opens.
+pub(crate) fn permission_session(mode: PermissionMode, rules: LiveRules) -> PermissionSession {
+    let session = PermissionSession::new(mode).with_live_rules(rules);
     match TtyPrompter::available() {
         Some(prompter) => session.with_prompter(Box::new(prompter)),
         None => session,

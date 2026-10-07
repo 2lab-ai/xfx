@@ -364,9 +364,17 @@ pub(crate) enum Gutter {
     ///
     /// **One-shot.** Only the first row of the next line carries the glyph;
     /// once that line has ended -- or a freeze has dropped its first row --
-    /// the gutter is [`Gutter::Indent`] until the next one is queued
+    /// the gutter is [`Gutter::NoticeIndent`] until the next one is queued
     /// ([`Self::continued`]).
+    ///
+    /// Its text wraps by upstream's notice rule rather than the prose one
+    /// ([`super::wrap::wrap_notice`]): a path breaks after a separator.
     Head(Tone),
+    /// The rest of a notice: two blank columns, as [`Gutter::Indent`] is, and
+    /// the notice's own wrap, as [`Gutter::Head`] has -- every line of a
+    /// notice is wrapped as upstream wraps the whole of it
+    /// (`renderSemanticNotice`, `transcript_blocks.zig:1781-1798`).
+    NoticeIndent,
 }
 
 impl Gutter {
@@ -374,7 +382,7 @@ impl Gutter {
     pub(crate) fn width(self) -> u16 {
         match self {
             Gutter::None => 0,
-            Gutter::Rail | Gutter::Indent | Gutter::Head(_) => 2,
+            Gutter::Rail | Gutter::Indent | Gutter::Head(_) | Gutter::NoticeIndent => 2,
         }
     }
 
@@ -384,7 +392,7 @@ impl Gutter {
         match self {
             Gutter::None => String::new(),
             Gutter::Rail => format!("{}\u{2503}{} ", palette.hint(), palette.reset()),
-            Gutter::Indent => "  ".to_string(),
+            Gutter::Indent | Gutter::NoticeIndent => "  ".to_string(),
             // The space inside the run, as upstream's label is: one run of one
             // colour from the glyph to the colon, so a capture reads the label
             // as the single span upstream's does.
@@ -405,8 +413,17 @@ impl Gutter {
     /// row only.
     fn continued(self) -> Gutter {
         match self {
-            Gutter::Head(_) => Gutter::Indent,
+            Gutter::Head(_) => Gutter::NoticeIndent,
             other => other,
+        }
+    }
+
+    /// The rows `text` occupies at `cols` behind this gutter: a notice's by
+    /// upstream's notice rule, everything else's by the prose one.
+    fn wrap(self, text: &str, cols: u16) -> Vec<wrap::Row> {
+        match self {
+            Gutter::Head(_) | Gutter::NoticeIndent => wrap::wrap_notice(text, cols),
+            Gutter::None | Gutter::Rail | Gutter::Indent => wrap::wrap(text, cols),
         }
     }
 }
@@ -987,6 +1004,7 @@ impl Transcript {
             &mut roles,
             &mut open_rows,
             inner(self.cols, gutter),
+            gutter,
         );
         if froze {
             // The row a notice's glyph stood on is the terminal's now, and the
@@ -1106,7 +1124,7 @@ impl Transcript {
         if self.block {
             return;
         }
-        self.painted = wrap::wrap(&self.tail, inner(cols, self.gutter)).len();
+        self.painted = self.gutter.wrap(&self.tail, inner(cols, self.gutter)).len();
     }
 }
 
@@ -1174,11 +1192,17 @@ fn inner(cols: u16, gutter: Gutter) -> u16 {
 /// Says whether it dropped anything: a line whose first row is no longer held
 /// here is a line whose next re-wrap starts on a continuation row
 /// ([`Gutter::continued`]).
-fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16) -> bool {
+fn freeze(
+    tail: &mut String,
+    roles: &mut Roles,
+    open_rows: &mut usize,
+    cols: u16,
+    gutter: Gutter,
+) -> bool {
     if *open_rows <= MAX_TAIL_ROWS {
         return false;
     }
-    let rows = wrap::wrap(tail, cols);
+    let rows = gutter.wrap(tail, cols);
     let Some(last) = rows.last() else {
         return false;
     };
@@ -1196,7 +1220,7 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
     // tail really occupies would make that scroll too small -- which is the
     // renderer treating unpainted rows as settled, the silent loss this whole
     // path is counted in `usize` to avoid.
-    *open_rows = wrap::wrap(tail, cols).len();
+    *open_rows = gutter.continued().wrap(tail, cols).len();
     true
 }
 
@@ -1217,7 +1241,7 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
 /// (`super::pacer::SgrState`, the same model the wire checker reads colours
 /// with), and closes whatever is still open at the point the painter cuts.
 fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette) -> Vec<String> {
-    let rows = body_rows(text, roles, inner(cols, gutter), palette);
+    let rows = body_rows(text, roles, inner(cols, gutter), gutter, palette);
     if gutter == Gutter::None {
         return rows;
     }
@@ -1236,7 +1260,7 @@ fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette)
             } else {
                 (&continuation, rest)
             };
-            if gutter == Gutter::Indent && row.is_empty() {
+            if matches!(gutter, Gutter::Indent | Gutter::NoticeIndent) && row.is_empty() {
                 row
             } else {
                 format!("{prefix}{row}")
@@ -1246,11 +1270,18 @@ fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette)
 }
 
 /// The text's own rows at `cols`, before any gutter.
-fn body_rows(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<String> {
+fn body_rows(
+    text: &str,
+    roles: &Roles,
+    cols: u16,
+    gutter: Gutter,
+    palette: Palette,
+) -> Vec<String> {
     let styled = text.contains('\u{1b}');
     let mut state = super::pacer::SgrState::default();
     let mut seen = 0usize;
-    wrap::wrap(text, cols)
+    gutter
+        .wrap(text, cols)
         .into_iter()
         .map(|row| {
             let slice = &text[row.start..row.end];
@@ -3118,8 +3149,10 @@ mod tests {
         // `renderSemanticNotice` (`transcript_blocks.zig:1758-1800`): the line is
         // `✗ command: Unknown command. Try /help.`, wrapped at the screen's
         // width, every continuation row indented by two. At 20 columns the
-        // text behind the glyph has 18, so it breaks after `Unknown` and after
-        // `Try` -- exactly where upstream's 20-column line breaks.
+        // text behind the glyph has 18, so it breaks at the space after
+        // `Unknown`, which is on neither row, and after the `/` of `/help`,
+        // where upstream's notice wrap breaks a path (`scanNoticeLine`,
+        // `transcript_blocks.zig:1674-1702`).
         let mut transcript = Transcript::new(20);
         transcript.queue_gutter(Gutter::Head(Tone::Error));
         // One operation for the label and the body, as the shell queues it.
@@ -3144,10 +3177,10 @@ mod tests {
             vec![
                 format!(
                     "{LABEL_DARK}\u{2717} {RESET}{LABEL_DARK}command:{RESET}\
-                     {NOTICE_DARK} Unknown {RESET}"
+                     {NOTICE_DARK} Unknown{RESET}"
                 ),
-                format!("  {NOTICE_DARK}command. Try {RESET}"),
-                format!("  {NOTICE_DARK}/help.{RESET}"),
+                format!("  {NOTICE_DARK}command. Try /{RESET}"),
+                format!("  {NOTICE_DARK}help.{RESET}"),
             ]
         );
     }

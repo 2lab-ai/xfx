@@ -267,17 +267,17 @@ fn slash_permissions_says_the_mode_changes_it_and_records_it() {
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/permissions");
-    let text = session.wait_for("[permissions] usage:");
+    let text = session.wait_for("[permissions] /permissions revoke <rule-id>");
     for row in [
         "[permissions] mode=auto",
         "[permissions] configured rules: (none)",
         "[permissions] session grants: (none)",
         "[permissions] saved-session permission rules: none",
         "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+        "[permissions] /permissions remember <allow|deny> <tool-name> <arguments-json>",
     ] {
         assert!(text.contains(row), "{row} missing: {text}");
     }
-    assert!(!text.contains("remember"), "{text}");
 
     session.type_line("/permissions Full-Access");
     let text = session.wait_for("mode set to full access");
@@ -492,6 +492,25 @@ fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
     session.type_line("/stats");
     let text = session.wait_for("draws none");
     assert!(!text.contains("ansi_bytes="), "{text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_compact_says_where_compaction_runs_and_asks_nobody() {
+    // Upstream's compaction shows on the full-screen shell's activity row and
+    // nowhere else; this shell has no row, so it says where it is.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/compact");
+    let text = session.wait_for("shows its progress");
+    assert!(
+        text.contains("xfx: /compact runs in the full-screen shell"),
+        "{text}"
+    );
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
 
     assert_eq!(session.quit().code(), Some(0));
 }

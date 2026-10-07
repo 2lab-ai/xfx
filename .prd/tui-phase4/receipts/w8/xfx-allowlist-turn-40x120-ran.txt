@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-41cf01d [debug] · Run /help for commands
+
+┃ hello
+
+  Ready.
+
+  1s (↑2 ↓40)
+
+* allowlist: added command: "printf *" (scope=local)
+
+┃ run the command
+
+● 1 tool call · 1 command
+└ Ran printf allowed-by-rule
+
+  Ran it.
+
+  1s (↑4 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

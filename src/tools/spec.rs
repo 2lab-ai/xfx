@@ -731,6 +731,19 @@ impl ToolContext {
         &self.scope
     }
 
+    /// Puts the conversation in `scope` from its next tool call on: what a
+    /// `/workspace` change does to a conversation already open.
+    ///
+    /// Only between turns -- the caller's rule, which upstream's is too
+    /// (`tryBeginWorkspaceMutation`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:219-222`). Grants and read proofs stay:
+    /// both are keyed by a canonical path, so one for a file in a root that has
+    /// left the scope is never reached again -- the path is refused before
+    /// policy is asked -- and one for a root that comes back is the same file.
+    pub fn set_scope(&mut self, scope: AccessScope) {
+        self.scope = scope;
+    }
+
     pub fn limits(&self) -> &ToolLimits {
         &self.limits
     }
@@ -864,13 +877,29 @@ impl ToolSpec {
 
     /// The Gateway's flattened function-tool envelope
     /// (`vercel-labs/fx@580a0c5d src/core/tooling/gateway_schema.zig:82-104`).
+    ///
+    /// Keys sorted at every depth. JSON objects keep the order they were
+    /// built in (`serde_json`'s `preserve_order`, which settings need: a
+    /// permission table is read last-match-wins in document order), and the
+    /// bytes every model has been sent are the sorted ones -- a schema whose
+    /// keys moved would be a new prefix to every provider's prompt cache.
     pub fn advertisement(&self) -> Value {
         let mut envelope = Map::new();
         envelope.insert("type".to_string(), Value::from("function"));
         envelope.insert("name".to_string(), Value::from(self.name));
         envelope.insert("description".to_string(), Value::from(self.description));
         envelope.insert("inputSchema".to_string(), self.input_schema.to_json());
-        Value::Object(envelope)
+        let mut envelope = Value::Object(envelope);
+        envelope.sort_all_objects();
+        envelope
+    }
+
+    /// Decodes and validates one call's arguments, and runs nothing: the
+    /// typed input [`Self::run`] would hand the executor.
+    pub fn decode(&self, input: &Value) -> Result<ToolInput, String> {
+        let decoded = (self.decode)(input)?;
+        (self.validate)(&decoded)?;
+        Ok(decoded)
     }
 
     /// Decodes, validates, and runs one call's arguments.

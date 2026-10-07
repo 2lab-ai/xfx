@@ -1,0 +1,42 @@
+# W8 `/permissions remember` and `revoke` (research §`/permissions`,
+# `permissions3.cap`): a turn first, because xfx opens its saved session at
+# the first prompt where fx has one from launch; then the confirmation band,
+# Escape, a remembered deny confirmed, the listing, a revoke confirmed, and
+# the session's `permissions.json` after.
+gateway allowlist-hello.json
+wait 2
+type hello
+key Enter
+wait 2
+type /permissions remember allow write_file {"path":"a.txt","content":"x"}
+key Enter
+wait 1.5
+snap remember-prompt
+key Escape
+wait 0.6
+snap remember-esc
+type /permissions remember deny write_file {"path":"b.txt","content":"y"}
+key Enter
+wait 1.5
+key Enter
+wait 1
+snap remember-confirmed
+type /permissions
+key Enter
+wait 1
+snap listed
+type /permissions revoke 1
+key Enter
+wait 1.5
+snap revoke-prompt
+key Enter
+wait 1
+snap revoke-done
+type /permissions revoke 99
+key Enter
+wait 1
+type /permissions remember
+key Enter
+wait 1
+snap refusals
+home files

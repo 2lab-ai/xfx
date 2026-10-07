@@ -1,0 +1,62 @@
+# /workspace: the picker, the text forms and their refusals, one change, and
+# what Enter on each of the picker's choices writes into the composer.
+dir extra
+wait 2
+type /workspace
+key Enter
+wait 1
+snap bare
+key Escape
+wait 0.4
+type /workspace list
+key Enter
+wait 1
+snap list
+type /workspace bogus
+key Enter
+wait 0.8
+type /workspace add ../missing
+key Enter
+wait 1
+type /workspace remove ../extra
+key Enter
+wait 1
+snap refusals
+type /workspace add ../extra
+key Enter
+wait 1.5
+snap add
+home after-add
+type /workspace
+key Enter
+wait 1
+snap picker-one
+key Down
+wait 0.4
+snap picker-down1
+key Enter
+wait 0.8
+snap dir-enter
+key C-u
+wait 0.3
+type /workspace
+key Enter
+wait 1
+key Enter
+wait 0.8
+snap add-row-enter
+key C-u
+wait 0.3
+type /workspace
+key Enter
+wait 1
+key Down Down
+wait 0.4
+snap clear-row
+key Enter
+wait 0.8
+snap clear-prefill
+key Enter
+wait 1.5
+snap clear-done
+home after-clear

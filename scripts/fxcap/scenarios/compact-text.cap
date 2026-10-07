@@ -1,0 +1,20 @@
+# W4 `/compact` over two text-only turns: nothing but the exact message and
+# reply to keep, so neither product asks the model for notes; the next
+# request carries the compacted form of the first turn.
+gateway compact-text-turns.json
+wait 3
+type first question
+key Enter
+wait 2.5
+type second question
+key Enter
+wait 2.5
+type /compact
+key Enter
+wait 0.4
+snap compacted
+type third question
+key Enter
+wait 2.5
+snap next-turn
+gwlog
