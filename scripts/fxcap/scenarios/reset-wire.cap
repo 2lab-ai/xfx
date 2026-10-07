@@ -1,0 +1,16 @@
+# The bytes of one /clear: a prompt with an answer, then /clear, then the
+# wire -- which writes a synchronized update brackets, and where the
+# linefeeds that carry the document into scrollback land among them.
+gateway reset-turns.json
+wait 2
+type first question alpha
+key Enter
+wait 3
+wire turn1
+type /clear
+wait 0.5
+key Enter
+wait 2
+snap clear
+snapfull clear
+wire clear

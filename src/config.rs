@@ -66,6 +66,10 @@ pub const SLASH_MENU_CATEGORIES_KEY: &str = "slash_menu_categories";
 /// Whether a tool group is drawn as its header alone, upstream's key
 /// (`settings_store.zig:108`, written by `/settings`).
 pub const COLLAPSE_TOOL_CALLS_KEY: &str = "collapse_tool_calls";
+/// Whether a launch pushes the shell's output above the cursor into
+/// scrollback and starts on the screen's first row, upstream's key
+/// (`config_runtime.zig:1778-1782`, written by `/settings`).
+pub const STARTUP_SCROLLBACK_KEY: &str = "startup_scrollback";
 /// The object holding whether submitted lines are kept for recall:
 /// `prompt_history.enabled`, upstream's shape (`settings_store.zig:1076-1085`).
 pub const PROMPT_HISTORY_KEY: &str = "prompt_history";
@@ -181,6 +185,7 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     PROMPT_HISTORY_KEY,
     "provider",
     SLASH_MENU_CATEGORIES_KEY,
+    STARTUP_SCROLLBACK_KEY,
     STATUS_LINE_KEY,
     "workspaces",
     "yolo_acknowledged",
@@ -806,6 +811,12 @@ pub struct RuntimeConfig {
     /// Whether a tool group is drawn as its header alone: off unless the
     /// profile turns it on (`settings_catalog.zig:62`, `app_lifecycle.zig:786`).
     pub collapse_tool_calls: bool,
+    /// Whether a launch pushes the shell's output into scrollback and starts on
+    /// the first row: on unless the profile turns it off
+    /// (`settings_catalog.zig:64`, `app_lifecycle.zig:789`). Off, the session
+    /// starts under that output (`prepareStartupViewport`,
+    /// `app_lifecycle.zig:966-988`; [`crate::tui`]'s launch).
+    pub startup_scrollback: bool,
     /// Whether submitted lines are kept for the composer's recall and written
     /// to `~/.xfx/history.jsonl`: on unless the profile turns it off
     /// (`settings_catalog.zig:65`).
@@ -1161,6 +1172,7 @@ impl RuntimeConfig {
             },
             slash_menu_categories: settings.slash_menu_categories.unwrap_or(true),
             collapse_tool_calls: settings.collapse_tool_calls.unwrap_or(false),
+            startup_scrollback: settings.startup_scrollback.unwrap_or(true),
             prompt_history: settings.prompt_history.unwrap_or(true),
             effort: settings.effort.unwrap_or_default(),
             // Ultra outranks Fast, as turning it on turns Fast off.
@@ -1234,6 +1246,8 @@ struct Settings {
     slash_menu_categories: Option<bool>,
     /// `collapse_tool_calls`.
     collapse_tool_calls: Option<bool>,
+    /// `startup_scrollback`.
+    startup_scrollback: Option<bool>,
     /// `prompt_history.enabled`.
     prompt_history: Option<bool>,
     /// `effort`, when a layer wrote a readable one.
@@ -1286,6 +1300,9 @@ impl Settings {
         }
         if let Some(on) = incoming.collapse_tool_calls {
             self.collapse_tool_calls = Some(on);
+        }
+        if let Some(on) = incoming.startup_scrollback {
+            self.startup_scrollback = Some(on);
         }
         if let Some(on) = incoming.prompt_history {
             self.prompt_history = Some(on);
@@ -1471,6 +1488,7 @@ fn parse_layer(
                 &mut settings.slash_menu_categories,
             ),
             (COLLAPSE_TOOL_CALLS_KEY, &mut settings.collapse_tool_calls),
+            (STARTUP_SCROLLBACK_KEY, &mut settings.startup_scrollback),
         ] {
             if let Some(value) = object.get(key) {
                 match value.as_bool() {
@@ -2069,23 +2087,25 @@ mod tests {
     }
 
     #[test]
-    fn the_settings_menus_three_switches_round_trip_through_the_profile_only() {
-        // `/settings`' `Slash menu categories`, `Collapse tool calls` and
-        // `Prompt history`: upstream's keys and defaults
-        // (`settings_catalog.zig:61-65`), written by the profile writer and
-        // read back by the next launch.
+    fn the_settings_menus_switches_round_trip_through_the_profile_only() {
+        // `/settings`' `Slash menu categories`, `Collapse tool calls`,
+        // `Startup scrollback` and `Prompt history`: upstream's keys and
+        // defaults (`settings_catalog.zig:61-65`), written by the profile
+        // writer and read back by the next launch.
         let home = tempfile::tempdir().expect("home");
         let workspace = tempfile::tempdir().expect("workspace");
         let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
         let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
         assert!(fresh.slash_menu_categories);
         assert!(!fresh.collapse_tool_calls);
+        assert!(fresh.startup_scrollback);
         assert!(fresh.prompt_history);
 
         let path = fresh.user_settings_path.clone().expect("a profile path");
         for (key, on) in [
             (&[SLASH_MENU_CATEGORIES_KEY][..], false),
             (&[COLLAPSE_TOOL_CALLS_KEY][..], true),
+            (&[STARTUP_SCROLLBACK_KEY][..], false),
             (&[PROMPT_HISTORY_KEY, "enabled"][..], false),
         ] {
             crate::provider::profile::write_preference(&path, key, Value::Bool(on)).expect("write");
@@ -2097,12 +2117,14 @@ mod tests {
             serde_json::json!({
                 "slash_menu_categories": false,
                 "collapse_tool_calls": true,
+                "startup_scrollback": false,
                 "prompt_history": {"enabled": false}
             })
         );
         let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
         assert!(!reloaded.slash_menu_categories);
         assert!(reloaded.collapse_tool_calls);
+        assert!(!reloaded.startup_scrollback);
         assert!(!reloaded.prompt_history);
         assert!(
             reloaded.diagnostics.is_empty(),
@@ -2113,16 +2135,18 @@ mod tests {
         // A repository cannot choose them for whoever clones it.
         std::fs::write(
             workspace.path().join(PROJECT_SETTINGS_FILE),
-            r#"{"slash_menu_categories":true,"collapse_tool_calls":false,"prompt_history":{"enabled":true}}"#,
+            r#"{"slash_menu_categories":true,"collapse_tool_calls":false,"startup_scrollback":true,"prompt_history":{"enabled":true}}"#,
         )
         .expect("project file");
         let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
         assert!(!shadowed.slash_menu_categories);
         assert!(shadowed.collapse_tool_calls);
+        assert!(!shadowed.startup_scrollback);
         assert!(!shadowed.prompt_history);
         for key in [
             SLASH_MENU_CATEGORIES_KEY,
             COLLAPSE_TOOL_CALLS_KEY,
+            STARTUP_SCROLLBACK_KEY,
             PROMPT_HISTORY_KEY,
         ] {
             assert!(
@@ -2139,16 +2163,18 @@ mod tests {
         std::fs::remove_file(workspace.path().join(PROJECT_SETTINGS_FILE)).expect("remove");
         std::fs::write(
             &path,
-            r#"{"slash_menu_categories":"no","collapse_tool_calls":1,"prompt_history":false}"#,
+            r#"{"slash_menu_categories":"no","collapse_tool_calls":1,"startup_scrollback":"off","prompt_history":false}"#,
         )
         .expect("rewrite");
         let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
         assert!(refused.slash_menu_categories);
         assert!(!refused.collapse_tool_calls);
+        assert!(refused.startup_scrollback);
         assert!(refused.prompt_history);
         for key in [
             SLASH_MENU_CATEGORIES_KEY,
             COLLAPSE_TOOL_CALLS_KEY,
+            STARTUP_SCROLLBACK_KEY,
             "prompt_history.enabled",
         ] {
             assert!(
@@ -2226,6 +2252,7 @@ mod tests {
             statusline_workspace: None,
             slash_menu_categories: Some(false),
             collapse_tool_calls: Some(true),
+            startup_scrollback: Some(false),
             prompt_history: Some(false),
             effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
             fast_mode: Some(true),
@@ -2256,6 +2283,7 @@ mod tests {
         assert_eq!(settings.statusline_context, Some(true));
         assert_eq!(settings.slash_menu_categories, Some(false));
         assert_eq!(settings.collapse_tool_calls, Some(true));
+        assert_eq!(settings.startup_scrollback, Some(false));
         assert_eq!(settings.prompt_history, Some(false));
         assert_eq!(
             settings.effort,

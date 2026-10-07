@@ -255,6 +255,11 @@ pub(crate) struct Append {
     pub(crate) scroll: usize,
     pub(crate) rows: Vec<String>,
     pub(crate) kinds: Vec<DocumentRow>,
+    /// How many of `rows`' last rows a block that shrank wrote blank and
+    /// gives back: once the append has landed they are not the document's,
+    /// and the band moves up over them (zero for every append but such a
+    /// rewrite).
+    pub(crate) release: usize,
 }
 
 impl Append {
@@ -264,6 +269,7 @@ impl Append {
             scroll: 0,
             rows: Vec::new(),
             kinds: Vec::new(),
+            release: 0,
         }
     }
 
@@ -614,6 +620,12 @@ pub(crate) struct Transcript {
 }
 
 impl Transcript {
+    /// How many of the document's last rows are the open line or block this
+    /// module may still write over ([`Self::painted`]).
+    pub(crate) fn open_rows(&self) -> usize {
+        self.painted
+    }
+
     pub(crate) fn new(cols: u16) -> Self {
         Self {
             cols,
@@ -968,7 +980,18 @@ impl Transcript {
             .map(|row| ellipsized(row, self.cols))
             .collect();
         // A block that lost rows must not leave their text behind: the rows it
-        // occupied are still its, and only a write can clear one.
+        // occupied are still its until a write clears them -- and once that
+        // write has landed they are given back, so the band moves up over
+        // them rather than leaving blank rows between the block and itself
+        // (a group collapsed while it is open, `fx-settings-collapse-40x120-running`).
+        // Not past rows already frozen: those are not rewritten, so what the
+        // block keeps is not the rows it has.
+        let fresh = written.len();
+        let released = if frozen == 0 {
+            painted.saturating_sub(fresh)
+        } else {
+            0
+        };
         written.resize(written.len().max(painted), String::new());
         let kinds = if kinds.iter().all(|kind| *kind == DocumentRow::Plain) {
             Vec::new()
@@ -981,8 +1004,9 @@ impl Transcript {
             scroll: written.len() - painted,
             rows: written,
             kinds,
+            release: released,
         };
-        let (frozen, painted) = freeze_block(frozen, append.rows.len());
+        let (frozen, painted) = freeze_block(frozen, append.rows.len() - released);
         Prepared {
             append,
             tail: String::new(),
@@ -1069,6 +1093,7 @@ impl Transcript {
                 scroll: rows.len().saturating_sub(painted),
                 kinds: kinds_of(self.kind, rows.len()),
                 rows,
+                release: 0,
             },
             tail,
             painted: open_rows,
@@ -1105,6 +1130,7 @@ impl Transcript {
                     scroll,
                     kinds: kinds_of(self.kind, rows.len()),
                     rows,
+                    release: 0,
                 }
             },
             tail: String::new(),
@@ -2199,6 +2225,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["answer".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2213,6 +2240,7 @@ mod tests {
                 scroll: 0,
                 rows: vec!["answer".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2227,6 +2255,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["abcd".to_string(), "efgh".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2243,6 +2272,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["second".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2275,6 +2305,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["first".to_string(), "second".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
         assert_eq!(
@@ -2289,6 +2320,7 @@ mod tests {
                 scroll: 0,
                 rows: vec!["second!".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2304,6 +2336,7 @@ mod tests {
                 scroll: 3,
                 rows: vec!["a".to_string(), String::new(), "b".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2463,6 +2496,7 @@ mod tests {
             let kept = (document.len() + append.scroll).saturating_sub(append.rows.len());
             document.truncate(kept);
             document.extend(append.rows);
+            document.truncate(document.len().saturating_sub(append.release));
         }
         document
     }
@@ -2589,6 +2623,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["a".to_string(), String::new()],
                 kinds: Vec::new(),
+                release: 0,
             },
             "the line and the row its successor starts on"
         );
@@ -2598,6 +2633,7 @@ mod tests {
                 scroll: 0,
                 rows: vec!["b".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             },
             "the leading newline was answered a second time"
         );
@@ -2609,6 +2645,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["a".to_string(), "b".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }
         );
     }
@@ -2794,6 +2831,7 @@ mod tests {
                 scroll: 0,
                 rows: vec!["abcdefghijklmnopq".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             },
             "the tail was not re-wrapped to the screen it is now on"
         );
@@ -2817,6 +2855,7 @@ mod tests {
                 scroll: 0,
                 rows: vec!["abcdefghij".to_string(), "klmnopqrs".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             },
             "the tail was not re-wrapped to the narrower screen"
         );
@@ -3300,12 +3339,24 @@ mod tests {
     }
 
     #[test]
-    fn a_block_that_lost_rows_blanks_the_ones_it_gave_up() {
+    fn a_block_that_lost_rows_blanks_the_ones_it_gave_up_and_gives_them_back() {
+        // Blanked, because only a write clears a row; given back, because a
+        // block is the document's last thing and what comes next -- the band,
+        // or the next row -- belongs right under what it still has, as
+        // upstream's re-render puts it.
         let mut transcript = Transcript::new(40);
         transcript.queue_block(rows(&["a", "b", "c"]), Vec::new());
         transcript.queue_block(rows(&["a"]), Vec::new());
-        assert_eq!(replay(drain(&mut transcript, DARK_256)), ["a", "", ""]);
-        assert_eq!(transcript.tail_rows(), 3);
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(appends[1].rows, ["a", "", ""]);
+        assert_eq!((appends[1].scroll, appends[1].release), (0, 2));
+        assert_eq!(replay(appends), ["a"]);
+        assert_eq!(transcript.tail_rows(), 1);
+        // And it grows again from the row it kept.
+        transcript.queue_block(rows(&["a", "b"]), Vec::new());
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!((appends[0].scroll, appends[0].release), (1, 0));
+        assert_eq!(transcript.tail_rows(), 2);
     }
 
     #[test]

@@ -403,22 +403,26 @@ fn hold(
         probe::DEADLINE
     };
     let mut cursor = probe::CursorProbe::new();
+    // The profile's `startup_scrollback`, read once: whether the launch pushes
+    // the shell's output away or starts under it ([`probe::launch_origin`]).
+    let scrollback = config.startup_scrollback;
     let screen = settle_screen(
         || {
+            let reply = cursor.read_reply(ask_background, Instant::now() + deadline)?;
+            let (rows, columns) = term::window_size();
             // A terminal that does not answer within the deadline is treated as
             // row 1 -- xfx starts at the bottom of what it can prove rather
             // than painting over something it cannot see.
-            let cursor_row = cursor
-                .read_reply(ask_background, Instant::now() + deadline)?
-                .map_or(UNKNOWN_CURSOR_ROW, |(row, _column)| row);
-            let (rows, columns) = term::window_size();
+            let cursor_row = reply.map_or(UNKNOWN_CURSOR_ROW, |(row, column)| {
+                probe::start_row(row, column, rows)
+            });
             Ok(Screen {
                 cursor_row,
                 rows,
                 columns,
             })
         },
-        |screen| push_scrollback(screen.cursor_row, screen.rows, screen.columns),
+        |screen| push_scrollback(screen, scrollback),
         signals::take_winch,
     )?;
 
@@ -465,6 +469,10 @@ fn hold(
     band.invalidate(geometry.rows, geometry.cols);
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
+    // The rows above the session's first are the shell's: with
+    // `startup_scrollback` off the band floats under them rather than on the
+    // first row (`initViewportWithReservedRows`, `app_lifecycle.zig:961`).
+    shell.document_landed(u32::from(origin(&screen, scrollback).row - 1));
     shell.set_ultra_marker(theme::ultra_marker(
         colorterm.as_deref(),
         term_program.as_deref(),
@@ -501,7 +509,8 @@ fn hold(
 /// The one measurement a launch is computed from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Screen {
-    /// The row the shell left the cursor on, one-based.
+    /// The row the shell left the cursor on, one-based -- or the one under it,
+    /// when the cursor was past the first column ([`probe::start_row`]).
     cursor_row: u16,
     rows: u16,
     columns: u16,
@@ -610,15 +619,31 @@ fn settle_screen(
     Ok(screen)
 }
 
-/// Scrolls the shell's output above the band into scrollback, on the screen.
+/// Scrolls the shell's output above the band into scrollback, on the screen:
+/// all of it, or -- with `startup_scrollback` off -- only what leaves the
+/// launch too few rows under its start.
 ///
-/// The mechanics and the amount both live in [`probe::push`], against a writer
-/// it is handed, so that what the push does to a screen is a test rather than a
-/// claim; this is the two lines that hand it the real one. Nothing is erased
-/// here -- what leaves the top of the screen goes into the terminal's own
-/// scrollback, where the user can still reach it.
-fn push_scrollback(cursor_row: u16, rows: u16, columns: u16) -> io::Result<()> {
-    probe::push(&mut deliver::RawTty::stdout(), cursor_row, rows, columns)
+/// The amount lives in [`probe::launch_origin`] and the mechanics in
+/// [`probe::push_lines`], against a writer it is handed, so that what the push
+/// does to a screen is a test rather than a claim; this hands it the real one.
+/// Nothing is erased here -- what leaves the top of the screen goes into the
+/// terminal's own scrollback, where the user can still reach it.
+fn push_scrollback(screen: &Screen, scrollback: bool) -> io::Result<()> {
+    probe::push_lines(
+        &mut deliver::RawTty::stdout(),
+        origin(screen, scrollback).push,
+        screen.rows,
+        screen.columns,
+    )
+}
+
+/// Where the launch on `screen` starts, and what it pushes to start there
+/// ([`probe::launch_origin`]), against the document rows a band at the bottom
+/// of that screen leaves.
+fn origin(screen: &Screen, scrollback: bool) -> probe::Origin {
+    let content_bottom = layout::solve(screen.rows, screen.columns, layout::INITIAL_INPUT_ROWS)
+        .map_or(screen.rows, |geometry| geometry.content_bottom);
+    probe::launch_origin(screen.cursor_row, screen.rows, content_bottom, scrollback)
 }
 
 /// Announces the session on the wire.

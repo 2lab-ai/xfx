@@ -639,6 +639,14 @@ pub(crate) struct Shell {
     /// reaches the screen converges on dark and costs nothing -- which a debt
     /// remembering an old-to-new pair could not do.
     retint_debt: bool,
+    /// Whether the tool groups still on the screen are owed a collapse:
+    /// `Collapse tool calls` was switched on, and the rows each group's calls
+    /// took are still there ([`super::frame::Band::collapse_groups`]). A debt
+    /// for the reason [`Self::retint_debt`] is one -- the paint tick is the one
+    /// writer -- and dropped wherever that one is, for the same reasons: rows
+    /// that are erased, re-wrapped or on their way into scrollback are not
+    /// this session's to move.
+    collapse_debt: bool,
     /// Whether something that is not the band has written on the screen and
     /// the band has not been told yet.
     ///
@@ -1090,6 +1098,11 @@ pub(crate) struct Shell {
     /// Whether a tool group is drawn as its header alone: the profile's
     /// `collapse_tool_calls` at launch, and `/settings` since.
     collapse_tool_calls: bool,
+    /// What the profile says the next launch does with the shell's output:
+    /// `startup_scrollback` as this launch read it, and as `/settings` has
+    /// written it since. Not what this launch did -- that was settled before
+    /// the shell existed (`super::launch_origin`).
+    startup_scrollback: bool,
     /// Whether submitted lines are kept, where, and the thread that writes
     /// them down ([`super::recall`]).
     recall: Recall,
@@ -1809,6 +1822,7 @@ impl Shell {
             // Nothing on the screen to recolour, and nothing the band has not
             // been told: a session that has painted nothing has neither.
             retint_debt: false,
+            collapse_debt: false,
             damage_untold: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
@@ -1923,6 +1937,7 @@ impl Shell {
             settings_menu: None,
             slash_menu_categories: config.slash_menu_categories,
             collapse_tool_calls: config.collapse_tool_calls,
+            startup_scrollback: config.startup_scrollback,
             recall: Recall::new(
                 config.prompt_history,
                 history_store,
@@ -2830,6 +2845,7 @@ impl Shell {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
             self.retint_debt = false;
+            self.collapse_debt = false;
             self.handoff = None;
             self.wipe = true;
             self.transcript = Transcript::new(self.geometry.cols);
@@ -4108,9 +4124,24 @@ impl Shell {
             model: &self.model,
             effort: self.settings.effort.display(),
             efforts: self.model_levels(),
+            fast: self.settings.fast,
+            ultrafast: self.settings.ultrafast,
+            // `resolvedModelCapabilities`' speeds: the catalog row's, and
+            // none for a model it does not list or before it is read
+            // (`settingsCatalogSnapshot`, `app_commands.zig:4031-4047`).
+            offers_fast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.fast),
+            offers_ultrafast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.ultrafast),
             permission_mode: self.mode,
             sound: self.sound.notifications(),
+            startup_scrollback: self.startup_scrollback,
             prompt_history: self.recall.enabled,
+            // `/model`'s menu beside the settings menu is the Model row's
+            // list: nothing else opens one while the settings menu is up.
+            models: self.model_menu.as_ref(),
         }
     }
 
@@ -4136,10 +4167,20 @@ impl Shell {
     /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
-    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens `/model`'s
-    /// menu and Left does nothing; Enter opens `/model`'s menu on `Model` and
-    /// is spent on every other row; Escape closes the menu and empties its
-    /// search.
+    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
+    /// of models under it and Left does nothing; Enter opens the list on
+    /// `Model` and is spent on every other row; Escape closes the menu and
+    /// empties its search.
+    ///
+    /// **With the list open** the keys are its (`:2489-2552`;
+    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:415-440`): Up
+    /// and Down move its mark, Left and Enter use the marked model and close
+    /// it, Right does nothing, Tab and Shift-Tab close it with the tab change
+    /// (`cycleSettingsMenuCategory`, `app_input_runtime.zig:3014-3018`).
+    /// Escape closes the settings menu and only that
+    /// (`cancelSettingsMenu` is asked first, `:3146`), so the list is left up
+    /// as `/model`'s menu -- upstream's own screen
+    /// (`fx-settings-model-40x120-esc`).
     fn offer_to_settings(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
             return false;
@@ -4153,12 +4194,19 @@ impl Shell {
             return false;
         };
         let snapshot = self.settings_snapshot();
+        let listing = snapshot.models.is_some();
         let mut change = None;
         let mut models = false;
+        let mut use_model = false;
+        let mut step_models = None;
         let mut close = false;
         let mut refit = false;
         let mut repaint = false;
         match request {
+            SettingsAction::Up | SettingsAction::Down if listing => {
+                let visible = menu.visible_models(&snapshot, self.geometry.panel);
+                step_models = Some((request == SettingsAction::Down, visible));
+            }
             SettingsAction::Up | SettingsAction::Down => {
                 let visible = menu.visible_items(&snapshot, self.geometry.panel);
                 repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
@@ -4169,12 +4217,15 @@ impl Shell {
             }
             SettingsAction::Previous | SettingsAction::Next => {
                 let forward = request == SettingsAction::Next;
-                if menu.selected(&snapshot) == Some(Setting::Model) {
+                if listing {
+                    use_model = !forward;
+                } else if menu.selected(&snapshot) == Some(Setting::Model) {
                     models = forward;
                 } else {
                     change = menu.change(forward, &snapshot);
                 }
             }
+            SettingsAction::Open if listing => use_model = true,
             SettingsAction::Open => {
                 models = menu.selected(&snapshot) == Some(Setting::Model);
             }
@@ -4185,8 +4236,26 @@ impl Shell {
             self.close_settings();
             return true;
         }
+        if let Some((down, visible)) = step_models {
+            if let Some(list) = self.model_menu.as_mut() {
+                if list.step_by(if down { 1 } else { -1 }, visible.max(1)) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            return true;
+        }
+        if matches!(
+            request,
+            SettingsAction::NextCategory | SettingsAction::PreviousCategory
+        ) {
+            self.model_menu = None;
+        }
         if models {
-            self.open_models_from_settings();
+            self.open_settings_models();
+            return true;
+        }
+        if use_model {
+            self.use_settings_model();
             return true;
         }
         if let Some(change) = change {
@@ -4285,18 +4354,46 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
-    /// The `Model` row's Enter or Right: `/model`'s menu, as a bare `/model`
-    /// opens it -- the settings menu closed and its search emptied first, so
-    /// what was typed to find the row is not taken for a model's name.
-    ///
-    /// Upstream opens an inline list of models **under the row**, inside the
-    /// settings menu, and Left in it applies the marked one
-    /// (`settings_menu_presentation.zig:15-19`, `:277-310`,
-    /// `app_input_runtime.zig:2489-2529`); this opens the menu `/model` opens,
-    /// which lists the same catalog and applies a model the same way.
-    fn open_models_from_settings(&mut self) {
-        self.close_settings();
-        self.open_models();
+    /// The `Model` row's Enter or Right: `/model`'s menu, opened **under the
+    /// row** and inside the settings menu, with nothing searched for yet --
+    /// what was typed to find the row is not a model's name (`openMenu`'s
+    /// fresh menu, `model_cache_runtime.zig:529-539`; asked from
+    /// `changeSettingsMenuSelection` and `submitSettingsMenuSelection`,
+    /// `app_input_runtime.zig:2489-2552`).
+    fn open_settings_models(&mut self) {
+        self.open_models_with("");
+    }
+
+    /// The list's Left or Enter: the marked model, chosen as a picker chooses
+    /// one, and the list closed with the settings menu still up
+    /// (`applyInlineSettingsModelSelection`, `app_input_runtime.zig:2516-2529`
+    /// -> `selectModelFromPicker` with the session's effort,
+    /// `session_commands.zig:886-915`). Nothing listed yet is nothing to use,
+    /// and the list stays.
+    fn use_settings_model(&mut self) {
+        let Some(id) = self
+            .model_menu
+            .as_ref()
+            .and_then(ModelMenu::selected)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        self.model_menu = None;
+        // `selectModelFromPicker(app, selected, app.effort, app.fast_mode,
+        // false)`: the session's Fast mode, no Ultra -- a picker's `None`.
+        self.request_change(ModelChange {
+            name: id,
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: self.turn_pending(),
+            provider: self.provider,
+            effort_only: false,
+        });
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Applies one `/settings` change through the code path the setting's own
@@ -4325,6 +4422,20 @@ impl Shell {
                     self.set_effort(effort);
                 }
             }
+            // `toggleFast` when the row differs (`app_commands.zig:4183-4186`):
+            // `/fast` itself -- its line, its save, its refusal.
+            Setting::FastMode => {
+                if on != self.settings.fast {
+                    self.speed_command(SpeedCommand::Fast);
+                }
+            }
+            // `handleUltrafast(app, "on"|"off")` when the row differs
+            // (`:4187-4195`): `/ultrafast on|off` itself.
+            Setting::UltraMode => {
+                if on != self.settings.ultrafast {
+                    self.speed_command(SpeedCommand::Ultra(on));
+                }
+            }
             Setting::SlashMenuCategories => {
                 let changed = on != self.slash_menu_categories;
                 self.slash_menu_categories = on;
@@ -4339,10 +4450,20 @@ impl Shell {
                 let changed = on != self.collapse_tool_calls;
                 self.collapse_tool_calls = on;
                 // The open group is the document's last thing and is drawn
-                // again at once; a group the document has already moved past
-                // keeps the rows it was written with.
+                // again at once. The groups above it that are still on the
+                // screen are collapsed there by the next tick, their rows
+                // taken out and the rows under them moved up
+                // ([`super::frame::Band::collapse_groups`]) -- while this
+                // session can still say what those rows are, which is the
+                // retint's rule. Switched off, they keep the rows they have:
+                // a group written collapsed never had its calls on the screen,
+                // and nothing here holds them to put back.
                 if changed {
                     self.redraw_group();
+                    if on && !self.damage_untold && self.handoff.is_none() {
+                        self.collapse_debt = true;
+                        self.render.request(Reason::Transcript);
+                    }
                 }
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
@@ -4352,8 +4473,11 @@ impl Shell {
                 );
             }
             Setting::PromptHistory => self.set_prompt_history(on),
-            // The menu offers no change for the model: its row opens `/model`'s
-            // menu instead ([`settings::SettingsMenu::change`]).
+            // `handleSettings(app, "startup-scrollback on|off")`: the command
+            // itself, and the row reads the profile's answer back.
+            Setting::StartupScrollback => self.save_startup_scrollback(on),
+            // The menu offers no change for the model: its row opens the list
+            // of models instead ([`settings::SettingsMenu::change`]).
             Setting::Model => {}
         }
         self.render.request(Reason::Footer);
@@ -4410,6 +4534,44 @@ impl Shell {
         ) {
             self.recall.enabled = true;
         }
+    }
+
+    /// `/settings startup-scrollback on|off` (`saveStartupScrollbackSetting`,
+    /// `session_commands.zig:1076-1127`): written to the profile and said as
+    /// what the next launch does -- `* settings: startup_scrollback: off
+    /// (applies on next launch)` -- and nothing else, the commit line being
+    /// dropped for a caller that announces the state itself
+    /// (`reportUserSettingsCommit(..., announce_commit = false)`, `:27-84`).
+    /// The source is always the profile's here: the key is profile-only
+    /// ([`crate::config::STARTUP_SCROLLBACK_KEY`]), and xfx reads no
+    /// per-workspace override of it. This launch is not changed -- it already
+    /// pushed, or did not. A write that failed is `✗ startup-scrollback: not
+    /// saved to user settings (<reason>)` (`reportUserSettingsFailure`,
+    /// `:110-133`).
+    fn save_startup_scrollback(&mut self, on: bool) {
+        let written = match self.settings_path.as_deref() {
+            Some(path) => crate::provider::profile::write_preference(
+                path,
+                &[crate::config::STARTUP_SCROLLBACK_KEY],
+                serde_json::Value::Bool(on),
+            )
+            .map_err(|err| err.to_string()),
+            None => Err("no home directory is set".to_string()),
+        };
+        match written {
+            Ok(()) => {
+                self.startup_scrollback = on;
+                self.announce(notice::Notice::neutral(
+                    settings::SETTINGS_TOPIC,
+                    settings::startup_scrollback_saved(on),
+                ));
+            }
+            Err(reason) => self.announce(notice::Notice::error(
+                settings::STARTUP_SCROLLBACK_TOPIC,
+                format!("not saved to user settings ({reason})"),
+            )),
+        }
+        self.render.request(Reason::Modal);
     }
 
     /// Writes one `/settings` preference to the profile and announces it
@@ -5685,6 +5847,11 @@ impl Shell {
         // `app_input_runtime.zig:2930-2933`): `sou` typed into it is a search.
         if let Some(menu) = self.settings_menu.as_mut() {
             menu.set_query(self.editor.text());
+            // And the Model row's list, which searches the same text from its
+            // first edit on (`syncCatalogMenus`, `app_input_runtime.zig:2922-2928`).
+            if let Some(list) = self.model_menu.as_mut() {
+                list.set_query(self.editor.text());
+            }
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
@@ -7497,6 +7664,28 @@ impl Shell {
         self.retint_debt = false;
     }
 
+    /// Whether the tool groups on the screen are owed a collapse
+    /// ([`Self::collapse_debt`]).
+    pub(crate) fn owes_collapse(&self) -> bool {
+        self.collapse_debt
+    }
+
+    /// The document rows at the bottom that are the transcript's open block or
+    /// line: its to rewrite, so a collapse takes nothing out of them.
+    pub(crate) fn open_document_rows(&self) -> u16 {
+        u16::try_from(self.transcript.open_rows()).unwrap_or(u16::MAX)
+    }
+
+    /// Records a collapse that landed, or that had nothing knowable to do:
+    /// the document is `rows` shorter, and the band floats up under it.
+    pub(crate) fn document_collapsed(&mut self, rows: u16) {
+        self.collapse_debt = false;
+        if rows > 0 {
+            self.document_carried(rows);
+            self.render.request(Reason::Transcript);
+        }
+    }
+
     /// Records that something which is not the band has written on the screen.
     ///
     /// The **one** door for that fact: the frame the reason asks for is a whole
@@ -7516,6 +7705,7 @@ impl Shell {
         self.handoff = self.handoff.map(|_| 0);
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
     }
 
@@ -7960,19 +8150,30 @@ impl Shell {
                     self.moved();
                     return;
                 }
-                // Up at an empty composer, outside a walk, takes back the
-                // newest steer that still waits for a tool's results, into the
-                // composer to be edited -- before the history is walked
+                let (step, edge) = if matches!(action, Action::Up) {
+                    (HistoryStep::Previous, EditorStep::Up)
+                } else {
+                    (HistoryStep::Next, EditorStep::Down)
+                };
+                // **The draft's edge before the history.** On the first row an
+                // Up with the caret anywhere but the start goes to the start,
+                // and only an Up from there recalls -- so a recalled line, whose
+                // caret is at its end, takes two to step past: the first lands
+                // on its start (`input_completion_runtime.zig:265-284`; the
+                // recall's caret, `editor_state.zig:55-59`). Down the same way,
+                // to the end and then to the newer line.
+                if self.editor.move_to_draft_edge(edge) {
+                    self.moved();
+                    return;
+                }
+                // Then, Up at an empty composer, outside a walk, takes back
+                // the newest steer that still waits for a tool's results, into
+                // the composer to be edited -- before the history is walked
                 // (`restoreQueuedSteerToComposer`, `input_completion_runtime.
                 // zig:290-310`; e2e `tui-interrupt-recovery.test.ts:393`).
                 if matches!(action, Action::Up) && self.retract_steer() {
                     return;
                 }
-                let step = if matches!(action, Action::Up) {
-                    HistoryStep::Previous
-                } else {
-                    HistoryStep::Next
-                };
                 if !self.recall(step) {
                     // A recall that recalled nothing still owes a frame,
                     // because the keystroke was still applied: the move
@@ -9465,14 +9666,30 @@ impl CommandHandlers for Shell {
     /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
     /// bare, the menu opens on `All` with its first row marked, the composer
     /// -- emptied by the submit that got here -- as its search, and the menus
-    /// that share its slot closed. With anything after it, the usage line as
-    /// an error with no topic, as upstream answers a word its argument form
-    /// does not know (`writeSettingsUsage`, `session_commands.zig:1129-1135`);
-    /// upstream's one argument, `startup-scrollback`, names a setting xfx does
-    /// not have, so the usage does not offer it.
+    /// that share its slot closed. With an argument, upstream's one form
+    /// (`handleSettings`, `session_commands.zig:313-353`):
+    /// `startup-scrollback on|off` saves that, `startup-scrollback` alone
+    /// saves the other one, either word in any case; anything else -- another
+    /// word, a third one -- is the usage line, as an error with no topic
+    /// (`writeSettingsUsage`, `:1129-1135`).
     fn settings(&mut self, argument: &str) {
+        let argument = argument.trim_matches([' ', '\t']);
         if !argument.is_empty() {
-            self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+            let (word, rest) = first_word(argument);
+            let value = (!rest.is_empty()).then(|| first_word(rest));
+            let on = match value {
+                _ if !word.eq_ignore_ascii_case(settings::STARTUP_SCROLLBACK_TOPIC) => None,
+                None => Some(!self.startup_scrollback),
+                Some((value, "")) if value.eq_ignore_ascii_case("on") => Some(true),
+                Some((value, "")) if value.eq_ignore_ascii_case("off") => Some(false),
+                Some(_) => None,
+            };
+            match on {
+                Some(on) => self.save_startup_scrollback(on),
+                None => {
+                    self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+                }
+            }
             return;
         }
         self.picker = None;
@@ -9485,6 +9702,13 @@ impl CommandHandlers for Shell {
         self.file_picker = None;
         self.workspace_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // The effort and speed rows are the catalog's answer for the model in
+        // force, which upstream's menu reads from a cache filled at launch
+        // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
+        // `app_commands.zig:4031-4047`). This side reads the catalog when it
+        // is wanted, so the menu wants it: the rows show their choices once it
+        // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
+        self.want_catalog();
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
         self.refit();
@@ -9803,6 +10027,12 @@ impl Shell {
 
     /// Opens `/model`'s menu over the rows in hand, or asks for them.
     fn open_models(&mut self) {
+        let query = self.editor.text().to_string();
+        self.open_models_with(&query);
+    }
+
+    /// The same, searching for `query` rather than for the draft.
+    fn open_models_with(&mut self, query: &str) {
         // The completion menu shares the slot, and the menu is what the user
         // asked for.
         self.picker = None;
@@ -9811,10 +10041,10 @@ impl Shell {
             .then_some(self.gateway_note)
             .flatten();
         let menu = match self.catalog_known {
-            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, self.editor.text()),
+            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, query),
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
-            CatalogKnown::Asked => ModelMenu::loading(self.editor.text()),
+            CatalogKnown::Asked => ModelMenu::loading(query),
             // Never asked, wanted by the column while the queue was full, or
             // failed -- in which case this is the retry upstream's sentence
             // asks for.
@@ -9824,7 +10054,7 @@ impl Shell {
                     return;
                 }
                 self.catalog_known = CatalogKnown::Asked;
-                ModelMenu::loading(self.editor.text())
+                ModelMenu::loading(query)
             }
         };
         self.model_menu = Some(menu);
@@ -10254,8 +10484,10 @@ impl Shell {
         self.trailer.clear();
         self.abandoned.clear();
         // A recolour owed against the old rows is owed against rows on their
-        // way into scrollback, which is never recoloured ([`Self::retint`]).
+        // way into scrollback, which is never recoloured ([`Self::retint`]),
+        // and so is a collapse.
         self.retint_debt = false;
+        self.collapse_debt = false;
         // The blank row the document ends on, when this session can say so:
         // everything it wrote has landed, so the transcript's own record of
         // its tail is a record of the screen, and no resize has left the rows
@@ -10874,6 +11106,7 @@ impl Shell {
         // shadow on this same road (`super::event_loop`'s `adopt_resize`),
         // which is where the band is told.
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
         Resize::Repaint(geometry)
     }
@@ -10901,6 +11134,16 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn tail_rows(&self) -> usize {
         self.transcript.tail_rows()
+    }
+}
+
+/// The first word of `text` and what follows it, both without the spaces and
+/// tabs between (`splitFirstWord`, `session_commands.zig:1402-1414`).
+fn first_word(text: &str) -> (&str, &str) {
+    let text = text.trim_matches([' ', '\t']);
+    match text.find([' ', '\t']) {
+        Some(at) => (&text[..at], text[at..].trim_start_matches([' ', '\t'])),
+        None => (text, ""),
     }
 }
 
@@ -11541,6 +11784,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["answered".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11570,11 +11814,13 @@ mod tests {
                     scroll: 2,
                     rows: vec!["first".to_string(), String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 0,
                     rows: vec!["second".to_string()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -11614,6 +11860,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11638,6 +11885,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }],
             "the text was written as the one 25-column row the wider screen \
              would have given it"
@@ -11660,6 +11908,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["abc".to_string(), String::new()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
         let _asked = shell.render.begin().expect("the frame the write asked for");
@@ -11806,11 +12055,13 @@ mod tests {
                     scroll: 1,
                     rows: vec![card_row("ask me")],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 1,
                     rows: vec![String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -12409,7 +12660,7 @@ mod tests {
             second,
             "the newest line came back without the block its summary named"
         );
-        shell.route_bytes(b"\x1b[A"); // Up: the one before it
+        older(&mut shell); // Up: the one before it
         assert_eq!(
             shell.editor.expanded(),
             first,
@@ -12695,21 +12946,21 @@ mod tests {
         shell.route_bytes(b"half typed");
         assert_eq!(shell.edit_depths(), (10, 0));
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.editor.text(), "/help");
         assert_eq!(
             shell.edit_depths(),
             (0, 0),
             "the recall left deltas naming a draft that is gone"
         );
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.editor.text(),
             "second line",
             "the second step back handed the newest line over again: the \
              recall ended its own walk"
         );
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.editor.text(),
             "first line",
@@ -13918,6 +14169,7 @@ mod tests {
                 let settled = append.rows.len() - append.scroll.min(append.rows.len());
                 document.truncate(document.len().saturating_sub(settled));
                 document.extend(append.rows.iter().map(|row| colourless(row)));
+                document.truncate(document.len().saturating_sub(append.release));
             }
             document
         }
@@ -16063,6 +16315,41 @@ mod tests {
         assert_eq!(
             steering.take().first().map(|steer| steer.text.clone()),
             Some("change tone and keep it short".to_string())
+        );
+    }
+
+    #[test]
+    fn up_over_a_draft_goes_to_its_start_before_it_takes_a_steer_back() {
+        // `input_completion_runtime.zig:265-284`: the draft's start first,
+        // and only at an empty composer the steer (`restoreQueuedSteerToComposer`
+        // asks for no draft, `:299`) -- so with a draft typed over a waiting
+        // steer, Up moves the caret and takes nothing back.
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"draft");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "draft");
+        assert_eq!(shell.editor.caret(), 0, "the caret did not go to the start");
+        assert!(steering.pending(), "a steer came back over a draft");
+        // From the start of a draft it is the history's step: the newest
+        // line -- the steer's own text, recorded when it was sent -- and the
+        // steer stays the turn's.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(steering.pending(), "an Up over a draft took the steer back");
+        // Back to the draft, emptied: the next Up is the steer's.
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.editor.text(), "draft");
+        shell.route_bytes(&[0x05, 0x15]);
+        assert!(shell.editor.is_empty());
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the empty composer's Up left the steer"
         );
     }
 
@@ -21796,11 +22083,13 @@ mod tests {
                         scroll: 1,
                         rows: vec!["  the next answer".to_string()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                     Append {
                         scroll: 1,
                         rows: vec![String::new()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                 ],
                 "{}",
@@ -24524,7 +24813,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "/version");
         assert!(shell.picker.is_none(), "a recalled command opened the menu");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.editor.text(), "older");
         shell.route_bytes(b"\x1b[B");
         assert_eq!(shell.editor.text(), "/version");
@@ -26387,6 +26676,28 @@ mod tests {
         let _taken = shell.sent.try_recv();
     }
 
+    /// The Up that recalls the line before, on a one-row draft. From anywhere
+    /// but the draft's start the first Up only takes the caret there
+    /// (`input_completion_runtime.zig:265-284`), so a recalled line -- whose
+    /// caret is at its end (`editor_state.zig:55-59`) -- takes two.
+    fn older(shell: &mut Fixture) {
+        if shell.editor.caret() > 0 {
+            let draft = shell.editor.text().to_string();
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(
+                shell.editor.text(),
+                draft,
+                "an Up off the draft's start recalled a line"
+            );
+            assert_eq!(
+                shell.editor.caret(),
+                0,
+                "an Up on the draft's first row left the caret where it was"
+            );
+        }
+        shell.route_bytes(b"\x1b[A");
+    }
+
     #[test]
     fn up_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
         // The whole of item 15 on this surface: what was sent comes back,
@@ -26397,6 +26708,15 @@ mod tests {
         submitted(&mut shell, "second line");
         shell.route_bytes(b"half typed");
 
+        // The first Up takes the caret to the start of the draft, and only an
+        // Up from there recalls (`input_completion_runtime.zig:265-284`).
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("half typed"));
+        assert_eq!(
+            shell.cursor(),
+            (22, 2),
+            "the first Up did not take the caret to the draft's start"
+        );
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second line"));
         assert_eq!(
@@ -26404,9 +26724,14 @@ mod tests {
             (22, 13),
             "the caret is not at the end of the recalled line"
         );
+        // So a recalled line takes two as well: its start, then the line
+        // before it.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("second line"));
+        assert_eq!(shell.cursor(), (22, 2));
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first line"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first line"),
@@ -26535,11 +26860,24 @@ mod tests {
             "an arrow inside the draft walked the history instead of the rows"
         );
 
+        // On the first row, the start of the draft before the history.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")],
+            "an Up off the draft's start walked the history"
+        );
+        assert_eq!(
+            shell.editor.caret(),
+            0,
+            "the caret is not at the draft's start"
+        );
+
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("sent"),
-            "the arrow at the first row did not reach the history"
+            "the arrow at the draft's start did not reach the history"
         );
     }
 
@@ -26548,7 +26886,7 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "sent");
         shell.route_bytes(b"half typed");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("sent"),
@@ -26582,6 +26920,20 @@ mod tests {
             &[composer_row("top"), composer_row("bottom")],
             "a Down at the last row of a draft nobody had recalled into changed it"
         );
+
+        // And off the draft's end, the last row's Down takes the caret there
+        // first (`input_completion_runtime.zig:275-281`).
+        shell.route_bytes(b"\x1b[D\x1b[D");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")]
+        );
+        assert_eq!(
+            shell.editor.caret(),
+            shell.editor.text().len(),
+            "a Down on the last row did not take the caret to the draft's end"
+        );
     }
 
     #[test]
@@ -26604,7 +26956,10 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.model_menu.is_none());
         assert_eq!(shell.editor.text(), "top\nbottom");
-        // From the last row `Up` moves; from the first it recalls.
+        // From the last row `Up` moves; on the first it goes to the draft's
+        // start, and from there it recalls.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "top\nbottom");
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "top\nbottom");
         shell.route_bytes(b"\x1b[A");
@@ -26651,12 +27006,12 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"!");
         assert_eq!(shell.band_rows()[0], composer_row("first!"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26680,11 +27035,11 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
         shell.route_bytes(&[0x7f]);
         assert_eq!(shell.band_rows()[0], composer_row("firs"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26704,7 +27059,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second"));
         shell.route_bytes(b"\x1b[D");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first"),
@@ -26723,7 +27078,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(&[0x1b]);
@@ -26751,7 +27106,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -26759,7 +27114,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(shell.band_rows()[0], composer_row("first and more"));
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26776,7 +27131,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         // Home first, which is a caret move and must leave the walk open --
@@ -26802,7 +27157,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -26813,7 +27168,7 @@ mod tests {
             composer_row("first[Pasted text #1, 1 lines]")
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26862,7 +27217,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("earlier"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
@@ -26900,7 +27255,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("[Pasted text #1, 1 lines]"),
@@ -29342,12 +29697,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 12);
+        assert_eq!(shell.geometry.panel, 15);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 13  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -29356,8 +29711,11 @@ mod tests {
                 "  Collapse tool calls      off  on",
                 model.as_str(),
                 "  Reasoning effort         default",
+                "  Fast mode                off",
+                "  Ultra mode               off",
                 "  Permission mode          ask  auto  full access",
                 "  Sound level              off  on",
+                "  Startup scrollback       off  on",
                 "  Prompt history           off  on",
             ]
         );
@@ -29379,9 +29737,12 @@ mod tests {
             "the menu took the caret"
         );
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        // The one thing it asks the runtime for is the catalog its effort and
+        // speed rows read.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(
             shell.sent.try_recv().is_err(),
-            "/settings reached the runtime"
+            "/settings asked the runtime for more than the catalog"
         );
     }
 
@@ -29428,6 +29789,9 @@ mod tests {
         // `app_input_runtime.zig:2408-2410`) -- opens no catalog.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
+        // The menu's own ask, for its effort and speed rows; nothing typed
+        // into the search asks for another.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -29469,6 +29833,8 @@ mod tests {
             [
                 format!("  Model               {}", shell.model),
                 "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
             ]
         );
@@ -29480,9 +29846,10 @@ mod tests {
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 1  All  Interface  Agent  Notifications  [Advanced]",
+                "Settings 2  All  Interface  Agent  Notifications  [Advanced]",
                 "",
-                "  Prompt history    off  on",
+                "  Startup scrollback    off  on",
+                "  Prompt history        off  on",
             ]
         );
         assert_eq!(shell.mode, PermissionMode::Auto);
@@ -29496,8 +29863,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -29551,16 +29918,16 @@ mod tests {
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 7);
-        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
+        down(&mut shell, 9);
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Permission mode"));
         shell.route_bytes(RIGHT);
         typed.route_bytes(b"/permissions full-access\r");
         assert_eq!(shell.mode, PermissionMode::Yolo);
         assert_eq!(shell.document(), typed.document());
         assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
-        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
+        assert!(settings_text(&shell)[11].ends_with("ask  auto  full access"));
         assert_eq!(
-            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
+            menu(&shell)[11].matches(PALETTE.subtitle()).count(),
             2,
             "the marked label and `full access`"
         );
@@ -29577,7 +29944,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 8);
+        down(&mut shell, 10);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -29591,7 +29958,7 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[12].ends_with("Sound level              off  on"));
     }
 
     #[test]
@@ -29773,8 +30140,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -29787,7 +30154,11 @@ mod tests {
     }
 
     #[test]
-    fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
+    fn enter_or_right_on_model_opens_the_catalog_under_the_row() {
+        // `fx-settings-model-40x120-enter`: the settings menu stays, and the
+        // catalog `/model` lists is under the `Model` row at the value column
+        // (`settings_menu_presentation.zig:15-19`, `:277-310`), searching for
+        // nothing yet -- what was typed found the row, not a model.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         // `model used` is the Model row's description alone: the effort row's
@@ -29802,29 +30173,326 @@ mod tests {
         assert!(shell.settings_menu.is_some());
         assert!(shell.model_menu.is_none());
         shell.route_bytes(b"\r");
-        assert!(shell.settings_menu.is_none(), "the settings menu stayed up");
-        assert!(shell.model_menu.is_some(), "no model menu");
-        assert!(shell.editor.is_empty(), "the search became the model query");
+        assert!(shell.settings_menu.is_some(), "the settings menu closed");
+        assert!(shell.model_menu.is_some(), "no list under the row");
+        assert_eq!(shell.editor.text(), "model used", "the search was taken");
         assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(shell.document().is_empty());
+        // Waiting for the catalog: one dim line, four columns in.
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model    {}", shell.model),
+                "    Loading models\u{2026}".to_string(),
+            ]
+        );
+        assert_eq!(
+            menu(&shell)[3],
+            format!(
+                "    {}Loading models\u{2026}{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model    {}", shell.model),
+                "           openai/gpt-6-astra".to_string(),
+                "           anthropic/claude-opus-5".to_string(),
+                "           fake/model-a".to_string(),
+                "           xai/grok-4.7".to_string(),
+            ]
+        );
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        assert_eq!(
+            menu(&shell)[3],
+            format!("           {bright}openai/gpt-6-astra{reset}")
+        );
+        assert_eq!(
+            menu(&shell)[4],
+            format!("           {dim}anthropic/claude-opus-5{reset}")
+        );
+        assert_eq!(
+            shell.geometry.panel, 7,
+            "the band did not grow for the list"
+        );
 
+        // The arrows are the list's, and wrap.
+        shell.route_bytes(b"\x1b[B\x1b[B");
+        assert_eq!(
+            menu(&shell)[5],
+            format!("           {bright}fake/model-a{reset}")
+        );
+        shell.route_bytes(b"\x1b[A\x1b[A\x1b[A");
+        assert_eq!(
+            menu(&shell)[6],
+            format!("           {bright}xai/grok-4.7{reset}")
+        );
+        // Right is nothing; Left uses the marked model, as a picker does, and
+        // closes the list with the settings menu still up.
+        shell.route_bytes(RIGHT);
+        assert!(shell.model_menu.is_some());
+        shell.route_bytes(LEFT);
+        assert!(shell.model_menu.is_none(), "the list stayed open");
+        assert!(shell.settings_menu.is_some(), "the settings menu closed");
+        assert_eq!(shell.model, "xai/grok-4.7");
+        let chosen = change(&mut shell);
+        assert_eq!(chosen.name, "xai/grok-4.7");
+        assert!(chosen.picker && chosen.announced && !chosen.effort_only);
+        assert_eq!(chosen.effort, None, "the session's effort was not kept");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to xai/grok-4.7 (effort: default, speed: normal)"
+            ))
+        );
+        assert_eq!(
+            settings_text(&shell)[2..],
+            ["  Model    xai/grok-4.7".to_string()]
+        );
+
+        // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
+        right.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
         down(&mut right, 5);
         right.route_bytes(RIGHT);
-        assert!(right.settings_menu.is_none());
+        assert!(right.settings_menu.is_some());
         assert!(right.model_menu.is_some());
+        // Enter in it uses the marked model as Left does.
+        right.route_bytes(b"\r");
+        assert!(right.model_menu.is_none());
+        assert_eq!(right.model, "openai/gpt-6-astra");
+        right.route_bytes(RIGHT);
+        right.route_bytes(b"\t");
+        assert!(right.model_menu.is_none(), "Tab left the list open");
+        assert!(settings_text(&right)[0].contains("[Interface]"));
     }
 
     #[test]
-    fn an_argument_is_the_usage_line_without_upstreams_startup_scrollback() {
-        // `fx-settings-40x120-bogus`, with this product's grammar.
+    fn escape_over_the_model_list_closes_the_settings_menu_and_leaves_the_list_as_models_menu() {
+        // `fx-settings-model-40x120-esc`: upstream's Escape is the settings
+        // menu's alone (`cancelSettingsMenu` before `cancelModelMenu`,
+        // `app_input_runtime.zig:3146`), so the list it had open stays up as
+        // `/model`'s menu.
         let root = tempfile::tempdir().expect("a root");
-        let mut shell = shell_at_home(root.path(), 40, 120);
-        for argument in ["bogus", "startup-scrollback", "startup-scrollback off"] {
+        let mut shell = with_settings(root.path());
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        down(&mut shell, 5);
+        shell.route_bytes(b"\r");
+        escape(&mut shell);
+        assert!(shell.settings_menu.is_none());
+        assert!(matches!(shell.slot(), Some(Slot::Models(_))));
+        assert!(menu(&shell)[0].contains("Models 4"));
+    }
+
+    #[test]
+    fn the_model_list_searches_the_composer_from_its_first_edit() {
+        // `syncCatalogMenus` (`app_input_runtime.zig:2922-2928`): an edit is
+        // the settings menu's search and the list's.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.route_bytes(b"mod");
+        shell.route_bytes(b"\r");
+        assert_eq!(settings_text(&shell)[3].trim(), "openai/gpt-6-astra");
+        // `model` finds the effort and speed rows too (their descriptions name
+        // the model), so the value column is past `Reasoning effort`.
+        shell.route_bytes(b"el");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model               {}", shell.model),
+                "                      fake/model-a".to_string(),
+                "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
+            ]
+        );
+
+        // A search the Model row matches and no model does: one dim line, and
+        // nothing listed is nothing to use.
+        let mut none = with_settings(root.path());
+        none.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        none.route_bytes(b"used");
+        none.route_bytes(b"\r");
+        assert_eq!(settings_text(&none).len(), 7, "{:?}", settings_text(&none));
+        none.route_bytes(b" ");
+        assert_eq!(
+            settings_text(&none)[2..],
+            [
+                format!("  Model    {}", none.model),
+                "    No models found".to_string(),
+            ]
+        );
+        none.route_bytes(LEFT);
+        assert!(none.model_menu.is_some());
+        assert!(none.controlled().is_none());
+    }
+
+    #[test]
+    fn the_speed_rows_are_fast_and_ultrafast_themselves() {
+        // `applySettingsCatalogChange`'s `fast_mode` and `ultrafast_mode`
+        // (`app_commands.zig:4183-4195`): a row that differs from the session
+        // is `toggleFast` or `handleUltrafast(on|off)` -- the same line, the
+        // same change handed to the runtime (which saves it) -- and a model
+        // with no speed has no choice to move to.
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Fast mode"));
+        assert_eq!(settings_text(&shell)[9], "  Fast mode                off");
+        shell.route_bytes(RIGHT);
+        assert!(
+            shell.document().is_empty(),
+            "a model with no Fast mode moved"
+        );
+        assert!(shell.controlled().is_none());
+
+        let model = "openai/gpt-6-astra".to_string();
+        let mut typed = speed_shell();
+        shell.model.clone_from(&model);
+        typed.model.clone_from(&model);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/fast\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(shell.settings.fast);
+        assert!(menu(&shell)[9].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+
+        // Ultra on is `/ultrafast on`, which turns Fast off with it.
+        down(&mut shell, 1);
+        assert_eq!(
+            settings_text(&shell)[10],
+            "  Ultra mode               off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/ultrafast on\r");
+        assert_eq!(shell.document(), typed.document());
+        let change = speed_change(&mut shell);
+        assert_eq!(change, speed_change(&mut typed));
+        assert!(change.ultrafast && !change.fast);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        // And Left back off is `/ultrafast off`.
+        shell.route_bytes(LEFT);
+        typed.route_bytes(b"/ultrafast off\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(!shell.settings.ultrafast);
+    }
+
+    #[test]
+    fn startup_scrollback_is_saved_for_the_next_launch_and_said_so() {
+        // `fx-settings-scrollback-*`: the row and its command both write
+        // `startup_scrollback` and say what the next launch does
+        // (`saveStartupScrollbackSetting`, `session_commands.zig:1076-1127`),
+        // with no `saved to user settings` line.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        down(&mut shell, 11);
+        assert!(visible_text(&menu(&shell)[13]).starts_with("  Startup scrollback"));
+        shell.route_bytes(RIGHT);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "settings",
+                "startup_scrollback: off (applies on next launch)"
+            ))
+        );
+        assert_eq!(
+            settings_text(&shell)[13],
+            "  Startup scrollback       off  on"
+        );
+        assert!(menu(&shell)[13].contains(&format!(
+            "{}off{}",
+            PALETTE.subtitle(),
+            PALETTE.reset()
+        )));
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"startup_scrollback\": false\n}\n"
+        );
+        escape(&mut shell);
+
+        // The command: `on`/`off` in any case, and alone the other value.
+        for (argument, on) in [
+            ("startup-scrollback ON", true),
+            ("Startup-Scrollback", false),
+            ("startup-scrollback", true),
+            ("  startup-scrollback \t off ", false),
+        ] {
             shell.route_bytes(format!("/settings {argument}\r").as_bytes());
             assert_eq!(
                 shell.document(),
-                said(notice::Notice::error("", "usage: /settings")),
+                said(notice::Notice::neutral(
+                    "settings",
+                    format!(
+                        "startup_scrollback: {} (applies on next launch)",
+                        if on { "on" } else { "off" }
+                    )
+                )),
+                "{argument}"
+            );
+            assert!(profile_at(root.path()).contains(&format!("\"startup_scrollback\": {on}")));
+            assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
+        }
+
+        // A write that failed says so under the argument's name.
+        shell.settings_path = None;
+        shell.route_bytes(b"/settings startup-scrollback on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "startup-scrollback",
+                "not saved to user settings (no home directory is set)"
+            ))
+        );
+        assert!(!shell.startup_scrollback);
+    }
+
+    #[test]
+    fn an_argument_it_does_not_take_is_upstreams_usage_line() {
+        // `fx-settings-40x120-bogus`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in [
+            "bogus",
+            "startup-scrollback maybe",
+            "startup-scrollback on now",
+            "scrollback on",
+        ] {
+            shell.route_bytes(format!("/settings {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /settings [startup-scrollback [on|off]]"
+                )),
                 "{argument}"
             );
             assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
@@ -29867,7 +30535,7 @@ mod tests {
 
     /// What Up puts in the composer.
     fn recalled(shell: &mut Fixture) -> String {
-        shell.route_bytes(b"\x1b[A");
+        older(shell);
         shell.editor.text().to_string()
     }
 
@@ -29918,7 +30586,9 @@ mod tests {
         let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
         assert_eq!(walked[0], "/settings");
         assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
-        shell.route_bytes(&[0x15]);
+        // The walk leaves the caret at the oldest line's start: to its end,
+        // then everything before it.
+        shell.route_bytes(&[0x05, 0x15]);
 
         shell.route_bytes(b"/settings\r");
         shell.route_bytes(b"\x1b[A");

@@ -315,6 +315,16 @@ pub(crate) enum Retint {
     Deferred,
 }
 
+/// What [`Band::collapse_groups`] came to: the rows the document lost --
+/// none, when there was nothing to collapse or nothing knowable to collapse
+/// it in -- or, deferred, a screen the band cannot describe yet, for the same
+/// reason a recolour waits ([`Retint`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Collapse {
+    Settled(u16),
+    Deferred,
+}
+
 impl Band {
     pub(crate) fn new() -> Self {
         Self {
@@ -1713,6 +1723,20 @@ impl Band {
     /// here uses ([`scroll_one`]): `CUP` to the bottom row, then one linefeed
     /// per row.
     ///
+    /// **One synchronized update, the linefeeds inside it, and the cursor left
+    /// hidden** -- upstream's handoff is a frame of its own
+    /// (`buildAndFlushFrame` with `.synchronized_update`,
+    /// `transcript/runtime.zig:4904-4935`). Its scroll is movement bytes, which
+    /// follow the `?2026h` (`render_engine/terminal_diff.zig:611-616`; only a
+    /// reset by `RIS` goes before it, `:1318-1327`), and its cursor target is
+    /// hidden (`transcript/runtime.zig:4927`), so it ends on `?2026l` with no
+    /// `?25h` (`terminal_diff.zig:643-644`). A terminal that honours the mode
+    /// presents the erase and the scroll as one change rather than the band
+    /// erased and then the rows climbing; the fresh session's frame shows the
+    /// cursor again. The welcome line and that frame are two vectors here and
+    /// one update upstream (`.prd/tui-phase4/receipts/t4/`), because every
+    /// append in this crate is its own vector ahead of the band's.
+    ///
     /// **Nothing is recorded until the write lands**, as everywhere else here.
     /// Once it has, the band knows exactly what is on the screen -- nothing --
     /// so the shadow is blank, the band has painted nowhere, the document has
@@ -1744,6 +1768,7 @@ impl Band {
         let mut script = check::Script::new(geometry);
         let mut footprint = Vec::with_capacity(2);
         self.buffer.clear();
+        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         let first_blank = carried.saturating_add(1);
         let mut caret = (rows, 1);
         if first_blank <= rows {
@@ -1771,6 +1796,7 @@ impl Band {
             });
             caret = (rows, 1);
         }
+        self.buffer.extend_from_slice(END_FRAME_HIDDEN.as_bytes());
         #[cfg(test)]
         if let Some(tamper) = self.tamper {
             tamper(&mut self.buffer);
@@ -1787,9 +1813,9 @@ impl Band {
                 check::Intent::Document {
                     script: &script,
                     caret: Some(caret),
-                    // Linefeeds and an erase: nothing about the cursor, as the
-                    // carry and the append declare.
-                    cursor_visible: None,
+                    // Hidden, and left hidden for the frame that follows to
+                    // show: the one thing about the cursor this vector says.
+                    cursor_visible: Some(false),
                     title: self.shown_title.as_deref(),
                 },
                 check::Footprint::new(check::PlaneKind::Primary, footprint),
@@ -2243,6 +2269,111 @@ impl Band {
         out.emit(&self.buffer)?;
         std::mem::swap(&mut self.shadow, &mut self.target);
         Ok(Retint::Settled(Commit::Painted))
+    }
+
+    /// Records that the document's last `rows` rows -- written blank by the
+    /// append that just landed -- are no longer the document's: a block that
+    /// shrank gave them back, and the band may take them without carrying
+    /// anything ([`Self::grown`]).
+    pub(crate) fn document_released(&mut self, rows: u16) {
+        self.document_bottom = self
+            .document_bottom
+            .map(|bottom| bottom.saturating_sub(rows))
+            .filter(|row| *row > 0);
+    }
+
+    /// Collapses the tool groups still on the screen, for a session whose
+    /// `Collapse tool calls` was just switched on: each group's call rows and
+    /// cancelled lines go, the rows under them move up, and the rows that
+    /// frees above the band are blank -- upstream re-projects the visible
+    /// transcript for it (`markTranscriptStructureDirty`,
+    /// `app_commands.zig:4120-4133`; [`Grid::collapsible_rows`]). Answers how
+    /// many rows the document lost, which the caller takes off its count of
+    /// them so the band floats up under it.
+    ///
+    /// The second emitter that writes above the band's top row, held to
+    /// everything the first one is ([`Self::retint_document`]):
+    ///
+    /// * **No scroll and no erase of its own**: a `CUP` and the cells that
+    ///   changed ([`Grid::diff`]), checked as a paint of rows `1..=last`
+    ///   against the whole candidate. Nothing reaches native scrollback.
+    /// * **Rows this band wrote, moved, never made up.** The candidate is the
+    ///   shadow with rows taken out ([`Grid::remove_rows`]): every cell it
+    ///   holds was on the screen already, and a row the screen no longer has
+    ///   cannot come back. Which rows go is read off what their writer
+    ///   recorded them as, not off their text.
+    /// * **Only where the shadow is a claim about this screen**, as for a
+    ///   recolour: damaged, the wrong size or the other plane is
+    ///   [`Collapse::Deferred`], with no bytes.
+    /// * **The open block's rows are not this function's**: the last `open`
+    ///   rows of the document are the transcript's to rewrite (its count of
+    ///   them is relative to the bottom, which moves with them), so nothing
+    ///   in them is taken out.
+    pub(crate) fn collapse_groups(
+        &mut self,
+        out: &mut impl Sink,
+        geometry: &Geometry,
+        open: u16,
+    ) -> Result<Collapse, Emit> {
+        if self.damaged
+            || !matches!(self.showing, super::shell::ScreenOwner::Primary)
+            || self.shadow.rows() != geometry.rows
+            || self.shadow.cols() != geometry.cols
+        {
+            return Ok(Collapse::Deferred);
+        }
+        let Some(last) = self.document_last(geometry) else {
+            return Ok(Collapse::Settled(0));
+        };
+        let removed = self.shadow.collapsible_rows(last.saturating_sub(open));
+        let Ok(count) = u16::try_from(removed.len()) else {
+            return Ok(Collapse::Settled(0));
+        };
+        if count == 0 {
+            return Ok(Collapse::Settled(0));
+        }
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        self.target.clone_from(&self.shadow);
+        self.target.remove_rows(&removed, last);
+        self.buffer.clear();
+        if self.shadow.diff(&self.target, geometry, &mut self.buffer) == 0 {
+            return Ok(Collapse::Settled(0));
+        }
+        let caret = self
+            .caret
+            .map(|(row, cells)| (row, cells.saturating_add(1)));
+        if let Some((row, column)) = caret {
+            cup(&mut self.buffer, row, column);
+        }
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Primary {
+                    grid: &self.target,
+                    caret,
+                    cursor_visible: None,
+                    title: self.shown_title.as_deref(),
+                },
+                check::Footprint::new(check::PlaneKind::Primary, vec![check::Seg::Place(1..=last)]),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        std::mem::swap(&mut self.shadow, &mut self.target);
+        // The document's last row moved up with everything under the rows
+        // that went.
+        self.document_bottom = self
+            .document_bottom
+            .map(|bottom| bottom.saturating_sub(count))
+            .filter(|row| *row > 0);
+        Ok(Collapse::Settled(count))
     }
 
     #[cfg(test)]
@@ -6175,9 +6306,15 @@ mod tests {
 
         band.hand_off(&mut screen, u32::MAX, 0, &geometry())
             .expect("the handoff");
+        // One synchronized update, the linefeeds inside it, and the cursor
+        // hidden and left hidden: upstream's handoff frame in its bracketing
+        // (`.prd/tui-phase4/receipts/t4/fx-reset-wire-24x80-clear.wire`).
         assert_eq!(
             String::from_utf8(screen.written).expect("utf-8"),
-            format!("\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(21))
+            format!(
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+                "\n".repeat(21)
+            )
         );
         // The screen is blank and the band knows it: painted nowhere, no
         // document row to carry or recolour, and a `CUP` owed.
@@ -6216,7 +6353,10 @@ mod tests {
             .expect("the handoff");
         assert_eq!(
             String::from_utf8(screen.written).expect("utf-8"),
-            format!("\u{1b}[6;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(5))
+            format!(
+                "\u{1b}[?2026h\u{1b}[?25l\u{1b}[6;1H\u{1b}[J\u{1b}[24;1H{}\u{1b}[?2026l",
+                "\n".repeat(5)
+            )
         );
     }
 
@@ -6709,6 +6849,125 @@ mod tests {
             .expect("the frame the append owed");
         screen.written.clear();
         (band, screen)
+    }
+
+    /// A band whose document ends on a two-call group and a line under it,
+    /// each row recorded as its writer records it, with a frame on top.
+    fn a_group_this_band_painted(geometry: &Geometry) -> (Band, Counted) {
+        use super::super::theme::DocumentRow::{Plain, ToolGroup};
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("a first frame sizes the shadow");
+        band.append_floating(
+            &mut screen,
+            5,
+            &[
+                "\u{25cf} 2 tool calls \u{b7} 2 read".to_string(),
+                "\u{251c} Read a.txt".to_string(),
+                "\u{2514} Read b.txt".to_string(),
+                String::new(),
+                "  Read both.".to_string(),
+            ],
+            &[ToolGroup, ToolGroup, ToolGroup, Plain, Plain],
+            geometry,
+            0,
+        )
+        .expect("the document lands");
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("the frame the append owed");
+        screen.written.clear();
+        (band, screen)
+    }
+
+    #[test]
+    fn a_collapse_moves_the_rows_under_a_group_up_over_its_calls_and_scrolls_nothing() {
+        // `fx-settings-collapse-40x120-collapse-on`: the group on the screen
+        // keeps its header, its calls go, and what was under them is moved up
+        // -- with no linefeed, so nothing reaches scrollback -- and the rows
+        // that frees are blank above the band.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_group_this_band_painted(&geometry);
+        assert_eq!(band.document_bottom, Some(21));
+        let writes = screen.writes;
+
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("a screen that takes everything"),
+            Collapse::Settled(2)
+        );
+
+        let written = String::from_utf8(screen.written.clone()).expect("text and escapes");
+        assert!(!written.contains('\n'), "a collapse scrolled: {written:?}");
+        assert_eq!(
+            screen.writes - writes,
+            1,
+            "a collapse cost more than one vector"
+        );
+        // Row 18 takes the group's blank row, 19 the line under it (as wide
+        // as the call row it covers, so nothing is left to erase), 20 was
+        // blank and is again, and 21 is freed; then the caret goes back.
+        assert_eq!(
+            written, "\u{1b}[18;1H\u{1b}[K\u{1b}[19;1H  Read both.\u{1b}[21;1H\u{1b}[K\u{1b}[23;3H",
+            "the collapse is not the moved rows, the freed ones and the caret"
+        );
+        assert_eq!(
+            band.document_bottom,
+            Some(19),
+            "the document's bottom stayed"
+        );
+
+        // The rows that went are gone from the shadow too: a second pass has
+        // nothing to take.
+        screen.written.clear();
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("the second pass"),
+            Collapse::Settled(0)
+        );
+        assert!(screen.written.is_empty());
+    }
+
+    #[test]
+    fn a_collapse_leaves_the_open_blocks_rows_and_waits_for_a_screen_it_can_describe() {
+        let geometry = geometry();
+        // The group is the transcript's open block: its five rows are the
+        // transcript's to rewrite, and nothing is taken out of them.
+        let (mut band, mut screen) = a_group_this_band_painted(&geometry);
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 5)
+                .expect("nothing to write"),
+            Collapse::Settled(0)
+        );
+        assert!(screen.written.is_empty());
+        // A damaged band does not know what is on those rows.
+        band.invalidate(geometry.rows, geometry.cols);
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("nothing to write"),
+            Collapse::Deferred
+        );
+        assert!(screen.written.is_empty());
+    }
+
+    #[test]
+    fn a_collapse_the_screen_refused_is_owed_again_rather_than_recorded_as_done() {
+        let geometry = geometry();
+        let (mut band, _) = a_group_this_band_painted(&geometry);
+        band.collapse_groups(&mut Refuses, &geometry, 0)
+            .expect_err("a screen that refuses everything");
+        assert_eq!(
+            band.document_bottom,
+            Some(21),
+            "a refused collapse moved the bottom"
+        );
+        let mut screen = Counted::default();
+        assert_eq!(
+            band.collapse_groups(&mut screen, &geometry, 0)
+                .expect("the retry"),
+            Collapse::Settled(2),
+            "the refused collapse was recorded as if it had landed"
+        );
     }
 
     #[test]
