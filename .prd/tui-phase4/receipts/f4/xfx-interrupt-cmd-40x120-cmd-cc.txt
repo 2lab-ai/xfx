@@ -1,11 +1,11 @@
-x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
 
 ┃ run cmd
 
-● 1 tool call · 1 command
-└ Running sleep 6
+● 1 tool call · 1 command · 1 cancelled
+└ Cancelled sleep 6
 
-  Running (3s) (↑2 ↓0)
+■ Cancelled sleep 6 · What can xfx do differently?
 
 ┃
 

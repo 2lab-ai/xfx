@@ -57,6 +57,22 @@ pub struct ToolCall {
 }
 
 /// One typed piece of a message's content.
+/// How a tool call ended, as the wire is told it.
+///
+/// Upstream's three output types (`vercel-labs/fx@c1db9191
+/// src/gateway/vercel_protocol.zig:717-751`): `text` for a result, `error-text`
+/// for one whose status is a failure -- broken, or stopped under its turn
+/// (`aborted by user`, `src/core/session/session.zig:64`) -- and
+/// `execution-denied`, with the refusal as its `reason`, for a call the
+/// permission policy or the user refused. Anthropic's tool result has one
+/// flag for both of the last two, `is_error` (the llmux path).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultStatus {
+    Success,
+    Failure,
+    Denied,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentPart {
     Text {
@@ -67,14 +83,9 @@ pub enum ContentPart {
         call_id: String,
         tool: String,
         output: String,
-        /// Whether the call failed -- refused, broken, or stopped under its
-        /// turn (`aborted by user`, `vercel-labs/fx@c1db9191
-        /// src/core/session/session.zig:64`). Each wire has its own word for
-        /// it: the Gateway's output type `error-text`, which upstream gives
-        /// every result whose status is a failure
-        /// (`src/gateway/vercel_protocol.zig:742-747`), and Anthropic's
-        /// `is_error`.
-        error: bool,
+        /// How the call ended, which each wire says in its own words
+        /// ([`ResultStatus`]).
+        status: ResultStatus,
     },
     /// The provider's own content blocks, kept exactly as they arrived.
     ///
@@ -231,17 +242,27 @@ impl Message {
                 call_id: call_id.into(),
                 tool: tool.into(),
                 output: output.into(),
-                error: false,
+                status: ResultStatus::Success,
             }],
         }
     }
 
     /// The answer to a call that failed, said as a failure on the wire
-    /// ([`ContentPart::ToolResult::error`]).
+    /// ([`ResultStatus::Failure`]).
     pub fn tool_error(
         call_id: impl Into<String>,
         tool: impl Into<String>,
         output: impl Into<String>,
+    ) -> Self {
+        Self::tool_ended(call_id, tool, output, ResultStatus::Failure)
+    }
+
+    /// The answer to a call that ended as `status`.
+    pub fn tool_ended(
+        call_id: impl Into<String>,
+        tool: impl Into<String>,
+        output: impl Into<String>,
+        status: ResultStatus,
     ) -> Self {
         Self {
             role: Role::Tool,
@@ -249,7 +270,7 @@ impl Message {
                 call_id: call_id.into(),
                 tool: tool.into(),
                 output: output.into(),
-                error: true,
+                status,
             }],
         }
     }
@@ -594,14 +615,26 @@ impl Serialize for WireParts<'_> {
                     call_id,
                     tool,
                     output,
-                    error,
+                    status,
                 } => seq.serialize_element(&ToolResultPart {
                     r#type: "tool-result",
                     tool_call_id: call_id,
                     tool_name: tool,
-                    output: TextOutput {
-                        r#type: if *error { "error-text" } else { "text" },
-                        value: output,
+                    output: match status {
+                        ResultStatus::Success => ResultOutput::Value {
+                            r#type: "text",
+                            value: output,
+                        },
+                        ResultStatus::Failure => ResultOutput::Value {
+                            r#type: "error-text",
+                            value: output,
+                        },
+                        // The refusal is the reason, under its own field name
+                        // (`vercel_protocol.zig:742-744`).
+                        ResultStatus::Denied => ResultOutput::Denied {
+                            r#type: "execution-denied",
+                            reason: output,
+                        },
                     },
                 })?,
                 // The v4 file part (`writeVerifiedImageFilePartJsonWithBudget`,
@@ -656,13 +689,20 @@ struct ToolResultPart<'a> {
     r#type: &'static str,
     tool_call_id: &'a str,
     tool_name: &'a str,
-    output: TextOutput<'a>,
+    output: ResultOutput<'a>,
 }
 
 #[derive(Serialize)]
-struct TextOutput<'a> {
-    r#type: &'static str,
-    value: &'a str,
+#[serde(untagged)]
+enum ResultOutput<'a> {
+    Value {
+        r#type: &'static str,
+        value: &'a str,
+    },
+    Denied {
+        r#type: &'static str,
+        reason: &'a str,
+    },
 }
 
 /// Why the provider stopped generating.
@@ -857,6 +897,30 @@ mod tests {
         assert_eq!(
             parts(&Message::tool_result("call_1", "terminal", "ok"))[0]["output"]["type"],
             json!("text")
+        );
+    }
+
+    #[test]
+    fn a_refused_call_is_answered_with_execution_denied_and_its_reason() {
+        // `vercel_protocol.zig:742-744`: `{"type":"execution-denied","reason":
+        // <the refusal>}`, the refusal under `reason` rather than `value`.
+        let parts = |message: &Message| serde_json::to_value(WireParts(&message.content)).unwrap();
+        assert_eq!(
+            parts(&Message::tool_ended(
+                "call_1",
+                "write_file",
+                "write_file was not permitted: you declined",
+                ResultStatus::Denied,
+            )),
+            json!([{
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "write_file",
+                "output": {
+                    "type": "execution-denied",
+                    "reason": "write_file was not permitted: you declined"
+                }
+            }])
         );
     }
 
@@ -1091,7 +1155,7 @@ mod tests {
             call_id: "c".to_string(),
             tool: "t".to_string(),
             output: "o".to_string(),
-            error: false,
+            status: ResultStatus::Success,
         };
         assert!(text.allowed_on(Role::System) && text.allowed_on(Role::User));
         assert!(!text.allowed_on(Role::Tool));

@@ -663,10 +663,26 @@ impl Editor {
     /// The same rows with the selection marked: `open` before each run of
     /// selected text on a row and `close` after it (`appendLayoutUnit`,
     /// `input_presentation.zig:995-1021`, which wraps selected units in
-    /// reverse video and a reset). Exactly [`Self::rows`] with no selection.
+    /// reverse video and a reset) -- and each image's badge a link to its file,
+    /// as upstream's composer writes one (`writeImageBadgeClipped`,
+    /// `input_presentation.zig:1079-1089`, `image_attachments.zig:1342-1354`).
+    /// Exactly [`Self::rows`] with neither.
+    ///
+    /// Both are zero-width, so the rows wrap, and the caret is placed
+    /// ([`Self::point`]), exactly as they are without them. A link is closed on
+    /// the row it opened on and opened again on the next, as upstream balances
+    /// a badge across narrow card rows (`user_message_card.zig:354-379`).
     pub(crate) fn painted_rows(&self, cols: u16, open: &str, close: &str) -> Vec<String> {
-        let Some(selected) = self.selection() else {
+        let selected = self.selection();
+        let links = self.badge_links();
+        if selected.is_none() && links.is_empty() {
             return self.rows(cols);
+        }
+        let link_at = |at: usize| {
+            links
+                .iter()
+                .find(|(span, _)| span.contains(&at))
+                .map(|(_, link)| link.as_str())
         };
         wrap::wrap(&self.text, cols.max(1))
             .into_iter()
@@ -674,19 +690,44 @@ impl Editor {
                 let body = body(&self.text[row.start..row.end]);
                 let mut out = String::with_capacity(body.len() + open.len() + close.len());
                 let mut inside = false;
+                let mut linked: Option<&str> = None;
                 for (offset, cluster) in body.grapheme_indices(true) {
                     let at = row.start + offset;
-                    let wanted = selected.contains(&at);
+                    let wanted = selected.as_ref().is_some_and(|range| range.contains(&at));
                     if wanted != inside {
                         out.push_str(if wanted { open } else { close });
                         inside = wanted;
+                    }
+                    let link = link_at(at);
+                    if link != linked {
+                        out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
+                        linked = link;
                     }
                     out.push_str(&wrap::expand_tabs(cluster));
                 }
                 if inside {
                     out.push_str(close);
                 }
+                if linked.is_some() {
+                    out.push_str(super::hyperlink::CLOSE);
+                }
                 out
+            })
+            .collect()
+    }
+
+    /// Each image badge in the draft, and the link that opens around it: upstream's
+    /// badge has no parameters, only its file (`writeImageBadge`,
+    /// `image_attachments.zig:1336-1340`). A badge whose file has no target a
+    /// link may carry ([`super::hyperlink::file_uri`]) is text.
+    fn badge_links(&self) -> Vec<(std::ops::Range<usize>, String)> {
+        self.entities
+            .spans()
+            .iter()
+            .filter_map(|span| match &span.kind {
+                EntityKind::Image { image, .. } => super::hyperlink::file_uri(&image.path)
+                    .map(|uri| (span.start..span.end, super::hyperlink::open("", &uri))),
+                EntityKind::Paste { .. } => None,
             })
             .collect()
     }
@@ -830,6 +871,25 @@ impl Editor {
         let landed = self.offset_on(&rows[wanted], last, target);
         self.cursor = self.beside(landed);
         self.anchor = None;
+    }
+
+    /// The caret to the start of the draft (`Step::Up`) or to its end
+    /// (`Step::Down`): what an arrow does on the composer's first or last row
+    /// before it is a history step (`draft_start` / `draft_end`,
+    /// `input_completion_runtime.zig:265-284`, `horizontal_navigation.zig:29-30`).
+    ///
+    /// `false` when the caret is already there, which is the arrow that steps
+    /// the history instead.
+    pub(crate) fn move_to_draft_edge(&mut self, step: Step) -> bool {
+        let edge = match step {
+            Step::Up => 0,
+            Step::Down => self.text.len(),
+        };
+        if self.cursor == edge {
+            return false;
+        }
+        self.move_to(edge);
+        true
     }
 
     /// `count` rows up or down at once, stopping at the first or the last row:
@@ -1505,6 +1565,96 @@ mod tests {
         let mut wrapped = editor("abcdefgh");
         wrapped.select_all();
         assert_eq!(wrapped.painted_rows(4, "<", ">"), ["<abcd>", "<efgh>"]);
+    }
+
+    /// An editor holding the badge of an image read from `path`, typed at
+    /// the caret.
+    fn attach(editor: &mut Editor, id: u32, path: &str) {
+        let image = crate::image::Image::new(
+            id,
+            std::path::PathBuf::from(path),
+            crate::image::MediaType::Png,
+            std::sync::Arc::from(&b"png"[..]),
+        );
+        editor
+            .insert_entity(
+                &crate::image::badge(id),
+                EntityKind::Image {
+                    token: std::sync::Arc::from(crate::image::token(id)),
+                    image: std::sync::Arc::new(image),
+                },
+            )
+            .expect("room for a badge");
+    }
+
+    const LINK_CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+
+    #[test]
+    fn a_badge_is_a_link_to_its_file_and_costs_no_cell() {
+        // `writeImageBadgeClipped` (`image_attachments.zig:1342-1354`): no
+        // parameters, the path percent-encoded, the label inside.
+        let mut draft = editor("see ");
+        attach(&mut draft, 1, "/tmp/a b.png");
+        assert!(draft.insert(" ok").is_some());
+        let open = "\u{1b}]8;;file:///tmp/a%20b.png\u{1b}\\";
+        assert_eq!(
+            draft.painted_rows(80, "<", ">"),
+            [format!("see {open}[Image 1]{LINK_CLOSE} ok")]
+        );
+        // The caret and the wrap are the plain rows': the link is zero-width.
+        assert_eq!(draft.point(80), (0, 16));
+        assert_eq!(draft.rows(80), ["see [Image 1] ok"]);
+    }
+
+    #[test]
+    fn two_badges_of_one_file_are_one_link_and_another_file_switches_it() {
+        let mut draft = Editor::new();
+        attach(&mut draft, 1, "/tmp/a.png");
+        attach(&mut draft, 2, "/tmp/a.png");
+        attach(&mut draft, 3, "/tmp/b.png");
+        let a = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\";
+        let b = "\u{1b}]8;;file:///tmp/b.png\u{1b}\\";
+        assert_eq!(
+            draft.painted_rows(80, "<", ">"),
+            [format!("{a}[Image 1][Image 2]{b}[Image 3]{LINK_CLOSE}")]
+        );
+    }
+
+    #[test]
+    fn a_badge_wrapped_across_rows_is_closed_on_each_and_opened_on_the_next() {
+        // `user_message_card.zig:354-379` balances a badge across narrow rows.
+        let mut draft = Editor::new();
+        attach(&mut draft, 1, "/tmp/a.png");
+        let a = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\";
+        assert_eq!(
+            draft.painted_rows(5, "<", ">"),
+            [
+                format!("{a}[Imag{LINK_CLOSE}"),
+                format!("{a}e 1]{LINK_CLOSE}")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_selected_badge_is_marked_and_linked_and_both_end_on_the_row() {
+        let mut draft = editor("x ");
+        attach(&mut draft, 1, "/tmp/a.png");
+        assert!(draft.select_all());
+        let a = "\u{1b}]8;;file:///tmp/a.png\u{1b}\\";
+        assert_eq!(
+            draft.painted_rows(80, "<", ">"),
+            [format!("<x {a}[Image 1]>{LINK_CLOSE}")]
+        );
+    }
+
+    #[test]
+    fn a_badge_with_no_absolute_file_is_text() {
+        // A clipboard image is named by the copy the session keeps, which is
+        // not a path from the root (`super::super::shell`'s
+        // `settle_clipboard_reads`).
+        let mut draft = Editor::new();
+        attach(&mut draft, 1, "image-1-0123456789abcdef.bin");
+        assert_eq!(draft.painted_rows(80, "<", ">"), ["[Image 1]"]);
     }
 
     #[test]

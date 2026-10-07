@@ -658,7 +658,7 @@ impl Report<'_> {
             let last = state.turns.len();
             for (index, turn) in state.turns.iter().enumerate() {
                 match &turn.outcome {
-                    Some(TurnConclusion::Interrupted { reason }) => {
+                    Some(TurnConclusion::Interrupted { reason, .. }) => {
                         let _ = writeln!(
                             out,
                             "- interrupted turn {} reason={}",
@@ -854,6 +854,7 @@ impl Report<'_> {
                         tool,
                         ok,
                         output,
+                        ..
                     } => {
                         let _ = writeln!(
                             out,
@@ -864,6 +865,8 @@ impl Report<'_> {
                     TurnStep::ToolFeedback { call_id, text } => {
                         block(out, &format!("feedback id={call_id}"), text);
                     }
+                    // A prompt the person sent into the turn while it ran.
+                    TurnStep::Steered { text } => block(out, "steer", text),
                 }
             }
         }
@@ -2238,16 +2241,24 @@ mod tests {
                     wire: None,
                 },
                 SessionEvent::ToolResult {
+                    created_at_ms: None,
                     call_id: "call-1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
                     output: "\n1: first line\n2: second line\n".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
                 },
                 SessionEvent::ToolResult {
+                    created_at_ms: None,
                     call_id: "call-2".to_string(),
                     tool: "terminal".to_string(),
                     ok: false,
                     output: "exit code 1".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
                 },
                 SessionEvent::PermissionGrantRecorded {
                     tool: "terminal".to_string(),
@@ -2256,6 +2267,7 @@ mod tests {
                 SessionEvent::UsageRecorded {
                     input_tokens: Some(1200),
                     output_tokens: Some(40),
+                    turn_output_tokens: None,
                     requests: Vec::new(),
                     unaccounted: false,
                     lines_added: 0,
@@ -2266,6 +2278,8 @@ mod tests {
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {
                         reason: "cancelled by the user".to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 },
             ],

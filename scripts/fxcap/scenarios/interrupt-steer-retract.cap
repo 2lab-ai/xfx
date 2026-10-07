@@ -1,0 +1,28 @@
+# Up takes a steer back while a command runs: the command sleeps four
+# seconds; a prompt sent meanwhile waits as `┋ <prompt>`; Up at the empty
+# composer takes it back into the composer (steer-up), it is edited and sent
+# again (steer-again), and the turn tells the model the edited words after
+# the command's result (steer-done; gwlog). fx's e2e
+# `tui-interrupt-recovery.test.ts:393`.
+fx: gateway interrupt-steer-retract-fx.json
+xfx: gateway interrupt-steer-retract-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 2
+type run it
+key Enter
+wait 1.2
+type change tone
+key Enter
+wait 0.4
+snap steer-wait
+key Up
+wait 0.4
+snap steer-up
+type  and keep it short
+key Enter
+wait 0.4
+snap steer-again
+wait 5
+snap steer-done
+gwlog

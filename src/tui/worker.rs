@@ -68,7 +68,7 @@
 use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -87,7 +87,7 @@ use super::notice::Notice;
 use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
-use crate::agent::{run_turn_saved, TurnMachine, TurnRequest};
+use crate::agent::{Steer, Steering, TurnJournal, TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
@@ -103,7 +103,10 @@ use crate::provider::model::{
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession};
+use crate::session::{
+    CancellationOrigin, SessionEvent, SessionId, SessionStore, TerminalReason, TurnConclusion,
+    WritableSession,
+};
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -268,6 +271,31 @@ pub(crate) struct WorkHandle {
     rules: LiveRules,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// The running turn's own flag (`gateway`'s [`CancelToken`], the one the
+    /// provider and every tool call of the turn poll), raised here on the UI
+    /// thread the moment the person stops the turn ([`Self::control`]).
+    ///
+    /// **The message alone cannot reach a call that holds the runtime's
+    /// thread.** A tool executes synchronously inside the turn's future, so
+    /// while a command runs nothing polls the control channel
+    /// (`raced_against_control` waits on a body that is not yielding) and the
+    /// stop would be read only once the command had finished by itself. The
+    /// command's own supervisor polls this flag every few milliseconds
+    /// (`crate::tools::terminal`'s `supervise`), so raising it here stops the
+    /// command -- and its process group -- at the keystroke, as upstream's
+    /// `cancelActiveOperation` does. The message still follows and is what
+    /// drops the queue; a flag raised between turns is reset by the next one
+    /// ([`super::bridge::Cancellation::turn`]).
+    stop: CancelToken,
+    /// The running turn's steers, shared with the runtime
+    /// ([`crate::agent::steering`]): **in force before anything is sent**, as
+    /// [`Self::stop`] is, because the person's half -- taking a steer back
+    /// while a tool runs -- has to know, under one lock, that the turn has
+    /// not taken it already. Never a [`TurnWork`]: a steer holds no place in
+    /// [`WORK_LIMIT`].
+    steering: Steering,
+    /// The number the last steer was sent under.
+    steers: Arc<AtomicU64>,
     /// Where the live conversation keeps its saved-session rules, as the
     /// runtime last published it ([`SavedRulesAt`]).
     saved_rules: SavedRulesAt,
@@ -455,9 +483,43 @@ impl WorkHandle {
         self.outstanding().saturating_sub(1)
     }
 
+    /// Sends `text` into the running turn ([`crate::agent::steering`]), under
+    /// the number this returns -- or `None` when no turn is taking steers, and
+    /// the prompt is an ordinary one for the next turn.
+    pub(crate) fn steer(&self, text: String) -> Option<u64> {
+        let id = self.steers.fetch_add(1, Ordering::Relaxed) + 1;
+        self.steering.offer(id, text).then_some(id)
+    }
+
+    /// Takes back the newest steer while it still waits for a tool's results
+    /// (`popQueuedSteerForEdit`, `worker_runtime.zig:1340-1386`).
+    pub(crate) fn retract_steer(&self) -> Option<Steer> {
+        self.steering.retract()
+    }
+
+    /// Drops every steer still waiting, as a stop or a reset does.
+    pub(crate) fn drop_steers(&self) {
+        self.steering.drop_pending();
+    }
+
+    /// The steering this handle sends into, as the runtime holds it.
+    #[cfg(test)]
+    pub(crate) fn steering(&self) -> Steering {
+        self.steering.clone()
+    }
+
     /// Tells a turn that is already running something. Never blocks, never
     /// full: a UI that could not say "stop" is a UI that cannot stop it.
     pub(crate) fn control(&self, message: TurnControl) {
+        // In force before it is sent, as a change of authority is
+        // ([`Self::change_permissions`]): every message that stops the running
+        // turn raises its flag first ([`Self::stop`]).
+        if matches!(
+            message,
+            TurnControl::Cancel { .. } | TurnControl::Reset { .. } | TurnControl::Shutdown
+        ) {
+            self.stop.cancel();
+        }
         let _ = self.control.send(message);
     }
 
@@ -629,6 +691,9 @@ impl WorkHandle {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
@@ -999,6 +1064,9 @@ pub(crate) fn spawn(
     let credits = CreditsBoard::new(crate::credits::question(&config));
     let publishes_credits = credits.clone();
     let session_cancel = cancel.clone();
+    let stop = cancel.mirror();
+    let steering = Steering::new();
+    let loops_steering = steering.clone();
     let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
         #[cfg(test)]
         RUNTIME_MASKS
@@ -1027,6 +1095,7 @@ pub(crate) fn spawn(
         state.grants = publishes_grants;
         state.saved_rules = publishes_saved_rules;
         state.live = loops_live;
+        state.steering = loops_steering;
         state.rules = loops_rules;
         state.spend = publishes_spend;
         state.credits = publishes_credits;
@@ -1066,6 +1135,9 @@ pub(crate) fn spawn(
                 live,
                 rules,
                 grants,
+                stop,
+                steering,
+                steers: Arc::new(AtomicU64::new(0)),
                 saved_rules,
                 spend,
                 credits,
@@ -1148,8 +1220,12 @@ impl Resumption {
     /// What the session replays as on the screen it continues on
     /// ([`super::hydration`]): read off the state this value already holds, so
     /// the launch builds it with no read of its own.
+    ///
+    /// Made inert here, by the step the picker's replay takes at the channel
+    /// ([`bridge::inert_hydration`]): the launch hands this to the shell
+    /// directly, so no channel does it on the way.
     pub(crate) fn hydration(&self) -> super::hydration::Hydration {
-        super::hydration::Hydration::of(self.session.state(), None)
+        bridge::inert_hydration(super::hydration::Hydration::of(self.session.state(), None))
     }
 }
 
@@ -1254,6 +1330,16 @@ struct Runtime {
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// Titles `/rename` gave after a reset the work they waited for ended
+    /// with: written into the session that reset starts, once it has dropped
+    /// the one it left ([`write_renamed_after_reset`]). Each with whether the
+    /// shell has said it already ([`TurnControl::Rename`]'s `announced`).
+    renamed_after_reset: Vec<(String, bool)>,
+    /// Where the prompts the person sends into a running turn wait for it
+    /// ([`crate::agent::steering`]): opened for each turn, handed to its
+    /// machine, closed when it ends. The band holds the same one
+    /// ([`WorkHandle::steer`]).
+    steering: Steering,
     /// The configured table the UI writes and every conversation's authority
     /// reads ([`WorkHandle::rules`]). Read here, never written.
     rules: LiveRules,
@@ -1343,6 +1429,8 @@ impl Runtime {
             grants: Grants::default(),
             saved_rules: SavedRulesAt::default(),
             live: LiveAuthority::new(config_mode),
+            renamed_after_reset: Vec::new(),
+            steering: Steering::new(),
             rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
             began_ms: crate::session::event::system_now_ms(),
@@ -2337,6 +2425,11 @@ async fn turn_loop(
                 // Nothing is running, so nothing is changing the files: the
                 // undo is done now, as upstream's always is.
                 Some(TurnControl::Undo { through }) => Taken::Undo(through),
+                // Nothing is writing the conversation's log: the title is
+                // written now.
+                Some(TurnControl::Rename { title, announced }) => {
+                    Taken::Rename { title, announced }
+                }
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -2382,8 +2475,14 @@ async fn turn_loop(
                 // aside like one read during a turn.
                 match apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await
                 {
-                    Ended::Session => return settled(state, changes),
-                    Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+                    Ended::Session => {
+                        write_renamed_before_leaving(&mut state, events, &cancel).await;
+                        return settled(state, changes);
+                    }
+                    Ended::Reset(through) => {
+                        drop_conversation(&mut state, events, through).await;
+                        write_renamed_after_reset(&mut state, events, &cancel).await;
+                    }
                     Ended::Turn => {}
                 }
                 continue;
@@ -2413,6 +2512,10 @@ async fn turn_loop(
             }
             Taken::Change(None) => {
                 changes_open = false;
+                continue;
+            }
+            Taken::Rename { title, announced } => {
+                write_rename(&mut state, &title, announced, events, &cancel).await;
                 continue;
             }
             // The UI dropped its side of the work channel without saying
@@ -2466,10 +2569,6 @@ async fn turn_loop(
                 bridge::send_terminal(events, answer).await;
                 Ended::Turn
             }
-            TurnWork::Rename(title) => {
-                run_rename(&mut state, &title, events, &cancel.mirror()).await;
-                Ended::Turn
-            }
             TurnWork::Workspace(action) => {
                 let answer = state.change_workspace(&action);
                 bridge::send_terminal(events, answer).await;
@@ -2502,11 +2601,19 @@ async fn turn_loop(
         // would ([`TurnControl::Model`]).
         let ended = apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await;
         match ended {
-            Ended::Session => return settled(state, changes),
+            Ended::Session => {
+                write_renamed_before_leaving(&mut state, events, &cancel).await;
+                return settled(state, changes);
+            }
             // A reset reached this work while it ran: the work has said its
             // last word, and the conversation goes before anything else is
-            // taken.
-            Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+            // taken -- the titles typed for it already written
+            // ([`apply_deferred`]), and the ones typed after the reset written
+            // into the session it starts.
+            Ended::Reset(through) => {
+                drop_conversation(&mut state, events, through).await;
+                write_renamed_after_reset(&mut state, events, &cancel).await;
+            }
             Ended::Turn => {}
         }
     }
@@ -2585,6 +2692,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
+    /// `/rename`'s title, to write now, and whether the shell has said so.
+    Rename { title: String, announced: bool },
     /// What the Gateway said about a pending request's bill.
     Bill(super::reconcile::Answered),
     /// The session is over.
@@ -2711,9 +2820,15 @@ async fn run_turn(
     // row nobody drew ends nothing. The result is discarded because there is
     // nothing this function could do about it: the turn still owes its terminal
     // event either way.
+    // Steers are taken from the moment the band can see this turn running
+    // until it ends: opened before the row starts, closed before the
+    // conclusion goes, so a steer the turn never took is one the band still
+    // holds when it hears the turn is over ([`super::shell`]'s `TurnEnded`).
+    let steering = state.steering.clone();
+    steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, images, events, &turn,
+        state, prompt, images, events, &turn, control,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -2727,6 +2842,7 @@ async fn run_turn(
         queue.abandon(through);
     })
     .await;
+    steering.close();
     // **Before the conclusion goes**, so that a `/copy` typed once the UI has
     // shown this turn ending copies this turn's reply. Published again after
     // the work is over ([`turn_loop`]), which is the copy that covers every
@@ -2986,6 +3102,13 @@ async fn compact_if_due(
             // 7413-7423`; e2e `tui-compaction-activity.test.ts:467-471`): a
             // resume shows the prompt, and the model is told the turn ended
             // before completion. One that failed never began; the row says why.
+            //
+            // Its reason is the sentence the user was shown; whose stop it
+            // was is its own field, as upstream records it (the compaction's
+            // `cancellation_origin`, `runtime/interruption.zig:51-77`), and a
+            // resume reads that field to replay the turn as its card alone,
+            // no cancellation line (`app_session_runtime.zig:4796-4800`; e2e
+            // `tui-compaction-activity.test.ts:481-488`).
             if other == Feedback::Cancelled {
                 if let Some(conversation) = state.conversation.as_mut() {
                     conversation.recorder.commit(SessionEvent::UserMessage {
@@ -2993,7 +3116,9 @@ async fn compact_if_due(
                     });
                     conversation.recorder.commit(SessionEvent::TurnConcluded {
                         outcome: TurnConclusion::Interrupted {
-                            reason: crate::agent::TurnError::Cancelled.to_string(),
+                            reason: Feedback::Cancelled.label().to_string(),
+                            terminal_reason: Some(TerminalReason::Cancelled),
+                            cancellation_origin: CancellationOrigin::Compaction,
                         },
                     });
                 }
@@ -3319,6 +3444,43 @@ async fn change_model(
     ended
 }
 
+/// The turn's journal, with a call the stop refused at its approval recorded
+/// as stopped rather than as refused.
+///
+/// A prompter parked at an approval answers a stop -- Escape at the panel, a
+/// Ctrl-C, a reset -- with a refusal, and hands the stop back for the loop
+/// (`super::approval::ControlChannel::give_back`): the call ends `Denied`
+/// before the loop has read the stop. The screen shows it `Cancelled`, and
+/// upstream keeps no result for it at all (`buildNormalExecutionMemory`,
+/// `execution_memory.zig:449-452`), so a resumed session must not replay the
+/// user's own refusal of a call they never decided. What the model was told
+/// is unchanged: only the row's half of the result is rewritten.
+struct StoppedAtApproval<'a> {
+    inner: &'a mut dyn TurnJournal,
+    control: &'a ControlChannel,
+}
+
+impl TurnJournal for StoppedAtApproval<'_> {
+    fn record(&mut self, mut event: SessionEvent) {
+        if let SessionEvent::ToolResult { ending, .. } = &mut event {
+            if *ending == Some(crate::session::ToolEnding::Denied) && self.control.stopping() {
+                *ending = Some(crate::session::ToolEnding::Cancelled);
+            }
+        }
+        self.inner.record(event);
+    }
+
+    fn change_made(&mut self, call_id: &str, change: &crate::permission::ApprovalDiff) {
+        self.inner.change_made(call_id, change);
+    }
+
+    // Every method the trait has, forwarded: a default left in place here
+    // would be the wrapped journal's work silently not done.
+    fn attach_images(&mut self, images: &[crate::image::Image]) {
+        self.inner.attach_images(images);
+    }
+}
+
 /// Applies the model changes put aside while a piece of work ran
 /// ([`ControlChannel::defer`]), oldest first, and says what ended.
 ///
@@ -3349,6 +3511,25 @@ async fn apply_deferred(
                     after_reset,
                 } => {
                     run_undo(state, events, through, after_reset).await;
+                    continue;
+                }
+                // Written whatever ended, as an undo is done: the shell
+                // titled the window at once. One typed after the reset waits
+                // for the drop ([`write_renamed_after_reset`]).
+                Deferred::Rename {
+                    title,
+                    after_reset: false,
+                    announced,
+                } => {
+                    write_rename(state, &title, announced, events, cancel).await;
+                    continue;
+                }
+                Deferred::Rename {
+                    title,
+                    after_reset: true,
+                    announced,
+                } => {
+                    state.renamed_after_reset.push((title, announced));
                     continue;
                 }
                 // The same for a speed: it needs no socket, and the band has
@@ -3439,27 +3620,63 @@ async fn run_undo(
     .await;
 }
 
-/// `/rename`, and whether it was written down (`handleRenameCommand`,
-/// `app_commands.zig:3815-3858`). The session is called `title` either way --
-/// upstream sets its cached title before it writes the manifest
-/// (`renameActiveSession`, `app_session_runtime.zig:3802-3822`) -- and the
-/// shell says which ([`UiEvent::Renamed`]).
-async fn run_rename(
+/// Writes `/rename`'s title into the conversation's session
+/// (`handleRenameCommand`, `app_commands.zig:3815-3858`). The shell has
+/// already called the session that, as upstream caches the title before it
+/// writes (`renameActiveSession`, `app_session_runtime.zig:3807`), and the
+/// rename is said once, as what became of the write: a log that would not
+/// take it in upstream's words ([`UiEvent::RenameUnsaved`]), and one that
+/// did as `renamed to "…"` ([`UiEvent::Renamed`]) -- unless the shell has
+/// said that already (`announced`), as it does while work runs.
+async fn write_rename(
     state: &mut Runtime,
     title: &str,
+    announced: bool,
     events: &Sender<UiEvent>,
-    mirror: &CancelToken,
+    cancel: &Cancellation,
 ) {
-    let unsaved = state.rename(title, mirror).err();
+    let written = state.rename(title, &cancel.mirror());
     state.publish();
-    bridge::send_terminal(
-        events,
-        UiEvent::Renamed {
-            title: title.to_string(),
-            unsaved,
-        },
-    )
-    .await;
+    match written {
+        Err(problem) => {
+            bridge::send_terminal(events, UiEvent::RenameUnsaved(problem)).await;
+        }
+        Ok(()) if !announced => {
+            bridge::send_terminal(events, UiEvent::Renamed(title.to_string())).await;
+        }
+        Ok(()) => {}
+    }
+}
+
+/// The session is ending under a reset a shutdown outranked
+/// ([`raced_against_control`]): a title typed after that reset still names
+/// the session it would have started, and the shell has already said so.
+/// That session is opened for it and titled, as a `/rename` before any
+/// prompt opens one -- upstream's `/new` had created it, and keeps a titled
+/// one on disk. Nothing to do when no such title is waiting.
+async fn write_renamed_before_leaving(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+) {
+    if state.renamed_after_reset.is_empty() {
+        return;
+    }
+    state.conversation = None;
+    write_renamed_after_reset(state, events, cancel).await;
+}
+
+/// Writes the titles typed after a reset the work they waited for ended
+/// with, now that the reset has dropped the conversation it left
+/// ([`Deferred::Rename`]'s `after_reset`): they name the session it starts.
+async fn write_renamed_after_reset(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+) {
+    for (title, announced) in std::mem::take(&mut state.renamed_after_reset) {
+        write_rename(state, &title, announced, events, cancel).await;
+    }
 }
 
 /// Loads the catalog once and sends **exactly one** terminal event for it.
@@ -3578,6 +3795,12 @@ async fn raced_against_control<F: Future>(
                 Some(TurnControl::Undo { through }) => {
                     control.defer_undo(through, matches!(ended, Ended::Reset(_)));
                 }
+                // `/rename` while this work runs: its log is this work's to
+                // write until it is over, so the title is put aside the same
+                // way, and marked when it was typed after a reset.
+                Some(TurnControl::Rename { title, announced }) => {
+                    control.defer_rename(title, matches!(ended, Ended::Reset(_)), announced);
+                }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -3660,6 +3883,7 @@ async fn one_turn(
     images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
+    control: &ControlChannel,
 ) -> Option<String> {
     // The matrix row for a panic on the thread that owns nothing. It is taken
     // here, inside the caught body, because what is being measured is that a
@@ -3810,11 +4034,17 @@ async fn one_turn(
     // arguments, its whole result -- handed to the UI as it is written down
     // (`super::full_transcript::Teed`). The log is written first and either
     // way: the view is best effort and the record is not.
-    let mut journal = super::full_transcript::Teed::new(
+    let mut teed = super::full_transcript::Teed::new(
         &mut conversation.recorder,
         events.clone(),
         turn.token.clone(),
     );
+    // And a refusal the stop answered is recorded as the stop
+    // ([`StoppedAtApproval`]).
+    let mut journal = StoppedAtApproval {
+        inner: &mut teed,
+        control,
+    };
     // And each request the turn settles, as the full transcript's `* network:`
     // record (`super::full_transcript::Networked`).
     let provider = super::full_transcript::Networked::new(
@@ -3826,7 +4056,12 @@ async fn one_turn(
     // And, in Ultra, whether each response was served at it
     // ([`ServedUltra`]).
     let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
-    let outcome = run_turn_saved(request, context, &served, &mut sink, &mut journal).await;
+    // `run_turn_saved`'s machine, taking the person's steers as it runs.
+    let outcome = TurnMachine::new(request)
+        .with_context(context)
+        .with_steering(state.steering.clone())
+        .run_journaled(&served, &mut sink, &mut journal)
+        .await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -3836,12 +4071,13 @@ async fn one_turn(
     // time would be asking a question the user has already answered.
     record_grants(conversation);
 
-    // What the turn spent, from the **completed** turn's own outcome
+    // What the turn's answer read, from the **completed** turn's own outcome
     // (`agent::TurnOutcome::usage`, the same value the session log records at
     // `agent::machine`'s `UsageRecorded`). Only a turn that finished has one: a
     // turn that failed mid-stream has no total to report, and inventing one
     // from the deltas that did arrive would put a number on the hint row that
-    // no provider ever said.
+    // no provider ever said. What it wrote reached the band request by
+    // request, as the machine settled each one (`UiEvent::Output`).
     //
     // Best effort, like the history notices above: the conclusion below is what
     // the turn owes, and a meter is worth less than the answer it measures.
@@ -3851,7 +4087,6 @@ async fn one_turn(
             &turn.token,
             UiEvent::Usage {
                 input: finished.usage.input_tokens,
-                output: finished.usage.output_tokens,
             },
         )
         .await;
@@ -4035,6 +4270,34 @@ mod tests {
     const TEST_DRAIN: Duration = Duration::from_secs(10);
 
     #[test]
+    fn a_stop_raises_the_running_turns_flag_before_the_message_goes() {
+        // A command holds the runtime's thread, so the message alone would be
+        // read only once it ended by itself; the flag its supervisor polls is
+        // raised here, on the UI thread, at the keystroke. Everything else the
+        // UI sends leaves it alone.
+        let (handle, _work, mut control, _changes) = WorkHandle::detached_with_changes();
+        handle.control(TurnControl::QuestionCancelled {
+            id: crate::tui::question::QuestionId(1),
+        });
+        assert!(!handle.stop.is_cancelled(), "an answer stopped the turn");
+        handle.control(TurnControl::Cancel { through: 1 });
+        assert!(handle.stop.is_cancelled());
+        assert!(matches!(
+            control.try_recv(),
+            Ok(TurnControl::QuestionCancelled { .. })
+        ));
+        assert!(matches!(
+            control.try_recv(),
+            Ok(TurnControl::Cancel { through: 1 })
+        ));
+        for message in [TurnControl::Reset { through: 2 }, TurnControl::Shutdown] {
+            handle.stop.reset();
+            handle.control(message);
+            assert!(handle.stop.is_cancelled());
+        }
+    }
+
+    #[test]
     fn the_drain_keeps_receiving_until_the_turn_says_it_is_over() {
         // Step 3 of the protocol, and the step a bounded join would otherwise
         // hide: a producer parked in `send().await` on a full channel cannot
@@ -4100,6 +4363,9 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
@@ -4163,6 +4429,9 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
@@ -4205,6 +4474,9 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
@@ -4565,6 +4837,9 @@ mod tests {
             live: LiveAuthority::new(PermissionMode::Auto),
             rules: LiveRules::default(),
             grants: Grants::default(),
+            stop: CancelToken::new(),
+            steering: Steering::new(),
+            steers: Arc::new(AtomicU64::new(0)),
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
             credits: CreditsBoard::default(),
@@ -5077,10 +5352,11 @@ mod tests {
         // Upstream syncs a new mode into the prompts already queued
         // (`syncQueuedPermissionSnapshot`); here the loop takes changes before
         // work, so whatever was waiting starts under the mode the user chose
-        // after it was typed. Observed through a queued `/rename`, which writes
-        // its own line into the same log: the change's line has to come first.
-        // (A queued `/model` used to be the witness; a model change is a
-        // control message now, and takes no place in the queue.)
+        // after it was typed. Observed through a queued `/resume` of another
+        // session, which replaces the conversation: the change reaches the
+        // log of the conversation it replaces only if it was applied first.
+        // (A queued `/model`, then a queued `/rename`, used to be the
+        // witness; both are said off the work queue now.)
         let (_home, _workspace, state) = recording();
         let log = state
             .store
@@ -5095,9 +5371,10 @@ mod tests {
                     .as_str(),
             )
             .join(crate::session::store::EVENTS_FILE);
+        let other = a_saved_session(&state.config, &Grant::new("edit_file", "x".to_string()));
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
         work_tx
-            .try_send(TurnWork::Rename("queued-witness-title".into()))
+            .try_send(TurnWork::Resume(other.to_string()))
             .expect("room");
         let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         changes_tx
@@ -5107,7 +5384,7 @@ mod tests {
         let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let outstanding = AtomicUsize::new(1);
-        on_a_runtime(turn_loop(
+        let left = on_a_runtime(turn_loop(
             state,
             &events,
             &mut work_rx,
@@ -5116,14 +5393,12 @@ mod tests {
             Cancellation::new(CancelToken::new()),
             &outstanding,
         ));
+        assert_eq!(left, Some(other), "the queued work never ran");
         let log = std::fs::read_to_string(log).expect("the log");
-        let mode = log
-            .find(r#""permission_mode":"ask""#)
-            .unwrap_or_else(|| panic!("the change never reached the log: {log}"));
-        let work = log
-            .find("queued-witness-title")
-            .unwrap_or_else(|| panic!("the work never ran: {log}"));
-        assert!(mode < work, "the queued work ran before the change: {log}");
+        assert!(
+            log.contains(r#""permission_mode":"ask""#),
+            "the queued work ran before the change: {log}"
+        );
     }
 
     #[test]
@@ -5632,6 +5907,7 @@ mod tests {
         recorder.commit(SessionEvent::UsageRecorded {
             input_tokens: Some(1200),
             output_tokens: Some(40),
+            turn_output_tokens: None,
             requests: vec![crate::session::RequestUsage {
                 at_ms: 2_000,
                 duration_ms: 700,
@@ -5729,6 +6005,7 @@ mod tests {
         recorder.commit(SessionEvent::UsageRecorded {
             input_tokens: Some(1200),
             output_tokens: Some(40),
+            turn_output_tokens: None,
             requests: vec![crate::session::RequestUsage {
                 at_ms: 2_000,
                 duration_ms: 700,
@@ -5976,6 +6253,149 @@ mod tests {
         // Dropped here, which closes the log and releases its lock.
     }
 
+    /// Bytes a terminal would obey rather than draw: an OSC title, a clear,
+    /// a bell, a C1 CSI.
+    const HOSTILE: &str = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+
+    /// A saved session whose prompt, answers, call and result all carry
+    /// [`HOSTILE`] -- a log is file input, and anyone who can write the file
+    /// can put them there.
+    fn a_hostile_session(config: &RuntimeConfig) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        for event in [
+            SessionEvent::UserMessage {
+                text: format!("prompt {HOSTILE}"),
+            },
+            SessionEvent::AssistantMessage {
+                text: format!("looking {HOSTILE}"),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({ "path": format!("p{HOSTILE}") }),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::ToolResult {
+                created_at_ms: None,
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {HOSTILE}"),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            SessionEvent::AssistantMessage {
+                text: format!("done {HOSTILE}"),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::TurnConcluded {
+                outcome: crate::session::TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        conversation.recorder.id().clone()
+    }
+
+    /// Every piece of text a replay carries to the screen or to the full
+    /// transcript, whichever way it was built.
+    fn replayed_text(replay: &super::super::hydration::Hydration) -> String {
+        use super::super::hydration::HydratedStep;
+        let mut all = format!("{:?}", replay.title);
+        for turn in &replay.turns {
+            all.push_str(&turn.user);
+            for step in &turn.steps {
+                match step {
+                    HydratedStep::Text(text)
+                    | HydratedStep::Feedback(text)
+                    | HydratedStep::Steer(text) => all.push_str(text),
+                    HydratedStep::ToolStart { id, shown, .. } => {
+                        all.push_str(id);
+                        all.push_str(shown.target.as_deref().unwrap_or(""));
+                    }
+                    HydratedStep::ToolResult { id, .. } => all.push_str(id),
+                }
+            }
+            for (id, detail) in &turn.details {
+                all.push_str(id);
+                all.push_str(&format!("{detail:?}"));
+            }
+        }
+        all
+    }
+
+    /// A resumed session is file input on both of its ways in: the picker's,
+    /// whose replay crosses the channel, and the launch's, which is built
+    /// before the terminal is taken and never crosses it. Both reach the UI
+    /// through the same inert step ([`bridge::inert_hydration`]).
+    #[test]
+    fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let id = a_hostile_session(&config);
+        let obeyed = |text: &str| {
+            text.chars()
+                .filter(|c| c.is_control() && *c != '\n' && *c != '\r')
+                .collect::<Vec<_>>()
+        };
+
+        // The launch's (`super::super::hold`).
+        let launch = Resumption::open(&config, &crate::session::Selector::Id(id.clone()))
+            .expect("the saved session opens")
+            .hydration();
+        let text = replayed_text(&launch);
+        assert!(text.contains("prompt x ]0;pwned y [2Jz 31m"), "{text:?}");
+        assert_eq!(obeyed(&text), Vec::<char>::new(), "{text:?}");
+
+        // The picker's, across the channel as the runtime sends it.
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // The picker's resume does not wait on a writer lock, and a sibling
+        // test that forks a command in the instant this one closed the log
+        // can hold the lock's descriptor until its child execs: a held lock
+        // here is that, not this test's subject, so it is asked again.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let replay = loop {
+            match state.resume_by_id(id.as_str(), &CancelToken::new()) {
+                Ok(replay) => break replay,
+                Err(super::super::session_picker::ResumeFailure::OpenElsewhere)
+                    if Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(failure) => panic!("not resumed: {failure:?}"),
+            }
+        };
+        let picked = on_a_runtime(async {
+            let (events, mut received) = mpsc::channel(1);
+            bridge::send_terminal(&events, UiEvent::Resumed(replay)).await;
+            match received.recv().await {
+                Some(UiEvent::Resumed(replay)) => replay,
+                other => panic!("{other:?}"),
+            }
+        });
+        assert_eq!(replayed_text(&picked), text, "the two ways in differ");
+    }
+
     #[test]
     fn a_resumed_session_is_the_conversation_from_the_start_with_its_grants() {
         let home = tempfile::tempdir().expect("a home");
@@ -6164,13 +6584,20 @@ mod tests {
                 workspace.path(),
             )
             .expect("the other writer opens it");
-        let started = Instant::now();
+        // "At once" is one try at the lock: a resume that waited would try it
+        // again until its grace period ran out (the store's own clock-free
+        // cases: `a_budget_of_nothing_is_one_attempt_and_no_pause` against
+        // `a_lock_that_frees_during_the_grace_is_acquired_after_the_documented_backoff`).
+        // Counted, not timed, so a loaded machine can neither pass a wait nor
+        // fail a refusal.
+        let before_tries = crate::session::store::lock_attempts_on_this_thread();
         assert_eq!(
             state.resume_by_id(saved.as_str(), &CancelToken::new()),
             Err(ResumeFailure::OpenElsewhere)
         );
-        assert!(
-            started.elapsed() < Duration::from_millis(200),
+        assert_eq!(
+            crate::session::store::lock_attempts_on_this_thread() - before_tries,
+            1,
             "the picker waited on the lock"
         );
         assert_eq!(state.resumable(), Some(before.clone()));
@@ -6284,6 +6711,9 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
                 credits: CreditsBoard::default(),
@@ -6422,6 +6852,373 @@ mod tests {
             events_rx.try_recv().is_err(),
             "the reset sent more than its fence"
         );
+    }
+
+    /// A refusal recorded while a parked prompter's stop waits for the loop
+    /// is the stop's: the row's half says `Cancelled`, the model's half is
+    /// what the model was told. Any other refusal is the user's.
+    #[test]
+    fn a_call_refused_by_a_stop_at_its_approval_is_recorded_as_stopped() {
+        #[derive(Default)]
+        struct Kept(Vec<SessionEvent>, Vec<String>);
+        impl TurnJournal for Kept {
+            fn record(&mut self, event: SessionEvent) {
+                self.0.push(event);
+            }
+            fn change_made(&mut self, call_id: &str, _change: &crate::permission::ApprovalDiff) {
+                self.1.push(format!("change {call_id}"));
+            }
+            fn attach_images(&mut self, images: &[crate::image::Image]) {
+                self.1.push(format!("images {}", images.len()));
+            }
+        }
+        let refused = || SessionEvent::ToolResult {
+            created_at_ms: None,
+            call_id: "w".to_string(),
+            tool: "write_file".to_string(),
+            ok: false,
+            output: "write_file was not permitted: you declined".to_string(),
+            ending: Some(crate::session::ToolEnding::Denied),
+            lines: None,
+            change: None,
+        };
+        let (_tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        let mut kept = Kept::default();
+        StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        }
+        .record(refused());
+        control.give_back(TurnControl::Cancel { through: 1 });
+        StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        }
+        .record(refused());
+        let endings: Vec<_> = kept
+            .0
+            .iter()
+            .map(|event| match event {
+                SessionEvent::ToolResult { ending, output, .. } => (*ending, output.as_str()),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            endings,
+            [
+                (
+                    Some(crate::session::ToolEnding::Denied),
+                    "write_file was not permitted: you declined"
+                ),
+                (
+                    Some(crate::session::ToolEnding::Cancelled),
+                    "write_file was not permitted: you declined"
+                ),
+            ]
+        );
+        // Everything else the turn hands its journal goes through unchanged:
+        // a default left in the wrapper would be the recorder's work undone.
+        let mut wrapper = StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        };
+        wrapper.change_made("w", &crate::permission::ApprovalDiff::of("a\n", "b\n"));
+        wrapper.attach_images(&[crate::image::Image::new(
+            1,
+            std::path::PathBuf::from("shot.png"),
+            crate::image::MediaType::Png,
+            std::sync::Arc::from(&b"png"[..]),
+        )]);
+        assert_eq!(kept.1, ["change w", "images 1"]);
+        // And the loop reads its stop as before.
+        assert!(control.stopping());
+        assert_eq!(
+            on_a_runtime(control.recv()),
+            Some(TurnControl::Cancel { through: 1 })
+        );
+        assert!(!control.stopping());
+    }
+
+    /// The log of the session `id` names, under `home`.
+    fn session_log(home: &std::path::Path, id: &str) -> String {
+        std::fs::read_to_string(
+            home.join(".xfx")
+                .join("sessions")
+                .join(id)
+                .join(crate::session::store::EVENTS_FILE),
+        )
+        .expect("the log")
+    }
+
+    /// Between turns a `/rename` is written when it is read, in the order the
+    /// control channel carries it with a reset: one typed before `/new` goes
+    /// into the session `/new` drops, one typed after it into the session
+    /// `/new` starts (opened for it, as a rename before any prompt opens one).
+    #[test]
+    fn between_turns_a_rename_is_written_into_the_session_it_was_typed_in() {
+        let (home, _workspace, state) = recording();
+        let before = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        for message in [
+            TurnControl::Rename {
+                title: "Before New".to_string(),
+                announced: false,
+            },
+            TurnControl::Reset { through: 0 },
+            TurnControl::Rename {
+                title: "After New".to_string(),
+                announced: false,
+            },
+            TurnControl::Shutdown,
+        ] {
+            control_tx.send(message).expect("alive");
+        }
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let outstanding = AtomicUsize::new(0);
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut changes,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(work_tx);
+        // Titled and asked nothing, so no resume names it: it is the other
+        // session on disk.
+        let after = sessions_in(home.path())
+            .into_iter()
+            .find(|id| id.as_str() != before.as_str())
+            .expect("the session the reset started");
+        let dropped = session_log(home.path(), before.as_str());
+        assert!(
+            dropped.contains(r#""kind":"session_renamed","title":"Before New""#)
+                && !dropped.contains("After New"),
+            "{dropped}"
+        );
+        let started = session_log(home.path(), after.as_str());
+        assert!(
+            started.contains(r#""title":"After New""#) && !started.contains("Before New"),
+            "{started}"
+        );
+        // Between turns the shell said nothing, so each written title is
+        // said now, in the order the writes happened.
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("Before New".to_string()))
+        );
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("After New".to_string()))
+        );
+    }
+
+    /// One answer per rename, what became of its write: `Renamed` for one the
+    /// shell has not said yet, nothing for one it has, and the refusal for
+    /// either (`handleRenameCommand`, `app_commands.zig:3815-3858`).
+    #[test]
+    fn a_rename_is_answered_once_by_what_became_of_its_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let cancel = Cancellation::new(CancelToken::new());
+        on_a_runtime(write_rename(
+            &mut state, "Quiet", false, &events_tx, &cancel,
+        ));
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("Quiet".to_string()))
+        );
+        on_a_runtime(write_rename(&mut state, "Said", true, &events_tx, &cancel));
+        assert!(events_rx.try_recv().is_err(), "a rename was said twice");
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .id
+            .clone();
+        let dir = home.path().join(".xfx").join("sessions").join(id);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+        on_a_runtime(write_rename(
+            &mut state, "Refused", false, &events_tx, &cancel,
+        ));
+        on_a_runtime(write_rename(
+            &mut state,
+            "Refused too",
+            true,
+            &events_tx,
+            &cancel,
+        ));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        for _ in 0..2 {
+            assert!(
+                matches!(events_rx.try_recv(), Ok(UiEvent::RenameUnsaved(_))),
+                "a refused write was not said"
+            );
+        }
+        assert!(events_rx.try_recv().is_err());
+    }
+
+    /// While work runs a `/rename` is put aside, never a stop, and marked
+    /// when it came behind a reset -- as an `/undo` is.
+    #[test]
+    fn a_rename_while_work_runs_waits_for_it_and_one_after_a_reset_is_the_fresh_ones() {
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        for message in [
+            TurnControl::Rename {
+                title: "a".to_string(),
+                announced: true,
+            },
+            TurnControl::Reset { through: 0 },
+            TurnControl::Rename {
+                title: "b".to_string(),
+                announced: false,
+            },
+        ] {
+            control_tx.send(message).expect("alive");
+        }
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |through| stops.push(through),
+        ));
+        assert_eq!(stops.len(), 1, "a rename stopped the work");
+        assert_eq!(ended, Ended::Reset(0));
+        assert_eq!(
+            control.take_deferred(),
+            vec![
+                Deferred::Rename {
+                    title: "a".to_string(),
+                    after_reset: false,
+                    announced: true,
+                },
+                Deferred::Rename {
+                    title: "b".to_string(),
+                    after_reset: true,
+                    announced: false,
+                },
+            ]
+        );
+    }
+
+    /// Once the work is over: a title typed before the reset is written into
+    /// the session the reset drops, before the drop; one typed after it into
+    /// the session the reset starts, after the drop -- and both even when the
+    /// session is ending, because the shell has already said them.
+    #[test]
+    fn renames_put_aside_land_on_either_side_of_the_reset_they_were_typed_around() {
+        let (home, _workspace, mut state) = recording();
+        let before = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        // Said by the shell already, as one typed while work runs is.
+        control.defer_rename("Typed Before".to_string(), false, true);
+        control.defer_rename("Typed After".to_string(), true, true);
+        let ended = on_a_runtime(async {
+            let ended = apply_deferred(
+                &mut state,
+                Ended::Reset(0),
+                &events_tx,
+                &cancel,
+                &control,
+                &mut queue,
+            )
+            .await;
+            if let Ended::Reset(through) = ended {
+                drop_conversation(&mut state, &events_tx, through).await;
+                write_renamed_after_reset(&mut state, &events_tx, &cancel).await;
+            }
+            ended
+        });
+        assert_eq!(ended, Ended::Reset(0));
+        let dropped = session_log(home.path(), before.as_str());
+        assert!(
+            dropped.contains("Typed Before") && !dropped.contains("Typed After"),
+            "{dropped}"
+        );
+        let after = state
+            .conversation
+            .as_ref()
+            .expect("opened for the title")
+            .recorder
+            .id()
+            .clone();
+        assert_ne!(after, before);
+        assert!(session_log(home.path(), after.as_str()).contains("Typed After"));
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+
+        // A `/quit` after the work: still written.
+        control.defer_rename("Then Quit".to_string(), false, true);
+        let ended = on_a_runtime(apply_deferred(
+            &mut state,
+            Ended::Session,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Session);
+        assert!(session_log(home.path(), after.as_str()).contains("Then Quit"));
+
+        // A `/new`, a `/rename` and a `/quit` in one turn: the shutdown
+        // outranks the reset, and the title still names the session the
+        // reset would have started -- opened for it, not the one it left.
+        control.defer_rename("New Then Quit".to_string(), true, true);
+        on_a_runtime(async {
+            let ended = apply_deferred(
+                &mut state,
+                Ended::Session,
+                &events_tx,
+                &cancel,
+                &control,
+                &mut queue,
+            )
+            .await;
+            assert_eq!(ended, Ended::Session);
+            write_renamed_before_leaving(&mut state, &events_tx, &cancel).await;
+        });
+        assert!(!session_log(home.path(), after.as_str()).contains("New Then Quit"));
+        let last = state
+            .conversation
+            .as_ref()
+            .expect("opened for the title")
+            .recorder
+            .id()
+            .clone();
+        assert!(last != after && last != before);
+        assert!(session_log(home.path(), last.as_str()).contains("New Then Quit"));
     }
 
     #[test]

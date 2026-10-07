@@ -51,13 +51,19 @@ use std::path::PathBuf;
 use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use super::steering::Steering;
+use super::tokens::{self, Progress, Streamed};
 use crate::gateway::protocol::{
-    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message, ToolChoice,
+    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message,
+    ResultStatus, ToolChoice,
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
-use crate::session::{RecordedToolCall, RequestUsage, SessionEvent, TurnConclusion};
-use crate::tools::{LineChanges, Registry};
+use crate::session::{
+    CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent,
+    TerminalReason, ToolEnding, TurnConclusion,
+};
+use crate::tools::{LineChanges, Outcome, Registry};
 use crate::workspace::ProjectContext;
 
 use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
@@ -122,6 +128,20 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
     });
+}
+
+/// What a result's row said beyond `ok`, as the log keeps it: nothing for a
+/// call that simply finished, which is what an older log's reader assumes.
+fn recorded_ending(outcome: Outcome) -> Option<ToolEnding> {
+    match outcome {
+        Outcome::Finished => None,
+        Outcome::Unchanged => Some(ToolEnding::Unchanged),
+        Outcome::Denied => Some(ToolEnding::Denied),
+        Outcome::Exited(code) => Some(ToolEnding::Exited { code }),
+        Outcome::Signalled(signal) => Some(ToolEnding::Signalled { signal }),
+        Outcome::TimedOut => Some(ToolEnding::TimedOut),
+        Outcome::Cancelled => Some(ToolEnding::Cancelled),
+    }
 }
 
 pub fn allows_step(limit: u32, step: u32) -> bool {
@@ -304,6 +324,9 @@ pub struct TurnMachine {
     /// by the sentence that says it ended early (`session.zig:3057-3069`;
     /// `crate::session::store`'s `close_interrupted`).
     partial: String,
+    /// What the person sends into the turn while it runs, when the caller
+    /// lets them ([`Self::with_steering`]).
+    steering: Option<Steering>,
     steps: u32,
     finalized: bool,
     /// Every model request this turn completed, as `/usage` keeps it
@@ -312,8 +335,25 @@ pub struct TurnMachine {
     /// A request was sent and then lost -- a broken stream, a stop -- so it
     /// may have been billed with nothing to say what it cost.
     unaccounted: bool,
+    /// Out as the turn's summary row counts it, over every request that has
+    /// ended: attempts, not steps, and failed or stopped ones too
+    /// ([`super::tokens`]). Not [`Self::requests`]' sum, which is `/usage`'s
+    /// and holds only the requests that completed, at nought where the
+    /// provider said nothing.
+    written: u64,
     /// Lines this turn's file changes added and removed.
     lines: LineChanges,
+}
+
+/// How one model step ended.
+enum Stepped {
+    /// The provider completed it. Boxed: a completion carries the provider's
+    /// own blocks and its bill, and a step that was cut short carries a string.
+    Completed(Box<Completion>),
+    /// A steer cut it short (`crate::agent::steering`): `partial` is the
+    /// answer as far as it had got, `sent` whether a request had gone out for
+    /// it, and the turn goes on with the steer.
+    Steered { partial: String, sent: bool },
 }
 
 impl TurnMachine {
@@ -340,12 +380,21 @@ impl TurnMachine {
             suffix: Vec::new(),
             output: String::new(),
             partial: String::new(),
+            steering: None,
             steps: 0,
             finalized: false,
             requests: Vec::new(),
             unaccounted: false,
+            written: 0,
             lines: LineChanges::default(),
         }
+    }
+
+    /// The same machine, taking the prompts the person sends into it while
+    /// it runs, at upstream's boundaries ([`crate::agent::steering`]).
+    pub fn with_steering(mut self, steering: Steering) -> Self {
+        self.steering = Some(steering);
+        self
     }
 
     /// The same machine, carrying `context` as its static system message.
@@ -440,6 +489,7 @@ impl TurnMachine {
             journal.record(SessionEvent::UsageRecorded {
                 input_tokens,
                 output_tokens,
+                turn_output_tokens: Some(self.written),
                 requests: std::mem::take(&mut self.requests),
                 unaccounted: self.unaccounted,
                 lines_added: u64::try_from(self.lines.added).unwrap_or(u64::MAX),
@@ -458,6 +508,16 @@ impl TurnMachine {
                 },
                 Err(err) => TurnConclusion::Interrupted {
                     reason: err.to_string(),
+                    // A stop is the one interruption upstream calls
+                    // cancelled; every other is a failure
+                    // (`persistFailedPartialTurnOnce`,
+                    // `runtime/interruption.zig:254`).
+                    terminal_reason: Some(if matches!(err, TurnError::Cancelled) {
+                        TerminalReason::Cancelled
+                    } else {
+                        TerminalReason::Failed
+                    }),
+                    cancellation_origin: CancellationOrigin::Turn,
                 },
             },
         });
@@ -507,8 +567,42 @@ impl TurnMachine {
             }
 
             let began = Instant::now();
-            let completion = self.step(provider, events).await?;
-            self.account(&completion, began.elapsed());
+            let completion = match self.step(provider, events).await? {
+                Stepped::Completed(completion) => {
+                    self.account(&completion, began.elapsed());
+                    *completion
+                }
+                // Cut short by a steer: the answer as far as it got is the
+                // assistant's message, and the turn goes on with the steer
+                // (`append_immediate_steering_after_cancel`,
+                // `orchestrator.zig:240-261`) -- no `ended before completion`,
+                // because it did not end (`fx-interrupt-steer-40x120-bodies/
+                // 004-completion.json`).
+                Stepped::Steered { partial, sent } => {
+                    // A request a steer cut off was sent and dropped, so it
+                    // may have been billed with nothing to say for how much
+                    // (`ambiguous_delivery`, `session_usage.zig:43-53`).
+                    if sent {
+                        self.unaccounted = true;
+                    }
+                    self.steps += 1;
+                    self.output.push_str(&partial);
+                    if !partial.is_empty() {
+                        journal.record(SessionEvent::AssistantMessage {
+                            text: partial.clone(),
+                            tool_calls: Vec::new(),
+                            raw_content: Vec::new(),
+                            responses_state: Vec::new(),
+                            wire: None,
+                        });
+                        self.suffix
+                            .push(Message::assistant(Some(&partial), Vec::new()));
+                    }
+                    let steers = self.waiting_steers(false);
+                    self.tell_steers(steers, events, journal);
+                    continue;
+                }
+            };
             self.steps += 1;
             self.output.push_str(&completion.text);
 
@@ -527,6 +621,23 @@ impl TurnMachine {
                 // The answering step's own evidence, recorded through the same
                 // guard the tool-calling step uses.
                 record_assistant(journal, &completion);
+                // **The last boundary a steer can reach the turn at**: one sent
+                // while this answer arrived is told now, after it, and the turn
+                // goes on (`append_pending_steering_after_assistant`,
+                // `orchestrator.zig:215-238`). Finding none closes the turn to
+                // steers, so a prompt sent from here on is the next turn's.
+                if completion.finish_reason != FinishReason::ToolCalls {
+                    let steers = self.waiting_steers(true);
+                    if !steers.is_empty() {
+                        self.suffix.push(if completion.raw_content.is_empty() {
+                            Message::assistant(Some(&completion.text), Vec::new())
+                        } else {
+                            Message::assistant_raw(completion.raw_content.clone(), Vec::new())
+                        });
+                        self.tell_steers(steers, events, journal);
+                        continue;
+                    }
+                }
                 return match completion.finish_reason {
                     FinishReason::ToolCalls => Err(TurnError::EmptyToolCallFinish),
                     // `stop`, `length`, `content-filter`, and `other` all end
@@ -552,9 +663,64 @@ impl TurnMachine {
                 });
             }
 
-            self.execute_tool_calls(&completion, events, journal)
-                .await?;
+            // A steer sent while the calls run waits for their results
+            // (`hasSteeringWaitBoundaryLocked`, `worker_runtime.zig:1688`), and
+            // until then the person may still take it back.
+            if let Some(steering) = &self.steering {
+                steering.tool_running(true);
+            }
+            let ran = self.execute_tool_calls(&completion, events, journal).await;
+            if let Some(steering) = &self.steering {
+                steering.tool_running(false);
+            }
+            ran?;
+            // After the results, before the next request
+            // (`observe_steering_boundary`, `orchestrator.zig:157-178`).
+            let steers = self.waiting_steers(false);
+            self.tell_steers(steers, events, journal);
         }
+    }
+
+    /// What the person has sent into the turn and the turn has not yet told
+    /// the model, taken now. `last` is the model's answer's boundary, where
+    /// finding nothing closes the turn to steers ([`Steering::take_or_close`]).
+    ///
+    /// A turn the person has stopped takes none: the stop outranks the steer,
+    /// and the band drops it with the queue.
+    fn waiting_steers(&self, last: bool) -> Vec<crate::agent::Steer> {
+        let Some(steering) = &self.steering else {
+            return Vec::new();
+        };
+        if self.request.cancel.is_cancelled() {
+            return Vec::new();
+        }
+        if last {
+            steering.take_or_close()
+        } else {
+            steering.take()
+        }
+    }
+
+    /// Tells the model `steers`: each as a user message in upstream's wrapper,
+    /// recorded as the words the person typed, and announced to whoever shows
+    /// the turn.
+    fn tell_steers(
+        &mut self,
+        steers: Vec<crate::agent::Steer>,
+        events: &mut dyn EventSink,
+        journal: &mut dyn TurnJournal,
+    ) {
+        if steers.is_empty() {
+            return;
+        }
+        for steer in &steers {
+            self.suffix
+                .push(Message::user(crate::agent::steering::message(&steer.text)));
+            journal.record(SessionEvent::Steered {
+                text: steer.text.clone(),
+            });
+        }
+        events.steered(&steers);
     }
 
     /// Runs one step's tool calls and extends the conversation with the result.
@@ -692,23 +858,46 @@ impl TurnMachine {
                 })
                 .map_err(TurnError::Sink)?;
 
+            // With what the row said beyond `ok`, so a resumed session's row
+            // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
+                created_at_ms: Some(crate::session::event::system_now_ms()),
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,
                 output: result.output.clone(),
+                ending: recorded_ending(result.outcome),
+                lines: result.changes.map(|changes| LineCounts {
+                    added: changes.added as u64,
+                    removed: changes.removed as u64,
+                }),
+                change: result.change.as_deref().map(|change| RecordedChange {
+                    before: change.before.clone(),
+                    after: change.after.clone(),
+                    first_line: change.first_line as u64,
+                    lines_below: change.lines_below as u64,
+                }),
             });
             if let Some(change) = &result.change {
                 journal.change_made(&call.id, change);
             }
-            // A call that failed is said as one on the wire, as upstream says
-            // every result whose status is a failure (`error-text`,
-            // `vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:742-747`).
-            self.suffix.push(if result.ok {
-                Message::tool_result(&call.id, &call.name, result.output)
+            // A call that failed is said as one on the wire, and one that was
+            // refused as a refusal, as upstream says each (`error-text`,
+            // `execution-denied`; `vercel-labs/fx@c1db9191
+            // src/gateway/vercel_protocol.zig:742-747`).
+            let status = if result.ok {
+                ResultStatus::Success
+            } else if result.outcome == crate::tools::Outcome::Denied {
+                ResultStatus::Denied
             } else {
-                Message::tool_error(&call.id, &call.name, result.output)
-            });
+                ResultStatus::Failure
+            };
+            self.suffix.push(Message::tool_ended(
+                &call.id,
+                &call.name,
+                result.output,
+                status,
+            ));
 
             // Buffered here, delivered after the loop. Directly after the
             // result push, so only a call that actually ran and was answered
@@ -869,10 +1058,19 @@ impl TurnMachine {
         &mut self,
         provider: &dyn Provider,
         events: &mut dyn EventSink,
-    ) -> Result<Completion, TurnError> {
+    ) -> Result<Stepped, TurnError> {
         let request = self.completion_request();
         let mut attempt = 0u32;
         loop {
+            // A steer already waiting is told before anything is sent: a
+            // request the model would answer without it is a request spent on
+            // a question the person has since changed.
+            if self.steering.as_ref().is_some_and(Steering::pending) {
+                return Ok(Stepped::Steered {
+                    partial: String::new(),
+                    sent: false,
+                });
+            }
             if attempt >= self.request.max_attempts {
                 return Err(TurnError::AttemptLimit {
                     limit: self.request.max_attempts,
@@ -888,16 +1086,67 @@ impl TurnMachine {
                 delivered: false,
                 text: String::new(),
                 error: None,
+                streamed: Streamed::default(),
             };
-            let outcome = provider.stream(&request, &mut deltas).await;
+            // Raced against a steer, which cuts the answer where it has got
+            // to: the stream is dropped -- and its connection with it -- and
+            // what was delivered of it is the assistant's message. The stream
+            // is preferred when both are ready: an answer that has completed
+            // takes the steer at its own boundary instead.
+            let outcome = match self.steering.clone() {
+                Some(steering) => {
+                    tokio::select! {
+                        biased;
+                        outcome = provider.stream(&request, &mut deltas) => Some(outcome),
+                        () = steering.arrived() => None,
+                    }
+                }
+                None => Some(provider.stream(&request, &mut deltas).await),
+            };
+            let Some(outcome) = outcome else {
+                let sink_failure = deltas.error.take();
+                let partial = std::mem::take(&mut deltas.text);
+                // Cut short, it is settled as a stopped attempt is: at the
+                // estimate of what it streamed, for no usage will come
+                // (`finishTokenRequestWithoutUsage`, `telemetry.zig:149-155`).
+                self.written = self
+                    .written
+                    .saturating_add(tokens::settled_output(None, &deltas.streamed));
+                events.output_tokens(Progress::Settled(self.written));
+                if let Some(err) = sink_failure {
+                    return Err(TurnError::Sink(err));
+                }
+                self.partial.clear();
+                return Ok(Stepped::Steered {
+                    partial,
+                    sent: true,
+                });
+            };
             let delivered = deltas.delivered;
+            let streamed = deltas.streamed;
             // What reached the user, kept for a turn that ends here; a step
             // that completes records its own text instead.
             self.partial = std::mem::take(&mut deltas.text);
+            let sink_failure = deltas.error.take();
+            // The attempt is over whichever way it went, and it is settled
+            // here, before any of the ways out below: at what the provider
+            // reported, or at the estimate of what it streamed when the
+            // provider said nothing or the attempt failed or was stopped
+            // (`vercel-labs/fx@c1db9191
+            // src/core/agent/runtime/orchestrator.zig:7577`, `:8176`). A
+            // retried step therefore counts what its lost attempt had written.
+            let reported = outcome
+                .as_ref()
+                .ok()
+                .and_then(|completion| completion.usage.output_tokens);
+            self.written = self
+                .written
+                .saturating_add(tokens::settled_output(reported, &streamed));
+            events.output_tokens(Progress::Settled(self.written));
             // A sink failure is reported as itself rather than as whatever the
             // provider made of it, so a closed stdout is never read as a
             // protocol failure.
-            if let Some(err) = deltas.error.take() {
+            if let Some(err) = sink_failure {
                 return Err(TurnError::Sink(err));
             }
 
@@ -907,7 +1156,7 @@ impl TurnMachine {
                     if attempt > 1 {
                         events.recovered(attempt, self.request.max_attempts);
                     }
-                    return Ok(completion);
+                    return Ok(Stepped::Completed(Box::new(completion)));
                 }
                 Err(err) => {
                     // `delivered` is the decisive fact: once part of an answer
@@ -1032,11 +1281,42 @@ struct StepDeltas<'a> {
     text: String,
     /// The first write failure, kept so the turn can report it as its own.
     error: Option<io::Error>,
+    /// What this attempt has written, as the estimates its settlement falls
+    /// back on ([`super::tokens::Streamed`]).
+    streamed: Streamed,
+}
+
+impl StepDeltas<'_> {
+    /// Tells the reader what the attempt is writing that it is not shown,
+    /// when that has moved: the answer it counts for itself
+    /// ([`super::tokens::Progress`]).
+    fn unshown_moved(&mut self, before: u64) {
+        let now = self.streamed.unshown();
+        if now != before {
+            self.events.output_tokens(Progress::Unshown(now));
+        }
+    }
 }
 
 impl DeltaSink for StepDeltas<'_> {
+    fn reasoning_delta(&mut self, text: &str) {
+        let before = self.streamed.unshown();
+        self.streamed.reasoning(text);
+        self.unshown_moved(before);
+    }
+
+    fn tool_input_delta(&mut self, text: &str) {
+        let before = self.streamed.unshown();
+        self.streamed.tool_input(text);
+        self.unshown_moved(before);
+    }
+
     fn text_delta(&mut self, text: &str) -> io::Result<()> {
         self.delivered = true;
+        // Counted as it arrived, whether or not the reader took it: the
+        // model wrote it either way (`assistant_stream.zig:235-246` counts
+        // before it presents).
+        self.streamed.content(text);
         let event = Event::AssistantDelta {
             text: text.to_string(),
         };

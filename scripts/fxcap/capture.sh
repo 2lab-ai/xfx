@@ -84,6 +84,13 @@
 #                          attached to this server -- none, so no bell reaches
 #                          any real terminal -- to
 #                          <bin>-<scenario>-<size>-<label>.bells
+#   wire <label>           copies every byte the binary has written to its
+#                          terminal so far, exactly as written (tmux's
+#                          pipe-pane, attached in the command that creates the
+#                          pane), to <bin>-<scenario>-<size>-<label>.wire --
+#                          what a screen capture cannot show: which writes a
+#                          synchronized update brackets, and where a scroll
+#                          lands among them
 #
 # fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
 # the PATH shims below do not reach, and FX_SOUND=0 only sets the level at
@@ -252,9 +259,12 @@ $xfx_model $extra_env $bin"
   # server started for it, **before** the session that runs the binary: fx
   # rings its start-up cue as soon as it is up (`app_entry_runtime.zig:327`),
   # and a hook set after `new-session` returned can be set after that bell.
+  # The pane's output is piped to `$run/wire` (for `wire`) in the same command
+  # list, so the server has read none of it before the pipe is attached.
   tmux -f /dev/null -S "$sock" start-server \; \
     set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
-    new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch"
+    new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch" \; \
+    pipe-pane -o -t cap "cat >> $run/wire"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -333,6 +343,14 @@ $xfx_model $extra_env $bin"
           echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
         } > "$name"
         echo "$name: $(tr '\n' ' ' < "$name")"
+        ;;
+      wire)
+        local name=$out/$which-$scenario-$size-$rest.wire
+        # The pipe is a `cat` of the server's own; give it a moment to write
+        # what the server has already handed it.
+        sleep 0.3
+        cp "$run/wire" "$name"
+        echo "$name ($(wc -c < "$name" | tr -d ' ') bytes)"
         ;;
       relaunch)
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"

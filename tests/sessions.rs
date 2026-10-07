@@ -181,18 +181,30 @@ fn evidence_events() -> Vec<SessionEvent> {
             wire: None,
         },
         SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "read_file".to_string(),
             ok: true,
             output: "1\thi".to_string(),
         },
         SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c2".to_string(),
             tool: "edit_file".to_string(),
             ok: true,
             output: "Edited greeting.txt".to_string(),
         },
         SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c3".to_string(),
             tool: "terminal".to_string(),
             ok: true,
@@ -208,6 +220,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
             output_tokens: Some(7),
+            turn_output_tokens: None,
             requests: Vec::new(),
             unaccounted: false,
             lines_added: 0,
@@ -271,7 +284,9 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult { tool, .. } => Some(tool.as_str()),
-            TurnStep::Assistant { .. } | TurnStep::ToolFeedback { .. } => None,
+            TurnStep::Assistant { .. }
+            | TurnStep::ToolFeedback { .. }
+            | TurnStep::Steered { .. } => None,
         })
         .collect();
     assert_eq!(tools, ["read_file", "edit_file", "terminal"]);
@@ -2320,6 +2335,10 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c9".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -2903,6 +2922,10 @@ fn interrupted_batch_events() -> Vec<SessionEvent> {
             wire: None,
         },
         SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "write_file".to_string(),
             ok: true,
@@ -2971,12 +2994,20 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
             wire: None,
         },
         SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c1".to_string(),
             tool: "write_file".to_string(),
             ok: true,
             output: "Wrote a.md (6 bytes)".to_string(),
         },
         SessionEvent::ToolResult {
+            created_at_ms: None,
+            ending: None,
+            lines: None,
+            change: None,
             call_id: "c2".to_string(),
             tool: "read_file".to_string(),
             ok: true,

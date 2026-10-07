@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ ve
+────────────────────────────────────────────────────────────────────────────────
+Sessions 5  [Current workspace]  All workspaces
+
+  question seventeen    work · now · 1 turn
+  question twelve       work · now · 1 turn
+  question eleven       work · now · 1 turn
+  question seven        work · now · 1 turn
+  question five         work · now · 1 turn
+  ↓ Load more
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
+
+
+
+
+
+

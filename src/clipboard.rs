@@ -180,7 +180,7 @@ impl Clipboard {
         if !cfg!(target_os = "macos") {
             return false;
         }
-        let mut command = Command::new("osascript");
+        let mut command = crate::process::command("osascript");
         command
             .args(["-l", "JavaScript", "-e", FILE_SCRIPT])
             .arg(path)
@@ -215,7 +215,7 @@ impl Clipboard {
         let Some((program, args)) = TOOL else {
             return false;
         };
-        let mut command = Command::new(program);
+        let mut command = crate::process::command(program);
         command.args(args).stdin(Stdio::piped());
         self.run(command, Some(text.as_bytes()), None, stop)
     }
@@ -395,7 +395,7 @@ impl Clipboard {
     }
 
     fn command(&self, program: &str) -> Command {
-        let mut command = Command::new(program);
+        let mut command = crate::process::command(program);
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -554,6 +554,10 @@ mod tests {
 
         fn ran(self) -> Self {
             self.commit(SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "call-1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

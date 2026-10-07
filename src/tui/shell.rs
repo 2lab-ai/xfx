@@ -120,6 +120,7 @@ use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
 use super::workspace_menu::{self, MenuAction as WorkspaceAction};
+use crate::agent::tokens::{Estimator, Progress};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
@@ -638,6 +639,14 @@ pub(crate) struct Shell {
     /// reaches the screen converges on dark and costs nothing -- which a debt
     /// remembering an old-to-new pair could not do.
     retint_debt: bool,
+    /// Whether the tool groups still on the screen are owed a collapse:
+    /// `Collapse tool calls` was switched on, and the rows each group's calls
+    /// took are still there ([`super::frame::Band::collapse_groups`]). A debt
+    /// for the reason [`Self::retint_debt`] is one -- the paint tick is the one
+    /// writer -- and dropped wherever that one is, for the same reasons: rows
+    /// that are erased, re-wrapped or on their way into scrollback are not
+    /// this session's to move.
+    collapse_debt: bool,
     /// Whether something that is not the band has written on the screen and
     /// the band has not been told yet.
     ///
@@ -889,13 +898,16 @@ pub(crate) struct Shell {
     /// and so are the cancelled work starting late rather than a new turn
     /// ([`UiEvent::TurnStarted`]).
     cancel_covers: usize,
-    /// The retry the turn is waiting on, while it is ([`super::retry`]).
+    /// What the activity row says about the turn's recovery, while it says
+    /// anything ([`super::retry::Row`]).
     ///
     /// It replaces the activity row rather than sitting beside it, as
-    /// upstream's recovery label does (`worker_status.zig:41-49`), and it goes
-    /// the moment the turn shows any sign of having got through -- an answer,
-    /// a tool, a question -- or of being over.
-    retry: Option<super::retry::Standing>,
+    /// upstream's recovery label does (`worker_status.zig:41-49`): a retry's
+    /// label until the step it retried has got through, then `✓ recovered ·
+    /// attempt N` for a moment -- through whatever the turn does next, a tool
+    /// included (`fx-interrupt-recovered-40x120-rec-1.4`) -- and nothing once
+    /// the turn is over.
+    retry: Option<super::retry::Row>,
     /// The compaction the activity row is about, running or just ended
     /// ([`super::compaction`]).
     ///
@@ -903,9 +915,6 @@ pub(crate) struct Shell {
     /// over the turn's (`frameOwnedActivityProjection`, `render_input.zig:
     /// 699-719`), and it never writes into the document.
     compaction: Option<Compaction>,
-    /// How many submissions are waiting behind the one in flight, as of the
-    /// last settle. Cached for the same reason [`Self::escape_armed`] is.
-    queued: usize,
     /// What the turn is doing, and how long it has been doing it.
     activity: Activity,
     /// Which phase of the activity row's blink the band is on.
@@ -1102,6 +1111,11 @@ pub(crate) struct Shell {
     /// Whether a tool group is drawn as its header alone: the profile's
     /// `collapse_tool_calls` at launch, and `/settings` since.
     collapse_tool_calls: bool,
+    /// What the profile says the next launch does with the shell's output:
+    /// `startup_scrollback` as this launch read it, and as `/settings` has
+    /// written it since. Not what this launch did -- that was settled before
+    /// the shell existed (`super::launch_origin`).
+    startup_scrollback: bool,
     /// Whether submitted lines are kept, where, and the thread that writes
     /// them down ([`super::recall`]).
     recall: Recall,
@@ -1135,6 +1149,10 @@ pub(crate) struct Shell {
     /// re-solved from exactly this field, so the row's presence and its text
     /// cannot disagree.
     activity_row: Option<String>,
+    /// The rows a recovery's label wraps onto under [`Self::activity_row`],
+    /// up to two (`max_static_status_activity_rows`, `render_input.zig:406`).
+    /// Re-solved into the geometry with the row, as the row is.
+    activity_more: Vec<String>,
     /// Whether the screen owes a reset's scrollback handoff
     /// (`super::frame::Band::hand_off`), and how many blank rows the document
     /// it hands off ends on.
@@ -1215,7 +1233,13 @@ pub(crate) struct Shell {
     /// ([`Self::banner_rows`]) and its card is written when its turn starts,
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
-    prompts: VecDeque<(u64, Option<String>, Option<String>)>,
+    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>)>,
+    /// The prompts sent into the running turn and not yet taken by it
+    /// ([`crate::agent::steering`]), oldest first: the number the runtime
+    /// knows each by, the prompt as the model is given it, and its card.
+    /// Shown in the band as upstream shows a steer (`┋ <prompt>`), and each
+    /// card written when the turn takes it ([`UiEvent::Steered`]).
+    steers: Vec<(u64, String, String)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -1453,12 +1477,73 @@ pub(crate) fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice)
     owed
 }
 
+/// Each image badge a card names and the link that opens around it, in no
+/// particular order: the badge as the card spells it (`[Image N]`) and
+/// upstream's open for its file (`writeImageBadge`,
+/// `image_attachments.zig:1336-1340`) -- no parameters, the path
+/// percent-encoded ([`super::hyperlink::file_uri`]).
+type BadgeLinks = Vec<(String, String)>;
+
+/// A prompt's card while it waits for its turn: the text and its badges'
+/// links ([`Shell::prompts`]).
+type WaitingCard = (String, BadgeLinks);
+
+/// [`BadgeLinks`] for these images. One whose file has no target a link may
+/// carry -- a relative path, or one too long -- is left out, and its badge
+/// stays text.
+fn badge_links<'a>(images: impl IntoIterator<Item = (u32, &'a std::path::Path)>) -> BadgeLinks {
+    images
+        .into_iter()
+        .filter_map(|(id, path)| {
+            let uri = super::hyperlink::file_uri(path)?;
+            Some((crate::image::badge(id), super::hyperlink::open("", &uri)))
+        })
+        .collect()
+}
+
+/// `line` with every badge [`BadgeLinks`] names wrapped in its link: upstream's
+/// card (`expandPlaceholdersWithLinkedBadges`, `user_message_card.zig:222-230`).
+///
+/// A link changes only where the target does, as upstream's writer emits one
+/// (`emitHyperlinkTransition`, `engine.zig:3245-3260`): two badges side by side
+/// that name one file are one run under one open, and a badge next to another
+/// file's opens that file's link without a close between them. The last one is
+/// closed before the text after it.
+fn linked_badges(line: &str, links: &BadgeLinks) -> String {
+    if links.is_empty() {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut open: Option<&str> = None;
+    let mut rest = line;
+    while !rest.is_empty() {
+        let found = links
+            .iter()
+            .find(|(badge, _)| rest.starts_with(badge.as_str()));
+        let (taken, link) = match found {
+            Some((badge, link)) => (badge.len(), Some(link.as_str())),
+            None => (rest.chars().next().map_or(1, char::len_utf8), None),
+        };
+        if link != open {
+            out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
+            open = link;
+        }
+        out.push_str(&rest[..taken]);
+        rest = &rest[taken..];
+    }
+    if open.is_some() {
+        out.push_str(super::hyperlink::CLOSE);
+    }
+    out
+}
+
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
     /// The line the user submitted, as upstream's card: the rail, the text in
-    /// bold, and a blank row under it (`user_message_card.zig:319-325`).
-    Card(String),
+    /// bold, and a blank row under it (`user_message_card.zig:319-325`) --
+    /// and each image badge on it a link to its file ([`BadgeLinks`]).
+    Card(String, BadgeLinks),
     /// The turn's summary under its answer, and a blank row under it
     /// (`transcript/runtime.zig:540-547`).
     Summary(String),
@@ -1529,47 +1614,20 @@ struct Answer {
     held: usize,
 }
 
-/// Upstream's streaming token estimate (`token_estimate.zig:5-31`): a
-/// whitespace-separated span of `n` bytes is `ceil(n / 4)` tokens, and the
-/// count is the same however the text was cut into chunks.
-#[derive(Debug, Default, Clone, Copy)]
-struct Estimator {
-    settled: u64,
-    span: u64,
-}
-
-impl Estimator {
-    fn consume(&mut self, text: &str) {
-        for byte in text.bytes() {
-            if byte.is_ascii_whitespace() {
-                self.settled = self.settled.saturating_add(span_tokens(self.span));
-                self.span = 0;
-            } else {
-                self.span = self.span.saturating_add(1);
-            }
-        }
-    }
-
-    fn estimate(&self) -> u64 {
-        self.settled.saturating_add(span_tokens(self.span))
-    }
-}
-
-fn span_tokens(span: u64) -> u64 {
-    span / 4 + u64::from(!span.is_multiple_of(4))
-}
-
 /// What the summary under a turn's answer says: how long the turn took and the
-/// tokens it moved (`transcript/runtime.zig:540-547`). In is the prompt's
-/// estimate, as upstream counts it (`telemetry.zig:87-96`); out is what the
-/// provider reported, or the estimate of what streamed when it reported
-/// nothing.
+/// tokens it moved (`transcript/runtime.zig:540-547`), by upstream's rule
+/// ([`crate::agent::tokens`]). In is the prompt's estimate, fixed when the
+/// turn begins; out is the turn's own count over the requests that have ended
+/// ([`Progress::Settled`]), plus the open request's estimate -- its answer
+/// text, counted here as it arrives, and what it is writing that is not shown
+/// ([`Progress::Unshown`]).
 #[derive(Debug, Default)]
 struct Tally {
     started: Option<Instant>,
     input: u64,
-    output: Option<u64>,
+    settled: u64,
     streamed: Estimator,
+    unshown: u64,
 }
 
 impl Tally {
@@ -1581,13 +1639,40 @@ impl Tally {
         };
     }
 
+    /// What the turn has moved so far (`tokenProgress`,
+    /// `telemetry.zig:157-163`).
+    fn output(&self) -> u64 {
+        self.settled
+            .saturating_add(self.streamed.estimate())
+            .saturating_add(self.unshown)
+    }
+
+    fn progressed(&mut self, progress: Progress) {
+        match progress {
+            // A request ended, and the turn's count already holds what it
+            // wrote: the answer counted here belonged to it.
+            Progress::Settled(total) => {
+                self.settled = total;
+                self.streamed = Estimator::default();
+                self.unshown = 0;
+            }
+            Progress::Unshown(estimate) => self.unshown = estimate,
+        }
+    }
+
     fn line(&self, now: Instant) -> String {
         let seconds = self.started.map_or(0, |started| {
             now.saturating_duration_since(started).as_secs()
         });
-        let output = self.output.unwrap_or_else(|| self.streamed.estimate());
-        summary_line(seconds, self.input, output)
+        summary_line(seconds, self.input, self.output())
     }
+}
+
+/// `/rename`'s `* session: renamed to "…"` (`app_commands.zig:3852-3857`),
+/// said by the shell while work runs and on the runtime's word otherwise
+/// ([`UiEvent::Renamed`]).
+fn renamed(title: &str) -> notice::Notice {
+    notice::Notice::neutral("session", format!("renamed to \"{title}\""))
 }
 
 /// A turn's summary row: how long it took, and the tokens it moved when it
@@ -1784,6 +1869,7 @@ impl Shell {
             // Nothing on the screen to recolour, and nothing the band has not
             // been told: a session that has painted nothing has neither.
             retint_debt: false,
+            collapse_debt: false,
             damage_untold: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
@@ -1849,7 +1935,6 @@ impl Shell {
             cancel_covers: 0,
             retry: None,
             compaction: None,
-            queued: 0,
             activity: Activity::new(),
             phase: 0,
             panel: None,
@@ -1903,6 +1988,7 @@ impl Shell {
             settings_menu: None,
             slash_menu_categories: config.slash_menu_categories,
             collapse_tool_calls: config.collapse_tool_calls,
+            startup_scrollback: config.startup_scrollback,
             recall: Recall::new(
                 config.prompt_history,
                 history_store,
@@ -1911,6 +1997,7 @@ impl Shell {
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
+            activity_more: Vec::new(),
             handoff: None,
             tail_unknown: false,
             draining: None,
@@ -1923,6 +2010,7 @@ impl Shell {
             trailer: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
+            steers: Vec::new(),
             session_title: None,
             turn_title: None,
             title_owed: true,
@@ -1977,19 +2065,33 @@ impl Shell {
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
-            // A waiting prompt's rows, between the turn's blank row and a
-            // blank row of their own -- when the band was solved with them
-            // ([`layout::solve_band_with_banner`]), which is the only way the
-            // padding is that tall.
+            // A recovery's wrapped rows under it, then the turn's blank row,
+            // then a waiting prompt's rows and a blank row of their own --
+            // each only when the band was solved with it
+            // ([`layout::solve_band_tall`]). The padding is how tall the
+            // band was solved, and [`Self::fit`] tries the three shapes in
+            // this order, so the first shape the padding matches is the one
+            // it chose.
             let banner = self.banner_rows(self.geometry.cols);
-            if !banner.is_empty() && padding == banner.len() + 2 {
+            let more = self.activity_more.len();
+            let with_banner =
+                |more: usize| !banner.is_empty() && padding == more + banner.len() + 2;
+            let (more, show_banner) = if more > 0 && with_banner(more) {
+                (more, true)
+            } else if more > 0 && padding == more + 1 {
+                (more, false)
+            } else {
+                (0, with_banner(0))
+            };
+            rows.extend(self.activity_more.iter().take(more).cloned());
+            if show_banner {
                 rows.push(String::new());
                 for row in banner {
                     rows.push(self.painted(self.palette.dim(), row));
                 }
                 rows.push(String::new());
             } else {
-                rows.extend(std::iter::repeat_n(String::new(), padding));
+                rows.extend(std::iter::repeat_n(String::new(), padding - more));
             }
         }
         // The composer's own rows, as many of them as the window shows, each
@@ -2300,11 +2402,10 @@ impl Shell {
         // `red_style` while it has time on the screen left
         // ([`Self::warning_shown`]). An armed cue outranks the warning
         // (`dangerStatusText` is empty while one is, `:580`).
-        let cue_style = format!("{}{}", self.palette.reset(), self.palette.dim());
+        let cue_style = self.palette.dim().to_string();
         let (model, effort, speed) = self.hinted_model();
         let mut hint = Hint {
             missing_credential: self.missing_credential,
-            queued: self.queued,
             mode: self.mode,
             model: &model,
             effort: effort.as_ref().map(Effort::display),
@@ -2342,6 +2443,7 @@ impl Shell {
             } else {
                 self.palette.danger()
             },
+            close: self.palette.reset(),
             accent: (self.palette.activity(), self.palette.statusline()),
         };
         let cols = self.geometry.cols;
@@ -2801,6 +2903,7 @@ impl Shell {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
             self.retint_debt = false;
+            self.collapse_debt = false;
             self.handoff = None;
             self.departing = None;
             self.wipe = true;
@@ -2822,10 +2925,19 @@ impl Shell {
             self.settings = settings;
             self.fast_bound = self.fast_bound && replay.keeps_fast_binding;
         }
+        // Upstream's projection starts stamped with the moment of the resume
+        // (`beginResumeProjection`, `main.zig:1366-1372`) and keeps whatever
+        // stamp it was last given (`ResumeProjection.setCreatedAtMs`,
+        // `resume_projection.zig:76-78`): the notice and any turn before the
+        // first one with a summary carry the resume, and a turn with no
+        // summary carries the one before's conclusion.
+        let mut stamp = self.full.now();
+        self.full.stamp_with(Some(stamp));
         self.resumed(replay.title);
         for turn in replay.turns {
-            self.replay_turn(turn);
+            stamp = self.replay_turn(turn, stamp);
         }
+        self.full.stamp_with(None);
         self.render.request(Reason::Footer);
     }
 
@@ -2837,10 +2949,22 @@ impl Shell {
     /// screen never shows -- each call's arguments and whole result -- before
     /// them, to wait for their rows ([`full_transcript::details_of`]). Its
     /// entries carry the log's times, as upstream's replay stamps them
-    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`): the turn's
-    /// start for the card and what it did on the way, its conclusion for the
-    /// answer after its last call and the summary.
-    fn replay_turn(&mut self, turn: HydratedTurn) {
+    /// (`replayHistoryToSinkIncremental`'s `setCreatedAtMs`,
+    /// `app_session_runtime.zig:4753-4810`, which the TUI's resume sink passes
+    /// on -- `DetachedHistorySink`, `:4272-4274`, into `ResumeProjection`,
+    /// `resume_projection.zig:76-78` -- rather than the no-op of the sink it
+    /// does not take, `:3972`). A turn with a summary -- one that concluded:
+    /// upstream gives one to its finished turns only (`setHistoryTurnSummary`,
+    /// `orchestrator.zig:9267`, `:12313`, `finalization.zig:194`, each an
+    /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
+    /// carries its start on the card and what it did on the way, and its
+    /// conclusion on the answer after its last call and the summary. Any other
+    /// carries `carried`, the stamp the replay had reached, throughout. A
+    /// call's entry carries its result's own time where the log has one
+    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
+    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
+    /// turn is to carry.
+    fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
             // handed over without crossing it.
@@ -2849,15 +2973,24 @@ impl Shell {
                 detail: detail.made_inert(),
             });
         }
-        // A turn the log has no conclusion for keeps its start throughout.
-        let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
-        self.full.stamp_with(Some(turn.started_at_ms));
+        let summarized = matches!(turn.ending, Ending::Concluded { .. });
+        let (started, concluded) = if summarized {
+            (
+                turn.started_at_ms,
+                turn.concluded_at_ms.unwrap_or(turn.started_at_ms),
+            )
+        } else {
+            (carried, carried)
+        };
+        self.full.stamp_with(Some(started));
+        self.full.replay(true);
         let concluding = turn
             .steps
             .iter()
             .rposition(|step| !matches!(step, HydratedStep::Text(_)))
             .map_or(0, |last| last + 1);
-        self.run_mark(Mark::Card(turn.user.clone()));
+        let links = badge_links(turn.images.iter().map(|(id, path)| (*id, path.as_path())));
+        self.run_mark(Mark::Card(turn.user.clone(), links));
         let mut streamed = Estimator::default();
         for (index, step) in turn.steps.into_iter().enumerate() {
             if index == concluding {
@@ -2868,20 +3001,22 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown } => {
+                HydratedStep::ToolStart { id, shown, at_ms } => {
+                    self.full.stamp_call(at_ms);
                     self.run_mark(Mark::ToolStart { id, shown });
+                    self.full.stamp_call(None);
                 }
                 HydratedStep::ToolResult {
                     id,
                     ok,
-                    detail,
                     outcome,
+                    changes,
                 } => self.run_mark(Mark::ToolResult {
                     id,
                     ok,
-                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    detail: String::new(),
                     outcome,
-                    changes: None,
+                    changes,
                 }),
                 HydratedStep::Feedback(text) => self.run_mark(Mark::Line(
                     format!(
@@ -2890,13 +3025,17 @@ impl Shell {
                     ),
                     Role::Notice,
                 )),
+                // A steer carries no images, so its card has no badge links.
+                HydratedStep::Steer(text) => self.run_mark(Mark::Card(text, BadgeLinks::new())),
             }
         }
         self.full.stamp_with(Some(concluded));
         self.run_mark(Mark::TurnOver);
         match turn.ending {
             // In is the prompt's estimate, as a live turn's is; out is what
-            // the provider said, or the estimate of what it wrote.
+            // the live summary said, as the log kept it -- every request's,
+            // which a replay cannot count again -- or, from a log that kept
+            // no count, the estimate of the text replayed here.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
                 input.consume(&turn.sent);
@@ -2907,16 +3046,24 @@ impl Shell {
                     output,
                 )));
             }
-            // The sentence the live turn ended on, as its conclusion showed it.
-            Ending::Interrupted(reason) => {
-                self.run_mark(Mark::Notice(notice::Notice::error(
-                    "system",
-                    unattributed(&reason),
-                )));
+            // Upstream's line for a stopped turn, the live one's
+            // ([`cancelled_line`]), as a block so the full transcript records
+            // it as upstream's replay does, and recorded as a stopped row so a
+            // theme report repaints its two greys.
+            Ending::Cancelled => self.run_mark(Mark::Block(vec![(
+                cancelled_line(self.palette),
+                DocumentRow::ToolStopped,
+            )])),
+            // And for one that failed, whatever the live turn's sentence was.
+            Ending::Failed => {
+                self.run_mark(Mark::Notice(notice::Notice::error("system", "failed")));
             }
-            Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
+            // The card alone: nothing after a stop the compaction took, as
+            // nothing reached the log of a turn that never concluded.
+            Ending::CompactionCancelled | Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
-        self.full.stamp_with(None);
+        self.full.replay(false);
+        concluded
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -3034,9 +3181,9 @@ impl Shell {
                 // The waiting prompt is delivered: its card goes into the
                 // document behind whatever the last turn still has to say,
                 // and its rows leave the band.
-                if let Some(card) = card {
+                if let Some((card, links)) = card {
                     if !self.cancelling {
-                        self.echo(&card);
+                        self.echo(&card, links);
                     }
                     self.refit();
                     self.render.request(Reason::Footer);
@@ -3052,8 +3199,10 @@ impl Shell {
             // ([`Self::cancel_turn`]).
             UiEvent::Delta(text) => {
                 if !self.cancelling {
-                    // The attempt got through: the answer is the evidence.
-                    self.retry = None;
+                    // A retried answer arriving leaves the row as it is:
+                    // upstream's says the retry until the step has got
+                    // through (`fx-interrupt-recovered-40x120-slow-2.8`), and
+                    // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
                 }
             }
@@ -3072,10 +3221,41 @@ impl Shell {
                 delay,
             } => {
                 if !self.cancelling {
-                    self.retry = Some(super::retry::Standing {
+                    self.retry = Some(super::retry::Row::Retrying(super::retry::Standing {
                         cause,
                         diagnostic,
                         deadline: Instant::now() + delay,
+                    }));
+                    self.render.request(Reason::Footer);
+                }
+            }
+            // The turn took these steers: each leaves the band and its card is
+            // written now -- behind whatever of the answer the pacer still
+            // holds, and after the line the answer was in the middle of, which
+            // the card closes (`fx-interrupt-steer-40x120-steer-stream`: the
+            // cut answer's words, then `┃ what are you doing`).
+            UiEvent::Steered { ids } => {
+                let mut delivered = Vec::new();
+                self.steers.retain(|(id, _, card)| {
+                    let taken = ids.contains(id);
+                    if taken {
+                        delivered.push(card.clone());
+                    }
+                    !taken
+                });
+                // A steer carries no images, so no badge links.
+                for card in delivered {
+                    self.echo(&card, BadgeLinks::new());
+                }
+                self.refit();
+                self.render.request(Reason::Footer);
+            }
+            // The retried step got through: said for a moment, from now.
+            UiEvent::Recovered { attempt } => {
+                if !self.cancelling {
+                    self.retry = Some(super::retry::Row::Recovered {
+                        attempt,
+                        until: Instant::now() + super::retry::RECOVERED_VISIBLE,
                     });
                     self.render.request(Reason::Footer);
                 }
@@ -3096,7 +3276,6 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Tool { name: tool });
                 }
-                self.retry = None;
                 self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
@@ -3296,13 +3475,13 @@ impl Shell {
                 self.render.request(Reason::Footer);
             }
             // The numerator, and only the numerator: see [`Self::context_used`]
-            // for why the output half is deliberately dropped here rather than
-            // added to it.
-            UiEvent::Usage { input, output } => {
+            // for why the output half is deliberately left out of it.
+            UiEvent::Usage { input } => {
                 self.context_used = input;
-                if let Some(output) = output {
-                    self.tally.output = Some(self.tally.output.unwrap_or(0).saturating_add(output));
-                }
+                self.render.request(Reason::Footer);
+            }
+            UiEvent::Output(progress) => {
+                self.tally.progressed(progress);
                 self.render.request(Reason::Footer);
             }
             // The turn has stopped and is waiting for a person. Everything
@@ -3310,7 +3489,6 @@ impl Shell {
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
             UiEvent::Approval(asked) => {
-                self.retry = None;
                 self.ask(asked.id, asked.request);
             }
             // The same three facts for a question the **model** asked: the
@@ -3318,7 +3496,6 @@ impl Shell {
             // not is an approval -- nothing is granted, and refusing it denies
             // nothing ([`super::question`]).
             UiEvent::Question(request) => {
-                self.retry = None;
                 self.ask_question(request);
             }
             UiEvent::TurnEnded { failure } => {
@@ -3399,6 +3576,12 @@ impl Shell {
                 self.retry = None;
                 self.pacer.finish();
                 self.gestures.turn_ended();
+                // A steer the turn never took -- sent after its last answer
+                // had looked for one, or into a turn that failed first -- is
+                // an ordinary prompt now, for the turn after, as upstream
+                // runs a prompt that missed its turn (`handoff`,
+                // `worker_runtime.zig:1196-1206`).
+                self.hand_on_steers();
                 // A column that wanted the catalog while this held the queue
                 // asks for it now, rather than on the next keystroke.
                 if self.catalog_known == CatalogKnown::Wanted
@@ -3451,17 +3634,18 @@ impl Shell {
             }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
-            UiEvent::Renamed { title, unsaved } => {
-                self.session_title = Some(title.clone());
-                self.retitle();
-                self.announce(match unsaved {
-                    None => notice::Notice::neutral("session", format!("renamed to \"{title}\"")),
-                    Some(problem) => notice::Notice::warning(
-                        "session",
-                        format!("renamed for this process but not saved ({problem})"),
-                    ),
-                });
+            // A title already applied that the log would not take: the
+            // title stays this process's, and the warning says so
+            // (`app_commands.zig:3833-3846`).
+            UiEvent::RenameUnsaved(problem) => {
+                self.announce(notice::Notice::warning(
+                    "session",
+                    format!("renamed for this process but not saved ({problem})"),
+                ));
             }
+            // A rename said nothing yet: the log has it now
+            // (`app_commands.zig:3852-3857`).
+            UiEvent::Renamed(title) => self.announce(renamed(&title)),
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -3779,7 +3963,7 @@ impl Shell {
     /// the document by roads other than a mark as well.
     fn record(&mut self, mark: &Mark) {
         match mark {
-            Mark::Card(text) => self.full.prompt(text),
+            Mark::Card(text, _) => self.full.prompt(text),
             Mark::Summary(line) => self.full.usage(line),
             // The one line said this way is what the user said at an
             // approval, which upstream's screen heads as a prompt.
@@ -4051,9 +4235,24 @@ impl Shell {
             model: &self.model,
             effort: self.settings.effort.display(),
             efforts: self.model_levels(),
+            fast: self.settings.fast,
+            ultrafast: self.settings.ultrafast,
+            // `resolvedModelCapabilities`' speeds: the catalog row's, and
+            // none for a model it does not list or before it is read
+            // (`settingsCatalogSnapshot`, `app_commands.zig:4031-4047`).
+            offers_fast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.fast),
+            offers_ultrafast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.ultrafast),
             permission_mode: self.mode,
             sound: self.sound.notifications(),
+            startup_scrollback: self.startup_scrollback,
             prompt_history: self.recall.enabled,
+            // `/model`'s menu beside the settings menu is the Model row's
+            // list: nothing else opens one while the settings menu is up.
+            models: self.model_menu.as_ref(),
         }
     }
 
@@ -4079,10 +4278,20 @@ impl Shell {
     /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
     /// and with it the menu's height, so the band is re-solved; Left and Right
     /// change the marked setting at once (`changeSettingsMenuSelection`,
-    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens `/model`'s
-    /// menu and Left does nothing; Enter opens `/model`'s menu on `Model` and
-    /// is spent on every other row; Escape closes the menu and empties its
-    /// search.
+    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens the list
+    /// of models under it and Left does nothing; Enter opens the list on
+    /// `Model` and is spent on every other row; Escape closes the menu and
+    /// empties its search.
+    ///
+    /// **With the list open** the keys are its (`:2489-2552`;
+    /// `routeSettingsMenuMove`, `input_completion_runtime.zig:415-440`): Up
+    /// and Down move its mark, Left and Enter use the marked model and close
+    /// it, Right does nothing, Tab and Shift-Tab close it with the tab change
+    /// (`cycleSettingsMenuCategory`, `app_input_runtime.zig:3014-3018`).
+    /// Escape closes the settings menu and only that
+    /// (`cancelSettingsMenu` is asked first, `:3146`), so the list is left up
+    /// as `/model`'s menu -- upstream's own screen
+    /// (`fx-settings-model-40x120-esc`).
     fn offer_to_settings(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
             return false;
@@ -4096,12 +4305,19 @@ impl Shell {
             return false;
         };
         let snapshot = self.settings_snapshot();
+        let listing = snapshot.models.is_some();
         let mut change = None;
         let mut models = false;
+        let mut use_model = false;
+        let mut step_models = None;
         let mut close = false;
         let mut refit = false;
         let mut repaint = false;
         match request {
+            SettingsAction::Up | SettingsAction::Down if listing => {
+                let visible = menu.visible_models(&snapshot, self.geometry.panel);
+                step_models = Some((request == SettingsAction::Down, visible));
+            }
             SettingsAction::Up | SettingsAction::Down => {
                 let visible = menu.visible_items(&snapshot, self.geometry.panel);
                 repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
@@ -4112,12 +4328,15 @@ impl Shell {
             }
             SettingsAction::Previous | SettingsAction::Next => {
                 let forward = request == SettingsAction::Next;
-                if menu.selected(&snapshot) == Some(Setting::Model) {
+                if listing {
+                    use_model = !forward;
+                } else if menu.selected(&snapshot) == Some(Setting::Model) {
                     models = forward;
                 } else {
                     change = menu.change(forward, &snapshot);
                 }
             }
+            SettingsAction::Open if listing => use_model = true,
             SettingsAction::Open => {
                 models = menu.selected(&snapshot) == Some(Setting::Model);
             }
@@ -4128,8 +4347,26 @@ impl Shell {
             self.close_settings();
             return true;
         }
+        if let Some((down, visible)) = step_models {
+            if let Some(list) = self.model_menu.as_mut() {
+                if list.step_by(if down { 1 } else { -1 }, visible.max(1)) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            return true;
+        }
+        if matches!(
+            request,
+            SettingsAction::NextCategory | SettingsAction::PreviousCategory
+        ) {
+            self.model_menu = None;
+        }
         if models {
-            self.open_models_from_settings();
+            self.open_settings_models();
+            return true;
+        }
+        if use_model {
+            self.use_settings_model();
             return true;
         }
         if let Some(change) = change {
@@ -4228,18 +4465,46 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
-    /// The `Model` row's Enter or Right: `/model`'s menu, as a bare `/model`
-    /// opens it -- the settings menu closed and its search emptied first, so
-    /// what was typed to find the row is not taken for a model's name.
-    ///
-    /// Upstream opens an inline list of models **under the row**, inside the
-    /// settings menu, and Left in it applies the marked one
-    /// (`settings_menu_presentation.zig:15-19`, `:277-310`,
-    /// `app_input_runtime.zig:2489-2529`); this opens the menu `/model` opens,
-    /// which lists the same catalog and applies a model the same way.
-    fn open_models_from_settings(&mut self) {
-        self.close_settings();
-        self.open_models();
+    /// The `Model` row's Enter or Right: `/model`'s menu, opened **under the
+    /// row** and inside the settings menu, with nothing searched for yet --
+    /// what was typed to find the row is not a model's name (`openMenu`'s
+    /// fresh menu, `model_cache_runtime.zig:529-539`; asked from
+    /// `changeSettingsMenuSelection` and `submitSettingsMenuSelection`,
+    /// `app_input_runtime.zig:2489-2552`).
+    fn open_settings_models(&mut self) {
+        self.open_models_with("");
+    }
+
+    /// The list's Left or Enter: the marked model, chosen as a picker chooses
+    /// one, and the list closed with the settings menu still up
+    /// (`applyInlineSettingsModelSelection`, `app_input_runtime.zig:2516-2529`
+    /// -> `selectModelFromPicker` with the session's effort,
+    /// `session_commands.zig:886-915`). Nothing listed yet is nothing to use,
+    /// and the list stays.
+    fn use_settings_model(&mut self) {
+        let Some(id) = self
+            .model_menu
+            .as_ref()
+            .and_then(ModelMenu::selected)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        self.model_menu = None;
+        // `selectModelFromPicker(app, selected, app.effort, app.fast_mode,
+        // false)`: the session's Fast mode, no Ultra -- a picker's `None`.
+        self.request_change(ModelChange {
+            name: id,
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: self.turn_pending(),
+            provider: self.provider,
+            effort_only: false,
+        });
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Applies one `/settings` change through the code path the setting's own
@@ -4268,6 +4533,20 @@ impl Shell {
                     self.set_effort(effort);
                 }
             }
+            // `toggleFast` when the row differs (`app_commands.zig:4183-4186`):
+            // `/fast` itself -- its line, its save, its refusal.
+            Setting::FastMode => {
+                if on != self.settings.fast {
+                    self.speed_command(SpeedCommand::Fast);
+                }
+            }
+            // `handleUltrafast(app, "on"|"off")` when the row differs
+            // (`:4187-4195`): `/ultrafast on|off` itself.
+            Setting::UltraMode => {
+                if on != self.settings.ultrafast {
+                    self.speed_command(SpeedCommand::Ultra(on));
+                }
+            }
             Setting::SlashMenuCategories => {
                 let changed = on != self.slash_menu_categories;
                 self.slash_menu_categories = on;
@@ -4282,10 +4561,20 @@ impl Shell {
                 let changed = on != self.collapse_tool_calls;
                 self.collapse_tool_calls = on;
                 // The open group is the document's last thing and is drawn
-                // again at once; a group the document has already moved past
-                // keeps the rows it was written with.
+                // again at once. The groups above it that are still on the
+                // screen are collapsed there by the next tick, their rows
+                // taken out and the rows under them moved up
+                // ([`super::frame::Band::collapse_groups`]) -- while this
+                // session can still say what those rows are, which is the
+                // retint's rule. Switched off, they keep the rows they have:
+                // a group written collapsed never had its calls on the screen,
+                // and nothing here holds them to put back.
                 if changed {
                     self.redraw_group();
+                    if on && !self.damage_untold && self.handoff.is_none() {
+                        self.collapse_debt = true;
+                        self.render.request(Reason::Transcript);
+                    }
                 }
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
@@ -4295,8 +4584,11 @@ impl Shell {
                 );
             }
             Setting::PromptHistory => self.set_prompt_history(on),
-            // The menu offers no change for the model: its row opens `/model`'s
-            // menu instead ([`settings::SettingsMenu::change`]).
+            // `handleSettings(app, "startup-scrollback on|off")`: the command
+            // itself, and the row reads the profile's answer back.
+            Setting::StartupScrollback => self.save_startup_scrollback(on),
+            // The menu offers no change for the model: its row opens the list
+            // of models instead ([`settings::SettingsMenu::change`]).
             Setting::Model => {}
         }
         self.render.request(Reason::Footer);
@@ -4353,6 +4645,44 @@ impl Shell {
         ) {
             self.recall.enabled = true;
         }
+    }
+
+    /// `/settings startup-scrollback on|off` (`saveStartupScrollbackSetting`,
+    /// `session_commands.zig:1076-1127`): written to the profile and said as
+    /// what the next launch does -- `* settings: startup_scrollback: off
+    /// (applies on next launch)` -- and nothing else, the commit line being
+    /// dropped for a caller that announces the state itself
+    /// (`reportUserSettingsCommit(..., announce_commit = false)`, `:27-84`).
+    /// The source is always the profile's here: the key is profile-only
+    /// ([`crate::config::STARTUP_SCROLLBACK_KEY`]), and xfx reads no
+    /// per-workspace override of it. This launch is not changed -- it already
+    /// pushed, or did not. A write that failed is `✗ startup-scrollback: not
+    /// saved to user settings (<reason>)` (`reportUserSettingsFailure`,
+    /// `:110-133`).
+    fn save_startup_scrollback(&mut self, on: bool) {
+        let written = match self.settings_path.as_deref() {
+            Some(path) => crate::provider::profile::write_preference(
+                path,
+                &[crate::config::STARTUP_SCROLLBACK_KEY],
+                serde_json::Value::Bool(on),
+            )
+            .map_err(|err| err.to_string()),
+            None => Err("no home directory is set".to_string()),
+        };
+        match written {
+            Ok(()) => {
+                self.startup_scrollback = on;
+                self.announce(notice::Notice::neutral(
+                    settings::SETTINGS_TOPIC,
+                    settings::startup_scrollback_saved(on),
+                ));
+            }
+            Err(reason) => self.announce(notice::Notice::error(
+                settings::STARTUP_SCROLLBACK_TOPIC,
+                format!("not saved to user settings ({reason})"),
+            )),
+        }
+        self.render.request(Reason::Modal);
     }
 
     /// Writes one `/settings` preference to the profile and announces it
@@ -4466,6 +4796,8 @@ impl Shell {
             SessionAction::Up | SessionAction::Down => {
                 let visible = sessions.visible_items(self.geometry.panel);
                 if sessions.step(request == SessionAction::Down, visible) {
+                    // A page it loaded on the way can change its height.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -4473,6 +4805,8 @@ impl Shell {
                 let visible = sessions.visible_items(self.geometry.panel);
                 let page = i64::from(layout::input_row_limit(self.geometry.rows));
                 if sessions.step_by(if down { page } else { -page }, visible) {
+                    // As a step, a page can load the next one.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -4482,6 +4816,14 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
             SessionAction::Close => self.close_sessions(true),
+            // On `↓ Load more`, Enter loads the page rather than resuming
+            // (`loadMoreSessionPicker`, `app_input_runtime.zig:1792`).
+            SessionAction::Resume if sessions.on_load_more() => {
+                let visible = sessions.visible_items(self.geometry.panel);
+                sessions.load_more(visible);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
             SessionAction::Resume => self.resume_selected(),
         }
         true
@@ -5731,6 +6073,11 @@ impl Shell {
         // `app_input_runtime.zig:2930-2933`): `sou` typed into it is a search.
         if let Some(menu) = self.settings_menu.as_mut() {
             menu.set_query(self.editor.text());
+            // And the Model row's list, which searches the same text from its
+            // first edit on (`syncCatalogMenus`, `app_input_runtime.zig:2922-2928`).
+            if let Some(list) = self.model_menu.as_mut() {
+                list.set_query(self.editor.text());
+            }
             self.picker = None;
             self.file_picker = None;
             self.provider_picker = None;
@@ -6694,7 +7041,7 @@ impl Shell {
         // ([`Self::present`]) -- before the mark's own write.
         self.record(&mark);
         match mark {
-            Mark::Card(text) => self.write_card(&text),
+            Mark::Card(text, links) => self.write_card(&text, &links),
             Mark::Summary(line) => {
                 self.write_document_line(&line, Role::Dim);
                 self.end_transcript_line();
@@ -7106,11 +7453,6 @@ impl Shell {
         self.settle_credits();
         // And how a `/fast` or `/ultrafast` save went.
         self.settle_speed_saves();
-        let queued = self.work.queued();
-        if queued != self.queued {
-            self.queued = queued;
-            self.render.request(Reason::Footer);
-        }
         // **Nothing in hand is nothing that can still answer a cancel.** The
         // runtime reads a cancellation at the top of its loop before it takes
         // the next item (`super::worker`'s `turn_loop`, `biased`), so a prompt
@@ -7370,10 +7712,7 @@ impl Shell {
         {
             self.phase = (self.phase + 1) % PHASES;
         }
-        let output = self
-            .tally
-            .output
-            .unwrap_or_else(|| self.tally.streamed.estimate());
+        let output = self.tally.output();
         let colours = super::activity::Colours {
             label: self.palette.activity(),
             dim: self.palette.dim(),
@@ -7389,11 +7728,20 @@ impl Shell {
         // A retry the turn is waiting on is the row, whole, in the warning
         // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
         // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
-        // counting down on this clock.
+        // counting down on this clock; a recovery is `✓ recovered · attempt
+        // N` in `green_style`, which is the same grey in both palettes
+        // (`theme.zig:87`, `:130`). Either one too wide for the screen goes on
+        // up to two rows more, as upstream's does (`fx-interrupt-retry-24x80-
+        // r0.15`: `  request in 1s` under the label), each row painted and
+        // closed on its own.
         //
         // A compaction takes the row from the turn's own label while it shows
         // anything (`frameOwnedActivityProjection`, `render_input.zig:699-719`):
         // its phase and clock while it runs, its sentence once it has ended.
+        let said = self
+            .retry
+            .as_ref()
+            .and_then(|row| row.label(now).map(|label| (label, row.keeps_tail())));
         let compaction = self.compaction.as_ref().and_then(|compaction| {
             compaction.row(
                 now,
@@ -7403,29 +7751,39 @@ impl Shell {
                 colours,
             )
         });
-        let row = match (self.retry.as_ref(), compaction) {
-            _ if self.modal() => None,
-            (Some(standing), _) if self.activity.working() => {
-                Some(self.painted(self.palette.warning(), standing.label(now)))
+        let (row, more) = match (said, compaction) {
+            _ if self.modal() => (None, Vec::new()),
+            (Some((label, keep_tail)), _) if self.activity.working() => {
+                let mut rows = super::retry::wrapped(&label, self.geometry.cols, keep_tail)
+                    .into_iter()
+                    .map(|row| self.painted(self.palette.warning(), row));
+                let first = rows.next();
+                (first, rows.collect())
             }
-            (_, Some(compaction::Row::Running(row))) => Some(row),
+            (_, Some(compaction::Row::Running(row))) => (Some(row), Vec::new()),
             (_, Some(compaction::Row::Feedback(feedback))) => {
                 let colour = match feedback.tone() {
                     compaction::Tone::Neutral => self.palette.dim(),
                     compaction::Tone::Warning => self.palette.warning(),
                     compaction::Tone::Danger => self.palette.danger(),
                 };
-                Some(self.painted(colour, feedback.label().to_string()))
+                (
+                    Some(self.painted(colour, feedback.label().to_string())),
+                    Vec::new(),
+                )
             }
-            _ => self.activity.row(
-                now,
-                self.phase,
-                self.geometry.cols,
-                (self.tally.input, output),
-                colours,
+            _ => (
+                self.activity.row(
+                    now,
+                    self.phase,
+                    self.geometry.cols,
+                    (self.tally.input, output),
+                    colours,
+                ),
+                Vec::new(),
             ),
         };
-        if row == self.activity_row {
+        if row == self.activity_row && more == self.activity_more {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
             // row that says the same thing is a cost paid on every link.
@@ -7434,8 +7792,10 @@ impl Shell {
         // A row that appeared or went away is a row the band gained or gave
         // back, so the geometry is re-solved before the frame is asked for --
         // `refit` is what moves the divider, and the caret with it.
-        let appeared = row.is_some() != self.activity_row.is_some();
+        let appeared =
+            row.is_some() != self.activity_row.is_some() || more.len() != self.activity_more.len();
         self.activity_row = row;
+        self.activity_more = more;
         if appeared {
             self.refit();
         }
@@ -7593,6 +7953,28 @@ impl Shell {
         self.retint_debt = false;
     }
 
+    /// Whether the tool groups on the screen are owed a collapse
+    /// ([`Self::collapse_debt`]).
+    pub(crate) fn owes_collapse(&self) -> bool {
+        self.collapse_debt
+    }
+
+    /// The document rows at the bottom that are the transcript's open block or
+    /// line: its to rewrite, so a collapse takes nothing out of them.
+    pub(crate) fn open_document_rows(&self) -> u16 {
+        u16::try_from(self.transcript.open_rows()).unwrap_or(u16::MAX)
+    }
+
+    /// Records a collapse that landed, or that had nothing knowable to do:
+    /// the document is `rows` shorter, and the band floats up under it.
+    pub(crate) fn document_collapsed(&mut self, rows: u16) {
+        self.collapse_debt = false;
+        if rows > 0 {
+            self.document_carried(rows);
+            self.render.request(Reason::Transcript);
+        }
+    }
+
     /// Records that something which is not the band has written on the screen.
     ///
     /// The **one** door for that fact: the frame the reason asks for is a whole
@@ -7612,6 +7994,7 @@ impl Shell {
         self.handoff = self.handoff.map(|_| 0);
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
     }
 
@@ -8056,11 +8439,30 @@ impl Shell {
                     self.moved();
                     return;
                 }
-                let step = if matches!(action, Action::Up) {
-                    HistoryStep::Previous
+                let (step, edge) = if matches!(action, Action::Up) {
+                    (HistoryStep::Previous, EditorStep::Up)
                 } else {
-                    HistoryStep::Next
+                    (HistoryStep::Next, EditorStep::Down)
                 };
+                // **The draft's edge before the history.** On the first row an
+                // Up with the caret anywhere but the start goes to the start,
+                // and only an Up from there recalls -- so a recalled line, whose
+                // caret is at its end, takes two to step past: the first lands
+                // on its start (`input_completion_runtime.zig:265-284`; the
+                // recall's caret, `editor_state.zig:55-59`). Down the same way,
+                // to the end and then to the newer line.
+                if self.editor.move_to_draft_edge(edge) {
+                    self.moved();
+                    return;
+                }
+                // Then, Up at an empty composer, outside a walk, takes back
+                // the newest steer that still waits for a tool's results, into
+                // the composer to be edited -- before the history is walked
+                // (`restoreQueuedSteerToComposer`, `input_completion_runtime.
+                // zig:290-310`; e2e `tui-interrupt-recovery.test.ts:393`).
+                if matches!(action, Action::Up) && self.retract_steer() {
+                    return;
+                }
                 if !self.recall(step) {
                     // A recall that recalled nothing still owes a frame,
                     // because the keystroke was still applied: the move
@@ -8365,10 +8767,12 @@ impl Shell {
     /// The cancellation goes out on the **control** channel, which is unbounded
     /// and read by the runtime *inside* the turn (`super::worker`'s `run_turn`),
     /// so it cannot queue behind the backlog of deltas it is trying to stop.
-    /// The UI deliberately does not cancel anything itself: what it holds is the
-    /// **session's** cancellation, and cancelling that would make every later
-    /// turn be born cancelled (`super::bridge`'s `Cancellation::turn`) -- one
-    /// Ctrl-C would end the conversation rather than the answer.
+    /// The UI does not cancel the **session's** cancellation, which would make
+    /// every later turn be born cancelled (`super::bridge`'s
+    /// `Cancellation::turn`) -- one Ctrl-C would end the conversation rather
+    /// than the answer. What the message raises on its way out is the running
+    /// turn's own flag (`super::worker`'s `WorkHandle::control`), which is how
+    /// a command that holds the runtime's thread is stopped at the keystroke.
     ///
     /// **What the screen shows is decided here, at the keystroke, and not at
     /// the conclusion**: upstream publishes the cancellation the moment it is
@@ -8389,18 +8793,22 @@ impl Shell {
     /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
     /// 5378-5383`).
     ///
-    /// **A call that is still running is not settled by this keystroke**, and
-    /// that is the difference from upstream's `fx-interrupt-40x120-cmd-cc`,
-    /// where the command is killed at once. Here a running executor holds the
-    /// runtime's thread until it returns, so the stop is read only after the
-    /// command has finished (`super::worker`'s `raced_against_control` polls
-    /// the control channel beside the turn, not inside a tool). A `Cancelled`
-    /// row now would be the screen claiming a stop the command never had, and
-    /// so would the turn's line: both wait for the turn to end. The call's
-    /// real result settles its row, one the turn ends without is settled as
-    /// stopped with its own line ([`Mark::TurnOver`]), and the turn's line is
-    /// written then only when no call's line was ([`Self::cancel_owed`]). The
-    /// activity row stays while the command runs, because it does.
+    /// **A running command is settled by this keystroke**, as upstream's is
+    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
+    /// sleep 6 · …` at once): the turn's flag is raised before the message goes
+    /// ([`super::worker::WorkHandle::control`]), and the command's supervisor
+    /// kills it and its group within a poll (`crate::tools::terminal`). Its
+    /// line is the turn's, so no second one is written; the result the runtime
+    /// reports for it next is the same stop in the tool's words, and is dropped
+    /// ([`Self::abandoned`]).
+    ///
+    /// **Any other running call is not**: a file tool does not poll the flag,
+    /// and runs to its end before the turn reads the stop. A `Cancelled` row
+    /// for it now would be the screen claiming a stop the call never had --
+    /// a write that landed shown as one that did not. Its real result settles
+    /// its row, one the turn ends without is settled as stopped with its own
+    /// line ([`Mark::TurnOver`]), and the turn's line is written then only when
+    /// no call's line was ([`Self::cancel_owed`]).
     fn cancel_turn_with(&mut self, written: bool) {
         if self.compacting() {
             self.stop_compaction();
@@ -8410,7 +8818,13 @@ impl Shell {
         // is dropping exactly these and the count is on its way to zero: what
         // the user is owed a sentence about is what was waiting when they
         // pressed the key.
-        let waiting = self.work.queued() > 0;
+        let waiting = self.work.queued() > 0 || !self.steers.is_empty();
+        // The steers go with the turn they were sent into, as the queue goes
+        // with it: before the stop is sent, so the turn cannot take one on
+        // its way out.
+        self.work.drop_steers();
+        let steered = !self.steers.is_empty();
+        self.steers.clear();
         // Quoting what has been submitted **so far** is what keeps the drop
         // from reaching past this keystroke: a prompt typed while this message
         // is still in flight is a new intention, and the runtime is told
@@ -8429,10 +8843,13 @@ impl Shell {
             self.prompts.clear();
             // The waiting prompt's rows go with it.
             self.refit();
+        } else if steered {
+            self.refit();
         }
         // A prompt the runtime took before it read this is still to say it
         // started; with nothing waiting behind it, it is the only entry left.
         self.cancel_covers = self.prompts.len();
+        let written = written || (self.group.running_command() && self.settle_group());
         if !written && self.group.running() {
             self.cancel_owed = Some(waiting);
             return;
@@ -8714,6 +9131,29 @@ impl Shell {
         // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
         // #3][Image #4] what is in this image?`). Read before the draft goes.
         let counted = self.editor.entities().with_image_tokens(text);
+        // **Into the turn that is running**, as upstream's steer
+        // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
+        // takes it at its next boundary -- at once over an answer, after a
+        // tool's results, after the model's answer -- and its card is written
+        // then ([`UiEvent::Steered`]). Not into a turn the person has stopped,
+        // and not into one that has taken its last steer: then it is an
+        // ordinary prompt, for the turn after. Nor a prompt with images, which
+        // upstream hands to the next turn rather than steering
+        // (`sameTurnSteeringEligible`, `worker_runtime.zig:1109-1113`).
+        if images.is_empty() && self.activity.working() && !self.cancelling {
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.take_draft();
+                self.edited(None);
+                self.steers.push((id, prompt, text.to_string()));
+                self.refit();
+                self.render.request(Reason::Footer);
+                self.gestures.submitted();
+                return;
+            }
+        }
+        // What the card's badges link to: the files these images were read
+        // from, as the composer's badges did.
+        let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
         let work = if images.is_empty() {
             TurnWork::Submit(prompt)
         } else {
@@ -8738,18 +9178,80 @@ impl Shell {
                 let mut estimate = Estimator::default();
                 estimate.consume(&counted);
                 if waits {
-                    self.prompts
-                        .push_back((estimate.estimate(), title, Some(text.to_string())));
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title,
+                        Some((text.to_string(), links)),
+                    ));
                     self.refit();
                     self.render.request(Reason::Footer);
                 } else {
                     self.prompts.push_back((estimate.estimate(), title, None));
-                    self.echo(text);
+                    self.echo(text, links);
                 }
                 self.gestures.submitted();
             }
             Err(rejected) => self.refused(rejected),
         }
+    }
+
+    /// Takes the newest steer back into an empty composer, while the turn has
+    /// not taken it (`popQueuedSteerForEdit`, `worker_runtime.zig:1340-1386`):
+    /// only one waiting on a tool's results, and only from an empty composer
+    /// outside a history walk. `true` when one came back.
+    fn retract_steer(&mut self) -> bool {
+        if !self.editor.is_empty() || self.history.walking() {
+            return false;
+        }
+        let Some(steer) = self.work.retract_steer() else {
+            return false;
+        };
+        let Some(at) = self.steers.iter().position(|(id, _, _)| *id == steer.id) else {
+            return false;
+        };
+        let (_, prompt, card) = self.steers.remove(at);
+        if !self.editor.set_text(&prompt, Entities::new()) {
+            // Past what a composer holds: sent back into the turn rather than
+            // lost (the paste it came from was summarized in the band).
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.steers.insert(at, (id, prompt, card));
+            }
+            return false;
+        }
+        self.edit_history.boundary();
+        self.edited(None);
+        self.refit();
+        self.render.request(Reason::Footer);
+        true
+    }
+
+    /// Sends on, as ordinary prompts, the steers the turn ended without taking
+    /// ([`Self::steers`]), each waiting in the band for its own turn as a
+    /// prompt submitted behind a running one does. One the queue has no room
+    /// for goes back into an empty composer rather than nowhere.
+    fn hand_on_steers(&mut self) {
+        for (_, prompt, card) in std::mem::take(&mut self.steers) {
+            match self.work.submit(TurnWork::Submit(prompt.clone())) {
+                Ok(()) => {
+                    let mut estimate = Estimator::default();
+                    estimate.consume(&card);
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title_of(&prompt),
+                        Some((card, BadgeLinks::new())),
+                    ));
+                }
+                Err(rejected) => {
+                    if self.editor.is_empty() {
+                        let _ = self.editor.set_text(&prompt, Entities::new());
+                        self.edited(None);
+                    }
+                    self.refused(rejected);
+                }
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Footer);
     }
 
     /// What a submission the runtime would not take costs.
@@ -8775,14 +9277,14 @@ impl Shell {
     /// The line ends whether or not the last thing typed was a newline: what
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
-    fn echo(&mut self, text: &str) {
+    fn echo(&mut self, text: &str, links: BadgeLinks) {
         // The user's own line, so xfx paints no colour onto it: what is written
         // here is what they typed, in bold behind the rail, as upstream's card.
-        self.mark(Mark::Card(text.to_string()));
+        self.mark(Mark::Card(text.to_string(), links));
     }
 
     /// The card [`Mark::Card`] asks for.
-    fn write_card(&mut self, text: &str) {
+    fn write_card(&mut self, text: &str, links: &BadgeLinks) {
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::Rail) {
             self.owed();
@@ -8792,7 +9294,7 @@ impl Shell {
         // its style per row (`user_message_card.zig:365,374`).
         let card = text
             .split('\n')
-            .map(|line| format!("{BOLD}{line}{RESET}"))
+            .map(|line| format!("{BOLD}{}{RESET}", linked_badges(line, links)))
             .collect::<Vec<_>>()
             .join("\n");
         self.write_transcript_as(&card, Role::Plain);
@@ -9040,14 +9542,17 @@ impl CommandHandlers for Shell {
     /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2650`), on
     /// `Loading sessions…` until the runtime has read the store.
     ///
-    /// **Refused while anything is in hand** -- a turn running, a prompt
-    /// waiting, a `/model` being answered -- with upstream's notice, at once:
-    /// the conversation a resume would replace is the one that work is
-    /// writing into. Upstream refuses while its response streams; xfx's
-    /// outstanding count is that and the prompt queued behind it, which would
-    /// otherwise run in the old conversation after the resume had switched.
+    /// **Refused while a response is in hand** -- a turn running, or a prompt
+    /// sent whose turn has not started -- with upstream's notice, at once:
+    /// the conversation a resume would replace is the one that turn writes
+    /// into. Upstream's rule is `stream.active` (`:2590`), which its turn sets
+    /// as it begins (`begin_prompt`, `app_worker_runtime.zig:975-985`) and
+    /// keeps while prompts wait behind it (`:783-805`): the busy rule a
+    /// provider switch is under too ([`Self::provider_work_busy`]). Other work
+    /// -- a `/model` being answered, a catalog loading -- is no response; the
+    /// picker's listing simply runs after it.
     fn resume(&mut self) {
-        if self.work.outstanding() > 0 {
+        if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", RESUME_BUSY));
             return;
         }
@@ -9062,7 +9567,10 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
-        self.sessions = Some(SessionPicker::open(self.editor.text()));
+        self.sessions = Some(SessionPicker::open(
+            self.editor.text(),
+            session_picker::page_for(self.geometry.rows),
+        ));
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -9073,11 +9581,21 @@ impl CommandHandlers for Shell {
     /// ([`crate::session::validate_title`]), and refused at once in upstream's
     /// words: `✗ usage: /rename <title>` with no topic for an empty one,
     /// `✗ session: title is too long` and `✗ session: title must be printable
-    /// text` for the other two. An accepted one goes to the runtime, which
-    /// writes it into the conversation's session and answers with
-    /// [`UiEvent::Renamed`]: the window takes the title then, and the notice
-    /// says whether the log has it. A rename a Ctrl-C drops from the queue
-    /// before it runs titles nothing.
+    /// text` for the other two.
+    ///
+    /// An accepted one **applies at once**, as upstream's does whether or not
+    /// a response is streaming: the window takes the title, as upstream
+    /// caches it before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
+    /// conversation's session ([`TurnControl::Rename`]) -- at once when idle,
+    /// the moment the running work ends when not. Upstream says one thing,
+    /// what became of the write: between turns that is the runtime's answer,
+    /// `renamed to "…"` ([`UiEvent::Renamed`]) or the warning alone
+    /// ([`UiEvent::RenameUnsaved`]); while work runs, upstream's notice comes
+    /// at once and this write cannot, so `renamed to "…"` is said now and the
+    /// runtime answers only a log that would not take it. One control channel
+    /// carries it and a reset, so a title typed after a `/new` names the
+    /// session that `/new` starts.
     fn rename(&mut self, argument: &str) {
         let title = match crate::session::validate_title(argument) {
             Ok(title) => title.to_string(),
@@ -9094,8 +9612,15 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
-        if let Err(rejected) = self.work.submit(TurnWork::Rename(title)) {
-            self.refused(rejected);
+        let announced = self.work.outstanding() > 0;
+        self.work.control(TurnControl::Rename {
+            title: title.clone(),
+            announced,
+        });
+        self.session_title = Some(title.clone());
+        self.retitle();
+        if announced {
+            self.announce(renamed(&title));
         }
     }
 
@@ -9453,14 +9978,30 @@ impl CommandHandlers for Shell {
     /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
     /// bare, the menu opens on `All` with its first row marked, the composer
     /// -- emptied by the submit that got here -- as its search, and the menus
-    /// that share its slot closed. With anything after it, the usage line as
-    /// an error with no topic, as upstream answers a word its argument form
-    /// does not know (`writeSettingsUsage`, `session_commands.zig:1129-1135`);
-    /// upstream's one argument, `startup-scrollback`, names a setting xfx does
-    /// not have, so the usage does not offer it.
+    /// that share its slot closed. With an argument, upstream's one form
+    /// (`handleSettings`, `session_commands.zig:313-353`):
+    /// `startup-scrollback on|off` saves that, `startup-scrollback` alone
+    /// saves the other one, either word in any case; anything else -- another
+    /// word, a third one -- is the usage line, as an error with no topic
+    /// (`writeSettingsUsage`, `:1129-1135`).
     fn settings(&mut self, argument: &str) {
+        let argument = argument.trim_matches([' ', '\t']);
         if !argument.is_empty() {
-            self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+            let (word, rest) = first_word(argument);
+            let value = (!rest.is_empty()).then(|| first_word(rest));
+            let on = match value {
+                _ if !word.eq_ignore_ascii_case(settings::STARTUP_SCROLLBACK_TOPIC) => None,
+                None => Some(!self.startup_scrollback),
+                Some((value, "")) if value.eq_ignore_ascii_case("on") => Some(true),
+                Some((value, "")) if value.eq_ignore_ascii_case("off") => Some(false),
+                Some(_) => None,
+            };
+            match on {
+                Some(on) => self.save_startup_scrollback(on),
+                None => {
+                    self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+                }
+            }
             return;
         }
         self.picker = None;
@@ -9473,6 +10014,13 @@ impl CommandHandlers for Shell {
         self.file_picker = None;
         self.workspace_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // The effort and speed rows are the catalog's answer for the model in
+        // force, which upstream's menu reads from a cache filled at launch
+        // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
+        // `app_commands.zig:4031-4047`). This side reads the catalog when it
+        // is wanted, so the menu wants it: the rows show their choices once it
+        // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
+        self.want_catalog();
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
         self.refit();
@@ -9801,6 +10349,12 @@ impl Shell {
 
     /// Opens `/model`'s menu over the rows in hand, or asks for them.
     fn open_models(&mut self) {
+        let query = self.editor.text().to_string();
+        self.open_models_with(&query);
+    }
+
+    /// The same, searching for `query` rather than for the draft.
+    fn open_models_with(&mut self, query: &str) {
         // The completion menu shares the slot, and the menu is what the user
         // asked for.
         self.picker = None;
@@ -9809,10 +10363,10 @@ impl Shell {
             .then_some(self.gateway_note)
             .flatten();
         let menu = match self.catalog_known {
-            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, self.editor.text()),
+            CatalogKnown::Loaded => ModelMenu::ready(&self.catalog, note, query),
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
-            CatalogKnown::Asked => ModelMenu::loading(self.editor.text()),
+            CatalogKnown::Asked => ModelMenu::loading(query),
             // Never asked, wanted by the column while the queue was full, or
             // failed -- in which case this is the retry upstream's sentence
             // asks for.
@@ -9822,7 +10376,7 @@ impl Shell {
                     return;
                 }
                 self.catalog_known = CatalogKnown::Asked;
-                ModelMenu::loading(self.editor.text())
+                ModelMenu::loading(query)
             }
         };
         self.model_menu = Some(menu);
@@ -10264,7 +10818,10 @@ impl Shell {
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
+        // Nor will a steer sent into that turn.
         self.prompts.clear();
+        self.work.drop_steers();
+        self.steers.clear();
         self.forget_session_title();
         self.tally = Tally::default();
         self.activity.end();
@@ -10306,8 +10863,10 @@ impl Shell {
         self.trailer.clear();
         self.abandoned.clear();
         // A recolour owed against the old rows is owed against rows on their
-        // way into scrollback, which is never recoloured ([`Self::retint`]).
+        // way into scrollback, which is never recoloured ([`Self::retint`]),
+        // and so is a collapse.
         self.retint_debt = false;
+        self.collapse_debt = false;
         // The blank row the document ends on, when this session can say so:
         // everything it wrote has landed, so the transcript's own record of
         // its tail is a record of the screen, and no resize has left the rows
@@ -10353,7 +10912,10 @@ impl Shell {
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Retrying { .. }
-            | UiEvent::Usage { .. } => true,
+            | UiEvent::Recovered { .. }
+            | UiEvent::Steered { .. }
+            | UiEvent::Usage { .. }
+            | UiEvent::Output(_) => true,
             // A question the cancelled turn asked before it heard about the
             // cancellation. **Refused on the user's behalf rather than
             // dropped**: the prompter parks on the session's root and the
@@ -10403,7 +10965,8 @@ impl Shell {
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
-            | UiEvent::Renamed { .. }
+            | UiEvent::RenameUnsaved(_)
+            | UiEvent::Renamed(_)
             | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
@@ -10771,20 +11334,33 @@ impl Shell {
         } else {
             0
         };
+        // **And a recovery's rows under the turn's**, when its label wraps: the
+        // band grows by them, as upstream's activity block does
+        // (`activityProjectionRows`, `render_input.zig:689-697`). Given up
+        // before the waiting prompt's when the screen cannot hold both, and
+        // the first row is then the label cut at the screen's edge.
+        let more = if activity {
+            u16::try_from(self.activity_more.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let tries: &[(u16, u16)] = &[(more, banner), (more, 0), (0, banner)];
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
-                (banner > 0)
-                    .then(|| {
-                        layout::solve_band_with_banner(
+                tries
+                    .iter()
+                    .filter(|(more, banner)| *more > 0 || *banner > 0)
+                    .find_map(|&(more, banner)| {
+                        layout::solve_band_tall(
                             rows,
                             cols,
                             input_rows,
                             panel(input_rows),
+                            more,
                             banner,
                         )
                     })
-                    .flatten()
                     .or_else(|| {
                         layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
                     })
@@ -10801,7 +11377,13 @@ impl Shell {
     fn banner_rows(&self, cols: u16) -> Vec<String> {
         let width = usize::from(cols.saturating_sub(2)).max(1);
         let mut rows = Vec::new();
-        for (_, _, card) in &self.prompts {
+        // A steer carries no images, so its card has no badge to link.
+        let steers = self.steers.iter().map(|(_, _, card)| Some(card.as_str()));
+        let waiting = self
+            .prompts
+            .iter()
+            .map(|(_, _, card)| card.as_ref().map(|(card, _)| card.as_str()));
+        for card in steers.chain(waiting) {
             let Some(card) = card else {
                 continue;
             };
@@ -10907,6 +11489,7 @@ impl Shell {
         // shadow on this same road (`super::event_loop`'s `adopt_resize`),
         // which is where the band is told.
         self.retint_debt = false;
+        self.collapse_debt = false;
         self.damage_untold = true;
         Resize::Repaint(geometry)
     }
@@ -10934,6 +11517,16 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn tail_rows(&self) -> usize {
         self.transcript.tail_rows()
+    }
+}
+
+/// The first word of `text` and what follows it, both without the spaces and
+/// tabs between (`splitFirstWord`, `session_commands.zig:1402-1414`).
+fn first_word(text: &str) -> (&str, &str) {
+    let text = text.trim_matches([' ', '\t']);
+    match text.find([' ', '\t']) {
+        Some(at) => (&text[..at], text[at..].trim_start_matches([' ', '\t'])),
+        None => (text, ""),
     }
 }
 
@@ -11248,9 +11841,13 @@ mod tests {
     /// the row is there to say.
     const IDLE_HINT: &str = "run `xfx setup` · auto · glm-5.2";
 
-    /// The same row with `queued N` in its place in the order.
-    fn queued_hint(depth: usize) -> String {
-        format!("run `xfx setup` · queued {depth} · auto · glm-5.2")
+    /// The same row with a prompt waiting: unchanged, because upstream's hint
+    /// row has no queue segment (`buildStatuslineItems`,
+    /// `app_render_runtime.zig:875-899`; `fx-interrupt-steer-40x120-steer-tool`)
+    /// -- the waiting prompt is its `┋` row in the band. Kept as a name so
+    /// each case still says it was asked with a prompt waiting.
+    fn queued_hint(_depth: usize) -> String {
+        IDLE_HINT.to_string()
     }
 
     /// The same row with the double-Escape warning flush against the last
@@ -11259,10 +11856,12 @@ mod tests {
         let padding = usize::from(cols)
             - usize::from(super::super::wrap::width(IDLE_HINT))
             - usize::from(super::super::wrap::width(ESCAPE_ARMED));
+        // The row's run closed before the padding, as upstream's is before
+        // the slot's column (`input_presentation.zig:551-567`).
         format!(
             "{IDLE_HINT}{}{}{}{ESCAPE_ARMED}",
-            " ".repeat(padding),
             PALETTE.reset(),
+            " ".repeat(padding),
             PALETTE.dim()
         )
     }
@@ -11568,6 +12167,7 @@ mod tests {
                 scroll: 1,
                 rows: vec!["answered".to_string()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11597,11 +12197,13 @@ mod tests {
                     scroll: 2,
                     rows: vec!["first".to_string(), String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 0,
                     rows: vec!["second".to_string()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -11641,6 +12243,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
     }
@@ -11665,6 +12268,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["x".repeat(20), "x".repeat(5)],
                 kinds: Vec::new(),
+                release: 0,
             }],
             "the text was written as the one 25-column row the wider screen \
              would have given it"
@@ -11687,6 +12291,7 @@ mod tests {
                 scroll: 2,
                 rows: vec!["abc".to_string(), String::new()],
                 kinds: Vec::new(),
+                release: 0,
             }]
         );
         let _asked = shell.render.begin().expect("the frame the write asked for");
@@ -11833,11 +12438,13 @@ mod tests {
                     scroll: 1,
                     rows: vec![card_row("ask me")],
                     kinds: Vec::new(),
+                    release: 0,
                 },
                 Append {
                     scroll: 1,
                     rows: vec![String::new()],
                     kinds: Vec::new(),
+                    release: 0,
                 },
             ]
         );
@@ -12436,7 +13043,7 @@ mod tests {
             second,
             "the newest line came back without the block its summary named"
         );
-        shell.route_bytes(b"\x1b[A"); // Up: the one before it
+        older(&mut shell); // Up: the one before it
         assert_eq!(
             shell.editor.expanded(),
             first,
@@ -12722,21 +13329,21 @@ mod tests {
         shell.route_bytes(b"half typed");
         assert_eq!(shell.edit_depths(), (10, 0));
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.editor.text(), "/help");
         assert_eq!(
             shell.edit_depths(),
             (0, 0),
             "the recall left deltas naming a draft that is gone"
         );
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.editor.text(),
             "second line",
             "the second step back handed the newest line over again: the \
              recall ended its own walk"
         );
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.editor.text(),
             "first line",
@@ -13945,6 +14552,7 @@ mod tests {
                 let settled = append.rows.len() - append.scroll.min(append.rows.len());
                 document.truncate(document.len().saturating_sub(settled));
                 document.extend(append.rows.iter().map(|row| colourless(row)));
+                document.truncate(document.len().saturating_sub(append.release));
             }
             document
         }
@@ -16004,6 +16612,157 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_sent_while_a_turn_runs_goes_into_it_and_its_card_waits_for_delivery() {
+        // Upstream's steer (`fx-interrupt-steer-40x120-steer-tool`): the prompt
+        // is the band's `┋` row while the turn holds it, holds no place in the
+        // queue, and its card is written when the turn takes it
+        // (`-steer-done`: `┃ change tone` under the command's row).
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        shell.route_bytes(b"change tone\r");
+        assert!(steering.pending(), "the prompt never reached the turn");
+        assert!(
+            shell.work.outstanding() <= 1,
+            "the steer took a place in the queue"
+        );
+        assert_eq!(shell.editor.text(), "", "the draft stayed");
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .band_rows()
+                .iter()
+                .any(|row| uncoloured(row) == "\u{250b} change tone"),
+            "{:#?}",
+            shell.band_rows()
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the card was written at the keystroke"
+        );
+
+        let taken = steering.take();
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let document = shell.released();
+        assert!(
+            document
+                .iter()
+                .any(|row| uncoloured(row) == "\u{2503} change tone"),
+            "{document:#?}"
+        );
+        assert!(
+            !shell
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the steer stayed in the band after delivery"
+        );
+    }
+
+    #[test]
+    fn up_takes_back_a_steer_waiting_on_a_tool_and_not_one_that_cut_an_answer() {
+        // `tui-interrupt-recovery.test.ts:393` and `popQueuedSteerForEdit`
+        // (`worker_runtime.zig:1340-1386`): only while a tool runs, only at an
+        // empty composer.
+        let mut answering = running("run it");
+        let steering = answering.work.steering();
+        steering.open();
+        answering.route_bytes(b"change tone\r");
+        // Up walks the history instead, as upstream's does when nothing can
+        // be taken back.
+        answering.route_bytes(b"\x1b[A");
+        assert!(steering.pending(), "a steer that cut an answer came back");
+        assert_eq!(answering.steers.len(), 1);
+
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the steer was taken back and still sent"
+        );
+        assert!(shell.steers.is_empty());
+        // Edited and sent again: a steer once more.
+        shell.route_bytes(b" and keep it short\r");
+        assert_eq!(
+            steering.take().first().map(|steer| steer.text.clone()),
+            Some("change tone and keep it short".to_string())
+        );
+    }
+
+    #[test]
+    fn up_over_a_draft_goes_to_its_start_before_it_takes_a_steer_back() {
+        // `input_completion_runtime.zig:265-284`: the draft's start first,
+        // and only at an empty composer the steer (`restoreQueuedSteerToComposer`
+        // asks for no draft, `:299`) -- so with a draft typed over a waiting
+        // steer, Up moves the caret and takes nothing back.
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"draft");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "draft");
+        assert_eq!(shell.editor.caret(), 0, "the caret did not go to the start");
+        assert!(steering.pending(), "a steer came back over a draft");
+        // From the start of a draft it is the history's step: the newest
+        // line -- the steer's own text, recorded when it was sent -- and the
+        // steer stays the turn's.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(steering.pending(), "an Up over a draft took the steer back");
+        // Back to the draft, emptied: the next Up is the steer's.
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.editor.text(), "draft");
+        shell.route_bytes(&[0x05, 0x15]);
+        assert!(shell.editor.is_empty());
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the empty composer's Up left the steer"
+        );
+    }
+
+    #[test]
+    fn a_steer_the_turn_never_took_is_the_next_prompt_and_a_stop_drops_it() {
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"later\r");
+        // The turn ended without taking it (the runtime closes the box first).
+        steering.close();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.picks_up(), TurnWork::Submit("later".to_string()));
+        assert!(shell.steers.is_empty());
+
+        let mut stopped = running("run it");
+        let steering = stopped.work.steering();
+        steering.open();
+        stopped.route_bytes(b"never\r");
+        stopped.route_bytes(&[0x03]);
+        assert!(!steering.pending(), "a stopped turn kept the steer");
+        assert!(stopped.steers.is_empty());
+        assert!(
+            stopped.document().iter().any(|row| row.contains("queue")),
+            "the drop was not said: {:#?}",
+            stopped.document()
+        );
+    }
+
+    #[test]
     fn a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between() {
         // `fx-interrupt2-40x120-esc1`: `esc again to interrupt` flush with the
         // last column; `-esc2`: the cancelled line, and the row the session's
@@ -16042,10 +16801,13 @@ mod tests {
     #[test]
     fn the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed() {
         // `fx-interrupt-40x120-esc1.ansi`: `…model-aESC[39m<spaces>ESC[38;5;245m
-        // esc again to interrupt` -- the row's run closed, the cue in
-        // `dim_style`. The same number as the row's grey in the dark palette,
-        // so the light one is where the role shows (`theme.zig:123,128`: 241
-        // for the row, 247 for the cue).
+        // esc again to interrupt` -- the row's run closed **before** the
+        // padding, the padding in no colour, the cue in `dim_style`. Claim
+        // changed: the reset was after the padding, so tmux read the padding
+        // as the row's grey (the byte difference the F4 receipt recorded). The
+        // same number as the row's grey in the dark palette, so the light one
+        // is where the role shows (`theme.zig:123,128`: 241 for the row, 247
+        // for the cue).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
             depth: super::super::theme::Depth::Ansi256,
@@ -16053,19 +16815,24 @@ mod tests {
         let mut shell = shell_with(24, 80, light, false);
         shell.escape_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to clear"),
-            "{row:?}"
-        );
+        let closed = |row: &str, cue: &str| {
+            let at = row.find(cue).expect("the cue");
+            let before = &row[..at];
+            let reset = before.rfind("\u{1b}[0m").expect("the run closed");
+            before[reset..]
+                == format!(
+                    "\u{1b}[0m{}\u{1b}[38;5;247m",
+                    " ".repeat(before.len() - reset - 4 - 11)
+                )
+                && before[..reset].ends_with("glm-5.2")
+        };
+        assert!(closed(&row, "esc again to clear"), "{row:?}");
         assert!(row.starts_with("\u{1b}[38;5;241m"), "{row:?}");
 
         shell.escape_armed = false;
         shell.interrupt_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to interrupt"),
-            "{row:?}"
-        );
+        assert!(closed(&row, "esc again to interrupt"), "{row:?}");
     }
 
     #[test]
@@ -16333,10 +17100,14 @@ mod tests {
     #[test]
     fn a_retry_the_turn_waits_on_is_the_activity_row_counting_down() {
         // `fx-retry-40x120-r0.6`: the row, whole, in the warning grey, no
-        // marker; `-r1.3`: the count gone once the attempt is under way;
-        // `-r2.0`: the answer, and the row the turn's own again.
+        // marker; `-r1.3`: the count gone once the attempt is under way. Claim
+        // changed: the retried answer arriving leaves the row as it is
+        // (`fx-interrupt-recovered-40x120-slow-2.8`), and the row is
+        // `✓ recovered · attempt 2` once the step has got through, for 1.5 s
+        // (`worker_status.zig:5`, `fx-interrupt-recovered-40x120-rec-1.4`),
+        // then the turn's own again.
         let mut shell = running("try it");
-        // The capture's width: at 80 columns the label is cut, as upstream's is.
+        // The capture's width: at 80 columns the label wraps, as upstream's does.
         shell.resize(40, 120);
         let now = Instant::now();
         shell.apply(UiEvent::Retrying {
@@ -16352,18 +17123,90 @@ mod tests {
         );
         assert_eq!(PALETTE.warning(), "\u{1b}[38;5;252m");
         shell.settle_band(now + Duration::from_secs(1));
-        assert_eq!(
-            shell.activity_row.as_deref(),
-            Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()).as_str())
-        );
+        let waiting = Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()));
+        assert_eq!(shell.activity_row, waiting);
 
         shell.apply(UiEvent::Delta("Recovered answer.".to_string()));
         shell.settle_band(now + Duration::from_secs(1));
+        assert_eq!(
+            shell.activity_row, waiting,
+            "the answer arriving took the row"
+        );
+
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        // Read after the event, whose moment begins when it is applied.
+        let recovered = Instant::now();
+        shell.settle_band(recovered);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{}\u{2713} recovered \u{b7} attempt 2{}",
+                    PALETTE.warning(),
+                    PALETTE.reset()
+                )
+                .as_str()
+            )
+        );
+        shell.settle_band(recovered + super::super::retry::RECOVERED_VISIBLE);
         let row = shell.activity_row.clone().expect("the turn's row");
         assert!(
             uncoloured(&row).contains("Generating"),
-            "the retry outlived the answer that ended it: {row:?}"
+            "the recovery outlived its moment: {row:?}"
         );
+    }
+
+    #[test]
+    fn escape_at_a_retry_arms_the_interrupt_as_upstreams_does_for_a_retry() {
+        // Upstream's Escape pauses a recovery only while it is waiting for
+        // connectivity (`pauseActiveRecovery`, `input_interrupt_runtime.zig`:
+        // `isConnectivityWaitActive`, set only for `waiting_for_connectivity`,
+        // `worker_runtime.zig:884-888`), the unbudgeted wait a lost connection
+        // gets (`model_response_recovery.zig:166-180`). Every retry this turn
+        // makes is a budgeted one, and over those upstream's Escape goes on to
+        // the interrupt gesture (`app_input_runtime.zig:3163-3176`): armed by
+        // the first, the turn stopped by the second.
+        let mut shell = running("try it");
+        shell.apply(UiEvent::Retrying {
+            cause: "Connection lost",
+            diagnostic: "connection refused".to_string(),
+            delay: Duration::from_secs(2),
+        });
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Escape)], now);
+        shell.settle_band(now);
+        assert!(shell.controlled().is_none(), "one Escape stopped the turn");
+        assert!(shell.interrupt_armed, "the first Escape armed nothing");
+        shell.consume(
+            vec![Input::Action(Action::Escape)],
+            now + Duration::from_millis(300),
+        );
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.retry.is_none());
+    }
+
+    #[test]
+    fn a_recovery_stays_through_the_tool_it_led_to_and_goes_with_the_turn() {
+        // `fx-interrupt-recovered-40x120-rec-1.4`: `✓ recovered · attempt 2`
+        // over the running command's row; the turn's end clears it
+        // (`clear_recovered_route`, `runtime.zig:6471`).
+        let mut shell = running("run it");
+        shell.resize(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        shell.settle_band(now);
+        let row = shell.activity_row.clone().expect("a row");
+        assert_eq!(uncoloured(&row), "\u{2713} recovered \u{b7} attempt 2");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert!(shell.retry.is_none(), "the recovery outlived its turn");
     }
 
     #[test]
@@ -16411,18 +17254,44 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_row_is_cut_to_the_screen_with_its_colour_closed() {
+    fn a_retry_row_too_wide_wraps_onto_the_band_as_upstreams_does() {
+        // Renamed, claim changed (was `a_retry_row_is_cut_to_the_screen_with_
+        // its_colour_closed`): `fx-interrupt-retry-24x80-r0.15` -- the label
+        // broken at the last space that fits, `  request in 1s` under it, each
+        // row painted and closed on its own, and the band a row taller.
         let mut shell = running("try it");
-        shell.resize(24, 40);
+        shell.resize(24, 80);
+        let before = shell.geometry;
         shell.apply(UiEvent::Retrying {
             cause: "Provider unavailable",
-            diagnostic: "HTTP 500: unexpected request".to_string(),
-            delay: Duration::from_secs(2),
+            diagnostic: "HTTP 500 \u{b7} server_error: upstream exploded".to_string(),
+            delay: Duration::from_millis(900),
         });
         shell.settle_band(Instant::now());
-        let row = shell.activity_row.clone().expect("a row");
-        assert!(row.ends_with(PALETTE.reset()), "{row:?}");
-        assert_eq!(super::super::wrap::width(&row), 40, "{row:?}");
+        let warning = PALETTE.warning();
+        let reset = PALETTE.reset();
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{warning}\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream \
+                     exploded \u{b7} retrying{reset}"
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(
+            shell.activity_more,
+            [format!("{warning}  request in 1s{reset}")]
+        );
+        assert_eq!(shell.geometry.activity_padding, before.activity_padding + 1);
+        let band = shell.band_rows();
+        let at = band
+            .iter()
+            .position(|row| row.contains("retrying"))
+            .expect("the row");
+        assert_eq!(band[at + 1], format!("{warning}  request in 1s{reset}"));
+        assert_eq!(band[at + 2], "", "{band:#?}");
     }
 
     #[test]
@@ -16506,27 +17375,29 @@ mod tests {
 
     #[test]
     fn a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile() {
-        // The command holds the turn until it returns, so the turn's line
+        // A file call holds the turn until it returns, so the turn's line
         // waits for the turn's end -- and a prompt typed while it waits is
-        // queued behind it, not a reason to forget the line.
-        let mut shell = running("run it");
+        // queued behind it, not a reason to forget the line. (A command no
+        // longer waits: it is stopped at the keystroke, and this case is now
+        // about the calls that are not.)
+        let mut shell = running("read it");
         shell.apply(tool_start(
             "1",
-            "terminal",
-            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
         ));
         shell.route_bytes(&[0x03]);
         assert!(
             shell.activity_row.is_some(),
-            "the row went while the command still runs"
+            "the row went while the call still runs"
         );
         shell.route_bytes(b"second\r");
         shell.apply(tool_ended(
             "1",
-            "terminal",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::Delta("MARKER-STOPPED\n".to_string()));
         shell.apply(UiEvent::TurnEnded {
@@ -19219,6 +20090,7 @@ mod tests {
             started_at_ms: 0,
             concluded_at_ms: None,
             details: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -19238,6 +20110,126 @@ mod tests {
         }
     }
 
+    /// An answer carrying each kind of link upstream's presenter makes, and a
+    /// target this crate does not link.
+    const LINKED_ANSWER: &str = "See [the docs](https://example.com/docs) and \
+        https://example.org/path, <someone@example.com>, `https://example.com/code` \
+        and [script](javascript:alert(1)).";
+
+    /// The links an answer's rows open, in order.
+    fn opened(rows: &[String]) -> Vec<String> {
+        rows.iter()
+            .flat_map(|row| {
+                row.match_indices("\u{1b}]8;id=")
+                    .map(move |(at, _)| &row[at..])
+            })
+            .map(|tail| {
+                let end = tail.find("\u{1b}\\").expect("a terminated link");
+                tail[..end + 2].to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_answers_links_reach_the_document_as_upstreams_and_the_full_transcript_and_a_replay_agree()
+    {
+        // `fx-links-40x120-answered`: every link is `ESC ] 8 ; id=fx-N ; URI
+        // ST` around the styled text, numbered from 1 in a fresh process
+        // (upstream's counter is process-wide, `assistant_presentation.zig:13`).
+        let mut live = shell(40, 120);
+        live.route_bytes(b"show me the links\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted);
+        live.apply(UiEvent::Delta(LINKED_ANSWER.to_string()));
+        live.apply(UiEvent::Usage { input: Some(6) });
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let live_rows = live.painted_document();
+        let links = opened(&live_rows);
+        // The presenter numbers the `javascript:` link fx-5, as upstream's
+        // does (`isValidLinkUrl` has no scheme rule, `inline_render.zig:917-921`).
+        assert_eq!(
+            links,
+            [
+                "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\",
+                "\u{1b}]8;id=fx-2;https://example.org/path\u{1b}\\",
+                "\u{1b}]8;id=fx-3;mailto:someone@example.com\u{1b}\\",
+                "\u{1b}]8;id=fx-4;https://example.com/code\u{1b}\\",
+                "\u{1b}]8;id=fx-5;javascript:alert(1)\u{1b}\\",
+            ],
+            "{live_rows:?}"
+        );
+        // The painter is what refuses it: the link goes and its text stays.
+        let wire: Vec<String> = live_rows
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 120).into_owned())
+            .collect();
+        assert!(!wire.concat().contains("javascript:"), "{wire:?}");
+        assert!(
+            wire.concat().contains("\u{1b}[4mscript\u{1b}[24m"),
+            "{wire:?}"
+        );
+        assert_eq!(
+            opened(&wire),
+            links[..4],
+            "the painter dropped an admitted link"
+        );
+
+        // The full transcript shows the answer the presenter gave, ids and
+        // all, as upstream's does (`fx-links-40x120-second`).
+        live.route_bytes(b"\x0f");
+        let screen = live.shell.screen_rows();
+        assert_eq!(opened(&screen), links, "{screen:?}");
+
+        // A relaunch replays it as a fresh process writes it.
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            replay(
+                Some("show me the links"),
+                vec![saved(
+                    "show me the links",
+                    vec![HydratedStep::Text(LINKED_ANSWER.to_string())],
+                    0,
+                    Some(40),
+                )],
+            ),
+            true,
+        );
+        let rows = resumed.painted_document();
+        assert_eq!(
+            rows[2..],
+            live_rows[..],
+            "the replay is not the live document"
+        );
+    }
+
+    #[test]
+    fn a_replayed_card_links_its_badges_to_the_files_the_log_names() {
+        // `fx-image-40x120-resumed.ansi`: the replayed card's badges are one
+        // link to the file the images were read from.
+        let mut resumed = shell(40, 120);
+        let mut turn = saved(
+            "[Image 3][Image 4] what is in this image?",
+            vec![HydratedStep::Text("Red.".to_string())],
+            0,
+            Some(40),
+        );
+        turn.images = vec![
+            (3, std::path::PathBuf::from("/w/shot.png")),
+            (4, std::path::PathBuf::from("/w/shot.png")),
+        ];
+        resumed.hydrate(replay(Some("x"), vec![turn]), true);
+        let rows = resumed.painted_document();
+        let open = "\u{1b}]8;;file:///w/shot.png\u{1b}\\";
+        assert_eq!(
+            rows[2],
+            card_row(&format!(
+                "{open}[Image 3][Image 4]\u{1b}]8;;\u{1b}\\ what is in this image?"
+            )),
+            "{rows:?}"
+        );
+    }
+
     #[test]
     fn a_resumed_session_replays_its_turns_as_the_live_ones_were_written() {
         // `fx-sessions-40x120-resumed.txt`: the notice, then each turn as it
@@ -19255,10 +20247,8 @@ mod tests {
             let _ = live.picks_up();
             live.apply(UiEvent::TurnStarted);
             live.apply(UiEvent::Delta(answer.to_string()));
-            live.apply(UiEvent::Usage {
-                input: Some(6),
-                output: Some(40),
-            });
+            live.apply(UiEvent::Output(Progress::Settled(40)));
+            live.apply(UiEvent::Usage { input: Some(6) });
             live.apply(UiEvent::TurnEnded { failure: None });
             live.shell.flush_paced();
         }
@@ -19360,6 +20350,66 @@ mod tests {
         );
     }
 
+    /// A saved session as its log reduces to ([`DurableState`]) and the
+    /// replay the runtime builds from it ([`Hydration::of`]) -- the whole
+    /// path a resume takes but the file.
+    fn logged(turns: Vec<crate::session::HistoryTurn>) -> Hydration {
+        let state = crate::session::DurableState {
+            id: "s".to_string(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            origin_workspace_root: "/w".to_string(),
+            workspace_root: "/w".to_string(),
+            model: "m".to_string(),
+            provider: None,
+            permission_mode: PermissionMode::Ask,
+            turns,
+            grants: Vec::new(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            context_sources: Vec::new(),
+            last_event_seq: 0,
+            renamed: None,
+            usage: Default::default(),
+            checkpoint: None,
+            turn_settings: None,
+        };
+        Hydration::of(&state, None)
+    }
+
+    fn logged_turn(
+        user: &str,
+        steps: Vec<crate::session::TurnStep>,
+        outcome: crate::session::TurnConclusion,
+    ) -> crate::session::HistoryTurn {
+        crate::session::HistoryTurn {
+            user: user.to_string(),
+            images: Vec::new(),
+            steps,
+            outcome: Some(outcome),
+            timing: crate::session::TurnTiming::default(),
+            seqs: Default::default(),
+        }
+    }
+
+    fn logged_result(
+        id: &str,
+        ok: bool,
+        ending: Option<crate::session::ToolEnding>,
+        lines: Option<crate::session::LineCounts>,
+    ) -> crate::session::TurnStep {
+        crate::session::TurnStep::ToolResult {
+            created_at_ms: None,
+            call_id: id.to_string(),
+            tool: "t".to_string(),
+            ok,
+            output: "no such path: `gone.txt`".to_string(),
+            ending,
+            lines,
+            change: None,
+        }
+    }
+
     #[test]
     fn a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times() {
         // Upstream's resume replays a call through the adapters a live one
@@ -19384,12 +20434,16 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
                 output:
                     "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
                         .into(),
+                ending: None,
+                lines: None,
+                change: None,
             },
         ];
         let mut turn = saved(
@@ -19399,12 +20453,14 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
+                    // Its result came back a second in.
+                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
                     ok: true,
-                    detail: String::new(),
                     outcome: CallOutcome::Finished,
+                    changes: None,
                 },
                 HydratedStep::Text("Done.".to_string()),
             ],
@@ -19415,8 +20471,29 @@ mod tests {
         turn.started_at_ms = 1_790_899_200_000;
         turn.concluded_at_ms = Some(1_790_899_202_000);
         turn.details = full_transcript::details_of(&steps);
+        // Turns with no summary, before it and after it: upstream sets no
+        // stamp for them (`app_session_runtime.zig:4780-4783`), so they carry
+        // the one the replay had reached -- the resume's, then this turn's
+        // conclusion -- whatever the log says of their own times.
+        let stopped = |user: &str, started_at_ms: i64| {
+            let mut turn = saved(user, Vec::new(), 0, None);
+            turn.ending = Ending::Cancelled;
+            turn.started_at_ms = started_at_ms;
+            turn.concluded_at_ms = Some(started_at_ms + 500);
+            turn
+        };
         let mut shell = shell(40, 120);
-        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.hydrate(
+            replay(
+                Some("look"),
+                vec![
+                    stopped("before", 1_790_899_100_000),
+                    turn,
+                    stopped("after", 1_790_899_300_000),
+                ],
+            ),
+            false,
+        );
         shell.route_bytes(b"\x0f");
         let screen = full_screen(&shell);
         let headers: Vec<&str> = screen
@@ -19424,14 +20501,19 @@ mod tests {
             .filter(|row| row.contains(" UTC \u{b7} "))
             .map(String::as_str)
             .collect();
+        let resumed_at = headers[0]
+            .strip_suffix(" Notice")
+            .expect("the resume notice first");
+        assert_eq!(headers[1], format!("{resumed_at} Prompt"), "{screen:#?}");
         assert_eq!(
-            headers[1..],
+            headers[2..],
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:00.000 UTC \u{b7} Tool",
+                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
             ],
             "{screen:#?}"
         );
@@ -19451,107 +20533,306 @@ mod tests {
     }
 
     #[test]
-    fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
-        let read = crate::tools::Registry::builtin()
-            .spec("read_file")
-            .expect("read_file")
-            .shown(&serde_json::json!({"path": "notes.txt"}));
+    fn a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts() {
+        use crate::session::{LineCounts, RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let calls = [
+            (
+                "e",
+                "edit_file",
+                serde_json::json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+            ),
+            (
+                "w",
+                "write_file",
+                serde_json::json!({"path": "c.txt", "content": "c"}),
+            ),
+            (
+                "x",
+                "terminal",
+                serde_json::json!({"action": "exec", "command": "exit 3"}),
+            ),
+            (
+                "n",
+                "edit_file",
+                serde_json::json!({"path": "b.txt", "old_string": "a", "new_string": "a"}),
+            ),
+            ("r", "read_file", serde_json::json!({"path": "gone.txt"})),
+        ];
+        // Live: each outcome form a row can take. The failure's reason is
+        // left out here because upstream's replay leaves it out
+        // (`Failed missing.txt`, capture `fx-resume-tools-40x120-resumed`),
+        // so the live group to hold the replay to is the one without it.
         let mut live = shell(40, 120);
-        live.route_bytes(b"look\r");
+        live.route_bytes(b"fix\r");
         let _ = live.picks_up();
         live.apply(UiEvent::TurnStarted);
         live.apply(UiEvent::Delta("Looking.".to_string()));
-        live.apply(tool_start(
-            "c1",
-            "read_file",
-            serde_json::json!({"path": "notes.txt"}),
-        ));
-        live.apply(tool_result("c1", "read_file", true, "notes.txt"));
-        live.apply(tool_start(
-            "c2",
-            "read_file",
-            serde_json::json!({"path": "gone.txt"}),
-        ));
-        live.apply(tool_result(
-            "c2",
-            "read_file",
-            false,
-            "no such path: `gone.txt`",
-        ));
+        let endings = [
+            (
+                true,
+                CallOutcome::Finished,
+                Some(LineChanges {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            (false, CallOutcome::Denied, None),
+            (true, CallOutcome::Exited(3), None),
+            (true, CallOutcome::Unchanged, None),
+            (false, CallOutcome::Finished, None),
+        ];
+        for ((id, tool, input), (ok, outcome, changes)) in calls.iter().zip(endings) {
+            live.apply(tool_start(id, tool, input.clone()));
+            live.apply(UiEvent::ToolResult {
+                call_id: id.to_string(),
+                tool: tool.to_string(),
+                ok,
+                detail: String::new(),
+                outcome,
+                changes,
+            });
+        }
         live.apply(UiEvent::Delta("Done.".to_string()));
         live.apply(UiEvent::TurnEnded { failure: None });
         live.shell.flush_paced();
         let live_rows = live.painted_document();
 
+        // Replayed: the same turn as the log keeps it.
+        let mut steps = vec![TurnStep::Assistant {
+            text: "Looking.".to_string(),
+            tool_calls: calls
+                .iter()
+                .map(|(id, name, input)| RecordedToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: input.clone(),
+                })
+                .collect(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }];
+        steps.extend([
+            logged_result(
+                "e",
+                true,
+                None,
+                Some(LineCounts {
+                    added: 1,
+                    removed: 1,
+                }),
+            ),
+            logged_result("w", false, Some(ToolEnding::Denied), None),
+            logged_result("x", true, Some(ToolEnding::Exited { code: 3 }), None),
+            logged_result("n", true, Some(ToolEnding::Unchanged), None),
+            logged_result("r", false, None, None),
+            TurnStep::Assistant {
+                text: "Done.".to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+        ]);
         let mut resumed = shell(40, 120);
         resumed.hydrate(
-            replay(
-                Some("look"),
-                vec![
-                    saved(
-                        "look",
-                        vec![
-                            HydratedStep::Text("Looking.".to_string()),
-                            HydratedStep::ToolStart {
-                                id: "c1".to_string(),
-                                shown: read.clone(),
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c1".to_string(),
-                                ok: true,
-                                detail: String::new(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::ToolStart {
-                                id: "c2".to_string(),
-                                shown: crate::tools::Shown {
-                                    target: Some("gone.txt".to_string()),
-                                    ..read
-                                },
-                            },
-                            HydratedStep::ToolResult {
-                                id: "c2".to_string(),
-                                ok: false,
-                                detail: "no such path: `gone.txt`".to_string(),
-                                outcome: CallOutcome::Finished,
-                            },
-                            HydratedStep::Text("Done.".to_string()),
-                        ],
-                        0,
-                        None,
-                    ),
-                    HydratedTurn {
-                        user: "and then".to_string(),
-                        sent: "and then".to_string(),
-                        steps: Vec::new(),
-                        ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
-                        started_at_ms: 0,
-                        concluded_at_ms: None,
-                        details: Vec::new(),
-                    },
-                ],
-            ),
+            logged(vec![logged_turn(
+                "fix",
+                steps,
+                TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            )]),
             false,
         );
         let rows = resumed.painted_document();
         // The live turn's summary estimated what streamed, as the replay
         // does when the log recorded no usage: the same row.
-        assert_eq!(rows[2..2 + live_rows.len()], live_rows[..], "{rows:?}");
+        assert_eq!(rows[2..], live_rows[..], "{rows:?}");
         let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
-        assert!(
-            words.contains(&"\u{25cf} 2 tool calls \u{b7} 2 read \u{b7} 1 failed".to_string()),
+        assert_eq!(
+            words[6..12],
+            [
+                "\u{25cf} 5 tool calls \u{b7} 2 edit \u{b7} 1 read \u{b7} 1 write \u{b7} 1 command \u{b7} 2 failed \u{b7} 1 denied",
+                "\u{251c} Edited a.txt +1 / -1",
+                "\u{251c} Denied file",
+                "\u{251c} Exited 3 exit 3",
+                "\u{251c} No changes to b.txt; it already contains the requested content",
+                "\u{2514} Failed gone.txt",
+            ],
             "{words:?}"
         );
-        // The stopped turn: its card and the sentence it ended on, under
-        // `system` as the live conclusion was, and no summary.
+    }
+
+    /// Upstream's stopped turn after a resume is its card and its
+    /// cancellation line -- the call the stop cut off is not replayed -- and
+    /// a failed one is `✗ system: failed` (`app_session_runtime.zig:4796-4803`;
+    /// capture `fx-resume-tools-40x120-resumed`, rows 21-28).
+    /// What a hostile log paints, through the one inert step a resume's
+    /// replay takes on either way in (`bridge::inert_hydration`, which the
+    /// worker's `a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker`
+    /// holds both ways to): the document and the full transcript carry none of
+    /// the sequences it held -- only the screen's own colours.
+    #[test]
+    fn a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript() {
+        use crate::session::{RecordedToolCall, TurnConclusion, TurnStep};
+        let hostile = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+        let steps = vec![
+            TurnStep::Assistant {
+                text: format!("answer {hostile}"),
+                tool_calls: vec![RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": format!("p{hostile}")}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                created_at_ms: None,
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {hostile}"),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+        ];
+        let state = logged(vec![logged_turn(
+            &format!("prompt {hostile}"),
+            steps,
+            TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        )]);
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(bridge::inert_hydration(state), false);
+        let painted = resumed.painted_document().join("\n");
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        for (surface, bytes) in [("document", &painted), ("full transcript", &full)] {
+            // Every escape left is an SGR the palette wrote.
+            let foreign: Vec<&str> = bytes
+                .split('\u{1b}')
+                .skip(1)
+                .filter(|sequence| {
+                    !(sequence.starts_with('[')
+                        && sequence[1..]
+                            .split_once('m')
+                            .is_some_and(|(parameters, _)| {
+                                parameters.chars().all(|c| c.is_ascii_digit() || c == ';')
+                            }))
+                })
+                .collect();
+            assert_eq!(foreign, Vec::<&str>::new(), "{surface}: {bytes:?}");
+            assert!(
+                !bytes.contains('\u{9b}') && !bytes.contains('\u{7}'),
+                "{surface}: {bytes:?}"
+            );
+        }
+        assert!(
+            painted.contains("prompt x ]0;pwned y [2Jz 31m"),
+            "{painted:?}"
+        );
+        assert!(full.contains("read x ]0;pwned y [2Jz 31m"), "{full:?}");
+    }
+
+    #[test]
+    fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed() {
+        use crate::session::{RecordedToolCall, ToolEnding, TurnConclusion, TurnStep};
+        let cut_off = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "w".to_string(),
+                    name: "write_file".to_string(),
+                    input: serde_json::json!({"path": "d.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            logged_result("w", false, Some(ToolEnding::Cancelled), None),
+        ];
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            logged(vec![
+                logged_turn(
+                    "and once more",
+                    cut_off,
+                    TurnConclusion::Interrupted {
+                        reason: crate::agent::TurnError::Cancelled.to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
+                    },
+                ),
+                logged_turn(
+                    "and then",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: "the provider failed: overloaded".to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
+                    },
+                ),
+                // Stopped while its automatic compaction ran: the card and
+                // nothing else (`tui-compaction-activity.test.ts:481-488`).
+                logged_turn(
+                    "Cancel this held response.",
+                    Vec::new(),
+                    TurnConclusion::Interrupted {
+                        reason: super::super::compaction::Feedback::Cancelled
+                            .label()
+                            .to_string(),
+                        terminal_reason: None,
+                        cancellation_origin: crate::session::CancellationOrigin::Compaction,
+                    },
+                ),
+            ]),
+            false,
+        );
+        let rows = resumed.painted_document();
+        let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
         assert_eq!(
-            words[2 + live_rows.len()..],
+            words[2..],
             [
+                "\u{2503} and once more",
+                "",
+                "\u{25a0} Cancelled \u{b7} What can xfx do differently?",
+                "",
                 "\u{2503} and then",
                 "",
-                "\u{2717} system: the turn was cancelled",
+                "\u{2717} system: failed",
                 "",
-            ]
+                "\u{2503} Cancel this held response.",
+                "",
+            ],
+            "{words:?}"
+        );
+        // And the full transcript after it has the prompt and no
+        // cancellation of it.
+        resumed.route_bytes(b"\x0f");
+        let full = resumed.screen_rows().join("\n");
+        let held = full
+            .split("Cancel this held response.")
+            .nth(1)
+            .expect("the prompt is recorded");
+        assert!(!held.contains("Cancelled"), "{full}");
+        // The mark in the warning colour and closed before the space, the
+        // word in the hint colour (`lifecycleTerminalLine`, unmarked).
+        assert_eq!(
+            rows[4],
+            format!(
+                "{}\u{25a0}{} {}Cancelled{} \u{b7} What can xfx do differently?",
+                PALETTE.warning(),
+                PALETTE.reset(),
+                PALETTE.hint(),
+                PALETTE.reset()
+            )
         );
         assert!(!resumed.owes_wipe(), "a launch's resume reset the terminal");
     }
@@ -19776,6 +21057,100 @@ mod tests {
         );
     }
 
+    /// Upstream refuses while its response is active (`stream.active`,
+    /// `app_session_runtime.zig:2590`), which a turn begins
+    /// (`begin_prompt`, `app_worker_runtime.zig:975-985`) and keeps while
+    /// prompts wait behind it (`:783-805`) -- the busy rule a provider switch
+    /// is under too ([`Shell::provider_work_busy`]). A `/model` the runtime
+    /// has not answered yet is no response, and the picker opens.
+    /// More sessions than a page: the band ends on `↓ Load more`, walking to
+    /// the last loaded session loads the next page and the band grows by the
+    /// row it gave up (`fx-resume-paging-24x80`).
+    #[test]
+    fn a_picker_with_more_sessions_than_a_page_loads_the_next_as_the_mark_reaches_it() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        let current: Vec<ListedSession> = (1..=18)
+            .map(|i| ListedSession {
+                id: format!("s{i}"),
+                title: Some(format!("question {i}")),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            })
+            .collect();
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            all: current.clone(),
+            current,
+            now_ms: 0,
+        })));
+        let band = |shell: &Fixture| -> Vec<String> {
+            shell
+                .band_rows()
+                .iter()
+                .map(|row| visible_text(row))
+                .collect()
+        };
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 17 ")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&"  \u{2193} Load more".to_string()),
+            "{rows:?}"
+        );
+        let panel = shell.geometry.panel;
+        for _ in 0..16 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 18 ")),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains("Load more")),
+            "{rows:?}"
+        );
+        assert_eq!(shell.geometry.panel, panel, "{rows:?}");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("s17".to_string()));
+    }
+
+    #[test]
+    fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/model second-model\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/resume\r");
+        assert!(shell.sessions.is_some(), "{:?}", shell.document());
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.sessions.is_none());
+        // Both answered, as the runtime would have by now.
+        shell.work.give_back();
+        shell.work.give_back();
+
+        // A prompt sent and not started yet runs before anything the picker
+        // could ask for: refused, as one streaming is.
+        shell.route_bytes(b"queued one\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/resume\r");
+        assert!(
+            shell.sessions.is_none(),
+            "a picker opened over a waiting prompt"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", RESUME_BUSY))
+        );
+    }
+
     #[test]
     fn rename_refuses_in_upstreams_words_and_titles_the_window_at_once() {
         // `fx-basic-40x120-rename-empty.txt` and `-rename-title.txt`.
@@ -19787,8 +21162,9 @@ mod tests {
             said(notice::Notice::error("", "usage: /rename <title>"))
         );
         assert_eq!(shell.document(), Vec::<String>::new());
-        assert!(
-            shell.sent.try_recv().is_err(),
+        assert_eq!(
+            shell.controlled(),
+            None,
             "an empty title reached the runtime"
         );
         shell.route_bytes(format!("/rename {}\r", "x".repeat(241)).as_bytes());
@@ -19810,30 +21186,31 @@ mod tests {
             "a refused title titled the window"
         );
 
+        // Accepted: titled at once and handed to the runtime to write, and
+        // said when the runtime says the log has it
+        // (`app_commands.zig:3852-3857`).
         shell.route_bytes(b"/rename   My Title  \r");
-        assert_eq!(shell.picks_up(), TurnWork::Rename("My Title".to_string()));
-        shell.work.give_back();
         assert_eq!(
-            shell.take_title(),
-            None,
-            "titled before the runtime renamed it"
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "My Title".to_string(),
+                announced: false,
+            })
         );
-        shell.apply(UiEvent::Renamed {
-            title: "My Title".to_string(),
-            unsaved: None,
-        });
         assert_eq!(shell.take_title().as_deref(), Some("My Title"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("My Title".to_string()));
+        assert_eq!(shell.take_title(), None, "the answer retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "* session: renamed to \"My Title\""
         );
-        // A store that refused: the title is this process's, and the warning
-        // says so (`app_commands.zig:3833-3846`).
-        shell.apply(UiEvent::Renamed {
-            title: "Kept here".to_string(),
-            unsaved: Some("cannot record the `session_renamed` session event".to_string()),
-        });
-        assert_eq!(shell.take_title().as_deref(), Some("Kept here"));
+        // A store that refused: the title stays this process's, and the
+        // warning says so (`app_commands.zig:3833-3846`).
+        shell.apply(UiEvent::RenameUnsaved(
+            "cannot record the `session_renamed` session event".to_string(),
+        ));
+        assert_eq!(shell.take_title(), None, "the warning retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "! session: renamed for this process but not saved \
@@ -19845,6 +21222,84 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title(), None);
+    }
+
+    /// Between turns the notice is the write's outcome, one row either way,
+    /// as upstream's (`handleRenameCommand`, `app_commands.zig:3815-3858`):
+    /// `renamed to "…"` once the log has the title, or only `renamed for this
+    /// process but not saved (…)` when it would not take it -- the window is
+    /// titled at once in both, as upstream caches the title before it writes
+    /// (`renameActiveSession`, `app_session_runtime.zig:3807`).
+    #[test]
+    fn between_turns_a_rename_says_one_thing_what_became_of_the_write() {
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.route_bytes(b"/rename Refused\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.take_title().as_deref(), Some("Refused"));
+        shell.apply(UiEvent::RenameUnsaved("the disk is full".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::warning(
+                "session",
+                "renamed for this process but not saved (the disk is full)"
+            ))
+        );
+        shell.route_bytes(b"/rename Kept\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("Kept".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", "renamed to \"Kept\""))
+        );
+    }
+
+    /// While a turn runs the title applies at once, as upstream's does --
+    /// it renames whether or not a response streams
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`) -- and goes to
+    /// the runtime as a control message, which stops nothing: the runtime
+    /// writes it once the turn is over. A title typed after a `/new` goes on
+    /// the same channel behind the reset, which is how the runtime knows it
+    /// names the session the reset starts.
+    #[test]
+    fn rename_while_a_turn_runs_applies_at_once_and_follows_a_reset_on_one_channel() {
+        let mut shell = shell(24, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.take_title();
+        let _ = shell.document();
+        shell.route_bytes(b"/rename Mid Turn\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "Mid Turn".to_string(),
+                announced: true,
+            })
+        );
+        assert_eq!(shell.controlled(), None, "a rename stopped the turn");
+        assert_eq!(shell.take_title().as_deref(), Some("Mid Turn"));
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| visible_text(row) == "* session: renamed to \"Mid Turn\""),
+            "the notice waited for the turn"
+        );
+
+        shell.route_bytes(b"/new\r");
+        shell.route_bytes(b"/rename Next One\r");
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Reset { .. })
+        ));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Rename {
+                title: "Next One".to_string(),
+                announced: true,
+            })
+        );
+        assert_eq!(shell.take_title().as_deref(), Some("Next One"));
     }
 
     #[test]
@@ -21671,11 +23126,13 @@ mod tests {
                         scroll: 1,
                         rows: vec!["  the next answer".to_string()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                     Append {
                         scroll: 1,
                         rows: vec![String::new()],
                         kinds: Vec::new(),
+                        release: 0,
                     },
                 ],
                 "{}",
@@ -21737,10 +23194,8 @@ mod tests {
             serde_json::json!({"path": "notes.txt"}),
         ));
         shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
-        shell.apply(UiEvent::Usage {
-            input: Some(9_000),
-            output: Some(40),
-        });
+        shell.apply(UiEvent::Output(Progress::Settled(40)));
+        shell.apply(UiEvent::Usage { input: Some(9_000) });
         shell.apply(UiEvent::TurnEnded {
             failure: Some("xfx: interrupted".to_string()),
         });
@@ -21786,10 +23241,7 @@ mod tests {
             let _ = shell.take_title();
             turn_running(&mut shell, b"ask something\r");
             let _turn = shell.picks_up();
-            shell.apply(UiEvent::Usage {
-                input: Some(1_234),
-                output: None,
-            });
+            shell.apply(UiEvent::Usage { input: Some(1_234) });
             shell.apply(UiEvent::Delta("half an answer".to_string()));
             shell.route_bytes(command);
             let controls: Vec<_> = std::iter::from_fn(|| shell.controlled()).collect();
@@ -22164,6 +23616,42 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_out_is_every_settled_request_and_the_open_one_as_it_streams() {
+        // Upstream's live count is the settled sum plus the open request's
+        // estimate (`tokenProgress`, `telemetry.zig:157-163`), and the summary
+        // is the same count once the last request has settled: fx's
+        // `allowlist-turn`, two requests of 40, is `↓80`. Red before: the
+        // band kept the provider's answering count alone, `↓40`.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"run the command\r");
+        let out = |shell: &mut Fixture, at: u64| {
+            shell.settle_band(started + Duration::from_millis(at));
+            let row = shell.activity_row.clone().expect("a running turn");
+            let row = colourless(&row);
+            row[row.find('\u{2193}').expect("an out count")..].to_string()
+        };
+        // The call's request, reporting 40 for what it wrote.
+        shell.apply(UiEvent::Output(Progress::Settled(40)));
+        assert_eq!(out(&mut shell, 10), "\u{2193}40)");
+        // The answer's request, streaming: its text is counted here as it
+        // arrives, what it is writing unseen as the turn says.
+        shell.apply(UiEvent::Delta("Ran it. ".to_string()));
+        assert_eq!(out(&mut shell, 20), "\u{2193}42)");
+        shell.apply(UiEvent::Output(Progress::Unshown(3)));
+        assert_eq!(out(&mut shell, 30), "\u{2193}45)");
+        // It settles at what the provider said: the estimate gives way.
+        shell.apply(UiEvent::Output(Progress::Settled(80)));
+        assert_eq!(out(&mut shell, 40), "\u{2193}80)");
+        shell.apply(UiEvent::Usage { input: Some(1_300) });
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let summary = shell.released();
+        assert!(
+            summary.contains(&"  0s (\u{2191}4 \u{2193}80)".to_string()),
+            "{summary:?}"
+        );
+    }
+
+    #[test]
     fn work_that_started_no_turn_ends_without_a_summary() {
         // `/model`, `/setup` and a catalog listing conclude with the same event
         // a turn does, and fx writes no summary under a local command.
@@ -22182,7 +23670,7 @@ mod tests {
     #[test]
     fn every_line_of_a_multi_line_card_is_bold() {
         let mut fixture = shell(24, 80);
-        fixture.echo("first\nsecond");
+        fixture.echo("first\nsecond", Vec::new());
         let document = fixture.released();
         let bold: Vec<&String> = document.iter().filter(|row| row.contains(BOLD)).collect();
         assert_eq!(bold.len(), 2, "{document:?}");
@@ -22559,15 +24047,16 @@ mod tests {
     }
 
     #[test]
-    fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
-        // A running executor holds the runtime's thread until it returns, so
-        // the stop is read after the command has finished: a `Cancelled` row at
-        // the keystroke would claim a stop the command never had. The sentence
-        // that answers the key goes under the group, and the command's real
-        // result settles its row above it when it comes. Claim changed: the
-        // answer to the key is the turn's `■ Cancelled` line, written once the
-        // turn has ended -- after the command's real row -- rather than an
-        // interrupt notice at the keystroke.
+    fn stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke() {
+        // Renamed, claim changed (was `stopping_the_turn_while_a_command_runs_
+        // leaves_its_row_to_its_result`): the stop now reaches the command at
+        // once -- the turn's flag is raised with the message and the command's
+        // supervisor kills it within a poll -- so the screen says so at the
+        // keystroke, as upstream's does (`fx-interrupt-40x120-cmd-cc`): the
+        // group's `· 1 cancelled`, `└ Cancelled sleep 30`, and the call's own
+        // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+        // runtime's result for the call, the same stop in the tool's words,
+        // changes nothing, and neither does the turn's conclusion.
         let mut shell = shell(24, 80);
         let _ = turn_running(&mut shell, b"run it\r");
         shell.apply(tool_start(
@@ -22578,32 +24067,87 @@ mod tests {
         let _ = shell.written();
 
         shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.activity_row.is_none(), "the row outlived the stop");
+        let at_the_key = shell.written();
+        assert_eq!(
+            at_the_key,
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
+                "\u{2514} Cancelled sleep 30",
+                "",
+                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "",
+            ],
+            "{at_the_key:#?}"
+        );
+
         shell.apply(tool_ended(
             "1",
             "terminal",
+            false,
+            "aborted by user",
+            CallOutcome::Cancelled,
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let after = shell.written();
+        assert!(
+            !after
+                .iter()
+                .any(|row| row.contains("Cancelled") || row.contains("system")),
+            "the stop was answered twice: {after:#?}"
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result() {
+        // A file tool does not poll the turn's flag and runs to its end before
+        // the turn reads the stop, so a `Cancelled` row at the keystroke would
+        // claim a stop the call never had. Its real result settles its row,
+        // and the turn's line follows once the turn has ended.
+        let mut shell = shell(24, 80);
+        let _ = turn_running(&mut shell, b"read it\r");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
+        ));
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        assert!(
+            !shell.written().iter().any(|row| row.contains("Cancelled")),
+            "a stop the call never had was drawn"
+        );
+        shell.apply(tool_ended(
+            "1",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the turn was cancelled".to_string()),
         });
         let written = shell.written();
         assert!(
-            !written
-                .iter()
-                .any(|row| row.contains("Cancelled sleep") || row.contains("cancelled")),
-            "a stop the command never had was drawn: {written:#?}"
+            !written.iter().any(|row| row.contains("Cancelled big")),
+            "{written:#?}"
         );
-        let notice = written
+        let line = written
             .iter()
             .position(|row| row.starts_with(INTERRUPTED_ROW))
-            .expect("the interrupt notice");
+            .expect("the turn's line");
         assert_eq!(
-            written[notice - 3..notice],
+            written[line - 3..line],
             [
-                "\u{25cf} 1 tool call \u{b7} 1 command",
-                "\u{2514} Ran sleep 30",
+                "\u{25cf} 1 tool call \u{b7} 1 read",
+                "\u{2514} Read big.txt",
                 ""
             ],
             "{written:#?}"
@@ -24312,7 +25856,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "/version");
         assert!(shell.picker.is_none(), "a recalled command opened the menu");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.editor.text(), "older");
         shell.route_bytes(b"\x1b[B");
         assert_eq!(shell.editor.text(), "/version");
@@ -25247,7 +26791,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(50_000),
-            output: Some(10),
         });
         assert!(shell.shell.context_meter().is_some(), "the meter was armed");
 
@@ -25345,7 +26888,6 @@ mod tests {
         bare.shell.model = "fable".to_string();
         bare.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(bare.shell.context_meter(), Some((12_345, None)));
         let row = bare.hint();
@@ -25355,7 +26897,6 @@ mod tests {
         // Both, and exactly one segment.
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         let row = shell.hint();
@@ -25363,10 +26904,7 @@ mod tests {
         assert_eq!(row.matches('%').count(), 1, "{row}");
 
         // A measurement of nought is no meter either (`render.zig:441`).
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(0),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(0) });
         assert_eq!(shell.shell.context_meter(), None);
     }
 
@@ -25387,7 +26925,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(30_000),
-            output: Some(20_000),
         });
         assert_eq!(
             shell.shell.context_meter(),
@@ -25405,10 +26942,7 @@ mod tests {
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
-        shell.shell.apply(UiEvent::Usage {
-            input: None,
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: None });
         assert_eq!(shell.shell.context_meter(), None);
         assert!(!shell.hint().contains('%'), "{}", shell.hint());
     }
@@ -25426,10 +26960,7 @@ mod tests {
                 entry("large", Some(900_000), &[]),
             ],
         });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(4_000),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(4_000) });
         shell.shell.model = "small".to_string();
         assert_eq!(shell.shell.context_meter(), Some((4_000, Some(8_000))));
         shell.shell.model = "vendor/large".to_string();
@@ -25466,7 +26997,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         assert!(shell.hint().contains("12k/200k"), "{}", shell.hint());
@@ -25494,10 +27024,7 @@ mod tests {
         // After the runtime has said the conversation is gone: a measurement
         // arriving before that is the old conversation's.
         shell.shell.apply(UiEvent::Fresh { through: 0 });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(7),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(7) });
         assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
     }
 
@@ -25983,10 +27510,7 @@ mod tests {
         assert_eq!(shell.hint(), IDLE_HINT, "a meter before a measurement");
         // The Gateway publishes no window, so the numerator stands alone
         // (`fx-statusline-turn-40x120-after-turn`: `· 1k ·`).
-        shell.apply(UiEvent::Usage {
-            input: Some(1_200),
-            output: None,
-        });
+        shell.apply(UiEvent::Usage { input: Some(1_200) });
         assert_eq!(shell.hint(), format!("{IDLE_HINT} \u{b7} 1k"));
 
         // Again, and it is off, kept off, and gone from the row.
@@ -26031,10 +27555,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 160);
         shell.session_title = Some("say the marker".to_string());
-        shell.apply(UiEvent::Usage {
-            input: Some(1_200),
-            output: None,
-        });
+        shell.apply(UiEvent::Usage { input: Some(1_200) });
         assert_eq!(shell.hint(), IDLE_HINT, "a segment was on by default");
 
         let workspace = shell.workspace.to_string_lossy().into_owned();
@@ -26198,6 +27719,28 @@ mod tests {
         let _taken = shell.sent.try_recv();
     }
 
+    /// The Up that recalls the line before, on a one-row draft. From anywhere
+    /// but the draft's start the first Up only takes the caret there
+    /// (`input_completion_runtime.zig:265-284`), so a recalled line -- whose
+    /// caret is at its end (`editor_state.zig:55-59`) -- takes two.
+    fn older(shell: &mut Fixture) {
+        if shell.editor.caret() > 0 {
+            let draft = shell.editor.text().to_string();
+            shell.route_bytes(b"\x1b[A");
+            assert_eq!(
+                shell.editor.text(),
+                draft,
+                "an Up off the draft's start recalled a line"
+            );
+            assert_eq!(
+                shell.editor.caret(),
+                0,
+                "an Up on the draft's first row left the caret where it was"
+            );
+        }
+        shell.route_bytes(b"\x1b[A");
+    }
+
     #[test]
     fn up_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
         // The whole of item 15 on this surface: what was sent comes back,
@@ -26208,6 +27751,15 @@ mod tests {
         submitted(&mut shell, "second line");
         shell.route_bytes(b"half typed");
 
+        // The first Up takes the caret to the start of the draft, and only an
+        // Up from there recalls (`input_completion_runtime.zig:265-284`).
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("half typed"));
+        assert_eq!(
+            shell.cursor(),
+            (22, 2),
+            "the first Up did not take the caret to the draft's start"
+        );
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second line"));
         assert_eq!(
@@ -26215,9 +27767,14 @@ mod tests {
             (22, 13),
             "the caret is not at the end of the recalled line"
         );
+        // So a recalled line takes two as well: its start, then the line
+        // before it.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("second line"));
+        assert_eq!(shell.cursor(), (22, 2));
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first line"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first line"),
@@ -26346,11 +27903,24 @@ mod tests {
             "an arrow inside the draft walked the history instead of the rows"
         );
 
+        // On the first row, the start of the draft before the history.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")],
+            "an Up off the draft's start walked the history"
+        );
+        assert_eq!(
+            shell.editor.caret(),
+            0,
+            "the caret is not at the draft's start"
+        );
+
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("sent"),
-            "the arrow at the first row did not reach the history"
+            "the arrow at the draft's start did not reach the history"
         );
     }
 
@@ -26359,7 +27929,7 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "sent");
         shell.route_bytes(b"half typed");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("sent"),
@@ -26393,6 +27963,20 @@ mod tests {
             &[composer_row("top"), composer_row("bottom")],
             "a Down at the last row of a draft nobody had recalled into changed it"
         );
+
+        // And off the draft's end, the last row's Down takes the caret there
+        // first (`input_completion_runtime.zig:275-281`).
+        shell.route_bytes(b"\x1b[D\x1b[D");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")]
+        );
+        assert_eq!(
+            shell.editor.caret(),
+            shell.editor.text().len(),
+            "a Down on the last row did not take the caret to the draft's end"
+        );
     }
 
     #[test]
@@ -26415,7 +27999,10 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.model_menu.is_none());
         assert_eq!(shell.editor.text(), "top\nbottom");
-        // From the last row `Up` moves; from the first it recalls.
+        // From the last row `Up` moves; on the first it goes to the draft's
+        // start, and from there it recalls.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "top\nbottom");
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "top\nbottom");
         shell.route_bytes(b"\x1b[A");
@@ -26462,12 +28049,12 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"!");
         assert_eq!(shell.band_rows()[0], composer_row("first!"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26491,11 +28078,11 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
         shell.route_bytes(&[0x7f]);
         assert_eq!(shell.band_rows()[0], composer_row("firs"));
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26515,7 +28102,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second"));
         shell.route_bytes(b"\x1b[D");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first"),
@@ -26534,7 +28121,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(&[0x1b]);
@@ -26562,7 +28149,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -26570,7 +28157,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(shell.band_rows()[0], composer_row("first and more"));
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26587,7 +28174,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         // Home first, which is a caret move and must leave the walk open --
@@ -26613,7 +28200,7 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(b"\x1b[A");
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -26624,7 +28211,7 @@ mod tests {
             composer_row("first[Pasted text #1, 1 lines]")
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -26673,7 +28260,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(shell.band_rows()[0], composer_row("earlier"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
@@ -26711,7 +28298,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(b"\x1b[A");
+        older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
             composer_row("[Pasted text #1, 1 lines]"),
@@ -28531,9 +30118,17 @@ mod tests {
         assert!(images
             .iter()
             .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
+        // Both badges are one run under one link to the file they name, and
+        // the text after them is outside it: `fx-image-40x120-sent.ansi`'s
+        // card is `\x1b[1m\x1b]8;;file://<scratch>/work/shot.png\x1b\\[Image
+        // 3][Image 4]\x1b]8;;\x1b\\ what is in this image?`.
+        let uri = crate::tui::hyperlink::file_uri(&images[0].path).expect("a resolved path");
+        assert!(uri.ends_with("/shot.png"), "{uri}");
         assert_eq!(
             shell.document(),
-            card("[Image 1][Image 2] what is in this image?")
+            card(&format!(
+                "\x1b]8;;{uri}\x1b\\[Image 1][Image 2]\x1b]8;;\x1b\\ what is in this image?"
+            ))
         );
         assert!(shell.editor.is_empty());
         // The bytes are the ones attached: the file changing afterwards is
@@ -29145,12 +30740,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 12);
+        assert_eq!(shell.geometry.panel, 15);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 13  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -29159,8 +30754,11 @@ mod tests {
                 "  Collapse tool calls      off  on",
                 model.as_str(),
                 "  Reasoning effort         default",
+                "  Fast mode                off",
+                "  Ultra mode               off",
                 "  Permission mode          ask  auto  full access",
                 "  Sound level              off  on",
+                "  Startup scrollback       off  on",
                 "  Prompt history           off  on",
             ]
         );
@@ -29182,9 +30780,12 @@ mod tests {
             "the menu took the caret"
         );
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        // The one thing it asks the runtime for is the catalog its effort and
+        // speed rows read.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(
             shell.sent.try_recv().is_err(),
-            "/settings reached the runtime"
+            "/settings asked the runtime for more than the catalog"
         );
     }
 
@@ -29231,6 +30832,9 @@ mod tests {
         // `app_input_runtime.zig:2408-2410`) -- opens no catalog.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
+        // The menu's own ask, for its effort and speed rows; nothing typed
+        // into the search asks for another.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -29272,6 +30876,8 @@ mod tests {
             [
                 format!("  Model               {}", shell.model),
                 "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
             ]
         );
@@ -29283,9 +30889,10 @@ mod tests {
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 1  All  Interface  Agent  Notifications  [Advanced]",
+                "Settings 2  All  Interface  Agent  Notifications  [Advanced]",
                 "",
-                "  Prompt history    off  on",
+                "  Startup scrollback    off  on",
+                "  Prompt history        off  on",
             ]
         );
         assert_eq!(shell.mode, PermissionMode::Auto);
@@ -29299,8 +30906,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -29354,16 +30961,16 @@ mod tests {
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 7);
-        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
+        down(&mut shell, 9);
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Permission mode"));
         shell.route_bytes(RIGHT);
         typed.route_bytes(b"/permissions full-access\r");
         assert_eq!(shell.mode, PermissionMode::Yolo);
         assert_eq!(shell.document(), typed.document());
         assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
-        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
+        assert!(settings_text(&shell)[11].ends_with("ask  auto  full access"));
         assert_eq!(
-            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
+            menu(&shell)[11].matches(PALETTE.subtitle()).count(),
             2,
             "the marked label and `full access`"
         );
@@ -29380,7 +30987,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 8);
+        down(&mut shell, 10);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.released(),
@@ -29394,7 +31001,7 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[12].ends_with("Sound level              off  on"));
     }
 
     #[test]
@@ -29576,8 +31183,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -29590,7 +31197,11 @@ mod tests {
     }
 
     #[test]
-    fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
+    fn enter_or_right_on_model_opens_the_catalog_under_the_row() {
+        // `fx-settings-model-40x120-enter`: the settings menu stays, and the
+        // catalog `/model` lists is under the `Model` row at the value column
+        // (`settings_menu_presentation.zig:15-19`, `:277-310`), searching for
+        // nothing yet -- what was typed found the row, not a model.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         // `model used` is the Model row's description alone: the effort row's
@@ -29605,29 +31216,326 @@ mod tests {
         assert!(shell.settings_menu.is_some());
         assert!(shell.model_menu.is_none());
         shell.route_bytes(b"\r");
-        assert!(shell.settings_menu.is_none(), "the settings menu stayed up");
-        assert!(shell.model_menu.is_some(), "no model menu");
-        assert!(shell.editor.is_empty(), "the search became the model query");
+        assert!(shell.settings_menu.is_some(), "the settings menu closed");
+        assert!(shell.model_menu.is_some(), "no list under the row");
+        assert_eq!(shell.editor.text(), "model used", "the search was taken");
         assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(shell.document().is_empty());
+        // Waiting for the catalog: one dim line, four columns in.
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model    {}", shell.model),
+                "    Loading models\u{2026}".to_string(),
+            ]
+        );
+        assert_eq!(
+            menu(&shell)[3],
+            format!(
+                "    {}Loading models\u{2026}{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model    {}", shell.model),
+                "           openai/gpt-6-astra".to_string(),
+                "           anthropic/claude-opus-5".to_string(),
+                "           fake/model-a".to_string(),
+                "           xai/grok-4.7".to_string(),
+            ]
+        );
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        assert_eq!(
+            menu(&shell)[3],
+            format!("           {bright}openai/gpt-6-astra{reset}")
+        );
+        assert_eq!(
+            menu(&shell)[4],
+            format!("           {dim}anthropic/claude-opus-5{reset}")
+        );
+        assert_eq!(
+            shell.geometry.panel, 7,
+            "the band did not grow for the list"
+        );
 
+        // The arrows are the list's, and wrap.
+        shell.route_bytes(b"\x1b[B\x1b[B");
+        assert_eq!(
+            menu(&shell)[5],
+            format!("           {bright}fake/model-a{reset}")
+        );
+        shell.route_bytes(b"\x1b[A\x1b[A\x1b[A");
+        assert_eq!(
+            menu(&shell)[6],
+            format!("           {bright}xai/grok-4.7{reset}")
+        );
+        // Right is nothing; Left uses the marked model, as a picker does, and
+        // closes the list with the settings menu still up.
+        shell.route_bytes(RIGHT);
+        assert!(shell.model_menu.is_some());
+        shell.route_bytes(LEFT);
+        assert!(shell.model_menu.is_none(), "the list stayed open");
+        assert!(shell.settings_menu.is_some(), "the settings menu closed");
+        assert_eq!(shell.model, "xai/grok-4.7");
+        let chosen = change(&mut shell);
+        assert_eq!(chosen.name, "xai/grok-4.7");
+        assert!(chosen.picker && chosen.announced && !chosen.effort_only);
+        assert_eq!(chosen.effort, None, "the session's effort was not kept");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to xai/grok-4.7 (effort: default, speed: normal)"
+            ))
+        );
+        assert_eq!(
+            settings_text(&shell)[2..],
+            ["  Model    xai/grok-4.7".to_string()]
+        );
+
+        // Right opens it too; Tab closes it with the tab change.
         let mut right = with_settings(root.path());
+        right.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
         down(&mut right, 5);
         right.route_bytes(RIGHT);
-        assert!(right.settings_menu.is_none());
+        assert!(right.settings_menu.is_some());
         assert!(right.model_menu.is_some());
+        // Enter in it uses the marked model as Left does.
+        right.route_bytes(b"\r");
+        assert!(right.model_menu.is_none());
+        assert_eq!(right.model, "openai/gpt-6-astra");
+        right.route_bytes(RIGHT);
+        right.route_bytes(b"\t");
+        assert!(right.model_menu.is_none(), "Tab left the list open");
+        assert!(settings_text(&right)[0].contains("[Interface]"));
     }
 
     #[test]
-    fn an_argument_is_the_usage_line_without_upstreams_startup_scrollback() {
-        // `fx-settings-40x120-bogus`, with this product's grammar.
+    fn escape_over_the_model_list_closes_the_settings_menu_and_leaves_the_list_as_models_menu() {
+        // `fx-settings-model-40x120-esc`: upstream's Escape is the settings
+        // menu's alone (`cancelSettingsMenu` before `cancelModelMenu`,
+        // `app_input_runtime.zig:3146`), so the list it had open stays up as
+        // `/model`'s menu.
         let root = tempfile::tempdir().expect("a root");
-        let mut shell = shell_at_home(root.path(), 40, 120);
-        for argument in ["bogus", "startup-scrollback", "startup-scrollback off"] {
+        let mut shell = with_settings(root.path());
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        down(&mut shell, 5);
+        shell.route_bytes(b"\r");
+        escape(&mut shell);
+        assert!(shell.settings_menu.is_none());
+        assert!(matches!(shell.slot(), Some(Slot::Models(_))));
+        assert!(menu(&shell)[0].contains("Models 4"));
+    }
+
+    #[test]
+    fn the_model_list_searches_the_composer_from_its_first_edit() {
+        // `syncCatalogMenus` (`app_input_runtime.zig:2922-2928`): an edit is
+        // the settings menu's search and the list's.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.route_bytes(b"mod");
+        shell.route_bytes(b"\r");
+        assert_eq!(settings_text(&shell)[3].trim(), "openai/gpt-6-astra");
+        // `model` finds the effort and speed rows too (their descriptions name
+        // the model), so the value column is past `Reasoning effort`.
+        shell.route_bytes(b"el");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model               {}", shell.model),
+                "                      fake/model-a".to_string(),
+                "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
+            ]
+        );
+
+        // A search the Model row matches and no model does: one dim line, and
+        // nothing listed is nothing to use.
+        let mut none = with_settings(root.path());
+        none.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        none.route_bytes(b"used");
+        none.route_bytes(b"\r");
+        assert_eq!(settings_text(&none).len(), 7, "{:?}", settings_text(&none));
+        none.route_bytes(b" ");
+        assert_eq!(
+            settings_text(&none)[2..],
+            [
+                format!("  Model    {}", none.model),
+                "    No models found".to_string(),
+            ]
+        );
+        none.route_bytes(LEFT);
+        assert!(none.model_menu.is_some());
+        assert!(none.controlled().is_none());
+    }
+
+    #[test]
+    fn the_speed_rows_are_fast_and_ultrafast_themselves() {
+        // `applySettingsCatalogChange`'s `fast_mode` and `ultrafast_mode`
+        // (`app_commands.zig:4183-4195`): a row that differs from the session
+        // is `toggleFast` or `handleUltrafast(on|off)` -- the same line, the
+        // same change handed to the runtime (which saves it) -- and a model
+        // with no speed has no choice to move to.
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Fast mode"));
+        assert_eq!(settings_text(&shell)[9], "  Fast mode                off");
+        shell.route_bytes(RIGHT);
+        assert!(
+            shell.document().is_empty(),
+            "a model with no Fast mode moved"
+        );
+        assert!(shell.controlled().is_none());
+
+        let model = "openai/gpt-6-astra".to_string();
+        let mut typed = speed_shell();
+        shell.model.clone_from(&model);
+        typed.model.clone_from(&model);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/fast\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(shell.settings.fast);
+        assert!(menu(&shell)[9].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+
+        // Ultra on is `/ultrafast on`, which turns Fast off with it.
+        down(&mut shell, 1);
+        assert_eq!(
+            settings_text(&shell)[10],
+            "  Ultra mode               off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/ultrafast on\r");
+        assert_eq!(shell.document(), typed.document());
+        let change = speed_change(&mut shell);
+        assert_eq!(change, speed_change(&mut typed));
+        assert!(change.ultrafast && !change.fast);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        // And Left back off is `/ultrafast off`.
+        shell.route_bytes(LEFT);
+        typed.route_bytes(b"/ultrafast off\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(!shell.settings.ultrafast);
+    }
+
+    #[test]
+    fn startup_scrollback_is_saved_for_the_next_launch_and_said_so() {
+        // `fx-settings-scrollback-*`: the row and its command both write
+        // `startup_scrollback` and say what the next launch does
+        // (`saveStartupScrollbackSetting`, `session_commands.zig:1076-1127`),
+        // with no `saved to user settings` line.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        down(&mut shell, 11);
+        assert!(visible_text(&menu(&shell)[13]).starts_with("  Startup scrollback"));
+        shell.route_bytes(RIGHT);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "settings",
+                "startup_scrollback: off (applies on next launch)"
+            ))
+        );
+        assert_eq!(
+            settings_text(&shell)[13],
+            "  Startup scrollback       off  on"
+        );
+        assert!(menu(&shell)[13].contains(&format!(
+            "{}off{}",
+            PALETTE.subtitle(),
+            PALETTE.reset()
+        )));
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"startup_scrollback\": false\n}\n"
+        );
+        escape(&mut shell);
+
+        // The command: `on`/`off` in any case, and alone the other value.
+        for (argument, on) in [
+            ("startup-scrollback ON", true),
+            ("Startup-Scrollback", false),
+            ("startup-scrollback", true),
+            ("  startup-scrollback \t off ", false),
+        ] {
             shell.route_bytes(format!("/settings {argument}\r").as_bytes());
             assert_eq!(
                 shell.document(),
-                said(notice::Notice::error("", "usage: /settings")),
+                said(notice::Notice::neutral(
+                    "settings",
+                    format!(
+                        "startup_scrollback: {} (applies on next launch)",
+                        if on { "on" } else { "off" }
+                    )
+                )),
+                "{argument}"
+            );
+            assert!(profile_at(root.path()).contains(&format!("\"startup_scrollback\": {on}")));
+            assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
+        }
+
+        // A write that failed says so under the argument's name.
+        shell.settings_path = None;
+        shell.route_bytes(b"/settings startup-scrollback on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "startup-scrollback",
+                "not saved to user settings (no home directory is set)"
+            ))
+        );
+        assert!(!shell.startup_scrollback);
+    }
+
+    #[test]
+    fn an_argument_it_does_not_take_is_upstreams_usage_line() {
+        // `fx-settings-40x120-bogus`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in [
+            "bogus",
+            "startup-scrollback maybe",
+            "startup-scrollback on now",
+            "scrollback on",
+        ] {
+            shell.route_bytes(format!("/settings {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /settings [startup-scrollback [on|off]]"
+                )),
                 "{argument}"
             );
             assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
@@ -29670,7 +31578,7 @@ mod tests {
 
     /// What Up puts in the composer.
     fn recalled(shell: &mut Fixture) -> String {
-        shell.route_bytes(b"\x1b[A");
+        older(shell);
         shell.editor.text().to_string()
     }
 
@@ -29721,7 +31629,9 @@ mod tests {
         let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
         assert_eq!(walked[0], "/settings");
         assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
-        shell.route_bytes(&[0x15]);
+        // The walk leaves the caret at the oldest line's start: to its end,
+        // then everything before it.
+        shell.route_bytes(&[0x05, 0x15]);
 
         shell.route_bytes(b"/settings\r");
         shell.route_bytes(b"\x1b[A");
@@ -30118,7 +32028,6 @@ mod tests {
         let mut shell = with_a_turn();
         shell.apply(UiEvent::Usage {
             input: Some(90_000),
-            output: Some(10),
         });
         assert_eq!(shell.shell.context_used, Some(90_000));
         shell.route_bytes(b"/compact\r");

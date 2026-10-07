@@ -66,6 +66,182 @@ impl Standing {
     }
 }
 
+/// How long the row says a retried request got through
+/// (`recovered_status_visible_ms`, `worker_status.zig:5`).
+pub(crate) const RECOVERED_VISIBLE: Duration = Duration::from_millis(1_500);
+
+/// The most rows a recovery's row takes (`max_static_status_activity_rows`,
+/// `render_input.zig:406`).
+const MAX_ROWS: usize = 3;
+
+/// What the activity row says about the turn's recovery, while it says
+/// anything: upstream's worker status (`worker_status.zig:7-53`), which
+/// stands in for the turn's own row for as long as it is set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Row {
+    /// A retry is decided: the countdown to the next attempt, then -- once it
+    /// is under way, through the whole of a retried answer arriving -- the
+    /// same words without the count (`pending_auto_retry_status`,
+    /// `orchestrator.zig:7826-7836`; `fx-interrupt-recovered-40x120-slow-2.8`).
+    Retrying(Standing),
+    /// The retried request got through: `✓ recovered · attempt N` until
+    /// `until` (`format_recovered_label`, `worker_status.zig:221-235`), or
+    /// until the turn ends (`clear_recovered_route`, `runtime.zig:6471`).
+    Recovered { attempt: u32, until: Instant },
+}
+
+impl Row {
+    /// The row's text at `now`, or `None` once a recovery has had its moment.
+    pub(crate) fn label(&self, now: Instant) -> Option<String> {
+        match self {
+            Self::Retrying(standing) => Some(standing.label(now)),
+            // Expired at the deadline itself (`is_expired`: `now >= expires`).
+            Self::Recovered { attempt, until } => (now < *until).then(|| recovered_label(*attempt)),
+        }
+    }
+
+    /// Whether a label too long for its rows keeps its end rather than its
+    /// start: a warning's tail is the action and its count, which is what
+    /// the row is for (`preserve_trailing_context`, `shimmer_runtime.zig:
+    /// 202-205`).
+    pub(crate) fn keeps_tail(&self) -> bool {
+        matches!(self, Self::Retrying(_))
+    }
+}
+
+/// `✓ recovered · attempt N` (`format_recovered_label`,
+/// `worker_status.zig:221-235`).
+pub(crate) fn recovered_label(attempt: u32) -> String {
+    if attempt == 0 {
+        return "\u{2713} recovered".to_string();
+    }
+    format!("\u{2713} recovered \u{b7} attempt {attempt}")
+}
+
+/// `label` on as many rows of `cols` cells as it needs, up to three, as
+/// upstream lays out a status row (`wrappedStaticActivityLabel`,
+/// `shimmer_runtime.zig:89-149`).
+///
+/// The first row keeps the label's leading mark and the space after it (`⚠ `,
+/// `statusPrefixEnd`); each row after it is indented by that width. Rows break
+/// at the last space that fits, or inside a word that does not. A label still
+/// too long for the third row ends it with `...`: in front of the label's
+/// tail when `keep_tail`, after its head otherwise. A label that fits is one
+/// row, untouched.
+pub(crate) fn wrapped(label: &str, cols: u16, keep_tail: bool) -> Vec<String> {
+    let cols = usize::from(cols).max(1);
+    if usize::from(super::wrap::width(label)) <= cols {
+        return vec![label.to_string()];
+    }
+    let prefix_end = status_prefix_end(label);
+    let prefix = &label[..prefix_end];
+    let prefix_width = usize::from(super::wrap::width(prefix));
+    let indent = prefix_width.max(1);
+    let mut remaining = &label[prefix_end..];
+    let mut rows: Vec<String> = Vec::new();
+    while !remaining.is_empty() && rows.len() < MAX_ROWS {
+        let first = rows.is_empty();
+        let lead = if first {
+            prefix.to_string()
+        } else {
+            " ".repeat(indent)
+        };
+        let lead_width = if first { prefix_width } else { indent };
+        let available = cols.saturating_sub(lead_width).max(1);
+        let last = rows.len() + 1 == MAX_ROWS;
+        if last && usize::from(super::wrap::width(remaining)) > available {
+            let marker = match available {
+                1 => ".",
+                2 => "..",
+                _ => "...",
+            };
+            let content = available.saturating_sub(marker.len());
+            rows.push(if keep_tail {
+                format!("{lead}{marker}{}", suffix_by_width(remaining, content))
+            } else {
+                let mut chunk = wrap_cut(remaining, content);
+                if chunk.is_empty() && content > 0 {
+                    chunk = super::wrap::first_cluster(remaining).unwrap_or("");
+                }
+                format!("{lead}{chunk}{marker}")
+            });
+            remaining = "";
+        } else {
+            let mut chunk = wrap_cut(remaining, available);
+            if chunk.is_empty() {
+                chunk = super::wrap::first_cluster(remaining).unwrap_or(remaining);
+            }
+            rows.push(format!("{lead}{chunk}"));
+            remaining = remaining[chunk.len()..].trim_start_matches([' ', '\t']);
+        }
+    }
+    rows
+}
+
+/// Where a status label's leading mark ends, the space after it included, or
+/// zero when it has none (`statusPrefixEnd`, `display_width.zig`).
+fn status_prefix_end(label: &str) -> usize {
+    let Some(first) = super::wrap::first_cluster(label) else {
+        return 0;
+    };
+    if first.len() >= label.len() {
+        return 0;
+    }
+    if label.as_bytes()[first.len()] == b' ' {
+        first.len() + 1
+    } else {
+        0
+    }
+}
+
+/// The longest start of `text` that is at most `width` cells.
+fn prefix_by_width(text: &str, width: usize) -> &str {
+    let mut used = 0usize;
+    let mut end = 0usize;
+    while let Some(cluster) = super::wrap::first_cluster(&text[end..]) {
+        let cells = usize::from(super::wrap::width(cluster));
+        if used + cells > width {
+            break;
+        }
+        used += cells;
+        end += cluster.len();
+    }
+    &text[..end]
+}
+
+/// The longest end of `text` that is at most `width` cells.
+fn suffix_by_width(text: &str, width: usize) -> &str {
+    let mut starts = Vec::new();
+    let mut at = 0usize;
+    while let Some(cluster) = super::wrap::first_cluster(&text[at..]) {
+        starts.push((at, usize::from(super::wrap::width(cluster))));
+        at += cluster.len();
+    }
+    let mut used = 0usize;
+    let mut start = text.len();
+    for (index, cells) in starts.into_iter().rev() {
+        if used + cells > width {
+            break;
+        }
+        used += cells;
+        start = index;
+    }
+    &text[start..]
+}
+
+/// The start of `text` that fits `width` cells, broken at its last space when
+/// there is one past the start (`wrapCutIgnoringAnsi`, `display_width.zig`).
+fn wrap_cut(text: &str, width: usize) -> &str {
+    let prefix = prefix_by_width(text, width);
+    if prefix.len() == text.len() {
+        return prefix;
+    }
+    match prefix.rfind([' ', '\t']) {
+        Some(space) if space > 0 => &text[..space],
+        _ => prefix,
+    }
+}
+
 /// What kind of failure `error` is, in upstream's words for its causes
 /// (`recoveryLabel`, `types.zig:531-543`).
 ///
@@ -442,6 +618,62 @@ mod tests {
 
     fn record_cause(error: &ProviderError) -> String {
         Retried::of(error, Duration::ZERO).record(1, 3).body
+    }
+
+    #[test]
+    fn a_label_too_wide_wraps_under_its_mark_as_upstreams_does() {
+        // `fx-interrupt-retry-24x80-r0.15`: the label broken at the last space
+        // that fits 80 columns, the rest under it two columns in.
+        let label = "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream \
+                     exploded \u{b7} retrying request in 1s";
+        assert_eq!(
+            wrapped(label, 80, true),
+            [
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream exploded \u{b7} retrying",
+                "  request in 1s",
+            ]
+        );
+        assert_eq!(wrapped(label, 120, true), [label]);
+    }
+
+    #[test]
+    fn a_label_longer_than_three_rows_keeps_its_tail_or_its_head() {
+        let label = format!(
+            "\u{26a0} {} \u{b7} retrying request in 9s",
+            "word ".repeat(30)
+        );
+        let rows = wrapped(&label, 30, true);
+        assert_eq!(rows.len(), 3, "{rows:#?}");
+        assert!(rows[0].starts_with("\u{26a0} word"), "{rows:#?}");
+        assert!(rows[1].starts_with("  word"), "{rows:#?}");
+        assert!(rows[2].starts_with("  ..."), "{rows:#?}");
+        assert!(rows[2].ends_with("retrying request in 9s"), "{rows:#?}");
+        for row in &rows {
+            assert!(usize::from(super::super::wrap::width(row)) <= 30, "{row:?}");
+        }
+        let head = wrapped(&label, 30, false);
+        assert!(head[2].ends_with("..."), "{head:#?}");
+    }
+
+    #[test]
+    fn a_recovery_is_said_for_a_moment_and_then_not_at_all() {
+        // `worker_status.zig:5` and its test: shown at 1 000 ms + 1 499, gone
+        // at + 1 500.
+        let now = Instant::now();
+        let row = Row::Recovered {
+            attempt: 2,
+            until: now + RECOVERED_VISIBLE,
+        };
+        assert_eq!(
+            row.label(now).as_deref(),
+            Some("\u{2713} recovered \u{b7} attempt 2")
+        );
+        assert!(row
+            .label(now + RECOVERED_VISIBLE - Duration::from_millis(1))
+            .is_some());
+        assert_eq!(row.label(now + RECOVERED_VISIBLE), None);
+        assert!(!row.keeps_tail());
+        assert_eq!(recovered_label(0), "\u{2713} recovered");
     }
 
     #[test]

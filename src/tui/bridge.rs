@@ -273,16 +273,19 @@ pub(crate) enum UiEvent {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
     },
-    /// What a **completed** turn spent.
+    /// What a **completed** turn's answering request read: the context
+    /// meter's numerator.
     ///
-    /// Both halves optional because a provider really may publish neither
+    /// Optional because a provider really may not publish it
     /// (`gateway::protocol::Usage::input_tokens` is an `Option`), and an absent
     /// number must stay absent: a meter that showed nought per cent for a turn
     /// nobody measured would be reporting a measurement that was never taken.
-    Usage {
-        input: Option<u64>,
-        output: Option<u64>,
-    },
+    /// What the turn wrote is not here: that is every request's, and arrives
+    /// as each one ends ([`Self::Output`]).
+    Usage { input: Option<u64> },
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]).
+    Output(crate::agent::tokens::Progress),
     /// A request failed in a way the turn replays, and the next attempt goes
     /// after `delay` (`crate::output::EventSink::retrying`).
     ///
@@ -294,6 +297,15 @@ pub(crate) enum UiEvent {
         diagnostic: String,
         delay: std::time::Duration,
     },
+    /// The turn took these steers -- prompts the person sent into it while it
+    /// ran -- and the model is being told them (`crate::agent::steering`): the
+    /// band writes each one's card now, at its delivery, as upstream writes a
+    /// steer's (`append_user_feedback`, `worker_runtime.zig:1233-1240`).
+    Steered { ids: Vec<u64> },
+    /// A retried request got through on `attempt`
+    /// (`crate::output::EventSink::recovered`): the row says so for a moment
+    /// ([`super::retry::Row::Recovered`]).
+    Recovered { attempt: u32 },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
     /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
@@ -337,17 +349,20 @@ pub(crate) enum UiEvent {
         id: String,
         failure: super::session_picker::ResumeFailure,
     },
-    /// `/rename` reached the conversation: the session is called `title` from
-    /// here on, and `unsaved` is why the log does not say so, when it does not
-    /// (`renamed for this process but not saved`).
+    /// A `/rename` the shell had already applied could not be written into
+    /// the session's log, for this reason (`renamed for this process but not
+    /// saved`, `app_commands.zig:3833-3846`).
     ///
-    /// Structured rather than a notice alone, because the window's title is
-    /// the shell's to change and it changes only for a rename that happened: a
-    /// rename a Ctrl-C dropped from the queue before it ran is not one.
-    Renamed {
-        title: String,
-        unsaved: Option<String>,
-    },
+    /// Its own event rather than a notice, because a reset's drain drops the
+    /// notices of the conversation it handed to scrollback, and a title typed
+    /// for that conversation is written just before it goes.
+    RenameUnsaved(String),
+    /// A `/rename` the shell had not said anything about yet
+    /// ([`TurnControl::Rename`]'s `announced`) is in the session's log under
+    /// this title: the shell's `renamed to "…"` (`app_commands.zig:3852-3857`)
+    /// is said now, the one notice the rename gets. Its own event for
+    /// [`Self::RenameUnsaved`]'s reason.
+    Renamed(String),
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
     /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
     ///
@@ -569,8 +584,9 @@ impl UiEvent {
             },
             // A provider tag and a category. Nothing here is text.
             Self::CatalogUnread { provider, retry } => Self::CatalogUnread { provider, retry },
-            // Two numbers. There is nothing here a terminal can be made to obey.
-            Self::Usage { input, output } => Self::Usage { input, output },
+            // Numbers. There is nothing here a terminal can be made to obey.
+            Self::Usage { input } => Self::Usage { input },
+            Self::Output(progress) => Self::Output(progress),
             // A count. There is nothing here a terminal can be made to obey.
             Self::Fresh { through } => Self::Fresh { through },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
@@ -657,6 +673,10 @@ impl UiEvent {
                 diagnostic: inert_owned(diagnostic),
                 delay,
             },
+            // A count. There is nothing here a terminal can be made to obey.
+            Self::Recovered { attempt } => Self::Recovered { attempt },
+            // Numbers the band gave out.
+            Self::Steered { ids } => Self::Steered { ids },
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
@@ -670,65 +690,20 @@ impl UiEvent {
                     now_ms: listing.now_ms,
                 }))
             }
-            // **A whole conversation read back off a disk**: every prompt,
-            // every answer, every argument a model gave a tool and every first
-            // line a tool answered with. The line breaks survive, as a delta's
-            // do -- a prompt's and an answer's rows are made of them.
-            Self::Resumed(hydration) => Self::Resumed(super::hydration::Hydration {
-                title: hydration.title.map(inert_owned),
-                turns: hydration
-                    .turns
-                    .into_iter()
-                    .map(|turn| super::hydration::HydratedTurn {
-                        user: inert_owned(turn.user),
-                        sent: inert_owned(turn.sent),
-                        steps: turn.steps.into_iter().map(inert_step).collect(),
-                        ending: match turn.ending {
-                            super::hydration::Ending::Interrupted(reason) => {
-                                super::hydration::Ending::Interrupted(inert_owned(reason))
-                            }
-                            ending => ending,
-                        },
-                        started_at_ms: turn.started_at_ms,
-                        concluded_at_ms: turn.concluded_at_ms,
-                        details: turn
-                            .details
-                            .into_iter()
-                            .map(|(id, detail)| (inert_owned(id), detail.made_inert()))
-                            .collect(),
-                    })
-                    .collect(),
-                model: hydration.model.map(inert_owned),
-                // A level's name is a word upstream would parse, read off the
-                // log all the same.
-                settings: hydration.settings.map(|settings| {
-                    crate::provider::effort::TurnSettings {
-                        effort: match settings.effort {
-                            crate::provider::effort::Effort::Named(name) => {
-                                crate::provider::effort::Effort::Named(inert_owned(name))
-                            }
-                            auto => auto,
-                        },
-                        ..settings
-                    }
-                }),
-                // A number.
-                next_image: hydration.next_image,
-                keeps_fast_binding: hydration.keeps_fast_binding,
-            }),
+            // A whole conversation read back off a disk ([`inert_hydration`]).
+            Self::Resumed(hydration) => Self::Resumed(inert_hydration(hydration)),
             // The id is the store's own name for a directory, read back off a
             // listing; the failure is this crate's word.
             Self::ResumeFailed { id, failure } => Self::ResumeFailed {
                 id: inert_owned(id),
                 failure,
             },
-            // The title passed `validate_title` and holds no control
-            // character; the reason quotes a path and an I/O error, which are
-            // the filesystem's words. Neither is exempt.
-            Self::Renamed { title, unsaved } => Self::Renamed {
-                title: inert_owned(title),
-                unsaved: unsaved.map(inert_owned),
-            },
+            // The reason quotes a path and an I/O error, which are the
+            // filesystem's words.
+            Self::RenameUnsaved(problem) => Self::RenameUnsaved(inert_owned(problem)),
+            // The title passed the store's own validation, which refuses a
+            // control character; the same policy anyway, as every text does.
+            Self::Renamed(title) => Self::Renamed(inert_owned(title)),
             // The notice quotes paths, which are the filesystem's words. The
             // directories travel as paths rather than text: the picker spells
             // each one through `access::terminal_safe` when it paints it,
@@ -747,6 +722,63 @@ impl UiEvent {
             Self::Compaction(update) => Self::Compaction(update),
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
+    }
+}
+
+/// A saved session's replay with its text made inert -- **the one step both
+/// ways a session is resumed go through**: the picker's, which crosses the
+/// channel as [`UiEvent::Resumed`], and the launch's, which never crosses it
+/// (`super::worker::Resumption::hydration`, built before the terminal is
+/// taken).
+///
+/// A whole conversation read back off a disk: every prompt, every answer,
+/// every argument a model gave a tool, every result its full-transcript
+/// record shows. A log is file input -- anyone who can write the file can put
+/// an escape in it -- so none of it reaches the terminal as written. The line
+/// breaks survive, as a delta's do: a prompt's and an answer's rows are made
+/// of them.
+pub(crate) fn inert_hydration(
+    hydration: super::hydration::Hydration,
+) -> super::hydration::Hydration {
+    super::hydration::Hydration {
+        title: hydration.title.map(inert_owned),
+        turns: hydration
+            .turns
+            .into_iter()
+            .map(|turn| super::hydration::HydratedTurn {
+                // Image numbers and the paths the session's own store gave
+                // them, which nothing paints.
+                images: turn.images,
+                user: inert_owned(turn.user),
+                sent: inert_owned(turn.sent),
+                steps: turn.steps.into_iter().map(inert_step).collect(),
+                ending: turn.ending,
+                started_at_ms: turn.started_at_ms,
+                concluded_at_ms: turn.concluded_at_ms,
+                details: turn
+                    .details
+                    .into_iter()
+                    .map(|(id, detail)| (inert_owned(id), detail.made_inert()))
+                    .collect(),
+            })
+            .collect(),
+        model: hydration.model.map(inert_owned),
+        // A level's name is a word upstream would parse, read off the
+        // log all the same.
+        settings: hydration
+            .settings
+            .map(|settings| crate::provider::effort::TurnSettings {
+                effort: match settings.effort {
+                    crate::provider::effort::Effort::Named(name) => {
+                        crate::provider::effort::Effort::Named(inert_owned(name))
+                    }
+                    auto => auto,
+                },
+                ..settings
+            }),
+        // A number.
+        next_image: hydration.next_image,
+        keeps_fast_binding: hydration.keeps_fast_binding,
     }
 }
 
@@ -769,25 +801,28 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
     use super::hydration::HydratedStep;
     match step {
         HydratedStep::Text(text) => HydratedStep::Text(inert_owned(text)),
-        HydratedStep::ToolStart { id, shown } => HydratedStep::ToolStart {
+        HydratedStep::ToolStart { id, shown, at_ms } => HydratedStep::ToolStart {
             id: inert_owned(id),
             shown: Shown {
                 presentation: shown.presentation,
                 target: shown.target.map(inert_owned),
             },
+            // A number.
+            at_ms,
         },
         HydratedStep::ToolResult {
             id,
             ok,
-            detail,
             outcome,
+            changes,
         } => HydratedStep::ToolResult {
             id: inert_owned(id),
             ok,
-            detail: inert_owned(detail),
             outcome,
+            changes,
         },
         HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
+        HydratedStep::Steer(text) => HydratedStep::Steer(inert_owned(text)),
     }
 }
 
@@ -887,6 +922,28 @@ pub(crate) enum TurnControl {
     /// the same file makes it `Could not undo` rather than a restore that
     /// discards that change.
     Undo { through: crate::tools::undo::Mark },
+    /// `/rename <title>`, the title already validated
+    /// (`crate::session::validate_title`): the shell has titled the window, as
+    /// upstream caches the title before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
+    /// conversation's session -- at once between turns; while work runs, put
+    /// aside like [`Self::Undo`] (`super::approval::ControlChannel::defer_rename`)
+    /// and written the moment that work has said its last word, the log being
+    /// the running turn's until then.
+    ///
+    /// Upstream says one thing per rename, what became of the write
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`). `announced` is
+    /// whether the shell has said `renamed to "…"` already -- it does while
+    /// work runs, where upstream's notice comes at once and this write
+    /// cannot -- and the runtime answers a write that worked only when it has
+    /// not ([`UiEvent::Renamed`]), and one that did not always
+    /// ([`UiEvent::RenameUnsaved`]).
+    ///
+    /// **A control message rather than work**, for [`Self::Undo`]'s reasons,
+    /// and for one of its own: it is ordered with [`Self::Reset`] on one
+    /// channel, so a title typed before a `/new` is the session the reset
+    /// drops and one typed after it is the session the reset starts.
+    Rename { title: String, announced: bool },
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -1026,11 +1083,6 @@ pub(crate) enum TurnWork {
     /// for it is refused while one runs, and the conversation it replaces is
     /// one a turn would be writing into.
     Resume(String),
-    /// Give the conversation's session this title, already validated
-    /// (`crate::session::validate_title`), opening the session first when no
-    /// prompt has. Answered with a notice: renamed, or renamed here and not
-    /// saved.
-    Rename(String),
     /// Make one `/workspace` change ([`UiEvent::Workspace`]).
     ///
     /// Work rather than control because it changes the scope a turn's tools
@@ -1512,11 +1564,29 @@ impl EventSink for UiEventSink {
         }
     }
 
-    /// The `✓ recovery:` record of an attempt that got through after a retry.
+    /// Which of the band's steers the turn took.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = self.send(UiEvent::Steered {
+            ids: steers.iter().map(|steer| steer.id).collect(),
+        });
+    }
+
+    /// The row that says an attempt got through after a retry, and its
+    /// `✓ recovery:` record, in upstream's order: the status is set, then
+    /// recorded (`app_worker_runtime.zig:1121-1129`).
     fn recovered(&mut self, attempt: u32, limit: u32) {
         if self.retried.take().is_some() {
+            let _ = self.send(UiEvent::Recovered { attempt });
             let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
         }
+    }
+
+    /// The turn's out, for the activity row and the summary under the answer,
+    /// through the same permit as the deltas it is counted beside -- so it
+    /// arrives after the text of the request it settles and before the next
+    /// one's. Its failure dropped, as the hook's contract says.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = self.send(UiEvent::Output(progress));
     }
 }
 
@@ -1658,11 +1728,16 @@ mod tests {
         sink.recovered(2, 3);
         drop(sink);
         let mut records = Vec::new();
+        let mut recovered = Vec::new();
         while let Some(event) = rx.blocking_recv() {
-            if let UiEvent::FullDetail(record) = event {
-                records.push(record.body);
+            match event {
+                UiEvent::FullDetail(record) => records.push(record.body),
+                // The row's own event, once, for the retried step only.
+                UiEvent::Recovered { attempt } => recovered.push(attempt),
+                _ => {}
             }
         }
+        assert_eq!(recovered, [2]);
         assert_eq!(
             records,
             [
@@ -2305,6 +2380,20 @@ mod tests {
     }
 
     #[test]
+    fn both_answers_to_a_rename_are_made_inert() {
+        // A title the store's validation passed, and an I/O error's words:
+        // the same policy for both, at the channel.
+        assert_eq!(
+            UiEvent::Renamed("a\x1b[2Jb".into()).made_inert(),
+            UiEvent::Renamed("a [2Jb".into())
+        );
+        assert_eq!(
+            UiEvent::RenameUnsaved("a\x1b[2Jb".into()).made_inert(),
+            UiEvent::RenameUnsaved("a [2Jb".into())
+        );
+    }
+
+    #[test]
     fn catalog_rows_are_made_inert_in_every_string_they_carry() {
         // A catalog is a document a daemon on a port serves. Its ids, its
         // display names and its effort labels are all about to become rows on a
@@ -2522,11 +2611,8 @@ mod tests {
         // The drain leaves on exactly the two events a turn cannot continue
         // past. A catalog or a usage number that answered `true` would end the
         // drain while the worker still owed its conclusion.
-        assert!(!UiEvent::Usage {
-            input: Some(1),
-            output: Some(2)
-        }
-        .is_terminal());
+        assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
+        assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()

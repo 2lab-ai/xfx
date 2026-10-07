@@ -1,0 +1,40 @@
+* session resumed: write one please
+
+┃ write one please
+
+● 1 tool call · 1 write
+└ Wrote a.txt
+
+  wrote a.txt (one)
+
+  0s (↑5 ↓80)
+
+┃ write two please
+
+● 2 tool calls · 1 read · 1 write
+├ Read a.txt
+└ Wrote a.txt
+
+  wrote a.txt (two)
+
+  0s (↑5 ↓120)
+
+* undo: Nothing to undo.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+

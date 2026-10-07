@@ -1,0 +1,32 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "try it"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Recovered answer."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "second try"
+    }
+   ]
+  }
+ ]
+}

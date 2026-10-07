@@ -389,7 +389,8 @@ fn turn_cost(turn: &HistoryTurn) -> usize {
                 .saturating_add(text_tokens(tool))
                 .saturating_add(text_tokens(output))
                 .saturating_add(8),
-            crate::session::TurnStep::ToolFeedback { text, .. } => text_tokens(text),
+            crate::session::TurnStep::ToolFeedback { text, .. }
+            | crate::session::TurnStep::Steered { text } => text_tokens(text),
         });
     }
     total
@@ -467,14 +468,15 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
                         call_id,
                         tool,
                         output,
-                        error,
+                        status,
                     } = part
                     {
                         items.push(Item::ToolResult {
                             call_id,
                             name: tool,
                             output,
-                            failed: error,
+                            // A refusal did not succeed either.
+                            failed: status != crate::gateway::protocol::ResultStatus::Success,
                         });
                     }
                 }
@@ -2052,10 +2054,14 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
+                    created_at_ms: None,
                     call_id: "read1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
                     output: "1\tseed notes line one\n2\tSEED_VALUE_42\n".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
                 },
                 TurnStep::Assistant {
                     text: "ANSWER_1: I read the notes.".to_string(),

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
+
+┃ run it
+
+● 1 tool call · 1 command
+└ Ran sleep 4
+
+  after recovery.
+
+  4s (↑2 ↓40)
+
+┃ slowly
+
+  slow words after a retry keep coming in.
+
+  3s (↑2 ↓40)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

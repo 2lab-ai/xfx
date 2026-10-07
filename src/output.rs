@@ -730,6 +730,12 @@ pub enum SessionStepRow {
         /// would hide the half of the exchange the user wrote.
         text: String,
     },
+    /// A prompt the person sent into the turn while it ran, which the turn
+    /// took (`crate::agent::steering`).
+    Steer {
+        /// What they typed, clipped like every other recorded text.
+        text: String,
+    },
 }
 
 /// One recorded turn, bounded for display.
@@ -817,6 +823,7 @@ impl SessionDetailSnapshot {
                             tool,
                             ok,
                             output,
+                            ..
                         } => SessionStepRow::Tool {
                             call_id: clip_text(&one_line(call_id)),
                             tool: clip_text(&one_line(tool)),
@@ -830,6 +837,9 @@ impl SessionDetailSnapshot {
                         // the next one. Neither changes what was stored.
                         TurnStep::ToolFeedback { call_id, text } => SessionStepRow::Feedback {
                             call_id: clip_text(&one_line(call_id)),
+                            text: clip_text(text),
+                        },
+                        TurnStep::Steered { text } => SessionStepRow::Steer {
                             text: clip_text(text),
                         },
                     })
@@ -932,6 +942,11 @@ impl SessionDetailSnapshot {
                         "[turn] index={index} role=feedback call_id={call_id} text={}\n",
                         one_line(text)
                     )),
+                    // The person's own row, as a prompt is.
+                    SessionStepRow::Steer { text } => out.push_str(&format!(
+                        "[turn] index={index} role=steer text={}\n",
+                        one_line(text)
+                    )),
                 }
             }
             let outcome = match &turn.outcome {
@@ -939,7 +954,7 @@ impl SessionDetailSnapshot {
                     finish_reason,
                     steps,
                 }) => format!("final finish_reason={finish_reason} steps={steps}"),
-                Some(crate::session::TurnConclusion::Interrupted { reason }) => {
+                Some(crate::session::TurnConclusion::Interrupted { reason, .. }) => {
                     format!("interrupted reason={}", one_line(reason))
                 }
                 None => "unfinished".to_string(),
@@ -978,8 +993,14 @@ fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::sessio
             finish_reason: clip_text(&one_line(finish_reason)),
             steps: *steps,
         },
-        TurnConclusion::Interrupted { reason } => TurnConclusion::Interrupted {
+        TurnConclusion::Interrupted {
+            reason,
+            terminal_reason,
+            cancellation_origin,
+        } => TurnConclusion::Interrupted {
             reason: clip_text(&one_line(reason)),
+            terminal_reason: *terminal_reason,
+            cancellation_origin: *cancellation_origin,
         },
     }
 }
@@ -1126,6 +1147,23 @@ pub trait EventSink {
     /// retry. A hook for the same reason, and with the same promise.
     fn recovered(&mut self, attempt: u32, limit: u32) {
         let _ = (attempt, limit);
+    }
+
+    /// The turn took these prompts the person sent into it while it ran
+    /// (`crate::agent::steering`), and the model is about to be told them. A
+    /// hook rather than an [`Event`] for the reason [`Self::retrying`] is: only
+    /// the full-screen session can send a prompt into a running turn, and only
+    /// it shows one arriving.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = steers;
+    }
+
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]). A hook for the same reason as the
+    /// others: the full-screen session's row is the one consumer, and what
+    /// the turn produced is unchanged by whether anybody counted it.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = progress;
     }
 }
 
@@ -1528,6 +1566,10 @@ mod tests {
         let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
             &long,
             vec![crate::session::TurnStep::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

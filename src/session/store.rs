@@ -49,7 +49,7 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::TurnJournal;
 use crate::config::PermissionMode;
-use crate::gateway::protocol::{Message, ToolCall};
+use crate::gateway::protocol::{Message, ResultStatus, ToolCall};
 use crate::permission::Grant;
 use crate::provider::Wire;
 
@@ -95,15 +95,14 @@ pub const MAX_LIST_LIMIT: usize = 200;
 /// The most directory entries one listing will consider.
 const MAX_SCANNED_SESSIONS: usize = 5_000;
 
-/// The most bytes of a user message kept as a session's title.
-const MAX_TITLE_BYTES: usize = 80;
+/// The most words of a prompt a derived title keeps (`max_title_words`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:11`).
+const MAX_TITLE_WORDS: usize = 8;
 
-/// The most bytes a title the user chose may have (`max_title_bytes`,
-/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:12`).
-///
-/// Wider than [`MAX_TITLE_BYTES`] on purpose: that one clips a prompt nobody
-/// meant as a title, and this one bounds a title somebody typed as one, which
-/// upstream lets run to 240 bytes and refuses past them rather than clipping.
+/// The most bytes any session title has (`max_title_bytes`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:12`):
+/// one a prompt gives, which is clipped to it ([`title_of`]), and one the user
+/// chose, which is refused past it rather than clipped ([`validate_title`]).
 pub const MAX_RENAMED_TITLE_BYTES: usize = 240;
 
 /// The tail every staged manifest name ends in, so a leftover one is
@@ -399,6 +398,18 @@ pub enum TurnStep {
         tool: String,
         ok: bool,
         output: String,
+        /// What the row said beyond `ok` ([`super::event::ToolEnding`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ending: Option<super::event::ToolEnding>,
+        /// The lines a change added and removed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<super::event::LineCounts>,
+        /// The change, as its review showed it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        change: Option<super::event::RecordedChange>,
+        /// When the result was recorded, if the log says.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -406,6 +417,9 @@ pub enum TurnStep {
     /// opens a turn here, and one opened mid-batch would leave the results still
     /// to come with no call ahead of them.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the turn while it ran
+    /// ([`SessionEvent::Steered`]), in the words they typed.
+    Steered { text: String },
 }
 
 /// What the model is told after a turn that did not finish, before the next
@@ -520,9 +534,10 @@ pub struct TurnTiming {
     pub started_at_ms: i64,
     /// The `turn_concluded` frame's, for a turn that has one.
     pub concluded_at_ms: Option<i64>,
-    /// Output tokens the provider reported for the turn, or `None` when its
-    /// `usage_recorded` frame said nothing or there was none -- a failed turn
-    /// has none.
+    /// Out as the turn's summary row said it (`turn_output_tokens`), or, on
+    /// a frame from before that was kept, what the provider reported for the
+    /// answering step. `None` when its `usage_recorded` frame said neither or
+    /// there was none.
     pub output_tokens: Option<u64>,
 }
 
@@ -671,18 +686,21 @@ impl DurableState {
         &self.turns[covered.min(self.turns.len())..]
     }
 
-    /// What the session is called: the title the user gave it, or else its
-    /// first user message, clipped.
+    /// What the session is called: the title the user gave it, or else the
+    /// one the first prompt that can give one gives ([`title_of`]).
     ///
     /// The order is upstream's (`readNativeResumeDisplay`,
     /// `app_session_runtime.zig:4644-4655`: the conversation title when there
-    /// is one, a title derived from the history when there is not), and the
+    /// is one, a title derived from the history when there is not --
+    /// `deriveFromHistory`, `session_display_metadata.zig:33-55`, whose search
+    /// passes over a prompt that is blank or a slash command alone), and the
     /// manifest publishes this, so a listing, a resume and the window title all
-    /// say the same thing.
+    /// say the same thing. `None` where no prompt gives one, which a surface
+    /// names `Untitled session`, as upstream's fallback does.
     pub fn title(&self) -> Option<String> {
         self.renamed
             .clone()
-            .or_else(|| self.turns.first().and_then(|turn| title_of(&turn.user)))
+            .or_else(|| self.turns.iter().find_map(|turn| title_of(&turn.user)))
     }
 
     /// The durable history, as the messages a next request would carry on
@@ -728,6 +746,15 @@ impl DurableState {
             notices,
         }
     }
+}
+
+/// Whether a recorded result is the answer of a call its turn was stopped
+/// under: a failure whose first line is [`ABORTED_TOOL_OUTPUT`] -- alone, or
+/// followed by xfx's own note that a stopped command left something running
+/// (`crate::tools::terminal`). No tool's own failure begins with those words:
+/// every other failure is a sentence xfx writes about the call.
+fn stopped_answer(ok: bool, output: &str) -> bool {
+    !ok && output.split('\n').next() == Some(ABORTED_TOOL_OUTPUT)
 }
 
 /// One turn as the messages a request carries for it on `active`, its user
@@ -845,22 +872,28 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 tool,
                 ok,
                 output,
+                ..
             } => {
-                // Replayed as it was sent: a failure as a failure.
-                pending.push(if *ok {
-                    Message::tool_result(call_id, tool, output.clone())
+                // Replayed as it was sent: a failure as a failure, a
+                // refusal as a refusal.
+                let status = if *ok {
+                    ResultStatus::Success
+                } else if crate::tools::is_refusal(tool, output) {
+                    ResultStatus::Denied
                 } else {
-                    Message::tool_error(call_id, tool, output.clone())
-                });
+                    ResultStatus::Failure
+                };
+                pending.push(Message::tool_ended(call_id, tool, output.clone(), status));
                 awaiting.retain(|id| id != call_id);
                 // A call that answered `aborted by user` did not
                 // finish: its turn was stopped under it (a question the
-                // user cancelled, `crate::tools::question`). It is the
+                // user cancelled, `crate::tools::question`; a command
+                // the user stopped, `crate::tools::terminal`). It is the
                 // call upstream keeps on the interrupted turn rather
                 // than among the completed ones
                 // (`InterruptedHistoryTurn.tool_call`,
                 // `session.zig:2701-2736`).
-                if !*ok && output == ABORTED_TOOL_OUTPUT {
+                if stopped_answer(*ok, output) {
                     stopped = true;
                 } else {
                     finished.push(tool.clone());
@@ -876,6 +909,15 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 // one it is dropped with the group, rather than
                 // arriving as a user message about a result the model
                 // was never shown.
+                pending.push(Message::user(text.clone()));
+            }
+            // The person's words as a user message of their own, as
+            // upstream's history replays a steer: plain, not in the
+            // wrapper the model was given live (`fx-interrupt-steer-
+            // 40x120-bodies/005-completion.json`: `user "what are you
+            // doing"`). Delivered only after every result of its step,
+            // so it goes out with the group.
+            TurnStep::Steered { text } => {
                 pending.push(Message::user(text.clone()));
             }
         }
@@ -1008,23 +1050,49 @@ fn close_interrupted(
     out.push(Message::user(TURN_ABORTED));
 }
 
-/// The first line of `text`, trimmed and clipped to a character boundary.
+/// The title a prompt gives its session, upstream's way
+/// (`vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig`):
+/// its first line that is not blank (`firstNonEmptyLine`, `:117-124`), as at
+/// most [`MAX_TITLE_WORDS`] words joined by one space and at most
+/// [`MAX_RENAMED_TITLE_BYTES`] bytes, the last word cut at a character
+/// boundary if it does not fit (`cappedTitle`, `:126-147`). `None` for a
+/// prompt that gives none: one that is blank, or a slash command on a line
+/// of its own (`promptCandidateFromUser`, `:84-90`).
 ///
 /// Also the TUI's window title for a session (`crate::tui`'s shell), so the
 /// window and a listing of the session say the same thing.
 pub(crate) fn title_of(text: &str) -> Option<String> {
-    let line = text.trim().lines().next().unwrap_or("").trim();
-    if line.is_empty() {
+    let trimmed = text.trim_matches([' ', '\t', '\r', '\n']);
+    if trimmed.is_empty() || (trimmed.starts_with('/') && !trimmed.contains('\n')) {
         return None;
     }
-    if line.len() <= MAX_TITLE_BYTES {
-        return Some(line.to_string());
+    let line = text
+        .split('\n')
+        .map(|line| line.trim_matches([' ', '\t', '\r']))
+        .find(|line| !line.is_empty())?;
+    let mut title = String::new();
+    // `std.ascii.isWhitespace`, which is Rust's ASCII whitespace and the
+    // vertical tab.
+    let words = line
+        .split(|character: char| character.is_ascii_whitespace() || character == '\u{b}')
+        .filter(|word| !word.is_empty())
+        .take(MAX_TITLE_WORDS);
+    for word in words {
+        let separator = usize::from(!title.is_empty());
+        let room = MAX_RENAMED_TITLE_BYTES.saturating_sub(title.len() + separator);
+        let mut take = word.len().min(room);
+        while !word.is_char_boundary(take) {
+            take -= 1;
+        }
+        if take == 0 {
+            break;
+        }
+        if separator == 1 {
+            title.push(' ');
+        }
+        title.push_str(&word[..take]);
     }
-    let mut end = MAX_TITLE_BYTES;
-    while end > 0 && !line.is_char_boundary(end) {
-        end -= 1;
-    }
-    Some(format!("{}...", &line[..end]))
+    (!title.is_empty()).then_some(title)
 }
 
 /// Why a title the user typed cannot be a session's title.
@@ -2609,6 +2677,10 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             tool,
             ok,
             output,
+            ending,
+            lines,
+            change,
+            created_at_ms,
         } => {
             open_turn(state, "a tool result", envelope.seq)?
                 .steps
@@ -2617,6 +2689,10 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     tool: tool.clone(),
                     ok: *ok,
                     output: output.clone(),
+                    ending: *ending,
+                    lines: *lines,
+                    change: change.clone(),
+                    created_at_ms: *created_at_ms,
                 });
         }
         SessionEvent::ToolFeedback { call_id, text } => {
@@ -2630,6 +2706,11 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     text: text.clone(),
                 });
         }
+        SessionEvent::Steered { text } => {
+            open_turn(state, "a steer", envelope.seq)?
+                .steps
+                .push(TurnStep::Steered { text: text.clone() });
+        }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
             let grant = Grant::new(tool.clone(), target.clone());
             if !state.grants.contains(&grant) {
@@ -2642,6 +2723,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
+            turn_output_tokens,
             requests,
             unaccounted,
             lines_added,
@@ -2673,14 +2755,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             // The turn it is about, when one is open: it is written just
             // before that turn's conclusion (`agent::machine`'s
             // `run_journaled`). One outside a turn still counts toward the
-            // totals, as it always has.
+            // totals, as it always has. What its summary row said, where the
+            // frame kept it; an older frame's answering step otherwise, which
+            // is what the row said when that binary wrote it.
             if let Some(turn) = state.turns.last_mut().filter(|turn| turn.outcome.is_none()) {
-                if let Some(output) = output_tokens {
+                if let Some(output) = turn_output_tokens.or(*output_tokens) {
                     turn.timing.output_tokens = Some(
                         turn.timing
                             .output_tokens
                             .unwrap_or(0)
-                            .saturating_add(*output),
+                            .saturating_add(output),
                     );
                 }
             }
@@ -3039,6 +3123,21 @@ enum Wait {
     None,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread has tried a session's writer lock
+    /// ([`lock_attempts_on_this_thread`]).
+    static LOCK_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has tried a session's writer lock: how a test
+/// tells a resume that did not wait -- one try -- from one that waited out
+/// the grace period, without a wall clock a loaded machine can stretch.
+#[cfg(test)]
+pub(crate) fn lock_attempts_on_this_thread() -> usize {
+    LOCK_ATTEMPTS.with(std::cell::Cell::get)
+}
+
 #[cfg(unix)]
 fn lock_exclusive_within(
     file: &File,
@@ -3048,12 +3147,16 @@ fn lock_exclusive_within(
 ) -> Result<(), SessionError> {
     use rustix::fs::{flock, FlockOperation};
 
-    let attempt = || match flock(file, FlockOperation::NonBlockingLockExclusive) {
-        Ok(()) => AttemptOutcome::Acquired,
-        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
-        // xfx builds for, so matching one covers both.
-        Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
-        Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
+    let attempt = || {
+        #[cfg(test)]
+        LOCK_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
+        match flock(file, FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => AttemptOutcome::Acquired,
+            // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
+            // xfx builds for, so matching one covers both.
+            Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
+            Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
+        }
     };
     let outcome = match wait {
         Wait::Grace => acquire_with_grace(attempt, std::thread::sleep, Instant::now),
@@ -3347,6 +3450,10 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c".to_string(),
                 tool: "t".to_string(),
                 ok: true,
@@ -3402,12 +3509,20 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
                 output: "wrote a.md".to_string(),
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c2".to_string(),
                 tool: "write_file".to_string(),
                 ok: true,
@@ -3503,6 +3618,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(3),
                 output_tokens: Some(4),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -3513,6 +3629,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -3565,6 +3682,7 @@ mod tests {
         let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
             input_tokens: None,
             output_tokens: None,
+            turn_output_tokens: None,
             requests,
             unaccounted: false,
             lines_added: 0,
@@ -3665,9 +3783,15 @@ mod tests {
                         ContentPart::ToolResult {
                             call_id,
                             output,
-                            error,
+                            status,
                             ..
-                        } => format!("result {call_id} {output} error={error}"),
+                        } => match status {
+                            ResultStatus::Denied => format!("result {call_id} {output} denied"),
+                            _ => format!(
+                                "result {call_id} {output} error={}",
+                                *status != ResultStatus::Success
+                            ),
+                        },
                         ContentPart::RawBlocks(_) => "raw".to_string(),
                         ContentPart::Image { media_type, .. } => {
                             format!("image {}", media_type.label())
@@ -3684,6 +3808,8 @@ mod tests {
         SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Interrupted {
                 reason: "the turn was cancelled".to_string(),
+                terminal_reason: None,
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
             },
         }
     }
@@ -3821,16 +3947,24 @@ mod tests {
             },
             assistant("", &[("c1", "read_file"), ("c2", "glob_files")]),
             SessionEvent::ToolResult {
+                created_at_ms: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 output: "bytes".to_string(),
+                ending: None,
+                lines: None,
+                change: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
                 call_id: "c2".to_string(),
                 tool: "glob_files".to_string(),
                 ok: true,
                 output: "a.txt".to_string(),
+                ending: None,
+                lines: None,
+                change: None,
             },
             assistant("so far", &[]),
             interrupted(),
@@ -3853,10 +3987,14 @@ mod tests {
 
     fn result(call_id: &str, tool: &str, ok: bool, output: &str) -> SessionEvent {
         SessionEvent::ToolResult {
+            created_at_ms: None,
             call_id: call_id.to_string(),
             tool: tool.to_string(),
             ok,
             output: output.to_string(),
+            ending: None,
+            lines: None,
+            change: None,
         }
     }
 
@@ -3890,6 +4028,37 @@ mod tests {
                 (Role::User, TURN_ABORTED.to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn history_answers_a_command_the_user_stopped_as_the_call_its_turn_stopped_under() {
+        // A command stopped under its turn answers `aborted by user`
+        // (`crate::tools::terminal`), with xfx's note after it when its group
+        // could not be emptied; either way it is the call the turn stopped
+        // under, not a tool that completed (`fx-interrupt-next-cmd-40x120-
+        // bodies/003-completion.json`).
+        for output in [
+            ABORTED_TOOL_OUTPUT.to_string(),
+            format!("{ABORTED_TOOL_OUTPUT}\n... [the command's process group was still there]\n"),
+        ] {
+            let state = reduce(vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "run cmd".to_string(),
+                },
+                assistant("", &[("c1", "terminal")]),
+                result("c1", "terminal", false, &output),
+                interrupted(),
+            ])
+            .expect("reduces");
+            let shown = shape(&state.history_messages(Wire::VercelGateway).messages);
+            assert_eq!(shown.len(), 4, "{shown:#?}");
+            assert_eq!(shown[1], (Role::Assistant, "call c1".to_string()));
+            assert_eq!(shown[3], (Role::User, TURN_ABORTED.to_string()));
+        }
+        // A tool's own failure that merely mentions the words is not one.
+        assert!(!stopped_answer(false, "no such file: aborted by user"));
+        assert!(!stopped_answer(true, ABORTED_TOOL_OUTPUT));
     }
 
     #[test]
@@ -3985,6 +4154,10 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
+                created_at_ms: None,
+                ending: None,
+                lines: None,
+                change: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -4011,10 +4184,47 @@ mod tests {
     #[test]
     fn a_title_is_the_first_line_of_the_first_prompt_and_is_bounded() {
         assert_eq!(title_of("  hello \n world "), Some("hello".to_string()));
+        assert_eq!(
+            title_of("\n\n  second line\nthird"),
+            Some("second line".to_string())
+        );
         assert_eq!(title_of("   "), None);
-        let long = title_of(&"x".repeat(200)).expect("a title");
-        assert!(long.len() <= MAX_TITLE_BYTES + 3, "{}", long.len());
-        assert!(long.ends_with("..."));
+        // Eight words, joined by one space whatever separated them.
+        assert_eq!(
+            title_of("one  two\tthree four five six seven eight nine ten").as_deref(),
+            Some("one two three four five six seven eight")
+        );
+        // 240 bytes, the word that does not fit cut where a character ends.
+        let long =
+            title_of(&format!("{} {}", "x".repeat(200), "\u{e9}".repeat(30))).expect("a title");
+        assert_eq!(long.len(), 239, "{long}");
+        assert!(long.ends_with('\u{e9}'));
+        assert_eq!(title_of(&"x".repeat(300)), Some("x".repeat(240)));
+        // A slash command alone gives none; one with more lines under it does.
+        assert_eq!(title_of("  /compact  "), None);
+        assert_eq!(title_of("/plan\nthe migration").as_deref(), Some("/plan"));
+    }
+
+    #[test]
+    fn a_session_is_titled_by_the_first_prompt_that_gives_a_title() {
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "/status".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Interrupted {
+                    reason: "x".to_string(),
+                    terminal_reason: None,
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "fix the parser please".to_string(),
+            },
+        ])
+        .expect("reduces");
+        assert_eq!(state.title().as_deref(), Some("fix the parser please"));
     }
 
     #[test]
@@ -4079,7 +4289,16 @@ mod tests {
 
     #[test]
     fn a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote() {
-        for title in ["", "  padded ", "line\nbreak", &"x".repeat(241)] {
+        // An escape too: a title is file input on its way to a terminal, and
+        // one holding a sequence never reaches the screen -- the log it is in
+        // is refused before any of it is replayed.
+        for title in [
+            "",
+            "  padded ",
+            "line\nbreak",
+            "set \u{1b}]0;pwned\u{7}",
+            &"x".repeat(241),
+        ] {
             let refused = reduce(vec![
                 started(),
                 SessionEvent::SessionRenamed {
@@ -4135,6 +4354,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(6),
                 output_tokens: Some(40),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -4154,6 +4374,8 @@ mod tests {
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "the turn was cancelled".to_string(),
+                    terminal_reason: None,
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
             },
             SessionEvent::UserMessage {
@@ -4179,6 +4401,54 @@ mod tests {
         );
         assert_eq!(state.turns[2].timing.concluded_at_ms, None);
         assert_eq!(state.total_output_tokens, 40);
+    }
+
+    #[test]
+    fn a_turn_replays_the_out_its_summary_said_and_an_older_frame_its_answering_step() {
+        // A turn of two requests, 40 each, said `↓80` under it: the frame
+        // keeps that beside the answering step's 40, and the replay reads the
+        // 80. The session's own total is still the answering steps', as the
+        // meter has always counted it.
+        let usage = |output: u64, turn: Option<u64>| SessionEvent::UsageRecorded {
+            input_tokens: Some(1300),
+            output_tokens: Some(output),
+            turn_output_tokens: turn,
+            requests: Vec::new(),
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        };
+        let concluded = || SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        };
+        let asked = || SessionEvent::UserMessage {
+            text: "q".to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            asked(),
+            usage(40, Some(80)),
+            concluded(),
+            asked(),
+            usage(40, None),
+            concluded(),
+            asked(),
+            usage(40, Some(0)),
+            concluded(),
+        ])
+        .expect("a valid log");
+        let outs: Vec<Option<u64>> = state
+            .turns
+            .iter()
+            .map(|turn| turn.timing.output_tokens)
+            .collect();
+        assert_eq!(outs, [Some(80), Some(40), Some(0)]);
+        assert_eq!(state.total_output_tokens, 120);
     }
 
     #[test]
