@@ -48,10 +48,27 @@
 //! *lineage*, which moves on whenever the conversation the band shows is let
 //! go of: at the keystroke for `/new`, `/clear` and `/reset` (the band moves
 //! it, as upstream clears its session there), and in the runtime for a resume
-//! and a provider switch. A question of an older lineage is cancelled when it
-//! moves, and an answer of one is dropped (upstream's `session_changed`,
-//! `app_session_runtime.zig:3720-3728`); an answer of the lineage in force
+//! and a provider switch. **A question of an older lineage runs on**, as
+//! upstream's task does -- nothing stops it but the exit (`requestStop`,
+//! `app_session_runtime.zig:3949-3950`) -- and while it runs no other is asked
+//! (`task_running`); its answer is dropped when it comes (upstream's
+//! `session_changed`, `pollSessionTitleGeneration`,
+//! `app_session_runtime.zig:3720-3728`). An answer of the lineage in force
 //! whose conversation the runtime has not opened yet is held until it does.
+//!
+//! **A prompt submitted while a switch the band asked for is still the
+//! runtime's to make** -- `/resume`'s or `/provider`'s -- asks nothing at the
+//! keystroke: it waits for the switch, and the runtime asks then, of the
+//! conversation the prompt will run in ([`TitleDesk::defer`]). Upstream holds
+//! such a prompt while its provider is being prepared
+//! (`collectPendingPromptCredential` answers `.pending` while
+//! `providerPreparationPending()`, `app_auth_runtime.zig:1840-1842`, held at
+//! `input_submit_runtime.zig:327-373`) and asks only when it finalizes it
+//! (`finalizePendingSubmission` -> `snapshotAndQueuePrompt` -> `snapshotPrompt`,
+//! `src/main.zig:1238-1266`, `:1446-1481`); its resume is done on its main
+//! thread before the next prompt is read (`resumeSelectedSession`,
+//! `app_session_runtime.zig:2249-2290`), so a prompt after it is always in the
+//! resumed session.
 //!
 //! **The thread is started with every owned signal blocked**
 //! ([`super::signals::spawn_unsignalled`]), as `/credits`' is
@@ -289,6 +306,18 @@ struct Desk {
     /// How the last question went, for `/trace` (`TitleGenerationLoad.last`,
     /// `app_session_runtime.zig:1083-1118`).
     last: TitleGeneration,
+    /// The position in the runtime's queue of the last switch the band handed
+    /// it -- a resume or a provider switch -- while the runtime has not got
+    /// past it ([`TitleDesk::switching`]).
+    switch_at: Option<usize>,
+    /// How many pieces of work the runtime has got past: done, or dropped
+    /// unstarted by an interrupt ([`TitleDesk::worked_through`]).
+    worked: usize,
+    /// The excerpt of the first prompt submitted while that switch was still
+    /// to be made, and the prompt's own position in the queue when it is one
+    /// -- for the runtime to ask from once the switch is made, unless an
+    /// interrupt dropped the prompt with it ([`TitleDesk::defer`]).
+    deferred: Option<(Option<usize>, String)>,
 }
 
 struct Shared {
@@ -339,6 +368,9 @@ impl TitleDesk {
                     tickets: 0,
                     running: None,
                     last: TitleGeneration::default(),
+                    switch_at: None,
+                    worked: 0,
+                    deferred: None,
                 }),
                 ask,
                 done,
@@ -406,25 +438,71 @@ impl TitleDesk {
         self.lock().lineage
     }
 
-    /// Lets go of the conversation questions were about: the question out is
-    /// cancelled, and anything asked from here on is about the next one.
-    /// Answers the new lineage.
+    /// Lets go of the conversation questions were about: anything asked from
+    /// here on is about the next one. Answers the new lineage.
+    ///
+    /// **The question out runs on**, as upstream's task does across a reset,
+    /// a resume or a provider switch -- only the exit stops it ([`Self::stop`])
+    /// -- and until its answer is read no other is asked (`task_running`,
+    /// `session_title_generation.zig:40-46`). Its answer is about the
+    /// conversation let go of, and is dropped (`session_changed`,
+    /// `pollSessionTitleGeneration`, `app_session_runtime.zig:3720-3728`).
     pub(crate) fn next_lineage(&self) -> u64 {
         let mut desk = self.lock();
         desk.lineage += 1;
-        if let Some(running) = desk.running.take() {
-            running.cancel.cancel();
-            desk.last = TitleGeneration {
-                status: TitleStatus::Failed,
-                model: Some(MODEL.to_string()),
-                reason: Some("cancelled"),
-                elapsed_ms: Some(
-                    i64::try_from(running.started.elapsed().as_millis()).unwrap_or(i64::MAX),
-                ),
-                ..TitleGeneration::default()
-            };
-        }
         desk.lineage
+    }
+
+    /// The band is about to hand the runtime a switch -- a resume or a
+    /// provider switch -- at position `at` of its queue (one past every
+    /// submission so far: the band is the only submitter). Recorded **before**
+    /// the submission, so a runtime that makes the switch at once cannot get
+    /// past it unseen. Answers what to put back if the submission is refused
+    /// ([`Self::switch_refused`]).
+    pub(crate) fn switching(&self, at: usize) -> Option<usize> {
+        let mut desk = self.lock();
+        let before = desk.switch_at;
+        desk.switch_at = Some(at);
+        before
+    }
+
+    /// The switch [`Self::switching`] announced was not submitted after all.
+    pub(crate) fn switch_refused(&self, before: Option<usize>) {
+        self.lock().switch_at = before;
+    }
+
+    /// Holds `excerpt` for the runtime to ask from, when a switch the band
+    /// handed it is still to be made, and says whether it did. `at` is the
+    /// prompt's own position in the queue, when it is a piece of work rather
+    /// than a steer. The first prompt held is the one asked from, as the
+    /// first prompt submitted would be; one after it would find that question
+    /// out.
+    pub(crate) fn defer(&self, excerpt: &str, at: Option<usize>) -> bool {
+        let mut desk = self.lock();
+        if !desk.switch_at.is_some_and(|switch| switch > desk.worked) {
+            return false;
+        }
+        if desk.deferred.is_none() {
+            desk.deferred = Some((at, excerpt.to_string()));
+        }
+        true
+    }
+
+    /// The runtime has got past `worked` pieces of work. Answers the excerpt
+    /// held for the switch it has now made, if it has and the prompt is still
+    /// to run: the runtime's to ask from, of the conversation the prompt will
+    /// run in. A prompt an interrupt dropped with the switch asks nothing, as
+    /// upstream's cancelled pending prompt is never snapshotted
+    /// (`cancelPendingSubmission`, `input_submit_runtime.zig:428`).
+    pub(crate) fn worked_through(&self, worked: usize) -> Option<String> {
+        let mut desk = self.lock();
+        desk.worked = desk.worked.max(worked);
+        if !desk.switch_at.is_some_and(|switch| switch <= desk.worked) {
+            return None;
+        }
+        desk.switch_at = None;
+        let (at, excerpt) = desk.deferred.take()?;
+        at.is_none_or(|at| at > desk.worked).then_some(excerpt)
     }
 
     /// Whether a question is out (`task_running`,
@@ -518,8 +596,7 @@ impl TitleDesk {
     /// Takes `titled` off the books: the question it answers is no longer
     /// out, and how it went is what `/trace` says (`recordFinished`,
     /// `app_session_runtime.zig:1153-1171`). `false`, and nothing changed,
-    /// for an answer to a question that is not the one out -- one a lineage
-    /// change cancelled, whose word no longer counts.
+    /// for an answer to a question that is not the one out.
     pub(crate) fn settle(&self, titled: &Titled) -> bool {
         let mut desk = self.lock();
         if desk
@@ -993,36 +1070,94 @@ mod tests {
     }
 
     #[test]
-    fn a_lineage_change_cancels_the_question_out_and_its_answer_no_longer_counts() {
-        // `/new` while the question is out; its answer lands after, and is
-        // about the conversation let go of (`session_changed`).
-        let (desk, mut answers) = TitleDesk::answering_questions(true, |question| {
-            // The first question is answered only once it was cancelled; the
-            // second, which nothing cancels, at once.
+    fn a_lineage_change_lets_the_question_run_and_asks_no_other_until_it_is_answered() {
+        // `/new` while the question is out: upstream's task runs on, nothing
+        // else is asked while it does (`task_running`,
+        // `session_title_generation.zig:40-46`), and its answer comes back
+        // tagged with the conversation let go of -- the runtime's to drop
+        // (`session_changed`, `app_session_runtime.zig:3720-3728`).
+        let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let held = Arc::clone(&release);
+        let (desk, mut answers) = TitleDesk::answering_questions(true, move |question| {
             if question.excerpt == "first" {
                 let deadline = Instant::now() + Duration::from_secs(10);
-                while !question.cancel.is_cancelled() && Instant::now() < deadline {
+                while !held.load(std::sync::atomic::Ordering::SeqCst) && Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(2));
                 }
-                return Outcome::Generated("Too late".into());
+                assert!(
+                    !question.cancel.is_cancelled(),
+                    "a lineage change cancelled it"
+                );
+                return Outcome::Generated("About the first".into());
             }
-            Outcome::Generated("In time".into())
+            Outcome::Generated("About the second".into())
         });
         published(&desk);
         assert!(desk.ask("first"));
         assert_eq!(desk.next_lineage(), 1);
-        assert!(!desk.running());
-        let late = next_within(&mut answers).expect("the cancelled thread still answers");
-        assert_eq!(late.lineage, 0);
+        assert!(desk.running(), "the question stopped with the lineage");
         assert!(
-            !desk.settle(&late),
-            "a cancelled question's answer was counted"
+            !desk.ask("second"),
+            "a second question went out while the first ran"
         );
-        // The next conversation's question is its own.
+        release.store(true, std::sync::atomic::Ordering::SeqCst);
+        let late = next_within(&mut answers).expect("the first question's answer");
+        assert_eq!(late.lineage, 0);
+        assert!(desk.settle(&late), "its answer was not taken off the books");
+        assert_eq!(desk.generation().status, TitleStatus::Installed);
+        // Settled, the next question goes out, about the next conversation.
         assert!(desk.ask("second"));
         let next = next_within(&mut answers).expect("an answer");
         assert_eq!(next.lineage, 1);
         assert!(desk.settle(&next));
+    }
+
+    #[test]
+    fn a_prompt_while_a_switch_is_to_be_made_is_held_until_the_runtime_has_made_it() {
+        // Upstream holds a prompt while its provider is prepared and asks
+        // only when it finalizes it (`app_auth_runtime.zig:1840-1842`,
+        // `src/main.zig:1238-1266`): the band records the switch at the
+        // position it hands it, a prompt submitted before the runtime got past
+        // it is held, and the runtime is given it back once it has.
+        let (desk, _answers) = TitleDesk::answering(true, |_| Outcome::Generated("x".into()));
+        published(&desk);
+        assert!(
+            !desk.defer("before any switch", Some(1)),
+            "held with no switch"
+        );
+        assert_eq!(desk.switching(3), None);
+        assert!(desk.defer("typed during it", Some(4)));
+        assert!(
+            desk.defer("typed after that", Some(5)),
+            "the second was asked"
+        );
+        assert_eq!(desk.worked_through(2), None, "given back before the switch");
+        assert_eq!(desk.worked_through(3).as_deref(), Some("typed during it"));
+        assert!(
+            !desk.defer("after the switch", Some(6)),
+            "held after the switch"
+        );
+        assert_eq!(desk.worked_through(4), None);
+
+        // Refused at the submission: put back as it was.
+        let before = desk.switching(7);
+        desk.switch_refused(before);
+        assert!(!desk.defer("after a refused switch", Some(7)));
+
+        // An interrupt dropped the switch and the prompt behind it unstarted:
+        // the prompt will never run, so it asks nothing.
+        desk.switching(8);
+        assert!(desk.defer("dropped with it", Some(9)));
+        assert_eq!(desk.worked_through(9), None);
+
+        // An interrupt dropped the switch and not the prompt typed after the
+        // interrupt: that one still runs, in the conversation in force.
+        desk.switching(10);
+        assert!(desk.defer("typed after the interrupt", Some(12)));
+        assert_eq!(
+            desk.worked_through(11).as_deref(),
+            Some("typed after the interrupt")
+        );
     }
 
     #[test]

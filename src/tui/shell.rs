@@ -4693,7 +4693,11 @@ impl Shell {
         let Some(id) = self.sessions.as_ref().and_then(SessionPicker::selected) else {
             return;
         };
-        match self.work.submit(TurnWork::Resume(id.clone())) {
+        // A switch, as a provider switch is: Escape can take the picker down
+        // before the runtime has resumed, and a prompt typed then waits for
+        // the resume before it asks about its title
+        // ([`super::worker::WorkHandle::submit_switch`]).
+        match self.work.submit_switch(TurnWork::Resume(id.clone())) {
             Ok(()) => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.resuming(id);
@@ -5998,7 +6002,9 @@ impl Shell {
             ));
             return;
         }
-        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
+        // A switch: a prompt submitted before the runtime has made it asks
+        // about its title only once it has ([`super::worker::WorkHandle::submit_switch`]).
+        if let Err(rejected) = self.work.submit_switch(TurnWork::Setup(provider)) {
             self.refused(rejected);
             return;
         }
@@ -8703,7 +8709,7 @@ impl Shell {
                 // `src/main.zig:1407-1420`, then `admitInteractivePrompt` ->
                 // `admitPrompt(.., steer_if_active = true)`,
                 // `worker_runtime.zig:966-968`, `:1064-1104`).
-                self.ask_for_title(excerpt.as_deref());
+                self.ask_for_title(excerpt.as_deref(), None);
                 self.take_draft();
                 self.edited(None);
                 self.steers.push((id, prompt, text.to_string()));
@@ -8729,7 +8735,7 @@ impl Shell {
         let waits = self.activity.working();
         match self.work.submit(work) {
             Ok(()) => {
-                self.ask_for_title(excerpt.as_deref());
+                self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
                 // (`super::worker::WORK_LIMIT`), and the band already says so
@@ -10490,7 +10496,8 @@ impl Shell {
 
     /// Asks for the session's title from a prompt the runtime has just taken
     /// -- to run, to wait, or steered into the turn that runs -- when the gate
-    /// says this prompt is the one that asks.
+    /// says this prompt is the one that asks. `at` is the prompt's position
+    /// in the runtime's queue, `None` for a steer.
     ///
     /// **At the keystroke**, as upstream's `snapshotPrompt` asks for every
     /// prompt it hands its worker (`src/main.zig:1479-1481`), with the switch
@@ -10498,11 +10505,23 @@ impl Shell {
     /// ([`super::titles`]). Not for a steer handed on as a prompt when its
     /// turn ended without it, nor one sent back into the turn: neither is a
     /// new submission, and upstream snapshots a prompt once.
-    fn ask_for_title(&self, excerpt: Option<&str>) {
-        if let Some(excerpt) = excerpt {
-            if self.asks_for_title() {
-                self.work.ask_title(excerpt);
-            }
+    ///
+    /// **Except behind a switch still to be made** -- a `/resume` or a
+    /// `/provider` the runtime has been handed and not yet done: what this
+    /// band shows is the conversation the prompt will *not* run in, so the
+    /// prompt is held for the runtime, which asks once it has made the switch,
+    /// of the conversation the prompt runs in -- as upstream holds a prompt
+    /// while its provider is prepared and asks when it finalizes it
+    /// (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`).
+    fn ask_for_title(&self, excerpt: Option<&str>, at: Option<usize>) {
+        let Some(excerpt) = excerpt else {
+            return;
+        };
+        if self.work.defer_title(excerpt, at) {
+            return;
+        }
+        if self.asks_for_title() {
+            self.work.ask_title(excerpt);
         }
     }
 
@@ -20461,8 +20480,10 @@ mod tests {
     #[test]
     fn a_reset_moves_the_title_lineage_on_at_the_keystroke() {
         // Upstream clears its session at `/new` before anything else is
-        // read: a question about the old one is cancelled, and one a prompt
-        // typed straight after asks is the new one's.
+        // read. The question about the old one runs on to an answer that is
+        // dropped (`session_changed`, `app_session_runtime.zig:3720-3728`),
+        // and while it runs a prompt typed straight after asks nothing
+        // (`task_running`, `session_title_generation.zig:40-46`).
         let mut shell = shell(24, 120);
         let _answers = asking_desk(&mut shell);
         shell.route_bytes(b"first\r");
@@ -20472,14 +20493,37 @@ mod tests {
         shell.route_bytes(b"/new\r");
         assert_eq!(shell.work.title_desk().lineage(), 1);
         assert!(
-            !shell.work.title_desk().running(),
-            "the old conversation's question is still out"
+            shell.work.title_desk().running(),
+            "the old conversation's question was stopped"
         );
         shell.route_bytes(b"straight away\r");
         let _ = shell.picks_up();
+        assert_eq!(
+            shell.work.title_desk().generation().status,
+            crate::trace::TitleStatus::Running,
+            "the question out changed"
+        );
+    }
+
+    #[test]
+    fn a_prompt_behind_a_provider_switch_asks_nothing_at_the_keystroke() {
+        // Upstream holds a prompt while its provider is prepared
+        // (`app_auth_runtime.zig:1840-1842`): the band hands the runtime the
+        // switch, and a prompt typed before it hears the switch was made is
+        // held for the runtime to ask from, of the conversation it runs in.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.switch_provider(ProviderId::Llmux);
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        shell.route_bytes(b"fix the renderer\r");
         assert!(
-            shell.work.title_desk().running(),
-            "the fresh session asked nothing"
+            !shell.work.title_desk().running(),
+            "asked of the conversation the switch drops"
+        );
+        assert_eq!(
+            shell.work.title_desk().worked_through(1).as_deref(),
+            Some("fix the renderer"),
+            "the prompt was not held for the runtime"
         );
     }
 

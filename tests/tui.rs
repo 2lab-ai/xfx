@@ -7732,6 +7732,52 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
 }
 
 #[test]
+fn a_prompt_typed_behind_a_provider_switch_is_titled_by_the_provider_switched_to() {
+    // Upstream holds a prompt while its provider is being prepared and asks
+    // for the session's title only when it finalizes the prompt, of the
+    // session and provider in force then (`collectPendingPromptCredential`,
+    // `vercel-labs/fx@c1db9191 src/core/app/app_auth_runtime.zig:1840-1842`;
+    // `finalizePendingSubmission` -> `snapshotPrompt`, `src/main.zig:1238-1266`,
+    // `:1479-1481`). Here: on llmux, which names no title model, the switch
+    // to the Gateway and a prompt typed before the switch is made. Red
+    // before: the prompt asked at the keystroke, of llmux -- nothing -- and
+    // the session the Gateway answered in kept its derived title.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-AFTER-THE-SWITCH"]),
+    )])
+    .with_title("Renderer After Switch");
+    let daemon = support::fake_llmux::FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let command = tui_with_both(&sandbox, &gateway, &daemon);
+    std::fs::write(
+        sandbox.settings_path(),
+        format!(
+            "{{\"provider\":\"llmux\",\"llmux_url\":{},\"models\":{{\"gateway\":\"zai/glm-5.2\"}}}}",
+            serde_json::to_string(&daemon.url()).expect("a url is serializable")
+        ),
+    )
+    .expect("start the profile on llmux");
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    // Both in one write: the prompt is typed before the band can have heard
+    // that the switch was made.
+    session.type_bytes(b"/setup gateway\rfix the renderer after the switch\r");
+    session.wait_for("MARKER-AFTER-THE-SWITCH");
+    session.wait_for("\u{1b}]2;Renderer After Switch\u{7}");
+    let asked = gateway.title_requests();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert_eq!(
+        asked[0].json()["prompt"][1]["content"][0]["text"],
+        "fix the renderer after the switch"
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch() {
     // Scenario 19. Four claims: the rows carry what a daemon publishes (a
     // window, or nothing), a choice is written where a restart will read it,
