@@ -28,7 +28,7 @@ use serde_json::{Map, Value};
 
 use super::{CancelToken, DeltaSink};
 use crate::gateway::protocol::{
-    Bill, Billing, Completion, Deferred, FinishReason, ToolCall, Usage,
+    Bill, Billing, Completion, Deferred, FinishReason, ServiceTier, ToolCall, Usage,
 };
 use crate::provider::Wire;
 
@@ -163,6 +163,8 @@ pub struct SseReader {
     generation_invalid: bool,
     /// The finish event's billing, read once it has arrived.
     billing: Option<Billing>,
+    /// The tier the finish event confirms ([`Completion::service_tier`]).
+    service_tier: Option<ServiceTier>,
     /// Where the response came from, for a generation whose bill is asked
     /// for later ([`Deferred::origin`]); empty until [`Self::from_origin`].
     origin: String,
@@ -197,6 +199,7 @@ impl SseReader {
             generation_id: None,
             generation_invalid: false,
             billing: None,
+            service_tier: None,
             origin: String::new(),
             complete: false,
             accumulated: 0,
@@ -298,6 +301,7 @@ impl SseReader {
                     })),
                     (_, None) => None,
                 },
+                service_tier: self.service_tier,
             }),
             // The provider said why it failed, so report that rather than the
             // generic truncation.
@@ -365,7 +369,11 @@ impl SseReader {
                 self.on_tool_input_start(&event);
                 Ok(())
             }
-            "tool-input-delta" => self.on_tool_input_delta(&event),
+            "tool-input-delta" => self.on_tool_input_delta(&event, deltas),
+            "reasoning-delta" => {
+                on_reasoning_delta(&event, deltas);
+                Ok(())
+            }
             "tool-call" => self.on_tool_call(&event),
             "error" => {
                 if let Some(detail) = failure_detail(&event) {
@@ -374,8 +382,9 @@ impl SseReader {
                 Ok(())
             }
             "finish" => self.on_finish(&event),
-            // `tool-input-end`, `text-start`, `reasoning-*`, `start-step` and
-            // every future event carry nothing xfx acts on yet.
+            // `tool-input-end`, `text-start`, the rest of `reasoning-*`,
+            // `start-step` and every future event carry nothing xfx acts on
+            // yet.
             _ => Ok(()),
         }
     }
@@ -412,7 +421,11 @@ impl SseReader {
         });
     }
 
-    fn on_tool_input_delta(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
+    fn on_tool_input_delta(
+        &mut self,
+        event: &Map<String, Value>,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<(), SseError> {
         let Some(id) = string_field(event, "id") else {
             return Ok(());
         };
@@ -421,9 +434,12 @@ impl SseReader {
         };
         self.charge(delta.len())?;
         // A delta for an unannounced id is dropped; correlating it would invent
-        // a call the provider never opened.
+        // a call the provider never opened. Nor is it counted: upstream counts
+        // the arguments of a call it is assembling, and only those
+        // (`vercel-labs/fx@c1db9191 src/gateway/client.zig:3746-3760`).
         if let Some(record) = self.streamed.iter_mut().find(|record| record.id == id) {
             record.arguments.push_str(delta);
+            deltas.tool_input_delta(delta);
         }
         Ok(())
     }
@@ -493,6 +509,7 @@ impl SseReader {
         };
 
         self.usage = parse_usage(event);
+        self.service_tier = parse_service_tier(event);
         self.billing = match self.stamp {
             Stamp::Read(at_ms) => parse_billing(event, at_ms),
             Stamp::Unseen | Stamp::Unreadable => None,
@@ -558,6 +575,17 @@ impl SseReader {
             },
         }
     }
+}
+
+/// The tier the finish event confirms it was served at
+/// (`parseSseServiceTier`, `client.zig:3451-3463`): only
+/// `providerMetadata.gateway.serviceTier` -- or its snake-case spelling --
+/// counts; the request's own options and a provider's own metadata do not.
+fn parse_service_tier(event: &Map<String, Value>) -> Option<ServiceTier> {
+    let metadata = event
+        .get("providerMetadata")
+        .or_else(|| event.get("provider_metadata"))?;
+    ServiceTier::parse(metadata.get("gateway")?.get("serviceTier")?.as_str()?)
 }
 
 /// What the response's `response-metadata` events said about when it was
@@ -746,6 +774,17 @@ impl DeltaSink for DiscardDeltas {
     }
 }
 
+/// A `reasoning-delta`'s text, told to `deltas` to be counted and kept nowhere:
+/// xfx neither shows reasoning nor sends it back on this wire. A nonempty
+/// string only, as upstream takes one (`src/gateway/client.zig:3705-3711`).
+fn on_reasoning_delta(event: &Map<String, Value>, deltas: &mut dyn DeltaSink) {
+    if let Some(Value::String(delta)) = event.get("delta") {
+        if !delta.is_empty() {
+            deltas.reasoning_delta(delta);
+        }
+    }
+}
+
 /// A nonempty string field.
 fn string_field<'a>(event: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     match event.get(key) {
@@ -846,6 +885,48 @@ mod tests {
         format!(
             "data: {metadata}\n\ndata: {{\"type\":\"text-delta\",\"id\":\"t\",\"delta\":\"x\"}}\n\ndata: {event}\n\n"
         )
+    }
+
+    #[test]
+    fn the_served_tier_is_the_gateways_own_word_in_the_finish_or_nothing() {
+        // `consumeSseStream`'s two cases (`client.zig:4280-4325`): the
+        // Gateway's metadata in either spelling confirms a tier; none, an
+        // unknown one, or a provider's own metadata confirms nothing.
+        let finish = |metadata: &str| {
+            format!(
+                "data: {{\"type\":\"finish\",\"finishReason\":{{\"unified\":\"stop\"}}{metadata}}}\n\n"
+            )
+        };
+        for (metadata, tier) in [
+            (
+                r#","providerMetadata":{"gateway":{"serviceTier":"ultrafast"}}"#,
+                Some(ServiceTier::Ultrafast),
+            ),
+            (
+                r#","provider_metadata":{"gateway":{"serviceTier":"priority"}}"#,
+                Some(ServiceTier::Priority),
+            ),
+            (
+                r#","providerMetadata":{"gateway":{"serviceTier":"default"}}"#,
+                Some(ServiceTier::Standard),
+            ),
+            ("", None),
+            (
+                r#","providerMetadata":{"gateway":{"serviceTier":"unsupported"}}"#,
+                None,
+            ),
+            (
+                r#","providerMetadata":{"openai":{"serviceTier":"ultrafast"}}"#,
+                None,
+            ),
+        ] {
+            let (completion, _) = decode(&finish(metadata));
+            assert_eq!(
+                completion.expect("a finish").service_tier,
+                tier,
+                "{metadata}"
+            );
+        }
     }
 
     fn stamped() -> serde_json::Value {
@@ -1097,6 +1178,61 @@ mod tests {
         let usage = completion.expect("finish").usage;
         assert_eq!(usage.input_tokens, None);
         assert_eq!(usage.output_tokens, None);
+    }
+
+    /// Every stream a decoder told its sink about, apart.
+    #[derive(Default)]
+    struct Streams {
+        text: Vec<String>,
+        reasoning: Vec<String>,
+        tool_input: Vec<String>,
+    }
+
+    impl DeltaSink for Streams {
+        fn text_delta(&mut self, text: &str) -> io::Result<()> {
+            self.text.push(text.to_string());
+            Ok(())
+        }
+
+        fn reasoning_delta(&mut self, text: &str) {
+            self.reasoning.push(text.to_string());
+        }
+
+        fn tool_input_delta(&mut self, text: &str) {
+            self.tool_input.push(text.to_string());
+        }
+    }
+
+    #[test]
+    fn reasoning_and_an_opened_calls_arguments_are_told_to_be_counted_and_nothing_else() {
+        // What a request wrote that nobody is shown, for the estimate a turn's
+        // summary falls back on (`crate::agent::tokens`): a `reasoning-delta`'s
+        // text -- an empty one is not text (`client.zig:3705-3711`) -- and the
+        // arguments of a call that was opened. A ghost id's are dropped here as
+        // they are from the call (`client.zig:3746-3760`).
+        let body = [
+            json!({ "type": "reasoning-start", "id": "r" }),
+            json!({ "type": "reasoning-delta", "id": "r", "delta": "" }),
+            json!({ "type": "reasoning-delta", "id": "r", "delta": "let me look" }),
+            json!({ "type": "reasoning-end", "id": "r" }),
+            json!({ "type": "tool-input-delta", "id": "ghost", "delta": "{\"a\":1}" }),
+            json!({ "type": "tool-input-start", "id": "c1", "toolName": "read_file" }),
+            json!({ "type": "tool-input-delta", "id": "c1", "delta": "{\"path\":" }),
+            json!({ "type": "tool-input-delta", "id": "c1", "delta": "\"a.md\"}" }),
+            json!({ "type": "tool-call", "toolCallId": "c1", "toolName": "read_file" }),
+            json!({ "type": "finish", "finishReason": { "unified": "tool-calls" } }),
+        ]
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect::<String>();
+        let mut streams = Streams::default();
+        let mut reader = SseReader::new();
+        reader.push(body.as_bytes(), &mut streams).expect("decodes");
+        let completion = reader.finish().expect("finish");
+        assert_eq!(completion.tool_calls[0].input, json!({ "path": "a.md" }));
+        assert!(completion.text.is_empty() && streams.text.is_empty());
+        assert_eq!(streams.reasoning, ["let me look"]);
+        assert_eq!(streams.tool_input, ["{\"path\":", "\"a.md\"}"]);
     }
 
     #[test]

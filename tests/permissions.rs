@@ -3126,6 +3126,7 @@ fn calls_step(calls: Vec<ToolCall>) -> Completion {
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
         billing: None,
+        service_tier: None,
     }
 }
 
@@ -3139,6 +3140,7 @@ fn answer_step(text: &str) -> Completion {
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
         billing: None,
+        service_tier: None,
     }
 }
 

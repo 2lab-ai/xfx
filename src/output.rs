@@ -1150,6 +1150,14 @@ pub trait EventSink {
     fn steered(&mut self, steers: &[crate::agent::Steer]) {
         let _ = steers;
     }
+
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]). A hook for the same reason as the
+    /// others: the full-screen session's row is the one consumer, and what
+    /// the turn produced is unchanged by whether anybody counted it.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = progress;
+    }
 }
 
 /// Emits one newline-terminated JSON object per event.
@@ -1503,6 +1511,7 @@ mod tests {
             context_sources: vec!["/w/AGENTS.md".to_string()],
             turns,
             renamed: None,
+            turn_settings: None,
             usage: crate::session::RecordedUsage::default(),
             checkpoint: None,
         }

@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
+use xfx::agent::tokens::Progress;
 use xfx::agent::{run_turn, run_turn_saved, Steering, TurnError, TurnJournal, TurnRequest};
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
@@ -1360,6 +1361,7 @@ fn calls_step(calls: Vec<ToolCall>) -> ScriptedStep {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         },
     }
 }
@@ -1376,6 +1378,7 @@ fn final_step(text: &str) -> ScriptedStep {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         },
     }
 }
@@ -3591,6 +3594,65 @@ fn usage_frame(journal: &RecordingJournal) -> &SessionEvent {
     frame
 }
 
+/// Whether `program` is on this process's `PATH`, which the terminal tool
+/// passes to its commands.
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+}
+
+/// A command the terminal tool runs starts with no signal blocked, whichever
+/// thread runs the tool. The TUI runs it on a thread that blocks every signal
+/// the session owns, and a child born with that mask holds a `SIGTERM`
+/// pending: `timeout 1 sleep 5` would have waited out the whole sleep
+/// (`xfx::process`).
+#[test]
+fn a_timeout_inside_a_command_ends_it_on_time_from_a_thread_that_blocks_signals() {
+    // `timeout` is coreutils'; where it is not installed, the shell does what
+    // it does -- `TERM` to the command after a second.
+    let command = if on_path("timeout") {
+        "timeout 1 sleep 5"
+    } else {
+        "sleep 5 & pid=$!; (sleep 1; kill -TERM $pid) & wait $pid"
+    };
+    let (result, took) = std::thread::spawn(move || {
+        // SAFETY: `set` is a valid set this closure owns for the call.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            for signal in [
+                libc::SIGINT,
+                libc::SIGTERM,
+                libc::SIGHUP,
+                libc::SIGTSTP,
+                libc::SIGCONT,
+                libc::SIGWINCH,
+            ] {
+                libc::sigaddset(&mut set, signal);
+            }
+            assert_eq!(
+                libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()),
+                0
+            );
+        }
+        let tree = Tree::new();
+        let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
+        let started = std::time::Instant::now();
+        let result = call(
+            &tools,
+            "terminal",
+            json!({ "action": "exec", "command": command }),
+        );
+        (result, started.elapsed())
+    })
+    .join()
+    .expect("the tool's thread");
+    assert!(
+        took >= std::time::Duration::from_millis(900) && took < std::time::Duration::from_secs(3),
+        "{command} took {took:?}: {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_changed() {
     let tree = Tree::new();
@@ -3630,6 +3692,7 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
     let SessionEvent::UsageRecorded {
         input_tokens,
         output_tokens,
+        turn_output_tokens,
         requests,
         unaccounted,
         lines_added,
@@ -3642,6 +3705,9 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
     };
     // The meter's two totals are still the answering step's.
     assert_eq!((*input_tokens, *output_tokens), (Some(52000), Some(3100)));
+    // The summary's out is every request's: the first reported no usage and
+    // streamed nothing -- its call arrived whole -- so it adds nothing.
+    assert_eq!(*turn_output_tokens, Some(3100));
     let billed: Vec<(&str, Option<f64>, Option<&str>)> = requests
         .iter()
         .map(|request| {
@@ -3809,4 +3875,352 @@ async fn a_request_the_endpoint_refused_records_nothing_about_spend() {
     .await
     .expect_err("a refusal ends the turn");
     assert_eq!(journal.kinds(), ["user_message", "turn_concluded"]);
+}
+
+// ---------------------------------------------------------------------------
+// the turn's out, as its summary row counts it
+// ---------------------------------------------------------------------------
+
+/// One piece of what an attempt streams, by the stream it arrives on.
+enum Chunk {
+    Text(&'static str),
+    Reasoning(&'static str),
+    ToolInput(&'static str),
+}
+
+/// One scripted attempt: what it streams, then how it ends.
+type Attempt = (Vec<Chunk>, Result<Completion, ProviderError>);
+
+/// A provider whose every attempt streams its chunks, then ends as scripted.
+struct StreamingProvider {
+    attempts: std::cell::RefCell<VecDeque<Attempt>>,
+}
+
+impl StreamingProvider {
+    fn new(attempts: Vec<Attempt>) -> Self {
+        Self {
+            attempts: std::cell::RefCell::new(attempts.into()),
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for StreamingProvider {
+    async fn stream(
+        &self,
+        _request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let (chunks, end) = self
+            .attempts
+            .borrow_mut()
+            .pop_front()
+            .expect("the provider was called more times than the script allows");
+        for chunk in chunks {
+            match chunk {
+                Chunk::Text(text) => deltas.text_delta(text).map_err(ProviderError::Sink)?,
+                Chunk::Reasoning(text) => deltas.reasoning_delta(text),
+                Chunk::ToolInput(text) => deltas.tool_input_delta(text),
+            }
+        }
+        end
+    }
+}
+
+/// What the turn told its reader about its out, in order.
+#[derive(Default)]
+struct Counted {
+    progress: Vec<Progress>,
+}
+
+impl xfx::output::EventSink for Counted {
+    fn emit(&mut self, _event: &Event) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn output_tokens(&mut self, progress: Progress) {
+        self.progress.push(progress);
+    }
+}
+
+/// A completion with `output` as the provider's count of what it wrote.
+fn reporting(step: ScriptedStep, output: Option<u64>) -> Result<Completion, ProviderError> {
+    let mut completion = step.completion;
+    completion.usage = Usage {
+        input_tokens: output.map(|_| 1200),
+        output_tokens: output,
+    };
+    Ok(completion)
+}
+
+/// Runs `request` against `provider`, and what its sink heard and its usage
+/// frame kept: `(progress, turn_output_tokens, output_tokens)`.
+async fn counted(
+    request: TurnRequest,
+    provider: &StreamingProvider,
+) -> (Vec<Progress>, Option<u64>, Option<u64>) {
+    let mut sink = Counted::default();
+    let mut journal = RecordingJournal::default();
+    let _ = run_turn_saved(
+        request,
+        ProjectContext::none(),
+        provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await;
+    let SessionEvent::UsageRecorded {
+        turn_output_tokens,
+        output_tokens,
+        ..
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    (sink.progress, *turn_output_tokens, *output_tokens)
+}
+
+#[tokio::test]
+async fn a_turn_counts_out_over_every_request_it_made() {
+    // fx's `allowlist-turn`: a call, then the answer, 40 each, is `↓80`
+    // (`vercel-labs/fx@c1db9191 src/core/agent/runtime/telemetry.zig:165-168`).
+    // Red before: the turn said nothing until it ended, and then the
+    // answering step's 40.
+    let tree = Tree::new();
+    let provider = StreamingProvider::new(vec![
+        (
+            Vec::new(),
+            reporting(calls_step(vec![read_call("c1", "missing.md")]), Some(40)),
+        ),
+        (
+            vec![Chunk::Text("done")],
+            reporting(final_step("done"), Some(40)),
+        ),
+    ]);
+    let (progress, turn, answering) = counted(turn("read it", context(&tree)), &provider).await;
+    assert_eq!(progress, [Progress::Settled(40), Progress::Settled(80)]);
+    assert_eq!(turn, Some(80));
+    assert_eq!(
+        answering,
+        Some(40),
+        "the meter's count is still the answer's"
+    );
+}
+
+#[tokio::test]
+async fn a_request_with_no_usage_counts_the_estimate_of_all_it_streamed() {
+    // Its reasoning and its call's arguments as well as its text, each
+    // estimated apart (`telemetry.zig:25-35`, `:140`): `let me look` is 3,
+    // `{"path":"a.md"}` is 4, and `all done here` is 3. What the reader is not
+    // shown is told as it moves; the answer it counts for itself.
+    let tree = Tree::new();
+    let provider = StreamingProvider::new(vec![
+        (
+            vec![
+                Chunk::Reasoning("let me look"),
+                Chunk::ToolInput("{\"path\":"),
+                Chunk::ToolInput("\"a.md\"}"),
+            ],
+            reporting(calls_step(vec![read_call("c1", "a.md")]), None),
+        ),
+        (
+            vec![Chunk::Text("all done "), Chunk::Text("here")],
+            reporting(final_step("all done here"), None),
+        ),
+    ]);
+    let (progress, turn, answering) = counted(turn("read it", context(&tree)), &provider).await;
+    assert_eq!(
+        progress,
+        [
+            Progress::Unshown(3),
+            Progress::Unshown(5),
+            Progress::Unshown(7),
+            Progress::Settled(7),
+            Progress::Settled(10),
+        ]
+    );
+    assert_eq!((turn, answering), (Some(10), None));
+}
+
+#[tokio::test]
+async fn a_retried_attempt_counts_what_it_streamed_before_it_failed() {
+    // Upstream opens a token request per attempt and settles a failed one at
+    // its estimate (`orchestrator.zig:7493`, `:7577`). Reasoning is not an
+    // answer the user saw, so the attempt is still replayed.
+    let tree = Tree::new();
+    let mut request = turn("hi", context(&tree));
+    request.max_attempts = 2;
+    let provider = StreamingProvider::new(vec![
+        (
+            vec![Chunk::Reasoning("thinking hard")],
+            Err(ProviderError::Status {
+                subject: "the Gateway",
+                status: 503,
+                body: "busy".to_string(),
+                retryable: true,
+                retry_after: Some(std::time::Duration::ZERO),
+            }),
+        ),
+        (
+            vec![Chunk::Text("ok")],
+            reporting(final_step("ok"), Some(40)),
+        ),
+    ]);
+    let (progress, turn, _) = counted(request, &provider).await;
+    assert_eq!(
+        progress,
+        [
+            Progress::Unshown(3),
+            Progress::Settled(3),
+            Progress::Settled(43),
+        ]
+    );
+    assert_eq!(turn, Some(43));
+}
+
+/// Streams `half an ans`, sends a steer into the turn and never answers its
+/// first call, as a long answer a steer cuts short; then answers `ok`,
+/// reporting 40.
+struct SteerCutProvider {
+    steering: Steering,
+    calls: std::cell::Cell<usize>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for SteerCutProvider {
+    async fn stream(
+        &self,
+        _request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        if call == 0 {
+            deltas
+                .text_delta("half an ans")
+                .map_err(ProviderError::Sink)?;
+            assert!(self.steering.offer(1, "change tone".to_string()));
+            return std::future::pending().await;
+        }
+        reporting(final_step("ok"), Some(40))
+    }
+}
+
+#[tokio::test]
+async fn a_request_a_steer_cut_short_counts_what_it_streamed() {
+    // The steer's own boundary (`append_immediate_steering_after_cancel`,
+    // `orchestrator.zig:240-261`) ends the attempt as a stop does, and upstream
+    // settles every attempt that ends without usage at its estimate
+    // (`finishTokenRequestWithoutUsage`, `telemetry.zig:149-155`): the cut
+    // answer's 3 and then the continued step's 40.
+    let tree = Tree::new();
+    let steering = Steering::new();
+    steering.open();
+    let provider = SteerCutProvider {
+        steering: steering.clone(),
+        calls: std::cell::Cell::new(0),
+    };
+    let mut sink = Counted::default();
+    let mut journal = RecordingJournal::default();
+    xfx::agent::TurnMachine::new(turn("hi", context(&tree)))
+        .with_steering(steering)
+        .run_journaled(&provider, &mut sink, &mut journal)
+        .await
+        .expect("the turn completes");
+    assert_eq!(sink.progress, [Progress::Settled(3), Progress::Settled(43)]);
+    let SessionEvent::UsageRecorded {
+        turn_output_tokens,
+        output_tokens,
+        ..
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    assert_eq!((*turn_output_tokens, *output_tokens), (Some(43), Some(40)));
+}
+
+#[tokio::test]
+async fn a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted() {
+    // The stop reaches a running command at once (`terminal::supervise`), and
+    // the turn still settles: the request that asked for the command is in the
+    // turn's frame, for `/usage`, at what it reported.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(vec![Amendment::plain()], cancel.clone());
+    let provider = StreamingProvider::new(vec![(
+        vec![Chunk::ToolInput("{\"command\":\"sleep 30\"}")],
+        reporting(
+            calls_step(vec![ToolCall {
+                id: "c1".to_string(),
+                name: "terminal".to_string(),
+                input: json!({ "action": "exec", "command": "sleep 30" }),
+            }]),
+            Some(40),
+        ),
+    )]);
+    // From another thread: the command holds this one while it runs.
+    let stopper = cancel.clone();
+    let stop = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        stopper.cancel();
+    });
+    let mut sink = Counted::default();
+    let mut journal = RecordingJournal::default();
+    let started = std::time::Instant::now();
+    let _ = run_turn_saved(
+        asking_turn(
+            "run it",
+            // The tools hold the turn's token, as the TUI's conversation does.
+            asking_context(&tree, ToolLimits::default(), prompter).with_cancel(cancel.clone()),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await;
+    stop.join().expect("the stopper");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "the command ran on"
+    );
+    assert_eq!(sink.progress.last(), Some(&Progress::Settled(40)));
+    let SessionEvent::UsageRecorded {
+        turn_output_tokens,
+        requests,
+        ..
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    assert_eq!(*turn_output_tokens, Some(40));
+    assert_eq!(
+        requests
+            .iter()
+            .map(|request| request.output_tokens)
+            .collect::<Vec<_>>(),
+        [40]
+    );
+}
+
+#[tokio::test]
+async fn a_lost_or_stopped_request_counts_what_it_streamed() {
+    // A stream that broke, and one the user stopped, each after part of an
+    // answer: no usage will ever come, and the estimate stands for it
+    // (`finishTokenRequestWithoutUsage`, `telemetry.zig:149-155`). The turn
+    // fails, and its frame keeps what its summary would have said.
+    for lost in [
+        ProviderError::Transport {
+            subject: "the Gateway",
+            detail: "the connection reset".to_string(),
+        },
+        ProviderError::Cancelled,
+    ] {
+        let tree = Tree::new();
+        let provider = StreamingProvider::new(vec![(vec![Chunk::Text("half an ans")], Err(lost))]);
+        let (progress, turn, answering) = counted(turn("hi", context(&tree)), &provider).await;
+        assert_eq!(progress, [Progress::Settled(3)]);
+        assert_eq!((turn, answering), (Some(3), None));
+    }
 }

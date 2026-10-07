@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-5b3d292 [debug] · Run /help for commands
+
+┃ say something
+
+  Fast mode is unavailable for this model right now; continuing at standard speed.
+  MARKER-STANDARD-SPEED
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · opus 5 · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

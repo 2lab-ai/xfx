@@ -2301,6 +2301,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: crate::provider::Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         }
     }
 

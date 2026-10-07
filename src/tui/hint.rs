@@ -49,8 +49,8 @@
 //! `None` here is an item that is off or has nothing to say yet. The
 //! reasoning effort follows the model, as upstream's does (`render.zig:390-393`):
 //! the caller decides whether the model takes it and hands it over only then.
-//! The fast-mode marker (`render.zig:394-402`) belongs to a speed xfx does not
-//! send yet.
+//! So does the speed marker `⚡︎` (`render.zig:394-402`): the caller decides
+//! whether a turn will go fast, and in which colour that is said.
 
 use crate::config::PermissionMode;
 
@@ -66,6 +66,11 @@ pub(crate) const SEPARATOR: &str = " · ";
 /// does not carry ([`Hint::missing_credential`] is a yes or a no), and a row
 /// that guessed would send a Gateway user to the daemon's setup.
 pub(crate) const MISSING_CREDENTIAL: &str = "run `xfx setup`";
+
+/// What says a turn will go fast (`render.zig:398`, `:402`): the high-voltage
+/// sign in its text presentation -- two cells, as upstream counts it
+/// (`display_width.zig:697`).
+pub(crate) const SPEED_MARKER: &str = "\u{26a1}\u{fe0e}";
 
 /// How many blank cells separate the left of the row from the right-aligned
 /// slot at its end, at the very least.
@@ -94,6 +99,12 @@ pub(crate) struct Hint<'a> {
     /// level (`appendSessionStatusSegments`, `render.zig:381-393`: shown only
     /// when the model supports effort and it is not the default).
     pub(crate) effort: Option<&'a str>,
+    /// The speed marker [`SPEED_MARKER`], when a turn will go fast: the colour
+    /// it is said in, with the row's own resumed after it ([`Self::accent`]'s
+    /// second) -- **empty for Fast**, which is said in the row's grey, and
+    /// Ultra's yellow for Ultra (`appendSessionStatusSegments`,
+    /// `render.zig:396-403`). `None` for neither.
+    pub(crate) speed: Option<&'a str>,
     /// The session's title, when the title segment is on and the session has
     /// one ([`super::statusline::session_label`] is what makes it safe to
     /// paint).
@@ -298,6 +309,14 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
     if let Some(effort) = hint.effort {
         push(&mut segments, effort.to_string());
     }
+    match hint.speed {
+        Some("") => push(&mut segments, SPEED_MARKER.to_string()),
+        Some(colour) => push(
+            &mut segments,
+            format!("{colour}{SPEED_MARKER}{}", hint.accent.1),
+        ),
+        None => {}
+    }
     if let Some(title) = hint.session_title {
         push(&mut segments, title.to_string());
     }
@@ -377,6 +396,7 @@ mod tests {
             mode: PermissionMode::Ask,
             model: "anthropic/claude-opus-4-7",
             effort: None,
+            speed: None,
             session_title: None,
             context_used: None,
             workspace: None,
@@ -753,6 +773,32 @@ mod tests {
         let mut only = self::hint();
         only.workspace = Some(("/w", None));
         assert_eq!(row(&only, 120), "ask \u{b7} opus 4-7 \u{b7} /w");
+    }
+
+    #[test]
+    fn the_speed_marker_follows_the_effort_in_the_rows_grey_or_ultras_yellow() {
+        // Two cells, as upstream counts the sign in its text presentation
+        // (`display_width.zig:697`): the budget below is measured with it.
+        assert_eq!(cells(SPEED_MARKER), 2);
+        // Fast, in the row's own grey (`fx-fast-opus-40x120-fast-on`:
+        // `auto · opus 5 · ⚡︎`).
+        let mut fast = self::hint();
+        fast.effort = Some("low");
+        fast.speed = Some("");
+        fast.session_title = Some("t");
+        assert_eq!(
+            row(&fast, 120),
+            "ask \u{b7} opus 4-7 \u{b7} low \u{b7} \u{26a1}\u{fe0e} \u{b7} t"
+        );
+        // Ultra, in its yellow and the row's colour resumed after it
+        // (`render.zig:1038-1043`).
+        let mut ultra = self::hint();
+        ultra.speed = Some("<Y>");
+        ultra.accent = ("<A>", "<S>");
+        assert_eq!(
+            row(&ultra, 120),
+            "ask \u{b7} opus 4-7 \u{b7} <Y>\u{26a1}\u{fe0e}<S>"
+        );
     }
 
     #[test]

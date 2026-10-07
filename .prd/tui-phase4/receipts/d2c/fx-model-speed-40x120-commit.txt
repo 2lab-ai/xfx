@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* Switched to openai/gpt-6-astra (effort: high, speed: ultrafast)
+
+┃
+
+auto · gpt-6-astra · high · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

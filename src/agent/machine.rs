@@ -60,6 +60,8 @@ use crate::output::{Event, EventSink};
 
 use super::steering::Steering;
 use crate::session::{RecordedToolCall, RequestUsage, SessionEvent, TurnConclusion};
+
+use super::tokens::{self, Progress, Streamed};
 use crate::tools::{LineChanges, Registry};
 use crate::workspace::ProjectContext;
 
@@ -318,6 +320,12 @@ pub struct TurnMachine {
     /// A request was sent and then lost -- a broken stream, a stop -- so it
     /// may have been billed with nothing to say what it cost.
     unaccounted: bool,
+    /// Out as the turn's summary row counts it, over every request that has
+    /// ended: attempts, not steps, and failed or stopped ones too
+    /// ([`super::tokens`]). Not [`Self::requests`]' sum, which is `/usage`'s
+    /// and holds only the requests that completed, at nought where the
+    /// provider said nothing.
+    written: u64,
     /// Lines this turn's file changes added and removed.
     lines: LineChanges,
 }
@@ -362,6 +370,7 @@ impl TurnMachine {
             finalized: false,
             requests: Vec::new(),
             unaccounted: false,
+            written: 0,
             lines: LineChanges::default(),
         }
     }
@@ -465,6 +474,7 @@ impl TurnMachine {
             journal.record(SessionEvent::UsageRecorded {
                 input_tokens,
                 output_tokens,
+                turn_output_tokens: Some(self.written),
                 requests: std::mem::take(&mut self.requests),
                 unaccounted: self.unaccounted,
                 lines_added: u64::try_from(self.lines.added).unwrap_or(u64::MAX),
@@ -1037,6 +1047,7 @@ impl TurnMachine {
                 delivered: false,
                 text: String::new(),
                 error: None,
+                streamed: Streamed::default(),
             };
             // Raced against a steer, which cuts the answer where it has got
             // to: the stream is dropped -- and its connection with it -- and
@@ -1054,23 +1065,49 @@ impl TurnMachine {
                 None => Some(provider.stream(&request, &mut deltas).await),
             };
             let Some(outcome) = outcome else {
-                if let Some(err) = deltas.error.take() {
+                let sink_failure = deltas.error.take();
+                let partial = std::mem::take(&mut deltas.text);
+                // Cut short, it is settled as a stopped attempt is: at the
+                // estimate of what it streamed, for no usage will come
+                // (`finishTokenRequestWithoutUsage`, `telemetry.zig:149-155`).
+                self.written = self
+                    .written
+                    .saturating_add(tokens::settled_output(None, &deltas.streamed));
+                events.output_tokens(Progress::Settled(self.written));
+                if let Some(err) = sink_failure {
                     return Err(TurnError::Sink(err));
                 }
                 self.partial.clear();
                 return Ok(Stepped::Steered {
-                    partial: std::mem::take(&mut deltas.text),
+                    partial,
                     sent: true,
                 });
             };
             let delivered = deltas.delivered;
+            let streamed = deltas.streamed;
             // What reached the user, kept for a turn that ends here; a step
             // that completes records its own text instead.
             self.partial = std::mem::take(&mut deltas.text);
+            let sink_failure = deltas.error.take();
+            // The attempt is over whichever way it went, and it is settled
+            // here, before any of the ways out below: at what the provider
+            // reported, or at the estimate of what it streamed when the
+            // provider said nothing or the attempt failed or was stopped
+            // (`vercel-labs/fx@c1db9191
+            // src/core/agent/runtime/orchestrator.zig:7577`, `:8176`). A
+            // retried step therefore counts what its lost attempt had written.
+            let reported = outcome
+                .as_ref()
+                .ok()
+                .and_then(|completion| completion.usage.output_tokens);
+            self.written = self
+                .written
+                .saturating_add(tokens::settled_output(reported, &streamed));
+            events.output_tokens(Progress::Settled(self.written));
             // A sink failure is reported as itself rather than as whatever the
             // provider made of it, so a closed stdout is never read as a
             // protocol failure.
-            if let Some(err) = deltas.error.take() {
+            if let Some(err) = sink_failure {
                 return Err(TurnError::Sink(err));
             }
 
@@ -1205,11 +1242,42 @@ struct StepDeltas<'a> {
     text: String,
     /// The first write failure, kept so the turn can report it as its own.
     error: Option<io::Error>,
+    /// What this attempt has written, as the estimates its settlement falls
+    /// back on ([`super::tokens::Streamed`]).
+    streamed: Streamed,
+}
+
+impl StepDeltas<'_> {
+    /// Tells the reader what the attempt is writing that it is not shown,
+    /// when that has moved: the answer it counts for itself
+    /// ([`super::tokens::Progress`]).
+    fn unshown_moved(&mut self, before: u64) {
+        let now = self.streamed.unshown();
+        if now != before {
+            self.events.output_tokens(Progress::Unshown(now));
+        }
+    }
 }
 
 impl DeltaSink for StepDeltas<'_> {
+    fn reasoning_delta(&mut self, text: &str) {
+        let before = self.streamed.unshown();
+        self.streamed.reasoning(text);
+        self.unshown_moved(before);
+    }
+
+    fn tool_input_delta(&mut self, text: &str) {
+        let before = self.streamed.unshown();
+        self.streamed.tool_input(text);
+        self.unshown_moved(before);
+    }
+
     fn text_delta(&mut self, text: &str) -> io::Result<()> {
         self.delivered = true;
+        // Counted as it arrived, whether or not the reader took it: the
+        // model wrote it either way (`assistant_stream.zig:235-246` counts
+        // before it presents).
+        self.streamed.content(text);
         let event = Event::AssistantDelta {
             text: text.to_string(),
         };

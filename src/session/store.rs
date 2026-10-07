@@ -523,9 +523,10 @@ pub struct TurnTiming {
     pub started_at_ms: i64,
     /// The `turn_concluded` frame's, for a turn that has one.
     pub concluded_at_ms: Option<i64>,
-    /// Output tokens the provider reported for the turn, or `None` when its
-    /// `usage_recorded` frame said nothing or there was none -- a failed turn
-    /// has none.
+    /// Out as the turn's summary row said it (`turn_output_tokens`), or, on
+    /// a frame from before that was kept, what the provider reported for the
+    /// answering step. `None` when its `usage_recorded` frame said neither or
+    /// there was none.
     pub output_tokens: Option<u64>,
 }
 
@@ -553,6 +554,10 @@ pub struct DurableState {
     /// The title the user gave the session, the last `session_renamed` in the
     /// log. Outranks the one derived from the first prompt ([`Self::title`]).
     pub renamed: Option<String>,
+    /// The effort and speed switches the session last recorded, or `None` for
+    /// a session that never recorded them -- a resume then keeps what the
+    /// profile says.
+    pub turn_settings: Option<crate::provider::effort::TurnSettings>,
     /// What the session's `usage_recorded` frames say about its spend, for
     /// `/usage` ([`crate::usage`]).
     pub usage: RecordedUsage,
@@ -642,6 +647,7 @@ impl DurableState {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            turn_settings: None,
             usage: RecordedUsage::default(),
             checkpoint: None,
         }
@@ -2526,6 +2532,9 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::PreferencesChanged {
             model,
             permission_mode,
+            effort,
+            fast_mode,
+            ultrafast_mode,
         } => {
             if let Some(model) = model {
                 state.model = model.clone();
@@ -2533,6 +2542,20 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             if let Some(raw) = permission_mode {
                 state.permission_mode = PermissionMode::parse(raw)
                     .ok_or_else(|| format!("unknown permission mode `{raw}`"))?;
+            }
+            if effort.is_some() || fast_mode.is_some() || ultrafast_mode.is_some() {
+                let mut settings = state.turn_settings.clone().unwrap_or_default();
+                if let Some(raw) = effort {
+                    settings.effort = crate::provider::effort::Effort::parse(raw)
+                        .ok_or_else(|| format!("unknown reasoning effort `{raw}`"))?;
+                }
+                if let Some(on) = fast_mode {
+                    settings.fast = *on;
+                }
+                if let Some(on) = ultrafast_mode {
+                    settings.ultrafast = *on;
+                }
+                state.turn_settings = Some(settings);
             }
         }
         SessionEvent::ProjectContextRecorded { sources, .. } => {
@@ -2635,6 +2658,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
+            turn_output_tokens,
             requests,
             unaccounted,
             lines_added,
@@ -2666,14 +2690,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             // The turn it is about, when one is open: it is written just
             // before that turn's conclusion (`agent::machine`'s
             // `run_journaled`). One outside a turn still counts toward the
-            // totals, as it always has.
+            // totals, as it always has. What its summary row said, where the
+            // frame kept it; an older frame's answering step otherwise, which
+            // is what the row said when that binary wrote it.
             if let Some(turn) = state.turns.last_mut().filter(|turn| turn.outcome.is_none()) {
-                if let Some(output) = output_tokens {
+                if let Some(output) = turn_output_tokens.or(*output_tokens) {
                     turn.timing.output_tokens = Some(
                         turn.timing
                             .output_tokens
                             .unwrap_or(0)
-                            .saturating_add(*output),
+                            .saturating_add(output),
                     );
                 }
             }
@@ -3428,6 +3454,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(3),
                 output_tokens: Some(4),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -3438,6 +3465,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -3490,6 +3518,7 @@ mod tests {
         let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
             input_tokens: None,
             output_tokens: None,
+            turn_output_tokens: None,
             requests,
             unaccounted: false,
             lines_added: 0,
@@ -4097,6 +4126,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(6),
                 output_tokens: Some(40),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -4141,6 +4171,54 @@ mod tests {
         );
         assert_eq!(state.turns[2].timing.concluded_at_ms, None);
         assert_eq!(state.total_output_tokens, 40);
+    }
+
+    #[test]
+    fn a_turn_replays_the_out_its_summary_said_and_an_older_frame_its_answering_step() {
+        // A turn of two requests, 40 each, said `↓80` under it: the frame
+        // keeps that beside the answering step's 40, and the replay reads the
+        // 80. The session's own total is still the answering steps', as the
+        // meter has always counted it.
+        let usage = |output: u64, turn: Option<u64>| SessionEvent::UsageRecorded {
+            input_tokens: Some(1300),
+            output_tokens: Some(output),
+            turn_output_tokens: turn,
+            requests: Vec::new(),
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        };
+        let concluded = || SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        };
+        let asked = || SessionEvent::UserMessage {
+            text: "q".to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            asked(),
+            usage(40, Some(80)),
+            concluded(),
+            asked(),
+            usage(40, None),
+            concluded(),
+            asked(),
+            usage(40, Some(0)),
+            concluded(),
+        ])
+        .expect("a valid log");
+        let outs: Vec<Option<u64>> = state
+            .turns
+            .iter()
+            .map(|turn| turn.timing.output_tokens)
+            .collect();
+        assert_eq!(outs, [Some(80), Some(40), Some(0)]);
+        assert_eq!(state.total_output_tokens, 120);
     }
 
     #[test]

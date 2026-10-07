@@ -124,6 +124,12 @@ pub(crate) enum UiEvent {
     TurnStarted,
     /// A fragment of the answer, in arrival order.
     Delta(String),
+    /// A sentence the runtime adds to the answer about how it is being served
+    /// -- upstream's operational text (`TextEmission.operational`,
+    /// `orchestrator.zig:7253-7262`, `:8015-8022`): written as the answer's own
+    /// prose, ahead of whatever line the answer's presenter is still holding,
+    /// and never part of what the model said.
+    Operational(String),
     /// A tool call was admitted and is about to run, and what the transcript
     /// names it by.
     ToolStart {
@@ -229,9 +235,10 @@ pub(crate) enum UiEvent {
     /// line shell's is its own (`crate::interactive`'s `apply_model`).
     ModelAnswered {
         model: String,
-        /// The session's reasoning effort afterwards: the one the change chose,
-        /// or the one it left standing.
-        effort: crate::provider::effort::Effort,
+        /// The session's effort and speed switches afterwards: what the change
+        /// chose, or what it left standing -- the switches off for a query
+        /// that changed the model.
+        settings: crate::provider::effort::TurnSettings,
         outcome: ModelAnswer,
         /// Whether a turn was running when the change was asked for, so it
         /// takes effect from the turn after it: upstream's `Next turn will use`
@@ -266,16 +273,19 @@ pub(crate) enum UiEvent {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
     },
-    /// What a **completed** turn spent.
+    /// What a **completed** turn's answering request read: the context
+    /// meter's numerator.
     ///
-    /// Both halves optional because a provider really may publish neither
+    /// Optional because a provider really may not publish it
     /// (`gateway::protocol::Usage::input_tokens` is an `Option`), and an absent
     /// number must stay absent: a meter that showed nought per cent for a turn
     /// nobody measured would be reporting a measurement that was never taken.
-    Usage {
-        input: Option<u64>,
-        output: Option<u64>,
-    },
+    /// What the turn wrote is not here: that is every request's, and arrives
+    /// as each one ends ([`Self::Output`]).
+    Usage { input: Option<u64> },
+    /// The turn's out has moved, as its summary row counts it
+    /// ([`crate::agent::tokens::Progress`]).
+    Output(crate::agent::tokens::Progress),
     /// A request failed in a way the turn replays, and the next attempt goes
     /// after `delay` (`crate::output::EventSink::retrying`).
     ///
@@ -425,6 +435,7 @@ impl UiEvent {
             // No text at all: what it carries is the fact that it arrived.
             Self::TurnStarted => Self::TurnStarted,
             Self::Delta(text) => Self::Delta(inert_owned(text)),
+            Self::Operational(text) => Self::Operational(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
             // the provider's half is exactly why they are not exempt.
             // The target is the model's own argument -- a path, a pattern, a
@@ -516,7 +527,7 @@ impl UiEvent {
             // decided by xfx's own selector.
             Self::ModelAnswered {
                 model,
-                effort,
+                settings,
                 outcome,
                 next_turn,
                 announced,
@@ -528,11 +539,14 @@ impl UiEvent {
                 // when it is read, but it comes off a settings file or a
                 // catalog all the same, and the rule here is about the
                 // channel rather than about whoever built the value.
-                effort: match effort {
-                    crate::provider::effort::Effort::Named(name) => {
-                        crate::provider::effort::Effort::Named(inert_owned(name))
-                    }
-                    auto => auto,
+                settings: crate::provider::effort::TurnSettings {
+                    effort: match settings.effort {
+                        crate::provider::effort::Effort::Named(name) => {
+                            crate::provider::effort::Effort::Named(inert_owned(name))
+                        }
+                        auto => auto,
+                    },
+                    ..settings
                 },
                 outcome: match outcome {
                     ModelAnswer::Applied { unverified } => ModelAnswer::Applied {
@@ -567,8 +581,9 @@ impl UiEvent {
             },
             // A provider tag and a category. Nothing here is text.
             Self::CatalogUnread { provider, retry } => Self::CatalogUnread { provider, retry },
-            // Two numbers. There is nothing here a terminal can be made to obey.
-            Self::Usage { input, output } => Self::Usage { input, output },
+            // Numbers. There is nothing here a terminal can be made to obey.
+            Self::Usage { input } => Self::Usage { input },
+            Self::Output(progress) => Self::Output(progress),
             // A count. There is nothing here a terminal can be made to obey.
             Self::Fresh { through } => Self::Fresh { through },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
@@ -682,6 +697,7 @@ impl UiEvent {
                     .turns
                     .into_iter()
                     .map(|turn| super::hydration::HydratedTurn {
+                        images: turn.images,
                         user: inert_owned(turn.user),
                         sent: inert_owned(turn.sent),
                         steps: turn.steps.into_iter().map(inert_step).collect(),
@@ -701,8 +717,22 @@ impl UiEvent {
                     })
                     .collect(),
                 model: hydration.model.map(inert_owned),
+                // A level's name is a word upstream would parse, read off the
+                // log all the same.
+                settings: hydration.settings.map(|settings| {
+                    crate::provider::effort::TurnSettings {
+                        effort: match settings.effort {
+                            crate::provider::effort::Effort::Named(name) => {
+                                crate::provider::effort::Effort::Named(inert_owned(name))
+                            }
+                            auto => auto,
+                        },
+                        ..settings
+                    }
+                }),
                 // A number.
                 next_image: hydration.next_image,
+                keeps_fast_binding: hydration.keeps_fast_binding,
             }),
             // The id is the store's own name for a directory, read back off a
             // listing; the failure is this crate's word.
@@ -849,6 +879,10 @@ pub(crate) enum TurnControl {
     /// queued behind it is taken. An interrupt does not drop it: it is not a
     /// piece of work, and the turn after the interrupt is the one it was for.
     Model(ModelChange),
+    /// `/fast` and `/ultrafast on|off` ([`SpeedChange`]): a control message
+    /// for [`Self::Model`]'s reasons, put aside while work runs and applied
+    /// between turns in the order it came with any model change.
+    Speed(SpeedChange),
     /// `/undo` ([`crate::tools::mutate::undo_through`]), answered with
     /// [`UiEvent::Undone`].
     ///
@@ -920,6 +954,17 @@ pub(crate) struct ModelChange {
     pub(crate) announced: bool,
     /// A turn was running, or waiting to, when it was asked for.
     pub(crate) next_turn: bool,
+    /// The speed the picker's third column or the explicit form's third word
+    /// chose. `None` from a picker is upstream's "the Fast mode the session is
+    /// in, no Ultra" (`selectModelFromPicker(…, app.fast_mode, false)`); a
+    /// query ignores it, and turns both off when the model changes
+    /// ([`crate::provider::effort::TurnSettings::after_query`]).
+    pub(crate) speed: Option<crate::provider::effort::Speed>,
+    /// The provider the change was chosen under. A change put aside while a
+    /// `/provider` switch ran is applied to **that** provider's preference
+    /// and not to the provider the switch left in force (`super::worker`'s
+    /// `change_model`).
+    pub(crate) provider: crate::provider::ProviderId,
     /// The effort alone: `/settings`' `Reasoning effort` row, which keeps the
     /// model and leaves the runtime nothing to select, load or write
     /// (`selectEffortFromSettings`, `session_commands.zig:882-884`) -- the band
@@ -927,6 +972,27 @@ pub(crate) struct ModelChange {
     /// it waits behind a running turn exactly as one does, and keeps its place
     /// among them.
     pub(crate) effort_only: bool,
+}
+
+/// `/fast` or `/ultrafast on|off`, as the band decided it
+/// ([`TurnControl::Speed`]).
+///
+/// **The switches as they are to be**, not the command: the decision --
+/// whether the model offers the mode, which switch the other turns off -- is
+/// made on the band, where the catalog rows and the announcement are, by the
+/// one rule ([`crate::provider::effort::TurnSettings::after_fast`] and
+/// [`crate::provider::effort::TurnSettings::after_ultrafast`]). The runtime
+/// applies, records and saves it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SpeedChange {
+    pub(crate) fast: bool,
+    pub(crate) ultrafast: bool,
+    /// Upstream's label for the write (`fast` or `ultrafast`,
+    /// `session_commands.zig:790`, `:849`), which is what a failed save says.
+    pub(crate) topic: &'static str,
+    /// The provider the band decided it under: a change a `/provider` switch
+    /// overtook is dropped, because the switches go off with the model.
+    pub(crate) provider: crate::provider::ProviderId,
 }
 
 /// What the UI asks the runtime to do next.
@@ -1480,6 +1546,14 @@ impl EventSink for UiEventSink {
             let _ = self.send(UiEvent::Recovered { attempt });
             let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
         }
+    }
+
+    /// The turn's out, for the activity row and the summary under the answer,
+    /// through the same permit as the deltas it is counted beside -- so it
+    /// arrives after the text of the request it settles and before the next
+    /// one's. Its failure dropped, as the hook's contract says.
+    fn output_tokens(&mut self, progress: crate::agent::tokens::Progress) {
+        let _ = self.send(UiEvent::Output(progress));
     }
 }
 
@@ -2404,13 +2478,17 @@ mod tests {
         let hostile = "model\u{1b}[2J".to_string();
         let UiEvent::ModelAnswered {
             model,
-            effort,
+            settings,
             outcome,
             next_turn,
             announced,
         } = (UiEvent::ModelAnswered {
             model: hostile.clone(),
-            effort: crate::provider::effort::Effort::Named(hostile.clone()),
+            settings: crate::provider::effort::TurnSettings {
+                effort: crate::provider::effort::Effort::Named(hostile.clone()),
+                fast: true,
+                ultrafast: false,
+            },
             outcome: ModelAnswer::Applied {
                 unverified: Some(hostile.clone()),
             },
@@ -2422,7 +2500,11 @@ mod tests {
             panic!("the variant changed");
         };
         assert!(!model.contains('\u{1b}'), "{model:?}");
-        assert!(!effort.display().contains('\u{1b}'), "{effort:?}");
+        assert!(
+            !settings.effort.display().contains('\u{1b}'),
+            "{settings:?}"
+        );
+        assert!(settings.fast, "a fact, not text, and carried through");
         assert!(next_turn, "a fact, not text, and carried through");
         assert!(announced, "a fact, not text, and carried through");
         let ModelAnswer::Applied { unverified } = outcome else {
@@ -2434,7 +2516,7 @@ mod tests {
         // And the refusal, which is the arm that quotes the id back by name.
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
-            effort: crate::provider::effort::Effort::Auto,
+            settings: crate::provider::effort::TurnSettings::default(),
             outcome: ModelAnswer::Refused {
                 reason: hostile.clone(),
             },
@@ -2452,7 +2534,7 @@ mod tests {
         // The answer with nothing to say is carried through unchanged.
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
-            effort: crate::provider::effort::Effort::Auto,
+            settings: crate::provider::effort::TurnSettings::default(),
             outcome: ModelAnswer::Unchanged,
             next_turn: false,
             announced: false,
@@ -2469,7 +2551,7 @@ mod tests {
         // one would end while the worker was still publishing.
         assert!(!UiEvent::ModelAnswered {
             model: "m-1".to_string(),
-            effort: crate::provider::effort::Effort::Auto,
+            settings: crate::provider::effort::TurnSettings::default(),
             outcome: ModelAnswer::Unchanged,
             next_turn: false,
             announced: false,
@@ -2482,11 +2564,8 @@ mod tests {
         // The drain leaves on exactly the two events a turn cannot continue
         // past. A catalog or a usage number that answered `true` would end the
         // drain while the worker still owed its conclusion.
-        assert!(!UiEvent::Usage {
-            input: Some(1),
-            output: Some(2)
-        }
-        .is_terminal());
+        assert!(!UiEvent::Usage { input: Some(1) }.is_terminal());
+        assert!(!UiEvent::Output(crate::agent::tokens::Progress::Settled(2)).is_terminal());
         assert!(!UiEvent::CatalogLoaded {
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()

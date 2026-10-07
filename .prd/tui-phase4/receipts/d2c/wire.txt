@@ -1,0 +1,11 @@
+fx model-speed 001-title.json: last user text='say something'; beside prompt and tools: {"maxOutputTokens": 128, "toolChoice": {"type": "none"}}
+fx model-speed 002-completion.json: last user text='say something'; beside prompt and tools: {"maxOutputTokens": 128000, "providerOptions": {"gateway": {"caching": "auto", "only": ["openai"]}, "openai": {"serviceTier": "ultrafast"}}, "reasoning": "high", "toolChoice": {"type": "auto"}}
+fx model-speed 003-completion.json: last user text='say more'; beside prompt and tools: {"maxOutputTokens": 128000, "providerOptions": {"gateway": {"caching": "auto", "speed": "fast"}}, "reasoning": "high", "toolChoice": {"type": "auto"}}
+fx fast-unconfirmed 001-title.json: last user text='say something'; beside prompt and tools: {"maxOutputTokens": 128, "toolChoice": {"type": "none"}}
+fx fast-unconfirmed 002-completion.json: last user text='say something'; beside prompt and tools: {"maxOutputTokens": 128000, "providerOptions": {"gateway": {"caching": "auto", "only": ["openai"]}, "openai": {"serviceTier": "ultrafast"}}, "toolChoice": {"type": "auto"}}
+fx fast-unavailable 001-title.json: last user text='say something'; beside prompt and tools: {"maxOutputTokens": 128, "toolChoice": {"type": "none"}}
+fx fast-unavailable 002-completion.json: last user text='say something'; beside prompt and tools: {"providerOptions": {"gateway": {"caching": "auto"}}, "toolChoice": {"type": "auto"}}
+xfx model-speed 001-completion.json: last user text='say something'; beside prompt and tools: {"providerOptions": {"gateway": {"only": ["openai"]}, "openai": {"serviceTier": "ultrafast"}}, "reasoning": "high", "toolChoice": {"type": "auto"}}
+xfx model-speed 002-completion.json: last user text='say more'; beside prompt and tools: {"providerOptions": {"gateway": {"speed": "fast"}}, "reasoning": "high", "toolChoice": {"type": "auto"}}
+xfx fast-unconfirmed 001-completion.json: last user text='say something'; beside prompt and tools: {"providerOptions": {"gateway": {"only": ["openai"]}, "openai": {"serviceTier": "ultrafast"}}, "toolChoice": {"type": "auto"}}
+xfx fast-unavailable 001-completion.json: last user text='say something'; beside prompt and tools: {"toolChoice": {"type": "auto"}}

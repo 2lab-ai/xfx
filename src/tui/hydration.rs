@@ -34,6 +34,18 @@ pub(crate) struct Hydration {
     /// where the caller already shows the right one -- the launch, whose band
     /// is built from the configuration the session's model was restored into.
     pub(crate) model: Option<String>,
+    /// The effort and speed switches the runtime continues the session in --
+    /// the ones the session recorded, which a resume puts back as upstream's
+    /// does (`restoreRuntimePreferences`) -- for the hint row and for what
+    /// `/fast` and the picker start from. `None` where the caller already
+    /// holds them, as for [`Self::model`].
+    pub(crate) settings: Option<crate::provider::effort::TurnSettings>,
+    /// Whether the Fast mode those settings carry stays **bound** to the
+    /// model (the footer's `⚡︎`): only when the session recorded the selection
+    /// the session was configured with -- the same model and the same Fast
+    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+    /// Read only beside [`Self::settings`].
+    pub(crate) keeps_fast_binding: bool,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
     /// in one conversation (upstream rebases a resumed session's ids the same
@@ -61,6 +73,12 @@ pub(crate) struct HydratedTurn {
     /// its arguments and its whole result
     /// ([`super::full_transcript::details_of`]).
     pub(crate) details: Vec<(String, super::full_transcript::Detail)>,
+    /// Each image the prompt sent, by its number and the file the log says it
+    /// was read from: what the card's badge links to, as a live card's does
+    /// (`expandPlaceholdersWithLinkedBadges`, `user_message_card.zig:222-230`).
+    /// The path is not made inert with the text: it reaches the screen only
+    /// percent-encoded, through [`super::hyperlink::file_uri`].
+    pub(crate) images: Vec<(u32, std::path::PathBuf)>,
 }
 
 /// One thing a turn did, in the order it did it.
@@ -92,8 +110,10 @@ pub(crate) enum HydratedStep {
 /// How a turn ended, as far as its summary row is concerned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Ending {
-    /// It concluded: the summary row, from how long it took and what the
-    /// provider said it wrote (`None` when it said nothing).
+    /// It concluded: the summary row, from how long it took and the out its
+    /// live summary said, as the log kept it
+    /// ([`crate::session::TurnTiming::output_tokens`]). `None` where the log
+    /// kept no count at all, and the replay estimates the text it has instead.
     Concluded { seconds: u64, output: Option<u64> },
     /// It stopped, for this reason -- the sentence the live turn ended on.
     Interrupted(String),
@@ -108,6 +128,8 @@ impl Hydration {
             title: state.title(),
             turns: state.turns.iter().map(turn).collect(),
             model,
+            settings: None,
+            keeps_fast_binding: true,
             next_image: state
                 .turns
                 .iter()
@@ -198,6 +220,16 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         started_at_ms: turn.timing.started_at_ms,
         concluded_at_ms: turn.timing.concluded_at_ms,
         details: super::full_transcript::details_of(&turn.steps),
+        images: turn
+            .images
+            .iter()
+            .map(|image| {
+                (
+                    image.recorded.id,
+                    std::path::PathBuf::from(&image.recorded.path),
+                )
+            })
+            .collect(),
     }
 }
 
@@ -258,6 +290,7 @@ mod tests {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            turn_settings: None,
             usage: crate::session::RecordedUsage::default(),
             checkpoint: None,
         };

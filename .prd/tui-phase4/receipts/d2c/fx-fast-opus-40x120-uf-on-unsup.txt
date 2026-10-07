@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* fast: on
+
+* fast: off
+
+! ultrafast: Ultra mode is unavailable for this model and may increase cost.
+
+┃
+
+auto · opus 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
