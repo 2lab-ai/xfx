@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mrun the two commands[0m
+
+[38;5;255m●[39m [38;5;245m2 tool calls · 2 commands · 1 denied[39m
+[38;5;245m├ Denied [38;5;252mecho[38;5;245m A-C1 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin eeeeeee…
+└ Running [38;5;252mecho[38;5;245m B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeeeeeeeee goes down B-C2:xxxxxxxxxxxxxxxxx…
+[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [1mPermission needed · Choose one[0m                                                                               [38;5;245mCommand[39m
+
+  [1mWould you like to run the following command?[0m
+
+[1m[38;5;255m  $ # shell.run profile=user shell=/bin/zsh[0m
+[1m[38;5;255m    echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeeeeeeeee goes down[0m
+[1m[38;5;255m    B-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1b[31mred\x1b[0m[0m
+
+  ❯ [1m[38;5;255m1. Yes[0m
+    2. Yes, and don't ask again for this exact command
+    3. No
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
