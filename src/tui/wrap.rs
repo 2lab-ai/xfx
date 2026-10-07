@@ -1,12 +1,14 @@
 //! Soft-wrap: text in, rows out, measured in cells.
 //!
-//! Two rules live here. [`composer`] is the composer's: upstream's composer
+//! Four rules live here. [`composer`] is the composer's: upstream's composer
 //! layout (`visual_layout.zig`), which keeps a badge or a pasted block whole,
 //! breaks a word wider than a row where it starts, and puts a tab on a tab
 //! stop -- with its caret ([`composer_point`]) measured by the same rule, so
 //! the caret is never a row away from the character it is supposed to sit on.
-//! [`wrap`] is the transcript's rows' and the panels'. The assistant's answer
-//! is neither: upstream wraps it with its assistant wrap, and so does xfx
+//! [`wrap`] is the transcript's rows' and the panels'. Two transcript rows
+//! have upstream rules of their own: a notice's ([`wrap_notice`]) and a
+//! submitted prompt's card ([`wrap_card`]). The assistant's answer is none
+//! of these: upstream wraps it with its assistant wrap, and so does xfx
 //! ([`super::prose`], which measures with this module's [`width`] and tiles
 //! the text into the same [`Row`]s).
 //!
