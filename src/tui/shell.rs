@@ -4061,6 +4061,17 @@ impl Shell {
             model: &self.model,
             effort: self.settings.effort.display(),
             efforts: self.model_levels(),
+            fast: self.settings.fast,
+            ultrafast: self.settings.ultrafast,
+            // `resolvedModelCapabilities`' speeds: the catalog row's, and
+            // none for a model it does not list or before it is read
+            // (`settingsCatalogSnapshot`, `app_commands.zig:4031-4047`).
+            offers_fast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.fast),
+            offers_ultrafast: self
+                .catalog_row(&self.model)
+                .is_some_and(|entry| entry.facts.ultrafast),
             permission_mode: self.mode,
             sound: self.sound.notifications(),
             startup_scrollback: self.startup_scrollback,
@@ -4346,6 +4357,20 @@ impl Shell {
             Setting::Effort => {
                 if let Some(effort) = Effort::parse(value) {
                     self.set_effort(effort);
+                }
+            }
+            // `toggleFast` when the row differs (`app_commands.zig:4183-4186`):
+            // `/fast` itself -- its line, its save, its refusal.
+            Setting::FastMode => {
+                if on != self.settings.fast {
+                    self.speed_command(SpeedCommand::Fast);
+                }
+            }
+            // `handleUltrafast(app, "on"|"off")` when the row differs
+            // (`:4187-4195`): `/ultrafast on|off` itself.
+            Setting::UltraMode => {
+                if on != self.settings.ultrafast {
+                    self.speed_command(SpeedCommand::Ultra(on));
                 }
             }
             Setting::SlashMenuCategories => {
@@ -9496,6 +9521,13 @@ impl CommandHandlers for Shell {
         self.file_picker = None;
         self.workspace_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // The effort and speed rows are the catalog's answer for the model in
+        // force, which upstream's menu reads from a cache filled at launch
+        // (`settingsCatalogSnapshot`'s `resolvedModelCapabilities`,
+        // `app_commands.zig:4031-4047`). This side reads the catalog when it
+        // is wanted, so the menu wants it: the rows show their choices once it
+        // lands ([`UiEvent::CatalogLoaded`] re-solves the band).
+        self.want_catalog();
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
         self.refit();
@@ -29135,12 +29167,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 13);
+        assert_eq!(shell.geometry.panel, 15);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 11  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 13  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -29149,6 +29181,8 @@ mod tests {
                 "  Collapse tool calls      off  on",
                 model.as_str(),
                 "  Reasoning effort         default",
+                "  Fast mode                off",
+                "  Ultra mode               off",
                 "  Permission mode          ask  auto  full access",
                 "  Sound level              off  on",
                 "  Startup scrollback       off  on",
@@ -29173,9 +29207,12 @@ mod tests {
             "the menu took the caret"
         );
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        // The one thing it asks the runtime for is the catalog its effort and
+        // speed rows read.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         assert!(
             shell.sent.try_recv().is_err(),
-            "/settings reached the runtime"
+            "/settings asked the runtime for more than the catalog"
         );
     }
 
@@ -29222,6 +29259,9 @@ mod tests {
         // `app_input_runtime.zig:2408-2410`) -- opens no catalog.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
+        // The menu's own ask, for its effort and speed rows; nothing typed
+        // into the search asks for another.
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -29263,6 +29303,8 @@ mod tests {
             [
                 format!("  Model               {}", shell.model),
                 "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
             ]
         );
@@ -29291,8 +29333,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[12]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[12].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -29346,16 +29388,16 @@ mod tests {
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 7);
-        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
+        down(&mut shell, 9);
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Permission mode"));
         shell.route_bytes(RIGHT);
         typed.route_bytes(b"/permissions full-access\r");
         assert_eq!(shell.mode, PermissionMode::Yolo);
         assert_eq!(shell.document(), typed.document());
         assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
-        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
+        assert!(settings_text(&shell)[11].ends_with("ask  auto  full access"));
         assert_eq!(
-            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
+            menu(&shell)[11].matches(PALETTE.subtitle()).count(),
             2,
             "the marked label and `full access`"
         );
@@ -29372,7 +29414,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 8);
+        down(&mut shell, 10);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -29386,7 +29428,7 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[12].ends_with("Sound level              off  on"));
     }
 
     #[test]
@@ -29568,8 +29610,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[12]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[12].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -29738,8 +29780,8 @@ mod tests {
         shell.route_bytes(b"mod");
         shell.route_bytes(b"\r");
         assert_eq!(settings_text(&shell)[3].trim(), "openai/gpt-6-astra");
-        // `model` finds the effort row too (its description names the model),
-        // so the value column is past `Reasoning effort`.
+        // `model` finds the effort and speed rows too (their descriptions name
+        // the model), so the value column is past `Reasoning effort`.
         shell.route_bytes(b"el");
         assert_eq!(
             settings_text(&shell)[2..],
@@ -29747,6 +29789,8 @@ mod tests {
                 format!("  Model               {}", shell.model),
                 "                      fake/model-a".to_string(),
                 "  Reasoning effort    default".to_string(),
+                "  Fast mode           off".to_string(),
+                "  Ultra mode          off".to_string(),
             ]
         );
 
@@ -29774,6 +29818,65 @@ mod tests {
     }
 
     #[test]
+    fn the_speed_rows_are_fast_and_ultrafast_themselves() {
+        // `applySettingsCatalogChange`'s `fast_mode` and `ultrafast_mode`
+        // (`app_commands.zig:4183-4195`): a row that differs from the session
+        // is `toggleFast` or `handleUltrafast(on|off)` -- the same line, the
+        // same change handed to the runtime (which saves it) -- and a model
+        // with no speed has no choice to move to.
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Fast mode"));
+        assert_eq!(settings_text(&shell)[9], "  Fast mode                off");
+        shell.route_bytes(RIGHT);
+        assert!(
+            shell.document().is_empty(),
+            "a model with no Fast mode moved"
+        );
+        assert!(shell.controlled().is_none());
+
+        let model = "openai/gpt-6-astra".to_string();
+        let mut typed = speed_shell();
+        shell.model.clone_from(&model);
+        typed.model.clone_from(&model);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/fast\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(shell.settings.fast);
+        assert!(menu(&shell)[9].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+
+        // Ultra on is `/ultrafast on`, which turns Fast off with it.
+        down(&mut shell, 1);
+        assert_eq!(
+            settings_text(&shell)[10],
+            "  Ultra mode               off  on"
+        );
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/ultrafast on\r");
+        assert_eq!(shell.document(), typed.document());
+        let change = speed_change(&mut shell);
+        assert_eq!(change, speed_change(&mut typed));
+        assert!(change.ultrafast && !change.fast);
+        assert_eq!(
+            settings_text(&shell)[9],
+            "  Fast mode                off  on"
+        );
+        // And Left back off is `/ultrafast off`.
+        shell.route_bytes(LEFT);
+        typed.route_bytes(b"/ultrafast off\r");
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(speed_change(&mut shell), speed_change(&mut typed));
+        assert!(!shell.settings.ultrafast);
+    }
+
+    #[test]
     fn startup_scrollback_is_saved_for_the_next_launch_and_said_so() {
         // `fx-settings-scrollback-*`: the row and its command both write
         // `startup_scrollback` and say what the next launch does
@@ -29781,8 +29884,8 @@ mod tests {
         // with no `saved to user settings` line.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
-        down(&mut shell, 9);
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Startup scrollback"));
+        down(&mut shell, 11);
+        assert!(visible_text(&menu(&shell)[13]).starts_with("  Startup scrollback"));
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -29792,10 +29895,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            settings_text(&shell)[11],
+            settings_text(&shell)[13],
             "  Startup scrollback       off  on"
         );
-        assert!(menu(&shell)[11].contains(&format!(
+        assert!(menu(&shell)[13].contains(&format!(
             "{}off{}",
             PALETTE.subtitle(),
             PALETTE.reset()

@@ -12,12 +12,20 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120
 for `<scenario>` in `settings`, `settings2`, `settings-perm`, `settings-cats`,
 `settings-collapse`, `settings-history`, `settings-model`, `settings-effort`,
 and -- for the follow-ups -- `settings-model-list`, `settings-scrollback`,
-`recall-edge` and `settings-collapse-open` (`scripts/fxcap/scenarios/`). `settings` and `settings2` are the research
+`recall-edge`, `settings-collapse-open` and `settings-speed`
+(`scripts/fxcap/scenarios/`). `settings` and `settings2` are the research
 scenarios (`appearance-security-ext/scenarios/settings*.cap`) keystroke for
 keystroke, with a `home` dump after each write. Where the two menus list a
 different number of settings, the `Down` count is per binary (`fx:`/`xfx:`
 lines) so both land on the same row. Every scenario starts xfx with
 `XFX_SOUND=off`, as the harness starts fx with `FX_SOUND=0`.
+
+**Round 3 (the speed rows).** After `plan/tui-phase4` at `13dac71` (D2c) was
+merged, the menu gained `Fast mode` and `Ultra mode`; `settings-speed` was
+captured on both binaries, xfx a debug build of `32350d3`'s tree with the
+rows (its banner). The round-2 snaps below were taken before the rows existed:
+their xfx menus list 11 settings and fx's 14, where the menu now lists 13
+(R below) -- the rows they do show are unchanged.
 
 **Round 2 (the follow-ups).** `settings-collapse-open` was captured on both
 binaries with a debug build of `13b59ee`'s tree (the block that shrinks gives its
@@ -55,12 +63,12 @@ cells are the same.
 Row 1 is each binary's own banner everywhere. Beyond it, every difference is
 one of these, and each snap below names which:
 
-- **R -- the rows xfx does not have.** fx lists 14 settings, xfx 11: `Fast
-  mode`, `Ultra mode` and `Session titles` are absent (`../../ssot.md`
-  §Tensions; D2c, which would bring the speed rows, is not in plan), and
-  `Sound level` is `off  on` without `max`. So the header says `Settings 11`
-  (`3` on Agent) where fx says `14` (`6`), the band is that many rows shorter,
-  and the rule and the key help sit higher. Every row xfx does have is
+- **R -- the rows xfx does not have.** fx lists 14 settings, xfx 13 since
+  round 3: `Session titles` is absent (`../../ssot.md` §Tensions), and `Sound
+  level` is `off  on` without `max`. So the header says `Settings 13` (`5` on
+  Agent) where fx says `14` (`6`), the band is a row shorter, and the rule and
+  the key help sit a row higher. In the round-2 snaps, taken before the speed
+  rows, xfx says `Settings 11` (`3` on Agent) and is three rows shorter. Every row xfx does have is
   cell-identical to fx's row for it -- label, value column, choices, which is
   bold, the marked label.
 - **T -- turn summaries.** `0s (↑1 ↓40)` against fx's `↓80` after a tool step
@@ -140,6 +148,10 @@ approved command's group are gone: each is fx's now, snap for snap below.
 | `recall-edge-recalled-start` | Up, then `Y`: `┃ Y/stats` -- a recalled line's first Up is its start too. | -- (the same) |
 | `settings-collapse-open-running` | The approved command's group open: header, `└ Running sleep 4; echo hi`, a blank, the activity row. | T; xfx's screen is two rows further up (A) |
 | `settings-collapse-open-collapse-on`, `-after-esc` | Collapse switched on mid-turn: the open group is its header and its blank row, and the notice lands right under them, then the activity row; the first group -- its header already above the screen -- loses its call rows too. | T; xfx's rows are fx's one row lower: fx re-renders the whole screen and pulls an older row down into the space, xfx's top rows stay where they are (`../../ssot.md` §Tensions) |
+| `settings-speed-fast-marked` | `anthropic/claude-opus-5` (Fast, no Ultra): `Fast mode  off  on` with `off` bold, `Ultra mode  off` alone (no choice), `Reasoning effort  default  low  medium  high  max` -- the catalog the menu asked for on opening. | R |
+| `settings-speed-fast-on` | Right: `* fast: on`, the row's `on` bold. Saved as `/fast` saves (`fast_mode: true`, `ultrafast_mode: false`, `fast_mode_model_bound: true`). | R |
+| `settings-speed-ultra-right` | Right on `Ultra mode`, which has no choice on this model: nothing said, nothing saved. | R |
+| `settings-speed-fast-off` | Left on `Fast mode`: `* fast: off`. | R |
 | `toolgroup-long-ask..-later` (xfx only; fx in `../f1/`) | The approved command's group, a blank row, and the activity row right under it -- no extra blank rows. xfx's screen is two rows further up than fx's (its approval panel is two rows taller, so more went to scrollback). | A, I |
 | `settings-effort-bare`, `-marked` | `zai/glm-5.2`: `Reasoning effort  default  low  high`, `default` bold. | R |
 | `settings-effort-right1..3`, `-left` | Each change says only `* effort: saved to user settings (scope=user)`; the bold walks `low`, `high`, `default`, and Left back to `high`. | R |
@@ -165,6 +177,7 @@ and fx keeps every prior version under `~/.fx/backups/` (`../d4b/README.md`).
 | Prompt history off / on | `{"prompt_history":{"enabled":false}}` / `true` | the same |
 | `/settings startup-scrollback`, `bogus` (`settings-files`) | `{"startup_scrollback":false}` | `{"startup_scrollback":false}` |
 | Startup scrollback row off (`settings-scrollback-row-off`), then the command on and off (`-off`) | `{"startup_scrollback":false}` | the same |
+| Fast mode on (`settings-speed-fast-on`) | `{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":true,"ultrafast_mode":false,"fast_mode_model_bound":true}` | the same keys and values |
 | The Model list's Left (`settings-model-list-used`) | `{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","effort":"auto","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}` | `{"models":{"gateway":"anthropic/claude-opus-5"}}` -- what xfx's `/model` writes (D2b: no speed keys, and the effort only when it was chosen) |
 
 ## History file

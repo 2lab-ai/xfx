@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;250m* fast: on[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mSettings 14[0m  [1m[38;5;255m[All][0m  [38;5;245mInterface[39m  [38;5;245mAgent[39m  [38;5;245mNotifications[39m  [38;5;245mAdvanced[39m
+
+  [38;5;245mStatus line context[39m      [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mStatus line session[39m      [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mStatus line workspace[39m    [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mSlash menu categories[39m    [38;5;245moff[39m  [1m[38;5;255mon[0m
+  [38;5;245mCollapse tool calls[39m      [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mModel[39m                    [1m[38;5;255manthropic/claude-opus-5[0m
+  [38;5;245mReasoning effort[39m         [1m[38;5;255mdefault[0m  [38;5;245mlow[39m  [38;5;245mmedium[39m  [38;5;245mhigh[39m  [38;5;245mmax[39m
+  [38;5;245mFast mode[39m                [38;5;245moff[39m  [1m[38;5;255mon[0m
+  [1m[38;5;255mUltra mode[0m               [1m[38;5;255moff[0m
+  [38;5;245mPermission mode[39m          [38;5;245mask[39m  [1m[38;5;255mauto[0m  [38;5;245mfull access[39m
+  [38;5;245mSession titles[39m           [38;5;245moff[39m  [1m[38;5;255mon[0m
+  [38;5;245mSound level[39m              [1m[38;5;255moff[0m  [38;5;245mon[39m  [38;5;245mmax[39m
+  [38;5;245mStartup scrollback[39m       [38;5;245moff[39m  [1m[38;5;255mon[0m
+  [38;5;245mPrompt history[39m           [38;5;245moff[39m  [1m[38;5;255mon[0m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     tab category     ←→ change     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -17,7 +17,9 @@
 //! **The same thing the row's slash command does, and it says so the same
 //! way** (`applySettingsCatalogChange`, `app_commands.zig:4110-4210`): a status
 //! line row is `/statusline <item>` with both of its notices, the permission
-//! row is `/permissions <mode>`, the sound row is `/sound <level>`. The three
+//! row is `/permissions <mode>`, the sound row is `/sound <level>`, and
+//! `Fast mode` and `Ultra mode` are `/fast` and `/ultrafast on|off` when they
+//! differ from the session. The three
 //! preferences that have no command of their own are written to the profile
 //! and announce the write (`persistUserPreferences`, `app_commands.zig:167-192`).
 //! This module only decides *which* value a keystroke means
@@ -42,12 +44,14 @@
 //!
 //! # What it lists
 //!
-//! Upstream's fourteen rows, in its order, **less the ones xfx has nothing
-//! behind**: `Fast mode` and `Ultra mode` (xfx sends no speed tier) and
-//! `Session titles` (xfx has no title generator: a session's title is its
-//! first prompt). A row with nothing behind it would be a switch that switches
-//! nothing, which `scripts/check-no-stubs.sh` exists to keep out of the binary;
-//! `.prd/tui-phase4/ssot.md` records each one. `Sound level` is `off  on`:
+//! Upstream's fourteen rows, in its order, **less the one xfx has nothing
+//! behind**: `Session titles` (xfx has no title generator: a session's title
+//! is its first prompt). A row with nothing behind it would be a switch that
+//! switches nothing, which `scripts/check-no-stubs.sh` exists to keep out of
+//! the binary; `.prd/tui-phase4/ssot.md` records it. `Fast mode` and `Ultra
+//! mode` are `/fast` and `/ultrafast on|off`, with choices only for a model
+//! whose catalog row offers the speed, or while it is on
+//! (`optionCount`, `settings_catalog.zig:314-315`). `Sound level` is `off  on`:
 //! upstream's `max` drives chimes xfx does not play (`crate::sound`).
 //! `Reasoning effort` is the session's effort (`crate::provider::effort`), its
 //! choices `default` and the levels the catalog lists for the model in force --
@@ -228,6 +232,10 @@ pub(crate) enum Setting {
     Model,
     /// The session's reasoning effort, written as `effort`.
     Effort,
+    /// `/fast`: Fast mode for the model in force.
+    FastMode,
+    /// `/ultrafast on|off`: Ultra mode for the model in force.
+    UltraMode,
     /// `/permissions <mode>`.
     PermissionMode,
     /// `/sound <level>`.
@@ -252,6 +260,8 @@ impl Setting {
             Self::CollapseToolCalls => "collapse_tool_calls",
             Self::Model => "model",
             Self::Effort => "effort",
+            Self::FastMode => "fast_mode",
+            Self::UltraMode => "ultrafast_mode",
             Self::PermissionMode => "permission_mode",
             Self::SoundLevel => "sound_level",
             Self::StartupScrollback => "startup_scrollback",
@@ -273,7 +283,7 @@ struct Spec {
 /// The settings, in upstream's order (`specs`, `settings_catalog.zig:261-276`)
 /// and upstream's words, with this product's name where upstream says its own
 /// and without `max` in the sound row's, which xfx's switch does not have.
-const SPECS: [Spec; 11] = [
+const SPECS: [Spec; 13] = [
     Spec {
         id: Setting::Statusline(StatusLineItem::Context),
         category: Category::Interface,
@@ -315,6 +325,18 @@ const SPECS: [Spec; 11] = [
         category: Category::Agent,
         label: "Reasoning effort",
         description: "Control how much reasoning the model applies",
+    },
+    Spec {
+        id: Setting::FastMode,
+        category: Category::Agent,
+        label: "Fast mode",
+        description: "Use faster inference when the model supports it",
+    },
+    Spec {
+        id: Setting::UltraMode,
+        category: Category::Agent,
+        label: "Ultra mode",
+        description: "Request the highest-speed mode when the model supports it",
     },
     Spec {
         id: Setting::PermissionMode,
@@ -361,6 +383,13 @@ pub(crate) struct Snapshot<'a> {
     /// The levels the catalog lists for the model in force, empty when it
     /// lists none or has not been read.
     pub(crate) efforts: &'a [String],
+    /// Fast mode and Ultra mode, as the session asks for them now.
+    pub(crate) fast: bool,
+    pub(crate) ultrafast: bool,
+    /// Whether the model in force's catalog row offers each speed: false
+    /// while the catalog has not been read.
+    pub(crate) offers_fast: bool,
+    pub(crate) offers_ultrafast: bool,
     pub(crate) permission_mode: PermissionMode,
     pub(crate) sound: Notifications,
     /// What the profile says the next launch does, which is what the row and
@@ -386,6 +415,8 @@ impl<'a> Snapshot<'a> {
             Setting::CollapseToolCalls => on_off(self.collapse_tool_calls),
             Setting::Model => self.model,
             Setting::Effort => self.effort,
+            Setting::FastMode => on_off(self.fast),
+            Setting::UltraMode => on_off(self.ultrafast),
             Setting::PermissionMode => self.permission_mode.display_label(),
             Setting::SoundLevel => match (self.sound.turn_end, self.sound.attention_required) {
                 (false, false) => "off",
@@ -434,6 +465,9 @@ fn options<'a>(id: Setting, snapshot: &Snapshot<'a>) -> Vec<&'a str> {
                 .chain(snapshot.efforts.iter().map(String::as_str))
                 .collect()
         }
+        Setting::FastMode if snapshot.offers_fast || snapshot.fast => ON_OFF.to_vec(),
+        Setting::UltraMode if snapshot.offers_ultrafast || snapshot.ultrafast => ON_OFF.to_vec(),
+        Setting::FastMode | Setting::UltraMode => Vec::new(),
         Setting::PermissionMode => PERMISSION_MODES.to_vec(),
         Setting::Statusline(_)
         | Setting::SlashMenuCategories
@@ -1087,6 +1121,10 @@ mod tests {
             model: "fake/model-a",
             effort: "default",
             efforts: &[],
+            fast: false,
+            ultrafast: false,
+            offers_fast: false,
+            offers_ultrafast: false,
             permission_mode: PermissionMode::Auto,
             sound: Notifications::both(false),
             startup_scrollback: true,
@@ -1141,14 +1179,13 @@ mod tests {
 
     #[test]
     fn the_bare_menu_is_upstreams_rows_less_the_settings_xfx_has_nothing_behind() {
-        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Fast mode`,
-        // `Ultra mode` and `Session titles`, and with `Sound level` cycling
-        // `off  on`.
+        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Session
+        // titles`, and with `Sound level` cycling `off  on`.
         let rows = SettingsMenu::open("").rows(&launched(), 120, 40, PALETTE);
         let tab = |label: &str| format!("  {DIM}{label}{RESET}");
         let mut expected = vec![
             format!(
-                "{BRIGHT}Settings 11{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
+                "{BRIGHT}Settings 13{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
                 tab("Interface"),
                 tab("Agent"),
                 tab("Notifications"),
@@ -1170,6 +1207,15 @@ mod tests {
             "  {DIM}Reasoning effort{RESET}{}{BRIGHT}default{RESET}",
             " ".repeat(9)
         ));
+        // A model that offers no speed, with none on: the value alone.
+        expected.push(format!(
+            "  {DIM}Fast mode{RESET}{}{BRIGHT}off{RESET}",
+            " ".repeat(16)
+        ));
+        expected.push(format!(
+            "  {DIM}Ultra mode{RESET}{}{BRIGHT}off{RESET}",
+            " ".repeat(15)
+        ));
         expected.push(choice_row(
             "Permission mode",
             false,
@@ -1180,7 +1226,59 @@ mod tests {
         expected.push(choice_row("Startup scrollback", false, &ON_OFF, "on"));
         expected.push(choice_row("Prompt history", false, &ON_OFF, "on"));
         assert_eq!(rows, expected);
-        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 13);
+        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 15);
+    }
+
+    #[test]
+    fn the_speed_rows_have_choices_only_for_a_model_that_offers_the_speed_or_while_it_is_on() {
+        // `optionCount`, `settings_catalog.zig:314-315`: no choice for a model
+        // without the speed, so Left and Right change nothing there; on and
+        // off for one that has it -- and while the speed is on, even after a
+        // move to a model without it, so the way back off is still a key.
+        let mut snapshot = launched();
+        let menu = on_tab(2);
+        let mut fast = menu.clone();
+        assert!(fast.step(true, 5, &snapshot) && fast.step(true, 5, &snapshot));
+        assert_eq!(fast.selected(&snapshot), Some(Setting::FastMode));
+        assert_eq!(fast.change(true, &snapshot), None);
+        snapshot.offers_fast = true;
+        assert_eq!(
+            fast.change(true, &snapshot),
+            Some(Change {
+                setting: Setting::FastMode,
+                value: "on".to_string()
+            })
+        );
+        let rows = fast.rows(&snapshot, 120, 40, PALETTE);
+        assert_eq!(plain(&rows[4]), "  Fast mode           off  on");
+        snapshot.offers_fast = false;
+        snapshot.fast = true;
+        assert_eq!(
+            fast.change(false, &snapshot),
+            Some(Change {
+                setting: Setting::FastMode,
+                value: "off".to_string()
+            })
+        );
+        // Ultra the same, by its own offer.
+        let mut ultra = fast.clone();
+        assert!(ultra.step(true, 5, &snapshot));
+        assert_eq!(ultra.selected(&snapshot), Some(Setting::UltraMode));
+        assert_eq!(ultra.change(true, &snapshot), None);
+        snapshot.offers_ultrafast = true;
+        assert_eq!(
+            ultra.change(true, &snapshot).map(|change| change.value),
+            Some("on".to_string())
+        );
+        // The search finds them by upstream's names and words.
+        assert_eq!(
+            labels(&SettingsMenu::open("ultrafast"), &snapshot),
+            ["Ultra mode"]
+        );
+        assert_eq!(
+            labels(&SettingsMenu::open("faster inference"), &snapshot),
+            ["Fast mode"]
+        );
     }
 
     #[test]
@@ -1188,7 +1286,7 @@ mod tests {
         // `fx-settings2-40x120-tab1..5`: Interface, Agent, Notifications,
         // Advanced, All -- with xfx's settings on each.
         let snapshot = launched();
-        assert_eq!(labels(&on_tab(0), &snapshot).len(), 11);
+        assert_eq!(labels(&on_tab(0), &snapshot).len(), 13);
         assert_eq!(
             labels(&on_tab(1), &snapshot),
             [
@@ -1201,7 +1299,13 @@ mod tests {
         );
         assert_eq!(
             labels(&on_tab(2), &snapshot),
-            ["Model", "Reasoning effort", "Permission mode"]
+            [
+                "Model",
+                "Reasoning effort",
+                "Fast mode",
+                "Ultra mode",
+                "Permission mode"
+            ]
         );
         assert_eq!(labels(&on_tab(3), &snapshot), ["Sound level"]);
         assert_eq!(
@@ -1381,7 +1485,7 @@ mod tests {
         let menu = on_tab(2);
         assert_eq!(
             plain(&menu.rows(&snapshot, 40, 40, PALETTE)[0]),
-            "Settings 3  [Agent]"
+            "Settings 5  [Agent]"
         );
         assert_eq!(plain(&menu.rows(&snapshot, 12, 40, PALETTE)[0]), "[Agent]");
         assert_eq!(plain(&menu.rows(&snapshot, 5, 40, PALETTE)[0]), "[Agen");
