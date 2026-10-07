@@ -2168,6 +2168,26 @@ mod tests {
     }
 
     #[test]
+    fn a_vertical_move_under_a_wide_glyph_lands_in_front_of_it() {
+        // `TargetBuilder` (`visual_layout.zig:631-657`) takes the rightmost
+        // place at or left of the column: column 3 is the second cell of
+        // `\u{754c}`, so the caret goes in front of it, at 2, rather than
+        // after it at 4 (`fx-composer-wrap-40x120-up-wide`).
+        let mut editor = editor("ab\u{754c}cd\nxyz");
+        assert_eq!(editor.point(80), (1, 3));
+        editor.apply(Action::Up, 80);
+        assert_eq!(editor.point(80), (0, 2));
+        // A badge is one place: under its middle, the caret goes in front of
+        // it.
+        let mut draft = Editor::new();
+        draft.insert("ab").expect("an edit");
+        attach(&mut draft, 1, "/tmp/a.png");
+        draft.insert("\nxxxxxx").expect("an edit");
+        draft.apply(Action::Up, 80);
+        assert_eq!(draft.point(80), (0, 2));
+    }
+
+    #[test]
     fn the_byte_budget_refuses_rather_than_truncates() {
         let mut editor = Editor::new();
         assert!(editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)).is_some());
