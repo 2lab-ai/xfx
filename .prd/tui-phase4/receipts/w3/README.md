@@ -140,3 +140,10 @@ than written empty.
    transcript records the welcome line without a time, so it is left out.
 5. **The file name** is `xfx-trace-…` rather than `fx-trace-…`. The shape,
    directory and mode are fx's.
+6. **How the file comes to be there** (a later follow-up). fx creates the
+   report under its own name and writes into it (`app_commands.zig:2207-2224`).
+   xfx writes it to a hidden `.<name>.partial` beside it and renames it onto
+   the name without replacing anything (`src/trace.rs` `write_report`). So a
+   process killed mid-write leaves no truncated report. The screens and the
+   reports here are unchanged by it: the stage is gone by the time a report
+   is read.
