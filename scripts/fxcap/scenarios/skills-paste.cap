@@ -1,0 +1,16 @@
+# A `$word` that arrives in a paste and names a skill opens the menu on it
+# (maybeOpenPastedSkillMenu, input_paste_runtime.zig:634-663).
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+wait 3
+paste use $rel please
+wait 1.5
+snap paste
+key Enter
+wait 0.5
+snap paste-enter
+key C-u
+wait 0.3
+paste no $zzz here
+wait 1
+snap paste-nomatch

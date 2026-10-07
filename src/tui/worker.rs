@@ -2534,7 +2534,7 @@ async fn turn_loop(
                 run_turn(
                     &mut state,
                     prompt,
-                    Vec::new(),
+                    (Vec::new(), Vec::new()),
                     events,
                     &cancel,
                     &control,
@@ -2542,9 +2542,19 @@ async fn turn_loop(
                 )
                 .await
             }
-            TurnWork::Attached { prompt, images } => {
+            TurnWork::Attached {
+                prompt,
+                images,
+                skills,
+            } => {
                 run_turn(
-                    &mut state, prompt, images, events, &cancel, &control, &mut queue,
+                    &mut state,
+                    prompt,
+                    (images, skills),
+                    events,
+                    &cancel,
+                    &control,
+                    &mut queue,
                 )
                 .await
             }
@@ -2807,7 +2817,7 @@ enum Ended {
 async fn run_turn(
     state: &mut Runtime,
     prompt: String,
-    images: Vec<crate::image::Image>,
+    attached: Attached,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
     control: &ControlChannel,
@@ -2833,7 +2843,7 @@ async fn run_turn(
     steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, images, events, &turn, control,
+        state, prompt, attached, events, &turn, control,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -3966,14 +3976,64 @@ impl crate::gateway::Provider for ToolImageGate<'_> {
     }
 }
 
+/// What a prompt carries besides its words: the images its badges attach and
+/// the skills its `$` tokens bound.
+type Attached = (Vec<crate::image::Image>, Vec<crate::skills::Binding>);
+
+/// What the band is told about the skills a turn named, before it is sent.
+///
+/// The load row under the card -- `* 1 requested skill loaded` and one `├`/`└`
+/// row per skill, a warning with the failure count when one did not load --
+/// is upstream's `load_notice` (`buildExplicitPromptSection`,
+/// `skill_invocation.zig:267-288`, pushed at `orchestrator.zig:5648-5656`);
+/// what each failure was, and every `[context]` line about a shortened
+/// catalog or a skipped candidate, goes to the full transcript alone, as
+/// upstream's `.full_only` notices do (`app_callbacks.zig:1321-1334`).
+async fn say_skills(
+    skills: &crate::skills::TurnSkills,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) {
+    use super::notice::Notice;
+    let explicit = &skills.explicit;
+    if let Some(details) = &explicit.details {
+        let detail = Notice::warning("skills", details.trim_end_matches('\n'));
+        let _ = bridge::send_ui(events, &turn.token, UiEvent::FullDetail(detail)).await;
+    }
+    if let Some((warning, said)) = &explicit.load_notice {
+        let notice = if *warning {
+            Notice::warning("", said.as_str())
+        } else {
+            Notice::neutral("", said.as_str())
+        };
+        let _ = bridge::send_ui(events, &turn.token, UiEvent::Notice(notice)).await;
+    }
+    let context = [
+        skills.catalog.notice.as_deref(),
+        skills.catalog.diagnostic_notice.as_deref(),
+        explicit.notice.as_deref(),
+        explicit.diagnostic_notice.as_deref(),
+    ];
+    for text in context.into_iter().flatten() {
+        let body: Vec<&str> = text
+            .split('\n')
+            .filter(|line| *line != "[context]")
+            .map(|line| line.strip_prefix("[context] ").unwrap_or(line))
+            .collect();
+        let detail = Notice::warning("context", body.join("\n").trim_end_matches('\n'));
+        let _ = bridge::send_ui(events, &turn.token, UiEvent::FullDetail(detail)).await;
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
-    images: Vec<crate::image::Image>,
+    attached: Attached,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
     control: &ControlChannel,
 ) -> Option<String> {
+    let (images, bindings) = attached;
     // The matrix row for a panic on the thread that owns nothing. It is taken
     // here, inside the caught body, because what is being measured is that a
     // turn coming apart reaches the user as data -- not that a thread can die.
@@ -4040,6 +4100,22 @@ async fn one_turn(
         // for its conclusion to say (`compactionErrorHandled`).
         return None;
     }
+    // The skills this workspace has now -- one added in another window is in
+    // this prompt's catalog -- and the ones the prompt or its `$` tokens name,
+    // loaded whole for this turn (`crate::skills`).
+    let skills = crate::skills::TurnSkills::prepare(
+        state
+            .conversation
+            .as_ref()
+            .expect("the conversation was just opened")
+            .tools
+            .scope()
+            .primary(),
+        state.config.home(),
+        &prompt,
+        &bindings,
+    );
+    say_skills(&skills, events, turn).await;
     let options = match state.request_options() {
         Ok(options) => options,
         Err(refusal) => return Some(refusal),
@@ -4119,7 +4195,10 @@ async fn one_turn(
         // The same token the tools were given when the conversation was
         // opened, reset by `Cancellation::turn` for this turn.
         cancel: turn.mirror.clone(),
-        tools: conversation.tools.clone(),
+        tools: conversation.tools.clone().with_skills(
+            Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+            state.config.home().map(std::path::Path::to_path_buf),
+        ),
     };
     let mut sink = UiEventSink::new(events.clone(), turn.token.clone());
     // The recorder, with what the full transcript shows of each call -- its
@@ -4158,6 +4237,7 @@ async fn one_turn(
     // `run_turn_saved`'s machine, taking the person's steers as it runs.
     let outcome = TurnMachine::new(request)
         .with_context(context)
+        .with_skills(&skills)
         .with_steering(state.steering.clone())
         .run_journaled(&served, &mut sink, &mut journal)
         .await;
@@ -5621,7 +5701,7 @@ mod tests {
         let ended = on_a_runtime(run_turn(
             &mut state,
             "hello".to_string(),
-            Vec::new(),
+            (Vec::new(), Vec::new()),
             &events_tx,
             &cancel,
             &control,
@@ -5811,7 +5891,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
-                Vec::new(),
+                (Vec::new(), Vec::new()),
                 &events,
                 &cancel,
                 &control,
@@ -5912,7 +5992,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
-                Vec::new(),
+                (Vec::new(), Vec::new()),
                 &events,
                 &cancel,
                 &control,

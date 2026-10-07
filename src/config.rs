@@ -847,6 +847,13 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// The home directory the profile is under: what the managed skill root
+    /// `~/.xfx/skills` hangs off, and where the walk for workspace skill
+    /// roots stops (`crate::skills::discovery`).
+    pub fn home(&self) -> Option<&Path> {
+        self.profile_dir.as_deref().and_then(Path::parent)
+    }
+
     /// Loads configuration for `workspace` from the real process environment.
     pub fn load(workspace: &Path) -> Result<Self, ConfigError> {
         Self::load_with(&Environment::from_process(), workspace)

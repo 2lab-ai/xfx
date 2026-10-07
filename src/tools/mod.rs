@@ -18,6 +18,7 @@
 pub mod mutate;
 pub mod question;
 pub mod read;
+pub mod skill;
 pub mod spec;
 pub mod terminal;
 pub mod undo;
@@ -49,11 +50,14 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
     "edit_file",
     "create_folder",
     "terminal",
+    "skill",
     "ask_user_question",
 ];
 
 /// The specs themselves, in upstream's order (`tools.zig:1352-1367`): the read
-/// group, then the mutation group, then the terminal.
+/// group, then the mutation group, then the terminal, then `skill` and
+/// `ask_user_question` in the order upstream's registry has them
+/// (`advertisement_order`, `vercel-labs/fx@c1db9191 src/builtins/tools.zig:865-881`).
 static BUILTIN_TOOLS: &[ToolSpec] = &[
     read::LIST_FILES,
     read::GLOB_FILES,
@@ -63,6 +67,7 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     mutate::EDIT_FILE,
     mutate::CREATE_FOLDER,
     terminal::TERMINAL,
+    skill::SKILL,
     question::ASK_USER_QUESTION,
 ];
 
@@ -319,6 +324,7 @@ mod tests {
             ("edit_file", PermissionKind::MutateFile),
             ("create_folder", PermissionKind::MutateFile),
             ("terminal", PermissionKind::RunCommand),
+            ("skill", PermissionKind::ReadOnly),
             ("ask_user_question", PermissionKind::Interaction),
         ];
         let actual: Vec<(&str, PermissionKind)> = Registry::builtin()

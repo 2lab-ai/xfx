@@ -784,6 +784,7 @@ mod session_picker;
 mod settings;
 mod shell;
 mod signals;
+mod skills_menu;
 mod sound;
 mod speed_save;
 mod statusline;

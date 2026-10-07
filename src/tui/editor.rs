@@ -324,6 +324,56 @@ impl Editor {
         ))
     }
 
+    /// Puts a skill token in place of `range` -- the `$` word a mention menu
+    /// was searching, or the whole search of `/skills`' -- and a space after
+    /// it when `separator`, the caret after both, or refuses whole
+    /// (`bindSkillToken`, `vercel-labs/fx@c1db9191
+    /// src/core/input/registered_entities.zig:466-533`).
+    ///
+    /// The range goes as a selection would, a block it touches with it, so
+    /// the token is one edit: one delta whose inserted entity makes it a
+    /// history boundary ([`super::edit_history::EditHistory::record`]).
+    pub(crate) fn bind(
+        &mut self,
+        range: std::ops::Range<usize>,
+        summary: &str,
+        kind: EntityKind,
+        separator: bool,
+    ) -> Option<Delta> {
+        if range.start > range.end
+            || range.end > self.text.len()
+            || !self.text.is_char_boundary(range.start)
+            || !self.text.is_char_boundary(range.end)
+            || summary.is_empty()
+        {
+            return None;
+        }
+        let (anchor, cursor, sticky) = (self.anchor, self.cursor, self.sticky);
+        if range.start < range.end {
+            self.anchor = Some(range.start);
+            self.cursor = range.end;
+        } else {
+            self.anchor = None;
+            self.cursor = range.start;
+        }
+        let mut text = summary.to_string();
+        if separator {
+            text.push(' ');
+        }
+        let span = Span {
+            start: 0,
+            end: summary.len(),
+            kind,
+        };
+        let delta = self.insert_with_entities(&text, std::slice::from_ref(&span));
+        if delta.is_none() {
+            self.anchor = anchor;
+            self.cursor = cursor;
+            self.sticky = sticky;
+        }
+        delta
+    }
+
     /// Replaces the whole draft, or refuses it whole.
     ///
     /// What a history recall needs and what [`Self::insert`] cannot give it: a
@@ -672,10 +722,35 @@ impl Editor {
     /// ([`Self::point`]), exactly as they are without them. A link is closed on
     /// the row it opened on and opened again on the next, as upstream balances
     /// a badge across narrow card rows (`user_message_card.zig:354-379`).
+    #[cfg(test)]
     pub(crate) fn painted_rows(&self, cols: u16, open: &str, close: &str) -> Vec<String> {
+        self.painted_rows_with(cols, (open, close), ("", ""))
+    }
+
+    /// [`Self::painted_rows`], and each skill token's name in `token.0`,
+    /// closed by `token.1` -- upstream's bold bright name
+    /// (`selected_completion_style`, `fx-skills-40x120-dollar-enter`:
+    /// `┃ \e[1m\e[38;5;255mdemo\e[0m`). The close is a full reset, so a
+    /// selection the token was inside is opened again after it.
+    pub(crate) fn painted_rows_with(
+        &self,
+        cols: u16,
+        (open, close): (&str, &str),
+        token: (&str, &str),
+    ) -> Vec<String> {
         let selected = self.selection();
         let links = self.badge_links();
-        if selected.is_none() && links.is_empty() {
+        let tokens: Vec<std::ops::Range<usize>> = if token.0.is_empty() {
+            Vec::new()
+        } else {
+            self.entities
+                .spans()
+                .iter()
+                .filter(|span| span.skill().is_some())
+                .map(|span| span.start..span.end)
+                .collect()
+        };
+        if selected.is_none() && links.is_empty() && tokens.is_empty() {
             return self.rows(cols);
         }
         let link_at = |at: usize| {
@@ -691,12 +766,32 @@ impl Editor {
                 let mut out = String::with_capacity(body.len() + open.len() + close.len());
                 let mut inside = false;
                 let mut linked: Option<&str> = None;
+                let mut named = false;
                 for (offset, cluster) in body.grapheme_indices(true) {
                     let at = row.start + offset;
+                    let in_token = tokens.iter().any(|range| range.contains(&at));
+                    if !in_token && named {
+                        out.push_str(token.1);
+                        named = false;
+                        // The close was a reset: a selection still running
+                        // past the token is opened again.
+                        if inside {
+                            out.push_str(open);
+                        }
+                    }
                     let wanted = selected.as_ref().is_some_and(|range| range.contains(&at));
                     if wanted != inside {
                         out.push_str(if wanted { open } else { close });
                         inside = wanted;
+                        // A selection that ended inside a token took the
+                        // token's style with its reset: given back.
+                        if !wanted && named {
+                            out.push_str(token.0);
+                        }
+                    }
+                    if in_token && !named {
+                        out.push_str(token.0);
+                        named = true;
                     }
                     let link = link_at(at);
                     if link != linked {
@@ -705,7 +800,9 @@ impl Editor {
                     }
                     out.push_str(&wrap::expand_tabs(cluster));
                 }
-                if inside {
+                if named {
+                    out.push_str(token.1);
+                } else if inside {
                     out.push_str(close);
                 }
                 if linked.is_some() {
@@ -727,7 +824,7 @@ impl Editor {
             .filter_map(|span| match &span.kind {
                 EntityKind::Image { image, .. } => super::hyperlink::file_uri(&image.path)
                     .map(|uri| (span.start..span.end, super::hyperlink::open("", &uri))),
-                EntityKind::Paste { .. } => None,
+                EntityKind::Paste { .. } | EntityKind::Skill { .. } => None,
             })
             .collect()
     }

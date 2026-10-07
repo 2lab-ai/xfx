@@ -250,12 +250,18 @@ impl EditHistory {
         // brings a badge back, as words or as an image, and upstream's
         // refusal of an undo over one (`composer_undo.zig:35-40,252-268`)
         // has nothing left to refuse. Neither stack holds an image's bytes.
+        //
+        // **A skill token is one of them** (`entityOverlapping` counts
+        // `skill_tokens`, `registered_entities.zig:296-300`, and binding one
+        // resets the history, `composer_skill_binding.zig:36`): an undo never
+        // brings a token back as the bare name, nor takes the name back out
+        // of a token the menu bound.
         if weight > MAX_RETAINED_BYTES
             || delta
                 .removed_entities()
                 .iter()
                 .chain(delta.inserted_entities())
-                .any(|span| span.image().is_some())
+                .any(|span| span.image().is_some() || span.skill().is_some())
         {
             self.boundary();
             return;

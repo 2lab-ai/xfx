@@ -391,6 +391,16 @@ pub(crate) enum Gutter {
     /// notice is wrapped as upstream wraps the whole of it
     /// (`renderSemanticNotice`, `transcript_blocks.zig:1781-1798`).
     NoticeIndent,
+    /// A notice's body line that opens with a tree branch, `├ ` or `└ `: the
+    /// branch and its space stand where the indent stands on the notice's
+    /// other rows, so the branch is under the glyph, and the rows the line
+    /// wraps onto are two columns in (`noticeContinuationIndent`,
+    /// `transcript_blocks.zig:1718-1725`). The branch is painted in the
+    /// body's colour, as upstream writes it inside the body's run.
+    ///
+    /// One-shot, as [`Gutter::Head`] is: the line after it is
+    /// [`Gutter::NoticeIndent`]'s.
+    Branch(char),
 }
 
 impl Gutter {
@@ -402,7 +412,8 @@ impl Gutter {
             | Gutter::Indent
             | Gutter::Carried(_)
             | Gutter::Head(_)
-            | Gutter::NoticeIndent => 2,
+            | Gutter::NoticeIndent
+            | Gutter::Branch(_) => 2,
         }
     }
 
@@ -424,6 +435,9 @@ impl Gutter {
                     palette.reset()
                 )
             }
+            Gutter::Branch(branch) => {
+                format!("{}{branch} {}", palette.notice(), palette.reset())
+            }
         }
     }
 
@@ -435,7 +449,7 @@ impl Gutter {
     /// that line only.
     fn continued(self) -> Gutter {
         match self {
-            Gutter::Head(_) => Gutter::NoticeIndent,
+            Gutter::Head(_) | Gutter::Branch(_) => Gutter::NoticeIndent,
             Gutter::Carried(_) => Gutter::Indent,
             other => other,
         }
@@ -471,7 +485,9 @@ impl Gutter {
                 .collect()
         };
         match self {
-            Gutter::Head(_) | Gutter::NoticeIndent => bare(wrap::wrap_notice(text, cols)),
+            Gutter::Head(_) | Gutter::NoticeIndent | Gutter::Branch(_) => {
+                bare(wrap::wrap_notice(text, cols))
+            }
             Gutter::None | Gutter::Rail => bare(wrap::wrap(text, cols)),
             Gutter::Indent => prose::prose(text, cols, self.width(), Opening::Line),
             Gutter::Carried(carried) => {

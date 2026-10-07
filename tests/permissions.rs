@@ -3015,6 +3015,7 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_inter
             "edit_file",
             "create_folder",
             "terminal",
+            "skill",
             "ask_user_question",
         ]
     );

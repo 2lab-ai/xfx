@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{run_turn_with_skills, TurnRequest};
 use crate::cli::{Cli, Command};
 use crate::config::{ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
@@ -481,9 +481,17 @@ async fn run_ask(
     // and this context builds with no requester. `ask_user_question` answers
     // such a call with `NOT_AVAILABLE_SENTINEL` rather than reaching for a UI
     // that isn't there.
+    // The skills this workspace has, and those the prompt names, read now as
+    // the project instructions are (`crate::skills`).
+    let skills =
+        crate::skills::TurnSkills::prepare(scope.primary(), config.home(), &request.prompt, &[]);
     let tools = ToolContext::new(scope)
         .with_permissions(permissions)
-        .with_cancel(cancel.clone());
+        .with_cancel(cancel.clone())
+        .with_skills(
+            Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+            config.home().map(Path::to_path_buf),
+        );
 
     let turn = TurnRequest {
         images: Vec::new(),
@@ -502,9 +510,10 @@ async fn run_ask(
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
         Some(recorder) => {
-            run_turn_saved(
+            run_turn_with_skills(
                 turn,
                 context,
+                &skills,
                 bundle.stream.as_ref(),
                 sink.as_mut(),
                 recorder,
@@ -513,9 +522,10 @@ async fn run_ask(
         }
         None => {
             let mut journal = crate::agent::NoJournal;
-            run_turn_saved(
+            run_turn_with_skills(
                 turn,
                 context,
+                &skills,
                 bundle.stream.as_ref(),
                 sink.as_mut(),
                 &mut journal,

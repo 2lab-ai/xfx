@@ -124,6 +124,10 @@ pub(crate) trait CommandHandlers {
     /// when there was none, which opens the picker. What the rest may be is
     /// `crate::workspace::access::parse`'s to say, its refusal included.
     fn workspace(&mut self, argument: &str);
+    /// `/skills`, with the rest of the line -- already trimmed, and empty when
+    /// there was none, which opens the menu. What the rest may be is
+    /// `crate::skills::command::parse`'s to say, its usage line included.
+    fn skills(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -222,6 +226,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Statusline => handlers.statusline(argument),
         Slash::Settings => handlers.settings(argument),
         Slash::Workspace => handlers.workspace(argument),
+        Slash::Skills => handlers.skills(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -346,6 +351,9 @@ mod tests {
         fn workspace(&mut self, argument: &str) {
             self.calls.push(format!("workspace {argument}"));
         }
+        fn skills(&mut self, argument: &str) {
+            self.calls.push(format!("skills {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -386,6 +394,7 @@ mod tests {
             ("/settings", "settings "),
             ("/undo", "undo"),
             ("/workspace", "workspace "),
+            ("/skills", "skills "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -489,6 +498,18 @@ mod tests {
         ] {
             assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
             assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
+        // And `/skills` the same way: every form reaches the one handler, and
+        // what each means -- `bogus` is the usage line -- is
+        // `crate::skills::command::parse`'s (`skills.zig:93-104`).
+        for (line, call) in [
+            ("/skills", "skills "),
+            ("/skills list", "skills list"),
+            ("/skills show demo", "skills show demo"),
+            ("/skills add ./skill-src", "skills add ./skill-src"),
+            ("/skills bogus", "skills bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
         }
         // Every form `/sound` is typed in reaches its one handler, the words
         // it does not know included: refusing them is the handler's, with the

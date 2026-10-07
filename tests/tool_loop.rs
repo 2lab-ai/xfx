@@ -349,7 +349,6 @@ fn the_advertisement_names_no_deferred_tool() {
         "web_search",
         "memory",
         "semantic_search",
-        "skill",
         "install_skill",
         "subagent",
         "mcp_search_tools",
