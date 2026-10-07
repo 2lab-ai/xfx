@@ -10199,7 +10199,7 @@ fn trace_records_a_failed_compaction_and_the_one_after_it() {
     // there, the refusal's words reach it masked, and the failures are
     // problems.
     use support::fake_gateway::{content_only, Reply};
-    const SECRET: &str = "sk-abcdef0123456789abcdef0123456789xyz";
+    const SECRET: &str = "sk-abcdef0123456789";
     let mut script = read_then_answer("MARKER-ONE");
     script.push(Reply::Sse(content_only(&["MARKER-TWO"])));
     for _ in 0..2 {
