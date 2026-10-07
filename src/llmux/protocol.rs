@@ -552,6 +552,7 @@ mod tests {
                     // daemon's own `fast` setting), so these are not sent.
                     fast: true,
                     ultrafast: true,
+                    ..RequestOptions::default()
                 },
             )
             .expect("valid"),

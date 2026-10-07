@@ -1,0 +1,27 @@
+# W9 r3: fx's install rule against a `/rename` typed while the first turn
+# runs (installGeneratedTitle, session_title_generation.zig:378-394). The
+# title comes back after the rename, so it finds the user's title on record
+# and is dropped (`user_title_present`): the window and the status line keep
+# `Mine`, the log's last title fact is the rename, and `/trace`'s
+# `## Session Title` says the generation was dropped.
+gateway titles-rename-turns.json
+titled titles-late-answer.json
+seed titles-seed.json
+xfx: env XFX_SOUND=off
+wait 3
+type fix the renderer loop, it redraws every row twice
+key Enter
+wait 1
+type /rename Mine
+key Enter
+wait 9
+snap renamed
+title renamed
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap trace
+reports report
+gwlog
+home files

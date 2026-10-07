@@ -885,6 +885,21 @@ impl ControlChannel {
         });
     }
 
+    /// Whether a `/rename` of the conversation the work is in is put aside
+    /// for when the work ends: one typed before a reset the loop had read is
+    /// the next conversation's, and does not count.
+    pub(crate) fn renaming(&self) -> bool {
+        self.deferred.guarded().iter().any(|deferred| {
+            matches!(
+                deferred,
+                Deferred::Rename {
+                    after_reset: false,
+                    ..
+                }
+            )
+        })
+    }
+
     /// Everything put aside, oldest first, for the turn loop to do now that
     /// the work it waited for is over.
     pub(crate) fn take_deferred(&self) -> Vec<Deferred> {
