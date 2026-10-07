@@ -1,0 +1,24 @@
+nput/output error (os error 5)); what reached it may be incomplete
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 1, Wed Oct  7 16:00:41 2026)
