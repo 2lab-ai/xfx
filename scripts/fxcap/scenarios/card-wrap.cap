@@ -1,0 +1,23 @@
+# The user card's wrap (`.prd/tui-phase4` T10): fx cuts a submitted prompt
+# with `wrapCut` (`user_message_card.zig:57-77`), not with the composer's wrap.
+# Two prompts, each a paste of lines aimed at one rule at one card width --
+# A at 118 cells (120 columns less the rail and its space), B at 78 (80 less
+# it): a word that fills the row with a short tail (the next row begins with
+# the blank), the same with a tail a row wide (an empty card row), a word that
+# ends at the margin after an earlier space (it goes down), three spaces across
+# the margin (one dropped, one kept on each side), a token longer than a row,
+# wide glyphs across the margin, an empty line, and a tab. Each binary answers
+# each prompt with one short line. The long waits are for a loaded machine: a
+# key typed before the binary is in raw mode arrives as a cooked line.
+gateway card-wrap-turns.json
+wait 10
+paste A-R2a-one-word-exactly-the-width-===================================================================================== then a row that starts with a blank\nA-R2b-one-word-exactly-the-width-===================================================================================== /a/path/with/no/space/that/is/as/wide/as/the/row/ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp end\nA-R3 the quick brown fox jumps over the lazy dog while the card keeps its rail on every row the quick ends-at--------- goes down whole\nA-R4 the quick brown fox jumps over the lazy dog while the card keeps its rail on every row the quick brown spssssss   after three spaces\nA-R5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-\nA-R6:漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢\n\nA-R8\ttab\tstops
+wait 2
+key Enter
+wait 20
+paste B-R2a-one-word-exactly-the-width-============================================= then a row that starts with a blank\nB-R2b-one-word-exactly-the-width-============================================= /a/path/with/no/space/that/is/as/wide/as/the/row/ppppppppppppppppppppppppppppp end\nB-R3 the quick brown fox jumps over the lazy dog while the card ends-at------- goes down whole\nB-R4 the quick brown fox jumps over the lazy dog while the card keeps spssss   after three spaces\nB-R5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-\nB-R6:漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢\n\nB-R8\ttab\tstops
+wait 2
+key Enter
+wait 20
+snap cards
+snapfull cards
