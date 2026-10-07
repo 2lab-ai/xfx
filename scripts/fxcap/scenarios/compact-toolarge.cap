@@ -12,7 +12,8 @@ type hello
 key Enter
 wait 3
 pastex 52000
-key Enter
 wait 3
+key Enter
+wait 4
 snap refused
 gwlog
