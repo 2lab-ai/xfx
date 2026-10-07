@@ -10587,7 +10587,13 @@ impl CommandHandlers for Shell {
     /// screen upstream ends on.
     fn trace(&mut self) {
         let (status, facts) = self.work.trace_facts();
-        let (timeline, network) = self.full.traced(TRACE_COLS, self.palette);
+        let (timeline, mut network) = self.full.traced(TRACE_COLS, self.palette);
+        // The title questions' requests beside the turns', in the order they
+        // were made, as upstream's one ring holds every model call
+        // (`writeNetworkCallsSummary`, `app_commands.zig:3005-3030`). Stable,
+        // so records of one moment keep their order.
+        network.extend(self.work.title_calls());
+        network.sort_by_key(|entry| entry.at_ms);
         let job = Job {
             status,
             facts,

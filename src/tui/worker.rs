@@ -694,6 +694,12 @@ impl WorkHandle {
         self.titles.generation()
     }
 
+    /// The requests title questions made, for `/trace`'s `## Network Calls`
+    /// ([`super::titles::TitleDesk::calls`]).
+    pub(crate) fn title_calls(&self) -> Vec<crate::trace::Entry> {
+        self.titles.calls()
+    }
+
     /// The desk the band asks at, for a case that has to see it.
     #[cfg(test)]
     pub(crate) fn title_desk(&self) -> &super::titles::TitleDesk {
