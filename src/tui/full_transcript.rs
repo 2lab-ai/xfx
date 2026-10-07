@@ -1644,8 +1644,13 @@ fn unpainted(text: &str) -> String {
 ///
 /// `"  "` for an argument or a tool's result, `" "` for a command's own output
 /// (`renderCommandOutputRecordWithPrimaryGutter`).
+///
+/// Wrapped by upstream's assistant wrap in its literal form
+/// ([`super::prose::literal`]), as both of upstream's are: no word is left
+/// alone on a line's last row, and no markdown is read into the text.
 fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> {
-    let width = cols.saturating_sub(1 + wrap::width(gutter)).max(1);
+    let rail = 1 + wrap::width(gutter);
+    let width = cols.saturating_sub(rail).max(1);
     let dim = palette.dim();
     let reset = palette.reset();
     let mut rows = Vec::new();
@@ -1655,7 +1660,7 @@ fn railed(text: &str, gutter: &str, cols: u16, palette: Palette) -> Vec<String> 
             rows.push(clip(&format!("\u{2502}{dim}{gutter}{reset}"), cols).to_string());
             continue;
         }
-        for row in wrap::wrap(line, width) {
+        for row in super::prose::literal(line, width, rail) {
             let piece = line[row.start..row.end].trim_end_matches([' ', '\n']);
             let piece = clip(piece, width);
             rows.push(format!("\u{2502}{dim}{gutter}{piece}{reset}"));

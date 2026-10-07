@@ -47,9 +47,11 @@ pub(crate) struct Hydration {
     pub(crate) settings: Option<crate::provider::effort::TurnSettings>,
     /// Whether the Fast mode those settings carry stays **bound** to the
     /// model (the footer's `⚡︎`): only when the session recorded the selection
-    /// the session was configured with -- the same model and the same Fast
-    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
-    /// Read only beside [`Self::settings`].
+    /// the session was configured with -- the same provider, the same model
+    /// and the same Fast (`restoredFastModeModelBound`,
+    /// `app_session_runtime.zig:6318-6328`;
+    /// [`super::worker::Resumption::keeps_fast_binding`]). Read only beside
+    /// [`Self::settings`].
     pub(crate) keeps_fast_binding: bool,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
@@ -369,6 +371,7 @@ mod tests {
             origin_workspace_root: "/w".to_string(),
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
+            provider: None,
             permission_mode: crate::config::PermissionMode::Auto,
             turns: vec![turn],
             grants: Vec::new(),

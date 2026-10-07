@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ba7fd53 [debug] · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)
+
+* model picker: saved to user settings (scope=user); fresh sessions here use higher-precedence model=process_override
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 13  [All]  Interface  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+  Model                    anthropic/claude-opus-5
+  Reasoning effort         default  low  medium  high  max
+  Fast mode                off  on
+  Ultra mode               off
+  Permission mode          ask  auto  full access
+  Sound level              off  on
+  Startup scrollback       off  on
+  Prompt history           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
