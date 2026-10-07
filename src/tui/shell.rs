@@ -1634,6 +1634,11 @@ impl Shell {
         theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
+        // The profile's `session_titles`, in the one switch the runtime reads
+        // too: launched from the same configuration, so in a session this
+        // writes what is there already, and a handle a test built starts where
+        // the test's configuration says.
+        work.set_session_titles(config.session_titles);
         // The user's clipboard -- except in a shell a test built, which
         // reaches none unless the test hands it a fake one: typing `/copy`
         // in a case about something else must not be able to write the
@@ -3272,6 +3277,15 @@ impl Shell {
                     ),
                 });
             }
+            // A model named the session. The window and the status line take
+            // the title, and nothing is said about it.
+            UiEvent::SessionTitled(title) => {
+                let title = title.trim().to_string();
+                if !title.is_empty() {
+                    self.session_title = Some(title);
+                    self.retitle();
+                }
+            }
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -3862,6 +3876,7 @@ impl Shell {
             effort: self.effort.display(),
             efforts: self.model_levels(),
             permission_mode: self.mode,
+            session_titles: self.work.session_titles(),
             sound: self.sound.notifications(),
             prompt_history: self.recall.enabled,
         }
@@ -4100,6 +4115,20 @@ impl Shell {
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
                     &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            // `applySettingsCatalogChange`'s `.session_titles`
+            // (`app_commands.zig:4149-4166`): in force at once -- for the next
+            // fresh session's first prompt, a title already asked for is not
+            // taken back -- then saved and announced.
+            Setting::SessionTitles => {
+                let changed = on != self.work.session_titles();
+                self.work.set_session_titles(on);
+                self.save_preference(
+                    settings::SESSION_TITLES_TOPIC,
+                    &[crate::config::SESSION_TITLES_KEY],
                     serde_json::Value::Bool(on),
                     changed,
                 );
@@ -9735,6 +9764,9 @@ impl Shell {
                 self.gestures.turn_ended();
                 true
             }
+            // A title for the conversation the reset dropped: the session it
+            // names is in scrollback now, and the next one has none yet.
+            UiEvent::SessionTitled(_) => true,
             // A compaction the reset stopped: its sentence is about the
             // conversation that was dropped.
             UiEvent::Compaction(_) => {
@@ -19135,6 +19167,31 @@ mod tests {
     }
 
     #[test]
+    fn a_generated_title_names_the_window_and_the_status_line_and_writes_nothing() {
+        // `pollSessionTitleGeneration` asks for a footer frame and writes no
+        // notice (`app_session_runtime.zig:3706-3779`, `src/main.zig:3141-3143`).
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.statusline.session = true;
+        turn_running(&mut shell, b"fix the renderer please\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        // Mid-turn, as the runtime sends it the moment it comes back.
+        shell.apply(UiEvent::SessionTitled("Fix the renderer".to_string()));
+        assert_eq!(shell.take_title().as_deref(), Some("Fix the renderer"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        assert!(
+            visible_text(&shell.hint_row()).contains("Fix the renderer"),
+            "{}",
+            visible_text(&shell.hint_row())
+        );
+        // The turn's end does not put the prompt's title back.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+        assert!(visible_text(&shell.hint_row()).contains("Fix the renderer"));
+    }
+
+    #[test]
     fn a_line_with_a_slash_that_does_not_lead_it_is_a_prompt() {
         // `classify` reads the *first* character, so this is a question about
         // paths and not a command at all.
@@ -20393,6 +20450,8 @@ mod tests {
             input: Some(9_000),
             output: Some(40),
         });
+        // A generated title for the session the reset dropped.
+        shell.apply(UiEvent::SessionTitled("The dropped session".to_string()));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("xfx: interrupted".to_string()),
         });
@@ -27797,12 +27856,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 12);
+        assert_eq!(shell.geometry.panel, 13);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 11  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -27812,6 +27871,7 @@ mod tests {
                 model.as_str(),
                 "  Reasoning effort         default",
                 "  Permission mode          ask  auto  full access",
+                "  Session titles           off  on",
                 "  Sound level              off  on",
                 "  Prompt history           off  on",
             ]
@@ -27925,6 +27985,7 @@ mod tests {
                 format!("  Model               {}", shell.model),
                 "  Reasoning effort    default".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
+                "  Session titles      off  on".to_string(),
             ]
         );
         // Shift-Tab is the category back, and not the permission mode.
@@ -27951,8 +28012,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[12]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[12].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -28032,7 +28093,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 8);
+        down(&mut shell, 9);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -28046,7 +28107,41 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[11].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn right_on_session_titles_switches_them_saves_and_is_in_force_for_the_runtime() {
+        // `applySettingsCatalogChange`'s `.session_titles`
+        // (`app_commands.zig:4149-4166`): in force at once, saved, and
+        // announced as `persistUserPreferences` announces.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        assert!(shell.work.session_titles(), "upstream's default is on");
+        down(&mut shell, 8);
+        assert_eq!(
+            settings_text(&shell)[10],
+            "  Session titles           off  on"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(!shell.work.session_titles());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                settings::SESSION_TITLES_TOPIC,
+                interactive::STATUSLINE_SAVED
+            ))
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"session_titles\": false\n}\n"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(shell.work.session_titles());
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"session_titles\": true\n}\n"
+        );
     }
 
     #[test]
@@ -28226,8 +28321,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[12]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[12].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(

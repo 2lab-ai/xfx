@@ -2652,7 +2652,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             turn.outcome = Some(outcome.clone());
             turn.timing.concluded_at_ms = Some(envelope.timestamp_ms);
         }
-        SessionEvent::SessionRenamed { title } => {
+        SessionEvent::SessionRenamed { title, .. } => {
             // A title the reader would have to second-guess is not one this
             // build wrote: [`validate_title`] runs before every write.
             if validate_title(title) != Ok(title.as_str()) {
@@ -3189,7 +3189,7 @@ fn verify_private(_path: &Path, _expected: u32) -> Result<(), SessionError> {
 mod tests {
     use super::*;
     use crate::gateway::protocol::{ContentPart, Role};
-    use crate::session::event::TurnConclusion;
+    use crate::session::event::{TitleSource, TurnConclusion};
 
     fn frame(seq: u64, event: SessionEvent) -> EventEnvelope {
         EventEnvelope {
@@ -3931,6 +3931,7 @@ mod tests {
         let mut renamed = asked.clone();
         renamed.push(SessionEvent::SessionRenamed {
             title: "My Title".to_string(),
+            source: TitleSource::User,
         });
         assert_eq!(
             reduce(renamed.clone())
@@ -3941,6 +3942,7 @@ mod tests {
         );
         renamed.push(SessionEvent::SessionRenamed {
             title: "Second name".to_string(),
+            source: TitleSource::User,
         });
         assert_eq!(
             reduce(renamed).expect("a valid log").title().as_deref(),
@@ -3953,6 +3955,7 @@ mod tests {
             started(),
             SessionEvent::SessionRenamed {
                 title: "Before asking".to_string(),
+                source: TitleSource::User,
             },
         ])
         .expect("a valid log");
@@ -3965,6 +3968,7 @@ mod tests {
             started(),
             SessionEvent::SessionRenamed {
                 title: wide.clone(),
+                source: TitleSource::User,
             },
         ])
         .expect("a valid log");
@@ -3978,6 +3982,7 @@ mod tests {
                 started(),
                 SessionEvent::SessionRenamed {
                     title: title.to_string(),
+                    source: TitleSource::User,
                 },
             ]);
             assert!(refused.is_err(), "{title:?} was replayed");
@@ -4100,6 +4105,7 @@ mod tests {
                 &mut session,
                 SessionEvent::SessionRenamed {
                     title: "My Title".to_string(),
+                    source: TitleSource::User,
                 },
             )
             .expect("appended");

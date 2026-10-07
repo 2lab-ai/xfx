@@ -1922,6 +1922,7 @@ async fn summarize_with(caller: &Caller<'_>, user: &str) -> Result<String, Failu
 async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Failure> {
     caller.provider.set_options(RequestOptions {
         reasoning: lowest_effort(&(caller.efforts)(model)),
+        ..RequestOptions::default()
     });
     let request = CompletionRequest {
         model: model.to_string(),

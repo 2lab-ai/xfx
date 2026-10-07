@@ -741,6 +741,7 @@ mod sound;
 mod statusline;
 mod term;
 mod theme;
+mod titles;
 mod toolgroup;
 mod trace;
 mod transcript;

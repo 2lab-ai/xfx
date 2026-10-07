@@ -17,7 +17,7 @@
 //! **The same thing the row's slash command does, and it says so the same
 //! way** (`applySettingsCatalogChange`, `app_commands.zig:4110-4210`): a status
 //! line row is `/statusline <item>` with both of its notices, the permission
-//! row is `/permissions <mode>`, the sound row is `/sound <level>`. The three
+//! row is `/permissions <mode>`, the sound row is `/sound <level>`. The four
 //! preferences that have no command of their own are written to the profile
 //! and announce the write (`persistUserPreferences`, `app_commands.zig:167-192`).
 //! This module only decides *which* value a keystroke means
@@ -29,10 +29,9 @@
 //! # What it lists
 //!
 //! Upstream's fourteen rows, in its order, **less the ones xfx has nothing
-//! behind**: `Fast mode` and `Ultra mode` (xfx sends no speed tier),
-//! `Session titles` (xfx has no title generator: a session's title is its
-//! first prompt), and `Startup scrollback` (upstream can leave the shell's
-//! output on the screen at launch, and xfx always pushes it into scrollback).
+//! behind**: `Fast mode` and `Ultra mode` (xfx sends no speed tier), and
+//! `Startup scrollback` (upstream can leave the shell's output on the screen
+//! at launch, and xfx always pushes it into scrollback).
 //! A row with nothing behind it would be a switch that switches nothing, which
 //! `scripts/check-no-stubs.sh` exists to keep out of the binary;
 //! `.prd/tui-phase4/ssot.md` records each one. `Sound level` is `off  on`:
@@ -112,6 +111,9 @@ pub(crate) const SLASH_MENU_CATEGORIES_TOPIC: &str = "slash menu categories";
 /// The topic a `Collapse tool calls` change is announced under (`:4120-4134`).
 pub(crate) const COLLAPSE_TOOL_CALLS_TOPIC: &str = "collapse tool calls";
 
+/// The topic a `Session titles` change is announced under (`:4149-4166`).
+pub(crate) const SESSION_TITLES_TOPIC: &str = "session titles";
+
 /// The topic a `Reasoning effort` change is announced under (`applyEffort`'s
 /// `persistPreferenceTargets(app, ..., "effort", ...)`,
 /// `session_commands.zig:867-874`).
@@ -183,6 +185,9 @@ pub(crate) enum Setting {
     Effort,
     /// `/permissions <mode>`.
     PermissionMode,
+    /// Whether a fresh session's first prompt asks a model for its title
+    /// (`super::titles`).
+    SessionTitles,
     /// `/sound <level>`.
     SoundLevel,
     /// Whether submitted lines are kept for the composer's recall, here and in
@@ -203,6 +208,7 @@ impl Setting {
             Self::Model => "model",
             Self::Effort => "effort",
             Self::PermissionMode => "permission_mode",
+            Self::SessionTitles => "session_titles",
             Self::SoundLevel => "sound_level",
             Self::PromptHistory => "prompt_history",
         }
@@ -222,7 +228,7 @@ struct Spec {
 /// The settings, in upstream's order (`specs`, `settings_catalog.zig:261-276`)
 /// and upstream's words, with this product's name where upstream says its own
 /// and without `max` in the sound row's, which xfx's switch does not have.
-const SPECS: [Spec; 10] = [
+const SPECS: [Spec; 11] = [
     Spec {
         id: Setting::Statusline(StatusLineItem::Context),
         category: Category::Interface,
@@ -272,6 +278,12 @@ const SPECS: [Spec; 10] = [
         description: "Choose when xfx asks before taking actions",
     },
     Spec {
+        id: Setting::SessionTitles,
+        category: Category::Agent,
+        label: "Session titles",
+        description: "Generate a short session title from the first prompt",
+    },
+    Spec {
         id: Setting::SoundLevel,
         category: Category::Notifications,
         label: "Sound level",
@@ -305,6 +317,7 @@ pub(crate) struct Snapshot<'a> {
     /// lists none or has not been read.
     pub(crate) efforts: &'a [String],
     pub(crate) permission_mode: PermissionMode,
+    pub(crate) session_titles: bool,
     pub(crate) sound: Notifications,
     pub(crate) prompt_history: bool,
 }
@@ -324,6 +337,7 @@ impl<'a> Snapshot<'a> {
             Setting::Model => self.model,
             Setting::Effort => self.effort,
             Setting::PermissionMode => self.permission_mode.display_label(),
+            Setting::SessionTitles => on_off(self.session_titles),
             Setting::SoundLevel => match (self.sound.turn_end, self.sound.attention_required) {
                 (false, false) => "off",
                 (true, true) => "on",
@@ -361,6 +375,7 @@ fn options<'a>(id: Setting, snapshot: &Snapshot<'a>) -> Vec<&'a str> {
         Setting::Statusline(_)
         | Setting::SlashMenuCategories
         | Setting::CollapseToolCalls
+        | Setting::SessionTitles
         | Setting::SoundLevel
         | Setting::PromptHistory => ON_OFF.to_vec(),
     }
@@ -602,7 +617,7 @@ impl SettingsMenu {
             first = selected;
             visible = measure(first);
         }
-        // At most the catalog's ten settings.
+        // At most the catalog's eleven settings.
         let shown = u16::try_from(visible).unwrap_or(u16::MAX);
         Layout {
             rows: body_start + shown,
@@ -858,6 +873,7 @@ mod tests {
             effort: "default",
             efforts: &[],
             permission_mode: PermissionMode::Auto,
+            session_titles: true,
             sound: Notifications::both(false),
             prompt_history: true,
         }
@@ -910,13 +926,13 @@ mod tests {
     #[test]
     fn the_bare_menu_is_upstreams_rows_less_the_settings_xfx_has_nothing_behind() {
         // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Fast mode`,
-        // `Ultra mode`, `Session titles` and `Startup scrollback`, and with
-        // `Sound level` cycling `off  on`.
+        // `Ultra mode` and `Startup scrollback`, and with `Sound level`
+        // cycling `off  on`.
         let rows = SettingsMenu::open("").rows(&launched(), 120, 40, PALETTE);
         let tab = |label: &str| format!("  {DIM}{label}{RESET}");
         let mut expected = vec![
             format!(
-                "{BRIGHT}Settings 10{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
+                "{BRIGHT}Settings 11{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
                 tab("Interface"),
                 tab("Agent"),
                 tab("Notifications"),
@@ -944,10 +960,12 @@ mod tests {
             &PERMISSION_MODES,
             "auto",
         ));
+        // Upstream's default, on (`settings_catalog.zig:63`).
+        expected.push(choice_row("Session titles", false, &ON_OFF, "on"));
         expected.push(choice_row("Sound level", false, &ON_OFF, "off"));
         expected.push(choice_row("Prompt history", false, &ON_OFF, "on"));
         assert_eq!(rows, expected);
-        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 12);
+        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 13);
     }
 
     #[test]
@@ -955,7 +973,7 @@ mod tests {
         // `fx-settings2-40x120-tab1..5`: Interface, Agent, Notifications,
         // Advanced, All -- with xfx's settings on each.
         let snapshot = launched();
-        assert_eq!(labels(&on_tab(0), &snapshot).len(), 10);
+        assert_eq!(labels(&on_tab(0), &snapshot).len(), 11);
         assert_eq!(
             labels(&on_tab(1), &snapshot),
             [
@@ -968,7 +986,12 @@ mod tests {
         );
         assert_eq!(
             labels(&on_tab(2), &snapshot),
-            ["Model", "Reasoning effort", "Permission mode"]
+            [
+                "Model",
+                "Reasoning effort",
+                "Permission mode",
+                "Session titles"
+            ]
         );
         assert_eq!(labels(&on_tab(3), &snapshot), ["Sound level"]);
         assert_eq!(labels(&on_tab(4), &snapshot), ["Prompt history"]);
@@ -1145,7 +1168,7 @@ mod tests {
         let menu = on_tab(2);
         assert_eq!(
             plain(&menu.rows(&snapshot, 40, 40, PALETTE)[0]),
-            "Settings 3  [Agent]"
+            "Settings 4  [Agent]"
         );
         assert_eq!(plain(&menu.rows(&snapshot, 12, 40, PALETTE)[0]), "[Agent]");
         assert_eq!(plain(&menu.rows(&snapshot, 5, 40, PALETTE)[0]), "[Agen");
@@ -1230,6 +1253,40 @@ mod tests {
         assert_eq!(
             menu.change(true, &carried).map(|c| c.value).as_deref(),
             Some("default")
+        );
+    }
+
+    #[test]
+    fn the_session_titles_row_flips_between_off_and_on() {
+        // `settings_catalog.zig:272`: an on/off row in Agent, found by its
+        // label, its description and upstream's tag.
+        let snapshot = launched();
+        for query in ["titles", "first prompt", "session_titles"] {
+            assert_eq!(
+                labels(&SettingsMenu::open(query), &snapshot),
+                ["Session titles"],
+                "{query}"
+            );
+        }
+        let menu = SettingsMenu::open("titles");
+        assert_eq!(
+            menu.change(true, &snapshot),
+            Some(Change {
+                setting: Setting::SessionTitles,
+                value: "off".to_string()
+            })
+        );
+        let off = Snapshot {
+            session_titles: false,
+            ..launched()
+        };
+        assert_eq!(
+            menu.change(false, &off).map(|c| c.value).as_deref(),
+            Some("on")
+        );
+        assert_eq!(
+            plain(&menu.rows(&off, 120, 40, PALETTE)[2]),
+            "  Session titles    off  on"
         );
     }
 

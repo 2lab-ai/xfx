@@ -308,6 +308,18 @@ pub struct RequestOptions {
     /// The effort level to ask for, as the catalog names it; `None` asks for
     /// nothing and the provider decides.
     pub reasoning: Option<String>,
+    /// The most tokens an answer may carry, `maxOutputTokens` after
+    /// `toolChoice` (`vercel_protocol.zig:375-377`); `None` sends nothing and
+    /// the provider decides, which is every turn's request.
+    ///
+    /// Here rather than on [`CompletionRequest`] because the one request that
+    /// sets it -- a session title's (`crate::tui::titles`, upstream's
+    /// `max_output_tokens = 128`, `session_title_generation.zig:20`) -- goes
+    /// through a provider of its own that sends nothing else, so "every
+    /// request from this provider" and "this request" are the same thing.
+    /// llmux's wire reads nothing from it: it sends its own `max_tokens`
+    /// (`crate::llmux::protocol`), and no title is asked of llmux.
+    pub max_output_tokens: Option<u32>,
 }
 
 /// The effort the Gateway's language-model route is sent for `label`.
@@ -479,6 +491,9 @@ impl Serialize for WireRequest<'_> {
         map.serialize_entry("prompt", &WireMessages(&self.0.messages))?;
         map.serialize_entry("tools", &self.0.tools)?;
         map.serialize_entry("toolChoice", &ToolChoiceBody(self.0.tool_choice))?;
+        if let Some(limit) = self.1.max_output_tokens {
+            map.serialize_entry("maxOutputTokens", &limit)?;
+        }
         if let Some(reasoning) = &self.1.reasoning {
             map.serialize_entry("reasoning", reasoning_wire_value(reasoning))?;
         }
@@ -856,6 +871,7 @@ mod tests {
         let low = request
             .body_with(&RequestOptions {
                 reasoning: Some("low".to_string()),
+                ..RequestOptions::default()
             })
             .expect("valid");
         assert!(
@@ -865,9 +881,25 @@ mod tests {
         let max = request
             .body_with(&RequestOptions {
                 reasoning: Some("max".to_string()),
+                ..RequestOptions::default()
             })
             .expect("valid");
         assert!(max.ends_with(r#""reasoning":"xhigh"}"#), "{max}");
+        // An output cap goes between the two, where upstream writes it
+        // (`vercel_protocol.zig:375-381`): after `toolChoice`, before
+        // `reasoning`.
+        let capped = request
+            .body_with(&RequestOptions {
+                reasoning: Some("low".to_string()),
+                max_output_tokens: Some(128),
+            })
+            .expect("valid");
+        assert!(
+            capped.ends_with(
+                r#""toolChoice":{"type":"auto"},"maxOutputTokens":128,"reasoning":"low"}"#
+            ),
+            "{capped}"
+        );
         // An invalid prompt is refused whatever is asked beside it.
         let empty = CompletionRequest {
             messages: Vec::new(),
@@ -876,6 +908,7 @@ mod tests {
         assert_eq!(
             empty.body_with(&RequestOptions {
                 reasoning: Some("low".to_string()),
+                ..RequestOptions::default()
             }),
             Err(ProtocolError::EmptyPrompt)
         );

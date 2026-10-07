@@ -1,5 +1,6 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_CREDITS=<credits.json>] bun fakegw.ts <port> <script.json> [bodies-dir]
+// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
+//        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
 //    status?: number, body?: string, hangMs?: number,
@@ -21,9 +22,15 @@
 // `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
 // step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
 // the stream open that long before its last event (for interrupt captures).
-// Every POST to a language-model path consumes the next turn; title calls get a finish-only stream,
-// and fx's permission classifier gets a `permission_decision` tool call that clears the action
-// (the shape fx's own e2e harness answers with, tests/e2e/tmux-helpers.ts:173-183).
+// Every POST to a language-model path consumes the next turn, except two side calls that are
+// answered apart and consume nothing: fx's permission classifier gets a `permission_decision`
+// tool call that clears the action (the shape fx's own e2e harness answers with,
+// tests/e2e/tmux-helpers.ts:173-183), and a session-title request (both binaries ask one after a
+// fresh session's first prompt, vercel-labs/fx@c1db9191 src/core/session/session_title_generation.zig)
+// gets FAKEGW_TITLE's answer -- {chunks?: string[], delayMs?: number, status?: number, body?: string},
+// the same fields as a turn's -- or, without one, a finish-only stream: no title, so the session
+// keeps the one its first prompt gives it. Its log line names the model asked
+// (`ai-language-model-id`) -- never the bearer.
 // Every request body is written to <bodies-dir>/NNN-<kind>.json when a bodies dir is given.
 const port = Number(process.argv[2] ?? 0);
 const script: any[] = JSON.parse(await Bun.file(process.argv[3]).text());
@@ -135,9 +142,13 @@ const server = Bun.serve({
       ], 0, 0);
     }
     if (body.includes("Generate a short title")) {
-      log(`title ${url.pathname}`);
+      const answer: any = process.env.FAKEGW_TITLE ? JSON.parse(await Bun.file(process.env.FAKEGW_TITLE).text()) : {};
+      log(`title ${url.pathname} model=${req.headers.get("ai-language-model-id") ?? "-"} -> ${answer.status ? "status " + answer.status : (answer.chunks ?? []).length ? "text" : "no text"}`);
       await keep("title", body);
-      return sse([finish()], 0, 0);
+      if (answer.status) return new Response(answer.body ?? `fake status ${answer.status}`, { status: answer.status });
+      const events: object[] = (answer.chunks ?? []).map((c: string) => ({ type: "text-delta", id: "title_1", delta: c }));
+      events.push(finish());
+      return sse(events, answer.delayMs ?? 0, 0);
     }
     await keep("completion", body);
     const turn = script.shift();

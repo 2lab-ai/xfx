@@ -502,6 +502,7 @@ mod tests {
                 &request,
                 &RequestOptions {
                     reasoning: Some("max".to_string()),
+                    ..RequestOptions::default()
                 },
             )
             .expect("valid"),

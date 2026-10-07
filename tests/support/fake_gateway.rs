@@ -113,7 +113,18 @@ struct State {
     catalog: Mutex<Option<(u16, String)>>,
     /// Every catalog request, kept apart from [`Self::requests`].
     catalog_requests: Mutex<Vec<CapturedRequest>>,
+    /// What a session-title request is answered with: the title's text, or
+    /// `None` for a stream with no text -- an answer that leaves the title the
+    /// prompt gave ([`FakeGateway::with_title`]).
+    title: Mutex<Option<String>>,
+    /// Every session-title request, kept apart from [`Self::requests`].
+    title_requests: Mutex<Vec<CapturedRequest>>,
 }
+
+/// What every session-title request xfx sends begins its instructions with
+/// (upstream's `instructions_text`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_title_generation.zig:23`).
+pub const TITLE_INSTRUCTIONS: &str = "Generate a short title for a conversation";
 
 /// Where the real Gateway publishes its model catalog
 /// (`vercel-labs/fx@c1db9191 src/builtins/gateway.zig:48`).
@@ -206,6 +217,28 @@ impl FakeGateway {
         self
     }
 
+    /// Answers a session-title request with `title`.
+    ///
+    /// A title request is **not** a turn either: it is answered from here,
+    /// never from the script, and recorded apart from [`Self::requests`] --
+    /// so a case that counts a turn's requests counts the same whether or
+    /// not its first prompt asked for a title. Without this, a title request
+    /// is answered with a stream that has no text in it, and the session
+    /// keeps the title its first prompt gives it.
+    pub fn with_title(self, title: &str) -> Self {
+        *self.state.title.lock().expect("title lock") = Some(title.to_string());
+        self
+    }
+
+    /// Every session-title request received so far, in arrival order.
+    pub fn title_requests(&self) -> Vec<CapturedRequest> {
+        self.state
+            .title_requests
+            .lock()
+            .expect("title lock")
+            .clone()
+    }
+
     /// Every catalog request received so far, in arrival order.
     pub fn catalog_requests(&self) -> Vec<CapturedRequest> {
         self.state
@@ -269,6 +302,23 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
         let (status, body) = answer.unwrap_or((404, "not found".to_string()));
         let mut writer = stream;
         write_status(&mut writer, status, &[], &body);
+        close_cleanly(&mut writer);
+        return;
+    }
+    if request.method == "POST" && request.body.contains(TITLE_INSTRUCTIONS) {
+        state
+            .title_requests
+            .lock()
+            .expect("title lock")
+            .push(request);
+        let title = state.title.lock().expect("title lock").clone();
+        let mut events: Vec<Value> = title
+            .iter()
+            .map(|title| text_delta("title_1", title))
+            .collect();
+        events.push(finish("stop"));
+        let mut writer = stream;
+        write_reply(&mut writer, Some(Reply::Sse(sse_body(&events))), shutdown);
         close_cleanly(&mut writer);
         return;
     }

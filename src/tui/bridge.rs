@@ -341,6 +341,12 @@ pub(crate) enum UiEvent {
         title: String,
         unsaved: Option<String>,
     },
+    /// A model named the session from its first prompt (`super::titles`):
+    /// the session is called this from here on -- the window, the status
+    /// line's session segment -- and nothing is written into the document,
+    /// as upstream's poll only asks for a footer frame
+    /// (`pollSessionTitleGeneration`, `app_session_runtime.zig:3706-3779`).
+    SessionTitled(String),
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
     /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
     ///
@@ -704,6 +710,9 @@ impl UiEvent {
                 title: inert_owned(title),
                 unsaved: unsaved.map(inert_owned),
             },
+            // A model's words, cleaned of controls already
+            // (`super::titles::sanitize`); not exempt.
+            Self::SessionTitled(title) => Self::SessionTitled(inert_owned(title)),
             // The notice quotes paths, which are the filesystem's words. The
             // directories travel as paths rather than text: the picker spells
             // each one through `access::terminal_safe` when it paints it,

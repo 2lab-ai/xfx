@@ -584,6 +584,7 @@ pub(crate) fn rename_conversation(
 ) -> Result<(), String> {
     conversation.recorder.commit(SessionEvent::SessionRenamed {
         title: title.to_string(),
+        source: crate::session::TitleSource::User,
     });
     match conversation.recorder.failure() {
         Some(problem) => Err(problem.to_string()),
