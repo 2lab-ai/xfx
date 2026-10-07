@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+x𝒇x v0.1.0-5b3d292 [debug] · Run /help for commands
 
 * ultrafast: requested on
 

@@ -1,18 +1,18 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-901471d [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-5b3d292 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;250m* ultrafast: requested on[39m
 
 [38;5;255m┃[39m [1msay something[0m
 
+  Ultrafast was requested, but Gateway did not confirm it was served; this response may have used a standard or lower
+  tier.
   MARKER-ULTRA-UNCONFIRMED
 
-[38;5;245m  1s (↑4 ↓40)[39m
+[38;5;245m  0s (↑4 ↓40)[39m
 
 [38;5;255m┃[39m
 
 [38;5;252mauto[38;5;245m · gpt-6-astra · [38;2;255;204;0m⚡︎[39m
-
-
 
 
 
