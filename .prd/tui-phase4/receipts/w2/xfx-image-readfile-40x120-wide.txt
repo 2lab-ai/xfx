@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d84afb4 [debug] · Run /help for commands
+
+┃ what is in the picture?
+
+● 1 tool call · 1 read
+└ Read shot.png
+
+  A small red square.
+
+  0s (↑6 ↓40)
+
+┃ and the wide one?
+
+● 1 tool call · 1 read
+└ Read wide.png
+
+  Too wide.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,7 +1,7 @@
 # W2 receipt: /image (/img), /images, /paste and Ctrl-V
 
-Six scenarios, run at 40x120 on both binaries through the repo harness -- the
-first four below, the last two in the follow-up section:
+Eight scenarios, run at 40x120 on both binaries through the repo harness -- the
+first four below, two in the follow-up section, two in round 3:
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
@@ -44,6 +44,8 @@ changed to fx's `↑12`.
 - `pnghdr <name> <width> <height>` (the follow-up): a PNG signature and an
   `IHDR` declaring `<width>` x `<height>`, 24 bytes -- an image over a pixel
   limit, as fx's own tests make one.
+- `pastex <bytes>` (round 3): a bracketed paste of `<bytes>` `x`s through a
+  file in the run directory -- a paste too large for a command line.
 - `clipimage <file>|off`: the `osascript` shim now copies `<file>` to the path a
   clipboard-image script names (`-e` with `POSIX file "<path>"` and
   `class PNGf`, which is the script both fx and xfx send) and does nothing else
@@ -217,6 +219,55 @@ gateway's `stream closed by client` line, as several earlier xfx receipts' do
 `read_file the copy`, and fx's `read_file` returns an image
 (`read_file.zig:799`); xfx's names a binary file without reading it. The
 sentence is fx's, word for word; `ssot.md` §Tensions records the gap.
+
+## Round 3: the badge in the composer's edits, and `read_file` of an image
+
+Two more scenarios; xfx is `target/debug/xfx` at `d84afb4` (banner
+`v0.1.0-d84afb4`), fx the c1db919 build.
+
+- `image-composer.cap` (turns `image-composer-turns.json`): a pasted
+  `shot.png` and ` duplicate [Image #1]` typed after it, sent; a pasted
+  `shot.png` killed with Ctrl-U and yanked twice, sent; Up and Enter; a
+  bracketed paste of 8388609 `x`s (one byte past the 8 MiB budget) through
+  the harness's new `pastex`; then `RECOVERY` sent.
+- `image-readfile.cap` (turns `image-readfile-turns.json`): the model calls
+  `read_file` on `shot.png`, then on `wide.png` (made by `pnghdr`, 9000x10).
+
+### `image-composer`
+
+Every `.txt` is identical after the banner, and every `.ansi` is identical
+once fx's OSC 8 links around the badges are taken out (T5's unit).
+
+| snap | both | upstream |
+|---|---|---|
+| `lookalike` | `┃ [Image 1] duplicate [Image #1]` | |
+| `lookalike-sent` | card `┃ [Image 2] duplicate [Image #1]`: the badge renumbered, the words kept | `mapSubmittedImages`, `input_submit_runtime.zig:1615-1692` |
+| `yanked` | `┃ [Image 4][Image 5]`: #3 killed, yanked back twice as two images | `kill_ring.zig:120-190` |
+| `yanked-sent` | card `┃ [Image 4][Image 5]`, `Two red squares.` | |
+| `recalled` | `┃ [Image 6][Image 7]`: the recalled line's images under fresh numbers | `tui-composer-edit-contracts.test.ts:852-878` |
+| `recalled-sent` | card `┃ [Image 6][Image 7]`, `Red, again.` | |
+| `oversized` | `✗ input: That edit exceeds the local prompt safety limit and was not applied.` (`\e[38;5;252m✗ input:\e[38;5;250m That edit … applied.\e[39m`), the composer empty | `input_limit_feedback.zig:5-42` |
+| `recovered` | card `┃ RECOVERY`, `Recovered.` | |
+
+Wire (`*-image-composer-40x120-wire.json`): the same four requests on both
+(fx numbers them from 002 behind its title request): `[Image #2] duplicate
+[Image #1]` with one file; then `[Image #4][Image #5]` with two; then
+`[Image #6][Image #7]` with two; then `RECOVERY`, each request carrying the
+earlier turns' images again. **There is no flash**: fx answers the oversized
+paste with that one notice row, which is what xfx now writes.
+
+### `image-readfile`
+
+| snap | fx | xfx | matches |
+|---|---|---|---|
+| `read` | `● 1 tool call · 1 read` / `└ Read shot.png`, `A small red square.`, `0s (↑6 ↓80)` | the same rows, `0s (↑6 ↓40)` | Identical but the turn summary's output count: fx adds both requests' 40, xfx says the last one's. Not this unit's -- `receipts/d4a`'s `after-refusal` shows the same (`↓120` against `↓40`). |
+| `wide` | the second turn, `Read wide.png`, `Too wide.` | same | As above. |
+
+Wire (`*-image-readfile-40x120-wire.json`), the requests after each read:
+
+- `shot.png`: the result is a `content` output whose text is `<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>`, and a user message follows the results with `Attached image(s) from the tool result.` and one `image/png` file part (sha256 `3fd6e6be528c…`). The same on both, and the next turn's requests carry it again.
+- `wide.png`: a `text` output, `image not attached: image/png (24 bytes); the image exceeds 8000 pixels per side. Use an available image tool to save a smaller copy to a new file, then read_file the copy. If no image tool is available, ask the user before installing one.`, and no image. The same on both.
+- Two differences, neither the image: fx's attached result begins `Saved images: image-result-read_file-….txt. Use read_tool_result with this handle to load them again.` -- fx stores a result's images under a handle its `read_tool_result` tool reads back (`retainToolImages`, `execution_memory.zig:672-688`); xfx has no `read_tool_result`, keeps the copy beside its log (`tool_images_attached`) and sends it again itself, so the sentence would name a tool the model does not have. And fx sends a `Session file evidence from previous tool execution…` user message before the next prompt, which xfx has never sent.
 
 ## Differences, and why
 

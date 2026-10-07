@@ -1,0 +1,6 @@
+[
+ {"tool":{"id":"r1","name":"read_file","input":{"path":"shot.png"}}},
+ {"delayMs":50,"chunks":["A small ","red square."]},
+ {"tool":{"id":"r2","name":"read_file","input":{"path":"wide.png"}}},
+ {"delayMs":50,"chunks":["Too wide."]}
+]

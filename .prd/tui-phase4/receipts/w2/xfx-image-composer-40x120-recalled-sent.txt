@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-d84afb4 [debug] · Run /help for commands
+
+┃ [Image 2] duplicate [Image #1]
+
+  It is a small red square.
+
+  0s (↑9 ↓40)
+
+┃ [Image 4][Image 5]
+
+  Two red squares.
+
+  0s (↑6 ↓40)
+
+┃ [Image 6][Image 7]
+
+  Red, again.
+
+  0s (↑6 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

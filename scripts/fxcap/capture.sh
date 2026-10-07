@@ -43,6 +43,9 @@
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
+#   pastex <bytes>         a bracketed paste of <bytes> `x`s, through a file in
+#                          the run directory -- a paste too large for a
+#                          command line, such as one past the prompt's budget
 #   key <tmux key>...      named keys (Enter, Escape, C-c, Down, ...)
 #   snap <label>           writes <bin>-<scenario>-<size>-<label>.{txt,ansi}
 #   snapfull <label>       the same, with the whole tmux history (.full.*)
@@ -283,6 +286,11 @@ $xfx_model $extra_env $bin"
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
+      pastex)
+        head -c "$rest" /dev/zero | tr '\0' x > "$run/pastex"
+        tmux -f /dev/null -S "$sock" load-buffer -b capbuf "$run/pastex"
+        tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap
+        rm -f "$run/pastex" ;;
       key) # shellcheck disable=SC2086
         tmux -f /dev/null -S "$sock" send-keys -t cap $rest ;;
       snap)
