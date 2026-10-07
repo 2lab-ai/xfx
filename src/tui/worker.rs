@@ -87,7 +87,7 @@ use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
 use crate::agent::compaction_trace::{self, Context, Kind as TraceKind, Origin};
-use crate::agent::{run_turn_saved, TurnMachine, TurnRequest};
+use crate::agent::{TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
@@ -103,7 +103,7 @@ use crate::provider::model::{
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession};
+use crate::session::{SessionEvent, SessionId, SessionStore, WritableSession};
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -2778,122 +2778,295 @@ fn feedback_of(failure: Failure) -> Feedback {
     }
 }
 
-/// Compacts the conversation before a turn whose request has reached the
-/// automatic compaction point (`orchestrator.zig:7306-7322`, `size.due()`):
-/// the request the turn would open with, measured as upstream measures a
-/// request -- its body, by the token estimate
-/// (`measureProviderRequest`, `prompt_context.zig:83-86`).
-///
-/// The window is the catalog's, so a conversation with something to compact
-/// reads the catalog once if nothing has yet, as a turn in a non-default
-/// effort does; a model the catalog does not describe never compacts by
-/// itself, as upstream's does not (`due` with no window).
-///
-/// `Err` is a compaction that began and did not finish: the turn does not
-/// run, and the band keeps the sentence, as upstream keeps the error on the
-/// row rather than in the transcript (`compactionErrorHandled`,
-/// `app_process_runtime.zig:10-17`, `:55-56`).
-async fn compact_if_due(
+/// Reads the catalog before a turn whose conversation has something to
+/// compact, if nothing has read it yet: its window is what the automatic
+/// compaction point is measured against, and a model the catalog does not
+/// describe never compacts by itself, as upstream's does not (`due` with no
+/// window). Raced against the turn's own cancellation, as the effort's read
+/// is.
+async fn read_catalog_for_compaction(
     state: &mut Runtime,
-    prompt: &str,
-    context: &ProjectContext,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
-) -> Result<(), Feedback> {
-    if !state.has_context_to_compact() {
-        return Ok(());
+) {
+    if !state.has_context_to_compact()
+        || !matches!(state.selector.catalog(), CatalogState::NotLoaded)
+    {
+        return;
     }
-    if matches!(state.selector.catalog(), CatalogState::NotLoaded) {
-        let fresh = tokio::select! {
-            biased;
-            () = turn.token.cancelled() => false,
-            fresh = state.load_catalog() => fresh,
-        };
-        if fresh {
-            let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    let fresh = tokio::select! {
+        biased;
+        () = turn.token.cancelled() => false,
+        fresh = state.load_catalog() => fresh,
+    };
+    if fresh {
+        let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    }
+}
+
+/// A turn's compactions: before each model step, whether the request it is
+/// about to send has reached the automatic compaction point, and after a
+/// request the provider refused as too large, once
+/// (`orchestrator.zig:7286-7322`, `:8099-8124`). The turns before the one in
+/// progress are compacted; the turn goes on with the compacted form in place
+/// of them, on its own clock, and the row says `Compacting` meanwhile.
+///
+/// One that began and did not finish ends the turn: the row keeps the
+/// sentence and the turn's conclusion says nothing more, as upstream keeps
+/// the error on the row rather than in the transcript
+/// (`compactionErrorHandled`, `app_process_runtime.zig:10-17`, `:55-56`) --
+/// [`TurnCompactor::ended`] is how the turn knows.
+struct TurnCompactor {
+    size: Size,
+    model: String,
+    /// The efforts the conversation's model and its fallback list, read from
+    /// the catalog as the turn began.
+    efforts: Vec<(String, Vec<String>)>,
+    fallback: bool,
+    wire: crate::provider::Wire,
+    /// What the turn's requests ask for, put back after a notes request.
+    options: crate::gateway::protocol::RequestOptions,
+    events: Sender<UiEvent>,
+    token: tokio_util::sync::CancellationToken,
+    mirror: CancelToken,
+    /// The turn's number in the session, for `/trace`.
+    turn: u64,
+    spent: compact::Spent,
+    /// How a compaction that ended the turn ended.
+    ended: std::rc::Rc<std::cell::Cell<Option<Feedback>>>,
+}
+
+impl TurnCompactor {
+    fn new(state: &Runtime, events: &Sender<UiEvent>, turn: &TurnCancel) -> Self {
+        let model = state.model().to_string();
+        let efforts = [model.clone(), compact::fallback_model(&model).to_string()]
+            .into_iter()
+            .map(|name| {
+                let listed = state
+                    .selector
+                    .entry(&name)
+                    .map(|entry| entry.efforts.clone())
+                    .unwrap_or_default();
+                (name, listed)
+            })
+            .collect();
+        Self {
+            size: state.compaction_size(),
+            model,
+            efforts,
+            fallback: state.config.provider == ProviderId::Gateway,
+            wire: state.config.provider.wire(),
+            options: state.request_options(),
+            events: events.clone(),
+            token: turn.token.clone(),
+            mirror: turn.mirror.clone(),
+            turn: state.conversation.as_ref().map_or(1, |conversation| {
+                conversation.recorder.state().turns.len() as u64 + 1
+            }),
+            spent: compact::Spent::default(),
+            ended: std::rc::Rc::default(),
         }
     }
-    let mut size = state.compaction_size();
-    if size.compact_at.is_none() {
-        return Ok(());
+
+    /// Tells the band how it ended; for one that did not succeed, the turn
+    /// ends too and says nothing of its own.
+    async fn settle(&self, feedback: Feedback) {
+        if feedback != Feedback::Succeeded {
+            self.ended.set(Some(feedback));
+        }
+        bridge::send_terminal(&self.events, UiEvent::Compaction(Update::Settled(feedback))).await;
     }
-    let Some(conversation) = state.conversation.as_ref() else {
-        return Ok(());
-    };
-    // Measured as text: upstream prices an image apart from the text around
-    // it (`measureProviderRequest`, `prompt_context.zig:87-120`), so an
-    // image's bytes are not counted as words here either.
-    let mut history = conversation
-        .recorder
-        .state()
-        .history_messages(state.config.provider.wire())
-        .messages;
-    for message in &mut history {
-        message
-            .content
-            .retain(|part| !matches!(part, crate::gateway::protocol::ContentPart::Image { .. }));
+
+    /// The turn's error for a compaction that ended it.
+    fn ended_turn(failure: &Failure) -> crate::agent::TurnError {
+        match failure {
+            Failure::Cancelled => crate::agent::TurnError::Cancelled,
+            other => crate::agent::TurnError::ProviderFailure {
+                detail: format!("compaction failed: {}", other.name()),
+            },
+        }
     }
-    let request = TurnRequest {
-        images: Vec::new(),
-        model: state.model().to_string(),
-        prompt: prompt.to_string(),
-        history,
-        max_steps: state.config.max_agent_steps,
-        max_attempts: DEFAULT_MAX_ATTEMPTS,
-        cancel: turn.mirror.clone(),
-        tools: conversation.tools.clone(),
-    };
-    let Ok(body) = TurnMachine::new(request)
-        .with_context(context.clone())
-        .completion_request()
-        .body()
-    else {
-        // A request that cannot be built is the turn's to report.
-        return Ok(());
-    };
-    size.request = Some(compact::text_tokens(&body));
-    if !size.due() {
-        return Ok(());
-    }
-    let context = Context {
-        turn: state.conversation.as_ref().map_or(0, |conversation| {
-            conversation.recorder.state().turns.len() as u64 + 1
-        }),
-        step: 1,
-    };
-    match compact_conversation(state, size, Origin::Automatic, context, events, turn).await {
-        // Nothing was chosen, so nothing began: the turn goes on as it was.
-        Feedback::NoOp => Ok(()),
-        Feedback::Succeeded => {
-            bridge::send_terminal(
-                events,
-                UiEvent::Compaction(Update::Settled(Feedback::Succeeded)),
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::agent::StepCompactor for TurnCompactor {
+    async fn before_step(
+        &mut self,
+        check: crate::agent::StepCheck<'_>,
+    ) -> Result<Option<Vec<crate::gateway::protocol::Message>>, crate::agent::TurnError> {
+        let mut size = self.size;
+        size.request = Some(check.request_tokens);
+        size.overflow = check.overflow;
+        let context = Context {
+            turn: self.turn,
+            step: u64::from(check.step) + 1,
+        };
+        let origin = if check.overflow {
+            Origin::ProviderOverflow
+        } else {
+            Origin::Automatic
+        };
+        if !(check.compactable && (check.overflow || size.due())) {
+            if check.overflow {
+                compaction_trace::failure(
+                    context,
+                    TraceKind::OverflowWithoutCompaction,
+                    format!(
+                        "estimated_tokens={} usable_tokens={}",
+                        check.request_tokens,
+                        compaction_trace::any(size.usable)
+                    ),
+                );
+            } else if let Some(usable) = size.usable.filter(|usable| check.request_tokens > *usable)
+            {
+                // Just compacted and still too large: not sent
+                // (`no_compactable_context`, `orchestrator.zig:7347-7350`).
+                compaction_trace::failure(
+                    context,
+                    TraceKind::NoCompactableContext,
+                    format!(
+                        "estimated_tokens={} usable_tokens={usable}",
+                        check.request_tokens
+                    ),
+                );
+                return Err(crate::agent::TurnError::ProviderFailure {
+                    detail: "ContextCapacityExceeded".to_string(),
+                });
+            }
+            return Ok(None);
+        }
+        compaction_trace::info(
+            context,
+            TraceKind::Decision,
+            format!(
+                "decision=compact overflow={} estimated_tokens={} usable_tokens={} \
+                 compact_at_tokens={} compact_at_percent={}",
+                check.overflow,
+                check.request_tokens,
+                compaction_trace::any(size.usable),
+                compaction_trace::any(size.compact_at),
+                compact::DEFAULT_PERCENT
+            ),
+        );
+        let planned = match check.journal.state() {
+            Some(state) => compact::plan_before_open(state, &size, context),
+            None => Ok(None),
+        };
+        let plan = match planned {
+            Ok(Some(plan)) => plan,
+            Ok(None) => {
+                compaction_trace::info(
+                    context,
+                    TraceKind::Decision,
+                    format!(
+                        "decision=no_op origin={} reason=nothing_to_compact",
+                        origin.name()
+                    ),
+                );
+                return Ok(None);
+            }
+            Err(failure) => {
+                transaction_failed(context, "preparation", origin, failure.name());
+                self.settle(feedback_of(failure.clone())).await;
+                return Err(Self::ended_turn(&failure));
+            }
+        };
+        let _ = bridge::send_ui(
+            &self.events,
+            &self.token,
+            UiEvent::Compaction(Update::Began { automatic: true }),
+        )
+        .await;
+        if plan.needs_model() {
+            let _ = bridge::send_ui(
+                &self.events,
+                &self.token,
+                UiEvent::Compaction(Update::Summarizing),
             )
             .await;
-            Ok(())
         }
-        other => {
-            // A turn stopped while it compacted is a turn that was asked and
-            // stopped, and its log says so as an ordinary stopped turn's does
-            // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:
-            // 7413-7423`; e2e `tui-compaction-activity.test.ts:467-471`): a
-            // resume shows the prompt, and the model is told the turn ended
-            // before completion. One that failed never began; the row says why.
-            if other == Feedback::Cancelled {
-                if let Some(conversation) = state.conversation.as_mut() {
-                    conversation.recorder.commit(SessionEvent::UserMessage {
-                        text: prompt.to_string(),
-                    });
-                    conversation.recorder.commit(SessionEvent::TurnConcluded {
-                        outcome: TurnConclusion::Interrupted {
-                            reason: crate::agent::TurnError::Cancelled.to_string(),
-                        },
-                    });
-                }
+        let finished = {
+            let efforts = |name: &str| {
+                self.efforts
+                    .iter()
+                    .find(|(model, _)| model == name)
+                    .map(|(_, listed)| listed.clone())
+                    .unwrap_or_default()
+            };
+            let caller = Caller {
+                provider: check.provider,
+                model: &self.model,
+                fallback: self.fallback,
+                efforts: &efforts,
+                spent: &self.spent,
+            };
+            compact::finish(&plan, &caller).await
+        };
+        // The turn's own requests ask for what they asked for before.
+        check.provider.set_options(self.options.clone());
+        let event = match finished {
+            Ok(event) if !self.mirror.is_cancelled() => event,
+            Ok(_) => {
+                transaction_failed(context, "summary", origin, "Cancelled");
+                self.settle(Feedback::Cancelled).await;
+                return Err(crate::agent::TurnError::Cancelled);
             }
-            bridge::send_terminal(events, UiEvent::Compaction(Update::Settled(other))).await;
-            Err(other)
-        }
+            Err(failure) => {
+                transaction_failed(context, "summary", origin, failure.name());
+                self.settle(feedback_of(failure.clone())).await;
+                return Err(Self::ended_turn(&failure));
+            }
+        };
+        let before = check
+            .journal
+            .state()
+            .map_or(0, |state| state.last_event_seq);
+        let removed_turns = plan.turn_count();
+        check.journal.record(event);
+        let wire = self.wire.clone();
+        let committed = check.journal.state().and_then(|state| {
+            let checkpoint = state.checkpoint.as_ref()?;
+            (state.last_event_seq != before).then(|| {
+                (
+                    checkpoint.count,
+                    crate::session::checkpoint::render(&checkpoint.compacted),
+                    checkpoint.compacted.tool_count,
+                    state.history_messages_before_open(wire).messages,
+                )
+            })
+        });
+        let Some((count, text, tools, history)) = committed else {
+            transaction_failed(context, "publication", origin, "SessionWriteFailed");
+            self.settle(Feedback::Failed).await;
+            return Err(crate::agent::TurnError::ProviderFailure {
+                detail: "compaction failed: SessionWriteFailed".to_string(),
+            });
+        };
+        compaction_trace::info(
+            context,
+            TraceKind::Committed,
+            format!(
+                "origin={} removed_turns={removed_turns} compaction_count={count} \
+                 summary_bytes={} tools={tools}",
+                origin.name(),
+                text.len()
+            ),
+        );
+        compaction_trace::info(
+            context,
+            TraceKind::Installed,
+            format!(
+                "estimated_tokens_before={} summary_bytes={} tools={tools}",
+                check.request_tokens,
+                text.len()
+            ),
+        );
+        self.settle(Feedback::Succeeded).await;
+        Ok(Some(history))
+    }
+
+    fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
+        self.spent.take()
     }
 }
 
@@ -3476,14 +3649,11 @@ async fn one_turn(
             .tools
             .scope(),
     );
-    if compact_if_due(state, &prompt, &context, events, turn)
-        .await
-        .is_err()
-    {
-        // The row says why; the turn did not run, and there is nothing more
-        // for its conclusion to say (`compactionErrorHandled`).
-        return None;
-    }
+    read_catalog_for_compaction(state, events, turn).await;
+    // Built before the conversation is borrowed for the turn: it reads the
+    // catalog's window and efforts as they are now.
+    let compactor = TurnCompactor::new(state, events, turn);
+    let compaction_ended = std::rc::Rc::clone(&compactor.ended);
     let options = state.request_options();
     state
         .provider
@@ -3566,7 +3736,11 @@ async fn one_turn(
         events.clone(),
         turn.token.clone(),
     );
-    let outcome = run_turn_saved(request, context, &provider, &mut sink, &mut journal).await;
+    let outcome = TurnMachine::new(request)
+        .with_context(context)
+        .with_compactor(Box::new(compactor))
+        .run_journaled(&provider, &mut sink, &mut journal)
+        .await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -3606,6 +3780,9 @@ async fn one_turn(
             .recorder
             .failure()
             .map(|problem| format!("xfx: {problem}")),
+        // A compaction ended it: the row says why, and there is nothing more
+        // for its conclusion to say (`compactionErrorHandled`).
+        Err(_) if compaction_ended.get().is_some() => None,
         Err(err) => Some(err.to_string()),
     }
 }

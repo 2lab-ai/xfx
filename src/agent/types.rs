@@ -75,6 +75,53 @@ pub trait TurnJournal {
     /// that names them ([`crate::session::SessionRecorder::attach_images`]). A
     /// journal that keeps no log keeps no images either.
     fn attach_images(&mut self, _images: &[crate::image::Image]) {}
+
+    /// The session as the log now holds it, this turn's steps so far
+    /// included, for a journal that keeps one: what a compaction in the
+    /// middle of a turn plans from ([`StepCompactor`]).
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        None
+    }
+}
+
+/// What a turn asks before each model step: whether its conversation is to be
+/// compacted first (upstream's per-step check, `orchestrator.zig:7286-7322`).
+///
+/// The turn measures the request it is about to send and hands the answer
+/// here; an implementation that compacts records the checkpoint through the
+/// journal and returns the history the next request carries instead. It is
+/// also asked, with `overflow` set, after the provider refused a request as
+/// too large -- once per turn (`provider_overflow`, `:8099-8124`).
+#[async_trait::async_trait(?Send)]
+pub trait StepCompactor {
+    /// `Ok(None)` when nothing was compacted, and the request goes as it was.
+    async fn before_step(
+        &mut self,
+        check: StepCheck<'_>,
+    ) -> Result<Option<Vec<crate::gateway::protocol::Message>>, TurnError>;
+
+    /// What its notes requests cost since it was last asked, and whether one
+    /// was lost after it was sent: the turn's `/usage` record carries them.
+    fn spent(&mut self) -> (Vec<crate::session::RequestUsage>, bool) {
+        (Vec::new(), false)
+    }
+}
+
+/// One step's question to a [`StepCompactor`].
+pub struct StepCheck<'a> {
+    /// The request about to be sent, by the token estimate
+    /// (`crate::agent::compact::text_tokens` of its body).
+    pub request_tokens: usize,
+    /// The provider refused the last request as too large.
+    pub overflow: bool,
+    /// Whether anything new can be compacted: not straight after a
+    /// compaction, before the request it rebuilt has gone
+    /// (`has_new_compactable_context`, `orchestrator.zig:7304`).
+    pub compactable: bool,
+    /// How many model steps this turn has run.
+    pub step: u32,
+    pub provider: &'a dyn crate::gateway::Provider,
+    pub journal: &'a mut dyn TurnJournal,
 }
 
 /// A journal that keeps nothing.

@@ -60,7 +60,9 @@ use crate::session::{RecordedToolCall, RequestUsage, SessionEvent, TurnConclusio
 use crate::tools::{LineChanges, Registry};
 use crate::workspace::ProjectContext;
 
-use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
+use super::types::{
+    NoJournal, StepCheck, StepCompactor, TurnError, TurnJournal, TurnOutcome, TurnRequest,
+};
 
 /// The first backoff, doubled per failed attempt when the server names no delay.
 ///
@@ -356,6 +358,56 @@ pub struct TurnMachine {
     unaccounted: bool,
     /// Lines this turn's file changes added and removed.
     lines: LineChanges,
+    /// Asked before each step whether to compact first; `None` for a turn
+    /// that never compacts.
+    compactor: Option<Compactor>,
+}
+
+/// A [`StepCompactor`], so the machine stays `Debug`.
+struct Compactor(Box<dyn StepCompactor>);
+
+impl std::fmt::Debug for Compactor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Compactor")
+    }
+}
+
+/// Where a turn is in its one recovery from a request the provider refused as
+/// too large (`ContextOverflowRecoveryState`, `orchestrator.zig:4447-4451`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Overflow {
+    Ready,
+    /// Refused: the next check compacts, and the refusal stands if it cannot.
+    Pending,
+    Used,
+}
+
+/// Whether a provider's refusal says the request was too large for the
+/// model's window (`isContextOverflowFailure`, `orchestrator.zig:4428-4445`):
+/// a `413`, or a `400` whose words say so.
+pub(crate) fn is_context_overflow(err: &ProviderError) -> bool {
+    let ProviderError::Status { status, body, .. } = err else {
+        return false;
+    };
+    match status {
+        413 => true,
+        400 => {
+            let body = body.to_ascii_lowercase();
+            [
+                "context_length_exceeded",
+                "exceeds the context window",
+                "exceeded the context window",
+                "maximum context length",
+                "maximum prompt length",
+                "input is too long",
+                "prompt is too long",
+                "too many input tokens",
+            ]
+            .iter()
+            .any(|needle| body.contains(needle))
+        }
+        _ => false,
+    }
 }
 
 impl TurnMachine {
@@ -387,7 +439,15 @@ impl TurnMachine {
             requests: Vec::new(),
             unaccounted: false,
             lines: LineChanges::default(),
+            compactor: None,
         }
+    }
+
+    /// The same machine, asking `compactor` before each step whether to
+    /// compact the conversation first.
+    pub fn with_compactor(mut self, compactor: Box<dyn StepCompactor>) -> Self {
+        self.compactor = Some(Compactor(compactor));
+        self
     }
 
     /// The same machine, carrying `context` as its static system message.
@@ -535,6 +595,11 @@ impl TurnMachine {
         events: &mut dyn EventSink,
         journal: &mut dyn TurnJournal,
     ) -> Result<TurnOutcome, TurnError> {
+        let mut overflow = Overflow::Ready;
+        // The provider's refusal, while it is being recovered from.
+        let mut refusal: Option<TurnError> = None;
+        // A compaction has rebuilt the request, which has not gone yet.
+        let mut rebuilt = false;
         loop {
             if self.request.cancel.is_cancelled() {
                 return Err(TurnError::Cancelled);
@@ -548,8 +613,57 @@ impl TurnMachine {
                 });
             }
 
+            if self.compactor.is_some() {
+                let pending = overflow == Overflow::Pending;
+                match self
+                    .compact_before_step(provider, journal, pending, rebuilt)
+                    .await?
+                {
+                    Some(history) => {
+                        self.history = history;
+                        rebuilt = true;
+                        if pending {
+                            overflow = Overflow::Used;
+                            refusal = None;
+                        }
+                        // Measured again before it goes: a request that still
+                        // does not fit is not sent (`orchestrator.zig:7347-7350`).
+                        continue;
+                    }
+                    // Nothing could be compacted, so the refusal stands
+                    // (`overflow_without_compaction`, `:7344-7346`).
+                    None if pending => {
+                        return Err(refusal.take().unwrap_or(TurnError::ProviderFailure {
+                            detail: "the request was too large for the model".to_string(),
+                        }));
+                    }
+                    None => {}
+                }
+            }
+
             let began = Instant::now();
-            let completion = self.step(provider, events).await?;
+            let completion = match self.step(provider, events).await {
+                Ok(completion) => completion,
+                // Too large for the model's window: compacted once and asked
+                // again, when there is something to compact and nothing of
+                // the answer was shown (`shouldRecoverContextOverflow`,
+                // `orchestrator.zig:4453-4466`, `:8099-8124`).
+                Err(TurnError::Provider(err))
+                    if self.compactor.is_some()
+                        && overflow == Overflow::Ready
+                        && !self.history.is_empty()
+                        && self.partial.is_empty()
+                        && !self.request.cancel.is_cancelled()
+                        && is_context_overflow(&err) =>
+                {
+                    overflow = Overflow::Pending;
+                    refusal = Some(TurnError::Provider(err));
+                    rebuilt = false;
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
+            rebuilt = false;
             self.account(&completion, began.elapsed());
             self.steps += 1;
             self.output.push_str(&completion.text);
@@ -907,6 +1021,39 @@ impl TurnMachine {
     }
 
     /// Runs one model step, spending at most `max_attempts` transport attempts.
+    /// Asks the compactor about the request this step would send, and keeps
+    /// what its notes requests cost with the turn's own.
+    async fn compact_before_step(
+        &mut self,
+        provider: &dyn Provider,
+        journal: &mut dyn TurnJournal,
+        overflow: bool,
+        rebuilt: bool,
+    ) -> Result<Option<Vec<Message>>, TurnError> {
+        let request_tokens = self
+            .completion_request()
+            .body()
+            .map(|body| super::compact::text_tokens(&body))
+            .unwrap_or(0);
+        let Some(Compactor(compactor)) = self.compactor.as_mut() else {
+            return Ok(None);
+        };
+        let answer = compactor
+            .before_step(StepCheck {
+                request_tokens,
+                overflow,
+                compactable: !rebuilt,
+                step: self.steps,
+                provider,
+                journal,
+            })
+            .await;
+        let (requests, unaccounted) = compactor.spent();
+        self.requests.extend(requests);
+        self.unaccounted |= unaccounted;
+        answer
+    }
+
     async fn step(
         &mut self,
         provider: &dyn Provider,
@@ -1075,6 +1222,223 @@ mod tests {
         let dir = tempfile::tempdir().expect("temporary workspace");
         let scope = AccessScope::primary_only(dir.path()).expect("a usable root");
         (dir, ToolContext::new(scope))
+    }
+
+    /// A provider that answers from a script and keeps what it was asked.
+    struct Script {
+        replies: std::cell::RefCell<Vec<Result<Completion, ProviderError>>>,
+        asked: std::cell::RefCell<Vec<CompletionRequest>>,
+    }
+
+    impl Script {
+        fn new(replies: Vec<Result<Completion, ProviderError>>) -> Self {
+            Self {
+                replies: std::cell::RefCell::new(replies),
+                asked: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl Provider for Script {
+        async fn stream(
+            &self,
+            request: &CompletionRequest,
+            _deltas: &mut dyn DeltaSink,
+        ) -> Result<Completion, ProviderError> {
+            self.asked.borrow_mut().push(request.clone());
+            self.replies.borrow_mut().remove(0)
+        }
+    }
+
+    fn answer(text: &str) -> Result<Completion, ProviderError> {
+        Ok(Completion {
+            text: text.to_string(),
+            tool_calls: Vec::new(),
+            finish_reason: FinishReason::Stop,
+            usage: crate::gateway::protocol::Usage::default(),
+            provider_detail: None,
+            raw_content: Vec::new(),
+            wire: crate::provider::Wire::VercelGateway,
+            billing: None,
+        })
+    }
+
+    fn too_large() -> Result<Completion, ProviderError> {
+        Err(ProviderError::Status {
+            subject: "the Gateway",
+            status: 400,
+            body: "AI_APICallError: input exceeds the context window".to_string(),
+            retryable: false,
+            retry_after: None,
+        })
+    }
+
+    struct Quiet;
+
+    impl EventSink for Quiet {
+        fn emit(&mut self, _event: &Event) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Each check a compactor was asked: the request's tokens, `overflow`,
+    /// `compactable` and the step.
+    type Checks = std::rc::Rc<std::cell::RefCell<Vec<(usize, bool, bool, u32)>>>;
+
+    /// Compacts when asked to, replacing the history with one message, and
+    /// keeps every question it was asked.
+    struct Compacting {
+        asked: Checks,
+        /// Which checks compact, by their order.
+        compact_on: Vec<usize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl StepCompactor for Compacting {
+        async fn before_step(
+            &mut self,
+            check: StepCheck<'_>,
+        ) -> Result<Option<Vec<Message>>, TurnError> {
+            let mut asked = self.asked.borrow_mut();
+            asked.push((
+                check.request_tokens,
+                check.overflow,
+                check.compactable,
+                check.step,
+            ));
+            Ok(self
+                .compact_on
+                .contains(&(asked.len() - 1))
+                .then(|| vec![Message::user("<compacted_conversation>")]))
+        }
+
+        fn spent(&mut self) -> (Vec<RequestUsage>, bool) {
+            (Vec::new(), self.asked.borrow().len() == 1)
+        }
+    }
+
+    fn machine(tools: crate::tools::ToolContext) -> TurnMachine {
+        TurnMachine::new(TurnRequest {
+            images: Vec::new(),
+            model: "m".to_string(),
+            prompt: "now".to_string(),
+            history: vec![
+                Message::user("before"),
+                Message::assistant(Some("BEFORE"), Vec::new()),
+            ],
+            max_steps: 4,
+            max_attempts: 1,
+            cancel: crate::gateway::CancelToken::new(),
+            tools,
+        })
+    }
+
+    #[tokio::test]
+    async fn a_compaction_before_a_step_replaces_the_history_that_step_sends() {
+        let (_dir, tools) = tools();
+        let asked = std::rc::Rc::default();
+        let mut turn = machine(tools).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::clone(&asked),
+            compact_on: vec![0],
+        }));
+        let provider = Script::new(vec![answer("done")]);
+        let outcome = turn.run(&provider, &mut Quiet).await.expect("answered");
+        assert_eq!(outcome.output, "done");
+        // Asked before the step, then again for the rebuilt request, which
+        // may not be compacted again before it goes (`orchestrator.zig:7304`).
+        let asked = asked.borrow();
+        assert_eq!(asked.len(), 2, "{asked:?}");
+        assert!(asked[0].2 && !asked[1].2, "{asked:?}");
+        assert!(asked[1].0 < asked[0].0, "the rebuilt request is smaller");
+        let sent = provider.asked.borrow();
+        assert_eq!(sent[0].messages[0].text(), "<compacted_conversation>");
+        assert_eq!(sent[0].messages[1].text(), "now");
+        // What the notes requests cost is the turn's to record.
+        assert!(turn.unaccounted);
+    }
+
+    #[tokio::test]
+    async fn a_request_refused_as_too_large_is_compacted_and_asked_again_once() {
+        let (_dir, tools) = tools();
+        let asked = std::rc::Rc::default();
+        let mut turn = machine(tools).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::clone(&asked),
+            compact_on: vec![1],
+        }));
+        let provider = Script::new(vec![too_large(), answer("done")]);
+        let outcome = turn.run(&provider, &mut Quiet).await.expect("recovered");
+        assert_eq!(outcome.output, "done");
+        let asked = asked.borrow();
+        // Not due before the first; told of the refusal before the second.
+        assert_eq!(
+            asked
+                .iter()
+                .map(|(_, overflow, ..)| *overflow)
+                .collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        assert_eq!(provider.asked.borrow().len(), 2);
+        assert_eq!(
+            provider.asked.borrow()[1].messages[0].text(),
+            "<compacted_conversation>"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refusal_nothing_can_be_compacted_for_stands_and_a_second_is_not_recovered() {
+        let (_one, context) = tools();
+        // Nothing compacted: the refusal is the turn's error.
+        let mut turn = machine(context).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::default(),
+            compact_on: Vec::new(),
+        }));
+        let provider = Script::new(vec![too_large()]);
+        let err = turn.run(&provider, &mut Quiet).await.expect_err("refused");
+        assert!(
+            err.to_string().contains("exceeds the context window"),
+            "{err}"
+        );
+        assert_eq!(provider.asked.borrow().len(), 1);
+
+        // Compacted once and refused again: the second stands.
+        let (_two, context) = tools();
+        let mut turn = machine(context).with_compactor(Box::new(Compacting {
+            asked: std::rc::Rc::default(),
+            compact_on: vec![1],
+        }));
+        let provider = Script::new(vec![too_large(), too_large()]);
+        assert!(turn.run(&provider, &mut Quiet).await.is_err());
+        assert_eq!(provider.asked.borrow().len(), 2);
+
+        // And a turn with no compactor is not recovered at all.
+        let (_three, context) = tools();
+        let provider = Script::new(vec![too_large()]);
+        assert!(machine(context).run(&provider, &mut Quiet).await.is_err());
+    }
+
+    #[test]
+    fn a_refusal_is_an_overflow_by_its_status_or_its_words() {
+        // `isContextOverflowFailure`, `orchestrator.zig:4428-4445`.
+        let refused = |status: u16, body: &str| ProviderError::Status {
+            subject: "the Gateway",
+            status,
+            body: body.to_string(),
+            retryable: false,
+            retry_after: None,
+        };
+        assert!(is_context_overflow(&refused(413, "")));
+        for words in [
+            "{\"error\":{\"code\":\"context_length_exceeded\"}}",
+            "This model's MAXIMUM CONTEXT LENGTH is 8192 tokens",
+            "prompt is too long: 220000 tokens > 200000 maximum",
+            "Too many input tokens",
+        ] {
+            assert!(is_context_overflow(&refused(400, words)), "{words}");
+        }
+        assert!(!is_context_overflow(&refused(400, "invalid tool schema")));
+        assert!(!is_context_overflow(&refused(429, "prompt is too long")));
+        assert!(!is_context_overflow(&ProviderError::Cancelled));
     }
 
     #[test]

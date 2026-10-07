@@ -28,11 +28,14 @@
 //! (`records.zig`); xfx has no such tool, so the request says what upstream
 //! says for a session it cannot save records for -- "the tool calls will not
 //! be available later" -- and an earlier compaction is never folded away. The
-//! window is chosen at whole turns: upstream can also cut inside a turn's tool
-//! steps (`window.zig:226-248`) and compact a turn still running; here a
-//! compaction runs between turns, so it never needs to. The notes are not
-//! linted (`lint.zig`), and a conversation too large for one notes request is
-//! clipped rather than sent in parts (`partEnd`, `summarize.zig:335-345`).
+//! window is chosen at whole turns, and the turn in progress is never
+//! compacted ([`plan_before_open`]): upstream can also cut inside a turn's
+//! tool steps, the running turn's included (`window.zig:169-251`,
+//! `:271-295`). The notes request is always the transcript written out,
+//! never sent after the conversation for the provider's cache
+//! (`summarize.zig:572-595`). The notes are not linted (`lint.zig`), and a
+//! conversation too large for one notes request is clipped rather than sent
+//! in parts (`partEnd`, `summarize.zig:335-345`).
 //!
 //! Nothing here touches a file or the terminal: the caller saves the event
 //! and shows progress, as upstream's caller does (`compactor.zig:22-23`).
@@ -178,6 +181,10 @@ pub struct Size {
     /// The request that needs the room, when there is one: an automatic
     /// compaction's. A manual one has none (`app_agent_runtime.zig:1136`).
     pub request: Option<usize>,
+    /// The provider refused that request as too large, so the estimate ran
+    /// low and the room after compaction is bounded by the request instead
+    /// (`overflow`, `window.zig:44-46`).
+    pub overflow: bool,
 }
 
 impl Size {
@@ -190,12 +197,24 @@ impl Size {
             compact_at: usable.map(|usable| percent_of(usable, percent.clamp(10, 80))),
             usable,
             request: None,
+            overflow: false,
         }
     }
 
-    /// Estimated tokens one notes request may use (`summaryRequestTokens`).
+    /// The request the provider refused, when it refused one.
+    fn rejected(&self) -> Option<usize> {
+        self.request.filter(|_| self.overflow)
+    }
+
+    /// Estimated tokens one notes request may use: the usable input, and
+    /// after a refusal well below the refused request
+    /// (`summaryRequestTokens`, `window.zig:68-77`).
     fn summary_request_tokens(&self) -> usize {
-        self.usable.unwrap_or(usize::MAX)
+        let mut room = self.usable.unwrap_or(usize::MAX);
+        if let Some(rejected) = self.rejected() {
+            room = room.min(rejected / 4 * 3);
+        }
+        room
     }
 
     /// Estimated tokens the whole request may use right after compaction
@@ -207,6 +226,9 @@ impl Size {
         let mut after = point / 2;
         if let Some(usable) = self.usable {
             after = after.min(percent_of(usable, AFTER_PERCENT));
+        }
+        if let Some(rejected) = self.rejected() {
+            after = after.min(percent_of(rejected, AFTER_PERCENT));
         }
         after
     }
@@ -230,7 +252,10 @@ impl Size {
         let Some(point) = self.compact_at.or(self.request) else {
             return usize::MAX;
         };
-        let most = point / 2;
+        let mut most = point / 2;
+        if let Some(rejected) = self.rejected() {
+            most = most.min(rejected / 2);
+        }
         let fixed = most / 4;
         most.saturating_sub(fixed)
             .max(most / 4)
@@ -245,8 +270,10 @@ impl Size {
     /// Compaction must free room: without it the request cannot be sent
     /// (`required`).
     fn required(&self) -> bool {
-        self.request
-            .is_some_and(|request| request > self.usable.unwrap_or(usize::MAX))
+        match self.request {
+            None => self.overflow,
+            Some(request) => self.overflow || request > self.usable.unwrap_or(usize::MAX),
+        }
     }
 }
 
@@ -1000,7 +1027,29 @@ struct Room {
 /// force does not cover, or none older than the turns kept as they are
 /// (`compact`, `compactor.zig:160-180`).
 pub fn plan(state: &DurableState, size: &Size, context: Context) -> Result<Option<Plan>, Failure> {
-    let turns = state.uncovered_turns();
+    plan_of(state, state.uncovered_turns(), size, context)
+}
+
+/// [`plan`], in the middle of a turn: the turn in progress is not compacted
+/// -- it goes on in the request as it is -- so only the turns before it are.
+pub fn plan_before_open(
+    state: &DurableState,
+    size: &Size,
+    context: Context,
+) -> Result<Option<Plan>, Failure> {
+    let mut turns = state.uncovered_turns();
+    if turns.last().is_some_and(|turn| turn.outcome.is_none()) {
+        turns = &turns[..turns.len() - 1];
+    }
+    plan_of(state, turns, size, context)
+}
+
+fn plan_of(
+    state: &DurableState,
+    turns: &[HistoryTurn],
+    size: &Size,
+    context: Context,
+) -> Result<Option<Plan>, Failure> {
     if turns.is_empty() {
         return Ok(None);
     }

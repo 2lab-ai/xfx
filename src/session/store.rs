@@ -705,6 +705,21 @@ impl DurableState {
     /// turns after it as they are -- the shape upstream sends after a
     /// compaction (`receipts/w4/README.md`, "The next request").
     pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
+        self.history_of(self.uncovered_turns(), active)
+    }
+
+    /// The history a turn still in progress carries once a compaction in its
+    /// middle has replaced the turns before it: the compacted form and every
+    /// later turn but the open one, whose own messages the turn keeps.
+    pub fn history_messages_before_open(&self, active: Wire) -> ReplayedHistory {
+        let mut turns = self.uncovered_turns();
+        if turns.last().is_some_and(|turn| turn.outcome.is_none()) {
+            turns = &turns[..turns.len() - 1];
+        }
+        self.history_of(turns, active)
+    }
+
+    fn history_of(&self, turns: &[HistoryTurn], active: Wire) -> ReplayedHistory {
         let mut out = Vec::new();
         let mut notices = Vec::new();
         if let Some(checkpoint) = &self.checkpoint {
@@ -712,7 +727,7 @@ impl DurableState {
                 &checkpoint.compacted,
             )));
         }
-        for turn in self.uncovered_turns() {
+        for turn in turns {
             out.extend(turn_messages(turn, &active, &mut notices));
         }
         ReplayedHistory {
@@ -2356,6 +2371,10 @@ impl SessionRecorder {
 impl TurnJournal for SessionRecorder {
     fn record(&mut self, event: SessionEvent) {
         self.commit(event);
+    }
+
+    fn state(&self) -> Option<&DurableState> {
+        Some(SessionRecorder::state(self))
     }
 
     fn attach_images(&mut self, images: &[crate::image::Image]) {

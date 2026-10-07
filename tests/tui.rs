@@ -9305,6 +9305,180 @@ fn a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent() {
 }
 
 #[test]
+fn a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step() {
+    // Upstream measures every step's request, not only a turn's first
+    // (`orchestrator.zig:7286-7322`): the second turn opens under the point,
+    // its read takes the next request past it, and the turns before it are
+    // compacted between the read and that request. 16K window, 4K output:
+    // 12K usable, compacting at 9.6K; the tool schemas are about 3K.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let line = "evidence ".repeat(25);
+    let lines = |count: usize| -> String { (0..count).map(|_| format!("{line}\n")).collect() };
+    let read = |id: &str, path: &str| {
+        Reply::Sse(sse_body(&[
+            tool_call(id, "read_file", serde_json::json!({ "path": path })),
+            finish("tool-calls"),
+        ]))
+    };
+    let gateway = FakeGateway::start(vec![
+        read("read-1", "first.txt"),
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        read("read-2", "second.txt"),
+        Reply::Sse(content_only(&[NOTES])),
+        Reply::Sse(content_only(&["MARKER-TWO"])),
+        Reply::Sse(content_only(&["MARKER-THREE"])),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
+         "released": 1_700_000_000, "tags": ["tool-use"],
+         "context_window": 16_000, "max_tokens": 4_000},
+    ]}));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("first.txt"), lines(60)).expect("write the fixture");
+    std::fs::write(sandbox.workspace.join("second.txt"), lines(100)).expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-TWO");
+    wait_for_checkpoints(&sandbox, 1);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 5, "{requests:?}");
+    // The second turn's first request went as it was.
+    assert!(!is_summary(&requests[2].json()));
+    assert_eq!(
+        user_messages(&requests[2].json()),
+        ["first question", "second question"]
+    );
+    // Then the notes, then the step after the read, carrying the compacted
+    // form in place of the first turn and the second turn's read as it was.
+    assert!(
+        is_summary(&requests[3].json()),
+        "the notes went between the steps"
+    );
+    let next = requests[4].json();
+    let users = user_messages(&next);
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert_eq!(&users[1..], ["second question"]);
+    let tools: Vec<&Value> = next["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .collect();
+    assert_eq!(tools.len(), 1, "only the second turn's read is sent whole");
+    // The checkpoint was written inside the second turn, which then went on
+    // and ended as any turn does.
+    let frames = session_frames(&sandbox);
+    let at = |kind: &str, from: usize| {
+        frames[from..]
+            .iter()
+            .position(|frame| frame["event"]["kind"] == kind)
+            .map(|offset| from + offset)
+    };
+    let asked = frames
+        .iter()
+        .position(|frame| frame["event"]["text"] == "second question")
+        .expect("the second prompt");
+    let checkpoint = at("context_checkpoint", asked).expect("the checkpoint");
+    let concluded = at("turn_concluded", asked).expect("the conclusion");
+    assert!(checkpoint < concluded, "the checkpoint was not mid-turn");
+    assert_eq!(frames[concluded]["event"]["outcome"]["kind"], "final");
+    on_screen(&session, (40, 120), &["MARKER-TWO"], &COMPACTION_WORDS);
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // A resume reads the checkpoint, and the second turn whole after it.
+    let id = sandbox.session_ids().remove(0);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    again.wait_for("MARKER-TWO");
+    again.type_bytes(b"third question\r");
+    again.wait_for("MARKER-THREE");
+    let after = gateway
+        .requests()
+        .pop()
+        .expect("the third turn's request")
+        .json();
+    let users = user_messages(&after);
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert_eq!(&users[1..], ["second question", "third question"]);
+    wait_for_conclusions(&sandbox, 3);
+    again.type_bytes(b"/quit\r");
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again() {
+    // Upstream's `provider_overflow` (`orchestrator.zig:8099-8124`,
+    // `isContextOverflowFailure` `:4428-4445`): a refusal that says the
+    // request is too large for the window is answered once by compacting
+    // and asking again -- whether or not the catalog names a window.
+    use support::fake_gateway::{content_only, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        Reply::Status(
+            400,
+            r#"{"error":{"message":"input exceeds the context window","code":"context_length_exceeded"}}"#
+                .to_string(),
+        ),
+        Reply::Sse(content_only(&["MARKER-TWO"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-TWO");
+    wait_for_conclusions(&sandbox, 2);
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    assert_eq!(
+        user_messages(&requests[1].json()),
+        ["first question", "second question"]
+    );
+    // A turn with only its message and reply is compacted from its exact
+    // texts, with no notes request; the refused request goes again with it.
+    let users = user_messages(&requests[2].json());
+    assert!(
+        users[0].starts_with("<compacted_conversation>\n"),
+        "{users:?}"
+    );
+    assert!(users[0].contains("User 1:\nfirst question\n"), "{users:?}");
+    assert_eq!(&users[1..], ["second question"]);
+    assert_eq!(checkpoints(&sandbox).len(), 1);
+    // The refusal is not the turn's: nothing of it on the screen.
+    on_screen(
+        &session,
+        (40, 120),
+        &["MARKER-TWO"],
+        &["context window", "request failed", "\u{2717}"],
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped() {
     // Upstream's `auto: cancellation provenance` (`tui-compaction-activity.test.ts:
     // 446-503`): the turn that reached the compaction point is stopped with the
@@ -9368,7 +9542,13 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
         .iter()
         .position(|frame| frame["event"]["text"] == "second question")
         .expect("the stopped turn's prompt was recorded");
-    let concluded = &frames[asked + 1]["event"];
+    // The notes request was stopped after it was sent, so it may have been
+    // billed with nothing to say for how much: the turn's `/usage` record
+    // says so (`ambiguous_delivery`, `session_usage.zig:43-53`).
+    let usage = &frames[asked + 1]["event"];
+    assert_eq!(usage["kind"], "usage_recorded", "{usage}");
+    assert_eq!(usage["unaccounted"], true, "{usage}");
+    let concluded = &frames[asked + 2]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
     assert_eq!(concluded["outcome"]["reason"], "the turn was cancelled");

@@ -652,6 +652,10 @@ impl TurnJournal for Teed<'_> {
     fn attach_images(&mut self, images: &[crate::image::Image]) {
         self.journal.attach_images(images);
     }
+
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        self.journal.state()
+    }
 }
 
 // ---------------------------------------------------------------------------

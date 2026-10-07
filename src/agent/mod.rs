@@ -12,4 +12,6 @@ pub mod machine;
 pub mod types;
 
 pub use machine::{allows_step, run_turn, run_turn_saved, TurnMachine};
-pub use types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
+pub use types::{
+    NoJournal, StepCheck, StepCompactor, TurnError, TurnJournal, TurnOutcome, TurnRequest,
+};
