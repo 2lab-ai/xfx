@@ -1389,10 +1389,12 @@ fn body_rows(
                 let first = usize::from(gutter.width()) + usize::from(laid.lead_width()) + 1;
                 prose::expand_tabs(slice, first, screen)
             } else if gutter == Gutter::Rail {
-                // A card's too: upstream writes its tabs to the terminal as
-                // they are, so they stop where the screen's stops are -- which
-                // its cut, measuring them at nothing, did not count.
-                prose::expand_tabs(slice, usize::from(gutter.width()) + 1, screen)
+                // A card's too, as the cells the terminal skips for upstream's
+                // raw tab ([`card_tabs`]) -- which its cut, measuring them at
+                // nothing, did not count.
+                let mut pen = state.clone();
+                pen.observe(&text[seen.min(row.start)..row.start]);
+                card_tabs(slice, pen, usize::from(gutter.width()) + 1, screen)
             } else {
                 std::borrow::Cow::Borrowed(slice)
             };
@@ -1443,6 +1445,51 @@ fn body_rows(
             format!("{reopen}{shown}{close}{spaces}{past}")
         })
         .collect()
+}
+
+/// A card row with every tab written as the cells the terminal skips for it.
+///
+/// Upstream writes a card's tab to the terminal as it is
+/// (`user_message_card.zig:370-379`), which moves the cursor to the screen's
+/// next eight-column stop and paints nothing on the way: the cells it skips
+/// are blank and carry none of the row's bold. xfx's painter never writes a
+/// tab (`super::frame::row_text`), so the skip is spelled here as the spaces
+/// to that stop with the pen closed around them and opened again after --
+/// the same cells. `pen` is the state the row starts in and `first_col` the
+/// one-based screen column of its first cell, on a screen `screen` wide.
+///
+/// Borrowed when there is no tab, which is nearly every row.
+fn card_tabs(
+    row: &str,
+    mut pen: super::pacer::SgrState,
+    first_col: usize,
+    screen: usize,
+) -> std::borrow::Cow<'_, str> {
+    if !row.contains('\t') {
+        return std::borrow::Cow::Borrowed(row);
+    }
+    let mut out = String::with_capacity(row.len() + 16);
+    let mut col = first_col.max(1);
+    let mut written = 0usize;
+    for painted in wrap::painting(row) {
+        let at = painted.end - painted.cluster.len();
+        let sequences = &row[written..at];
+        out.push_str(sequences);
+        pen.observe(sequences);
+        written = painted.end;
+        if painted.cluster == "\t" {
+            let next = prose::next_tab_stop(col, screen.max(1));
+            out.push_str(&pen.close());
+            out.extend(std::iter::repeat_n(' ', next.saturating_sub(col)));
+            out.push_str(&pen.reopen());
+            col = col.max(next);
+        } else {
+            out.push_str(painted.cluster);
+            col += usize::from(wrap::cluster_width(painted.cluster));
+        }
+    }
+    out.push_str(&row[written..]);
+    std::borrow::Cow::Owned(out)
 }
 
 /// How much of a row the painter will really put on the wire.
@@ -2599,10 +2646,11 @@ mod tests {
     fn a_card_tab_is_a_break_of_no_width_painted_to_the_screens_next_stop() {
         // fx's `card-wrap` receipt at 40x120 (`A-R8`): upstream writes the tab
         // as it is, so it stops at the screen's eighth columns -- the rail
-        // and its space put `A-R8` at columns 3-6, and `tab` at 9.
+        // and its space put `A-R8` at columns 3-6, and `tab` at 9 -- and the
+        // cells it skips are blank, outside the row's bold.
         assert_eq!(
             card_rows(120, "A-R8\ttab\tstops"),
-            railed_rows(&["A-R8  tab     stops"])
+            railed_rows(&[&format!("A-R8{RESET}  {BOLD}tab{RESET}     {BOLD}stops")])
         );
         // Measured at nothing by the cut, and a break like a space: `abc`,
         // the tab and `d` are the four cells that fit, and the cut is at the
