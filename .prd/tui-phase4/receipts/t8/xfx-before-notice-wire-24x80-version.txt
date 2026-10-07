@@ -1,0 +1,24 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ stream a long answer please
+
+  Opening line of the answer.
+
+* version: 0.1.0
+
+  Generating (3s) (↑8 ↓65)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
