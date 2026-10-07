@@ -38,7 +38,7 @@ was edited. `.ansi` files are tmux's re-serialization of cell attributes
 
 **40 snap pairs; in 38 the only row that differs is row 1 (each product's
 banner).** The other two (`mcp-wire` `turn` and `end.full`) differ in row 1
-and in one more row, the turn's wall time (`1s` / `0s`): each run's own clock.
+and in one more row, the turn's wall time (fx `1s`, xfx `2s` at this take, `0s` at an earlier one): each run's own clock.
 Compared with `sgr.py` row by row in text and SGR, row 1 removed, run
 directories and `.fx`/`.xfx` normalized.
 
@@ -47,7 +47,7 @@ directories and `.fx`/`.xfx` normalized.
 | `mcp-empty` | `menu`, `menu-down`, `menu-tools`, `menu-esc`, `list`, `path`, `reload`, `auth-bare`, `auth-nope`, `logout-nope`, `remove-nope`, `add-bare`, `resource-nope`, `prompt-bare`, `trust-bare`, `bogus` | identical (row 1 only) |
 | `mcp-fixture` | `startup` (trust prompt), `rejected`, `list-rejected`, `added`, `menu`, `menu-down`, `menu-tools`, `menu-resources`, `menu-prompts`, `list`, `resource-list`, `resource-read`, `prompt-list`, `prompt-get`, `auth-stdio`, `logout-stdio`, `turn`, `trust-approve`, `removed`, `trust-reset`, `end.full` | identical (row 1 only) |
 | `mcp-wire` | `added` | identical (row 1 only) |
-| `mcp-wire` | `turn`, `end.full` | row 1, and the summary's wall time `1s`/`0s` (row 18) -- the `├ Ran MCP mcp_fixture_echo` row, its emphasis on `MCP`, and every tool row and result identical |
+| `mcp-wire` | `turn`, `end.full` | row 1, and the summary's wall time, fx `1s` / xfx `2s` (row 18) -- the `├ Ran MCP mcp_fixture_echo` row, its emphasis on `MCP`, and every tool row and result identical |
 
 ## Wire
 
