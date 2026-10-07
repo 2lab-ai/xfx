@@ -8215,6 +8215,14 @@ fn the_speed_column_and_the_switches_ride_as_upstreams_provider_options() {
     session.wait_for("Switched to openai/gpt-6-astra (effort: default, speed: ultrafast)");
     session.type_bytes(b"say something\r");
     session.wait_for("MARKER-A-ULTRA-ANSWERED");
+    // This fake confirms no tier, so the turn says so above its answer, in
+    // upstream's words (`orchestrator.zig:8015-8022`).
+    on_screen(
+        &session,
+        (40, 120),
+        &["  Ultrafast was requested, but Gateway did not confirm it was served;"],
+        &[],
+    );
     session.type_bytes(b"/fast\r");
     on_screen(
         &session,

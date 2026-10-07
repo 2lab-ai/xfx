@@ -124,6 +124,12 @@ pub(crate) enum UiEvent {
     TurnStarted,
     /// A fragment of the answer, in arrival order.
     Delta(String),
+    /// A sentence the runtime adds to the answer about how it is being served
+    /// -- upstream's operational text (`TextEmission.operational`,
+    /// `orchestrator.zig:7253-7262`, `:8015-8022`): written as the answer's own
+    /// prose, ahead of whatever line the answer's presenter is still holding,
+    /// and never part of what the model said.
+    Operational(String),
     /// A tool call was admitted and is about to run, and what the transcript
     /// names it by.
     ToolStart {
@@ -417,6 +423,7 @@ impl UiEvent {
             // No text at all: what it carries is the fact that it arrived.
             Self::TurnStarted => Self::TurnStarted,
             Self::Delta(text) => Self::Delta(inert_owned(text)),
+            Self::Operational(text) => Self::Operational(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
             // the provider's half is exactly why they are not exempt.
             // The target is the model's own argument -- a path, a pattern, a
@@ -707,6 +714,7 @@ impl UiEvent {
                 }),
                 // A number.
                 next_image: hydration.next_image,
+                keeps_fast_binding: hydration.keeps_fast_binding,
             }),
             // The id is the store's own name for a directory, read back off a
             // listing; the failure is this crate's word.

@@ -1460,6 +1460,12 @@ enum Mark {
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
+    /// Operational text ([`UiEvent::Operational`]): answer prose written
+    /// beside the presenter, which keeps the line it is holding for after it,
+    /// as upstream's operational push reaches its presentation while the
+    /// markdown presenter still holds the unfinished line
+    /// (`fx-fast-unconfirmed-40x120-turn`).
+    Operational(String),
     /// A tool call started: a row in the open group, or a group of its own.
     ToolStart { id: String, shown: Shown },
     /// A tool call finished: its row settled, and the header recounted.
@@ -2757,11 +2763,12 @@ impl Shell {
         if let Some(model) = replay.model {
             self.model = model;
         }
-        // The session's own, put back with it; recorded with the model they
-        // were chosen for, so bound to it.
+        // The session's own, put back with it -- the Fast binding kept only
+        // for the selection this session was configured with
+        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
         if let Some(settings) = replay.settings {
             self.settings = settings;
-            self.fast_bound = true;
+            self.fast_bound = self.fast_bound && replay.keeps_fast_binding;
         }
         self.resumed(replay.title);
         for turn in replay.turns {
@@ -2984,6 +2991,13 @@ impl Shell {
                     // The attempt got through: the answer is the evidence.
                     self.retry = None;
                     self.stream(&text);
+                }
+            }
+            // In the place the stream has reached, not at once: it is about the
+            // answer that arrived before it.
+            UiEvent::Operational(text) => {
+                if !self.cancelling {
+                    self.mark(Mark::Operational(text));
                 }
             }
             // A request failed and the turn will try it again. Not after a
@@ -3726,7 +3740,7 @@ impl Shell {
                 changes,
             } => self.full.tool_finished(id, *ok, detail, *outcome, *changes),
             Mark::TurnOver => self.full.turn_over(),
-            Mark::Notice(_) | Mark::EndOfLine => {}
+            Mark::Notice(_) | Mark::EndOfLine | Mark::Operational(_) => {}
         }
     }
 
@@ -6450,8 +6464,10 @@ impl Shell {
     fn run_mark(&mut self, mark: Mark) {
         // Anything that is not the answer ends the answer's block. A notice
         // ends only the rows already written: the line the presenter is still
-        // holding goes on under it ([`Self::write_notice`]).
-        if !matches!(mark, Mark::Notice(_)) {
+        // holding goes on under it ([`Self::write_notice`]). Operational text
+        // ends nothing: it is the answer's prose, and the held line follows it
+        // in the same block.
+        if !matches!(mark, Mark::Notice(_) | Mark::Operational(_)) {
             self.close_answer();
         }
         // After the answer's close, which is the document's order: what the
@@ -6470,6 +6486,10 @@ impl Shell {
                 self.trail_group(Trailed::Line(line, role));
             }
             Mark::Line(line, role) => self.write_document_line(&line, role),
+            Mark::Operational(text) => {
+                self.full.presented(&markdown::Event::Text(text.clone()));
+                self.write_prose(&text);
+            }
             Mark::Notice(notice) => self.write_notice(&notice),
             Mark::Block(rows) => self.write_block(&rows),
             Mark::EndOfLine => self.finish_document_line(),
@@ -10025,6 +10045,7 @@ impl Shell {
             // longer about it.
             UiEvent::TurnStarted
             | UiEvent::Delta(_)
+            | UiEvent::Operational(_)
             | UiEvent::ToolStart { .. }
             | UiEvent::ToolResult { .. }
             | UiEvent::ToolDetail { .. }
@@ -15906,6 +15927,48 @@ mod tests {
     }
 
     #[test]
+    fn operational_text_is_answer_prose_ahead_of_the_line_the_presenter_holds() {
+        // `fx-fast-unconfirmed-40x120-turn`: the sentence about the tier, in
+        // the answer's gutter, then the answer's unfinished line, in one block.
+        let mut shell = running("say something");
+        shell.apply(UiEvent::Delta("MARKER-HELD".to_string()));
+        shell.apply(UiEvent::Operational(
+            "Ultrafast was requested, but Gateway did not confirm it was served.\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        // The document as it ends up: each append rewrites the rows at the
+        // bottom it does not scroll in ([`Shell::trailer_rows`]'s rule).
+        let mut shown: Vec<String> = Vec::new();
+        for append in shell.take_pending() {
+            let settled = append.rows.len() - append.scroll.min(append.rows.len());
+            shown.truncate(shown.len().saturating_sub(settled));
+            shown.extend(append.rows.iter().map(|row| unpainted(row)));
+        }
+        let at = |needle: &str| {
+            shown
+                .iter()
+                .position(|row| row.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not shown: {shown:?}"))
+        };
+        let (said, held) = (at("Ultrafast"), at("MARKER-HELD"));
+        assert_eq!(said + 1, held, "{shown:?}");
+        assert!(shown[said].starts_with("  Ultrafast"), "{shown:?}");
+        assert!(shown[held].starts_with("  MARKER-HELD"), "{shown:?}");
+        // Nothing of it is the model's: a turn that was cancelled says none of it.
+        let mut stopped = running("again");
+        stopped.route_bytes(&[0x03]);
+        stopped.apply(UiEvent::Operational("MARKER-AFTER-CANCEL\n".to_string()));
+        assert!(
+            !stopped
+                .released()
+                .join("\n")
+                .contains("MARKER-AFTER-CANCEL"),
+            "a cancelled turn's operational text was written"
+        );
+    }
+
+    #[test]
     fn what_a_cancelled_turn_was_still_saying_never_reaches_the_screen() {
         // Upstream paints nothing of an answer after the cancel
         // (`fx-interrupt-40x120-cc-0.3`, `fx-interrupt2-40x120-esc2`): not the
@@ -18835,6 +18898,7 @@ mod tests {
             turns,
             model: None,
             settings: None,
+            keeps_fast_binding: true,
             next_image: 1,
         }
     }
@@ -20780,22 +20844,32 @@ mod tests {
 
     #[test]
     fn a_resume_puts_the_sessions_effort_and_speed_on_the_hint_row() {
-        let mut shell = speed_shell();
-        let mut replay = replay(None, Vec::new());
-        replay.model = Some("anthropic/claude-opus-5".to_string());
-        replay.settings = Some(TurnSettings {
-            effort: Effort::Named("max".to_string()),
-            fast: true,
-            ultrafast: false,
-        });
-        shell.apply(UiEvent::Resumed(replay));
-        assert!(
-            shell
-                .hint()
-                .ends_with("opus 5 \u{b7} max \u{b7} \u{26a1}\u{fe0e}"),
-            "{}",
+        // `restoredFastModeModelBound` (`app_session_runtime.zig:6318-6328`):
+        // the effort and the switches come back; the `⚡︎` only while Fast was
+        // bound and the session recorded the configured selection.
+        let resumed = |keeps: bool| {
+            let mut shell = speed_shell();
+            shell.shell.model = "anthropic/claude-opus-5".to_string();
+            shell.shell.settings.fast = true;
+            shell.shell.fast_bound = true;
+            let mut replay = replay(None, Vec::new());
+            replay.model = Some("anthropic/claude-opus-5".to_string());
+            replay.settings = Some(TurnSettings {
+                effort: Effort::Named("max".to_string()),
+                fast: true,
+                ultrafast: false,
+            });
+            replay.keeps_fast_binding = keeps;
+            shell.apply(UiEvent::Resumed(replay));
             shell.hint()
+        };
+        let kept = resumed(true);
+        assert!(
+            kept.ends_with("opus 5 \u{b7} max \u{b7} \u{26a1}\u{fe0e}"),
+            "{kept}"
         );
+        let lost = resumed(false);
+        assert!(lost.ends_with("opus 5 \u{b7} max"), "{lost}");
     }
 
     #[test]

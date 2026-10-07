@@ -1360,6 +1360,7 @@ fn calls_step(calls: Vec<ToolCall>) -> ScriptedStep {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         },
     }
 }
@@ -1376,6 +1377,7 @@ fn final_step(text: &str) -> ScriptedStep {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         },
     }
 }

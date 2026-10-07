@@ -429,11 +429,24 @@ impl SettingsLock {
 /// environment override or this workspace's entry outranks what was just
 /// written.
 pub fn saved_but_shadowed(field: &str, source: crate::config::SettingSource) -> Option<String> {
-    (source > crate::config::SettingSource::UserGlobal).then(|| {
+    saved_but_any_shadowed(&[(field, source)])
+}
+
+/// [`saved_but_shadowed`] for a write of several fields: every one a layer
+/// above the profile still decides, in the order given and joined by `, `
+/// after the one header, as `appendShadowedUserSource` writes them
+/// (`session_commands.zig:225-240`); nothing when none is.
+pub fn saved_but_any_shadowed(fields: &[(&str, crate::config::SettingSource)]) -> Option<String> {
+    let shadowed: Vec<String> = fields
+        .iter()
+        .filter(|(_, source)| *source > crate::config::SettingSource::UserGlobal)
+        .map(|(field, source)| format!("{field}={}", source.label()))
+        .collect();
+    (!shadowed.is_empty()).then(|| {
         format!(
             "saved to user settings (scope=user); fresh sessions here use \
-             higher-precedence {field}={}",
-            source.label()
+             higher-precedence {}",
+            shadowed.join(", ")
         )
     })
 }
@@ -1278,6 +1291,30 @@ mod tests {
                 "saved to user settings (scope=user); fresh sessions here use \
                  higher-precedence model=user_workspace"
             )
+        );
+    }
+
+    #[test]
+    fn a_save_of_several_fields_names_every_one_still_decided_above_it_in_order() {
+        use crate::config::SettingSource;
+        assert_eq!(
+            saved_but_any_shadowed(&[
+                ("model", SettingSource::ProcessOverride),
+                ("fast_mode", SettingSource::UserGlobal),
+                ("ultrafast_mode", SettingSource::UserWorkspace),
+            ])
+            .as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override, ultrafast_mode=user_workspace"
+            )
+        );
+        assert_eq!(
+            saved_but_any_shadowed(&[
+                ("model", SettingSource::UserGlobal),
+                ("fast_mode", SettingSource::Project),
+            ]),
+            None
         );
     }
 

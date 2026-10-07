@@ -28,7 +28,7 @@ use serde_json::{Map, Value};
 
 use super::{CancelToken, DeltaSink};
 use crate::gateway::protocol::{
-    Bill, Billing, Completion, Deferred, FinishReason, ToolCall, Usage,
+    Bill, Billing, Completion, Deferred, FinishReason, ServiceTier, ToolCall, Usage,
 };
 use crate::provider::Wire;
 
@@ -163,6 +163,8 @@ pub struct SseReader {
     generation_invalid: bool,
     /// The finish event's billing, read once it has arrived.
     billing: Option<Billing>,
+    /// The tier the finish event confirms ([`Completion::service_tier`]).
+    service_tier: Option<ServiceTier>,
     /// Where the response came from, for a generation whose bill is asked
     /// for later ([`Deferred::origin`]); empty until [`Self::from_origin`].
     origin: String,
@@ -197,6 +199,7 @@ impl SseReader {
             generation_id: None,
             generation_invalid: false,
             billing: None,
+            service_tier: None,
             origin: String::new(),
             complete: false,
             accumulated: 0,
@@ -298,6 +301,7 @@ impl SseReader {
                     })),
                     (_, None) => None,
                 },
+                service_tier: self.service_tier,
             }),
             // The provider said why it failed, so report that rather than the
             // generic truncation.
@@ -493,6 +497,7 @@ impl SseReader {
         };
 
         self.usage = parse_usage(event);
+        self.service_tier = parse_service_tier(event);
         self.billing = match self.stamp {
             Stamp::Read(at_ms) => parse_billing(event, at_ms),
             Stamp::Unseen | Stamp::Unreadable => None,
@@ -558,6 +563,17 @@ impl SseReader {
             },
         }
     }
+}
+
+/// The tier the finish event confirms it was served at
+/// (`parseSseServiceTier`, `client.zig:3451-3463`): only
+/// `providerMetadata.gateway.serviceTier` -- or its snake-case spelling --
+/// counts; the request's own options and a provider's own metadata do not.
+fn parse_service_tier(event: &Map<String, Value>) -> Option<ServiceTier> {
+    let metadata = event
+        .get("providerMetadata")
+        .or_else(|| event.get("provider_metadata"))?;
+    ServiceTier::parse(metadata.get("gateway")?.get("serviceTier")?.as_str()?)
 }
 
 /// What the response's `response-metadata` events said about when it was
@@ -846,6 +862,48 @@ mod tests {
         format!(
             "data: {metadata}\n\ndata: {{\"type\":\"text-delta\",\"id\":\"t\",\"delta\":\"x\"}}\n\ndata: {event}\n\n"
         )
+    }
+
+    #[test]
+    fn the_served_tier_is_the_gateways_own_word_in_the_finish_or_nothing() {
+        // `consumeSseStream`'s two cases (`client.zig:4280-4325`): the
+        // Gateway's metadata in either spelling confirms a tier; none, an
+        // unknown one, or a provider's own metadata confirms nothing.
+        let finish = |metadata: &str| {
+            format!(
+                "data: {{\"type\":\"finish\",\"finishReason\":{{\"unified\":\"stop\"}}{metadata}}}\n\n"
+            )
+        };
+        for (metadata, tier) in [
+            (
+                r#","providerMetadata":{"gateway":{"serviceTier":"ultrafast"}}"#,
+                Some(ServiceTier::Ultrafast),
+            ),
+            (
+                r#","provider_metadata":{"gateway":{"serviceTier":"priority"}}"#,
+                Some(ServiceTier::Priority),
+            ),
+            (
+                r#","providerMetadata":{"gateway":{"serviceTier":"default"}}"#,
+                Some(ServiceTier::Standard),
+            ),
+            ("", None),
+            (
+                r#","providerMetadata":{"gateway":{"serviceTier":"unsupported"}}"#,
+                None,
+            ),
+            (
+                r#","providerMetadata":{"openai":{"serviceTier":"ultrafast"}}"#,
+                None,
+            ),
+        ] {
+            let (completion, _) = decode(&finish(metadata));
+            assert_eq!(
+                completion.expect("a finish").service_tier,
+                tier,
+                "{metadata}"
+            );
+        }
     }
 
     fn stamped() -> serde_json::Value {

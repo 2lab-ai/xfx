@@ -142,8 +142,7 @@ fn session(
     // it whatever the profile says, as upstream's do
     // (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`, which
     // only a launch flag outranks -- xfx has none): they are the session's, and
-    // the profile's are only what the last session left. Bound to the model,
-    // because they were recorded with it.
+    // the profile's are only what the last session left.
     let restored;
     let config = match &resumed {
         Some(resumed) => {
@@ -151,11 +150,17 @@ fn session(
             if config.sources.model == crate::config::SettingSource::CompiledDefault {
                 owned.model = resumed.model().to_string();
             }
+            // The Fast binding survives only for the selection this launch
+            // was configured with: the session's model and its Fast
+            // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+            owned.fast_mode_model_bound =
+                config.fast_mode_model_bound && config.model == resumed.model();
             if let Some(settings) = resumed.settings() {
+                owned.fast_mode_model_bound =
+                    owned.fast_mode_model_bound && config.fast_mode == settings.fast;
                 owned.effort = settings.effort.clone();
                 owned.fast_mode = settings.fast && !settings.ultrafast;
                 owned.ultrafast_mode = settings.ultrafast;
-                owned.fast_mode_model_bound = owned.fast_mode;
             }
             restored = owned;
             &restored

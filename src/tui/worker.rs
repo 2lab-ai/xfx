@@ -146,6 +146,19 @@ const UNKNOWN_PANIC: &str = "a turn panicked with a payload that is not text";
 const ULTRAFAST_UNAVAILABLE: &str =
     "Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it";
 
+/// What a turn in Ultra mode says, once, when a response's finish did not
+/// confirm the Ultra tier (`orchestrator.zig:8015-8022`): upstream's words,
+/// as answer prose ahead of the answer ([`UiEvent::Operational`]).
+const ULTRAFAST_UNCONFIRMED: &str = "Ultrafast was requested, but Gateway did not confirm it was \
+     served; this response may have used a standard or lower tier.\n";
+
+/// What a turn in Fast mode says, once, when Fast cannot be asked for because
+/// the catalog that would say the model offers it could not be read
+/// (`orchestrator.zig:7253-7262`): upstream's words. A catalog that was read
+/// and does not offer Fast for the model says nothing, as upstream's does not.
+const FAST_UNAVAILABLE: &str =
+    "Fast mode is unavailable for this model right now; continuing at standard speed.\n";
+
 /// Why a submission was not accepted.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Rejected {
@@ -1713,6 +1726,10 @@ impl Runtime {
             session: resumed.session,
             scope,
         };
+        // The selection this session was configured with, before the resume
+        // moves it: what a restored Fast binding is judged against
+        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+        let configured = (self.model().to_string(), self.settings.fast);
         if self.config.sources.model == crate::config::SettingSource::CompiledDefault
             && self.model() != resumption.model()
         {
@@ -1723,7 +1740,9 @@ impl Runtime {
         // resume restores them (`restoreRuntimePreferences`,
         // `app_session_runtime.zig:6126-6175`); a session that never recorded
         // them keeps the ones in force.
+        let mut keeps_fast_binding = configured.0 == resumption.model();
         if let Some(settings) = resumption.session.state().turn_settings.clone() {
+            keeps_fast_binding = keeps_fast_binding && configured.1 == settings.fast;
             self.settings = settings;
         }
         let mut replay = super::hydration::Hydration::of(
@@ -1731,6 +1750,7 @@ impl Runtime {
             Some(self.model().to_string()),
         );
         replay.settings = Some(self.settings.clone());
+        replay.keeps_fast_binding = keeps_fast_binding;
         self.conversation = None;
         self.resume(resumption, mirror);
         self.publish_reply();
@@ -2106,23 +2126,57 @@ impl Runtime {
         ]
     }
 
-    /// Saves the speed switches (`/fast`, `/ultrafast`), and says only what a
-    /// failed write is owed: `topic` is upstream's label for the write.
+    /// Saves the speed switches (`/fast`, `/ultrafast`) with what upstream
+    /// writes beside them (`applyFastMode`, `applyUltrafastMode`,
+    /// `session_commands.zig:781-790`, `:839-848`): the provider and the model
+    /// in force -- under an `XFX_MODEL`, that model, as upstream writes
+    /// `provider_runtime.model(app)` -- and the binding. Says what upstream's
+    /// commit report keeps when the caller has announced the change
+    /// (`reportUserSettingsCommit`, `:27-85`): that a layer above the profile
+    /// will still choose a fresh session's model, or that the write failed.
+    /// `topic` is upstream's label for the write.
+    /// What a write of the model and the speed switches beside it -- and the
+    /// effort, when `effort` says one was written -- says when a layer above
+    /// the profile will still decide any of them for a fresh session: each,
+    /// in upstream's order (`appendShadowedUserSources`,
+    /// `session_commands.zig:170-186` -- `model`, `effort`, `fast_mode`,
+    /// `ultrafast_mode`).
+    fn saved_model_and_speed(&self, effort: bool) -> Option<String> {
+        let sources = &self.config.sources;
+        let mut fields = vec![("model", sources.model)];
+        if effort {
+            fields.push(("effort", sources.effort));
+        }
+        fields.push(("fast_mode", sources.fast_mode));
+        fields.push(("ultrafast_mode", sources.ultrafast_mode));
+        crate::provider::profile::saved_but_any_shadowed(&fields)
+    }
+
     fn save_speed(&self, topic: &'static str) -> Option<super::notice::Notice> {
         let path = self.config.user_settings_path.as_ref()?;
-        let preferences = self.speed_preferences();
-        let preferences: Vec<(&[&str], serde_json::Value)> = preferences
-            .iter()
-            .map(|(key, value)| (*key, value.clone()))
-            .collect();
-        crate::provider::profile::write_preferences(path, &preferences)
-            .err()
-            .map(|err| {
-                super::notice::Notice::error(
-                    topic,
-                    format!("active for this process but not saved to user settings ({err})"),
-                )
-            })
+        let provider = self.config.provider;
+        let model_key = [crate::config::MODELS_KEY, provider.label()];
+        let provider_key = [crate::config::PROVIDER_KEY];
+        let mut preferences: Vec<(&[&str], serde_json::Value)> = vec![
+            (
+                &model_key,
+                serde_json::Value::String(self.model().to_string()),
+            ),
+            (
+                &provider_key,
+                serde_json::Value::String(provider.label().to_string()),
+            ),
+        ];
+        preferences.extend(self.speed_preferences());
+        match crate::provider::profile::write_preferences(path, &preferences) {
+            Ok(()) => self
+                .saved_model_and_speed(false)
+                .map(|said| super::notice::Notice::neutral(topic, said)),
+            Err(err) => Some(super::notice::Notice::error(
+                topic,
+                format!("active for this process but not saved to user settings ({err})"),
+            )),
+        }
     }
 
     /// Records `model` as the configured provider's in the profile
@@ -2156,9 +2210,20 @@ impl Runtime {
         let path = self.config.user_settings_path.as_ref()?;
         let topic = if picker { "model picker" } else { "model" };
         let model_key = [crate::config::MODELS_KEY, provider.label()];
+        let provider_key = [crate::config::PROVIDER_KEY];
         let effort_key = [crate::config::EFFORT_KEY];
         let mut preferences: Vec<(&[&str], serde_json::Value)> =
             vec![(&model_key, serde_json::Value::String(model.to_string()))];
+        // And the provider, as upstream's patch carries it (`selectModelFromPicker`,
+        // `setResolvedModel`, `session_commands.zig:894-896`, `:1180-1181`) --
+        // but not for a change chosen under a provider a switch has since
+        // replaced, which would write the old provider back over the switch.
+        if provider == self.config.provider {
+            preferences.push((
+                &provider_key,
+                serde_json::Value::String(provider.label().to_string()),
+            ));
+        }
         if let Some(effort) = effort {
             preferences.push((
                 &effort_key,
@@ -2170,10 +2235,9 @@ impl Runtime {
         // `"fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true`).
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => {
-                crate::provider::profile::saved_but_shadowed("model", self.config.sources.model)
-                    .map(|said| super::notice::Notice::neutral(topic, said))
-            }
+            Ok(()) => self
+                .saved_model_and_speed(effort.is_some())
+                .map(|said| super::notice::Notice::neutral(topic, said)),
             Err(err) => Some(super::notice::Notice::error(
                 topic,
                 format!("active for this process but not saved to user settings ({err})"),
@@ -3655,6 +3719,17 @@ async fn one_turn(
         Ok(options) => options,
         Err(refusal) => return Some(refusal),
     };
+    // Fast asked for and dropped because the catalog is down: said once, at
+    // the top of the answer, as upstream says it before the request.
+    if fast_unavailable(state) {
+        let _ = bridge::send_ui(
+            events,
+            &turn.token,
+            UiEvent::Operational(FAST_UNAVAILABLE.to_string()),
+        )
+        .await;
+    }
+    let ultrafast = options.ultrafast;
     state
         .provider
         .as_ref()
@@ -3736,7 +3811,10 @@ async fn one_turn(
         events.clone(),
         turn.token.clone(),
     );
-    let outcome = run_turn_saved(request, context, &provider, &mut sink, &mut journal).await;
+    // And, in Ultra, whether each response was served at it
+    // ([`ServedUltra`]).
+    let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
+    let outcome = run_turn_saved(request, context, &served, &mut sink, &mut journal).await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -3777,6 +3855,73 @@ async fn one_turn(
             .failure()
             .map(|problem| format!("xfx: {problem}")),
         Err(err) => Some(err.to_string()),
+    }
+}
+
+/// Whether a turn in Fast mode goes at standard speed because the catalog
+/// that would say the model offers Fast could not be read
+/// (`orchestrator.zig:7253-7262`, `isModelCacheFailed`).
+fn fast_unavailable(state: &Runtime) -> bool {
+    state.settings.fast
+        && !state.settings.ultrafast
+        && state.request_options().is_ok_and(|options| !options.fast)
+        && matches!(state.selector.catalog(), CatalogState::Failed(_))
+}
+
+/// The provider a turn streams from, saying once per turn -- when the turn is
+/// in Ultra mode -- that a response's finish did not confirm the Ultra tier
+/// (`orchestrator.zig:8015-8022`; the tier is the Gateway's own word,
+/// [`crate::gateway::protocol::Completion::service_tier`]). After the
+/// response, as upstream checks it once the stream has completed, so the
+/// sentence lands ahead of the line the answer's presenter still holds.
+struct ServedUltra<'a> {
+    provider: &'a dyn crate::gateway::Provider,
+    ultrafast: bool,
+    said: std::cell::Cell<bool>,
+    events: Sender<UiEvent>,
+    cancel: tokio_util::sync::CancellationToken,
+}
+
+impl<'a> ServedUltra<'a> {
+    fn new(
+        provider: &'a dyn crate::gateway::Provider,
+        ultrafast: bool,
+        events: Sender<UiEvent>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        Self {
+            provider,
+            ultrafast,
+            said: std::cell::Cell::new(false),
+            events,
+            cancel,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::gateway::Provider for ServedUltra<'_> {
+    async fn stream(
+        &self,
+        request: &crate::gateway::protocol::CompletionRequest,
+        deltas: &mut dyn crate::gateway::DeltaSink,
+    ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
+        let settled = self.provider.stream(request, deltas).await;
+        if let Ok(completion) = &settled {
+            let confirmed =
+                completion.service_tier == Some(crate::gateway::protocol::ServiceTier::Ultrafast);
+            if self.ultrafast && !confirmed && !self.said.replace(true) {
+                // Best effort, as the network record is: a turn already
+                // cancelled or a UI already gone loses a sentence nobody sees.
+                let _ = bridge::send_ui(
+                    &self.events,
+                    &self.cancel,
+                    UiEvent::Operational(ULTRAFAST_UNCONFIRMED.to_string()),
+                )
+                .await;
+            }
+        }
+        settled
     }
 }
 
@@ -6542,6 +6687,7 @@ mod tests {
             settings(home.path()),
             serde_json::json!({"theme": "dark", "effort": "low",
                                "models": {"gateway": "openai/gpt-6-astra"},
+                               "provider": "gateway",
                                "fast_mode": false, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
         );
@@ -7061,6 +7207,9 @@ mod tests {
             .expect("resumed");
         assert_eq!(state.settings, chosen);
         assert_eq!(replay.settings, Some(chosen));
+        // The runtime was in Normal: the session's Fast is not the configured
+        // selection, so it comes back unbound (`restoredFastModeModelBound`).
+        assert!(!replay.keeps_fast_binding);
     }
 
     /// Runs one tool call through the conversation's own tools, as a turn's
@@ -7371,6 +7520,7 @@ mod tests {
             settings(home.path()),
             serde_json::json!({"permission_mode": "ask",
                                "models": {"llmux": "fable", "gateway": "acme/one"},
+                               "provider": "gateway",
                                "fast_mode": false, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
         );
@@ -7401,9 +7551,103 @@ mod tests {
         );
         assert_eq!(
             settings(home.path()),
-            serde_json::json!({"models": {"gateway": "acme/one"},
+            serde_json::json!({"models": {"gateway": "acme/one"}, "provider": "gateway",
                                "fast_mode": false, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
+        );
+    }
+
+    #[test]
+    fn a_speed_change_saves_what_upstream_saves_beside_it_under_a_model_override() {
+        // `applyFastMode` (`session_commands.zig:781-790`): the provider, the
+        // model in force -- here the one `XFX_MODEL` pinned, as upstream writes
+        // `provider_runtime.model(app)` -- and the switches with the binding;
+        // and the commit report keeps the shadowing suffix
+        // (`appendShadowedUserSource`, `:225-240`).
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_MODEL".to_string(), "pinned/model".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+            &events_tx,
+        ));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "pinned/model"}, "provider": "gateway",
+                               "fast_mode": true, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        assert_eq!(
+            events_rx.try_recv().ok(),
+            Some(UiEvent::Notice(super::super::notice::Notice::neutral(
+                "fast",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override"
+            )))
+        );
+    }
+
+    #[test]
+    fn a_save_names_every_field_this_workspaces_entry_still_decides_in_upstreams_order() {
+        // `appendShadowedUserSources` (`session_commands.zig:170-186`): one
+        // header, then `model`, `effort`, `fast_mode`, `ultrafast_mode` -- each
+        // the save wrote and a layer above the profile still decides.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().canonicalize().expect("a workspace");
+        crate::provider::profile::write_preference(
+            &home.path().join(".xfx").join("settings.json"),
+            &["workspaces"],
+            serde_json::json!({root.to_string_lossy(): {
+                "effort": "high", "fast_mode": true, "ultrafast_mode": false
+            }}),
+        )
+        .expect("seed");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let shadow = "saved to user settings (scope=user); fresh sessions here use \
+                      higher-precedence ";
+
+        assert_eq!(
+            state.save_speed("fast"),
+            Some(super::super::notice::Notice::neutral(
+                "fast",
+                format!("{shadow}fast_mode=user_workspace, ultrafast_mode=user_workspace")
+            ))
+        );
+        let high = crate::provider::effort::Effort::parse("high").expect("an effort");
+        assert_eq!(
+            state.save_change(ProviderId::Gateway, "fake/model-a", Some(&high), false),
+            Some(super::super::notice::Notice::neutral(
+                "model",
+                format!(
+                    "{shadow}effort=user_workspace, fast_mode=user_workspace, \
+                     ultrafast_mode=user_workspace"
+                )
+            ))
+        );
+        // No effort written, none named.
+        assert_eq!(
+            state.save_change(ProviderId::Gateway, "fake/model-a", None, true),
+            Some(super::super::notice::Notice::neutral(
+                "model picker",
+                format!("{shadow}fast_mode=user_workspace, ultrafast_mode=user_workspace")
+            ))
         );
     }
 
@@ -8159,6 +8403,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         }
     }
 
@@ -8173,7 +8418,88 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         }
+    }
+
+    #[test]
+    fn a_turn_in_ultra_says_once_when_a_response_was_not_served_at_it() {
+        // `orchestrator.zig:8015-8022`: checked per response, said once per
+        // turn, and only in Ultra; a confirmed tier says nothing.
+        let served = |tier| Completion {
+            service_tier: tier,
+            ..answers("x")
+        };
+        let said = |ultrafast: bool, steps: Vec<Completion>| {
+            let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+            let provider = ScriptedProvider::new(steps.clone());
+            let watched = ServedUltra::new(
+                &provider,
+                ultrafast,
+                events_tx,
+                tokio_util::sync::CancellationToken::new(),
+            );
+            let request = crate::gateway::protocol::CompletionRequest {
+                model: "openai/gpt-6-astra".to_string(),
+                messages: vec![crate::gateway::protocol::Message::user("go")],
+                tools: Vec::new(),
+                tool_choice: crate::gateway::protocol::ToolChoice::Auto,
+            };
+            struct Quiet;
+            impl crate::gateway::DeltaSink for Quiet {
+                fn text_delta(&mut self, _text: &str) -> io::Result<()> {
+                    Ok(())
+                }
+            }
+            for _ in &steps {
+                on_a_runtime(crate::gateway::Provider::stream(
+                    &watched, &request, &mut Quiet,
+                ))
+                .expect("answered");
+            }
+            let mut said = Vec::new();
+            while let Ok(event) = events_rx.try_recv() {
+                said.push(event);
+            }
+            said
+        };
+        use crate::gateway::protocol::ServiceTier;
+        assert_eq!(
+            said(
+                true,
+                vec![served(None), served(Some(ServiceTier::Priority))]
+            ),
+            [UiEvent::Operational(ULTRAFAST_UNCONFIRMED.to_string())],
+            "once per turn"
+        );
+        assert!(said(true, vec![served(Some(ServiceTier::Ultrafast))]).is_empty());
+        assert!(said(false, vec![served(None)]).is_empty(), "not in Ultra");
+        assert!(ULTRAFAST_UNCONFIRMED.starts_with(
+            "Ultrafast was requested, but Gateway did not confirm it was served; this response \
+             may have used a standard or lower tier."
+        ));
+    }
+
+    #[test]
+    fn fast_with_no_catalog_to_offer_it_is_dropped_and_said_only_when_the_catalog_is_down() {
+        // `orchestrator.zig:7253-7262`: a catalog that could not be read is
+        // the case worth a word; one that was read and does not offer Fast for
+        // the model drops it quietly.
+        let (_home, _workspace, mut state) = recording();
+        state.settings.fast = true;
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+        assert!(!state.request_options().expect("no Ultra").fast);
+        assert!(fast_unavailable(&state));
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("other/model")]));
+        assert!(!fast_unavailable(&state));
+        assert_eq!(
+            FAST_UNAVAILABLE,
+            "Fast mode is unavailable for this model right now; continuing at standard speed.\n"
+        );
     }
 
     fn call(id: &str, name: &str, input: serde_json::Value) -> ToolCall {

@@ -426,6 +426,12 @@ pub struct Sources {
     /// (`resolveStartupFastMode`, `app_lifecycle.zig:827-844`).
     pub fast_mode: SettingSource,
     pub fast_mode_model_bound: SettingSource,
+    /// Where `effort` and `ultrafast_mode` came from: they decide nothing at
+    /// launch, and are kept only so a save can say that a layer above the
+    /// profile -- this workspace's entry -- will still decide them
+    /// (`appendShadowedUserSources`, `session_commands.zig:182-184`).
+    pub effort: SettingSource,
+    pub ultrafast_mode: SettingSource,
 }
 
 impl Default for Sources {
@@ -438,6 +444,8 @@ impl Default for Sources {
             llmux_url: SettingSource::CompiledDefault,
             fast_mode: SettingSource::CompiledDefault,
             fast_mode_model_bound: SettingSource::CompiledDefault,
+            effort: SettingSource::CompiledDefault,
+            ultrafast_mode: SettingSource::CompiledDefault,
         }
     }
 }
@@ -1269,6 +1277,7 @@ impl Settings {
         }
         if let Some(on) = incoming.ultrafast_mode {
             self.ultrafast_mode = Some(on);
+            sources.ultrafast_mode = source;
         }
         // The three `/settings` switches, each on its own and with no
         // provenance kept, for the reason the segments above keep none.
@@ -1283,6 +1292,7 @@ impl Settings {
         }
         if let Some(effort) = incoming.effort {
             self.effort = Some(effort);
+            sources.effort = source;
         }
         if let Some(mode) = incoming.permission_mode {
             self.permission_mode = Some(mode);

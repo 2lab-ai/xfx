@@ -800,6 +800,34 @@ pub struct Completion {
     /// generation to ask about it ([`Bill`]). `None` is "unknown", never
     /// "free".
     pub billing: Option<Bill>,
+    /// The tier the Gateway says it served the response at, from the finish
+    /// event's `providerMetadata.gateway.serviceTier` (`parseSseServiceTier`,
+    /// `client.zig:3451-3463`). `None` is "not confirmed" -- absent, unknown,
+    /// or said anywhere else -- and never "standard".
+    pub service_tier: Option<ServiceTier>,
+}
+
+/// A tier the Gateway confirms a response was served at
+/// (`ProviderServiceTier`, `types.zig:1679-1692`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceTier {
+    Standard,
+    Flex,
+    Priority,
+    Ultrafast,
+}
+
+impl ServiceTier {
+    /// Upstream's spellings: `default` is standard, and `fast` is priority.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "default" | "standard" => Some(Self::Standard),
+            "priority" | "fast" => Some(Self::Priority),
+            "flex" => Some(Self::Flex),
+            "ultrafast" => Some(Self::Ultrafast),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -40,6 +40,12 @@ pub(crate) struct Hydration {
     /// `/fast` and the picker start from. `None` where the caller already
     /// holds them, as for [`Self::model`].
     pub(crate) settings: Option<crate::provider::effort::TurnSettings>,
+    /// Whether the Fast mode those settings carry stays **bound** to the
+    /// model (the footer's `⚡︎`): only when the session recorded the selection
+    /// the session was configured with -- the same model and the same Fast
+    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+    /// Read only beside [`Self::settings`].
+    pub(crate) keeps_fast_binding: bool,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
     /// in one conversation (upstream rebases a resumed session's ids the same
@@ -112,6 +118,7 @@ impl Hydration {
             turns: state.turns.iter().map(turn).collect(),
             model,
             settings: None,
+            keeps_fast_binding: true,
             next_image: state
                 .turns
                 .iter()
