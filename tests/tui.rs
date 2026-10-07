@@ -8070,6 +8070,50 @@ fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_be
 }
 
 #[test]
+fn after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_window() {
+    // fx's switch adopts the target's catalog before it says `Switched to`
+    // (`app.model_cache.adoptOwnedCatalog`, `app_auth_runtime.zig:1377`), and
+    // its meter keeps the session's tokens (`total_input_tokens`, reset only
+    // by a session transition): `1k/272k 0%` on the switched screen
+    // (`receipts/p1`, `fx-provider-carry-40x120-switched`). So the meter is
+    // the conversation's tokens against the daemon's window, with no prompt
+    // in between.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("answer_0", "MARKER-GATEWAY-SAID-IT"),
+            support::fake_gateway::finish_with_usage("stop", 12_000, 5),
+        ]),
+    )]);
+    let daemon = support::fake_llmux::FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let command = tui_with_both(&sandbox, &gateway, &daemon);
+    std::fs::write(
+        sandbox.settings_path(),
+        format!(
+            "{{\"provider\":\"gateway\",\"llmux_url\":{},\"models\":{{\"gateway\":\"zai/glm-5.2\"}},\
+             \"statusLine\":{{\"context\":true}}}}",
+            serde_json::to_string(&daemon.url()).expect("url")
+        ),
+    )
+    .expect("the profile");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"say it\r");
+    session.wait_for("MARKER-GATEWAY-SAID-IT");
+    wait_for_conclusions(&sandbox, 1);
+    on_screen(&session, (24, 120), &["\u{b7} 12k"], &[]);
+
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    on_screen(&session, (24, 120), &["\u{b7} 12k/200k 6%"], &[]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(daemon.message_requests().len(), 0, "a turn ran");
+}
+
+#[test]
 fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resumes_on() {
     // A log that holds a Gateway turn, the switch, and a llmux turn that
     // thought before it called a tool. Resumed on llmux -- the provider the

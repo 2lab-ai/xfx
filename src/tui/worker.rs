@@ -3239,6 +3239,26 @@ async fn run_setup(
                 },
             )
             .await;
+            // **The new provider's catalog, now**, as upstream's switch adopts
+            // the target's catalog with the selection (`app.model_cache.
+            // adoptOwnedCatalog`, `app_auth_runtime.zig:1377`): the
+            // conversation goes on, and the meter measures its tokens against
+            // the new model's window from the switched screen on rather than
+            // from the next turn's. After the selection, so the band's
+            // emptied catalog is the one this fills. Raced against the
+            // switch's own cancellation, and through `send_ui`: a list nobody
+            // is waiting for any more is not owed. A switch a Ctrl-C has
+            // already ended reads nothing.
+            if !matches!(ended, Ended::Session | Ended::Reset(_)) && !turn.token.is_cancelled() {
+                let fresh = tokio::select! {
+                    biased;
+                    () = turn.token.cancelled() => false,
+                    fresh = state.load_catalog() => fresh,
+                };
+                if fresh {
+                    let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+                }
+            }
             bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
             ended
         }
