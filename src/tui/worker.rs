@@ -103,7 +103,9 @@ use crate::provider::model::{
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession};
+use crate::session::{
+    CancellationOrigin, SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession,
+};
 use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -1206,8 +1208,9 @@ struct Runtime {
     live: LiveAuthority,
     /// Titles `/rename` gave after a reset the work they waited for ended
     /// with: written into the session that reset starts, once it has dropped
-    /// the one it left ([`write_renamed_after_reset`]).
-    renamed_after_reset: Vec<String>,
+    /// the one it left ([`write_renamed_after_reset`]). Each with whether the
+    /// shell has said it already ([`TurnControl::Rename`]'s `announced`).
+    renamed_after_reset: Vec<(String, bool)>,
     /// The configured table the UI writes and every conversation's authority
     /// reads ([`WorkHandle::rules`]). Read here, never written.
     rules: LiveRules,
@@ -2175,7 +2178,9 @@ async fn turn_loop(
                 Some(TurnControl::Undo { through }) => Taken::Undo(through),
                 // Nothing is writing the conversation's log: the title is
                 // written now.
-                Some(TurnControl::Rename(title)) => Taken::Rename(title),
+                Some(TurnControl::Rename { title, announced }) => {
+                    Taken::Rename { title, announced }
+                }
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -2256,8 +2261,8 @@ async fn turn_loop(
                 changes_open = false;
                 continue;
             }
-            Taken::Rename(title) => {
-                write_rename(&mut state, &title, events, &cancel).await;
+            Taken::Rename { title, announced } => {
+                write_rename(&mut state, &title, announced, events, &cancel).await;
                 continue;
             }
             // The UI dropped its side of the work channel without saying
@@ -2432,8 +2437,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
-    /// `/rename`'s title, to write now.
-    Rename(String),
+    /// `/rename`'s title, to write now, and whether the shell has said so.
+    Rename { title: String, announced: bool },
     /// What the Gateway said about a pending request's bill.
     Bill(super::reconcile::Answered),
     /// The session is over.
@@ -2836,13 +2841,12 @@ async fn compact_if_due(
             // resume shows the prompt, and the model is told the turn ended
             // before completion. One that failed never began; the row says why.
             //
-            // Its reason is the sentence the user was shown, which is also
-            // how a resume knows the stop was the compaction's: upstream
-            // records `cancellation_origin: compaction` and replays such a
-            // turn as its card alone, no cancellation line
-            // (`app_session_runtime.zig:4796-4800`; e2e
-            // `tui-compaction-activity.test.ts:481-488`), and
-            // `super::hydration` reads it back the same way.
+            // Its reason is the sentence the user was shown; whose stop it
+            // was is its own field, as upstream records it (the compaction's
+            // `cancellation_origin`, `runtime/interruption.zig:51-77`), and a
+            // resume reads that field to replay the turn as its card alone,
+            // no cancellation line (`app_session_runtime.zig:4796-4800`; e2e
+            // `tui-compaction-activity.test.ts:481-488`).
             if other == Feedback::Cancelled {
                 if let Some(conversation) = state.conversation.as_mut() {
                     conversation.recorder.commit(SessionEvent::UserMessage {
@@ -2851,6 +2855,7 @@ async fn compact_if_due(
                     conversation.recorder.commit(SessionEvent::TurnConcluded {
                         outcome: TurnConclusion::Interrupted {
                             reason: Feedback::Cancelled.label().to_string(),
+                            cancellation_origin: CancellationOrigin::Compaction,
                         },
                     });
                 }
@@ -3143,21 +3148,23 @@ async fn apply_deferred(
                     run_undo(state, events, through, after_reset).await;
                     continue;
                 }
-                // Written whatever ended, as an undo is done: the shell said
-                // it at once. One typed after the reset waits for the drop
-                // ([`write_renamed_after_reset`]).
+                // Written whatever ended, as an undo is done: the shell
+                // titled the window at once. One typed after the reset waits
+                // for the drop ([`write_renamed_after_reset`]).
                 Deferred::Rename {
                     title,
                     after_reset: false,
+                    announced,
                 } => {
-                    write_rename(state, &title, events, cancel).await;
+                    write_rename(state, &title, announced, events, cancel).await;
                     continue;
                 }
                 Deferred::Rename {
                     title,
                     after_reset: true,
+                    announced,
                 } => {
-                    state.renamed_after_reset.push(title);
+                    state.renamed_after_reset.push((title, announced));
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -3217,20 +3224,29 @@ async fn run_undo(
 
 /// Writes `/rename`'s title into the conversation's session
 /// (`handleRenameCommand`, `app_commands.zig:3815-3858`). The shell has
-/// already called the session that and said so, as upstream does at once
-/// (`renameActiveSession`, `app_session_runtime.zig:3802-3822`); a log that
-/// would not take it is said now, in upstream's words
-/// ([`UiEvent::RenameUnsaved`]).
+/// already called the session that, as upstream caches the title before it
+/// writes (`renameActiveSession`, `app_session_runtime.zig:3807`), and the
+/// rename is said once, as what became of the write: a log that would not
+/// take it in upstream's words ([`UiEvent::RenameUnsaved`]), and one that
+/// did as `renamed to "…"` ([`UiEvent::Renamed`]) -- unless the shell has
+/// said that already (`announced`), as it does while work runs.
 async fn write_rename(
     state: &mut Runtime,
     title: &str,
+    announced: bool,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
 ) {
-    let unsaved = state.rename(title, &cancel.mirror()).err();
+    let written = state.rename(title, &cancel.mirror());
     state.publish();
-    if let Some(problem) = unsaved {
-        bridge::send_terminal(events, UiEvent::RenameUnsaved(problem)).await;
+    match written {
+        Err(problem) => {
+            bridge::send_terminal(events, UiEvent::RenameUnsaved(problem)).await;
+        }
+        Ok(()) if !announced => {
+            bridge::send_terminal(events, UiEvent::Renamed(title.to_string())).await;
+        }
+        Ok(()) => {}
     }
 }
 
@@ -3260,8 +3276,8 @@ async fn write_renamed_after_reset(
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
 ) {
-    for title in std::mem::take(&mut state.renamed_after_reset) {
-        write_rename(state, &title, events, cancel).await;
+    for (title, announced) in std::mem::take(&mut state.renamed_after_reset) {
+        write_rename(state, &title, announced, events, cancel).await;
     }
 }
 
@@ -3383,8 +3399,8 @@ async fn raced_against_control<F: Future>(
                 // `/rename` while this work runs: its log is this work's to
                 // write until it is over, so the title is put aside the same
                 // way, and marked when it was typed after a reset.
-                Some(TurnControl::Rename(title)) => {
-                    control.defer_rename(title, matches!(ended, Ended::Reset(_)));
+                Some(TurnControl::Rename { title, announced }) => {
+                    control.defer_rename(title, matches!(ended, Ended::Reset(_)), announced);
                 }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
@@ -6415,9 +6431,15 @@ mod tests {
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         for message in [
-            TurnControl::Rename("Before New".to_string()),
+            TurnControl::Rename {
+                title: "Before New".to_string(),
+                announced: false,
+            },
             TurnControl::Reset { through: 0 },
-            TurnControl::Rename("After New".to_string()),
+            TurnControl::Rename {
+                title: "After New".to_string(),
+                announced: false,
+            },
             TurnControl::Shutdown,
         ] {
             control_tx.send(message).expect("alive");
@@ -6451,7 +6473,65 @@ mod tests {
             started.contains(r#""title":"After New""#) && !started.contains("Before New"),
             "{started}"
         );
+        // Between turns the shell said nothing, so each written title is
+        // said now, in the order the writes happened.
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("Before New".to_string()))
+        );
         assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("After New".to_string()))
+        );
+    }
+
+    /// One answer per rename, what became of its write: `Renamed` for one the
+    /// shell has not said yet, nothing for one it has, and the refusal for
+    /// either (`handleRenameCommand`, `app_commands.zig:3815-3858`).
+    #[test]
+    fn a_rename_is_answered_once_by_what_became_of_its_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let cancel = Cancellation::new(CancelToken::new());
+        on_a_runtime(write_rename(
+            &mut state, "Quiet", false, &events_tx, &cancel,
+        ));
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("Quiet".to_string()))
+        );
+        on_a_runtime(write_rename(&mut state, "Said", true, &events_tx, &cancel));
+        assert!(events_rx.try_recv().is_err(), "a rename was said twice");
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .id
+            .clone();
+        let dir = home.path().join(".xfx").join("sessions").join(id);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+        on_a_runtime(write_rename(
+            &mut state, "Refused", false, &events_tx, &cancel,
+        ));
+        on_a_runtime(write_rename(
+            &mut state,
+            "Refused too",
+            true,
+            &events_tx,
+            &cancel,
+        ));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        for _ in 0..2 {
+            assert!(
+                matches!(events_rx.try_recv(), Ok(UiEvent::RenameUnsaved(_))),
+                "a refused write was not said"
+            );
+        }
+        assert!(events_rx.try_recv().is_err());
     }
 
     /// While work runs a `/rename` is put aside, never a stop, and marked
@@ -6461,9 +6541,15 @@ mod tests {
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(control_rx);
         for message in [
-            TurnControl::Rename("a".to_string()),
+            TurnControl::Rename {
+                title: "a".to_string(),
+                announced: true,
+            },
             TurnControl::Reset { through: 0 },
-            TurnControl::Rename("b".to_string()),
+            TurnControl::Rename {
+                title: "b".to_string(),
+                announced: false,
+            },
         ] {
             control_tx.send(message).expect("alive");
         }
@@ -6482,11 +6568,13 @@ mod tests {
             vec![
                 Deferred::Rename {
                     title: "a".to_string(),
-                    after_reset: false
+                    after_reset: false,
+                    announced: true,
                 },
                 Deferred::Rename {
                     title: "b".to_string(),
-                    after_reset: true
+                    after_reset: true,
+                    announced: false,
                 },
             ]
         );
@@ -6517,8 +6605,9 @@ mod tests {
             outstanding: &outstanding,
             taken: 0,
         };
-        control.defer_rename("Typed Before".to_string(), false);
-        control.defer_rename("Typed After".to_string(), true);
+        // Said by the shell already, as one typed while work runs is.
+        control.defer_rename("Typed Before".to_string(), false, true);
+        control.defer_rename("Typed After".to_string(), true, true);
         let ended = on_a_runtime(async {
             let ended = apply_deferred(
                 &mut state,
@@ -6553,7 +6642,7 @@ mod tests {
         assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
 
         // A `/quit` after the work: still written.
-        control.defer_rename("Then Quit".to_string(), false);
+        control.defer_rename("Then Quit".to_string(), false, true);
         let ended = on_a_runtime(apply_deferred(
             &mut state,
             Ended::Session,
@@ -6568,7 +6657,7 @@ mod tests {
         // A `/new`, a `/rename` and a `/quit` in one turn: the shutdown
         // outranks the reset, and the title still names the session the
         // reset would have started -- opened for it, not the one it left.
-        control.defer_rename("New Then Quit".to_string(), true);
+        control.defer_rename("New Then Quit".to_string(), true, true);
         on_a_runtime(async {
             let ended = apply_deferred(
                 &mut state,

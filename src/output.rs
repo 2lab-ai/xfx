@@ -940,7 +940,7 @@ impl SessionDetailSnapshot {
                     finish_reason,
                     steps,
                 }) => format!("final finish_reason={finish_reason} steps={steps}"),
-                Some(crate::session::TurnConclusion::Interrupted { reason }) => {
+                Some(crate::session::TurnConclusion::Interrupted { reason, .. }) => {
                     format!("interrupted reason={}", one_line(reason))
                 }
                 None => "unfinished".to_string(),
@@ -979,8 +979,12 @@ fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::sessio
             finish_reason: clip_text(&one_line(finish_reason)),
             steps: *steps,
         },
-        TurnConclusion::Interrupted { reason } => TurnConclusion::Interrupted {
+        TurnConclusion::Interrupted {
+            reason,
+            cancellation_origin,
+        } => TurnConclusion::Interrupted {
             reason: clip_text(&one_line(reason)),
+            cancellation_origin: *cancellation_origin,
         },
     }
 }

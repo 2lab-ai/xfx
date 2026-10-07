@@ -1419,8 +1419,8 @@ impl QuestionRequester for TuiQuestioner {
                     // `/rename` while the model's question is up: written once
                     // the turn is over, and the batch stays up
                     // (`ControlChannel::defer_rename`).
-                    Some(TurnControl::Rename(title)) => {
-                        self.control.defer_rename(title, false);
+                    Some(TurnControl::Rename { title, announced }) => {
+                        self.control.defer_rename(title, false, announced);
                         continue;
                     }
                     // The interrupt and the shutdown belong to the loop that can

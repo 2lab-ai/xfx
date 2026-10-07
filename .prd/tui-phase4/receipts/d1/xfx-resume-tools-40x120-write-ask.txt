@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-cbf8bea [debug] · Run /help for commands
+x𝒇x v0.1.0-120f93e [debug] · Run /help for commands
 
 ┃ look at the files and fix them
 
@@ -24,7 +24,7 @@ x𝒇x v0.1.0-cbf8bea [debug] · Run /help for commands
     2  Apply + allow future writes to this file for this session
     3  Don't apply
   2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later
-  `xfx ask --resume-id 1791325264267-48e12202af07d883` of this saved session
+  `xfx ask --resume-id 1791337899434-abff2c1516393cbd` of this saved session
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel

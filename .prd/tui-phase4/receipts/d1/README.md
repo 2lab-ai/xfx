@@ -15,7 +15,7 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> <size>
 | `resume-empty.cap` | 40x120 | `/resume` with nothing saved, `zzz`, Enter on nothing, Escape; then a slow streaming turn and `/resume` while it streams. |
 | `rename.cap` | 40x120 | `/rename` with nothing, `/rename   My Title  `, a 241-byte title, `/quit` -- then the binary is started again in the same pane on the latest session (`fx --resume-last`, `xfx --resume last`). |
 | `resume-launch.cap` | 40x120 | Two turns, `/quit`, then the binary again on the latest session, and a third turn in it. |
-| `resume-tools.cap` | 40x120 | The F1 tool-group turns in `ask` mode (`toolgroup-*.json`, `toolgroup-ws`): a group with every outcome form (Read, Matched, Searched, Ran, `Edited a.txt +1 / -1`, `Denied file`, `Failed missing.txt`, `Exited 3`), the closing answer and its summary; a turn stopped with Escape at a write's approval; a turn stopped with Ctrl-C while `sleep 4` runs. Then `/new`, `/resume`, Enter, and Ctrl-O on the replay. |
+| `resume-tools.cap` | 40x120 | The F1 tool-group turns in `ask` mode (`toolgroup-*.json`, `toolgroup-ws`): a group with every outcome form (Read, Matched, Searched, Ran, `Edited a.txt +1 / -1`, `Denied file`, `Failed missing.txt`, `Exited 3`), the closing answer and its summary; a turn stopped with Escape at a write's approval; a turn stopped with Ctrl-C while `sleep 4` runs. Ctrl-O on the live session, paged up to its first call (`live-ctrl-o`, `-up1` … `-up3`); then `/new`, `/resume`, Enter, and Ctrl-O on the replay, paged up to the resume notice (`ctrl-o`, `-up1`, `-up2`). |
 | `resume-paging.cap` | 24x80 | Eighteen sessions (`question one` ... `question eighteen`), then `/resume`: the first page (seventeen), Down fourteen, fifteen, sixteen (the last loaded session -- the next page loads), seventeen; Tab; Shift-Tab and `ve`; Down three. |
 | `rename-midturn.cap` | 40x120 | A turn that streams ten chunks half a second apart; `/rename Counted mid turn` while it streams; the screen and the window title then, after the turn, and on a relaunch on the latest session. |
 
@@ -45,6 +45,13 @@ Re-checked at the end of the round on `afd5c83` (plan `b887a7f`): xfx's
 every snap is the receipt's but for session ids, wall-clock stamps and
 seconds, and how many tokens had streamed at the snap.
 
+Round 3 (on `120f93e`, the binaries' banners say so; the round's own changes
+uncommitted in that build): `resume-tools` retaken on both with the Ctrl-O
+pages above -- the whole set replaced -- and `rename` and `rename-midturn`
+retaken on both, since a rename between turns is now said on the runtime's
+word. Both under load averages of 10-25; a take whose keys landed on the
+wrong prompt (load above 60) was discarded and taken again.
+
 ## What matches
 
 Every pair below is identical row for row, SGR included, **except row 1 where
@@ -70,7 +77,7 @@ Every comparison of the first round holds on this tree, the same way:
 | `resume/quit` | the document, then `Continue session with: … --resume <id>` | Identical but the product name and the id (C5's receipt says why). |
 | `resume-empty/empty`, `empty-query`, `empty-enter` | `Sessions 0 …`, a blank row, `  No sessions found.` (dim, two columns in); Enter changes nothing | Rows 2-40 identical. |
 | `rename/rename-empty` | `✗ usage: /rename <title>` -- no topic | Rows 2-40 identical, SGR `ESC[38;5;252m✗ ESC[38;5;250musage: /rename <title>ESC[39m`. |
-| `rename/rename-title` | `* session: renamed to "My Title"` -- the title trimmed | Rows 2-40 identical. |
+| `rename/rename-title` | `* session: renamed to "My Title"` -- the title trimmed | Rows 2-40 identical; round 3's retake too, the notice now written on the runtime's word that the log has the title. |
 | `rename/too-long` | `✗ session: title is too long` for 241 bytes | Rows 2-40 identical. |
 | `rename/quit` | the notices, **no** `Continue session with:` row | Rows 2-39 identical (row 40 is tmux's `Pane is dead` with its own clock). A session renamed and never asked anything is kept but not named: it is pristine (`shouldCreateResumeHandoff`, `app_session_runtime.zig:350-354`). |
 | `rename/relaunched` | `* session resumed: My Title`, the band; no turn under it | **Whole file identical.** The titled, empty session survived the exit on both and is the latest one. |
@@ -88,7 +95,9 @@ Every comparison of the first round holds on this tree, the same way:
 | `resumed`, rows 2-18 | `* session resumed: look at the files and fix them`, the card, `I will look at the files first.`, then `● 9 tool calls · 4 read · 2 commands · 1 list · 1 write · 1 edit · 2 failed · 1 denied` and its rows: `Ran sleep 3; …`, `Edited a.txt +1 / -1`, `Denied file`, `Failed missing.txt`, `Exited 3 echo boom; …` | **Identical, SGR included.** The live group's outcomes and counts come back from the log (`ending`, `lines`); the failure is `Failed missing.txt` without its reason, as fx's replay writes it (the live row has the reason on both). Before this round xfx replayed `Edited a.txt`, `Failed c.txt: …`, `Ran echo boom; …` and `2 failed` with no `denied`. |
 | `resumed`, rows 21-24 | `┃ and once more`, a blank row, `■ Cancelled · What can fx do differently?` | Identical but the product's name: the turn stopped with Escape at the write's approval replays as fx's turn cancellation, no group -- the call the stop cut off is not replayed. `ESC[38;5;252m■ESC[39m ESC[38;5;255mCancelledESC[39m · …` on both. |
 | `end`, `again-stopped` | the live group, and the live stopped turn `● 1 tool call · 1 write · 1 cancelled`, `└ Cancelled file`, `■ Cancelled file · …` | Identical but the failure's reason (each product's own error text) and the summary's output count (below) -- and since F4 merged, the stopped turn's rows are fx's. |
-| `ctrl-o` | the full transcript after the resume: each call's entry with its arguments and its result -- `Denied file` with `path: c.txt` and the content, `Failed missing.txt` with the reason, `Exited 3 …` with `boom`, `err`, `exit code 3` | Same entries; differences below. |
+| `ctrl-o-up2` | the replayed record's top: `* session resumed: …` stamped with the resume, the Prompt and `I will look at the files first.` stamped with the turn's start, then `Read a.txt`, `Read b.txt`, `Matched **/*.rs`, `Searched alpha` with their results | **Identical once the clock is masked.** A glob's and a grep's list end on a blank row, no rail. The stamps are the log's, as fx's: the notice `01:36:34.473`, the Prompt `01:35:55.711` on fx's side. Before this round xfx drew a `│` row under each list. |
+| `ctrl-o-up1`, `ctrl-o` | `Ran sleep 3; …` with its output, `Edited a.txt +1 / -1` with the tool's own result line, a blank row and the diff, `Denied file` with `path: c.txt` and the content and no row after it, `Failed missing.txt` with the reason, `Exited 3 …` with `boom`, `err`, `exit code 3`, the answer, the summary, the two stopped turns | The same entries in the same order; with the clock masked, the differences are each tool's own text and the rows listed below. Before this round xfx's replayed edit had no result line and its `Denied file` ended on a `│` row. |
+| `live-ctrl-o`, `-up1` … `-up3` | the live record of the same calls | There to tell a replay difference from a live one: the shell arguments, the tool texts and the summary's count differ live too; a live edit shows no result line on either. |
 | `picker` | `Sessions 1`, `look at the files and fix them    work · now · 3 turns` | Rows 2-40 identical. |
 
 ### The picker's pages (`resume-paging`, 24x80)
@@ -123,14 +132,32 @@ Every comparison of the first round holds on this tree, the same way:
   that came back and the turn's cancellation line. The replay is faithful to
   xfx's own log; the live stop is the divergence (the terminal tool's
   cancellation, not this unit's surface).
-- **`resume-tools/ctrl-o`.** fx stamps every replayed entry with the moment of
-  the resume (`21:44:45.685` on all of them: its live replay sink ignores the
-  turn's times, `LiveHistorySink.setCreatedAtMs`,
-  `app_session_runtime.zig:3972`); xfx stamps them with the log's times. fx
-  lists the shell call's own arguments (`action: run`, `yield_time_ms: 30000`)
-  where xfx's terminal call has none to list; xfx's `Denied file` entry ends
-  with one more `│` row; each product's own failure text. All are the full
-  transcript's (F5's) and are reported, not changed, here.
+- **`resume-tools/ctrl-o`, the stamps.** The previous round's reading of
+  fx's stamps was wrong: fx does not stamp a replay with the resume. Its TUI
+  has `beginResumeProjection` (`main.zig:1366-1372`), so a resume takes the
+  `DetachedHistorySink` (`app_session_runtime.zig:2426-2451`), whose
+  `setCreatedAtMs` sets the projection's stamp (`:4272-4274`,
+  `resume_projection.zig:76-78`); the no-op at `:3972` is the other sink's.
+  `ctrl-o-up2` shows it: the notice at the resume, the Prompt at the turn's
+  start. The round-2 capture's single `21:44:45.685` was the first turn's
+  conclusion, carried on. xfx stamps as fx does but in two places:
+  (a) **a call's entry** -- fx's carries its persisted result's own time
+  (`PersistedToolResult.created_at_ms`, `transcript/runtime.zig:5826`),
+  which fx records at the turn's end (`01:36:08.962` on all nine), and xfx's
+  the turn's start, since the log's steps keep no time of their own (it
+  would take one on each `tool_result` step); (b) **a turn with no summary**
+  -- both stopped turns: fx sets no stamp for them, so they carry the turn
+  before's conclusion (`01:36:08.962`), and xfx stamps each with its own
+  start. Neither is copied here; (b) is an artifact of upstream's stamp
+  being state, and is the coordinator's call.
+- **`resume-tools/ctrl-o`, the rest.** fx lists its shell call's own
+  arguments (`action: run`, `yield_time_ms: 30000`), live and replayed;
+  xfx's terminal call has only `action: exec`, which fx's own rule leaves out
+  for a captured command (`full_transcript_screen.zig:6501-6504`,
+  `captured_command.zig:26`) -- F5's row #1. The edit's result line is each
+  tool's (`edited a.txt (41 bytes)` against `Edited a.txt`) and so is the
+  failure (`Path not found: missing.txt` against xfx's `read_file` refusal,
+  F5's row #3); live and replayed alike on each side.
 - **`resume-tools`, the approval snaps** (`cmd-ask`, `edit-ask`,
   `write-ask`, `exit-ask`) and `live.full`: there to show that each key
   reached the prompt it was meant for; the panels and the live screens are
@@ -212,8 +239,25 @@ Every comparison of the first round holds on this tree, the same way:
   `a_resume_owed_on_top_of_a_reset_is_only_the_reset_of_the_terminal`,
   `a_launch_resume_resets_nothing_and_writes_no_welcome_line`.
 - **A rename the store refuses** says `! session: renamed for this process but
-  not saved (…)`: `src/tui/worker.rs`
-  `a_rename_the_store_refuses_says_why_and_the_session_keeps_its_old_title` and
-  `src/tui/shell.rs` `rename_refuses_in_upstreams_words_and_titles_the_window_at_once`.
+  not saved (…)` and nothing else between turns, as upstream's one notice
+  (`app_commands.zig:3815-3858`): `src/tui/worker.rs`
+  `a_rename_the_store_refuses_says_why_and_the_session_keeps_its_old_title`,
+  `a_rename_is_answered_once_by_what_became_of_its_write`, and
+  `src/tui/shell.rs` `rename_refuses_in_upstreams_words_and_titles_the_window_at_once`,
+  `between_turns_a_rename_says_one_thing_what_became_of_the_write`. While a
+  turn runs `renamed to` is said at once, as upstream's is, and a store that
+  refuses the write it waited for adds the warning: upstream writes at once
+  under its session lock and never says both.
+- **A turn the automatic compaction stopped** is told by its own field,
+  `cancellation_origin: "compaction"`, not by its sentence
+  (`src/session/event.rs`
+  `a_stop_the_compaction_took_says_so_and_any_other_reads_as_it_always_did`;
+  `src/tui/hydration.rs`
+  `a_stop_is_a_cancellation_any_other_interruption_a_failure_and_an_unfinished_turn_nothing`;
+  `tests/tui.rs`
+  `ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped`).
+- **Ctrl-O's rows** (`src/tui/full_transcript.rs`
+  `a_trailing_line_break_is_no_rail_row_an_argument_drops_it_and_a_result_leaves_a_blank`,
+  `a_replayed_change_shows_the_diff_the_log_kept`).
 - **`title must be printable text`** cannot be typed through tmux's `send-keys
   -l`; the shell case above drives it through the handler.

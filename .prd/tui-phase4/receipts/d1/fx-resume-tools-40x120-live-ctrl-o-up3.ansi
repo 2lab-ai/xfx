@@ -1,0 +1,40 @@
+  [38;5;250mskills: loading[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-10-07 01:35:55.732 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 16ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 01:35:55.754 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 16ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 01:35:55.858 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 01:36:01.359 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 01:36:03.319 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 01:36:05.362 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 15ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-07 01:36:05.372 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfinish: tool_calls[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;245mask · model-a[39m

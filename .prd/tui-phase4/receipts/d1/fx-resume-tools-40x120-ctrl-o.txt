@@ -1,17 +1,17 @@
   │ 2 + ALPHA LINE TWO
   │ 3   alpha line 3
 
-  2026-10-06 21:44:45.685 UTC · Tool
+  2026-10-07 01:36:08.962 UTC · Tool
 ├ Denied file
 │  path: c.txt
 │  content: new file
 │  second line
 
-  2026-10-06 21:44:45.685 UTC · Tool
+  2026-10-07 01:36:08.962 UTC · Tool
 ├ Failed missing.txt
 │  Path not found: missing.txt
 
-  2026-10-06 21:44:45.685 UTC · Tool
+  2026-10-07 01:36:08.962 UTC · Tool
 └ Exited 3 echo boom; echo err >&2; exit 3
 │  action: run
 │  yield_time_ms: 30000
@@ -19,18 +19,18 @@
 │ err
 │ exit code 3
 
-  2026-10-06 21:44:45.685 UTC · Response
+  2026-10-07 01:36:08.962 UTC · Response
   All done. The files were updated.
 
-  2026-10-06 21:44:45.685 UTC · Usage
+  2026-10-07 01:36:08.962 UTC · Usage
   13s (↑8 ↓320)
 
-  2026-10-06 21:44:45.685 UTC · Prompt
+  2026-10-07 01:36:08.962 UTC · Prompt
 ┃ and once more
 
 ■ Cancelled · What can fx do differently?
 
-  2026-10-06 21:44:45.685 UTC · Prompt
+  2026-10-07 01:36:08.962 UTC · Prompt
 ┃ run the long one
 
 ■ Cancelled · What can fx do differently?

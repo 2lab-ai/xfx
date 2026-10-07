@@ -3650,6 +3650,7 @@ mod tests {
         SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Interrupted {
                 reason: "the turn was cancelled".to_string(),
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
             },
         }
     }
@@ -4020,6 +4021,7 @@ mod tests {
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "x".to_string(),
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
             },
             SessionEvent::UserMessage {
@@ -4176,6 +4178,7 @@ mod tests {
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "the turn was cancelled".to_string(),
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
             },
             SessionEvent::UserMessage {

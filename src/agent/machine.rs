@@ -57,8 +57,8 @@ use crate::gateway::protocol::{
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
 use crate::session::{
-    LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent, ToolEnding,
-    TurnConclusion,
+    CancellationOrigin, LineCounts, RecordedChange, RecordedToolCall, RequestUsage, SessionEvent,
+    ToolEnding, TurnConclusion,
 };
 use crate::tools::{LineChanges, Outcome, Registry};
 use crate::workspace::ProjectContext;
@@ -475,6 +475,7 @@ impl TurnMachine {
                 },
                 Err(err) => TurnConclusion::Interrupted {
                     reason: err.to_string(),
+                    cancellation_origin: CancellationOrigin::Turn,
                 },
             },
         });

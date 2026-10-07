@@ -2,7 +2,8 @@
 # toolgroup scenario's three turns -- every outcome form in one group, a call
 # stopped at its approval, a command stopped while it runs -- then `/new` and
 # the picker's resume of it. The live screens and the replay are snapped so
-# the replay can be held to both the live group and upstream's replay.
+# the replay can be held to both the live group and upstream's replay, and
+# Ctrl-O is paged to its top on both: the live record, then the replayed one.
 fx: gateway toolgroup-fx.json
 xfx: gateway toolgroup-xfx.json
 work toolgroup-ws
@@ -41,6 +42,20 @@ key C-c
 wait 6
 snap long-later
 snapfull live
+key C-o
+wait 1.5
+snap live-ctrl-o
+key PPage
+wait 0.5
+snap live-ctrl-o-up1
+key PPage
+wait 0.5
+snap live-ctrl-o-up2
+key PPage
+wait 0.5
+snap live-ctrl-o-up3
+key Escape
+wait 1
 type /new
 wait 0.5
 key Enter
@@ -57,5 +72,11 @@ snapfull resumed
 key C-o
 wait 1.5
 snap ctrl-o
+key PPage
+wait 0.5
+snap ctrl-o-up1
+key PPage
+wait 0.5
+snap ctrl-o-up2
 key Escape
 wait 1

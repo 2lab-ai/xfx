@@ -1,4 +1,4 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-cbf8bea [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-120f93e [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;255m┃[39m [1mlook at the files and fix them[0m
 
@@ -23,7 +23,7 @@
     2. Yes, and don't ask again for this exact command
     3. No
   [38;5;245m2 = allow every future run of exactly `sleep 3; echo hello from shell; ls` in . for the rest of this session, and in[39m
-  [38;5;245mevery later `xfx ask --resume-id 1791325264267-48e12202af07d883` of this saved session[39m
+  [38;5;245mevery later `xfx ask --resume-id 1791337899434-abff2c1516393cbd` of this saved session[39m
 
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m

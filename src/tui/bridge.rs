@@ -338,6 +338,12 @@ pub(crate) enum UiEvent {
     /// notices of the conversation it handed to scrollback, and a title typed
     /// for that conversation is written just before it goes.
     RenameUnsaved(String),
+    /// A `/rename` the shell had not said anything about yet
+    /// ([`TurnControl::Rename`]'s `announced`) is in the session's log under
+    /// this title: the shell's `renamed to "…"` (`app_commands.zig:3852-3857`)
+    /// is said now, the one notice the rename gets. Its own event for
+    /// [`Self::RenameUnsaved`]'s reason.
+    Renamed(String),
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
     /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
     ///
@@ -667,6 +673,9 @@ impl UiEvent {
             // The reason quotes a path and an I/O error, which are the
             // filesystem's words.
             Self::RenameUnsaved(problem) => Self::RenameUnsaved(inert_owned(problem)),
+            // The title passed the store's own validation, which refuses a
+            // control character; the same policy anyway, as every text does.
+            Self::Renamed(title) => Self::Renamed(inert_owned(title)),
             // The notice quotes paths, which are the filesystem's words. The
             // directories travel as paths rather than text: the picker spells
             // each one through `access::terminal_safe` when it paints it,
@@ -862,21 +871,27 @@ pub(crate) enum TurnControl {
     /// discards that change.
     Undo { through: crate::tools::undo::Mark },
     /// `/rename <title>`, the title already validated
-    /// (`crate::session::validate_title`) and already shown: the shell titles
-    /// the window and says `renamed to "…"` at once, as upstream does whether
-    /// or not a response streams (`handleRenameCommand`,
-    /// `app_commands.zig:3815-3858`). The runtime writes it into the
+    /// (`crate::session::validate_title`): the shell has titled the window, as
+    /// upstream caches the title before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
     /// conversation's session -- at once between turns; while work runs, put
     /// aside like [`Self::Undo`] (`super::approval::ControlChannel::defer_rename`)
     /// and written the moment that work has said its last word, the log being
-    /// the running turn's until then -- and answers only a log that would
-    /// not take it ([`UiEvent::RenameUnsaved`]).
+    /// the running turn's until then.
+    ///
+    /// Upstream says one thing per rename, what became of the write
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`). `announced` is
+    /// whether the shell has said `renamed to "…"` already -- it does while
+    /// work runs, where upstream's notice comes at once and this write
+    /// cannot -- and the runtime answers a write that worked only when it has
+    /// not ([`UiEvent::Renamed`]), and one that did not always
+    /// ([`UiEvent::RenameUnsaved`]).
     ///
     /// **A control message rather than work**, for [`Self::Undo`]'s reasons,
     /// and for one of its own: it is ordered with [`Self::Reset`] on one
     /// channel, so a title typed before a `/new` is the session the reset
     /// drops and one typed after it is the session the reset starts.
-    Rename(String),
+    Rename { title: String, announced: bool },
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -2255,6 +2270,20 @@ mod tests {
                 ..Default::default()
             },
         }
+    }
+
+    #[test]
+    fn both_answers_to_a_rename_are_made_inert() {
+        // A title the store's validation passed, and an I/O error's words:
+        // the same policy for both, at the channel.
+        assert_eq!(
+            UiEvent::Renamed("a\x1b[2Jb".into()).made_inert(),
+            UiEvent::Renamed("a [2Jb".into())
+        );
+        assert_eq!(
+            UiEvent::RenameUnsaved("a\x1b[2Jb".into()).made_inert(),
+            UiEvent::RenameUnsaved("a [2Jb".into())
+        );
     }
 
     #[test]

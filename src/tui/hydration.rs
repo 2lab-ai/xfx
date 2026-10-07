@@ -210,18 +210,18 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
                 output: timing.output_tokens,
             }
         }
+        // A stop the automatic compaction took says so in its own field,
+        // whatever its sentence (`app_session_runtime.zig:4796-4800`).
+        Some(crate::session::TurnConclusion::Interrupted {
+            cancellation_origin: crate::session::CancellationOrigin::Compaction,
+            ..
+        }) => Ending::CompactionCancelled,
         // The log keeps the sentence the live turn ended on, and a stop's is
-        // always this one ([`TurnError::Cancelled`]) -- or, for a stop the
-        // automatic compaction took, the compaction's own.
-        Some(crate::session::TurnConclusion::Interrupted { reason })
+        // always this one ([`TurnError::Cancelled`]).
+        Some(crate::session::TurnConclusion::Interrupted { reason, .. })
             if *reason == TurnError::Cancelled.to_string() =>
         {
             Ending::Cancelled
-        }
-        Some(crate::session::TurnConclusion::Interrupted { reason })
-            if *reason == super::compaction::Feedback::Cancelled.label() =>
-        {
-            Ending::CompactionCancelled
         }
         Some(crate::session::TurnConclusion::Interrupted { .. }) => Ending::Failed,
         None => Ending::Unconcluded,
@@ -564,6 +564,7 @@ mod tests {
         );
         turn.outcome = Some(TurnConclusion::Interrupted {
             reason: TurnError::Cancelled.to_string(),
+            cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         let replayed = super::turn(&turn);
         let ids: Vec<String> = replayed
@@ -588,20 +589,33 @@ mod tests {
         assert_eq!(TurnError::Cancelled.to_string(), "the turn was cancelled");
         stopped.outcome = Some(TurnConclusion::Interrupted {
             reason: "the turn was cancelled".to_string(),
+            cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         assert_eq!(super::turn(&stopped).ending, Ending::Cancelled);
         stopped.outcome = Some(TurnConclusion::Interrupted {
             reason: "the provider failed: overloaded".to_string(),
+            cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
         assert_eq!(super::turn(&stopped).ending, Ending::Failed);
-        // A stop the automatic compaction took is logged with the
-        // compaction's sentence, and is not the turn's cancellation.
+        // A stop the automatic compaction took is not the turn's
+        // cancellation, and the field says so, not the sentence: with it, any
+        // sentence is the compaction's; without it, even the compaction's own
+        // sentence is the failure any other would be.
+        let compaction = super::super::compaction::Feedback::Cancelled
+            .label()
+            .to_string();
+        for reason in [compaction.clone(), TurnError::Cancelled.to_string()] {
+            stopped.outcome = Some(TurnConclusion::Interrupted {
+                reason,
+                cancellation_origin: crate::session::CancellationOrigin::Compaction,
+            });
+            assert_eq!(super::turn(&stopped).ending, Ending::CompactionCancelled);
+        }
         stopped.outcome = Some(TurnConclusion::Interrupted {
-            reason: super::super::compaction::Feedback::Cancelled
-                .label()
-                .to_string(),
+            reason: compaction,
+            cancellation_origin: crate::session::CancellationOrigin::Turn,
         });
-        assert_eq!(super::turn(&stopped).ending, Ending::CompactionCancelled);
+        assert_eq!(super::turn(&stopped).ending, Ending::Failed);
         stopped.outcome = None;
         assert_eq!(super::turn(&stopped).ending, Ending::Unconcluded);
     }

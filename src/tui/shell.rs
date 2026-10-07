@@ -1495,6 +1495,13 @@ impl Tally {
     }
 }
 
+/// `/rename`'s `* session: renamed to "…"` (`app_commands.zig:3852-3857`),
+/// said by the shell while work runs and on the runtime's word otherwise
+/// ([`UiEvent::Renamed`]).
+fn renamed(title: &str) -> notice::Notice {
+    notice::Notice::neutral("session", format!("renamed to \"{title}\""))
+}
+
 /// A turn's summary row: how long it took, and the tokens it moved when it
 /// moved any (`transcript/runtime.zig:540-547`). A live turn's and a replayed
 /// one's are this one function, so a resumed screen says what the live one
@@ -2683,9 +2690,13 @@ impl Shell {
     /// screen never shows -- each call's arguments and whole result -- before
     /// them, to wait for their rows ([`full_transcript::details_of`]). Its
     /// entries carry the log's times, as upstream's replay stamps them
-    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`): the turn's
-    /// start for the card and what it did on the way, its conclusion for the
-    /// answer after its last call and the summary.
+    /// (`replayHistoryToSinkIncremental`'s `setCreatedAtMs`,
+    /// `app_session_runtime.zig:4753-4810`, which the TUI's resume sink passes
+    /// on -- `DetachedHistorySink`, `:4272-4274`, into `ResumeProjection`,
+    /// `resume_projection.zig:76-78` -- rather than the no-op of the sink it
+    /// does not take, `:3972`): the turn's start for the card and what it did
+    /// on the way, its conclusion for the answer after its last call and the
+    /// summary; the resume notice above them is stamped with the resume.
     fn replay_turn(&mut self, turn: HydratedTurn) {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
@@ -2698,6 +2709,7 @@ impl Shell {
         // A turn the log has no conclusion for keeps its start throughout.
         let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
         self.full.stamp_with(Some(turn.started_at_ms));
+        self.full.replay(true);
         let concluding = turn
             .steps
             .iter()
@@ -2770,6 +2782,7 @@ impl Shell {
             Ending::CompactionCancelled | Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
         self.full.stamp_with(None);
+        self.full.replay(false);
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -3277,6 +3290,9 @@ impl Shell {
                     format!("renamed for this process but not saved ({problem})"),
                 ));
             }
+            // A rename said nothing yet: the log has it now
+            // (`app_commands.zig:3852-3857`).
+            UiEvent::Renamed(title) => self.announce(renamed(&title)),
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -8676,13 +8692,18 @@ impl CommandHandlers for Shell {
     /// text` for the other two.
     ///
     /// An accepted one **applies at once**, as upstream's does whether or not
-    /// a response is streaming: the window takes the title and the notice
-    /// says `renamed to "…"`. The runtime writes it into the conversation's
-    /// session ([`TurnControl::Rename`]) -- at once when idle, the moment the
-    /// running work ends when not -- and says so only when the log would not
-    /// take it ([`UiEvent::RenameUnsaved`]). One control channel carries it
-    /// and a reset, so a title typed after a `/new` names the session that
-    /// `/new` starts.
+    /// a response is streaming: the window takes the title, as upstream
+    /// caches it before it writes (`renameActiveSession`,
+    /// `app_session_runtime.zig:3807`). The runtime writes it into the
+    /// conversation's session ([`TurnControl::Rename`]) -- at once when idle,
+    /// the moment the running work ends when not. Upstream says one thing,
+    /// what became of the write: between turns that is the runtime's answer,
+    /// `renamed to "…"` ([`UiEvent::Renamed`]) or the warning alone
+    /// ([`UiEvent::RenameUnsaved`]); while work runs, upstream's notice comes
+    /// at once and this write cannot, so `renamed to "…"` is said now and the
+    /// runtime answers only a log that would not take it. One control channel
+    /// carries it and a reset, so a title typed after a `/new` names the
+    /// session that `/new` starts.
     fn rename(&mut self, argument: &str) {
         let title = match crate::session::validate_title(argument) {
             Ok(title) => title.to_string(),
@@ -8699,13 +8720,16 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
-        self.work.control(TurnControl::Rename(title.clone()));
+        let announced = self.work.outstanding() > 0;
+        self.work.control(TurnControl::Rename {
+            title: title.clone(),
+            announced,
+        });
         self.session_title = Some(title.clone());
         self.retitle();
-        self.announce(notice::Notice::neutral(
-            "session",
-            format!("renamed to \"{title}\""),
-        ));
+        if announced {
+            self.announce(renamed(&title));
+        }
     }
 
     fn model(&mut self, argument: &str) {
@@ -9785,6 +9809,7 @@ impl Shell {
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
             | UiEvent::RenameUnsaved(_)
+            | UiEvent::Renamed(_)
             | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
@@ -19062,6 +19087,7 @@ mod tests {
                     cut_off,
                     TurnConclusion::Interrupted {
                         reason: crate::agent::TurnError::Cancelled.to_string(),
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 ),
                 logged_turn(
@@ -19069,6 +19095,7 @@ mod tests {
                     Vec::new(),
                     TurnConclusion::Interrupted {
                         reason: "the provider failed: overloaded".to_string(),
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 ),
                 // Stopped while its automatic compaction ran: the card and
@@ -19080,6 +19107,7 @@ mod tests {
                         reason: super::super::compaction::Feedback::Cancelled
                             .label()
                             .to_string(),
+                        cancellation_origin: crate::session::CancellationOrigin::Compaction,
                     },
                 ),
             ]),
@@ -19476,14 +19504,21 @@ mod tests {
             "a refused title titled the window"
         );
 
-        // Accepted: titled and said at once (`app_commands.zig:3852-3857`),
-        // and handed to the runtime to write.
+        // Accepted: titled at once and handed to the runtime to write, and
+        // said when the runtime says the log has it
+        // (`app_commands.zig:3852-3857`).
         shell.route_bytes(b"/rename   My Title  \r");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Rename("My Title".to_string()))
+            Some(TurnControl::Rename {
+                title: "My Title".to_string(),
+                announced: false,
+            })
         );
         assert_eq!(shell.take_title().as_deref(), Some("My Title"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("My Title".to_string()));
+        assert_eq!(shell.take_title(), None, "the answer retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "* session: renamed to \"My Title\""
@@ -19507,6 +19542,37 @@ mod tests {
         assert_eq!(shell.take_title(), None);
     }
 
+    /// Between turns the notice is the write's outcome, one row either way,
+    /// as upstream's (`handleRenameCommand`, `app_commands.zig:3815-3858`):
+    /// `renamed to "…"` once the log has the title, or only `renamed for this
+    /// process but not saved (…)` when it would not take it -- the window is
+    /// titled at once in both, as upstream caches the title before it writes
+    /// (`renameActiveSession`, `app_session_runtime.zig:3807`).
+    #[test]
+    fn between_turns_a_rename_says_one_thing_what_became_of_the_write() {
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.route_bytes(b"/rename Refused\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.take_title().as_deref(), Some("Refused"));
+        shell.apply(UiEvent::RenameUnsaved("the disk is full".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::warning(
+                "session",
+                "renamed for this process but not saved (the disk is full)"
+            ))
+        );
+        shell.route_bytes(b"/rename Kept\r");
+        let _ = shell.controlled();
+        assert_eq!(shell.document(), Vec::<String>::new());
+        shell.apply(UiEvent::Renamed("Kept".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", "renamed to \"Kept\""))
+        );
+    }
+
     /// While a turn runs the title applies at once, as upstream's does --
     /// it renames whether or not a response streams
     /// (`handleRenameCommand`, `app_commands.zig:3815-3858`) -- and goes to
@@ -19523,7 +19589,10 @@ mod tests {
         shell.route_bytes(b"/rename Mid Turn\r");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Rename("Mid Turn".to_string()))
+            Some(TurnControl::Rename {
+                title: "Mid Turn".to_string(),
+                announced: true,
+            })
         );
         assert_eq!(shell.controlled(), None, "a rename stopped the turn");
         assert_eq!(shell.take_title().as_deref(), Some("Mid Turn"));
@@ -19543,7 +19612,10 @@ mod tests {
         ));
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Rename("Next One".to_string()))
+            Some(TurnControl::Rename {
+                title: "Next One".to_string(),
+                announced: true,
+            })
         );
         assert_eq!(shell.take_title().as_deref(), Some("Next One"));
     }

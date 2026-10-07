@@ -658,7 +658,7 @@ impl Report<'_> {
             let last = state.turns.len();
             for (index, turn) in state.turns.iter().enumerate() {
                 match &turn.outcome {
-                    Some(TurnConclusion::Interrupted { reason }) => {
+                    Some(TurnConclusion::Interrupted { reason, .. }) => {
                         let _ = writeln!(
                             out,
                             "- interrupted turn {} reason={}",
@@ -2272,6 +2272,7 @@ mod tests {
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {
                         reason: "cancelled by the user".to_string(),
+                        cancellation_origin: crate::session::CancellationOrigin::Turn,
                     },
                 },
             ],

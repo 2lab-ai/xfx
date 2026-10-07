@@ -726,6 +726,9 @@ struct Call {
     result: Option<Detail>,
     /// The change it made, when it made one ([`Detail::Change`]).
     change: Option<ApprovalDiff>,
+    /// Drawn from a resumed session's log rather than run
+    /// ([`FullTranscript::replay`]).
+    replayed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -756,6 +759,8 @@ pub(crate) struct FullTranscript {
     /// The time new entries are stamped with instead of the clock's: a
     /// resumed turn's, while it is replayed ([`Self::stamp_with`]).
     stamp: Option<i64>,
+    /// Whether the calls drawn now are a resumed session's ([`Self::replay`]).
+    replaying: bool,
     /// Whether the document opened with the welcome line, which upstream's
     /// screen shows first and without a header.
     welcome: bool,
@@ -836,6 +841,7 @@ impl FullTranscript {
         Self {
             clock,
             stamp: None,
+            replaying: false,
             welcome: false,
             records: Vec::new(),
             entries: Vec::new(),
@@ -866,9 +872,17 @@ impl FullTranscript {
     /// Stamps what is recorded from here with `at_ms` rather than the clock,
     /// or with the clock again for `None`: a resumed session's turns carry
     /// the times the log has for them, as upstream's replay sets each one's
-    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`).
+    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`, through
+    /// `ResumeProjection.setCreatedAtMs`, `resume_projection.zig:76-78`).
     pub(crate) fn stamp_with(&mut self, at_ms: Option<i64>) {
         self.stamp = at_ms;
+    }
+
+    /// Whether the calls drawn from here are a resumed session's, replayed
+    /// from its log rather than run: upstream's replay hands each one the
+    /// output the log kept, a file change's included ([`Call::replayed`]).
+    pub(crate) fn replay(&mut self, replaying: bool) {
+        self.replaying = replaying;
     }
 
     /// One of upstream's full-detail records: shown here and nowhere else
@@ -981,6 +995,7 @@ impl FullTranscript {
             arguments: pending.arguments.unwrap_or_default(),
             result: pending.result,
             change: pending.change,
+            replayed: self.replaying,
         })));
         self.calls.insert(id.to_string(), self.entries.len() - 1);
         self.touch_group(group);
@@ -1449,8 +1464,12 @@ impl FullTranscript {
                 if shown_already || exec {
                     continue;
                 }
+                // Without the one break it may end on: upstream wraps an
+                // argument's text short of it (`full_transcript_screen.zig:
+                // 6381-6383`), so `content: …\n` is no rail row of its own.
+                let line = format!("{}: {}", argument.name, argument.value);
                 rows.extend(railed(
-                    &format!("{}: {}", argument.name, argument.value),
+                    line.strip_suffix('\n').unwrap_or(&line),
                     "  ",
                     cols,
                     palette,
@@ -1467,7 +1486,16 @@ impl FullTranscript {
                 }
             }
             Some(Detail::Result(text)) if !text.is_empty() && call.reports_its_result() => {
-                rows.extend(railed(text, "  ", cols, palette));
+                // A result's last break ends its last row, and the line the
+                // detail is closed with after it is a blank one, no rail
+                // (`appendDetailContent`, `full_transcript_screen.zig:
+                // 6618-6642`: a stored result leaves `ends_with_newline`
+                // false) -- a glob's list is followed by two blank rows.
+                let body = text.strip_suffix('\n');
+                rows.extend(railed(body.unwrap_or(text), "  ", cols, palette));
+                if body.is_some() {
+                    rows.push(String::new());
+                }
             }
             _ => {}
         }
@@ -1488,6 +1516,14 @@ impl Call {
     /// its diff and never a sentence about it (`fx-approvals-cc-40x120-full`,
     /// `fx-fulltranscript-40x120-full`). A change the tool itself refused
     /// keeps its reason, as a failed read does.
+    ///
+    /// A change made in a resumed session's log keeps what the tool said
+    /// too, above its diff: upstream's replay hands every call the output
+    /// the log kept (`attachHistoricalToolDetailResolved`,
+    /// `transcript/runtime.zig:5762-5829`), where its live one gets none for
+    /// a change -- `fx-resume-tools-40x120-ctrl-o-up1` against
+    /// `-live-ctrl-o-up1`. A refused one still has nothing: its output is the
+    /// refusal, which that replay drops (`permission_denied`, `:5774`).
     fn reports_its_result(&self) -> bool {
         let changes_a_file = matches!(
             self.shown.presentation.activity,
@@ -1502,6 +1538,7 @@ impl Call {
                     ..
                 }
             )
+            || (self.replayed && matches!(self.state, State::Finished { ok: true, .. }))
     }
 
     /// Whether the transcript's group draws a row for this call
@@ -2083,6 +2120,72 @@ mod tests {
     }
 
     #[test]
+    fn a_trailing_line_break_is_no_rail_row_an_argument_drops_it_and_a_result_leaves_a_blank() {
+        // `fx-resume-tools-40x120-ctrl-o` / `-live-ctrl-o-up1` (D1 receipts):
+        // a refused write's `content: new file\nsecond line\n` ends on its
+        // second line, and a glob's `…\n - src/main.rs\n` on a blank row with
+        // no rail before the next entry's gap. An argument is written without
+        // its one trailing break (`appendTerminalSafeToolOutputInterruptible`,
+        // `full_transcript_screen.zig:6381-6383`); a result's ends its last
+        // row, and the line the detail closes with after it is that blank
+        // (`appendDetailContent`, `:6618-6642`). A break inside either keeps
+        // its rail.
+        let input = json!({"path": "c.txt", "content": "new file\n\nsecond line\n"});
+        let mut record = record();
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "w".into(),
+            detail: Detail::Arguments(arguments("write_file", &input)),
+        });
+        record.tool_started("w", &crate::tools::mutate::WRITE_FILE.shown(&input));
+        record.tool_finished("w", false, "declined", Outcome::Denied, None);
+        let pattern = json!({"pattern": "**/*.rs"});
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "g".into(),
+            detail: Detail::Arguments(arguments("glob_files", &pattern)),
+        });
+        record.tool_started("g", &read::GLOB_FILES.shown(&pattern));
+        record.observe(&UiEvent::ToolDetail {
+            call_id: "g".into(),
+            detail: result(
+                "glob_files",
+                "[glob] 1 matches for **/*.rs\n\n - src/main.rs\n",
+            ),
+        });
+        record.tool_finished("g", true, "", Outcome::Finished, None);
+        let rows = screen(&record);
+        let denied = rows
+            .iter()
+            .position(|row| row.ends_with("Denied file"))
+            .expect("the refused write");
+        assert_eq!(
+            &rows[denied..denied + 6],
+            [
+                "\u{251c} Denied file",
+                "\u{2502}  path: c.txt",
+                "\u{2502}  content: new file",
+                "\u{2502}  ",
+                "\u{2502}  second line",
+                "",
+            ]
+        );
+        let matched = rows
+            .iter()
+            .position(|row| row.ends_with("Matched **/*.rs"))
+            .expect("the glob");
+        assert_eq!(
+            &rows[matched..matched + 6],
+            [
+                "\u{2514} Matched **/*.rs",
+                "\u{2502}  [glob] 1 matches for **/*.rs",
+                "\u{2502}  ",
+                "\u{2502}   - src/main.rs",
+                "",
+                "",
+            ]
+        );
+    }
+
+    #[test]
     fn a_change_is_shown_as_upstreams_diff_block_instead_of_its_arguments_with_no_review() {
         // `fx-approvals-cc-40x120-full` rows 19-21: the row, a blank row, and
         // `  │ 1 + new file` in the diff grey -- here for a change no approval
@@ -2575,23 +2678,52 @@ mod tests {
                 Detail::Change(ApprovalDiff::of("a\n", "b\n"))
             ))
         );
-        let mut record = record();
-        for (call_id, detail) in details {
-            record.observe(&UiEvent::ToolDetail { call_id, detail });
-        }
-        record.tool_started("e", &crate::tools::mutate::EDIT_FILE.shown(&input));
-        record.tool_finished(
-            "e",
-            true,
-            "",
-            Outcome::Finished,
-            Some(LineChanges {
-                added: 1,
-                removed: 1,
-            }),
+        // Replayed, the change's own result is listed above its diff, as
+        // upstream's replay hands the recorded output to the call's detail
+        // (`attachHistoricalToolDetailResolved`, `transcript/runtime.zig:
+        // 5762-5829`; `fx-resume-tools-40x120-ctrl-o-up1`: `│  edited a.txt
+        // (41 bytes)`, a blank row, the diff) -- where a live one shows the
+        // diff alone (`-live-ctrl-o-up1`).
+        let replayed = |replaying: bool| {
+            let mut record = record();
+            record.replay(replaying);
+            for (call_id, detail) in details.clone() {
+                record.observe(&UiEvent::ToolDetail { call_id, detail });
+            }
+            record.tool_started("e", &crate::tools::mutate::EDIT_FILE.shown(&input));
+            record.tool_finished(
+                "e",
+                true,
+                "",
+                Outcome::Finished,
+                Some(LineChanges {
+                    added: 1,
+                    removed: 1,
+                }),
+            );
+            record.replay(false);
+            plain(&record.rows(120, 40, DARK, ""))
+        };
+        let rows = replayed(true);
+        let edited = rows
+            .iter()
+            .position(|row| row.ends_with("Edited a.txt +1 / -1"))
+            .expect("the row");
+        assert_eq!(
+            &rows[edited..edited + 5],
+            [
+                "\u{2514} Edited a.txt +1 / -1",
+                "\u{2502}  Edited a.txt",
+                "",
+                "  \u{2502} 1 - a",
+                "  \u{2502} 1 + b",
+            ]
         );
-        let rows = plain(&record.rows(120, 40, DARK, ""));
-        assert!(rows.iter().any(|row| row == "  \u{2502} 1 - a"), "{rows:?}");
+        let rows = replayed(false);
+        assert!(
+            !rows.iter().any(|row| row == "\u{2502}  Edited a.txt"),
+            "a live change listed its result: {rows:?}"
+        );
         assert!(rows.iter().any(|row| row == "  \u{2502} 1 + b"), "{rows:?}");
     }
 

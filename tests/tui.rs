@@ -9224,13 +9224,15 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     let concluded = &frames[asked + 1]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
-    // The sentence the user was shown, which is also how a resume tells a
-    // stop the compaction took from the turn's own (upstream's
-    // `cancellation_origin`).
+    // The sentence the user was shown, and whose stop it was in a field of
+    // its own, as upstream's (`event.interrupted.cancellation_origin ===
+    // "compaction"`, `tui-compaction-activity.test.ts:471`): that field,
+    // not the sentence, is how a resume tells it from the turn's own stop.
     assert_eq!(
         concluded["outcome"]["reason"],
         "Compaction cancelled. Try /compact again when ready."
     );
+    assert_eq!(concluded["outcome"]["cancellation_origin"], "compaction");
     // Nothing about it in the document.
     on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
     session.type_bytes(b"/quit\r");

@@ -230,7 +230,40 @@ pub enum TurnConclusion {
     Final { finish_reason: String, steps: u32 },
     /// The turn stopped before it finished: cancelled, out of budget, or
     /// refused. `reason` is the same sentence the user was shown.
-    Interrupted { reason: String },
+    Interrupted {
+        reason: String,
+        /// Whose stop it was, written only when it was not the turn's own,
+        /// as upstream writes its field (`ConversationInterruption.jsonStringify`,
+        /// `session_event.zig:138-160`) -- so a log from before the field
+        /// reads, and replays, as it always did.
+        #[serde(default, skip_serializing_if = "CancellationOrigin::is_turn")]
+        cancellation_origin: CancellationOrigin,
+    },
+}
+
+/// Which stop interrupted a turn: its own, or that of the automatic compaction
+/// that ran before its request could be sent -- upstream's `CancellationOrigin`
+/// (`vercel-labs/fx@c1db9191 src/core/shared/types.zig:2301-2304`), written by
+/// `persistCompactionInterruptedTurnOnce` (`runtime/interruption.zig:51-77`)
+/// and read by the replay (`app_session_runtime.zig:4796-4800`), which shows a
+/// turn the compaction stopped without the turn's cancellation line. As
+/// upstream's reader does (`session_event.zig:121-125`), a name it does not
+/// know is refused rather than guessed at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CancellationOrigin {
+    /// The turn's own stop: a Ctrl-C, a `/stop`, a failure.
+    #[default]
+    Turn,
+    /// The stop of the automatic compaction the turn was waiting on.
+    Compaction,
+}
+
+impl CancellationOrigin {
+    /// For `skip_serializing_if`: the turn's own stop is the one not written.
+    fn is_turn(&self) -> bool {
+        *self == Self::Turn
+    }
 }
 
 impl TurnConclusion {
@@ -812,6 +845,49 @@ mod tests {
     }
 
     #[test]
+    fn a_stop_the_compaction_took_says_so_and_any_other_reads_as_it_always_did() {
+        // Upstream writes the origin only when it is the compaction's
+        // (`session_event.zig:138-160`) and reads a missing one as the turn's.
+        let stopped = |cancellation_origin| SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "r".to_string(),
+                cancellation_origin,
+            },
+        };
+        let own = serde_json::to_string(&stopped(CancellationOrigin::Turn)).expect("encodes");
+        assert_eq!(
+            own,
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r"}}"#
+        );
+        let compaction =
+            serde_json::to_string(&stopped(CancellationOrigin::Compaction)).expect("encodes");
+        assert_eq!(
+            compaction,
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"compaction"}}"#
+        );
+        for (line, origin) in [
+            (own, CancellationOrigin::Turn),
+            (compaction, CancellationOrigin::Compaction),
+            (
+                r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"turn"}}"#
+                    .to_string(),
+                CancellationOrigin::Turn,
+            ),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<SessionEvent>(&line).expect("decodes"),
+                stopped(origin)
+            );
+        }
+        // A name it does not know is refused, as upstream's reader refuses it
+        // (`session_event.zig:121-125`), not read as either.
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"turn_concluded","outcome":{"kind":"interrupted","reason":"r","cancellation_origin":"tool"}}"#
+        )
+        .is_err());
+    }
+
+    #[test]
     fn every_event_kind_names_itself() {
         let events = [
             SessionEvent::SessionStarted {
@@ -874,6 +950,7 @@ mod tests {
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
                     reason: "cancelled".to_string(),
+                    cancellation_origin: crate::session::CancellationOrigin::Turn,
                 },
             },
             SessionEvent::SessionRenamed {
@@ -1038,7 +1115,8 @@ mod tests {
         );
         assert_eq!(
             TurnConclusion::Interrupted {
-                reason: "cancelled".to_string()
+                reason: "cancelled".to_string(),
+                cancellation_origin: crate::session::CancellationOrigin::Turn,
             }
             .label(),
             "interrupted"
