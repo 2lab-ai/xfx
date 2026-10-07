@@ -225,7 +225,8 @@ impl Provider for LlmuxProvider {
             &completion.usage,
             cache,
             crate::session::event::system_now_ms(),
-        );
+        )
+        .map(crate::gateway::protocol::Bill::Exact);
         Ok(completion)
     }
 

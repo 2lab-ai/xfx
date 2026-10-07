@@ -1,0 +1,15 @@
+=== ~/.xfx/history.jsonl (301 bytes)
+{"schema_version":1,"timestamp_ms":1791326674305,"workspace_root":"<scratch>/work","text":"/allowlist add command \"x\""}
+{"schema_version":1,"timestamp_ms":1791326675323,"workspace_root":"<scratch>/work","text":"/allowlist remove command \"x\""}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (106 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "permission": {}
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

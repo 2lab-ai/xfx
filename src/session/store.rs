@@ -476,6 +476,35 @@ pub struct HistoryTurn {
     /// ([`TurnTiming`]).
     #[serde(skip)]
     pub timing: TurnTiming,
+    /// Where the turn is in its log: what a [`SessionEvent::ContextCheckpoint`]
+    /// is measured against ([`TurnSeqs`]).
+    #[serde(skip)]
+    pub seqs: TurnSeqs,
+}
+
+/// The sequence numbers of a turn's first and last frames.
+///
+/// A checkpoint names the last frame it covers, as upstream's does
+/// (`covers_through_seq`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_event.zig:169-172`); these are what say which
+/// turns that is. Read off the envelopes, so nothing new is written for them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TurnSeqs {
+    /// The `user_message` frame's.
+    pub opened: u64,
+    /// The last frame that belongs to the turn.
+    pub last: u64,
+}
+
+/// The compaction in force: which turns it covers and what replaces them in
+/// what the model reads ([`SessionEvent::ContextCheckpoint`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Checkpoint {
+    /// The last frame it covers.
+    pub covers_through_seq: u64,
+    /// How many of [`DurableState::turns`] it covers, oldest first.
+    pub covered_turns: usize,
+    pub compacted: super::checkpoint::Compacted,
 }
 
 /// When one turn was asked, when it ended, and the tokens its provider
@@ -525,6 +554,10 @@ pub struct DurableState {
     /// What the session's `usage_recorded` frames say about its spend, for
     /// `/usage` ([`crate::usage`]).
     pub usage: RecordedUsage,
+    /// The last `context_checkpoint` in the log, when there is one: the turns
+    /// it covers are still in [`Self::turns`] -- a resumed screen shows them
+    /// -- and [`Self::history_messages`] sends its compacted form instead.
+    pub checkpoint: Option<Checkpoint>,
 }
 
 /// What a session's `usage_recorded` frames add up to, kept per request
@@ -542,6 +575,52 @@ pub struct RecordedUsage {
     pub unaccounted_at_ms: Vec<i64>,
     pub lines_added: u64,
     pub lines_removed: u64,
+}
+
+impl RecordedUsage {
+    /// The requests whose bill is still to be asked for
+    /// ([`crate::session::RequestUsage::pending`]).
+    pub fn pending(&self) -> impl Iterator<Item = &crate::session::RequestUsage> {
+        self.requests.iter().filter(|request| request.pending())
+    }
+
+    /// Puts what the Gateway said later in place of the pending requests it
+    /// was about (`applyGeneration`, `session_usage.zig:1080-1126`, and
+    /// `rejectPendingGeneration`, `:2171-2187`).
+    ///
+    /// A bill takes the request's place under the same generation id and keeps
+    /// how long the request took, which only this side measured. A rejection
+    /// leaves the request with no cost and nowhere to ask: spend that stays
+    /// missing. Either applies only to a request still pending, so a second
+    /// answer for one generation changes nothing.
+    fn settle(&mut self, settled: &[crate::session::RequestUsage], rejected: &[String]) {
+        for bill in settled {
+            let Some(id) = bill.generation_id.as_deref() else {
+                continue;
+            };
+            if let Some(request) = self
+                .requests
+                .iter_mut()
+                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
+            {
+                let duration_ms = request.duration_ms;
+                *request = crate::session::RequestUsage {
+                    duration_ms,
+                    origin: None,
+                    ..bill.clone()
+                };
+            }
+        }
+        for id in rejected {
+            if let Some(request) = self
+                .requests
+                .iter_mut()
+                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
+            {
+                request.origin = None;
+            }
+        }
+    }
 }
 
 impl DurableState {
@@ -562,7 +641,24 @@ impl DurableState {
             last_event_seq: 0,
             renamed: None,
             usage: RecordedUsage::default(),
+            checkpoint: None,
         }
+    }
+
+    /// An empty state, for a test that builds one by hand.
+    #[cfg(test)]
+    pub(crate) fn empty_for_tests() -> Self {
+        Self::empty()
+    }
+
+    /// The turns a compaction has not covered yet: what the model reads word
+    /// for word, and what the next compaction may compact.
+    pub fn uncovered_turns(&self) -> &[HistoryTurn] {
+        let covered = self
+            .checkpoint
+            .as_ref()
+            .map_or(0, |checkpoint| checkpoint.covered_turns);
+        &self.turns[covered.min(self.turns.len())..]
     }
 
     /// What the session is called: the title the user gave it, or else its
@@ -601,185 +697,202 @@ impl DurableState {
     /// carry the turn on unasked ([`TURN_ABORTED`]). A turn with no conclusion
     /// in the log -- a crash -- is replayed as it always was, the incomplete
     /// group dropped.
+    ///
+    /// **A compacted conversation is sent in place of the turns it covers**
+    /// ([`Self::checkpoint`]): one user message holding its text, then the
+    /// turns after it as they are -- the shape upstream sends after a
+    /// compaction (`receipts/w4/README.md`, "The next request").
     pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
         let mut out = Vec::new();
         let mut notices = Vec::new();
-        for turn in &self.turns {
-            // Every image the prompt carried goes with it again, as upstream
-            // re-sends the history's images on every request
-            // (`cap/fx-image-40x120-bodies/002-completion.json`) -- the bytes
-            // the session saved, checked against the digest it saved them
-            // with. One it could not read back is left out and said so, the
-            // way a dropped reasoning record is: the prompt still names it.
-            let mut images = Vec::new();
-            for image in &turn.images {
-                let label = crate::image::MediaType::parse(&image.recorded.media_type);
-                match (&image.snapshot, label) {
-                    (Snapshot::Loaded { bytes, path }, Some(media_type)) => {
-                        images.push(crate::gateway::protocol::ContentPart::Image {
-                            id: image.recorded.id,
-                            media_type,
-                            data: Arc::clone(bytes),
-                            saved: Some(Arc::clone(path)),
-                        });
-                    }
-                    (Snapshot::Unusable(reason), _) => notices.push(format!(
-                        "xfx: image #{} of this session could not be read back ({reason}), \
-                         so it was not sent again",
-                        image.recorded.id
-                    )),
-                    _ => notices.push(format!(
-                        "xfx: image #{} of this session was not read back, so it was not sent \
-                         again",
-                        image.recorded.id
-                    )),
-                }
-            }
-            out.push(if images.is_empty() {
-                Message::user(turn.user.clone())
-            } else {
-                Message::user_with_images(turn.user.clone(), images)
-            });
-            let opened = out.len();
-            let mut pending: Vec<Message> = Vec::new();
-            let mut awaiting: Vec<String> = Vec::new();
-            // The calls of the step being answered, by id, for the aborted
-            // results an interrupted turn owes them; and every tool that did
-            // return in this turn, in order, for the sentence that names them.
-            let mut named: Vec<(String, String)> = Vec::new();
-            let mut finished: Vec<String> = Vec::new();
-            // Whether the step being answered has a call that was stopped
-            // rather than finished (see the `ToolResult` arm).
-            let mut stopped = false;
-            for step in &turn.steps {
-                match step {
-                    TurnStep::Assistant {
-                        text,
-                        tool_calls,
-                        raw_content,
-                        responses_state,
-                        wire,
-                    } => {
-                        stopped = false;
-                        if text.is_empty()
-                            && tool_calls.is_empty()
-                            && raw_content.is_empty()
-                            && responses_state.is_empty()
-                        {
-                            continue;
-                        }
-                        let calls: Vec<ToolCall> = tool_calls
-                            .iter()
-                            .map(|call| ToolCall {
-                                id: call.id.clone(),
-                                name: call.name.clone(),
-                                input: call.input.clone(),
-                            })
-                            .collect();
-                        awaiting.extend(calls.iter().map(|call| call.id.clone()));
-                        named.extend(
-                            calls
-                                .iter()
-                                .map(|call| (call.id.clone(), call.name.clone())),
-                        );
-                        // The replay table of `.prd/04-providers.md` §Provenance,
-                        // in one expression. `None` with blocks is legacy
-                        // Anthropic, because that is the only wire that ever
-                        // wrote the field; everything else must match exactly.
-                        let recorded = wire.clone().unwrap_or_else(|| {
-                            if !raw_content.is_empty() {
-                                Wire::AnthropicMessages
-                            } else if !responses_state.is_empty() {
-                                // Wire-less responses_state is invalid: no pre-wire binary
-                                // wrote this field. Treat as unknown wire so it drops.
-                                Wire::Unrecognized("unknown_wire_with_responses_state".to_string())
-                            } else {
-                                active.clone()
-                            }
-                        });
-                        let state: &[serde_json::Value] = match (&recorded, &active) {
-                            (Wire::AnthropicMessages, Wire::AnthropicMessages) => raw_content,
-                            (Wire::CodexResponses, Wire::CodexResponses)
-                            | (Wire::GrokResponses, Wire::GrokResponses) => responses_state,
-                            _ => &[],
-                        };
-                        if state.is_empty()
-                            && !(raw_content.is_empty() && responses_state.is_empty())
-                        {
-                            notices.push(format!(
-                                "xfx: this session recorded reasoning on the {} wire and is \
-                                 resuming on {}, so that reasoning was not carried over",
-                                recorded.label(),
-                                active.label()
-                            ));
-                        }
-                        pending.push(if state.is_empty() {
-                            Message::assistant(Some(text), calls)
-                        } else {
-                            Message::assistant_raw(state.to_vec(), calls)
-                        });
-                    }
-                    TurnStep::ToolResult {
-                        call_id,
-                        tool,
-                        ok,
-                        output,
-                    } => {
-                        // Replayed as it was sent: a failure as a failure.
-                        pending.push(if *ok {
-                            Message::tool_result(call_id, tool, output.clone())
-                        } else {
-                            Message::tool_error(call_id, tool, output.clone())
-                        });
-                        awaiting.retain(|id| id != call_id);
-                        // A call that answered `aborted by user` did not
-                        // finish: its turn was stopped under it (a question the
-                        // user cancelled, `crate::tools::question`). It is the
-                        // call upstream keeps on the interrupted turn rather
-                        // than among the completed ones
-                        // (`InterruptedHistoryTurn.tool_call`,
-                        // `session.zig:2701-2736`).
-                        if !*ok && output == ABORTED_TOOL_OUTPUT {
-                            stopped = true;
-                        } else {
-                            finished.push(tool.clone());
-                        }
-                    }
-                    TurnStep::ToolFeedback { text, .. } => {
-                        // Into `pending`, with `awaiting` untouched: this is
-                        // not an answer to a call, so it cannot complete a
-                        // group. The machine emits it only after every result
-                        // of its step, so `awaiting` is already empty here on a
-                        // complete step and the flush below carries the
-                        // sentence out with its group -- and on an incomplete
-                        // one it is dropped with the group, rather than
-                        // arriving as a user message about a result the model
-                        // was never shown.
-                        pending.push(Message::user(text.clone()));
-                    }
-                }
-                if awaiting.is_empty() {
-                    out.append(&mut pending);
-                }
-            }
-            if matches!(turn.outcome, Some(TurnConclusion::Interrupted { .. })) {
-                let stopped_under = stopped || !awaiting.is_empty();
-                close_interrupted(
-                    &mut out,
-                    opened,
-                    pending,
-                    &awaiting,
-                    &named,
-                    &finished,
-                    stopped_under,
-                );
-            }
+        if let Some(checkpoint) = &self.checkpoint {
+            out.push(Message::user(super::checkpoint::render(
+                &checkpoint.compacted,
+            )));
+        }
+        for turn in self.uncovered_turns() {
+            out.extend(turn_messages(turn, &active, &mut notices));
         }
         ReplayedHistory {
             messages: out,
             notices,
         }
     }
+}
+
+/// One turn as the messages a request carries for it on `active`, its user
+/// message first ([`DurableState::history_messages`]). A reasoning state that
+/// does not replay on `active` is dropped with a line in `notices`.
+pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String>) -> Vec<Message> {
+    let mut out = Vec::new();
+    // Every image the prompt carried goes with it again, as upstream
+    // re-sends the history's images on every request
+    // (`cap/fx-image-40x120-bodies/002-completion.json`) -- the bytes
+    // the session saved, checked against the digest it saved them
+    // with. One it could not read back is left out and said so, the
+    // way a dropped reasoning record is: the prompt still names it.
+    let mut images = Vec::new();
+    for image in &turn.images {
+        let label = crate::image::MediaType::parse(&image.recorded.media_type);
+        match (&image.snapshot, label) {
+            (Snapshot::Loaded { bytes, path }, Some(media_type)) => {
+                images.push(crate::gateway::protocol::ContentPart::Image {
+                    id: image.recorded.id,
+                    media_type,
+                    data: Arc::clone(bytes),
+                    saved: Some(Arc::clone(path)),
+                });
+            }
+            (Snapshot::Unusable(reason), _) => notices.push(format!(
+                "xfx: image #{} of this session could not be read back ({reason}), \
+                 so it was not sent again",
+                image.recorded.id
+            )),
+            _ => notices.push(format!(
+                "xfx: image #{} of this session was not read back, so it was not sent \
+                 again",
+                image.recorded.id
+            )),
+        }
+    }
+    out.push(if images.is_empty() {
+        Message::user(turn.user.clone())
+    } else {
+        Message::user_with_images(turn.user.clone(), images)
+    });
+    let opened = out.len();
+    let mut pending: Vec<Message> = Vec::new();
+    let mut awaiting: Vec<String> = Vec::new();
+    // The calls of the step being answered, by id, for the aborted
+    // results an interrupted turn owes them; and every tool that did
+    // return in this turn, in order, for the sentence that names them.
+    let mut named: Vec<(String, String)> = Vec::new();
+    let mut finished: Vec<String> = Vec::new();
+    // Whether the step being answered has a call that was stopped
+    // rather than finished (see the `ToolResult` arm).
+    let mut stopped = false;
+    for step in &turn.steps {
+        match step {
+            TurnStep::Assistant {
+                text,
+                tool_calls,
+                raw_content,
+                responses_state,
+                wire,
+            } => {
+                stopped = false;
+                if text.is_empty()
+                    && tool_calls.is_empty()
+                    && raw_content.is_empty()
+                    && responses_state.is_empty()
+                {
+                    continue;
+                }
+                let calls: Vec<ToolCall> = tool_calls
+                    .iter()
+                    .map(|call| ToolCall {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        input: call.input.clone(),
+                    })
+                    .collect();
+                awaiting.extend(calls.iter().map(|call| call.id.clone()));
+                named.extend(
+                    calls
+                        .iter()
+                        .map(|call| (call.id.clone(), call.name.clone())),
+                );
+                // The replay table of `.prd/04-providers.md` §Provenance,
+                // in one expression. `None` with blocks is legacy
+                // Anthropic, because that is the only wire that ever
+                // wrote the field; everything else must match exactly.
+                let recorded = wire.clone().unwrap_or_else(|| {
+                    if !raw_content.is_empty() {
+                        Wire::AnthropicMessages
+                    } else if !responses_state.is_empty() {
+                        // Wire-less responses_state is invalid: no pre-wire binary
+                        // wrote this field. Treat as unknown wire so it drops.
+                        Wire::Unrecognized("unknown_wire_with_responses_state".to_string())
+                    } else {
+                        active.clone()
+                    }
+                });
+                let state: &[serde_json::Value] = match (&recorded, active) {
+                    (Wire::AnthropicMessages, Wire::AnthropicMessages) => raw_content,
+                    (Wire::CodexResponses, Wire::CodexResponses)
+                    | (Wire::GrokResponses, Wire::GrokResponses) => responses_state,
+                    _ => &[],
+                };
+                if state.is_empty() && !(raw_content.is_empty() && responses_state.is_empty()) {
+                    notices.push(format!(
+                        "xfx: this session recorded reasoning on the {} wire and is \
+                         resuming on {}, so that reasoning was not carried over",
+                        recorded.label(),
+                        active.label()
+                    ));
+                }
+                pending.push(if state.is_empty() {
+                    Message::assistant(Some(text), calls)
+                } else {
+                    Message::assistant_raw(state.to_vec(), calls)
+                });
+            }
+            TurnStep::ToolResult {
+                call_id,
+                tool,
+                ok,
+                output,
+            } => {
+                // Replayed as it was sent: a failure as a failure.
+                pending.push(if *ok {
+                    Message::tool_result(call_id, tool, output.clone())
+                } else {
+                    Message::tool_error(call_id, tool, output.clone())
+                });
+                awaiting.retain(|id| id != call_id);
+                // A call that answered `aborted by user` did not
+                // finish: its turn was stopped under it (a question the
+                // user cancelled, `crate::tools::question`). It is the
+                // call upstream keeps on the interrupted turn rather
+                // than among the completed ones
+                // (`InterruptedHistoryTurn.tool_call`,
+                // `session.zig:2701-2736`).
+                if !*ok && output == ABORTED_TOOL_OUTPUT {
+                    stopped = true;
+                } else {
+                    finished.push(tool.clone());
+                }
+            }
+            TurnStep::ToolFeedback { text, .. } => {
+                // Into `pending`, with `awaiting` untouched: this is
+                // not an answer to a call, so it cannot complete a
+                // group. The machine emits it only after every result
+                // of its step, so `awaiting` is already empty here on a
+                // complete step and the flush below carries the
+                // sentence out with its group -- and on an incomplete
+                // one it is dropped with the group, rather than
+                // arriving as a user message about a result the model
+                // was never shown.
+                pending.push(Message::user(text.clone()));
+            }
+        }
+        if awaiting.is_empty() {
+            out.append(&mut pending);
+        }
+    }
+    if matches!(turn.outcome, Some(TurnConclusion::Interrupted { .. })) {
+        let stopped_under = stopped || !awaiting.is_empty();
+        close_interrupted(
+            &mut out,
+            opened,
+            pending,
+            &awaiting,
+            &named,
+            &finished,
+            stopped_under,
+        );
+    }
+    out
 }
 
 /// Closes a turn that did not finish, as upstream's history does
@@ -1638,12 +1751,25 @@ impl SessionStore {
     /// that cannot be read is **reported, not skipped** -- its spend is missing
     /// from whichever windows it could be in, and the dashboard has to say so.
     /// The store's scan cap applies, newest kept, as it does to a listing.
-    pub fn usage_since(&self, since_ms: i64) -> Result<UsageScan, SessionError> {
+    ///
+    /// `Ok(None)` once `cancel` is set: it is looked at before each session is
+    /// opened, so a reader nobody wants any more stops after the one it is in
+    /// (`collectFromHomeConservativeCancelable`, `vercel-labs/fx@c1db9191
+    /// src/core/session/usage_recovery.zig:43-47`).
+    pub fn usage_since(
+        &self,
+        since_ms: i64,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<UsageScan>, SessionError> {
+        let cancelled = || cancel.load(std::sync::atomic::Ordering::Acquire);
+        if cancelled() {
+            return Ok(None);
+        }
         self.verify_store_dirs()?;
         let mut scan = UsageScan::default();
         let entries = match fs::read_dir(&self.sessions_dir) {
             Ok(entries) => entries,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(scan),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Some(scan)),
             Err(err) => return Err(io_error(&self.sessions_dir, err)),
         };
         let mut names: Vec<String> = Vec::new();
@@ -1657,6 +1783,9 @@ impl SessionStore {
             scan.truncated = true;
         }
         for name in names {
+            if cancelled() {
+                return Ok(None);
+            }
             // Not a session's name is not a session: a stray file beside them
             // holds no spend.
             let Ok(id) = SessionId::parse(&name) else {
@@ -1677,7 +1806,7 @@ impl SessionStore {
                 Err(_) => scan.unreadable.push(Some(manifest.updated_at_ms)),
             }
         }
-        Ok(scan)
+        Ok(Some(scan))
     }
 
     /// One session, replayed and cross-checked against its manifest.
@@ -2107,6 +2236,12 @@ impl SessionRecorder {
         self.session.id()
     }
 
+    /// Where this session's saved-session permission rules are kept
+    /// (`crate::permission::session_rules`), beside its log.
+    pub fn permission_rules_path(&self) -> std::path::PathBuf {
+        crate::permission::session_rules::path_in(&self.store.session_dir(self.session.id()))
+    }
+
     pub fn state(&self) -> &DurableState {
         self.session.state()
     }
@@ -2402,9 +2537,13 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                 started_at_ms: envelope.timestamp_ms,
                 ..TurnTiming::default()
             },
+            seqs: TurnSeqs {
+                opened: envelope.seq,
+                last: envelope.seq,
+            },
         }),
         SessionEvent::ImagesAttached { images } => {
-            let turn = open_turn(state, "an image")?;
+            let turn = open_turn(state, "an image", envelope.seq)?;
             // Right behind the message that names them, once: anything else is
             // not the order a turn writes them in.
             if !turn.steps.is_empty() || !turn.images.is_empty() {
@@ -2433,7 +2572,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             responses_state,
             wire,
         } => {
-            open_turn(state, "an assistant step")?
+            open_turn(state, "an assistant step", envelope.seq)?
                 .steps
                 .push(TurnStep::Assistant {
                     text: text.clone(),
@@ -2449,7 +2588,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             ok,
             output,
         } => {
-            open_turn(state, "a tool result")?
+            open_turn(state, "a tool result", envelope.seq)?
                 .steps
                 .push(TurnStep::ToolResult {
                     call_id: call_id.clone(),
@@ -2462,7 +2601,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             // A step of the open turn, exactly as a result is. Reducing it the
             // way a `UserMessage` is reduced would push a new turn and leave
             // the rest of the batch's results with no call ahead of them.
-            open_turn(state, "an approval amendment")?
+            open_turn(state, "an approval amendment", envelope.seq)?
                 .steps
                 .push(TurnStep::ToolFeedback {
                     call_id: call_id.clone(),
@@ -2485,13 +2624,18 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             unaccounted,
             lines_added,
             lines_removed,
+            settled,
+            rejected,
         } => {
             // A frame with neither requests nor a cut-off one is one a binary
             // before request records wrote: usage that happened and cannot be
-            // placed in any window.
-            if requests.is_empty() && !unaccounted {
+            // placed in any window. One that settles bills is the runtime's
+            // answer about earlier requests, and is none of those.
+            let settles = !settled.is_empty() || !rejected.is_empty();
+            if requests.is_empty() && !unaccounted && !settles {
                 state.usage.legacy_at_ms.push(envelope.timestamp_ms);
             }
+            state.usage.settle(settled, rejected);
             if *unaccounted {
                 state.usage.unaccounted_at_ms.push(envelope.timestamp_ms);
             }
@@ -2520,7 +2664,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             }
         }
         SessionEvent::TurnConcluded { outcome } => {
-            let turn = open_turn(state, "a turn conclusion")?;
+            let turn = open_turn(state, "a turn conclusion", envelope.seq)?;
             turn.outcome = Some(outcome.clone());
             turn.timing.concluded_at_ms = Some(envelope.timestamp_ms);
         }
@@ -2532,6 +2676,46 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             }
             state.renamed = Some(title.clone());
         }
+        SessionEvent::ContextCheckpoint {
+            covers_through_seq,
+            compacted,
+        } => {
+            // Upstream's coverage rule (`session_event.zig:245-256`): never
+            // behind the checkpoint in force, never past the log's end -- and
+            // never over itself, since this frame is not in the log yet.
+            let in_force = state
+                .checkpoint
+                .as_ref()
+                .map_or(0, |checkpoint| checkpoint.covers_through_seq);
+            if *covers_through_seq < in_force || *covers_through_seq > state.last_event_seq {
+                return Err(format!(
+                    "a checkpoint covers through frame {covers_through_seq}, outside frames \
+                     {in_force} to {}",
+                    state.last_event_seq
+                ));
+            }
+            // Whole turns: every turn it opens over ends inside it, so the
+            // compacted form and the turns sent after it never share one.
+            let covered = state
+                .turns
+                .iter()
+                .take_while(|turn| turn.seqs.opened <= *covers_through_seq)
+                .count();
+            if covered == 0 {
+                return Err("a checkpoint covers no turn".to_string());
+            }
+            if state.turns[..covered]
+                .iter()
+                .any(|turn| turn.seqs.last > *covers_through_seq)
+            {
+                return Err("a checkpoint covers part of a turn".to_string());
+            }
+            state.checkpoint = Some(Checkpoint {
+                covers_through_seq: *covers_through_seq,
+                covered_turns: covered,
+                compacted: compacted.clone(),
+            });
+        }
     }
 
     state.updated_at_ms = envelope.timestamp_ms;
@@ -2539,14 +2723,32 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
     Ok(())
 }
 
-/// The turn currently open, or why there is not one.
-fn open_turn<'a>(state: &'a mut DurableState, what: &str) -> Result<&'a mut HistoryTurn, String> {
+/// The turn currently open, or why there is not one, with `seq` recorded as
+/// its last frame.
+///
+/// A turn a checkpoint covers takes nothing more: the checkpoint is what the
+/// model reads for it, and a step the compacted form does not hold would be a
+/// step no request ever carries.
+fn open_turn<'a>(
+    state: &'a mut DurableState,
+    what: &str,
+    seq: u64,
+) -> Result<&'a mut HistoryTurn, String> {
+    let covered = state
+        .checkpoint
+        .as_ref()
+        .map_or(0, |checkpoint| checkpoint.covered_turns);
+    let count = state.turns.len();
     let Some(turn) = state.turns.last_mut() else {
         return Err(format!("{what} appears before any user message"));
     };
     if turn.outcome.is_some() {
         return Err(format!("{what} appears after its turn already concluded"));
     }
+    if count <= covered {
+        return Err(format!("{what} appears in a turn a checkpoint covers"));
+    }
+    turn.seqs.last = seq;
     Ok(turn)
 }
 
@@ -3215,6 +3417,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::UsageRecorded {
                 input_tokens: None,
@@ -3223,11 +3427,96 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
         ])
         .expect("reduces");
         assert_eq!(state.total_input_tokens, 3);
         assert_eq!(state.total_output_tokens, 5);
+    }
+
+    /// The runtime's later answer about a pending request takes its place
+    /// under the same generation id (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`): the Gateway's time, model, tokens and
+    /// cost, and the request's own duration. A rejection leaves it missing.
+    /// Neither touches a request that is not pending, or the meter's totals,
+    /// and neither is a frame from before request records.
+    #[test]
+    fn a_later_bill_settles_its_pending_request_and_a_rejection_leaves_it_missing() {
+        let pending = |id: &str| crate::session::RequestUsage {
+            at_ms: 1_000,
+            duration_ms: 700,
+            model: "vendor/model".to_string(),
+            input_tokens: 12,
+            output_tokens: 3,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: None,
+            cost: None,
+            generation_id: Some(id.to_string()),
+            origin: Some("http://127.0.0.1:4100".to_string()),
+        };
+        let first = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+        let second = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
+        let bill = crate::session::RequestUsage {
+            at_ms: 900,
+            duration_ms: 0,
+            model: "anthropic/claude-opus-5".to_string(),
+            input_tokens: 1340,
+            output_tokens: 250,
+            cache_read_tokens: 300,
+            cache_write_tokens: 40,
+            reasoning_tokens: Some(50),
+            cost: Some(0.0123),
+            generation_id: Some(first.to_string()),
+            origin: None,
+        };
+        let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
+            input_tokens: None,
+            output_tokens: None,
+            requests,
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled,
+            rejected,
+        };
+        let state = reduce(vec![
+            started(),
+            frame(
+                vec![pending(first), pending(second)],
+                Vec::new(),
+                Vec::new(),
+            ),
+            frame(Vec::new(), vec![bill.clone()], vec![second.to_string()]),
+            // A second answer about the same generation changes nothing.
+            frame(
+                Vec::new(),
+                vec![crate::session::RequestUsage {
+                    cost: Some(9.0),
+                    ..bill.clone()
+                }],
+                Vec::new(),
+            ),
+        ])
+        .expect("reduces");
+        let requests = &state.usage.requests;
+        assert_eq!(
+            requests[0],
+            crate::session::RequestUsage {
+                duration_ms: 700,
+                ..bill
+            }
+        );
+        assert!(!requests[1].pending());
+        assert_eq!(requests[1].cost, None);
+        assert_eq!(state.usage.pending().count(), 0);
+        assert!(state.usage.legacy_at_ms.is_empty());
+        assert_eq!(
+            (state.total_input_tokens, state.total_output_tokens),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -3760,6 +4049,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Final {
@@ -4358,5 +4649,203 @@ mod tests {
         }
         assert!(slept.is_empty(), "waiting cannot fix a refused syscall");
         assert_eq!(attempts, 1);
+    }
+
+    // -- context checkpoints ------------------------------------------------
+
+    fn user(text: &str) -> SessionEvent {
+        SessionEvent::UserMessage {
+            text: text.to_string(),
+        }
+    }
+
+    fn answer(text: &str) -> SessionEvent {
+        SessionEvent::AssistantMessage {
+            text: text.to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }
+    }
+
+    fn concluded() -> SessionEvent {
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        }
+    }
+
+    fn compacted_first() -> super::super::checkpoint::Compacted {
+        use super::super::checkpoint::{Compacted, CompactedTurn};
+        Compacted {
+            entries: Vec::new(),
+            turns: vec![CompactedTurn {
+                number: 1,
+                users: vec!["one".to_string()],
+                work: String::new(),
+                final_reply: "ONE".to_string(),
+                first_tool: 0,
+                last_tool: 0,
+                tools: Vec::new(),
+            }],
+            turn_count: 1,
+            tool_count: 0,
+        }
+    }
+
+    /// Two answered turns: frames 2-4 and 5-7.
+    fn two_turns() -> Vec<SessionEvent> {
+        vec![
+            started(),
+            user("one"),
+            answer("ONE"),
+            concluded(),
+            user("two"),
+            answer("TWO"),
+            concluded(),
+        ]
+    }
+
+    #[test]
+    fn a_checkpoint_replaces_the_turns_it_covers_in_the_next_request_only() {
+        let mut events = two_turns();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let state = reduce(events).expect("a valid log");
+        // The log keeps both turns -- a resumed screen shows them.
+        assert_eq!(state.turns.len(), 2);
+        assert_eq!(state.uncovered_turns().len(), 1);
+        let checkpoint = state.checkpoint.as_ref().expect("in force");
+        assert_eq!(checkpoint.covered_turns, 1);
+        // The request: the compacted form, then the turn after it as it was.
+        let messages = state.history_messages(Wire::VercelGateway).messages;
+        assert_eq!(
+            messages,
+            vec![
+                Message::user(super::super::checkpoint::render(&compacted_first())),
+                Message::user("two"),
+                Message::assistant(Some("TWO"), Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_that_covers_part_of_a_turn_or_none_is_refused() {
+        // Frame 3 is inside the first turn, whose conclusion is frame 4.
+        let mut part = two_turns();
+        part.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 3,
+            compacted: compacted_first(),
+        });
+        assert_eq!(
+            reduce(part).err().as_deref(),
+            Some("a checkpoint covers part of a turn")
+        );
+        let mut none = two_turns();
+        none.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 1,
+            compacted: compacted_first(),
+        });
+        assert_eq!(
+            reduce(none).err().as_deref(),
+            Some("a checkpoint covers no turn")
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_never_covers_frames_past_the_log_or_behind_the_one_in_force() {
+        let mut ahead = two_turns();
+        ahead.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 8,
+            compacted: compacted_first(),
+        });
+        assert!(reduce(ahead).is_err(), "covered itself");
+        let mut behind = two_turns();
+        behind.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 7,
+            compacted: compacted_first(),
+        });
+        behind.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        assert!(reduce(behind).is_err(), "went back");
+    }
+
+    #[test]
+    fn a_step_into_a_covered_turn_is_refused() {
+        // A turn left open by a crash, then covered: nothing more may land in
+        // it, or a request would carry a step the compacted form never held.
+        let events = vec![
+            started(),
+            user("one"),
+            answer("ONE"),
+            SessionEvent::ContextCheckpoint {
+                covers_through_seq: 3,
+                compacted: compacted_first(),
+            },
+            answer("late"),
+        ];
+        assert_eq!(
+            reduce(events).err().as_deref(),
+            Some("an assistant step appears in a turn a checkpoint covers")
+        );
+    }
+
+    #[test]
+    fn the_latest_checkpoint_is_the_one_in_force() {
+        let mut events = two_turns();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let mut both = compacted_first();
+        both.turns.push(super::super::checkpoint::CompactedTurn {
+            number: 2,
+            users: vec!["two".to_string()],
+            work: String::new(),
+            final_reply: "TWO".to_string(),
+            first_tool: 0,
+            last_tool: 0,
+            tools: Vec::new(),
+        });
+        both.turn_count = 2;
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 7,
+            compacted: both.clone(),
+        });
+        events.push(user("three"));
+        let state = reduce(events).expect("a valid log");
+        assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(2));
+        let messages = state.history_messages(Wire::VercelGateway).messages;
+        assert_eq!(
+            messages[0],
+            Message::user(super::super::checkpoint::render(&both))
+        );
+        assert_eq!(messages[1], Message::user("three"));
+        assert_eq!(messages.len(), 2);
+    }
+
+    #[test]
+    fn a_checkpoint_frame_round_trips_under_its_kind() {
+        let event = SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        };
+        assert_eq!(event.kind(), "context_checkpoint");
+        let line = frame(8, event.clone()).encode().expect("encodes");
+        assert!(line.contains("\"kind\":\"context_checkpoint\""), "{line}");
+        assert!(line.contains("\"covers_through_seq\":4"), "{line}");
+        assert_eq!(
+            EventEnvelope::decode(line.trim_end())
+                .expect("decodes")
+                .event,
+            event
+        );
     }
 }

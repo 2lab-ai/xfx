@@ -39,15 +39,15 @@ Nothing reached the real clipboard: `osascript` resolved to the shim on both
 binaries (the `.clipfile`s are the shim's record). The fx run's chime
 directories were intact (exit 0, no `SOUND GUARD BREACHED`).
 
-The fx files were taken with xfx at d9a2010 (base `cafab50`). The xfx files
-were retaken at `954ff94`, after plan `aed448c` was merged (W6 `/undo`, F4,
-E1 and W1 `/usage` `/credits` with it); their banner shows `954ff94`. Rows
-2-40 of every retaken screen are identical to the d9a2010 take once the run
-directory and the report's name are normalized, and the reports differ only
-in their times, ids, pid, byte counts and the revision in `version:`. The
-first xfx run after a fresh build loses a `/trace` typed 2 s after launch (no
-report and no notice: the binary is still being assessed and the TUI is not
-reading yet), so each take was preceded by one throwaway run.
+The fx files were taken with xfx at d9a2010 (base `cafab50`). The xfx `trace`
+files were retaken at `ea95108` (the W3 follow-ups, plan `350a5d1` merged);
+their banner shows `ea95108`. Every screen but `copy-fail` is identical to the
+earlier takes on rows 2-40, and `copy-fail` now wraps as fx's does (below).
+Before the follow-ups, the first xfx run after a fresh build lost a `/trace`
+typed 2 s after launch: raw mode was entered with `TCSAFLUSH`, which discards
+keys typed while the binary starts. It is `TCSANOW` now, as fx's is
+(`src/ui/shell_runtime.zig:128`). A throwaway run still came first here, so the
+take is the same as the earlier ones.
 
 Sanitized: the run directory `/private/tmp/claude-501/fxcap.XXXXXX` is written
 as `<scratch>` in every file here. It appears in the `copy-fail` screens (the
@@ -60,11 +60,20 @@ saved path) and in the reports and `.clipfile`s.
 | `trace-empty` | `* Trace copied to clipboard. Review and redact it before sharing.` | same | Row 3 is byte for byte the same, SGR included (`ESC[38;5;250m* Trace copied to clipboard. Review and redact it before sharing.ESC[39m`, no topic). No echo of `/trace`. The `.clipfile` on each names that binary's report: `<scratch>/fxtmp/fx-trace-…md` and `<scratch>/xfxtmp/xfx-trace-…md`. |
 | `trace-now` | `✗ command: Unknown command. Try /help.` | same | Row 5 is byte for byte the same. `/trace now` names no command on either (`commands.zig:486` has no `has_args`), and neither wrote a report for it (three reports per run, one per bare `/trace`). |
 | `trace-after-turn` | card, answer, `0s (↑4 ↓40)`, `* Trace copied to clipboard. …` | same | Rows 2-40 are byte for byte the same (rows 7-13 hold the turn and the second notice). |
-| `trace-copy-fail` | `✗ Clipboard copy failed. Trace saved at <path>. Review and redact it before sharing.` | same sentence, wrapped differently | The glyph and colours are the same (`ESC[38;5;252m✗ ESC[38;5;250mClipboard copy failed. Trace saved at …`). The rows differ; see the first item below. No `.clipfile`: the shim refused and kept nothing, on both. |
+| `trace-copy-fail` | `✗ Clipboard copy failed. Trace saved at <scratch>/fxtmp/` / `  fx-trace-…md. Review and redact it before sharing.` | `✗ Clipboard copy failed. Trace saved at <scratch>/xfxtmp/` / `  xfx-trace-…md. Review and redact it before sharing.` | Same glyph, colours and two rows: both break the path after its last `/` that fits and drop the space at the break (`scanNoticeLine`, `transcript_blocks.zig:1651-1702`). The rows differ only by the directory and file names (`fxtmp`/`fx-trace-` vs `xfxtmp`/`xfx-trace-`). Before the follow-ups, xfx wrapped this as three rows with a hanging space. No `.clipfile`: the shim refused and kept nothing, on both. |
 | `trace-nowhere-unwritable` | `✗ Could not create trace.` | same | Row 3 is byte for byte the same (`ESC[38;5;252m✗ ESC[38;5;250mCould not create trace.ESC[39m`). No report and no copy on either. |
 
 In every pair but `copy-fail`, the only row that differs is row 1, each
-product's own banner (`𝒇x v0.0.13` vs `x𝒇x v0.1.0-954ff94 [debug]`).
+product's own banner (`𝒇x v0.0.13` vs `x𝒇x v0.1.0-ea95108 [debug]`).
+
+### `notice-wrap` (24x36), the shared notice wrap
+
+`scripts/fxcap/scenarios/notice-wrap.cap` types `/nosuch` at 36 columns. The
+notice is `✗ command: Unknown command. Try /help.`, 38 cells, so it wraps.
+
+| fx | xfx | matches |
+|---|---|---|
+| rows 3-4: `ESC[38;5;252m✗ command:ESC[38;5;250m Unknown command. Try /ESC[39m`, `  ESC[38;5;250mhelp.ESC[39m` | rows 4-5: the same bytes | Byte for byte the same, both breaking after the `/` of `/help`. A prose wrap would have moved `/help.` down whole. The rows sit one lower on xfx because xfx's banner (`x𝒇x v0.1.0-ea95108 [debug] · Run /help for commands`) is wider than 36 columns and wraps onto row 2. fx's banner fits on one row. |
 
 ## The reports
 
@@ -113,16 +122,10 @@ than written empty.
 
 ## What differs, and why
 
-1. **The `copy-fail` wrap.** fx breaks the path at a `/`
-   (`…/fxtmp/` then `fx-trace-…md. Review and redact it before sharing.`, two
-   rows) because its notice scanner treats `/` and `\` as break points and
-   drops the space at a break (`scanNoticeLine`,
-   `src/ui/render_engine/transcript_blocks.zig:1651-1702`). xfx breaks only at
-   spaces and keeps the trailing space (`Trace saved at ` then the whole path,
-   then `sharing.`, three rows). This is the shared notice wrap
-   (`src/tui/shell.rs` `queue_notice` and the transcript's word wrap), not
-   `/trace`'s, and any notice with a long path shows it. It was not changed
-   here.
+1. **The `copy-fail` wrap** is fixed by the follow-ups. Every notice line
+   now wraps by fx's notice rule (`src/tui/wrap.rs` `wrap_notice`, used for
+   the notice's head and its `NoticeIndent` continuation lines in
+   `src/tui/transcript.rs`). Prose keeps the prose wrap.
 2. **No `Preparing trace...`.** fx writes that notice first and replaces it in
    place with the outcome (`app_commands.zig:624-660`). xfx's document is
    append-only, so the outcome is the only notice. The final screens are the
@@ -137,3 +140,10 @@ than written empty.
    transcript records the welcome line without a time, so it is left out.
 5. **The file name** is `xfx-trace-…` rather than `fx-trace-…`. The shape,
    directory and mode are fx's.
+6. **How the file comes to be there** (a later follow-up). fx creates the
+   report under its own name and writes into it (`app_commands.zig:2207-2224`).
+   xfx writes it to a hidden `.<name>.partial` beside it and renames it onto
+   the name without replacing anything (`src/trace.rs` `write_report`). So a
+   process killed mid-write leaves no truncated report. The screens and the
+   reports here are unchanged by it: the stage is gone by the time a report
+   is read.

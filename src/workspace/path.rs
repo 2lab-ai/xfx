@@ -221,6 +221,42 @@ impl AccessScope {
         })
     }
 
+    /// A scope over extra roots that were canonical when they were recorded,
+    /// each kept **only while it still is**.
+    ///
+    /// [`Self::new`] resolves what it is given, which is right for a path a
+    /// person just typed and wrong for one recorded earlier: a directory the
+    /// user added, replaced since by a symbolic link to somewhere else, would
+    /// be followed to that somewhere else and authorized there. Upstream marks
+    /// such a root unavailable instead of following it (`resolveObservedDirectory`,
+    /// `vercel-labs/fx@c1db9191 src/core/workspace/workspace_access.zig:615-633`),
+    /// and so does this: a root whose canonical form is no longer itself, or
+    /// that is no longer a directory, is dropped rather than refused, so one
+    /// vanished directory does not take the session's other roots with it.
+    pub fn with_observed_roots(
+        primary: impl AsRef<Path>,
+        observed: impl IntoIterator<Item = impl AsRef<Path>>,
+    ) -> Result<Self, PathError> {
+        let primary = canonical_directory(primary.as_ref())?;
+        let mut roots: Vec<PathBuf> = Vec::new();
+        for candidate in observed {
+            let candidate = candidate.as_ref();
+            let still = std::fs::canonicalize(candidate).is_ok_and(|now| now == candidate)
+                && std::fs::symlink_metadata(candidate).is_ok_and(|meta| meta.is_dir());
+            if !still
+                || path_inside(&primary, candidate)
+                || roots.iter().any(|kept| path_inside(kept, candidate))
+            {
+                continue;
+            }
+            roots.push(candidate.to_path_buf());
+        }
+        Ok(Self {
+            primary,
+            additional: roots,
+        })
+    }
+
     /// The workspace root. Relative paths are resolved against it.
     pub fn primary(&self) -> &Path {
         &self.primary
@@ -408,6 +444,59 @@ mod tests {
         let scope = AccessScope::new(&root, [root.join("inner")]).expect("scope");
         assert!(scope.additional_roots().is_empty());
         assert_eq!(scope.roots().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_observed_root_swapped_for_a_symlink_is_dropped_rather_than_followed() {
+        let dir = tree();
+        let base = canonical(&dir);
+        let primary = base.join("work");
+        let extra = base.join("extra");
+        let elsewhere = base.join("elsewhere");
+        for path in [&primary, &extra, &elsewhere] {
+            std::fs::create_dir(path).expect("dir");
+        }
+        std::fs::write(elsewhere.join("secret.txt"), "s").expect("secret");
+
+        let scope = AccessScope::with_observed_roots(&primary, [&extra]).expect("scope");
+        assert_eq!(scope.additional_roots(), std::slice::from_ref(&extra));
+
+        // The directory the user added is replaced by a link to another one.
+        std::fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("symlink");
+        let scope = AccessScope::with_observed_roots(&primary, [&extra]).expect("scope");
+        assert!(scope.additional_roots().is_empty(), "{scope:?}");
+        let refusal = scope
+            .resolve_existing(&extra.join("secret.txt").to_string_lossy())
+            .expect_err("the link's target was never authorized");
+        assert!(
+            matches!(refusal, PathError::OutsideScope { .. }),
+            "{refusal:?}"
+        );
+        // `new`, which resolves what it is handed, would have followed it --
+        // the difference this constructor exists for.
+        let followed = AccessScope::new(&primary, [&extra]).expect("scope");
+        assert_eq!(followed.additional_roots(), [elsewhere]);
+    }
+
+    #[test]
+    fn an_observed_root_that_vanished_is_dropped_and_the_others_kept() {
+        let dir = tree();
+        let base = canonical(&dir);
+        let primary = base.join("work");
+        let gone = base.join("gone");
+        let kept = base.join("kept");
+        for path in [&primary, &gone, &kept] {
+            std::fs::create_dir(path).expect("dir");
+        }
+        std::fs::remove_dir(&gone).expect("remove");
+        let scope = AccessScope::with_observed_roots(&primary, [&gone, &kept]).expect("scope");
+        assert_eq!(scope.additional_roots(), [kept]);
+        // A spelling that is not canonical is not an observation of a root.
+        let spelled = base.join("work/../kept");
+        let scope = AccessScope::with_observed_roots(&primary, [&spelled]).expect("scope");
+        assert!(scope.additional_roots().is_empty());
     }
 
     #[test]

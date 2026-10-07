@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* allowlist: effective persistent allow rules: (none)
+
+* allowlist: effective persistent allow rules: (none)
+
+* allowlist: added command: "git *" (scope=local)
+
+* allowlist: added url: "https://example.com/*" (scope=user); user rules shadowed by local settings
+
+* allowlist: effective persistent allow rules:
+    commands:
+      git *
+  user rules are shadowed by local settings
+
+* allowlist: local persistent allow rules:
+    commands:
+      git *
+
+* allowlist: user persistent allow rules:
+    urls:
+      https://example.com/*
+  user rules are shadowed by local settings
+
+* allowlist: removed command: "git *" (scope=local)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+

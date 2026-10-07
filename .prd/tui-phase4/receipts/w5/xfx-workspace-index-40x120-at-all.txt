@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1aa1153 [debug] · Run /help for commands
+
+* workspace: primary=<scratch>/work
+  saved_suppressed=false limit=16
+  add ../extra saved_changed=true runtime_changed=true launch_flag_can_restore=false
+  additional directories:
+   - <scratch>/extra saved=true command_line=false available=true active=true
+
+┃ @
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  <scratch>/extra/notes/
+  <scratch>/extra/notes/plan.md
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
