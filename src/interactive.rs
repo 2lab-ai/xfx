@@ -1023,6 +1023,13 @@ impl Interrupts {
 pub(crate) struct Conversation {
     pub(crate) recorder: SessionRecorder,
     pub(crate) tools: ToolContext,
+    /// The provider's count of this conversation's last measured request,
+    /// which the TUI's compaction scales its estimates by
+    /// ([`crate::agent::compact::Calibration`]). Upstream keeps it on the
+    /// conversation's agent (`agent.zig:14-19`), so it goes with this one:
+    /// `/new`, a resume and a provider switch start without it.
+    pub(crate) calibration:
+        std::sync::Arc<std::sync::Mutex<Option<crate::agent::compact::Calibration>>>,
 }
 
 impl Conversation {
@@ -1228,7 +1235,11 @@ pub(crate) fn bind_conversation(
     if let Some(questioner) = questioner {
         tools = tools.with_questioner(questioner);
     }
-    Conversation { recorder, tools }
+    Conversation {
+        recorder,
+        tools,
+        calibration: std::sync::Arc::default(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2309,6 +2320,7 @@ fn trace_on_the_line(
         _ => crate::trace::Session::None,
     };
     let now = crate::session::event::system_now_ms();
+    let compaction = crate::agent::compaction_trace::snapshot();
     let report = crate::trace::Report {
         generated_ms: now,
         status: &status,
@@ -2316,6 +2328,7 @@ fn trace_on_the_line(
         settings: &settings,
         session,
         screen: None,
+        compaction: &compaction,
         title: None,
     }
     .render();

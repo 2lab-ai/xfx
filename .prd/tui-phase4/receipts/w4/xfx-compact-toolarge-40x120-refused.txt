@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e90d5dc [debug] · Run /help for commands
+
+┃ hello
+
+  ANSWER-HELLO.
+
+  0s (↑2 ↓40)
+
+┃ [Pasted text #1, 1 lines]
+
+✗ system: request failed: ContextCapacityExceeded
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

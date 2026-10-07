@@ -1,0 +1,17 @@
+# W4 follow-up: the provider refuses the third turn's request as too large
+# for the window (`provider_overflow`, `orchestrator.zig:8099-8124`). Two
+# text-only turns before it, so the compaction needs no notes: the refused
+# request is sent again once with the compacted form of the older turn.
+gateway compact-overflow-turns.json
+wait 3
+type first question
+key Enter
+wait 2.5
+type second question
+key Enter
+wait 2.5
+type third question
+key Enter
+wait 3
+snap answered
+gwlog

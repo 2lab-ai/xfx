@@ -619,6 +619,33 @@ pub(crate) struct Transcript {
     /// enqueue-side projection of [`Self::block`], for the reason
     /// [`Self::open`] is one.
     block_open: bool,
+    /// What [`Self::stage`] found, and every operation committed since, while
+    /// a frame that carries them is being assembled and has not been written.
+    ///
+    /// `None` outside one. The operations are moved here rather than dropped
+    /// because the frame they are written into is **one** vector
+    /// (`super::event_loop`'s `commit_primary`): until it lands, none of them
+    /// is on the terminal, and a vector the screen refused must leave them
+    /// owed exactly as a refused append always did ([`Landed::None`]).
+    staged: Option<Staged>,
+}
+
+/// The committed state [`Transcript::stage`] saved, and the operations taken
+/// off the queue since, oldest first.
+///
+/// Exactly the fields [`Transcript::commit`] moves, and nothing else: the
+/// enqueue-side projections ([`Transcript::open`], [`Transcript::blank`],
+/// [`Transcript::block_open`]) describe the queue **with** these operations in
+/// it, which is what an unstaged transcript has again.
+struct Staged {
+    tail: String,
+    roles: Roles,
+    painted: usize,
+    gutter: Gutter,
+    kind: DocumentRow,
+    block: bool,
+    block_frozen: usize,
+    taken: Vec<Op>,
 }
 
 impl Transcript {
@@ -643,6 +670,7 @@ impl Transcript {
             block: false,
             block_frozen: 0,
             block_open: false,
+            staged: None,
         }
     }
 
@@ -928,7 +956,7 @@ impl Transcript {
             // this module keeps describes rows that landed, and half a vector
             // landed. Replaying it would write the prefix twice.
             Landed::Prefix(err) => {
-                self.queue.pop_front();
+                self.take_front();
                 Some(Err(err))
             }
         }
@@ -1149,7 +1177,7 @@ impl Transcript {
     /// Adopts a candidate the terminal took, and drops the operation it came
     /// from.
     fn commit(&mut self, prepared: Prepared) {
-        self.queue.pop_front();
+        self.take_front();
         self.tail = prepared.tail;
         self.roles = prepared.roles;
         self.painted = prepared.painted;
@@ -1157,6 +1185,70 @@ impl Transcript {
         self.kind = prepared.kind;
         self.block = prepared.block;
         self.block_frozen = prepared.block_frozen;
+    }
+
+    /// Takes the front operation off the queue -- into the journal while a
+    /// frame is being assembled ([`Self::stage`]), so a frame that never lands
+    /// can put it back.
+    fn take_front(&mut self) {
+        let taken = self.queue.pop_front();
+        if let (Some(staged), Some(op)) = (&mut self.staged, taken) {
+            staged.taken.push(op);
+        }
+    }
+
+    /// Begins a frame whose rows will be written in **one** vector with the
+    /// band's: what the terminal has been given so far is saved, and every
+    /// operation committed from here on is kept rather than dropped, until
+    /// [`Self::settle`] says the vector landed or [`Self::unstage`] says it did
+    /// not.
+    ///
+    /// What it costs is one copy of the committed tail -- bounded by
+    /// [`MAX_TAIL_ROWS`] rows, as the clone every attempt already makes is
+    /// ([`Self::prepare_push`]) -- and nothing on a frame that carries no row:
+    /// the caller stages only when the document owes something.
+    pub(crate) fn stage(&mut self) {
+        debug_assert!(
+            self.staged.is_none(),
+            "a frame began while the last one's operations were still unsettled"
+        );
+        self.staged = Some(Staged {
+            tail: self.tail.clone(),
+            roles: self.roles.clone(),
+            painted: self.painted,
+            gutter: self.gutter,
+            kind: self.kind,
+            block: self.block,
+            block_frozen: self.block_frozen,
+            taken: Vec::new(),
+        });
+    }
+
+    /// The vector the staged operations were written into landed: they are
+    /// the terminal's, and nothing is kept.
+    pub(crate) fn settle(&mut self) {
+        self.staged = None;
+    }
+
+    /// The vector did not land, so none of its rows is on the terminal: the
+    /// committed state goes back to what [`Self::stage`] saved and the
+    /// operations go back to the front of the queue, in their order, to be
+    /// measured again -- at whatever width the screen has then -- on the next
+    /// attempt, as a refused append's always were ([`Landed::None`]).
+    pub(crate) fn unstage(&mut self) {
+        let Some(staged) = self.staged.take() else {
+            return;
+        };
+        self.tail = staged.tail;
+        self.roles = staged.roles;
+        self.painted = staged.painted;
+        self.gutter = staged.gutter;
+        self.kind = staged.kind;
+        self.block = staged.block;
+        self.block_frozen = staged.block_frozen;
+        for op in staged.taken.into_iter().rev() {
+            self.queue.push_front(op);
+        }
     }
 
     /// Re-wraps the unfinished line for a screen that changed width.

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ hello
+
+  ANSWER-HELLO.
+
+  0s (↑2 ↓40)
+
+┃ read the logs
+
+● 3 tool calls · 3 read
+├ Read a.txt
+├ Read b.txt
+└ Read c.txt
+
+  ANSWER-READ: three logs of evidence.
+
+  2s (↑3 ↓160)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,21 @@
+[
+ {
+  "chunks": [
+   "ANSWER-ONE: plain text."
+  ]
+ },
+ {
+  "chunks": [
+   "ANSWER-TWO: plain text."
+  ]
+ },
+ {
+  "status": 400,
+  "body": "{\"error\":{\"message\":\"input exceeds the context window\",\"code\":\"context_length_exceeded\"}}"
+ },
+ {
+  "chunks": [
+   "ANSWER-THREE."
+  ]
+ }
+]

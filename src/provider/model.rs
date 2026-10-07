@@ -997,6 +997,51 @@ pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
     }
 }
 
+/// The context window a Gateway model has when no catalog describes it, by
+/// its id (`contextWindowSize`, `vercel-labs/fx@c1db9191
+/// src/gateway/vercel_model_policy.zig:13-42`): upstream's Gateway
+/// capabilities before a catalog row overrides them (`capabilitiesForModel`,
+/// `:4-11`; `mergeCapabilities`, `src/core/config/model_capabilities.zig:107`).
+/// `None` for an id upstream knows no window for.
+pub fn gateway_context_window(model: &str) -> Option<u64> {
+    if model.starts_with("anthropic/") {
+        const MILLION: [&str; 10] = [
+            "anthropic/claude-fable-5",
+            "anthropic/claude-opus-4.6",
+            "anthropic/claude-opus-4-6",
+            "anthropic/claude-opus-4.7",
+            "anthropic/claude-opus-4-7",
+            "anthropic/claude-opus-4.8",
+            "anthropic/claude-opus-4-8",
+            "anthropic/claude-sonnet-5",
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-sonnet-4-6",
+        ];
+        return Some(if MILLION.contains(&model) {
+            1_000_000
+        } else {
+            200_000
+        });
+    }
+    if model.starts_with("openai/") {
+        let lower = model.to_ascii_lowercase();
+        if lower.contains("gpt-5") {
+            return Some(256_000);
+        }
+        if lower.contains("o3") || lower.contains("o4") || lower.contains("o1") {
+            return Some(200_000);
+        }
+        return Some(128_000);
+    }
+    if model.starts_with("xai/") {
+        return Some(131_072);
+    }
+    if model.starts_with("google/") {
+        return Some(1_000_000);
+    }
+    None
+}
+
 /// What `/model`'s menu says under its list about where the catalog came from,
 /// or nothing (`loadedCatalogStatusText`, `vercel-labs/fx@c1db9191
 /// src/ui/footer/model_menu_presentation.zig:403-433`).
@@ -1122,11 +1167,43 @@ pub struct ModelSelector {
     provider: ProviderId,
     model: String,
     source: SettingSource,
-    catalog_fetcher: Option<Box<dyn ModelCatalog>>,
+    catalog_fetcher: Option<std::rc::Rc<dyn ModelCatalog>>,
     catalog_state: CatalogState,
     /// Whether the failure [`CatalogState::Failed`] holds is one asking again
     /// could change, and how the menu says so. `None` beside any other state.
     failure_retry: Option<CatalogRetry>,
+    /// A load started in the background ([`Self::begin_load`]) that nothing
+    /// has taken the answer of yet. [`CatalogState::NotLoaded`] meanwhile.
+    pending: Option<PendingLoad>,
+}
+
+/// A catalog load running beside whatever else the thread does. Dropped
+/// with its selector -- a provider switch replaces both -- it is stopped
+/// rather than left to finish for nobody.
+struct PendingLoad(tokio::task::JoinHandle<Loaded>);
+
+/// What a load leaves the selector holding: the catalog's state, and whether
+/// asking again could change a failure ([`ModelSelector::failure_retry`]).
+type Loaded = (CatalogState, Option<CatalogRetry>);
+
+/// [`Loaded`] for one attempt's answer.
+fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
+    match answer {
+        Ok(entries) => (CatalogState::Loaded(entries), None),
+        Err(err) => {
+            let retry = match &err {
+                CatalogError::Gateway { retry, .. } => *retry,
+                _ => None,
+            };
+            (CatalogState::Failed(err.to_string()), retry)
+        }
+    }
+}
+
+impl Drop for PendingLoad {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 impl ModelSelector {
@@ -1144,10 +1221,23 @@ impl ModelSelector {
             provider: config.provider,
             model: config.model.clone(),
             source: config.sources.model,
-            catalog_fetcher,
+            catalog_fetcher: catalog_fetcher.map(std::rc::Rc::from),
             catalog_state,
             failure_retry: None,
+            pending: None,
         }
+    }
+
+    /// The model `config` now names, with the catalog kept: the provider is
+    /// the same, so its catalog still describes it. A selector for another
+    /// provider is built anew instead ([`Self::new`]).
+    pub fn follow_model(&mut self, config: &RuntimeConfig) {
+        if config.provider != self.provider {
+            *self = Self::new(config);
+            return;
+        }
+        self.model = config.model.clone();
+        self.source = config.sources.model;
     }
 
     /// The provider whose catalog this selector browses.
@@ -1177,20 +1267,82 @@ impl ModelSelector {
         if !matches!(self.catalog_state, CatalogState::NotLoaded) {
             return &self.catalog_state;
         }
+        // One already on its way is waited for, not asked a second time.
+        if self.pending.is_some() {
+            self.settle_load().await;
+            return &self.catalog_state;
+        }
         let Some(fetcher) = &self.catalog_fetcher else {
             return &self.catalog_state;
         };
-        match fetcher.fetch().await {
-            Ok(entries) => self.catalog_state = CatalogState::Loaded(entries),
-            Err(err) => {
-                self.failure_retry = match &err {
-                    CatalogError::Gateway { retry, .. } => *retry,
-                    _ => None,
-                };
-                self.catalog_state = CatalogState::Failed(err.to_string());
-            }
-        }
+        let answer = fetcher.fetch().await;
+        self.adopt(answer);
         &self.catalog_state
+    }
+
+    /// Starts loading the catalog in the background, if nothing has asked
+    /// for it yet: upstream reads it on a thread of its own at launch, and
+    /// again when the credential changes (`startModelCacheWarmup`,
+    /// `vercel-labs/fx@c1db9191 src/main.zig:2222-2243`, called from
+    /// `app_entry_runtime.zig:335` and `app_auth_runtime.zig:2026-2036`). The
+    /// load runs while the thread waits on anything else, and the first
+    /// thing to need the catalog takes its answer ([`Self::ensure_catalog`]).
+    ///
+    /// **`told` is given the answer the moment it arrives**, whatever the
+    /// thread is doing then -- a turn included -- as upstream's interface
+    /// polls its cache on every tick of its own loop and redraws an open menu
+    /// and the footer when a load has ended (`pollLoadTransition`,
+    /// `model_cache_runtime.zig:549-557`, from `loopCollectFacts`,
+    /// `main.zig:3050-3083`). The selector itself takes the answer later,
+    /// when something asks it ([`Self::is_loading`]).
+    ///
+    /// **Must be called inside a [`tokio::task::LocalSet`]**: the fetchers
+    /// are not `Send`, so the load is a local task.
+    pub(crate) fn begin_load<Told, Telling>(&mut self, told: Told)
+    where
+        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
+        Telling: std::future::Future<Output = ()> + 'static,
+    {
+        if !matches!(self.catalog_state, CatalogState::NotLoaded) || self.pending.is_some() {
+            return;
+        }
+        let Some(fetcher) = self.catalog_fetcher.clone() else {
+            return;
+        };
+        self.pending = Some(PendingLoad(tokio::task::spawn_local(async move {
+            let answer = loaded(fetcher.fetch().await);
+            told(answer.0.clone(), answer.1).await;
+            answer
+        })));
+    }
+
+    /// Whether a background load is on its way, or has ended and not been
+    /// taken yet ([`Self::begin_load`]): its answer has been told, or is
+    /// being told, already.
+    pub(crate) fn is_loading(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// Waits for the background load, if there is one, and takes its answer.
+    ///
+    /// Cancel-safe: dropped before the load ends, it leaves the load running
+    /// and still pending.
+    pub(crate) async fn settle_load(&mut self) {
+        let Some(PendingLoad(handle)) = self.pending.as_mut() else {
+            return;
+        };
+        let answer = handle.await;
+        self.pending = None;
+        (self.catalog_state, self.failure_retry) = match answer {
+            Ok(answer) => answer,
+            Err(join) => loaded(Err(CatalogError::Unavailable {
+                detail: join.to_string(),
+            })),
+        };
+    }
+
+    fn adopt(&mut self, answer: Result<Vec<CatalogEntry>, CatalogError>) {
+        (self.catalog_state, self.failure_retry) = loaded(answer);
     }
 
     /// Lets the next [`ensure_catalog`](Self::ensure_catalog) ask again after
@@ -1308,6 +1460,7 @@ impl ModelSelector {
             catalog_fetcher: None,
             catalog_state: CatalogState::Unavailable,
             failure_retry: None,
+            pending: None,
         }
     }
 
@@ -1330,9 +1483,10 @@ impl ModelSelector {
     /// [`Self::set_catalog_for_test`], so no binary can reach it.
     #[cfg(test)]
     pub(crate) fn set_fetcher_for_test(&mut self, fetcher: Box<dyn ModelCatalog>) {
-        self.catalog_fetcher = Some(fetcher);
+        self.catalog_fetcher = Some(std::rc::Rc::from(fetcher));
         self.catalog_state = CatalogState::NotLoaded;
         self.failure_retry = None;
+        self.pending = None;
     }
 }
 
@@ -1767,7 +1921,7 @@ mod tests {
 
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::rc::Rc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
 
         // First call should fetch.
@@ -1882,7 +2036,7 @@ mod tests {
         }));
         let mut selector =
             ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::rc::Rc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
         selector.ensure_catalog().await;
         assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
@@ -1912,7 +2066,7 @@ mod tests {
 
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::rc::Rc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
 
         // First call should fetch and fail.

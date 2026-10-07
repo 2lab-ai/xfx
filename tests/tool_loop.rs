@@ -1977,6 +1977,20 @@ impl TurnJournal for RecordingJournal {
     fn record(&mut self, event: SessionEvent) {
         self.events.push(event);
     }
+
+    fn change_made(&mut self, _call_id: &str, _change: &ApprovalDiff) {}
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[xfx::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[xfx::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&xfx::session::DurableState> {
+        None
+    }
 }
 
 /// The kinds of what a turn recorded, and the changes it handed over between
@@ -1995,6 +2009,18 @@ impl TurnJournal for ChangeJournal {
     fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
         self.kinds.push("change");
         self.changes.push((call_id.to_string(), change.clone()));
+    }
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[xfx::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[xfx::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&xfx::session::DurableState> {
+        None
     }
 }
 
