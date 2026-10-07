@@ -1565,7 +1565,6 @@ mod tests {
         let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
             &long,
             vec![crate::session::TurnStep::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,

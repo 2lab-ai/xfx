@@ -407,9 +407,6 @@ pub enum TurnStep {
         /// The change, as its review showed it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<super::event::RecordedChange>,
-        /// When the result was recorded, if the log says.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval `call_id` needed.
     ///
@@ -2664,7 +2661,6 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             ending,
             lines,
             change,
-            created_at_ms,
         } => {
             open_turn(state, "a tool result", envelope.seq)?
                 .steps
@@ -2676,7 +2672,6 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     ending: *ending,
                     lines: *lines,
                     change: change.clone(),
-                    created_at_ms: *created_at_ms,
                 });
         }
         SessionEvent::ToolFeedback { call_id, text } => {
@@ -3366,7 +3361,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3425,7 +3419,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3435,7 +3428,6 @@ mod tests {
                 output: "wrote a.md".to_string(),
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3863,7 +3855,6 @@ mod tests {
             },
             assistant("", &[("c1", "read_file"), ("c2", "glob_files")]),
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -3873,7 +3864,6 @@ mod tests {
                 change: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "c2".to_string(),
                 tool: "glob_files".to_string(),
                 ok: true,
@@ -3903,7 +3893,6 @@ mod tests {
 
     fn result(call_id: &str, tool: &str, ok: bool, output: &str) -> SessionEvent {
         SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: call_id.to_string(),
             tool: tool.to_string(),
             ok,
@@ -4070,7 +4059,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,

@@ -1,0 +1,9 @@
+[
+  {"chunks": ["Reading.\n"], "tools": [
+    {"name": "read_file", "input": {"path": "src"}},
+    {"name": "read_file", "input": {"path": "  missing.txt  "}},
+    {"name": "glob_files", "input": {"pattern": "*.rs", "path": "nope"}},
+    {"name": "grep_files", "input": {"pattern": "alpha", "path": "nope"}}
+  ]},
+  {"delayMs": 100, "chunks": ["Done."]}
+]

@@ -685,6 +685,12 @@ fn read_file_refuses_in_upstreams_words() {
             json!({ "path": "missing.txt" }),
             "Path not found: missing.txt".to_string(),
         ),
+        // The argument as the model wrote it, spaces and all
+        // (`fx-read-failures-40x120-bodies/003-completion.json`).
+        (
+            json!({ "path": "  missing.txt  " }),
+            "Path not found:   missing.txt  ".to_string(),
+        ),
         (
             json!({ "path": outside_path }),
             format!("Path is outside the workspace: {outside_path}"),
@@ -720,6 +726,49 @@ fn read_file_refuses_in_upstreams_words() {
     }
 }
 
+/// A read that resolved and then could not be done is upstream's
+/// `tool_execution_failed` envelope, as its model is sent it
+/// (`readFileFailure`, `read_file.zig:184-216`; `toolExecutionFailureJson`,
+/// `tool_result_errors.zig:323-347`; `fx-read-failures-40x120-bodies/
+/// 003-completion.json`), and its row says no more than `Failed src`
+/// (`failureStatusDetail`, `tool_presentation.zig:1253-1301`: an in-call
+/// failure of a built-in tool has no status detail).
+#[test]
+fn a_read_that_resolved_and_failed_is_upstreams_envelope_and_its_row_says_nothing_more() {
+    let tree = Tree::new();
+    fs::create_dir(tree.root().join("src")).expect("a directory");
+    let result = call(&context(&tree), "read_file", json!({ "path": "src" }));
+    assert!(!result.ok);
+    let absolute = fs::canonicalize(tree.root().join("src")).expect("canonical");
+    assert_eq!(
+        result.output,
+        format!(
+            r#"{{"error":{{"type":"tool_execution_failed","tool_name":"read_file","message":"read_file requires a regular file","details":{{"field":"path","path":{},"error":"NotRegularFile"}},"suggestion":"Use glob_files to inspect directory contents, then choose a regular file."}}}}"#,
+            serde_json::to_string(&absolute.display().to_string()).expect("a string")
+        )
+    );
+    assert_eq!(result.detail, "", "the row was given a reason");
+}
+
+/// The search tools' and `list_files`'s roots that do not resolve, in the
+/// preflight's words (`tool_admission.zig:2465-2495`;
+/// `fx-read-failures-40x120-live`: `Failed *.rs: Path not found: nope`).
+#[test]
+fn a_search_root_that_does_not_resolve_is_upstreams_preflight_sentence() {
+    let tree = Tree::new();
+    let context = context(&tree);
+    for (tool, input) in [
+        ("glob_files", json!({ "pattern": "*.rs", "path": "nope" })),
+        ("grep_files", json!({ "pattern": "alpha", "path": "nope" })),
+        ("list_files", json!({ "path": "nope" })),
+    ] {
+        let result = call(&context, tool, input);
+        assert!(!result.ok, "{tool}");
+        assert_eq!(result.output, "Path not found: nope", "{tool}");
+        assert_eq!(result.detail, "Path not found: nope", "{tool}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
@@ -733,8 +782,12 @@ fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
 
     assert!(!result.ok, "expected a refusal, got {result:?}");
     assert!(result.output.contains("pipe"), "{result:?}");
+    // Upstream's refusal of anything but a regular file
+    // (`read_file.zig:189-200`).
     assert!(
-        result.output.contains("it is not a regular file"),
+        result
+            .output
+            .contains(r#""message":"read_file requires a regular file""#),
         "{result:?}"
     );
 }
@@ -2186,22 +2239,6 @@ async fn the_journal_keeps_how_each_call_ended_for_the_row_and_the_lines_it_chan
         plain.get("ending").is_none() && plain.get("lines").is_none(),
         "{plain}"
     );
-    // Every result says when it was recorded, which a resumed session's
-    // full transcript stamps its call with (upstream's
-    // `PersistedToolResult.created_at_ms`, `execution_memory.zig:52`).
-    for event in &journal.events {
-        if let SessionEvent::ToolResult {
-            call_id,
-            created_at_ms,
-            ..
-        } = event
-        {
-            assert!(
-                created_at_ms.is_some_and(|at_ms| at_ms > 1_700_000_000_000),
-                "{call_id}: {created_at_ms:?}"
-            );
-        }
-    }
 }
 
 #[tokio::test]

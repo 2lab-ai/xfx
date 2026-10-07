@@ -861,7 +861,6 @@ impl TurnMachine {
             // With what the row said beyond `ok`, so a resumed session's row
             // says it again (`crate::session::ToolEnding`).
             journal.record(SessionEvent::ToolResult {
-                created_at_ms: Some(crate::session::event::system_now_ms()),
                 call_id: call.id.clone(),
                 tool: call.name.clone(),
                 ok: result.ok,
@@ -880,6 +879,9 @@ impl TurnMachine {
             });
             if let Some(change) = &result.change {
                 journal.change_made(&call.id, change);
+            }
+            if let Some(presented) = &result.presented {
+                journal.presented(&call.id, &call.name, presented);
             }
             // A call that failed is said as one on the wire, and one that was
             // refused as a refusal, as upstream says each (`error-text`,
@@ -904,7 +906,7 @@ impl TurnMachine {
             // can contribute one -- which is what makes the disposition of
             // every exit below decidable rather than incidental.
             if let Some(text) = result.feedback {
-                amendments.push((call.id.clone(), text));
+                amendments.push((call.id.clone(), text.into_string()));
             }
 
             // Almost every refusal goes back to the model, which can correct

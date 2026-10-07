@@ -3468,6 +3468,10 @@ impl TurnJournal for StoppedAtApproval<'_> {
         self.inner.change_made(call_id, change);
     }
 
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str) {
+        self.inner.presented(call_id, tool, text);
+    }
+
     // Every method the trait has, forwarded: a default left in place here
     // would be the wrapped journal's work silently not done.
     fn attach_images(&mut self, images: &[crate::image::Image]) {
@@ -6275,7 +6279,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
@@ -6315,7 +6318,7 @@ mod tests {
                     HydratedStep::Text(text)
                     | HydratedStep::Feedback(text)
                     | HydratedStep::Steer(text) => all.push_str(text),
-                    HydratedStep::ToolStart { id, shown, .. } => {
+                    HydratedStep::ToolStart { id, shown } => {
                         all.push_str(id);
                         all.push_str(shown.target.as_deref().unwrap_or(""));
                     }
@@ -6861,7 +6864,6 @@ mod tests {
             }
         }
         let refused = || SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: "w".to_string(),
             tool: "write_file".to_string(),
             ok: false,

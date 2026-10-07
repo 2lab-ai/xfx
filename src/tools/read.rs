@@ -30,9 +30,10 @@ use serde_json::Value;
 use crate::workspace::{is_ignored_directory, PathError};
 
 use super::spec::{
-    clip, nonblank, object, optional_bool, optional_enum, optional_integer, optional_string,
-    required_string, Activity, InputSchema, Outcome, PermissionKind, Presentation, Property,
-    PropertyKind, ToolContext, ToolInput, ToolLimits, ToolResult, ToolSpec,
+    access_denied, clip, error_name, execution_failure, nonblank, object, optional_bool,
+    optional_enum, optional_integer, optional_string, required_string, Activity, InputSchema,
+    Outcome, PermissionKind, Presentation, Property, PropertyKind, ToolContext, ToolInput,
+    ToolLimits, ToolResult, ToolSpec,
 };
 
 /// Appended to a line that was clipped by `read_file`
@@ -262,7 +263,7 @@ fn execute_list_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let requested = input.path.as_deref().unwrap_or(".");
     let resolved = match context.scope().resolve_existing(requested) {
         Ok(resolved) => resolved,
-        Err(err) => return refusal("list_files", err),
+        Err(err) => return unresolved("list_files", requested, err),
     };
     if let Err(refused) = admitted("list_files", context, resolved.absolute()) {
         return refused;
@@ -875,24 +876,18 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let limits = context.limits();
     let resolved = match context.scope().resolve_existing(&input.path) {
         Ok(resolved) => resolved,
-        Err(err) => return unresolved("read_file", err),
+        Err(err) => return unresolved("read_file", &input.path, err),
     };
     if let Err(refused) = admitted("read_file", context, resolved.absolute()) {
         return refused;
     }
     let display = context.scope().display_path(resolved.absolute());
+    let target = resolved.absolute().display().to_string();
 
     let metadata = match fs::metadata(resolved.absolute()) {
         Ok(metadata) => metadata,
-        Err(err) => {
-            return ToolResult::failure(format!("read_file cannot stat `{display}`: {err}"))
-        }
+        Err(err) => return read_failure(&target, &err),
     };
-    if metadata.is_dir() {
-        return ToolResult::failure(format!(
-            "read_file cannot read `{display}`: it is a directory; use list_files"
-        ));
-    }
     // Everything that is not a regular file is refused here rather than in the
     // read below: opening a writer-less FIFO -- or a device that answers slowly,
     // or a socket -- parks the thread for as long as the turn lasts, and a tool
@@ -903,17 +898,26 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     // swapped for a FIFO between them can still block: what this closes is the
     // stable-path hazard, not the race, which is the bargain a cooperative
     // workspace makes everywhere else too.
+    //
+    // A directory is one of them, as upstream's open of one refuses it
+    // (`openExistingReadOnlyRegularFile`, `read_file.zig:133-139`).
     if !metadata.is_file() {
-        return ToolResult::failure(format!(
-            "read_file cannot read `{display}`: it is not a regular file"
-        ));
+        return ToolResult::failure(execution_failure(
+            "read_file",
+            "read_file requires a regular file",
+            &[
+                ("field", "path"),
+                ("path", &target),
+                ("error", "NotRegularFile"),
+            ],
+            Some("Use glob_files to inspect directory contents, then choose a regular file."),
+        ))
+        .unexplained();
     }
 
     let bytes = match fs::read(resolved.absolute()) {
         Ok(bytes) => bytes,
-        Err(err) => {
-            return ToolResult::failure(format!("read_file cannot read `{display}`: {err}"))
-        }
+        Err(err) => return read_failure(&target, &err),
     };
     let file_bytes = bytes.len();
     let snapshot_complete = file_bytes <= limits.max_read_bytes;
@@ -1211,7 +1215,7 @@ fn search_root(
     let resolved = context
         .scope()
         .resolve_existing(requested)
-        .map_err(|err| refusal(tool, err))?;
+        .map_err(|err| unresolved(tool, requested, err))?;
     admitted(tool, context, resolved.absolute())?;
     let metadata = fs::metadata(resolved.absolute()).map_err(|err| {
         ToolResult::failure(format!(
@@ -1295,6 +1299,31 @@ fn refusal(tool: &str, err: PathError) -> ToolResult {
     ToolResult::failure(format!("{tool} refused the path: {err}"))
 }
 
+/// A read of a resolved file that the system refused or failed, as upstream's
+/// `readFileFailure` answers it (`read_file.zig:184-216`): the access-denied
+/// envelope for a permission error, and `read_file failed` for anything
+/// else, each naming the target and the error -- and, being an in-call
+/// failure, no summary for the row.
+fn read_failure(target: &str, err: &std::io::Error) -> ToolResult {
+    let body = if err.kind() == std::io::ErrorKind::PermissionDenied {
+        access_denied("read_file", target)
+    } else {
+        execution_failure(
+            "read_file",
+            "read_file failed",
+            &[
+                ("field", "path"),
+                ("path", target),
+                ("error", &error_name(err)),
+            ],
+            Some(
+                "Run glob_files to discover matching paths, or check the path relative to the workspace.",
+            ),
+        )
+    };
+    ToolResult::failure(body).unexplained()
+}
+
 /// A path that did not resolve, as upstream says it: its permission
 /// preflight resolves a file tool's target before the tool runs and refuses
 /// one that does not with `permissionTargetResolutionFailureMessage`
@@ -1302,15 +1331,17 @@ fn refusal(tool: &str, err: PathError) -> ToolResult {
 /// `Path not found: <path>` for one that is absent (`:2471`), `Path is outside
 /// the workspace: <path>` for one past every root (`:2474`), and
 /// `Cannot resolve path "<path>": <why>` otherwise (`:2492-2493`, which names
-/// the error; this names it as the system did). A root that is not usable is
-/// not the path's fault, and keeps xfx's sentence.
-fn unresolved(tool: &str, err: PathError) -> ToolResult {
+/// the error; this names it as the system did). The path is the argument as
+/// the model wrote it, spaces and all, as upstream's is
+/// (`targetPathForFailureMessage`, `:2503-2518`;
+/// `fx-read-failures-40x120-bodies/003-completion.json`: `Path not found:
+/// missing.txt  ` with its spaces). A root that is not usable is not the
+/// path's fault, and keeps xfx's sentence.
+fn unresolved(tool: &str, requested: &str, err: PathError) -> ToolResult {
     let said = match err {
-        PathError::NotFound { requested } => format!("Path not found: {requested}"),
-        PathError::OutsideScope { requested } => {
-            format!("Path is outside the workspace: {requested}")
-        }
-        PathError::Unresolvable { requested, detail } => {
+        PathError::NotFound { .. } => format!("Path not found: {requested}"),
+        PathError::OutsideScope { .. } => format!("Path is outside the workspace: {requested}"),
+        PathError::Unresolvable { detail, .. } => {
             format!("Cannot resolve path \"{requested}\": {detail}")
         }
         other @ (PathError::Empty | PathError::RootUnavailable { .. }) => {

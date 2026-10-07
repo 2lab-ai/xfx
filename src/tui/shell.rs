@@ -2891,11 +2891,16 @@ impl Shell {
     /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
     /// carries its start on the card and what it did on the way, and its
     /// conclusion on the answer after its last call and the summary. Any other
-    /// carries `carried`, the stamp the replay had reached, throughout. A
-    /// call's entry carries its result's own time where the log has one
-    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
-    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
-    /// turn is to carry.
+    /// carries `carried`, the stamp the replay had reached, throughout. Every
+    /// call's entry carries the turn's conclusion: upstream's header prefers
+    /// the call's persisted result's time (`full_transcript_screen.zig:
+    /// 5801-5814`, set `transcript/runtime.zig:5826`), and that is the moment
+    /// the turn was committed, when its results are built
+    /// (`PersistedToolResult.created_at_ms`, `execution_memory.zig:52`, from
+    /// `buildNormalExecutionMemory` `:421` at `orchestrator.zig:9260`; an
+    /// interrupted turn's at its own commit, `runtime/interruption.zig`) --
+    /// `fx-read-failures-40x120-ctrl-o`, every call at the Usage's instant.
+    /// Answers the stamp the next turn is to carry.
     fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
@@ -2914,6 +2919,7 @@ impl Shell {
         } else {
             (carried, carried)
         };
+        let committed = turn.concluded_at_ms.unwrap_or(concluded);
         self.full.stamp_with(Some(started));
         self.full.replay(true);
         let concluding = turn
@@ -2933,8 +2939,8 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown, at_ms } => {
-                    self.full.stamp_call(at_ms);
+                HydratedStep::ToolStart { id, shown } => {
+                    self.full.stamp_call(Some(committed));
                     self.run_mark(Mark::ToolStart { id, shown });
                     self.full.stamp_call(None);
                 }
@@ -19810,7 +19816,6 @@ mod tests {
         lines: Option<crate::session::LineCounts>,
     ) -> crate::session::TurnStep {
         crate::session::TurnStep::ToolResult {
-            created_at_ms: None,
             call_id: id.to_string(),
             tool: "t".to_string(),
             ok,
@@ -19845,7 +19850,6 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -19864,8 +19868,6 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
-                    // Its result came back a second in.
-                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
@@ -19921,7 +19923,8 @@ mod tests {
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
+                // At the turn's commit, as upstream's results are stamped.
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
@@ -20102,7 +20105,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,

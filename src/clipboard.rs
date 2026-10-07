@@ -553,7 +553,6 @@ mod tests {
 
         fn ran(self) -> Self {
             self.commit(SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,

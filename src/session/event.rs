@@ -416,18 +416,6 @@ pub enum SessionEvent {
         /// for the full transcript of a resumed session.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<RecordedChange>,
-        /// When the result was recorded, as upstream keeps each persisted
-        /// result's own moment (`PersistedToolResult.created_at_ms`,
-        /// `vercel-labs/fx@c1db9191 src/core/agent/execution_memory.zig:52`)
-        /// and stamps a resumed call's full-transcript entry with it
-        /// (`transcript/runtime.zig:5826`). Upstream's is the turn's end,
-        /// because it writes a turn's results only then
-        /// (`buildNormalExecutionMemory`, `execution_memory.zig:421`, from
-        /// `orchestrator.zig:9260`); xfx writes each as it comes back, so
-        /// this is that moment. Absent in a log written before the field,
-        /// whose calls a resume stamps with their turn's start.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        created_at_ms: Option<i64>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -844,7 +832,6 @@ mod tests {
         let frame = envelope(
             1,
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -861,7 +848,6 @@ mod tests {
     #[test]
     fn a_result_keeps_how_its_row_ended_and_an_older_or_newer_one_still_reads() {
         let result = SessionEvent::ToolResult {
-            created_at_ms: None,
             call_id: "c".to_string(),
             tool: "terminal".to_string(),
             ok: true,
@@ -898,30 +884,15 @@ mod tests {
             SessionEvent::ToolResult {
                 ending: None,
                 lines: None,
-                created_at_ms: None,
                 ..
             }
         ));
-        // When it was recorded, written beside the rest when known.
-        let stamped = SessionEvent::ToolResult {
-            call_id: "c".to_string(),
-            tool: "t".to_string(),
-            ok: true,
-            output: "o".to_string(),
-            ending: None,
-            lines: None,
-            change: None,
-            created_at_ms: Some(1_790_899_201_000),
-        };
-        let encoded = serde_json::to_string(&stamped).expect("encodes");
-        assert!(
-            encoded.ends_with(r#","created_at_ms":1790899201000}"#),
-            "{encoded}"
-        );
-        assert_eq!(
-            serde_json::from_str::<SessionEvent>(&encoded).expect("decodes"),
-            stamped
-        );
+        // A field this build does not write -- an earlier build of this
+        // branch's `created_at_ms` -- is no reason to refuse the frame.
+        assert!(serde_json::from_str::<SessionEvent>(
+            r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","created_at_ms":1790899201000}"#,
+        )
+        .is_ok());
         // A kind a later build adds is not a reason to refuse the log.
         let newer: SessionEvent = serde_json::from_str(
             r#"{"kind":"tool_result","call_id":"c","tool":"t","ok":true,"output":"o","ending":{"kind":"paused","for":3}}"#,
@@ -1060,7 +1031,6 @@ mod tests {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,

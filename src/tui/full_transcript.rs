@@ -664,6 +664,13 @@ impl TurnJournal for Teed<'_> {
         self.hand_over(call_id.to_string(), Detail::Change(change.clone()));
     }
 
+    /// The screen's account of the call, after the result whose detail it
+    /// replaces: a stopped command's output and the signal it died of.
+    fn presented(&mut self, call_id: &str, tool: &str, text: &str) {
+        self.journal.presented(call_id, tool, text);
+        self.hand_over(call_id.to_string(), result(tool, text));
+    }
+
     /// The log's alone: a prompt's images are on its card already.
     fn attach_images(&mut self, images: &[crate::image::Image]) {
         self.journal.attach_images(images);
@@ -2694,7 +2701,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "e".into(),
                 tool: "edit_file".into(),
                 ok: true,
@@ -2786,7 +2792,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "c".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -3126,7 +3131,6 @@ mod tests {
                 wire: None,
             });
             teed.record(SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -3174,13 +3178,34 @@ mod tests {
             }
         );
 
+        // A stopped command's account goes to the screen alone, read as a
+        // command's: what it wrote and the signal it died of
+        // (`fx-resume-tools-40x120-live-ctrl-o`: `│ signal 15`).
+        let (events, mut received) = tokio::sync::mpsc::channel(8);
+        let mut kept = Kept(Vec::new());
+        Teed::new(&mut kept, events, CancellationToken::new()).presented(
+            "t",
+            "terminal",
+            "<command>sleep 4</command>\n<cwd>.</cwd>\n<signal>15</signal>\n<stdout>\nstarted\n</stdout>\n<stderr>\n</stderr>\n",
+        );
+        assert!(kept.0.is_empty(), "the screen's account was journalled");
+        assert_eq!(
+            received.try_recv().expect("the account"),
+            UiEvent::ToolDetail {
+                call_id: "t".into(),
+                detail: Detail::Command {
+                    output: "started".into(),
+                    status: Some("signal 15".into()),
+                },
+            }
+        );
+
         // A cancelled turn still journals everything and hands nothing over.
         let (events, mut received) = tokio::sync::mpsc::channel(8);
         let cancel = CancellationToken::new();
         cancel.cancel();
         let mut kept = Kept(Vec::new());
         Teed::new(&mut kept, events, cancel).record(SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,
