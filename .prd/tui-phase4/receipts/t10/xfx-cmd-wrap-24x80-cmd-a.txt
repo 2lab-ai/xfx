@@ -19,6 +19,6 @@
   jumps over the lazy dog and eeeeeeeeeeeee goes down
   B-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   [31mred [0m` in . for the rest of this session, and in every later `xfx ask
-  --resume-id 1791348641245-96d7775db53cb4eb` of this saved session
+  --resume-id 1791351435044-c5702dc65d5e9211` of this saved session
 ────────────────────────────────────────────────────────────────────────────────
 1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
