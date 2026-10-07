@@ -694,6 +694,7 @@ mod check;
 mod clipboard_image;
 mod compaction;
 mod copy;
+mod credits_ask;
 mod deliver;
 mod diagnostic;
 mod edit_history;
@@ -701,7 +702,7 @@ mod editor;
 mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
-mod fault;
+pub(crate) mod fault;
 mod file_index;
 mod file_picker;
 mod frame;
@@ -727,6 +728,7 @@ mod probe;
 mod provider_picker;
 mod question;
 mod recall;
+mod reconcile;
 mod render_request;
 mod retry;
 mod router;
@@ -744,6 +746,7 @@ mod trace;
 mod transcript;
 mod usage_menu;
 mod worker;
+mod workspace_menu;
 mod wrap;
 
 #[cfg(test)]

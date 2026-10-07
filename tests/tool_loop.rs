@@ -29,8 +29,8 @@ use xfx::agent::tokens::Progress;
 use xfx::agent::{run_turn, run_turn_saved, TurnError, TurnJournal, TurnRequest};
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
-    Completion, CompletionRequest, ContentPart, FinishReason, Message, Role, ToolCall, ToolChoice,
-    Usage,
+    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message, Role,
+    ToolCall, ToolChoice, Usage,
 };
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux;
@@ -3198,6 +3198,50 @@ fn ask_reads_a_file_from_an_explicitly_added_directory() {
 }
 
 #[test]
+fn ask_reads_from_a_directory_workspace_add_saved_and_skips_one_that_is_gone() {
+    // One `/workspace add` means the same directory to every surface: `ask`
+    // runs in the saved directories too, as upstream's does
+    // (`cli_ask.zig:1193`). A saved one that is no longer there is not
+    // something this invocation named, so it is skipped, not fatal.
+    let shared = TempDir::new().expect("shared directory");
+    let shared_root = shared.path().canonicalize().expect("canonicalize shared");
+    let note = shared_root.join("shared.md");
+    fs::write(&note, "saved root knowledge\n").expect("write shared file");
+
+    let sandbox = Sandbox::new();
+    let gone = sandbox.home.join("gone");
+    fs::create_dir_all(sandbox.home.join(".xfx")).expect("profile");
+    fs::write(
+        sandbox.home.join(".xfx").join("settings.json"),
+        json!({"workspaces": {sandbox.workspace.to_str().unwrap(): {
+            "additional_directories": [gone.to_str().unwrap(), shared_root.to_str().unwrap()]
+        }}})
+        .to_string(),
+    )
+    .expect("settings");
+
+    let gateway = FakeGateway::start(vec![
+        read_file_reply("c1", note.to_str().unwrap()),
+        Reply::Sse(sse_body(&[text_delta("a0", "read it"), finish("stop")])),
+    ]);
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "read", "the", "saved", "note"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.events()[1]["ok"], json!(true), "{:?}", run.events());
+    let second = gateway.requests()[1].json();
+    let value = second["prompt"][2]["content"][0]["output"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(value.contains("saved root knowledge"), "{value}");
+    run.assert_no_secret();
+}
+
+#[test]
 fn add_dir_rejects_a_path_that_is_not_a_usable_directory() {
     let gateway = FakeGateway::start(Vec::new());
     let sandbox = Sandbox::new();
@@ -3303,21 +3347,21 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
     let tree = Tree::new();
     let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
     let mut first = calls_step(vec![write_call("c1", "new.md", "one\ntwo\n")]);
-    first.completion.billing = Some(bill(
+    first.completion.billing = Some(Bill::Exact(bill(
         "fake/model-a",
         0.0125,
         12000,
         800,
         "gen_01JABCDEFGHJKMNPQRSTVWXYZ0",
-    ));
+    )));
     let mut second = final_step("done");
-    second.completion.billing = Some(bill(
+    second.completion.billing = Some(Bill::Exact(bill(
         "anthropic/claude-opus-5",
         0.421,
         52000,
         3100,
         "gen_01JABCDEFGHJKMNPQRSTVWXYZ1",
-    ));
+    )));
     second.completion.usage = Usage {
         input_tokens: Some(52000),
         output_tokens: Some(3100),
@@ -3342,6 +3386,8 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
         unaccounted,
         lines_added,
         lines_removed,
+        settled,
+        rejected,
     } = usage_frame(&journal)
     else {
         unreachable!()
@@ -3380,6 +3426,8 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
     assert_eq!(requests[0].at_ms, 1_700_000_000_000);
     assert!(!unaccounted);
     assert_eq!((*lines_added, *lines_removed), (2, 0));
+    // A turn's own frame settles nothing: that is the runtime's, later.
+    assert!(settled.is_empty() && rejected.is_empty());
     assert_eq!(
         journal.kinds()[journal.kinds().len() - 2..],
         ["usage_recorded", "turn_concluded"]
@@ -3417,6 +3465,46 @@ async fn a_request_nobody_billed_is_recorded_as_asked_with_no_cost() {
         (None, None)
     );
     assert!(request.at_ms > 0);
+}
+
+/// Upstream's `.deferred` (`gatewayUsageOutcome`, `gateway.zig:650-660`): a
+/// request whose stream named its generation and not its bill is recorded
+/// pending -- no cost yet, and the id and the origin to ask it of.
+#[tokio::test]
+async fn a_request_whose_bill_comes_later_is_recorded_pending_with_where_to_ask() {
+    let tree = Tree::new();
+    let mut answer = final_step("hi");
+    answer.completion.usage = Usage {
+        input_tokens: Some(1200),
+        output_tokens: Some(40),
+    };
+    answer.completion.billing = Some(Bill::Deferred(Deferred {
+        generation_id: "gen_01JABCDEFGHJKMNPQRSTVWXYZ2".to_string(),
+        origin: "http://127.0.0.1:4100".to_string(),
+    }));
+    let provider = ScriptedProvider::new(vec![answer]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("hi", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+    let SessionEvent::UsageRecorded { requests, .. } = usage_frame(&journal) else {
+        unreachable!()
+    };
+    let request = &requests[0];
+    assert!(request.pending());
+    assert_eq!(request.cost, None);
+    assert_eq!(
+        request.generation_id.as_deref(),
+        Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ2")
+    );
+    assert_eq!(request.origin.as_deref(), Some("http://127.0.0.1:4100"));
+    assert_eq!((request.input_tokens, request.output_tokens), (1200, 40));
 }
 
 #[tokio::test]

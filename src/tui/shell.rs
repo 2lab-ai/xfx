@@ -119,6 +119,7 @@ use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
+use super::workspace_menu::{self, MenuAction as WorkspaceAction};
 use crate::agent::tokens::{Estimator, Progress};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
@@ -132,6 +133,7 @@ use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 
 /// Upstream's line for a cancelled turn, in this product's name and in
 /// `palette`: `■` in the warning grey, `Cancelled` in the hint grey, and the
@@ -1005,6 +1007,16 @@ pub(crate) struct Shell {
     /// question outranks it in [`Self::slot`] and takes the keys while it is
     /// up; the picker is back when it has been answered.
     statusline_menu: Option<statusline::Menu>,
+    /// The directories `/workspace` saved for this workspace, as the runtime
+    /// last put them in force: the profile's at launch, and what each change
+    /// read back since ([`UiEvent::Workspace`]). The band's copy, for the
+    /// picker, `/workspace list` and the `@` index; the scope a tool runs in
+    /// is the runtime's, made from the same list.
+    workspace_access: WorkspaceAccess,
+    /// The `/workspace` picker, while it is up ([`super::workspace_menu`]): a
+    /// focus like the `/statusline` picker, the composer row hidden while it
+    /// is.
+    workspace_menu: Option<workspace_menu::Menu>,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -1219,6 +1231,9 @@ pub(crate) struct Shell {
     /// to and for the next `/usage` to open on (`usage_dashboard`'s cache):
     /// when it was read, and what. A newer read replaces it.
     usage_read: Option<(i64, crate::usage::Ledger)>,
+    /// The `/credits` questions in flight, each on a thread of its own, and
+    /// the answers that have come back ([`super::credits_ask::Asks`]).
+    credit_asks: super::credits_ask::Asks,
 }
 
 /// What `/stats` reports: the terminal writer's counters.
@@ -1505,6 +1520,17 @@ use super::activity::compact_tokens;
 
 /// Bold on, and every attribute off: what upstream's card puts around the
 /// submitted text (`user_message_card.zig:319-325`).
+/// The directories the `@` index walks besides the workspace: the ones a
+/// turn's scope would hold -- the available saved directories that are still
+/// themselves, less any inside the workspace or inside another
+/// ([`WorkspaceAccess::scope`]) -- in the order they were saved.
+fn index_roots(primary: &std::path::Path, access: &WorkspaceAccess) -> Vec<std::path::PathBuf> {
+    access
+        .scope(primary)
+        .map(|scope| scope.additional_roots().to_vec())
+        .unwrap_or_default()
+}
+
 const BOLD: &str = "\u{1b}[1m";
 const RESET: &str = "\u{1b}[0m";
 
@@ -1530,6 +1556,9 @@ enum Slot<'a> {
     Settings(&'a SettingsMenu),
     /// `/usage`'s dashboard. The same: the focus and the composer's rows.
     Usage(&'a Dashboard),
+    /// The `/workspace` picker. The same kind: the focus, and the composer's
+    /// rows.
+    Workspace(&'a workspace_menu::Menu),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1720,10 +1749,17 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             file_picker: None,
-            files: Files::new(
-                config.workspace_root.clone(),
-                std::env::var_os("HOME").map(std::path::PathBuf::from),
-            ),
+            files: {
+                let mut files = Files::new(
+                    config.workspace_root.clone(),
+                    std::env::var_os("HOME").map(std::path::PathBuf::from),
+                );
+                files.set_extra_roots(index_roots(
+                    &config.workspace_root,
+                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),
+                ));
+                files
+            },
             separator: None,
             model_draft: None,
             recalled_slash: false,
@@ -1736,6 +1772,11 @@ impl Shell {
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
+            workspace_access: WorkspaceAccess::load(
+                &config.workspace_root,
+                &config.additional_directories,
+            ),
+            workspace_menu: None,
             rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
@@ -1792,6 +1833,12 @@ impl Shell {
             usage_menu: None,
             usage_reader: usage_menu::Reader::new(profile),
             usage_read: None,
+            // A shell a test built asks nobody: a question published to it is
+            // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+            #[cfg(not(test))]
+            credit_asks: super::credits_ask::Asks::new(),
+            #[cfg(test)]
+            credit_asks: super::credits_ask::Asks::by_hand(),
         };
         shell.recall_saved_lines();
         shell
@@ -1929,6 +1976,14 @@ impl Shell {
                 Some(Slot::Usage(dashboard)) => {
                     dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same, with the directories in force.
+                Some(Slot::Workspace(menu)) => menu.rows(
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    &self.workspace,
+                    self.workspace_access.entries(),
+                    self.palette,
+                ),
                 Some(Slot::Menu(picker)) => picker.rows(
                     self.geometry.cols,
                     self.geometry.rows,
@@ -2042,6 +2097,11 @@ impl Shell {
             Some(Slot::Usage(_)) => self.painted(
                 self.palette.dim(),
                 usage_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the `/workspace` picker's (`input_presentation.zig:782-786`).
+            Some(Slot::Workspace(_)) => self.painted(
+                self.palette.dim(),
+                workspace_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -2304,6 +2364,9 @@ impl Shell {
         if let Some(dashboard) = self.usage_menu.as_ref() {
             return Some(Slot::Usage(dashboard));
         }
+        if let Some(menu) = self.workspace_menu.as_ref() {
+            return Some(Slot::Workspace(menu));
+        }
         // Ahead of the catalog and the pickers, as upstream ranks it
         // (`show_settings_menu`, `surface_frame.zig:399-403`) -- though the
         // ranking never decides anything: it opens with them closed and none
@@ -2406,6 +2469,11 @@ impl Shell {
             // header when no model is in view.
             if let Some(dashboard) = self.usage_menu.as_ref() {
                 let row = dashboard.marked_row(self.geometry.panel, self.geometry.cols);
+                return (self.geometry.panel_first().saturating_add(row), 0);
+            }
+            // The `/workspace` picker's the same way.
+            if let Some(menu) = self.workspace_menu.as_ref() {
+                let row = menu.marked_row(self.geometry.panel, self.workspace_access.entries());
                 return (self.geometry.panel_first().saturating_add(row), 0);
             }
         }
@@ -3179,6 +3247,14 @@ impl Shell {
                 self.close_sessions(true);
                 self.hydrate(replay, true);
             }
+            // A `/workspace` change reached the runtime: the directories it
+            // put in force, when it did, and what it says either way.
+            UiEvent::Workspace { notice, access } => {
+                if let Some(access) = access {
+                    self.adopt_workspace(access);
+                }
+                self.announce(notice);
+            }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
             UiEvent::Renamed { title, unsaved } => {
@@ -3198,17 +3274,6 @@ impl Shell {
                     self.refit();
                     self.render.request(Reason::Modal);
                 }
-            }
-            // What `/credits` found, under its topic: neutral for the fields
-            // or the word that there were none, an error for a failure
-            // (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
-            UiEvent::Credits(answer) => {
-                let body = answer.body();
-                self.announce(if answer.is_error() {
-                    notice::Notice::error(crate::credits::TOPIC, body)
-                } else {
-                    notice::Notice::neutral(crate::credits::TOPIC, body)
-                });
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -4752,6 +4817,7 @@ impl Shell {
         if self.help_menu.is_some()
             || self.settings_menu.is_some()
             || self.statusline_menu.is_some()
+            || self.workspace_menu.is_some()
             || self.sessions.is_some()
             || self.full.is_open()
         {
@@ -4821,7 +4887,10 @@ impl Shell {
     }
 
     /// Prepares `tool(arguments)` for a saved-session rule, on this thread and
-    /// running nothing: the workspace this shell is in, the shipped limits,
+    /// running nothing: the workspace this shell is in and the directories
+    /// `/workspace` added to it -- the session's own scope, as upstream
+    /// prepares under `input.access_scope` (`tool_admission.zig:2270-2289`) --
+    /// the shipped limits,
     /// and the configured table in force, so a change a configured rule
     /// denies cannot be remembered as allowed. Its own session, in `ask`, with
     /// no grants and no prompter: preparing asks nobody anything.
@@ -4830,7 +4899,9 @@ impl Shell {
         tool: &str,
         arguments: &serde_json::Value,
     ) -> Result<crate::tools::RuleAction, String> {
-        let scope = crate::workspace::AccessScope::primary_only(&self.workspace)
+        let scope = self
+            .workspace_access
+            .scope(&self.workspace)
             .map_err(|err| err.to_string())?;
         let context = crate::tools::ToolContext::new(scope).with_permissions(
             // `ask`, whatever the session's mode, as upstream prepares a rule
@@ -4936,6 +5007,55 @@ impl Shell {
         }
     }
 
+    /// One keystroke, while the `/workspace` picker has the focus.
+    ///
+    /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Escape closes
+    /// it; **Enter puts the marked choice's command in the composer and runs
+    /// nothing** (`prepareWorkspaceMenuCommand`, `app_input_runtime.zig:2580-2609`):
+    /// the draft is replaced by it, the picker closes, and the user submits
+    /// the line -- or edits it, or throws it away. A command the composer
+    /// cannot hold leaves the picker as it was, as upstream's does.
+    fn offer_to_workspace(&mut self, event: Input) {
+        let Input::Action(action) = event else {
+            return;
+        };
+        let Some(request) = WorkspaceAction::of(action) else {
+            return;
+        };
+        let Some(menu) = self.workspace_menu.as_mut() else {
+            return;
+        };
+        match request {
+            WorkspaceAction::Up | WorkspaceAction::Down => {
+                menu.step(
+                    request == WorkspaceAction::Down,
+                    self.workspace_access.entries(),
+                );
+                self.render.request(Reason::Modal);
+            }
+            WorkspaceAction::Use => {
+                let command = menu.command(self.workspace_access.entries());
+                // The whole draft replaced, its blocks with it -- the editor
+                // keeps what it had when the command is past its cap -- and
+                // a boundary in the undo history, as at every whole-draft
+                // replacement ([`Self::recall`]).
+                if !self.editor.set_text(&command, Entities::new()) {
+                    return;
+                }
+                self.workspace_menu = None;
+                self.edit_history.boundary();
+                self.edited(None);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+            WorkspaceAction::Close => {
+                self.workspace_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+    }
+
     /// Puts `scope` on the dashboard (`refreshUsageMenu`,
     /// `app_commands.zig:1064-1092`): the session at once, from what the
     /// runtime last published; a rolling window from the last read when there
@@ -4983,6 +5103,20 @@ impl Shell {
         }
     }
 
+    /// The directories in force are now `access`: the band's copy, and the
+    /// roots the `@` index walks besides the workspace (`install`'s
+    /// `refreshFileIndex`, `app_workspace_runtime.zig:131-147`).
+    fn adopt_workspace(&mut self, access: WorkspaceAccess) {
+        self.files
+            .set_extra_roots(index_roots(&self.workspace, &access));
+        self.workspace_access = access;
+        if self.workspace_menu.is_some() {
+            // A list of another length is a picker of another height.
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
     /// Takes every read of the session logs that has finished, keeps the
     /// newest, and shows it when a rolling window is up to show it on
     /// (`collectUsageDashboardFacts`, `app_commands.zig:1114-1139`).
@@ -5010,6 +5144,25 @@ impl Shell {
             self.refit();
             self.render.request(Reason::Modal);
         }
+    }
+
+    /// Shows every `/credits` answer that has come back.
+    fn settle_credits(&mut self) {
+        while let Some(answer) = self.credit_asks.finished() {
+            self.say_credits(answer);
+        }
+    }
+
+    /// What `/credits` found, under its topic: neutral for the fields or the
+    /// word that there were none, an error for a failure
+    /// (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
+    fn say_credits(&mut self, answer: crate::credits::Answer) {
+        let body = answer.body();
+        self.announce(if answer.is_error() {
+            notice::Notice::error(crate::credits::TOPIC, body)
+        } else {
+            notice::Notice::neutral(crate::credits::TOPIC, body)
+        });
     }
 
     /// Gives `/usage` a reader that reads nothing and answers only what the
@@ -6523,6 +6676,8 @@ impl Shell {
         self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
+        // And what the Gateway said to a `/credits`.
+        self.settle_credits();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -7225,6 +7380,11 @@ impl Shell {
             // `/usage`'s dashboard, the same way.
             if self.usage_menu.is_some() {
                 self.offer_to_usage(event);
+                continue;
+            }
+            // The `/workspace` picker the same way.
+            if self.workspace_menu.is_some() {
+                self.offer_to_workspace(event);
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -8533,6 +8693,7 @@ impl CommandHandlers for Shell {
         self.model_menu = None;
         self.provider_picker = None;
         self.statusline_menu = None;
+        self.workspace_menu = None;
         let scope = crate::usage::Scope::Days30;
         let cached = self
             .usage_read
@@ -8547,12 +8708,19 @@ impl CommandHandlers for Shell {
     }
 
     /// Upstream's `commandShowCredits` (`app_commands.zig:2052-2082`), asked
-    /// on the runtime thread: the question opens a socket, and the thread that
-    /// holds the terminal waits on none. The answer is a notice when it comes
-    /// ([`UiEvent::Credits`]).
+    /// the moment it is typed: on a thread of its own, because the question
+    /// opens a socket and the thread that holds the terminal waits on none --
+    /// and not through the work queue, so a turn that is running does not
+    /// hold it, a full queue does not refuse it, and a Ctrl-C does not drop it
+    /// ([`super::credits_ask`]). What to ask is the runtime's last
+    /// publication; a provider with nothing to ask answers at once.
     fn credits(&mut self) {
-        if let Err(rejected) = self.work.submit(TurnWork::Credits) {
-            self.refused(rejected);
+        let started = match self.work.credits_question() {
+            Ok(question) => self.credit_asks.start(question),
+            Err(answer) => Err(answer),
+        };
+        if let Err(answer) = started {
+            self.say_credits(answer);
         }
     }
 
@@ -8716,6 +8884,7 @@ impl CommandHandlers for Shell {
             self.picker = None;
             self.file_picker = None;
             self.help_menu = None;
+            self.workspace_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -8728,6 +8897,69 @@ impl CommandHandlers for Shell {
             return;
         };
         self.set_statusline(item, !self.statusline.get(item), true);
+    }
+
+    /// Upstream's `commandHandleWorkspace` and `handleWorkspaceCommand`
+    /// (`app_commands.zig:2119-2152`, `:245-328`).
+    ///
+    /// **Bare**, the saved directories are looked at again -- only while
+    /// nothing runs, as upstream's refresh is (`refreshWorkspaceAvailabilityForList`,
+    /// `:224-230`) -- and the picker opens on `Add directory…` in place of the
+    /// composer, the menus that share its slot closed. **`list`** says the
+    /// snapshot. **A change** is the runtime's to make, because it changes the
+    /// scope a turn runs in: while a turn runs or one waits it is refused at
+    /// once with upstream's neutral notice, and otherwise it goes as work,
+    /// answered by [`UiEvent::Workspace`] with the snapshot -- or the refusal --
+    /// and the directories now in force. **Anything else** is upstream's usage
+    /// line, an error with no topic.
+    fn workspace(&mut self, argument: &str) {
+        let action = match workspace_access::parse(argument) {
+            Ok(action) => action,
+            Err(()) => {
+                self.write_notice(&notice::Notice::error("", workspace_access::USAGE));
+                return;
+            }
+        };
+        let Some(action) = action else {
+            if self.work.outstanding() == 0 {
+                let refreshed = self.workspace_access.refreshed();
+                if refreshed != self.workspace_access {
+                    self.adopt_workspace(refreshed);
+                }
+            }
+            if argument.is_empty() {
+                // Every menu that shares the slot goes, as upstream's
+                // command closes them (`app_commands.zig:2141-2146`).
+                self.picker = None;
+                self.file_picker = None;
+                self.help_menu = None;
+                self.sessions = None;
+                self.model_menu = None;
+                self.provider_picker = None;
+                self.statusline_menu = None;
+                self.usage_menu = None;
+                self.settings_menu = None;
+                self.workspace_menu = Some(workspace_menu::Menu::open());
+                self.refit();
+                self.render.request(Reason::Modal);
+            } else {
+                self.write_notice(&notice::Notice::neutral(
+                    workspace_access::TOPIC,
+                    workspace_access::snapshot(&self.workspace, &self.workspace_access, None),
+                ));
+            }
+            return;
+        };
+        if self.work.outstanding() > 0 {
+            self.write_notice(&notice::Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::BUSY,
+            ));
+            return;
+        }
+        if let Err(rejected) = self.work.submit(TurnWork::Workspace(action)) {
+            self.refused(rejected);
+        }
     }
 
     /// `/compact` (`request_context_compaction`, `input_submit_runtime.zig:
@@ -8785,6 +9017,7 @@ impl CommandHandlers for Shell {
         self.usage_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
+        self.workspace_menu = None;
         self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for a
         // band with no menu in it.
@@ -9509,12 +9742,12 @@ impl Shell {
             // change, or was refused, and saying nothing would make it a change
             // nobody was told of.
             UiEvent::Fresh { .. }
-            | UiEvent::Credits(_)
             | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
             | UiEvent::Renamed { .. }
+            | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
             | UiEvent::CatalogLoaded { .. }
@@ -9794,6 +10027,9 @@ impl Shell {
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Column) => model_column::height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
+            Some(Slot::Workspace(_)) => {
+                workspace_menu::Menu::height(rows, self.workspace_access.entries())
+            }
             Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
@@ -9856,9 +10092,13 @@ impl Shell {
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
         //
-        // `/usage`'s dashboard is the same kind of occupant, and gives up rows
-        // the same way (`composeConstrainedUsageRow`).
-        if matches!(slot, Some(Slot::Statusline(_)) | Some(Slot::Usage(_))) {
+        // `/usage`'s dashboard and the `/workspace` picker are the same kind
+        // of occupant, and give up rows the same way
+        // (`composeConstrainedUsageRow`, `composeWorkspaceRow`).
+        if matches!(
+            slot,
+            Some(Slot::Statusline(_)) | Some(Slot::Usage(_)) | Some(Slot::Workspace(_))
+        ) {
             return (1..=fixed)
                 .rev()
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
@@ -10061,6 +10301,8 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
@@ -15462,7 +15704,7 @@ mod tests {
                 "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
                  upstream exploded \u{b7} retrying request in 1s",
                 "  kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
-                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: ",
+                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error:",
                 "  upstream exploded",
             ],
             "{screen:#?}"
@@ -15960,8 +16202,8 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, `/help`, `/model`, `/provider` and a bare `/statusline`
-            // the ones whose answer is in the band, and the reset's three names answer
+            // a row, `/help`, `/model`, `/provider`, a bare `/statusline` and a
+            // bare `/workspace` the ones whose answer is in the band, and the reset's three names answer
             // with a fresh screen and say nothing (`fx-sessions-40x120-new.txt`);
             // every other one says something, as a notice.
             if *name == "/quit" {
@@ -16012,12 +16254,15 @@ mod tests {
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/credits" {
-                // Asked of the runtime, which answers with the notice; the
-                // UI thread waits on no socket.
-                assert_eq!(shell.picks_up(), TurnWork::Credits);
-                assert!(
-                    document.is_empty(),
-                    "/credits answered before it was asked: {document:?}"
+                // Off the work queue: a provider with nothing to ask -- this
+                // fixture's -- answers at once, as a notice.
+                assert!(shell.sent.try_recv().is_err(), "/credits was queued");
+                assert_eq!(
+                    document,
+                    said(notice::Notice::error(
+                        "credits",
+                        crate::credits::UNAVAILABLE
+                    ))
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/statusline" {
@@ -16028,6 +16273,18 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/statusline wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/workspace" {
+                // A bare `/workspace` is upstream's compact picker
+                // (`cap/fx-workspace-40x120-bare`), in the band too.
+                assert!(
+                    shell.workspace_menu.is_some(),
+                    "/workspace opened no picker"
+                );
+                assert!(
+                    document.is_empty(),
+                    "/workspace wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/paste" {
@@ -16165,8 +16422,12 @@ mod tests {
 
     /// Turns the loop until a `/copy` or a `/trace` that is running on its own
     /// thread has said how it went, and hands back what the document gained.
+    ///
+    /// A minute, because the fake tools are fresh scripts and macOS assesses
+    /// one the first time it runs -- 8 to 12 s on a machine at load 35 -- and
+    /// no case here is about how fast a tool starts.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         loop {
             shell.settle_band(Instant::now());
             let document = shell.document();
@@ -16439,6 +16700,32 @@ mod tests {
             traced(&path)
         };
         assert_eq!(document, expected);
+    }
+
+    #[test]
+    fn a_notice_naming_a_path_wraps_where_upstreams_does() {
+        // `fx-trace-40x120-copy-fail.txt` rows 15-16, the path as fx's run
+        // had it: the notice breaks after `fxtmp/` and drops nothing but the
+        // space it would otherwise have hung (`scanNoticeLine`,
+        // `transcript_blocks.zig:1651-1702`).
+        let mut shell = shell(40, 120);
+        shell.announce(notice::Notice::error(
+            "",
+            crate::trace::Disposition::CopyFailed(std::path::PathBuf::from(
+                "/private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                 fx-trace-2026-10-06-213606-c51761bbc7ce.md",
+            ))
+            .sentence(),
+        ));
+        assert_eq!(
+            shell.document(),
+            [
+                "\u{2717} Clipboard copy failed. Trace saved at \
+                 /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                "  fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
+                "",
+            ]
+        );
     }
 
     #[test]
@@ -17115,6 +17402,62 @@ mod tests {
         assert_eq!(
             shell.document().iter().rev().nth(1).map(String::as_str),
             Some("* permissions: saved-session permission rule updated")
+        );
+    }
+
+    #[test]
+    fn a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can() {
+        // Upstream prepares a rule under the session's own scope, added roots
+        // and all (`.access_scope = input.access_scope`,
+        // `tool_admission.zig:2270-2289`), so a write the session may make in
+        // an added directory is a write it may remember -- and, like any
+        // other, it does not run.
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        let added = tempfile::tempdir().expect("an added directory");
+        let added = added.path().canonicalize().expect("canonical");
+        shell.workspace_access = WorkspaceAccess::load(
+            &shell.workspace.clone(),
+            &[added.to_string_lossy().into_owned()],
+        );
+        let target = added.join("plan.md");
+        let line = format!(
+            "/permissions remember allow write_file {{\"path\":\"{}\",\"content\":\"x\"}}\r",
+            target.display()
+        );
+        shell.route_bytes(line.as_bytes());
+        assert!(
+            shell.rule_confirm.is_some(),
+            "not prepared: {:?}",
+            shell.document()
+        );
+        let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
+        assert!(
+            band.iter().any(|row| row.contains(&format!(
+                "$ write_file {} preimage=absent",
+                target.display()
+            ))),
+            "{band:?}"
+        );
+        assert!(!target.exists(), "the action ran");
+        // A directory that is not one of the session's is still refused.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        let outside = tempfile::tempdir().expect("elsewhere");
+        let line = format!(
+            "/permissions remember allow write_file {{\"path\":\"{}\",\"content\":\"x\"}}\r",
+            outside
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("x.md")
+                .display()
+        );
+        let _ = shell.document();
+        shell.route_bytes(line.as_bytes());
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.document().first().map(String::as_str),
+            Some("✗ permissions: could not prepare that exact permission action without executing it")
         );
     }
 
@@ -17847,9 +18190,12 @@ mod tests {
                 "* status: model=a",
                 "  history_turns=0",
                 "",
-                "\u{2717} command: Unknown ",
-                "  command. Try ",
-                "  /help.",
+                // `scanNoticeLine` (`transcript_blocks.zig:1674-1702`): the
+                // space a row breaks at is on neither row, and `/help` breaks
+                // after its `/`.
+                "\u{2717} command: Unknown",
+                "  command. Try /",
+                "  help.",
                 "",
             ]
         );
@@ -22665,8 +23011,12 @@ mod tests {
     }
 
     /// Turns of the loop until the selection copies have answered.
+    ///
+    /// A minute, as `copy_settled` waits: the fake tool is a fresh script,
+    /// which macOS assesses on its first run -- past ten seconds at load 60,
+    /// where this failed in a fault-injection run.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -23807,6 +24157,285 @@ mod tests {
         shell.shell.apply(UiEvent::Fresh { through: 0 });
         shell.shell.apply(UiEvent::Usage { input: Some(7) });
         assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
+    }
+
+    // -----------------------------------------------------------------------
+    // `/workspace`: the picker, the text forms, and the runtime's answer
+    // -----------------------------------------------------------------------
+
+    /// The profile under `root` with `dirs` saved for its workspace, and the
+    /// workspace's real path.
+    fn workspace_profile(root: &std::path::Path, dirs: &[&std::path::Path]) -> std::path::PathBuf {
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let key = workspace.canonicalize().expect("canonical");
+        let profile = root.join("home").join(".xfx");
+        std::fs::create_dir_all(&profile).expect("a profile");
+        let saved: Vec<String> = dirs
+            .iter()
+            .map(|dir| {
+                dir.canonicalize()
+                    .expect("canonical")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        std::fs::write(
+            profile.join("settings.json"),
+            serde_json::json!({"workspaces": {key.to_string_lossy(): {"additional_directories": saved}}})
+                .to_string(),
+        )
+        .expect("a profile");
+        key
+    }
+
+    #[test]
+    fn a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer() {
+        // `cap/fx-workspace-40x120-bare`: the rule, `Workspace`, a blank, the
+        // two pinned rows, a blank, `❯ Add directory…`, the rule and the key
+        // help -- and nothing written, nothing sent.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.document().is_empty(), "the picker wrote a notice");
+        assert!(shell.workspace_menu.is_some());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.panel, 6);
+        let rows = shell.band_rows();
+        assert_eq!(rows[0], divider(120));
+        let primary = shell.workspace.to_string_lossy().into_owned();
+        assert_eq!(
+            uncoloured_rows(&rows[1..7]),
+            [
+                "Workspace".to_string(),
+                String::new(),
+                format!("  Primary                   {primary}"),
+                "  Additional directories    0 / 16".to_string(),
+                String::new(),
+                "\u{276f} Add directory\u{2026}             Grant access to another directory"
+                    .to_string(),
+            ]
+        );
+        assert_eq!(rows[7], divider(120));
+        assert_eq!(
+            rows[8],
+            format!(
+                "{}\u{2191}\u{2193} navigate     enter use     esc close{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 5, 0));
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/workspace reached the runtime"
+        );
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+    }
+
+    #[test]
+    fn enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing() {
+        // `cap/fx-workspace2-40x120-add-row-enter`, `-dir-enter`,
+        // `cap/fx-workspace3-40x120-clear-prefill`; fx e2e
+        // `tui-slash-menu.test.ts:2340-2373`.
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let extra = extra.canonicalize().expect("canonical");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+
+        for (downs, command) in [
+            (0, "/workspace add ".to_string()),
+            (1, format!("/workspace remove {}", extra.display())),
+            (2, "/workspace clear".to_string()),
+        ] {
+            shell.route_bytes(b"/workspace\r");
+            assert_eq!(shell.geometry.panel, 8, "{command}");
+            for _ in 0..downs {
+                shell.route_bytes(b"\x1b[B");
+            }
+            shell.route_bytes(b"\r");
+            assert!(shell.workspace_menu.is_none(), "{command}");
+            assert_eq!(shell.editor.text(), command);
+            assert!(shell.sent.try_recv().is_err(), "{command} ran");
+            assert!(shell.document().is_empty(), "{command} said something");
+            assert!(
+                shell.band_rows().contains(&composer_row(&command)),
+                "{command}: {:?}",
+                shell.band_rows()
+            );
+            // Ctrl-U empties it, as the e2e does between the two.
+            shell.route_bytes(&[0x15]);
+            assert!(shell.editor.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_workspace_pickers_keys_wrap_swallow_and_close() {
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .workspace_menu
+                .expect("up")
+                .command(shell.workspace_access.entries())
+        };
+        // Up from the first wraps to the last; Ctrl-J and Ctrl-K walk too.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(marked(&shell), "/workspace clear");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(marked(&shell), "/workspace add ");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(marked(&shell), "/workspace clear");
+        // Letters, Left and Right, a Ctrl-C: swallowed, picker still up.
+        shell.route_bytes(b"x\x1b[C\x1b[D");
+        shell.route_bytes(&[0x03]);
+        assert!(shell.workspace_menu.is_some());
+        assert!(shell.editor.is_empty());
+        assert_eq!(marked(&shell), "/workspace clear");
+        escape(&mut shell);
+        assert!(shell.workspace_menu.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn a_saved_directory_is_listed_and_counted_from_the_profile_at_launch() {
+        // `cap/fx-workspace2-40x120-picker-one`.
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let extra = extra.canonicalize().expect("canonical");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        let rows = uncoloured_rows(&shell.band_rows()[1..9]);
+        assert_eq!(rows[3], "  Additional directories    1 / 16");
+        assert_eq!(
+            rows[6],
+            format!("  {}    Active \u{b7} Saved", extra.display())
+        );
+        assert_eq!(
+            rows[7].trim_end(),
+            format!(
+                "  Clear saved directories{}Remove every saved additional directory",
+                " ".repeat(extra.to_string_lossy().len() + 4 - 23)
+            )
+        );
+    }
+
+    #[test]
+    fn workspace_list_says_the_snapshot_and_bad_words_say_the_usage() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        let primary = shell.workspace.to_string_lossy().into_owned();
+        shell.route_bytes(b"/workspace list\r");
+        assert_eq!(
+            shell.document(),
+            [
+                format!("* workspace: primary={primary}"),
+                "  saved_suppressed=false limit=16".to_string(),
+                "  additional directories: (none)".to_string(),
+                String::new(),
+            ]
+        );
+        for typed in [
+            "/workspace bogus\r",
+            "/workspace add\r",
+            "/workspace add   \r",
+        ] {
+            shell.route_bytes(typed.as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /workspace [add PATH|remove PATH|clear]"
+                )),
+                "{typed:?}"
+            );
+        }
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refusal reached the runtime"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_goes_to_the_runtime_and_its_answer_is_said_and_kept() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace add ../extra\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Workspace(workspace_access::Action::Add("../extra".to_string()))
+        );
+        assert!(
+            shell.document().is_empty(),
+            "the band answered for the runtime"
+        );
+
+        let entries =
+            WorkspaceAccess::load(&shell.workspace.clone(), &["/somewhere/extra".to_string()]);
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "primary=/w\nadditional directories:"),
+            access: Some(entries.clone()),
+        });
+        assert_eq!(shell.workspace_access, entries);
+        assert_eq!(
+            shell.document(),
+            [
+                "* workspace: primary=/w".to_string(),
+                "  additional directories:".to_string(),
+                String::new(),
+            ]
+        );
+        // A refusal says so and keeps the directories as they were.
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::error(
+                "workspace",
+                "Workspace update rejected: directory does not exist",
+            ),
+            access: None,
+        });
+        assert_eq!(shell.workspace_access, entries);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "workspace",
+                "Workspace update rejected: directory does not exist"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_is_refused_while_a_turn_is_in_hand() {
+        // `tryBeginWorkspaceMutation` (`app_commands.zig:219-222`): no change
+        // while anything runs or waits, and upstream's neutral sentence.
+        let mut shell = shell(40, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/workspace clear\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "workspace",
+                "Workspace changes are unavailable until the active and queued work finishes."
+            ))
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the change was queued anyway"
+        );
+        // The snapshot and the picker are not changes, and still answer.
+        shell.route_bytes(b"/workspace list\r");
+        assert!(shell.document()[0].starts_with("* workspace: primary="));
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.workspace_menu.is_some());
     }
 
     // -----------------------------------------------------------------------
@@ -25805,7 +26434,7 @@ mod tests {
             screen[at + 1..at + 4],
             [
                 format!(
-                    "  tools: {} advertised ({}, +1 ",
+                    "  tools: {} advertised ({}, +1",
                     crate::tools::ADVERTISED_TOOLS.len(),
                     crate::tools::ADVERTISED_TOOLS[..8].join(", ")
                 ),
@@ -26577,8 +27206,10 @@ mod tests {
 
     /// Settles the band until the clipboard read has answered: the document
     /// rows it wrote, or none when it put a badge in the draft instead.
+    ///
+    /// A minute, for the reason `copies_settled` gives.
     fn read_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         let before = shell.editor.text().to_string();
         loop {
             shell.settle_band(Instant::now());
@@ -26727,6 +27358,7 @@ mod tests {
                 reasoning_tokens: Some(reasoning),
                 cost: Some(cost),
                 generation_id: None,
+                origin: None,
             };
         let usage = crate::session::RecordedUsage {
             requests: vec![
@@ -26868,6 +27500,7 @@ mod tests {
             reasoning_tokens: None,
             cost: None,
             generation_id: None,
+            origin: None,
         });
         usage.lines_added = 2;
         shell.work.publish_spent(super::super::worker::Spent {
@@ -26892,6 +27525,54 @@ mod tests {
             usage_band(&shell)[1],
             "Usage  30 days  7 days  24 hours  [Session]"
         );
+    }
+
+    /// Quitting does not wait out a read of the session logs: the reader is
+    /// cancelled and stops at the next session it would open
+    /// (`usage_dashboard_runtime.zig:96-103`), so a slow one -- a long history
+    /// -- costs the exit the one log it is in.
+    #[test]
+    fn quit_returns_promptly_with_a_slow_usage_read_in_flight() {
+        let mut fixture = shell(40, 120);
+        let started = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let (reading, saw_cancel) = (Arc::clone(&started), Arc::clone(&stopped));
+        fixture.usage_reader = usage_menu::Reader::reading_with(
+            std::path::PathBuf::from("/nowhere"),
+            move |_, _, cancel| {
+                reading.store(true, Ordering::SeqCst);
+                // A history that takes half a minute to read, a session at a
+                // time.
+                let deadline = Instant::now() + Duration::from_secs(30);
+                while Instant::now() < deadline {
+                    if cancel.load(Ordering::Acquire) {
+                        saw_cancel.store(true, Ordering::SeqCst);
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Some(Err("never cancelled".to_string()))
+            },
+        );
+        fixture.route_bytes(b"/usage\r");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !started.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the read never started");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // The dashboard takes every key while it is up; closed, `/quit`.
+        escape(&mut fixture);
+        assert!(fixture.usage_menu.is_none());
+        fixture.route_bytes(b"/quit\r");
+        assert!(fixture.leaving());
+        let quitting = Instant::now();
+        drop(fixture);
+        assert!(
+            quitting.elapsed() < Duration::from_secs(1),
+            "the exit waited {:?} for the read",
+            quitting.elapsed()
+        );
+        assert!(stopped.load(Ordering::SeqCst), "the read was not cancelled");
     }
 
     #[test]
@@ -26935,30 +27616,50 @@ mod tests {
         }
     }
 
+    /// What `/credits` asks with a Gateway key: the question a runtime
+    /// publishes for this configuration.
+    fn a_credits_question() -> crate::credits::Question {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        crate::credits::question(&config).expect("a Gateway with a key asks")
+    }
+
     #[test]
-    fn credits_is_asked_of_the_runtime_and_answered_as_upstreams_notice() {
+    fn credits_is_asked_at_once_and_answered_as_upstreams_notice() {
         let mut shell = shell(40, 120);
+        shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"/balance\r");
-        assert_eq!(shell.picks_up(), TurnWork::Credits);
+        assert_eq!(shell.credit_asks.asked(), 1);
+        assert!(shell.sent.try_recv().is_err(), "/credits was queued");
         assert!(shell.document().is_empty(), "answered before it was asked");
 
         // `fx-credits-ok-40x120-after`: three fields, one per row, the later
         // two under the first's gutter.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
             balance: Some("42.17".to_string()),
             used: Some("7.83".to_string()),
             plan: Some("pro".to_string()),
-        }));
+        });
+        shell.settle_band(Instant::now());
         assert_eq!(
             shell.document(),
             ["* credits: balance=42.17", "  used=7.83", "  plan=pro", ""]
         );
         // `credits-empty`: neutral, and says there was nothing.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
             balance: None,
             used: None,
             plan: None,
-        }));
+        });
+        shell.settle_band(Instant::now());
         assert_eq!(
             shell.document(),
             said(notice::Notice::neutral(
@@ -26967,9 +27668,10 @@ mod tests {
             ))
         );
         // `credits-404`: an error, in the error tone.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Failed(
+        shell.credit_asks.deliver(crate::credits::Answer::Failed(
             "HTTP 404: not found".to_string(),
-        )));
+        ));
+        shell.settle_band(Instant::now());
         let rows = shell.take_pending();
         let row = &rows[0].rows[0];
         assert_eq!(colourless(row), "\u{2717} credits: HTTP 404: not found");
@@ -26982,20 +27684,63 @@ mod tests {
         );
     }
 
+    /// Upstream answers `/credits` on the spot (`commandShowCredits`,
+    /// `app_commands.zig:2052-2082`): a turn that is running does not hold it,
+    /// a full queue does not refuse it, and a Ctrl-C meant for the turn does
+    /// not take it away.
     #[test]
-    fn credits_with_the_queue_full_is_refused_where_the_user_reads_it() {
+    fn credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c() {
         let mut shell = shell(24, 80);
+        shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"first\r");
         shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::TurnStarted);
         shell.document();
         shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.credit_asks.asked(), 1, "/credits waited");
+        assert!(!shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/credits joined the queue");
+
+        // The interrupt is the turn's, and the question is not.
+        shell.route_bytes(&[0x03]);
         assert!(
-            shell.sent.try_recv().is_err(),
-            "/credits joined a full queue"
+            matches!(shell.control.try_recv(), Ok(TurnControl::Cancel { .. })),
+            "the Ctrl-C did not interrupt the turn"
         );
-        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
+            balance: Some("42.17".to_string()),
+            used: None,
+            plan: None,
+        });
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| row == "* credits: balance=42.17"),
+            "the answer was dropped"
+        );
+    }
+
+    #[test]
+    fn credits_with_nothing_to_ask_answers_at_once_and_asks_nobody() {
+        let mut shell = shell(40, 120);
+        shell
+            .work
+            .publish_credits(Err(crate::credits::Answer::Failed(
+                crate::output::MISSING_AUTH_HELP.to_string(),
+            )));
+        shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.credit_asks.asked(), 0);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "credits",
+                crate::output::MISSING_AUTH_HELP
+            ))
+        );
     }
 
     // -----------------------------------------------------------------------

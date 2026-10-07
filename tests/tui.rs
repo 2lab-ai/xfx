@@ -458,9 +458,11 @@ const RAW_LOCAL_OFF: [LocalModes; 4] = [
 ];
 
 /// The input modes raw mode clears.
-const RAW_INPUT_OFF: [InputModes; 5] = [
+const RAW_INPUT_OFF: [InputModes; 7] = [
     InputModes::IXON,
+    InputModes::IGNCR,
     InputModes::ICRNL,
+    InputModes::INLCR,
     InputModes::BRKINT,
     InputModes::INPCK,
     InputModes::ISTRIP,
@@ -4554,6 +4556,168 @@ fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread()
     assert_eq!(gateway.request_count(), 2);
 }
 
+/// `/credits` is asked the moment it is typed, as upstream's is
+/// (`commandShowCredits`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_commands.zig:2052-2082`): with a turn running and a prompt
+/// waiting behind it -- the queue full, which refuses a third prompt -- it is
+/// not refused, and the Ctrl-C that stops the turn does not take it away.
+///
+/// The fixture serves one connection at a time, so the question reaches it
+/// once the hanging turn's connection is closed by the interrupt: what this
+/// proves on a real terminal is "not refused and not dropped". That it is
+/// asked at once, ahead of the turn, is the shell's own case
+/// (`credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c`).
+#[test]
+fn credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c() {
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING\n\n"),
+        ])]),
+        support::fake_gateway::Reply::Sse(r#"{"balance":"42.17"}"#.to_string()),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"first\r");
+    session.wait_for("FIRST-TURN-RUNNING");
+    session.type_bytes(b"second\r");
+    session.wait_for("queued 1");
+    session.type_bytes(b"/credits\r");
+    // One press with an empty composer stops the turn and drops the prompt
+    // behind it; the question is not either of those.
+    session.type_bytes(&[0x03]);
+    on_screen(
+        &session,
+        (40, 120),
+        &["* credits: balance=42.17"],
+        &["one prompt is already queued"],
+    );
+    let asked = gateway.requests();
+    assert_eq!(asked.len(), 2, "the dropped prompt reached the wire");
+    assert_eq!(
+        (asked[1].method.as_str(), asked[1].path.as_str()),
+        ("GET", "/coding-agent/v1/credits")
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// A turn whose stream named its generation and not its cost is pending --
+/// `Partial data` -- until the Gateway gives the bill by id, asked again while
+/// it says it has not written it yet (`GET {origin}/v1/generation?id=`,
+/// `vercel-labs/fx@c1db9191 src/gateway/client.zig:285-372`, retried as
+/// `generation_usage.zig:58-67` and `session_usage.zig:3322-3423` say). Then
+/// the session's spend is the bill, and `Partial data` is gone.
+#[test]
+fn a_bill_that_comes_later_is_asked_for_by_generation_and_partial_data_clears() {
+    const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
+    let deferred = support::fake_gateway::sse_body(&[
+        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
+                "timestamp": iso_utc_minutes_ago(1) }),
+        support::fake_gateway::text_delta("answer_0", "MARKER-DEFERRED"),
+        serde_json::json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 12000, "cacheRead": 4000 },
+                "outputTokens": { "total": 800, "reasoning": 0 }
+            },
+            "providerMetadata": { "gateway": { "generationId": GENERATION } }
+        }),
+    ]);
+    let record = serde_json::json!({ "data": {
+        "id": GENERATION,
+        "model": "fake/model-a",
+        "created_at": iso_utc_minutes_ago(1),
+        "total_cost": 0.0125,
+        "native_tokens_prompt": 8000,
+        "native_tokens_completion": 800,
+        "native_tokens_cached": 4000,
+        "native_tokens_cache_creation": 0,
+        "native_tokens_reasoning": 0,
+        "billable_web_search_calls": 0
+    } });
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(deferred),
+        // Not written yet, twice: asked again a second apart.
+        support::fake_gateway::Reply::Status(404, "not found".to_string()),
+        support::fake_gateway::Reply::Status(404, "not found".to_string()),
+        support::fake_gateway::Reply::Sse(record.to_string()),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"count this\r");
+    session.wait_for("MARKER-DEFERRED");
+    session.wait_for("\u{2191}");
+    // Pending: the session scope says so, and counts none of it.
+    session.type_bytes(b"/usage\r");
+    session.wait_for("tab scope");
+    session.type_bytes(b"\x1b[Z");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Partial data"],
+        &["Local xfx activity"],
+    );
+
+    // The third ask gets the bill; `r` reads the session again.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while gateway.request_count() < 4 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the bill was not asked for again: {:?}",
+            gateway
+                .requests()
+                .iter()
+                .map(|request| request.path.clone())
+                .collect::<Vec<_>>()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    session.wait_until("the bill is shown", |_| {
+        session.type_bytes(b"r");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        Screen::painted(&session.text(), 40, 120).is_some_and(|screen| {
+            screen.find("Local xfx activity").is_some() && screen.find("$0.01 spent").is_some()
+        })
+    });
+    on_screen(
+        &session,
+        (40, 120),
+        &["12.8K tokens", "fake/model-a"],
+        &["Partial data"],
+    );
+
+    let asked = gateway.requests();
+    for lookup in &asked[1..] {
+        assert_eq!(
+            (lookup.method.as_str(), lookup.path.as_str()),
+            ("GET", format!("/v1/generation?id={GENERATION}").as_str())
+        );
+        assert_eq!(
+            lookup.header("authorization"),
+            Some(format!("Bearer {}", support::sandbox::TEST_KEY).as_str())
+        );
+    }
+
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &["glm-5.2"], &["tab scope"]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    // Asked until answered, and not again.
+    assert_eq!(gateway.request_count(), 4);
+}
+
 #[test]
 fn quit_leaves_the_way_ctrl_d_does() {
     let sandbox = Sandbox::new();
@@ -6664,6 +6828,78 @@ mod faults {
             );
         }
         assert_eq!(before, modes(&pty));
+    }
+
+    /// A report's file names under `dir`, published (`xfx-trace-…md`) and
+    /// staged (`.xfx-trace-…md.partial`).
+    fn trace_files(reports: &[std::path::PathBuf]) -> (Vec<String>, Vec<String>) {
+        let names: Vec<String> = reports
+            .iter()
+            .filter_map(|path| path.file_name()?.to_str().map(str::to_string))
+            .collect();
+        let published = names
+            .iter()
+            .filter(|name| name.starts_with("xfx-trace-") && name.ends_with(".md"))
+            .cloned()
+            .collect();
+        let staged = names
+            .iter()
+            .filter(|name| name.starts_with(".xfx-trace-") && name.ends_with(".md.partial"))
+            .cloned()
+            .collect();
+        (published, staged)
+    }
+
+    #[test]
+    fn a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report() {
+        // Upstream writes its report under its own name (`app_commands.zig:2207-2224`),
+        // so a kill mid-write leaves a truncated `fx-trace-…md`. Here the
+        // bytes go to a hidden stage and the name is given by one rename: the
+        // fault holds the report's thread after the stage is whole and before
+        // the rename, and the process is ended there by each signal that ends
+        // it -- SIGKILL, which runs nothing, and SIGTERM and SIGHUP, whose
+        // handlers restore the terminal and re-raise.
+        for signal in [Signal::KILL, Signal::TERM, Signal::HUP] {
+            let gateway = FakeGateway::start(Vec::new());
+            let clipboard = support::fake_clipboard::FakeClipboard::new();
+            let sandbox = Sandbox::new();
+            let pty = Pty::open();
+            pty.resize(40, 120);
+            let mut command = tui_with(&sandbox, &gateway);
+            command.env("XFX_TUI_FAULT", "trace-before-publish");
+            clipboard.first_on_path(&mut command);
+            clipboard.reports_into(&mut command);
+            let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+            session.wait_for(READY);
+            session.type_bytes(b"/trace\r");
+            // Until the report's bytes are on disk under whichever name they
+            // were written to: the moment the fault holds the thread at.
+            let deadline = Instant::now() + WAIT;
+            loop {
+                let reports = clipboard.reports();
+                let written = reports.iter().any(|path| {
+                    std::fs::read_to_string(path)
+                        .is_ok_and(|text| text.contains("\n## Transcript Timeline\n"))
+                });
+                if written {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "{signal:?}: the report was never written"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            session.signal(signal);
+            let status = session.wait_exit();
+            assert!(!status.success(), "{signal:?}: {status:?}");
+            let (published, staged) = trace_files(&clipboard.reports());
+            assert!(
+                published.is_empty(),
+                "{signal:?}: a report was published by a session killed before it: {published:?}"
+            );
+            assert_eq!(staged.len(), 1, "{signal:?}: {staged:?}");
+        }
     }
 }
 
@@ -9054,4 +9290,136 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind() {
+    // The session's end joins the report's thread (`tui::copy::Errands`): the
+    // report is written whole, and a file copy whose tool never answers is
+    // given a second and then killed -- the exit does not wait out the
+    // tool's thirty seconds, nor the copy's five.
+    let gateway = FakeGateway::start(Vec::new());
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    clipboard.hang();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"/trace\r");
+    let quit = Instant::now();
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let took = quit.elapsed();
+    assert!(
+        took < std::time::Duration::from_secs(4),
+        "the exit waited on the clipboard tool: {took:?}"
+    );
+
+    let reports = clipboard.reports();
+    assert!(reports.len() <= 1, "{reports:?}");
+    if let Some(path) = reports.first() {
+        let report = std::fs::read_to_string(path).expect("the report");
+        assert!(report.starts_with("# xfx trace\n"), "{report}");
+        assert!(
+            report.contains("\n## Transcript Timeline\n") && report.ends_with('\n'),
+            "not the whole report: {report}"
+        );
+    }
+    if let Some(pid) = clipboard.hung() {
+        let alive = rustix::process::Pid::from_raw(pid)
+            .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok());
+        assert!(!alive, "the clipboard tool outlived the session");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// input typed before the session is up
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_return_typed_before_the_session_is_a_newline_in_the_composer_as_upstreams_is() {
+    // A Return pressed while the terminal is still the shell's is made a line
+    // feed by the cooked line discipline (`ICRNL`) before xfx can read it, and
+    // a line feed is `C-j`: a newline in the composer, on both products --
+    // upstream's `'\n' => .insert_newline` (`src/ui/input/shortcuts.zig:26`,
+    // reached for the composer at `terminal_action_decoder.zig:210`), xfx's
+    // `0x0a => Action::ControlJ` (`src/tui/input.rs`). So nothing is sent
+    // until a Return typed into the session itself.
+    use rustix::termios::{tcgetattr, tcsetattr, OptionalActions};
+    use std::io::Write as _;
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-EARLY-RETURN-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let slave = pty.slave.as_ref().expect("the retained slave");
+    let mut cooked = tcgetattr(slave).expect("read the terminal");
+    cooked.input_modes.insert(InputModes::ICRNL);
+    cooked
+        .input_modes
+        .remove(InputModes::IGNCR | InputModes::INLCR);
+    cooked.local_modes.insert(LocalModes::ICANON);
+    tcsetattr(slave, OptionalActions::Now, &cooked).expect("cook the terminal");
+    (&*pty.master)
+        .write_all(b"first\r")
+        .expect("type before the session");
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    on_screen(&session, (24, 80), &["\u{2503} first"], &[]);
+    assert_eq!(gateway.request_count(), 0, "the early Return sent the line");
+    session.type_bytes(b"second\r");
+    session.wait_for("MARKER-EARLY-RETURN-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(
+        requests[0].json().to_string().contains("first\\nsecond"),
+        "{}",
+        requests[0].json()
+    );
+}
+
+#[test]
+fn what_was_typed_before_the_session_took_the_terminal_is_in_the_composer() {
+    // Upstream enters raw mode with `TCSANOW` (`shell_runtime.zig:128`) and
+    // pins it with "enableRawMode preserves already queued input"
+    // (`:640-678`): keys typed while the binary was still starting are the
+    // first keys the composer reads. Typed here before the binary is even
+    // spawned, so the case cannot depend on how fast it starts.
+    use std::io::Write as _;
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-TYPED-EARLY-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    (&*pty.master)
+        .write_all(b"typed early")
+        .expect("type before the session");
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    on_screen(&session, (24, 80), &["\u{2503} typed early"], &[]);
+    session.type_bytes(b" and late\r");
+    session.wait_for("MARKER-TYPED-EARLY-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(
+        requests[0]
+            .json()
+            .to_string()
+            .contains("typed early and late"),
+        "{}",
+        requests[0].json()
+    );
 }

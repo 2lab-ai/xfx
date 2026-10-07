@@ -42,6 +42,7 @@ impl FakeClipboard {
             concat!(
                 "#!/bin/sh\n",
                 "if [ -f \"${0%/*}/fail\" ]; then exit 1; fi\n",
+                "if [ -f \"${0%/*}/hang\" ]; then echo $$ > \"${0%/*}/hung\"; exec sleep 30; fi\n",
                 "for arg in \"$@\"; do last=$arg; done\n",
                 "printf '%s' \"$last\" > \"${0%/*}/copied-file\"\n",
             ),
@@ -93,6 +94,18 @@ impl FakeClipboard {
     /// What the clipboard was last given, or `None` when nothing was copied.
     pub fn copied(&self) -> Option<Vec<u8>> {
         std::fs::read(self.path("copied")).ok()
+    }
+
+    /// Makes every file copy from now on wait far past its deadline.
+    pub fn hang(&self) {
+        std::fs::write(self.path("hang"), "").expect("arm the wait");
+    }
+
+    /// The process id of the last file copy that hung, once it has started.
+    pub fn hung(&self) -> Option<i32> {
+        std::fs::read_to_string(self.path("hung"))
+            .ok()
+            .and_then(|pid| pid.trim().parse().ok())
     }
 
     /// Makes every copy from now on exit 1.

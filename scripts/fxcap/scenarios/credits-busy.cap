@@ -1,0 +1,16 @@
+# `/credits` while a turn is still streaming (slow-turns.json: a chunk every
+# 250 ms for about eight seconds): `during` is the screen a second after it
+# was run, with the turn still going; `after` once the turn has ended.
+credits credits-ok.json
+gateway slow-turns.json
+wait 2.5
+type explain the plan please
+key Enter
+wait 1.5
+type /credits
+key Enter
+wait 1
+snap during
+wait 9
+snap after
+gwlog

@@ -1,0 +1,30 @@
+# A turn whose bill comes later (deferred-turns.json): the stream names its
+# generation and no cost, and the fake gateway answers the first six
+# GET /v1/generation?id=<gen> with 404 (not written yet) and the seventh with
+# the record. `pending` is the session scope while the bill is being asked
+# for; `settled` the same scope once it is known, as shown and after `r`;
+# then the 30-day window. `gwlog` keeps every ask; `home` what each product
+# kept.
+models models.json
+gateway deferred-turns.json
+wait 2.5
+type explain the plan please
+key Enter
+wait 1.5
+type /usage
+key Enter
+wait 1
+key BTab
+wait 0.5
+snap pending
+wait 6
+snap settled
+key r
+wait 1
+snap settled-r
+key Tab
+wait 1.5
+snap d30
+home end
+gwlog
+key Escape

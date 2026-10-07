@@ -27,7 +27,9 @@ use std::io;
 use serde_json::{Map, Value};
 
 use super::{CancelToken, DeltaSink};
-use crate::gateway::protocol::{Billing, Completion, FinishReason, ToolCall, Usage};
+use crate::gateway::protocol::{
+    Bill, Billing, Completion, Deferred, FinishReason, ToolCall, Usage,
+};
 use crate::provider::Wire;
 
 /// The largest single SSE event xfx will buffer, in bytes.
@@ -161,6 +163,9 @@ pub struct SseReader {
     generation_invalid: bool,
     /// The finish event's billing, read once it has arrived.
     billing: Option<Billing>,
+    /// Where the response came from, for a generation whose bill is asked
+    /// for later ([`Deferred::origin`]); empty until [`Self::from_origin`].
+    origin: String,
     complete: bool,
     /// Bytes counted against [`MAX_COMPLETION_BYTES`]: text plus tool arguments.
     accumulated: usize,
@@ -192,10 +197,17 @@ impl SseReader {
             generation_id: None,
             generation_invalid: false,
             billing: None,
+            origin: String::new(),
             complete: false,
             accumulated: 0,
             cancel,
         }
+    }
+
+    /// The same reader, reading a response from `origin`.
+    pub fn from_origin(mut self, origin: &str) -> Self {
+        self.origin = origin.to_string();
+        self
     }
 
     /// Charges `bytes` against the completion ceiling.
@@ -271,13 +283,20 @@ impl SseReader {
                 // Counted only when every piece upstream counts it by arrived
                 // and agreed: the finish's billing and a generation id
                 // nothing contradicted (`InvocationObservation.complete`,
-                // `session_usage.zig:110-175`).
+                // `session_usage.zig:110-175`). The id without the billing
+                // is a bill to ask for later; anything contradicted is one
+                // nobody can ask for.
                 billing: match (self.billing, self.generation_id) {
-                    (Some(billing), Some(id)) if !self.generation_invalid => Some(Billing {
+                    _ if self.generation_invalid => None,
+                    (Some(billing), Some(id)) => Some(Bill::Exact(Billing {
                         generation_id: Some(id),
                         ..billing
-                    }),
-                    _ => None,
+                    })),
+                    (None, Some(generation_id)) => Some(Bill::Deferred(Deferred {
+                        generation_id,
+                        origin: self.origin,
+                    })),
+                    (_, None) => None,
                 },
             }),
             // The provider said why it failed, so report that rather than the
@@ -639,7 +658,7 @@ fn optional_count(value: Option<&Value>) -> Option<Option<u64>> {
 
 /// Whether `id` is a Gateway generation id: `gen_` and 26 characters of
 /// Crockford's base 32 (`validGatewayGenerationId`, `types.zig:1837-1844`).
-fn is_generation_id(id: &str) -> bool {
+pub(crate) fn is_generation_id(id: &str) -> bool {
     id.len() == 30
         && id.starts_with("gen_")
         && id[4..]
@@ -856,10 +875,28 @@ mod tests {
         json!({ "type": "response-metadata", "modelId": "anthropic/claude-opus-5", "timestamp": "2026-10-07T01:02:03.456Z" })
     }
 
+    /// The bill a stream said all of, or a failed case.
+    fn exact(completion: &Completion) -> Billing {
+        match &completion.billing {
+            Some(Bill::Exact(billing)) => billing.clone(),
+            other => panic!("not billed: {other:?}"),
+        }
+    }
+
+    /// What a generation whose bill was not in its stream is asked for by.
+    fn deferred(id: &str, origin: &str) -> Option<Bill> {
+        Some(Bill::Deferred(Deferred {
+            generation_id: id.to_string(),
+            origin: origin.to_string(),
+        }))
+    }
+
+    const GENERATION: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+
     #[test]
     fn a_billed_finish_is_read_whole() {
         let completion = decode(&billed(stamped(), json!({}))).0.expect("finish");
-        let billing = completion.billing.expect("billed");
+        let billing = exact(&completion);
         assert_eq!(billing.model, "anthropic/claude-opus-5");
         assert_eq!(billing.cost, 0.421);
         assert_eq!((billing.input_tokens, billing.output_tokens), (52000, 3100));
@@ -880,8 +917,12 @@ mod tests {
         assert_eq!(completion.usage.input_tokens, Some(52000));
     }
 
+    /// Upstream's `.deferred` (`gatewayUsageOutcome`, `gateway.zig:650-660`):
+    /// a stream whose generation id arrived intact and whose bill did not is
+    /// one whose bill is asked for later, by that id. Without an id, or with
+    /// one that was contradicted, there is nothing to ask by.
     #[test]
-    fn a_finish_missing_any_piece_upstream_counts_by_is_not_billed() {
+    fn a_finish_missing_any_piece_upstream_counts_by_is_asked_for_by_its_id() {
         let no_id = json!({ "providerMetadata": { "gateway": {
             "routing": { "canonicalSlug": "a/b" }, "cost": "0.1" } } });
         let bad_id = json!({ "providerMetadata": { "gateway": {
@@ -900,9 +941,13 @@ mod tests {
             "inputTokens": { "total": 10 }, "outputTokens": { "total": 1, "reasoning": 2 } } });
         let no_output_total = json!({ "usage": {
             "inputTokens": { "total": 10 }, "outputTokens": {} } });
+        for finish in [no_id, bad_id] {
+            let completion = decode(&billed(stamped(), finish.clone()))
+                .0
+                .expect("finish");
+            assert_eq!(completion.billing, None, "{finish}");
+        }
         for finish in [
-            no_id,
-            bad_id,
             no_cost,
             numeric_cost,
             negative_cost,
@@ -914,28 +959,47 @@ mod tests {
             let completion = decode(&billed(stamped(), finish.clone()))
                 .0
                 .expect("finish");
-            assert_eq!(completion.billing, None, "{finish}");
+            assert_eq!(completion.billing, deferred(GENERATION, ""), "{finish}");
         }
     }
 
     #[test]
+    fn a_deferred_bill_names_where_its_generation_was_made() {
+        let finish = json!({ "providerMetadata": { "gateway": { "generationId": GENERATION } } });
+        let mut reader = SseReader::new().from_origin("http://127.0.0.1:4100");
+        reader
+            .push(
+                billed(stamped(), finish).as_bytes(),
+                &mut Collected::default(),
+            )
+            .expect("decoded");
+        assert_eq!(
+            reader.finish().expect("finish").billing,
+            deferred(GENERATION, "http://127.0.0.1:4100")
+        );
+    }
+
+    /// A bill with no time it can be placed at is not one; its generation is
+    /// still asked about, and the Gateway's answer carries its own time.
+    #[test]
     fn a_bill_needs_one_readable_time() {
+        let unbilled = deferred(GENERATION, "");
         // No `response-metadata` at all.
         let body = billed(json!({ "type": "text-start", "id": "t" }), json!({}));
-        assert_eq!(decode(&body).0.expect("finish").billing, None);
+        assert_eq!(decode(&body).0.expect("finish").billing, unbilled);
         // Two that disagree.
         let body = format!(
             "data: {}\n\n{}",
             json!({ "type": "response-metadata", "timestamp": "2026-10-07T00:00:00Z" }),
             billed(stamped(), json!({}))
         );
-        assert_eq!(decode(&body).0.expect("finish").billing, None);
+        assert_eq!(decode(&body).0.expect("finish").billing, unbilled);
         // One that is not a UTC timestamp.
         let body = billed(
             json!({ "type": "response-metadata", "timestamp": "2026-10-07 01:02:03" }),
             json!({}),
         );
-        assert_eq!(decode(&body).0.expect("finish").billing, None);
+        assert_eq!(decode(&body).0.expect("finish").billing, unbilled);
     }
 
     #[test]
@@ -954,11 +1018,7 @@ mod tests {
         let finish = json!({ "usage": {
             "inputTokens": { "total": 12000, "cacheRead": 4000 },
             "outputTokens": { "total": 800, "reasoning": null } } });
-        let billing = decode(&billed(stamped(), finish))
-            .0
-            .expect("finish")
-            .billing
-            .expect("billed");
+        let billing = exact(&decode(&billed(stamped(), finish)).0.expect("finish"));
         assert_eq!(billing.reasoning_tokens, None);
     }
 

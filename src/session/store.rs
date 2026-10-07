@@ -577,6 +577,52 @@ pub struct RecordedUsage {
     pub lines_removed: u64,
 }
 
+impl RecordedUsage {
+    /// The requests whose bill is still to be asked for
+    /// ([`crate::session::RequestUsage::pending`]).
+    pub fn pending(&self) -> impl Iterator<Item = &crate::session::RequestUsage> {
+        self.requests.iter().filter(|request| request.pending())
+    }
+
+    /// Puts what the Gateway said later in place of the pending requests it
+    /// was about (`applyGeneration`, `session_usage.zig:1080-1126`, and
+    /// `rejectPendingGeneration`, `:2171-2187`).
+    ///
+    /// A bill takes the request's place under the same generation id and keeps
+    /// how long the request took, which only this side measured. A rejection
+    /// leaves the request with no cost and nowhere to ask: spend that stays
+    /// missing. Either applies only to a request still pending, so a second
+    /// answer for one generation changes nothing.
+    fn settle(&mut self, settled: &[crate::session::RequestUsage], rejected: &[String]) {
+        for bill in settled {
+            let Some(id) = bill.generation_id.as_deref() else {
+                continue;
+            };
+            if let Some(request) = self
+                .requests
+                .iter_mut()
+                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
+            {
+                let duration_ms = request.duration_ms;
+                *request = crate::session::RequestUsage {
+                    duration_ms,
+                    origin: None,
+                    ..bill.clone()
+                };
+            }
+        }
+        for id in rejected {
+            if let Some(request) = self
+                .requests
+                .iter_mut()
+                .find(|request| request.pending() && request.generation_id.as_deref() == Some(id))
+            {
+                request.origin = None;
+            }
+        }
+    }
+}
+
 impl DurableState {
     fn empty() -> Self {
         Self {
@@ -1698,12 +1744,25 @@ impl SessionStore {
     /// that cannot be read is **reported, not skipped** -- its spend is missing
     /// from whichever windows it could be in, and the dashboard has to say so.
     /// The store's scan cap applies, newest kept, as it does to a listing.
-    pub fn usage_since(&self, since_ms: i64) -> Result<UsageScan, SessionError> {
+    ///
+    /// `Ok(None)` once `cancel` is set: it is looked at before each session is
+    /// opened, so a reader nobody wants any more stops after the one it is in
+    /// (`collectFromHomeConservativeCancelable`, `vercel-labs/fx@c1db9191
+    /// src/core/session/usage_recovery.zig:43-47`).
+    pub fn usage_since(
+        &self,
+        since_ms: i64,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<UsageScan>, SessionError> {
+        let cancelled = || cancel.load(std::sync::atomic::Ordering::Acquire);
+        if cancelled() {
+            return Ok(None);
+        }
         self.verify_store_dirs()?;
         let mut scan = UsageScan::default();
         let entries = match fs::read_dir(&self.sessions_dir) {
             Ok(entries) => entries,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(scan),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Some(scan)),
             Err(err) => return Err(io_error(&self.sessions_dir, err)),
         };
         let mut names: Vec<String> = Vec::new();
@@ -1717,6 +1776,9 @@ impl SessionStore {
             scan.truncated = true;
         }
         for name in names {
+            if cancelled() {
+                return Ok(None);
+            }
             // Not a session's name is not a session: a stray file beside them
             // holds no spend.
             let Ok(id) = SessionId::parse(&name) else {
@@ -1737,7 +1799,7 @@ impl SessionStore {
                 Err(_) => scan.unreadable.push(Some(manifest.updated_at_ms)),
             }
         }
-        Ok(scan)
+        Ok(Some(scan))
     }
 
     /// One session, replayed and cross-checked against its manifest.
@@ -2548,13 +2610,18 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             unaccounted,
             lines_added,
             lines_removed,
+            settled,
+            rejected,
         } => {
             // A frame with neither requests nor a cut-off one is one a binary
             // before request records wrote: usage that happened and cannot be
-            // placed in any window.
-            if requests.is_empty() && !unaccounted {
+            // placed in any window. One that settles bills is the runtime's
+            // answer about earlier requests, and is none of those.
+            let settles = !settled.is_empty() || !rejected.is_empty();
+            if requests.is_empty() && !unaccounted && !settles {
                 state.usage.legacy_at_ms.push(envelope.timestamp_ms);
             }
+            state.usage.settle(settled, rejected);
             if *unaccounted {
                 state.usage.unaccounted_at_ms.push(envelope.timestamp_ms);
             }
@@ -3339,6 +3406,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::UsageRecorded {
                 input_tokens: None,
@@ -3348,11 +3417,97 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
         ])
         .expect("reduces");
         assert_eq!(state.total_input_tokens, 3);
         assert_eq!(state.total_output_tokens, 5);
+    }
+
+    /// The runtime's later answer about a pending request takes its place
+    /// under the same generation id (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`): the Gateway's time, model, tokens and
+    /// cost, and the request's own duration. A rejection leaves it missing.
+    /// Neither touches a request that is not pending, or the meter's totals,
+    /// and neither is a frame from before request records.
+    #[test]
+    fn a_later_bill_settles_its_pending_request_and_a_rejection_leaves_it_missing() {
+        let pending = |id: &str| crate::session::RequestUsage {
+            at_ms: 1_000,
+            duration_ms: 700,
+            model: "vendor/model".to_string(),
+            input_tokens: 12,
+            output_tokens: 3,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: None,
+            cost: None,
+            generation_id: Some(id.to_string()),
+            origin: Some("http://127.0.0.1:4100".to_string()),
+        };
+        let first = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+        let second = "gen_01JABCDEFGHJKMNPQRSTVWXYZ2";
+        let bill = crate::session::RequestUsage {
+            at_ms: 900,
+            duration_ms: 0,
+            model: "anthropic/claude-opus-5".to_string(),
+            input_tokens: 1340,
+            output_tokens: 250,
+            cache_read_tokens: 300,
+            cache_write_tokens: 40,
+            reasoning_tokens: Some(50),
+            cost: Some(0.0123),
+            generation_id: Some(first.to_string()),
+            origin: None,
+        };
+        let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
+            input_tokens: None,
+            output_tokens: None,
+            turn_output_tokens: None,
+            requests,
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled,
+            rejected,
+        };
+        let state = reduce(vec![
+            started(),
+            frame(
+                vec![pending(first), pending(second)],
+                Vec::new(),
+                Vec::new(),
+            ),
+            frame(Vec::new(), vec![bill.clone()], vec![second.to_string()]),
+            // A second answer about the same generation changes nothing.
+            frame(
+                Vec::new(),
+                vec![crate::session::RequestUsage {
+                    cost: Some(9.0),
+                    ..bill.clone()
+                }],
+                Vec::new(),
+            ),
+        ])
+        .expect("reduces");
+        let requests = &state.usage.requests;
+        assert_eq!(
+            requests[0],
+            crate::session::RequestUsage {
+                duration_ms: 700,
+                ..bill
+            }
+        );
+        assert!(!requests[1].pending());
+        assert_eq!(requests[1].cost, None);
+        assert_eq!(state.usage.pending().count(), 0);
+        assert!(state.usage.legacy_at_ms.is_empty());
+        assert_eq!(
+            (state.total_input_tokens, state.total_output_tokens),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -3886,6 +4041,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Final {
@@ -3940,6 +4097,8 @@ mod tests {
             unaccounted: false,
             lines_added: 0,
             lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
         };
         let concluded = || SessionEvent::TurnConcluded {
             outcome: TurnConclusion::Final {
