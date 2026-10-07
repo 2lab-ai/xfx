@@ -1119,6 +1119,32 @@ impl Resumption {
         self.session.state().turn_settings.as_ref()
     }
 
+    /// Whether a Fast binding held for the selection `provider`, `model` and
+    /// `fast` survives continuing this session: only when the session last ran
+    /// under that very selection (`restoredFastModeModelBound`,
+    /// `app_session_runtime.zig:6318-6328` -- the provider's authority, the
+    /// model and `fast_mode`, all three).
+    ///
+    /// The provider is compared by label: upstream's `same_authority` is
+    /// `eql` plus the binding identity of a configured provider
+    /// (`model_provider.zig:65-71`), and xfx has none -- its providers are
+    /// [`ProviderId::ALL`]. A log written before the provider was recorded
+    /// says nothing about it, and the binding is then decided by the other
+    /// two, as it was before; one that recorded no switches leaves `fast` out
+    /// the same way.
+    pub(crate) fn keeps_fast_binding(&self, provider: ProviderId, model: &str, fast: bool) -> bool {
+        let state = self.session.state();
+        state
+            .provider
+            .as_deref()
+            .is_none_or(|recorded| recorded == provider.label())
+            && state.model == model
+            && state
+                .turn_settings
+                .as_ref()
+                .is_none_or(|settings| settings.fast == fast)
+    }
+
     /// What the session replays as on the screen it continues on
     /// ([`super::hydration`]): read off the state this value already holds, so
     /// the launch builds it with no read of its own.
@@ -1728,8 +1754,9 @@ impl Runtime {
         };
         // The selection this session was configured with, before the resume
         // moves it: what a restored Fast binding is judged against
-        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
-        let configured = (self.model().to_string(), self.settings.fast);
+        // ([`Resumption::keeps_fast_binding`]).
+        let keeps_fast_binding =
+            resumption.keeps_fast_binding(self.config.provider, self.model(), self.settings.fast);
         if self.config.sources.model == crate::config::SettingSource::CompiledDefault
             && self.model() != resumption.model()
         {
@@ -1740,9 +1767,7 @@ impl Runtime {
         // resume restores them (`restoreRuntimePreferences`,
         // `app_session_runtime.zig:6126-6175`); a session that never recorded
         // them keeps the ones in force.
-        let mut keeps_fast_binding = configured.0 == resumption.model();
         if let Some(settings) = resumption.session.state().turn_settings.clone() {
-            keeps_fast_binding = keeps_fast_binding && configured.1 == settings.fast;
             self.settings = settings;
         }
         let mut replay = super::hydration::Hydration::of(
@@ -1837,15 +1862,21 @@ impl Runtime {
         );
         let model = self.model().to_string();
         let mode = self.config.permission_mode;
+        let provider = self.config.provider.label();
         let recorded = conversation.recorder.state();
         let model_changed = recorded.model != model;
         let mode_changed = recorded.permission_mode != mode;
-        if model_changed || mode_changed {
+        // And the provider, as upstream's resume records the selection it
+        // goes on with: a session opened under the other one, or written
+        // before the provider was recorded, now says which.
+        let provider_changed = recorded.provider.as_deref() != Some(provider);
+        if model_changed || mode_changed || provider_changed {
             conversation
                 .recorder
                 .commit(SessionEvent::PreferencesChanged {
                     model: model_changed.then_some(model),
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
+                    provider: provider_changed.then(|| provider.to_string()),
                     effort: None,
                     fast_mode: None,
                     ultrafast_mode: None,
@@ -2052,6 +2083,7 @@ impl Runtime {
             .commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: None,
+                provider: None,
                 effort: Some(settings.effort.label().to_string()),
                 fast_mode: Some(settings.fast),
                 ultrafast_mode: Some(settings.ultrafast),
@@ -2097,6 +2129,7 @@ impl Runtime {
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        provider: None,
                         effort: None,
                         fast_mode: None,
                         ultrafast_mode: None,
@@ -7187,6 +7220,7 @@ mod tests {
                 .commit(SessionEvent::PreferencesChanged {
                     model: None,
                     permission_mode: None,
+                    provider: None,
                     effort: Some("max".to_string()),
                     fast_mode: Some(true),
                     ultrafast_mode: Some(false),
@@ -7210,6 +7244,93 @@ mod tests {
         // The runtime was in Normal: the session's Fast is not the configured
         // selection, so it comes back unbound (`restoredFastModeModelBound`).
         assert!(!replay.keeps_fast_binding);
+    }
+
+    #[test]
+    fn a_restored_fast_binding_needs_the_provider_the_model_and_fast_the_session_ran_under() {
+        // `restoredFastModeModelBound` (`app_session_runtime.zig:6318-6328`):
+        // the provider's authority, the model and `fast_mode`.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let recorded_fast = |provider: Option<ProviderId>| {
+            let session = store
+                .create(
+                    SessionId::generate(),
+                    crate::session::NewSession {
+                        origin_workspace_root: config.workspace_root.clone(),
+                        workspace_root: config.workspace_root.clone(),
+                        model: config.model.clone(),
+                        permission_mode: config.permission_mode,
+                        provider,
+                    },
+                )
+                .expect("a session");
+            let mut recorder = crate::session::SessionRecorder::new(store.clone(), session);
+            recorder.commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: None,
+                provider: None,
+                effort: Some("auto".to_string()),
+                fast_mode: Some(true),
+                ultrafast_mode: Some(false),
+            });
+            recorder.id().clone()
+        };
+        let opened = |id: &SessionId| {
+            Resumption::open(&config, &crate::session::Selector::Id(id.clone())).expect("opens")
+        };
+        let model = config.model.as_str();
+
+        let gateway = opened(&recorded_fast(Some(ProviderId::Gateway)));
+        assert!(gateway.keeps_fast_binding(ProviderId::Gateway, model, true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Llmux, model, true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Gateway, "other/model", true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Gateway, model, false));
+        drop(gateway);
+
+        // A session opened through the runtime's own path names its provider.
+        let through_open = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        assert_eq!(
+            through_open.recorder.state().provider.as_deref(),
+            Some(config.provider.label())
+        );
+        drop(through_open);
+
+        // A log written before the provider was recorded: decided by the
+        // model and Fast, as before -- and a resume writes down which
+        // provider it goes on under.
+        let older = recorded_fast(None);
+        let resumed = opened(&older);
+        assert!(resumed.keeps_fast_binding(ProviderId::Llmux, model, true));
+        assert!(!resumed.keeps_fast_binding(ProviderId::Llmux, model, false));
+        let mut state = Runtime::new(
+            config.clone(),
+            open_store(&config).expect("a store"),
+            a_prompter(),
+            a_questioner(),
+        );
+        state.resume(resumed, &CancelToken::new());
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("bound")
+                .recorder
+                .state()
+                .provider
+                .as_deref(),
+            Some(config.provider.label())
+        );
     }
 
     /// Runs one tool call through the conversation's own tools, as a turn's

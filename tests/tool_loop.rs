@@ -1925,6 +1925,7 @@ fn replayed(events: &[SessionEvent], workspace: &Path) -> DurableState {
                 workspace_root: workspace.to_path_buf(),
                 model: "vendor/model".to_string(),
                 permission_mode: PermissionMode::Ask,
+                provider: None,
             },
         )
         .expect("create the session");

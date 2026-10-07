@@ -1088,6 +1088,7 @@ impl Conversation {
             self.recorder.commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: Some(mode.label().to_string()),
+                provider: None,
                 effort: None,
                 fast_mode: None,
                 ultrafast_mode: None,
@@ -1168,6 +1169,7 @@ pub(crate) fn open_conversation(
                 // The mode the authority is really in, rather than a second
                 // copy of it the caller could pass a different value for.
                 permission_mode: permissions.mode(),
+                provider: Some(config.provider),
             },
         )
         .map_err(|err| err.to_string())?;
@@ -1867,6 +1869,7 @@ async fn apply_model(
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        provider: None,
                         effort: None,
                         fast_mode: None,
                         ultrafast_mode: None,

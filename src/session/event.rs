@@ -197,12 +197,24 @@ impl TurnConclusion {
 pub enum SessionEvent {
     /// The first event of every log. Establishes identity and both workspace
     /// roots (`session_event.zig:36-53`).
+    ///
+    /// `provider` is the provider the session was opened under -- what
+    /// upstream's `session_started` carries in its preferences beside the model
+    /// (`DurableSessionPreferences.provider`, `session_codec.zig:17-23`,
+    /// written by `writePreferences`, `session_event.zig:1979-1995`) and what
+    /// a resume judges a restored Fast binding by
+    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+    /// Its label (`gateway`, `llmux`), kept as written so a label a later
+    /// binary writes does not make the log unreadable. Absent from logs
+    /// written before it was recorded, and an older binary ignores it.
     SessionStarted {
         id: String,
         origin_workspace_root: String,
         workspace_root: String,
         model: String,
         permission_mode: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
     },
     /// The session was deliberately moved to a different workspace
     /// (`session_event.zig:67-76`).
@@ -217,9 +229,17 @@ pub enum SessionEvent {
     /// `fast_mode`, `ultrafast_mode`) and what its resume restores
     /// (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`).
     /// Written as a group, and absent from logs written before they existed.
+    ///
+    /// `provider` is the provider the session goes on under, when that has
+    /// changed since the log last said -- upstream's `preferences_changed`
+    /// carries it from the same patches as the model and the switches
+    /// (`session_event.zig:734`, `app_session_runtime.zig:3541-3552`). Absent
+    /// when unchanged and from older logs, and ignored by an older binary.
     PreferencesChanged {
         model: Option<String>,
         permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -650,6 +670,54 @@ mod tests {
     }
 
     #[test]
+    fn the_provider_is_additive_on_both_frames_and_an_unknown_event_field_is_ignored() {
+        // Written only when known: a frame with none is byte-for-byte the
+        // frame an older binary wrote.
+        let started = |provider: Option<&str>| {
+            envelope(
+                1,
+                SessionEvent::SessionStarted {
+                    id: "s".to_string(),
+                    origin_workspace_root: "/w".to_string(),
+                    workspace_root: "/w".to_string(),
+                    model: "m".to_string(),
+                    permission_mode: "auto".to_string(),
+                    provider: provider.map(str::to_string),
+                },
+            )
+            .encode()
+            .expect("encodes")
+        };
+        assert!(!started(None).contains("provider"), "{}", started(None));
+        assert!(
+            started(Some("gateway")).contains(r#","provider":"gateway"}"#),
+            "{}",
+            started(Some("gateway"))
+        );
+        // A log written before it existed reads as one without it.
+        let older = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"session_started","id":"s","origin_workspace_root":"/w","workspace_root":"/w","model":"m","permission_mode":"auto"}}"#;
+        let SessionEvent::SessionStarted { provider, .. } =
+            EventEnvelope::decode(older).expect("an older frame").event
+        else {
+            panic!("not a start");
+        };
+        assert_eq!(provider, None);
+        let changed = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":2,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"preferences_changed","model":"m2","permission_mode":null}}"#;
+        let SessionEvent::PreferencesChanged { provider, .. } = EventEnvelope::decode(changed)
+            .expect("an older frame")
+            .event
+        else {
+            panic!("not a change");
+        };
+        assert_eq!(provider, None);
+        // And the other way: a field this binary does not know, inside an
+        // event it does, is read past -- which is what an older binary does
+        // with `provider` (`deny_unknown_fields` is the envelope's alone).
+        let newer = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"session_started","id":"s","origin_workspace_root":"/w","workspace_root":"/w","model":"m","permission_mode":"auto","a_later_field":{"x":1}}}"#;
+        assert!(EventEnvelope::decode(newer).is_ok());
+    }
+
+    #[test]
     fn an_unknown_event_kind_is_refused_rather_than_skipped() {
         let line = r#"{"schema_version":1,"log_generation":"00000000000000000000000000000000","seq":1,"event_id":"11111111111111111111111111111111","timestamp_ms":0,"event":{"kind":"credential_stored","value":"x"}}"#;
         assert!(EventEnvelope::decode(line).is_err());
@@ -702,6 +770,7 @@ mod tests {
                 workspace_root: "/w".to_string(),
                 model: "m".to_string(),
                 permission_mode: "auto".to_string(),
+                provider: Some("gateway".to_string()),
             },
             SessionEvent::WorkspaceRebound {
                 previous_workspace_root: "/w".to_string(),
@@ -710,6 +779,7 @@ mod tests {
             SessionEvent::PreferencesChanged {
                 model: Some("m2".to_string()),
                 permission_mode: None,
+                provider: Some("llmux".to_string()),
                 effort: Some("low".to_string()),
                 fast_mode: Some(true),
                 ultrafast_mode: Some(false),

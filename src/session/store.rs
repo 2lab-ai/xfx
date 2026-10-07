@@ -537,6 +537,11 @@ pub struct DurableState {
     /// Where it is bound now. Only a [`SessionEvent::WorkspaceRebound`] moves it.
     pub workspace_root: String,
     pub model: String,
+    /// The provider the session last ran under, as its log names it -- the
+    /// label as written, so one a later binary wrote is kept rather than
+    /// refused -- or `None` for a log written before the provider was
+    /// recorded ([`SessionEvent::SessionStarted`]).
+    pub provider: Option<String>,
     pub permission_mode: PermissionMode,
     pub turns: Vec<HistoryTurn>,
     pub grants: Vec<Grant>,
@@ -635,6 +640,7 @@ impl DurableState {
             origin_workspace_root: String::new(),
             workspace_root: String::new(),
             model: String::new(),
+            provider: None,
             permission_mode: PermissionMode::Ask,
             turns: Vec::new(),
             grants: Vec::new(),
@@ -1375,6 +1381,9 @@ pub struct NewSession {
     pub workspace_root: PathBuf,
     pub model: String,
     pub permission_mode: PermissionMode,
+    /// The provider the session is opened under, recorded beside the model
+    /// as upstream's `session_started` records it; `None` records none.
+    pub provider: Option<crate::provider::ProviderId>,
 }
 
 /// A resumed session, and whether resuming it moved it.
@@ -1504,6 +1513,7 @@ impl SessionStore {
                 workspace_root: workspace_key(&spec.workspace_root),
                 model: spec.model,
                 permission_mode: spec.permission_mode.label().to_string(),
+                provider: spec.provider.map(|provider| provider.label().to_string()),
             },
         )?;
         self.publish(&mut session)?;
@@ -2479,6 +2489,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             workspace_root,
             model,
             permission_mode,
+            provider,
         } => {
             let mode = PermissionMode::parse(permission_mode)
                 .ok_or_else(|| format!("unknown permission mode `{permission_mode}`"))?;
@@ -2487,6 +2498,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             state.origin_workspace_root = origin_workspace_root.clone();
             state.workspace_root = workspace_root.clone();
             state.model = model.clone();
+            state.provider = provider.clone();
             state.permission_mode = mode;
         }
         SessionEvent::WorkspaceRebound {
@@ -2505,12 +2517,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::PreferencesChanged {
             model,
             permission_mode,
+            provider,
             effort,
             fast_mode,
             ultrafast_mode,
         } => {
             if let Some(model) = model {
                 state.model = model.clone();
+            }
+            if let Some(provider) = provider {
+                state.provider = Some(provider.clone());
             }
             if let Some(raw) = permission_mode {
                 state.permission_mode = PermissionMode::parse(raw)
@@ -3231,6 +3247,7 @@ mod tests {
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
             permission_mode: "auto".to_string(),
+            provider: None,
         }
     }
 
@@ -3240,6 +3257,73 @@ mod tests {
             apply(&mut state, &frame(index as u64 + 1, event))?;
         }
         Ok(state)
+    }
+
+    #[test]
+    fn the_provider_is_the_last_one_the_log_named_and_none_for_an_older_log() {
+        // An older log names none, and nothing later makes one up.
+        let older = reduce(vec![
+            started(),
+            SessionEvent::PreferencesChanged {
+                model: Some("m2".to_string()),
+                permission_mode: None,
+                provider: None,
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            },
+        ])
+        .expect("an older log");
+        assert_eq!(older.provider, None);
+        let SessionEvent::SessionStarted {
+            id,
+            origin_workspace_root,
+            workspace_root,
+            model,
+            permission_mode,
+            ..
+        } = started()
+        else {
+            unreachable!()
+        };
+        let opened_under = |provider: &str| SessionEvent::SessionStarted {
+            id: id.clone(),
+            origin_workspace_root: origin_workspace_root.clone(),
+            workspace_root: workspace_root.clone(),
+            model: model.clone(),
+            permission_mode: permission_mode.clone(),
+            provider: Some(provider.to_string()),
+        };
+        assert_eq!(
+            reduce(vec![opened_under("gateway")])
+                .expect("a log")
+                .provider
+                .as_deref(),
+            Some("gateway")
+        );
+        // A change that names one moves it; one that does not leaves it. A
+        // label this build does not know is kept as written.
+        let moved = reduce(vec![
+            opened_under("gateway"),
+            SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: None,
+                provider: Some("a-later-provider".to_string()),
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            },
+            SessionEvent::PreferencesChanged {
+                model: Some("m3".to_string()),
+                permission_mode: None,
+                provider: None,
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            },
+        ])
+        .expect("a log");
+        assert_eq!(moved.provider.as_deref(), Some("a-later-provider"));
     }
 
     #[test]
@@ -4114,6 +4198,7 @@ mod tests {
                     workspace_root: workspace.clone(),
                     model: "m".to_string(),
                     permission_mode: PermissionMode::Auto,
+                    provider: None,
                 },
             )
             .expect("a session");
@@ -4169,6 +4254,7 @@ mod tests {
                     workspace_root: workspace.clone(),
                     model: "m".to_string(),
                     permission_mode: PermissionMode::Auto,
+                    provider: None,
                 },
             )
             .expect("a session");

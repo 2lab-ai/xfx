@@ -151,13 +151,11 @@ fn session(
                 owned.model = resumed.model().to_string();
             }
             // The Fast binding survives only for the selection this launch
-            // was configured with: the session's model and its Fast
-            // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
-            owned.fast_mode_model_bound =
-                config.fast_mode_model_bound && config.model == resumed.model();
+            // was configured with: the session's provider, model and Fast
+            // ([`worker::Resumption::keeps_fast_binding`]).
+            owned.fast_mode_model_bound = config.fast_mode_model_bound
+                && resumed.keeps_fast_binding(config.provider, &config.model, config.fast_mode);
             if let Some(settings) = resumed.settings() {
-                owned.fast_mode_model_bound =
-                    owned.fast_mode_model_bound && config.fast_mode == settings.fast;
                 owned.effort = settings.effort.clone();
                 owned.fast_mode = settings.fast && !settings.ultrafast;
                 owned.ultrafast_mode = settings.ultrafast;
