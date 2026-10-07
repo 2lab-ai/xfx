@@ -207,6 +207,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
             output_tokens: Some(7),
+            turn_output_tokens: None,
             requests: Vec::new(),
             unaccounted: false,
             lines_added: 0,

@@ -157,6 +157,23 @@ fn finish_client(
 pub trait DeltaSink {
     /// Accepts one assistant text fragment, in arrival order.
     fn text_delta(&mut self, text: &str) -> io::Result<()>;
+
+    /// One fragment of the model's reasoning, which nobody is shown.
+    ///
+    /// Told only so it can be **counted**: a request the provider reports no
+    /// usage for wrote its reasoning too, and upstream's estimate of what a
+    /// request wrote includes it (`vercel-labs/fx@c1db9191
+    /// src/core/agent/runtime/telemetry.zig:25-35`; `crate::agent::tokens`).
+    /// A body, so every sink that only wants the answer stays as it was.
+    fn reasoning_delta(&mut self, text: &str) {
+        let _ = text;
+    }
+
+    /// One fragment of a tool call's arguments as the model writes them,
+    /// counted for the same reason and in the same place.
+    fn tool_input_delta(&mut self, text: &str) {
+        let _ = text;
+    }
 }
 
 /// A cancellation flag shared by a turn, its transport, and its decoder.
