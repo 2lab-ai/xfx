@@ -616,6 +616,16 @@ pub(crate) struct TerminalModel {
     cursor_visible: Option<bool>,
     /// `?2026` is DECSET/DECRST -- set or reset, with no depth to it.
     sync_open: bool,
+    /// How many times this vector set `?2026`, and how many times it reset
+    /// it: an update a vector opens once and closes once is the shape
+    /// [`preflight_update`] holds a multi-part frame to, and a mode with no
+    /// depth cannot say how often it was toggled on its own.
+    sync_sets: u16,
+    sync_resets: u16,
+    /// Whether this vector showed the cursor (`?25h`) while synchronized output
+    /// was set: a caret shown inside an update is shown before the update is
+    /// presented, where upstream shows it after (`terminal_diff.zig:643-644`).
+    shown_in_update: bool,
     shown_title: Option<String>,
     /// `CSI 22 ; 2 t` pushes and `CSI 23 ; 2 t` pops.
     title_stack: u8,
@@ -660,6 +670,9 @@ impl TerminalModel {
             caret: Caret::Unknown,
             cursor_visible: None,
             sync_open: false,
+            sync_sets: 0,
+            sync_resets: 0,
+            shown_in_update: false,
             shown_title: None,
             title_stack,
             modes,
@@ -1255,6 +1268,110 @@ pub(crate) fn preflight(
         bytes.len(),
     )?;
     Ok(model)
+}
+
+/// Where one synchronized update that carries **more than one part** begins
+/// and ends -- the document's growth and the band under it, written in one
+/// vector (`super::event_loop`'s `commit_primary`).
+///
+/// Offsets into that vector, from the composer that built it: the opener is
+/// `bytes[..opener]`, the parts are `bytes[opener..closer]`, the closer is
+/// `bytes[closer..]`. They are claims about the vector, and
+/// [`preflight_update`] decodes each slice to hold the vector to them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Update {
+    pub(crate) opener: usize,
+    pub(crate) closer: usize,
+    /// Whether the update ends with the caret shown: a band frame's caret, or
+    /// none when the band frame was not written and the caret is wherever the
+    /// document's last row left it.
+    pub(crate) cursor_visible: bool,
+}
+
+/// Holds a multi-part update to the **shape** upstream's frame has
+/// (`composeWireFrame`, `render_engine/terminal_diff.zig:604-645`): `?2026h`
+/// and `?25l` before anything is written, every part inside the one update,
+/// `?2026l` once at the end, and the caret shown -- if at all -- only after
+/// it.
+///
+/// **What it does not check is what each part does to the cells**, and that is
+/// not a gap: every part was checked by its own emitter against its own
+/// declaration before it was put in this vector ([`preflight`]), on the seed
+/// the parts before it leave, exactly as when each was a vector of its own. A
+/// cell comparison of the whole would need a seed for the whole, and the
+/// band's own frame inside it may begin by forgetting its screen
+/// (`Band::invalidate`) -- so this asks only what no single part can be asked:
+/// whether the update brackets all of them.
+///
+/// Decoded in three slices on one model, so a sequence that straddles a
+/// boundary is unterminated where it is cut and is refused there.
+pub(crate) fn preflight_update(
+    seed: &TerminalModel,
+    bytes: &[u8],
+    update: Update,
+) -> Result<(), Reject> {
+    if update.opener > update.closer || update.closer > bytes.len() {
+        return Err(Reject::new("an update whose parts are out of order", 0));
+    }
+    let mut model = seed.clone();
+    model.sync_open = false;
+    model.sync_sets = 0;
+    model.sync_resets = 0;
+    model.shown_in_update = false;
+    apply(&mut model, &bytes[..update.opener], None)?;
+    if !(model.sync_open && model.sync_sets == 1)
+        || model.cursor_visible != Some(false)
+        || !model.effects.is_empty()
+    {
+        return Err(Reject::new(
+            "an update that does not open synchronized output and hide the caret first",
+            update.opener,
+        ));
+    }
+    apply(&mut model, &bytes[update.opener..update.closer], None)?;
+    if model.sync_resets != 0 {
+        return Err(Reject::new(
+            "an update that ends before its last part",
+            update.closer,
+        ));
+    }
+    if model.sync_sets != 1 {
+        return Err(Reject::new("an update opened twice", update.closer));
+    }
+    let written = model.effects.len();
+    let caret = model.caret;
+    apply(&mut model, &bytes[update.closer..], None)?;
+    if model.sync_open || model.sync_resets != 1 {
+        return Err(Reject::new(
+            "a vector that left synchronized output open",
+            bytes.len(),
+        ));
+    }
+    if model.effects.len() != written || model.caret != caret {
+        return Err(Reject::new(
+            "an update that writes after it ends",
+            update.closer,
+        ));
+    }
+    if model.shown_in_update {
+        return Err(Reject::new(
+            "a caret shown before the update ends",
+            bytes.len(),
+        ));
+    }
+    if model.cursor_visible != Some(update.cursor_visible) {
+        return Err(Reject::new(
+            "a cursor visibility nobody asked for",
+            bytes.len(),
+        ));
+    }
+    if model.link.is_some() {
+        return Err(Reject::new(
+            "a vector that left a hyperlink open",
+            bytes.len(),
+        ));
+    }
+    Ok(())
 }
 
 /// The fixed vector [`preflight_recovery_cleanup`] accepts, and the only one
@@ -2257,8 +2374,28 @@ fn private_mode(
     at: usize,
 ) -> Result<(), Reject> {
     match params {
-        "2026" => model.sync_open = set,
-        "25" => model.cursor_visible = Some(set),
+        // A link open when an update ends is open across the moment the
+        // terminal presents it: whatever the next update paints first is part
+        // of the link, as surely as across a row ([`linefeed`]) or a buffer
+        // change below.
+        "2026" if !set && model.link.is_some() => {
+            return Err(Reject::new(
+                "a hyperlink left open across the block end",
+                at,
+            ));
+        }
+        "2026" => {
+            if set {
+                model.sync_sets = model.sync_sets.saturating_add(1);
+            } else {
+                model.sync_resets = model.sync_resets.saturating_add(1);
+            }
+            model.sync_open = set;
+        }
+        "25" => {
+            model.shown_in_update |= set && model.sync_open;
+            model.cursor_visible = Some(set);
+        }
         "2004" => model.modes.bracketed_paste = Some(set),
         "7" => model.modes.autowrap = Some(set),
         "2031" => model.modes.theme_notifications = Some(set),
@@ -2654,6 +2791,10 @@ mod tests {
                 "a hyperlink left open across a buffer change",
             ),
             (
+                format!("\u{1b}[?2026h{DOCS_OPEN}docs\u{1b}[?2026l"),
+                "a hyperlink left open across the block end",
+            ),
+            (
                 format!("{DOCS_OPEN}docs\u{1b}[K"),
                 "an erase under an open hyperlink",
             ),
@@ -2668,6 +2809,125 @@ mod tests {
         // Closed first, the same moves are the ordinary alphabet.
         decoded(format!("{DOCS_OPEN}docs{LINK_CLOSE}\u{1b}[11;1H\u{1b}[K").as_bytes())
             .expect("a link closed on its row");
+    }
+
+    /// One update as `commit_primary` assembles it: the opener, a document
+    /// append (a scroll and a placed row), the band's rows, the caret, and the
+    /// closer -- with the offsets the composer would hand the check.
+    fn composed(document: &str, band: &str, closer: &str) -> (Vec<u8>, Update) {
+        let mut bytes = b"\x1b[?2026h\x1b[?25l".to_vec();
+        let opener = bytes.len();
+        bytes.extend_from_slice(document.as_bytes());
+        bytes.extend_from_slice(band.as_bytes());
+        let closer_at = bytes.len();
+        bytes.extend_from_slice(closer.as_bytes());
+        (
+            bytes,
+            Update {
+                opener,
+                closer: closer_at,
+                cursor_visible: closer.contains("?25h"),
+            },
+        )
+    }
+
+    const APPEND: &str = "\u{1b}[24;1H\n\u{1b}[21;1Hanswered\u{1b}[K";
+    const BAND: &str = "\u{1b}[22;1H\u{1b}[J\u{1b}[22;1H> \u{1b}[24;1Hhint\u{1b}[22;3H";
+
+    fn update_seed() -> TerminalModel {
+        TerminalModel::seed_foreign(24, 80, None)
+    }
+
+    #[test]
+    fn an_update_that_brackets_the_document_and_the_band_is_accepted() {
+        // Upstream's frame: `?2026h ?25l`, the movement bytes, the band, the
+        // caret, `?2026l`, and `?25h` for a caret it shows
+        // (`render_engine/terminal_diff.zig:604-645`) -- and the same update
+        // with no band in it, ending with the caret left hidden.
+        let (bytes, update) = composed(APPEND, BAND, "\u{1b}[?2026l\u{1b}[?25h");
+        preflight_update(&update_seed(), &bytes, update).expect("the update the composer writes");
+        let (bytes, update) = composed(APPEND, "", "\u{1b}[?2026l");
+        preflight_update(&update_seed(), &bytes, update)
+            .expect("the rows alone, the caret left for the frame still owed");
+    }
+
+    #[test]
+    fn an_update_that_does_not_bracket_all_of_its_parts_is_refused() {
+        let shown = "\u{1b}[?2026l\u{1b}[?25h";
+        for (document, band, closer, shape) in [
+            (
+                "\u{1b}[?2026l\u{1b}[24;1H\n",
+                BAND,
+                shown,
+                "an update that ends before its last part",
+            ),
+            (
+                APPEND,
+                "\u{1b}[?2026h\u{1b}[22;1H> ",
+                shown,
+                "an update opened twice",
+            ),
+            (
+                APPEND,
+                "\u{1b}[?25h\u{1b}[22;1H> ",
+                shown,
+                "a caret shown before the update ends",
+            ),
+            (
+                APPEND,
+                BAND,
+                "\u{1b}[?25h",
+                "a vector that left synchronized output open",
+            ),
+            (
+                APPEND,
+                BAND,
+                "\u{1b}[?2026l\u{1b}[1;1Hx\u{1b}[?25h",
+                "an update that writes after it ends",
+            ),
+            (
+                APPEND,
+                &format!("\u{1b}[22;1H{DOCS_OPEN}docs"),
+                shown,
+                "a hyperlink left open across the block end",
+            ),
+        ] {
+            let (bytes, update) = composed(document, band, closer);
+            let reject = preflight_update(&update_seed(), &bytes, update).expect_err(shape);
+            assert_eq!(
+                reject.shape(),
+                shape,
+                "{:?}",
+                String::from_utf8_lossy(&bytes)
+            );
+        }
+        // An update that does not open first: the rows are written before the
+        // terminal is told to hold them.
+        let mut bytes = APPEND.as_bytes().to_vec();
+        let opener = bytes.len();
+        bytes.extend_from_slice(b"\x1b[?2026h\x1b[?25l");
+        bytes.extend_from_slice(BAND.as_bytes());
+        let closer = bytes.len();
+        bytes.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
+        let reject = preflight_update(
+            &update_seed(),
+            &bytes,
+            Update {
+                opener,
+                closer,
+                cursor_visible: true,
+            },
+        )
+        .expect_err("rows ahead of the opener");
+        assert_eq!(
+            reject.shape(),
+            "an update that does not open synchronized output and hide the caret first"
+        );
+        // And a caret the declaration says is hidden, shown.
+        let (bytes, mut update) = composed(APPEND, BAND, shown);
+        update.cursor_visible = false;
+        let reject = preflight_update(&update_seed(), &bytes, update).expect_err("a shown caret");
+        assert_eq!(reject.shape(), "a cursor visibility nobody asked for");
     }
 
     #[test]
@@ -3429,6 +3689,58 @@ mod tests {
                     "a {rows}x{cols} {name} preflight took {mean:?} on average ({min:?} min, {median:?} median, {max:?} max) against a {budget} ms frame budget"
                 );
             }
+            // And the pass an update that carries the document adds on top of
+            // its parts' own checks ([`preflight_update`]): the whole update
+            // decoded once more for its shape. The full screen's worth of
+            // rows, scrolled in and then painted over by the band, inside one
+            // `?2026h` -- the most a tick can hand it.
+            let mut update = b"\x1b[?2026h\x1b[?25l".to_vec();
+            let opener = update.len();
+            for line in 1..=rows {
+                update.extend_from_slice(format!("\u{1b}[{rows};1H\n").as_bytes());
+                update.extend_from_slice(
+                    format!(
+                        "\u{1b}[{};1H{}\u{1b}[K",
+                        rows - 1,
+                        "z".repeat(usize::from(line % cols))
+                    )
+                    .as_bytes(),
+                );
+            }
+            Shadow::paint(&full, &mut update);
+            let closer = update.len();
+            update.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
+            let shape = Update {
+                opener,
+                closer,
+                cursor_visible: true,
+            };
+            let seed = TerminalModel::seed_foreign(rows, cols, None);
+            let (mean, min, median, max) = timed(20, || {
+                preflight_update(&seed, &update, shape).expect("the update it declared");
+            });
+            eprintln!(
+                "preflight {rows}x{cols} update: {} bytes in {mean:?} mean, {min:?} min, {median:?} median, {max:?} max (budget {budget} ms)",
+                update.len()
+            );
+            assert!(
+                cfg!(debug_assertions) || mean.as_millis() < budget,
+                "a {rows}x{cols} update's shape check took {mean:?} on average against a {budget} ms frame budget"
+            );
+        }
+    }
+
+    /// The band's rows of `grid`, written as a whole frame would write them:
+    /// each row placed from its first column.
+    struct Shadow;
+
+    impl Shadow {
+        fn paint(grid: &Grid, bytes: &mut Vec<u8>) {
+            Grid::blank(grid.rows(), grid.cols()).diff(
+                grid,
+                &layout::solve(grid.rows(), grid.cols(), 1).expect("a band"),
+                bytes,
+            );
         }
     }
 

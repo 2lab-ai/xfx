@@ -592,6 +592,15 @@ pub(crate) enum Resize {
     TooSmall,
 }
 
+/// What [`Shell::stage_document`] saved: the session's record of the
+/// document, as the terminal last took it.
+pub(crate) struct StagedDocument {
+    document_rows: u32,
+    geometry: Geometry,
+    retint_debt: bool,
+    collapse_debt: bool,
+}
+
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
     pub(crate) geometry: Geometry,
@@ -8250,15 +8259,14 @@ impl Shell {
                 self.compaction
                     .get_or_insert_with(|| Compaction::began(automatic))
                     .settle(feedback, Instant::now());
-                if feedback == compaction::Feedback::Succeeded {
-                    // The meter's number measured a request no request will
-                    // carry again: the next one carries the compacted
-                    // conversation. It goes until a turn measures that one,
-                    // because a number no provider said is not one this row
-                    // puts up ([`Self::context_used`]).
-                    self.context_used = None;
-                    self.render.request(Reason::Footer);
-                } else if automatic {
+                // The meter is left as it is, success or not: it is the last
+                // number a turn's provider said, and upstream's moves only on
+                // that (`agentReportUsage`, `app_callbacks.zig:1447-1451`) --
+                // a compaction's notes request is billed to the session's
+                // usage and never reported to it (`CompactorCaller.send`,
+                // `text_completion.zig:225-284`). The next turn's request,
+                // which carries the compacted conversation, moves it.
+                if feedback != compaction::Feedback::Succeeded && automatic {
                     // The turn it ran in did not run, and the row says why: its
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
@@ -11620,6 +11628,45 @@ impl Shell {
     pub(crate) fn document_carried(&mut self, rows: u16) {
         self.document_rows = self.document_rows.saturating_sub(u32::from(rows));
         self.refloat();
+    }
+
+    /// Begins a frame that writes the document's rows in **one** vector with
+    /// the band's (`super::event_loop`'s `commit_primary`), and saves what the
+    /// document's writers move as they are staged into it.
+    ///
+    /// Everything those writers record -- the rows the document reaches, the
+    /// band floated under them, the recolour and collapse debts paid, the
+    /// transcript's operations taken -- is recorded as if the vector had
+    /// landed, because each one is measured against the screen the one before
+    /// it leaves. [`Self::unstage_document`] is what makes that honest: a
+    /// vector the screen did not take puts every one of them back.
+    pub(crate) fn stage_document(&mut self) -> StagedDocument {
+        self.transcript.stage();
+        StagedDocument {
+            document_rows: self.document_rows,
+            geometry: self.geometry,
+            retint_debt: self.retint_debt,
+            collapse_debt: self.collapse_debt,
+        }
+    }
+
+    /// The staged frame landed: its rows are the terminal's.
+    pub(crate) fn settle_document(&mut self) {
+        self.transcript.settle();
+    }
+
+    /// The staged frame did not land, so nothing it carried is on the
+    /// terminal: the document is owed again exactly what it was owed before
+    /// [`Self::stage_document`].
+    ///
+    /// The frame requests the staging raised are left raised: they ask for the
+    /// frame this session still owes.
+    pub(crate) fn unstage_document(&mut self, staged: StagedDocument) {
+        self.document_rows = staged.document_rows;
+        self.geometry = staged.geometry;
+        self.retint_debt = staged.retint_debt;
+        self.collapse_debt = staged.collapse_debt;
+        self.transcript.unstage();
     }
 
     /// This session as it stands once the document has filled the screen: the
@@ -33513,7 +33560,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compaction_clears_the_context_meter_until_a_turn_measures_again() {
+    fn a_compaction_leaves_the_context_meter_until_a_turn_measures_again() {
         let mut shell = with_a_turn();
         shell.apply(UiEvent::Usage {
             input: Some(90_000),
@@ -33528,7 +33575,13 @@ mod tests {
         shell.apply(UiEvent::Compaction(compaction::Update::Settled(
             compaction::Feedback::Succeeded,
         )));
-        assert_eq!(shell.shell.context_used, None);
+        assert_eq!(
+            shell.shell.context_used,
+            Some(90_000),
+            "upstream's meter moves only on a turn's usage"
+        );
+        shell.apply(UiEvent::Usage { input: Some(4_000) });
+        assert_eq!(shell.shell.context_used, Some(4_000));
     }
 
     #[test]

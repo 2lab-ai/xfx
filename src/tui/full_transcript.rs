@@ -683,6 +683,10 @@ impl TurnJournal for Teed<'_> {
     fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
         self.journal.attach_tool_images(call_id, images);
     }
+
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        self.journal.state()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3196,6 +3200,23 @@ mod tests {
         impl TurnJournal for Kept {
             fn record(&mut self, event: SessionEvent) {
                 self.0.push(event);
+            }
+
+            fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+            fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+            fn attach_images(
+                &mut self,
+                _images: &[crate::image::Image],
+            ) -> Option<std::path::PathBuf> {
+                None
+            }
+
+            fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
+
+            fn state(&self) -> Option<&crate::session::DurableState> {
+                None
             }
         }
         let (events, mut received) = tokio::sync::mpsc::channel(8);

@@ -1,0 +1,1320 @@
+# fx-notice-wire-12x80-end.wire: 8139 bytes, 64 sync blocks, 63 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        313 bytes @99     ?2026h ?25l [CUP+2K x12] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @412    ?25h
+sync         36 bytes @418    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         62 bytes @454    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(3,30) ?2026l
+outside       6 bytes @516    ?25h
+sync        189 bytes @522    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @711    ?25h
+sync        227 bytes @717    ?2026h ?25l CUP(5,1) "  Opening line of the.." CUP(7,1) "• Generating (0s)" " (↑8 ↓7)" CUP(9,1) "┃" "             " CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @944    ?25h
+sync         55 bytes @950    ?2026h ?25l CUP(7,24) "9" CUP(9,3) ?2026l
+outside       6 bytes @1005   ?25h
+sync         57 bytes @1011   ?2026h ?25l CUP(7,24) "11)" CUP(9,3) ?2026l
+outside       6 bytes @1068   ?25h
+sync         55 bytes @1074   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @1129   ?25h
+sync         55 bytes @1135   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @1190   ?25h
+sync         35 bytes @1196   ?2026h ?25l CUP(7,1) " " CUP(9,3) ?2026l
+outside       6 bytes @1231   ?25h
+sync         55 bytes @1237   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @1292   ?25h
+sync         55 bytes @1298   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @1353   ?25h
+sync         56 bytes @1359   ?2026h ?25l CUP(7,24) "21" CUP(9,3) ?2026l
+outside       6 bytes @1415   ?25h
+sync         55 bytes @1421   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @1476   ?25h
+sync         55 bytes @1482   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @1537   ?25h
+sync         99 bytes @1543   ?2026h ?25l CUP(7,1) "• Generating (1s)" " (↑8 ↓27" CUP(9,3) ?2026l
+outside       6 bytes @1642   ?25h
+sync         55 bytes @1648   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @1703   ?25h
+sync         56 bytes @1709   ?2026h ?25l CUP(7,24) "31" CUP(9,3) ?2026l
+outside       6 bytes @1765   ?25h
+sync         55 bytes @1771   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @1826   ?25h
+sync         55 bytes @1832   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @1887   ?25h
+sync         97 bytes @1893   ?2026h ?25l CUP(7,1) " " " Generating (1s)" " (↑8 ↓37" CUP(9,3) ?2026l
+outside       6 bytes @1990   ?25h
+sync         55 bytes @1996   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @2051   ?25h
+sync         56 bytes @2057   ?2026h ?25l CUP(7,24) "41" CUP(9,3) ?2026l
+outside       6 bytes @2113   ?25h
+sync         55 bytes @2119   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @2174   ?25h
+sync         55 bytes @2180   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @2235   ?25h
+sync         36 bytes @2241   ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync       1211 bytes @2277   ?2026h ?25l CUP(1,1) [CUP+2K x2] CUP(1,1) ?7h "𝒇x" " v0.0.13 · Run /help .." CR CR LF CR CR LF ?7l CUP(12,1) CR LF CR LF [CUP+2K x12] CUP(1,1) "┃" " " "stream a long answer .." CUP(3,3) "Opening line of the a.." CUP(5,1) "• Generating (2s)" " (↑8 ↓45)" CUP(7,1) "┃" " /version" CUP(8,1) "─────────────────────.." CUP(9,1) "  /version   " "show the fx version  .." CUP(11 ...
+outside       6 bytes @3488   ?25h
+sync         56 bytes @3494   ?2026h ?25l CUP(5,25) "7" CUP(7,11) ?2026l
+outside       6 bytes @3550   ?25h
+sync         56 bytes @3556   ?2026h ?25l CUP(5,25) "9" CUP(7,11) ?2026l
+outside       6 bytes @3612   ?25h
+sync         57 bytes @3618   ?2026h ?25l CUP(5,24) "51" CUP(7,11) ?2026l
+outside       6 bytes @3675   ?25h
+sync        442 bytes @3681   ?2026h ?25l [CUP+2K x12] CUP(1,1) "┃" " " "stream a long answer .." CUP(3,3) "Opening line of the a.." CUP(5,1) "* version: 0.0.13" CUP(7,1) "• Generating (2s)" " (↑8 ↓51)" CUP(9,1) "┃" CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @4123   ?25h
+sync         55 bytes @4129   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @4184   ?25h
+sync         55 bytes @4190   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @4245   ?25h
+sync         35 bytes @4251   ?2026h ?25l CUP(7,1) " " CUP(9,3) ?2026l
+outside       6 bytes @4286   ?25h
+sync         55 bytes @4292   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @4347   ?25h
+sync         55 bytes @4353   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @4408   ?25h
+sync         56 bytes @4414   ?2026h ?25l CUP(7,24) "61" CUP(9,3) ?2026l
+outside       6 bytes @4470   ?25h
+sync         55 bytes @4476   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @4531   ?25h
+sync         99 bytes @4537   ?2026h ?25l CUP(7,1) "• Generating (3s)" " (↑8 ↓65" CUP(9,3) ?2026l
+outside       6 bytes @4636   ?25h
+sync         55 bytes @4642   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @4697   ?25h
+sync         55 bytes @4703   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @4758   ?25h
+sync         56 bytes @4764   ?2026h ?25l CUP(7,24) "71" CUP(9,3) ?2026l
+outside       6 bytes @4820   ?25h
+sync         55 bytes @4826   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @4881   ?25h
+sync         97 bytes @4887   ?2026h ?25l CUP(7,1) " " " Generating (3s)" " (↑8 ↓75" CUP(9,3) ?2026l
+outside       6 bytes @4984   ?25h
+sync         55 bytes @4990   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @5045   ?25h
+sync         55 bytes @5051   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @5106   ?25h
+sync         56 bytes @5112   ?2026h ?25l CUP(7,24) "81" CUP(9,3) ?2026l
+outside       6 bytes @5168   ?25h
+sync         55 bytes @5174   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @5229   ?25h
+sync         99 bytes @5235   ?2026h ?25l CUP(7,1) "• Generating (4s)" " (↑8 ↓85" CUP(9,3) ?2026l
+outside       6 bytes @5334   ?25h
+sync         55 bytes @5340   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @5395   ?25h
+sync         55 bytes @5401   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @5456   ?25h
+sync         56 bytes @5462   ?2026h ?25l CUP(7,24) "91" CUP(9,3) ?2026l
+outside       6 bytes @5518   ?25h
+sync         55 bytes @5524   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @5579   ?25h
+sync         97 bytes @5585   ?2026h ?25l CUP(7,1) " " " Generating (4s)" " (↑8 ↓95" CUP(9,3) ?2026l
+outside       6 bytes @5682   ?25h
+sync         55 bytes @5688   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @5743   ?25h
+sync         55 bytes @5749   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @5804   ?25h
+sync         58 bytes @5810   ?2026h ?25l CUP(7,24) "101)" CUP(9,3) ?2026l
+outside       6 bytes @5868   ?25h
+sync         55 bytes @5874   ?2026h ?25l CUP(7,26) "3" CUP(9,3) ?2026l
+outside       6 bytes @5929   ?25h
+sync        100 bytes @5935   ?2026h ?25l CUP(7,1) "• Generating (5s)" " (↑8 ↓105" CUP(9,3) ?2026l
+outside       6 bytes @6035   ?25h
+sync         55 bytes @6041   ?2026h ?25l CUP(7,26) "7" CUP(9,3) ?2026l
+outside       6 bytes @6096   ?25h
+sync         55 bytes @6102   ?2026h ?25l CUP(7,26) "9" CUP(9,3) ?2026l
+outside       6 bytes @6157   ?25h
+sync       1205 bytes @6163   ?2026h ?25l CUP(5,18) 0J ?7h CR CR LF CR CR LF "  MARKER-A word10 wor.." CR CR LF "  word100 word101 wor.." CR CR LF "  word109 word110 wor.." CR CR LF "  word118 word119 wor.." CR CR LF "  word127 word128 wor.." CR CR LF "  word136 word137 wor.." ?7l CUP(12,1) CR LF CR LF CR LF CR LF CR LF CR LF [CUP+2K x12] CUP(1,3) "MARKER-A word10 word1.." CUP(2,3) "word100 word10 ...
+outside       6 bytes @7368   ?25h
+sync         36 bytes @7374   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside      38 bytes @7410   ?25h OSC2"stream a long answer please"
+sync        685 bytes @7448   ?2026h ?25l CUP(6,34) 0J ?7h CR CR LF CR CR LF "  Closing line of the.." CR CR LF CR CR LF "  5s (↑8 ↓40)" ?7l CUP(12,1) CR LF CR LF [CUP+2K x12] CUP(1,3) "word109 word110 word1.." CUP(2,3) "word118 word119 word1.." CUP(3,3) "word127 word128 word1.." CUP(4,3) "word136 word137 word1.." CUP(6,3) "Closing line of the a.." CUP(8,1) "  5s (↑8 ↓40)" CUP(10,1) "┃" CUP(12,1)  ...
+outside       6 bytes @8133   ?25h
+
+# fx-notice-wire-24x80-end.wire: 7077 bytes, 64 sync blocks, 63 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        445 bytes @99     ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @544    ?25h
+sync         36 bytes @550    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         62 bytes @586    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(3,30) ?2026l
+outside       6 bytes @648    ?25h
+sync        189 bytes @654    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @843    ?25h
+sync        227 bytes @849    ?2026h ?25l CUP(5,1) "  Opening line of the.." CUP(7,1) "• Generating (0s)" " (↑8 ↓7)" CUP(9,1) "┃" "             " CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1076   ?25h
+sync         55 bytes @1082   ?2026h ?25l CUP(7,24) "9" CUP(9,3) ?2026l
+outside       6 bytes @1137   ?25h
+sync         57 bytes @1143   ?2026h ?25l CUP(7,24) "11)" CUP(9,3) ?2026l
+outside       6 bytes @1200   ?25h
+sync         55 bytes @1206   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @1261   ?25h
+sync         55 bytes @1267   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @1322   ?25h
+sync         35 bytes @1328   ?2026h ?25l CUP(7,1) " " CUP(9,3) ?2026l
+outside       6 bytes @1363   ?25h
+sync         55 bytes @1369   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @1424   ?25h
+sync         55 bytes @1430   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @1485   ?25h
+sync         56 bytes @1491   ?2026h ?25l CUP(7,24) "21" CUP(9,3) ?2026l
+outside       6 bytes @1547   ?25h
+sync         55 bytes @1553   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @1608   ?25h
+sync         55 bytes @1614   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @1669   ?25h
+sync         99 bytes @1675   ?2026h ?25l CUP(7,1) "• Generating (1s)" " (↑8 ↓27" CUP(9,3) ?2026l
+outside       6 bytes @1774   ?25h
+sync         55 bytes @1780   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @1835   ?25h
+sync         56 bytes @1841   ?2026h ?25l CUP(7,24) "31" CUP(9,3) ?2026l
+outside       6 bytes @1897   ?25h
+sync         55 bytes @1903   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @1958   ?25h
+sync         97 bytes @1964   ?2026h ?25l CUP(7,1) " " " Generating (1s)" " (↑8 ↓35" CUP(9,3) ?2026l
+outside       6 bytes @2061   ?25h
+sync         55 bytes @2067   ?2026h ?25l CUP(7,25) "7" CUP(9,3) ?2026l
+outside       6 bytes @2122   ?25h
+sync         55 bytes @2128   ?2026h ?25l CUP(7,25) "9" CUP(9,3) ?2026l
+outside       6 bytes @2183   ?25h
+sync         56 bytes @2189   ?2026h ?25l CUP(7,24) "41" CUP(9,3) ?2026l
+outside       6 bytes @2245   ?25h
+sync         55 bytes @2251   ?2026h ?25l CUP(7,25) "3" CUP(9,3) ?2026l
+outside       6 bytes @2306   ?25h
+sync         55 bytes @2312   ?2026h ?25l CUP(7,25) "5" CUP(9,3) ?2026l
+outside       6 bytes @2367   ?25h
+sync         36 bytes @2373   ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync        842 bytes @2409   ?2026h ?25l CUP(7,1) "• Generating (2" CUP(9,3) "/version" CUP(10,1) "─────────────────────.." CUP(11,1) "Commands 1" "    " CUP(13,1) "  /version   " "show the fx version  .." CUP(19,1) "─────────────────────.." CUP(20,1) "↑↓ navigate     enter.." CUP(9,11) ?2026l
+outside       6 bytes @3251   ?25h
+sync         56 bytes @3257   ?2026h ?25l CUP(7,25) "7" CUP(9,11) ?2026l
+outside       6 bytes @3313   ?25h
+sync         56 bytes @3319   ?2026h ?25l CUP(7,25) "9" CUP(9,11) ?2026l
+outside       6 bytes @3375   ?25h
+sync         57 bytes @3381   ?2026h ?25l CUP(7,24) "51" CUP(9,11) ?2026l
+outside       6 bytes @3438   ?25h
+sync        655 bytes @3444   ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" " " "stream a long answer .." CUP(5,3) "Opening line of the a.." CUP(7,1) "* version: 0.0.13" CUP(9,1) "• Generating (2s)" " (↑8 ↓51)" CUP(11,1) "┃" CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       6 bytes @4099   ?25h
+sync         56 bytes @4105   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4161   ?25h
+sync         56 bytes @4167   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4223   ?25h
+sync         36 bytes @4229   ?2026h ?25l CUP(9,1) " " CUP(11,3) ?2026l
+outside       6 bytes @4265   ?25h
+sync         56 bytes @4271   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4327   ?25h
+sync         56 bytes @4333   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @4389   ?25h
+sync         57 bytes @4395   ?2026h ?25l CUP(9,24) "61" CUP(11,3) ?2026l
+outside       6 bytes @4452   ?25h
+sync         56 bytes @4458   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4514   ?25h
+sync        100 bytes @4520   ?2026h ?25l CUP(9,1) "• Generating (3s)" " (↑8 ↓65" CUP(11,3) ?2026l
+outside       6 bytes @4620   ?25h
+sync         56 bytes @4626   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4682   ?25h
+sync         56 bytes @4688   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @4744   ?25h
+sync         57 bytes @4750   ?2026h ?25l CUP(9,24) "71" CUP(11,3) ?2026l
+outside       6 bytes @4807   ?25h
+sync         56 bytes @4813   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4869   ?25h
+sync         98 bytes @4875   ?2026h ?25l CUP(9,1) " " " Generating (3s)" " (↑8 ↓75" CUP(11,3) ?2026l
+outside       6 bytes @4973   ?25h
+sync         56 bytes @4979   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @5035   ?25h
+sync         56 bytes @5041   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5097   ?25h
+sync         57 bytes @5103   ?2026h ?25l CUP(9,24) "81" CUP(11,3) ?2026l
+outside       6 bytes @5160   ?25h
+sync         56 bytes @5166   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @5222   ?25h
+sync        100 bytes @5228   ?2026h ?25l CUP(9,1) "• Generating (4s)" " (↑8 ↓85" CUP(11,3) ?2026l
+outside       6 bytes @5328   ?25h
+sync         56 bytes @5334   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @5390   ?25h
+sync         56 bytes @5396   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5452   ?25h
+sync         57 bytes @5458   ?2026h ?25l CUP(9,24) "91" CUP(11,3) ?2026l
+outside       6 bytes @5515   ?25h
+sync         56 bytes @5521   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @5577   ?25h
+sync         98 bytes @5583   ?2026h ?25l CUP(9,1) " " " Generating (4s)" " (↑8 ↓95" CUP(11,3) ?2026l
+outside       6 bytes @5681   ?25h
+sync         56 bytes @5687   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @5743   ?25h
+sync         56 bytes @5749   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5805   ?25h
+sync         59 bytes @5811   ?2026h ?25l CUP(9,24) "101)" CUP(11,3) ?2026l
+outside       6 bytes @5870   ?25h
+sync         56 bytes @5876   ?2026h ?25l CUP(9,26) "3" CUP(11,3) ?2026l
+outside       6 bytes @5932   ?25h
+sync        101 bytes @5938   ?2026h ?25l CUP(9,1) "• Generating (5s)" " (↑8 ↓105" CUP(11,3) ?2026l
+outside       6 bytes @6039   ?25h
+sync         56 bytes @6045   ?2026h ?25l CUP(9,26) "7" CUP(11,3) ?2026l
+outside       6 bytes @6101   ?25h
+sync         56 bytes @6107   ?2026h ?25l CUP(9,26) "9" CUP(11,3) ?2026l
+outside       6 bytes @6163   ?25h
+sync        620 bytes @6169   ?2026h ?25l CUP(9,1) "  MARKER-A word10 wor.." CUP(10,3) "word100 word101 word1.." CUP(11,1) "  word109 word110 wor.." CUP(12,3) "word118 word119 word1.." CUP(13,1) "  word127 word128 wor.." CUP(14,3) "word136 word137 word1.." CUP(16,1) "• Generating (5s)" " (↑8 ↓116)" CUP(18,1) "┃" CUP(20,1) "auto" " · model-a" CUP(18,3) ?2026l
+outside       6 bytes @6789   ?25h
+sync         37 bytes @6795   ?2026h ?25l CUP(16,1) " " CUP(18,3) ?2026l
+outside      38 bytes @6832   ?25h OSC2"stream a long answer please"
+sync        201 bytes @6870   ?2026h ?25l CUP(16,2) " Closing line of the .." CUP(18,1) "  5s (↑8 ↓40)" CUP(20,1) "┃" "             " CUP(22,1) "auto" " · model-a" CUP(20,3) ?2026l
+outside       6 bytes @7071   ?25h
+
+# fx-reset-wire-24x80-clear.wire: 3263 bytes, 12 sync blocks, 11 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        445 bytes @99     ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @544    ?25h
+sync         36 bytes @550    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         55 bytes @586    ?2026h ?25l CUP(3,3) "first question alpha" CUP(3,23) ?2026l
+outside       6 bytes @641    ?25h
+sync        182 bytes @647    ?2026h ?25l CUP(3,3) "first question alpha" CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @829    ?25h
+sync         86 bytes @835    ?2026h ?25l CUP(5,11) " (0s)" " (↑6 ↓0)" CUP(7,3) ?2026l
+outside       6 bytes @921    ?25h
+sync        222 bytes @927    ?2026h ?25l CUP(5,1) "  ALPHA answer line one." CUP(7,1) "• Generating (0s)" " (↑6 ↓6)" CUP(9,1) "┃" "             " CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1149   ?25h
+sync         57 bytes @1155   ?2026h ?25l CUP(7,24) "14)" CUP(9,3) ?2026l
+outside      31 bytes @1212   ?25h OSC2"first question alpha"
+sync        219 bytes @1243   ?2026h ?25l CUP(7,1) "  Second paragraph with " "code" "." CUP(9,1) "  0s (↑6 ↓40)" CUP(11,1) "┃" "             " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       6 bytes @1462   ?25h
+sync         36 bytes @1468   ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync        799 bytes @1504   ?2026h ?25l CUP(11,3) "/clear" CUP(12,1) "─────────────────────.." CUP(13,1) "Commands 1" "    " CUP(15,1) "  /clear   " "start a fresh convers.." CUP(21,1) "─────────────────────.." CUP(22,1) "↑↓ navigate     enter.." CUP(11,9) ?2026l
+outside       6 bytes @2303   ?25h
+sync        481 bytes @2309   ?2026h ?25l [CUP+2K x15] CUP(24,1) CR LF CR LF CR LF CR LF CR LF CR LF CR LF CR LF CR LF [CUP+2K x24] CUP(1,1) ?2026l
+outside      22 bytes @2790   OSC2"fx v0.0.13 | work"
+sync        445 bytes @2812   ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @3257   ?25h
+
+# fx-reset-wire-24x80-turn1.wire: 1468 bytes, 8 sync blocks, 8 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        445 bytes @99     ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @544    ?25h
+sync         36 bytes @550    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         55 bytes @586    ?2026h ?25l CUP(3,3) "first question alpha" CUP(3,23) ?2026l
+outside       6 bytes @641    ?25h
+sync        182 bytes @647    ?2026h ?25l CUP(3,3) "first question alpha" CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @829    ?25h
+sync         86 bytes @835    ?2026h ?25l CUP(5,11) " (0s)" " (↑6 ↓0)" CUP(7,3) ?2026l
+outside       6 bytes @921    ?25h
+sync        222 bytes @927    ?2026h ?25l CUP(5,1) "  ALPHA answer line one." CUP(7,1) "• Generating (0s)" " (↑6 ↓6)" CUP(9,1) "┃" "             " CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1149   ?25h
+sync         57 bytes @1155   ?2026h ?25l CUP(7,24) "14)" CUP(9,3) ?2026l
+outside      31 bytes @1212   ?25h OSC2"first question alpha"
+sync        219 bytes @1243   ?2026h ?25l CUP(7,1) "  Second paragraph with " "code" "." CUP(9,1) "  0s (↑6 ↓40)" CUP(11,1) "┃" "             " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       6 bytes @1462   ?25h
+
+# fx-stream-wire-12x80-end.wire: 2391 bytes, 14 sync blocks, 14 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        313 bytes @99     ?2026h ?25l [CUP+2K x12] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @412    ?25h
+sync         36 bytes @418    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         48 bytes @454    ?2026h ?25l CUP(3,3) "stream please" CUP(3,16) ?2026l
+outside       6 bytes @502    ?25h
+sync        175 bytes @508    ?2026h ?25l CUP(3,3) "stream please" CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @683    ?25h
+sync         59 bytes @689    ?2026h ?25l CUP(5,11) " (0s)" CUP(7,3) ?2026l
+outside       6 bytes @748    ?25h
+sync         96 bytes @754    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓13)" CUP(7,3) ?2026l
+outside       6 bytes @850    ?25h
+sync         56 bytes @856    ?2026h ?25l CUP(5,24) "25" CUP(7,3) ?2026l
+outside       6 bytes @912    ?25h
+sync        358 bytes @918    ?2026h ?25l CUP(5,1) "  STREAM-HEAD the fir.." CUP(6,3) "past the right edge o.." CUP(7,1) " " CUP(8,1) "• Generating (0s)" " (↑4 ↓38)" CUP(9,1) "              " CUP(10,1) "┃" CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       6 bytes @1276   ?25h
+sync         98 bytes @1282   ?2026h ?25l CUP(8,1) " " " Generating (0s)" " (↑4 ↓44" CUP(10,3) ?2026l
+outside       6 bytes @1380   ?25h
+sync         57 bytes @1386   ?2026h ?25l CUP(8,24) "50" CUP(10,3) ?2026l
+outside       6 bytes @1443   ?25h
+sync         56 bytes @1449   ?2026h ?25l CUP(8,25) "4" CUP(10,3) ?2026l
+outside       6 bytes @1505   ?25h
+sync         57 bytes @1511   ?2026h ?25l CUP(8,24) "61" CUP(10,3) ?2026l
+outside       6 bytes @1568   ?25h
+sync         71 bytes @1574   ?2026h ?25l CUP(8,1) "• Generating (1" CUP(10,3) ?2026l
+outside      24 bytes @1645   ?25h OSC2"stream please"
+sync        716 bytes @1669   ?2026h ?25l CUP(6,64) 0J ?7h CR CR LF CR CR LF "  A second paragraph,.." CR CR LF CR CR LF "  1s (↑4 ↓40)" ?7l CUP(12,1) CR LF CR LF [CUP+2K x12] CUP(1,1) "┃" " " "stream please" CUP(3,3) "STREAM-HEAD the first.." CUP(4,3) "past the right edge o.." CUP(6,3) "A second paragraph, s.." CUP(8,1) "  1s (↑4 ↓40)" CUP(10,1) "┃" CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       6 bytes @2385   ?25h
+
+# fx-stream-wire-24x80-end.wire: 2243 bytes, 17 sync blocks, 17 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        445 bytes @99     ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @544    ?25h
+sync         36 bytes @550    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         48 bytes @586    ?2026h ?25l CUP(3,3) "stream please" CUP(3,16) ?2026l
+outside       6 bytes @634    ?25h
+sync        175 bytes @640    ?2026h ?25l CUP(3,3) "stream please" CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @815    ?25h
+sync         59 bytes @821    ?2026h ?25l CUP(5,11) " (0s)" CUP(7,3) ?2026l
+outside       6 bytes @880    ?25h
+sync         66 bytes @886    ?2026h ?25l CUP(5,16) " (↑4 ↓0)" CUP(7,3) ?2026l
+outside       6 bytes @952    ?25h
+sync         35 bytes @958    ?2026h ?25l CUP(5,1) " " CUP(7,3) ?2026l
+outside       6 bytes @993    ?25h
+sync         96 bytes @999    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓13)" CUP(7,3) ?2026l
+outside       6 bytes @1095   ?25h
+sync         56 bytes @1101   ?2026h ?25l CUP(5,24) "25" CUP(7,3) ?2026l
+outside       6 bytes @1157   ?25h
+sync        354 bytes @1163   ?2026h ?25l CUP(5,2) " STREAM-HEAD the firs.." CUP(6,3) "past the right edge o.." CUP(7,1) " " CUP(8,2) " Generating (0s)" " (↑4 ↓38)" CUP(9,1) "              " CUP(10,1) "┃" CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       6 bytes @1517   ?25h
+sync         71 bytes @1523   ?2026h ?25l CUP(8,1) "• Generating (1" CUP(10,3) ?2026l
+outside       6 bytes @1594   ?25h
+sync         57 bytes @1600   ?2026h ?25l CUP(8,24) "44" CUP(10,3) ?2026l
+outside       6 bytes @1657   ?25h
+sync         57 bytes @1663   ?2026h ?25l CUP(8,24) "50" CUP(10,3) ?2026l
+outside       6 bytes @1720   ?25h
+sync         56 bytes @1726   ?2026h ?25l CUP(8,25) "4" CUP(10,3) ?2026l
+outside       6 bytes @1782   ?25h
+sync         98 bytes @1788   ?2026h ?25l CUP(8,1) " " " Generating (1s)" " (↑4 ↓61" CUP(10,3) ?2026l
+outside       6 bytes @1886   ?25h
+sync         71 bytes @1892   ?2026h ?25l CUP(8,1) "• Generating (2" CUP(10,3) ?2026l
+outside      24 bytes @1963   ?25h OSC2"stream please"
+sync        250 bytes @1987   ?2026h ?25l CUP(8,1) "  A second paragraph,.." CUP(10,1) "  2s (↑4 ↓40)" CUP(12,1) "┃" "             " CUP(14,1) "auto" " · model-a" CUP(12,3) ?2026l
+outside       6 bytes @2237   ?25h
+
+# fx-toolgroup-wire-24x80-end.wire: 2542 bytes, 17 sync blocks, 17 outside segments, 0 outside segments that write cells or scroll
+outside      99 bytes @0      OSC 11;? CSI c CSI 6n CSI >1u ?2004h ?7l ?2031h CSI ?996n OSC2"fx v0.0.13 | work" OSC2"fx v0.0.13 | work"
+sync        445 bytes @99     ?2026h ?25l [CUP+2K x24] CUP(1,1) "𝒇x" " v0.0.13 · Run /help .." CUP(3,1) "┃" CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @544    ?25h
+sync         36 bytes @550    ?2026h ESC 7 CSI 1G CSI 6n CSI 2G CSI 6n ESC 8 ?2026l
+sync         49 bytes @586    ?2026h ?25l CUP(3,3) "read the files" CUP(3,17) ?2026l
+outside       6 bytes @635    ?25h
+sync        176 bytes @641    ?2026h ?25l CUP(3,3) "read the files" CUP(5,1) "• Thinking" "    " CUP(7,1) "┃" CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @817    ?25h
+sync         95 bytes @823    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓9)" CUP(7,3) ?2026l
+outside       6 bytes @918    ?25h
+sync        327 bytes @924    ?2026h ?25l CUP(5,1) "  I will look at the .." CUP(7,1) "●" " " "2 tool calls · 2 read" CUP(8,1) "├ Read a.txt" CUP(9,1) "└ Read b.txt" "  " CUP(11,1) "• Running (0s)" " (↑4 ↓40)" CUP(13,1) "┃" CUP(15,1) "auto" " · model-a" CUP(13,3) ?2026l
+outside       6 bytes @1251   ?25h
+sync         96 bytes @1257   ?2026h ?25l CUP(11,3) "Thinking (0s)" " (↑4 ↓40)" CUP(13,3) ?2026l
+outside       6 bytes @1353   ?25h
+sync        320 bytes @1359   ?2026h ?25l CUP(7,3) "4 tool calls · 3 read.." CUP(9,1) "├" CUP(10,1) "├ Matching **/*.txt" CUP(11,1) "└ Searching alpha" "       " CUP(13,1) "• Running (0s)" " (↑4 ↓80)" CUP(15,1) "┃" "             " CUP(17,1) "auto" " · model-a" CUP(15,3) ?2026l
+outside       6 bytes @1679   ?25h
+sync        102 bytes @1685   ?2026h ?25l CUP(10,8) "ed **/*.txt" " " CUP(11,9) "ed alpha" " " CUP(15,3) ?2026l
+outside       6 bytes @1787   ?25h
+sync         96 bytes @1793   ?2026h ?25l CUP(13,3) "Thinking (0s)" " (↑4 ↓80)" CUP(15,3) ?2026l
+outside       6 bytes @1889   ?25h
+sync         98 bytes @1895   ?2026h ?25l CUP(13,3) "Generating (0s)" " (↑4 ↓81)" CUP(15,3) ?2026l
+outside       6 bytes @1993   ?25h
+sync         37 bytes @1999   ?2026h ?25l CUP(13,1) " " CUP(15,3) ?2026l
+outside       6 bytes @2036   ?25h
+sync         57 bytes @2042   ?2026h ?25l CUP(13,25) "3" CUP(15,3) ?2026l
+outside       6 bytes @2099   ?25h
+sync         57 bytes @2105   ?2026h ?25l CUP(13,25) "6" CUP(15,3) ?2026l
+outside       6 bytes @2162   ?25h
+sync         57 bytes @2168   ?2026h ?25l CUP(13,25) "9" CUP(15,3) ?2026l
+outside       6 bytes @2225   ?25h
+sync         72 bytes @2231   ?2026h ?25l CUP(13,1) "• Generating (1" CUP(15,3) ?2026l
+outside      25 bytes @2303   ?25h OSC2"read the files"
+sync        208 bytes @2328   ?2026h ?25l CUP(13,1) "  Both files were rea.." CUP(15,1) "  1s (↑4 ↓120)" CUP(17,1) "┃" "             " CUP(19,1) "auto" " · model-a" CUP(17,3) ?2026l
+outside       6 bytes @2536   ?25h
+
+# xfx-before-notice-wire-12x80-end.wire: 6800 bytes, 73 sync blocks, 74 outside segments, 7 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         62 bytes @298    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(3,30) ?2026l
+outside      96 bytes @360    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "stream a long answer .." EL [CUP+EL x2]
+sync        169 bytes @456    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑8 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @625    ?25h
+sync         91 bytes @631    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑8 ↓7)" CUP(7,3) ?2026l
+outside      53 bytes @722    ?25h CUP(5,1) EL CUP(5,1) "  Opening line of the.." EL
+sync        190 bytes @775    ?2026h ?25l CUP(6,1) "• Generating (0s)" " (↑8 ↓7)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @965    ?25h
+sync         51 bytes @971    ?2026h ?25l CUP(6,24) "9" CUP(8,3) ?2026l
+outside       6 bytes @1022   ?25h
+sync         53 bytes @1028   ?2026h ?25l CUP(6,24) "11)" CUP(8,3) ?2026l
+outside       6 bytes @1081   ?25h
+sync         51 bytes @1087   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1138   ?25h
+sync         51 bytes @1144   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1195   ?25h
+sync         35 bytes @1201   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @1236   ?25h
+sync         51 bytes @1242   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1293   ?25h
+sync         51 bytes @1299   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1350   ?25h
+sync         52 bytes @1356   ?2026h ?25l CUP(6,24) "21" CUP(8,3) ?2026l
+outside       6 bytes @1408   ?25h
+sync         51 bytes @1414   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1465   ?25h
+sync         51 bytes @1471   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1522   ?25h
+sync         51 bytes @1528   ?2026h ?25l CUP(6,15) "1" CUP(8,3) ?2026l
+outside       6 bytes @1579   ?25h
+sync         52 bytes @1585   ?2026h ?25l CUP(6,1) "•" CUP(8,3) ?2026l
+outside       6 bytes @1637   ?25h
+sync         51 bytes @1643   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1694   ?25h
+sync         51 bytes @1700   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1751   ?25h
+sync         52 bytes @1757   ?2026h ?25l CUP(6,24) "31" CUP(8,3) ?2026l
+outside       6 bytes @1809   ?25h
+sync         51 bytes @1815   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1866   ?25h
+sync         51 bytes @1872   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1923   ?25h
+sync         35 bytes @1929   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @1964   ?25h
+sync         51 bytes @1970   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @2021   ?25h
+sync         51 bytes @2027   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @2078   ?25h
+sync         52 bytes @2084   ?2026h ?25l CUP(6,24) "41" CUP(8,3) ?2026l
+outside       6 bytes @2136   ?25h
+sync         51 bytes @2142   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @2193   ?25h
+sync         51 bytes @2199   ?2026h ?25l CUP(6,15) "2" CUP(8,3) ?2026l
+outside      15 bytes @2250   ?25h CUP(12,1) CR LF
+sync        777 bytes @2265   ?2026h ?25l CUP(5,25) "5" CUP(7,3) "/version" CUP(8,1) "─────────────────────.." CUP(9,1) "  /version   " "show the xfx version .." CUP(11,1) "─────────────────────.." CUP(12,1) "↑↓ navigate     enter.." CUP(7,11) ?2026l
+outside       6 bytes @3042   ?25h
+sync         52 bytes @3048   ?2026h ?25l CUP(5,25) "7" CUP(7,11) ?2026l
+outside       6 bytes @3100   ?25h
+sync         53 bytes @3106   ?2026h ?25l CUP(5,1) "•" CUP(7,11) ?2026l
+outside       6 bytes @3159   ?25h
+sync         52 bytes @3165   ?2026h ?25l CUP(5,25) "9" CUP(7,11) ?2026l
+outside       6 bytes @3217   ?25h
+sync         53 bytes @3223   ?2026h ?25l CUP(5,24) "51" CUP(7,11) ?2026l
+outside     121 bytes @3276   ?25h [CUP+EL x3] CUP(6,1) "* " "version:" " 0.1.0" EL [CUP+EL x2]
+sync        200 bytes @3397   ?2026h ?25l CUP(8,1) "• Generating (2s)" " (↑8 ↓51)" EL CUP(9,1) EL CUP(10,1) "┃" " " CUP(11,1) EL CUP(12,1) "auto" " · model-a" EL CUP(10,3) ?2026l
+outside       6 bytes @3597   ?25h
+sync         52 bytes @3603   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @3655   ?25h
+sync         52 bytes @3661   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @3713   ?25h
+sync         52 bytes @3719   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @3771   ?25h
+sync         36 bytes @3777   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside       6 bytes @3813   ?25h
+sync         52 bytes @3819   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @3871   ?25h
+sync         53 bytes @3877   ?2026h ?25l CUP(8,24) "61" CUP(10,3) ?2026l
+outside       6 bytes @3930   ?25h
+sync         52 bytes @3936   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @3988   ?25h
+sync         52 bytes @3994   ?2026h ?25l CUP(8,15) "3" CUP(10,3) ?2026l
+outside       6 bytes @4046   ?25h
+sync         52 bytes @4052   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @4104   ?25h
+sync         52 bytes @4110   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @4162   ?25h
+sync         52 bytes @4168   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @4220   ?25h
+sync         53 bytes @4226   ?2026h ?25l CUP(8,1) "•" CUP(10,3) ?2026l
+outside       6 bytes @4279   ?25h
+sync         53 bytes @4285   ?2026h ?25l CUP(8,24) "71" CUP(10,3) ?2026l
+outside       6 bytes @4338   ?25h
+sync         52 bytes @4344   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @4396   ?25h
+sync         52 bytes @4402   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @4454   ?25h
+sync         52 bytes @4460   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @4512   ?25h
+sync         52 bytes @4518   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @4570   ?25h
+sync         36 bytes @4576   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside       6 bytes @4612   ?25h
+sync         53 bytes @4618   ?2026h ?25l CUP(8,24) "81" CUP(10,3) ?2026l
+outside       6 bytes @4671   ?25h
+sync         52 bytes @4677   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @4729   ?25h
+sync         52 bytes @4735   ?2026h ?25l CUP(8,15) "4" CUP(10,3) ?2026l
+outside       6 bytes @4787   ?25h
+sync         52 bytes @4793   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @4845   ?25h
+sync         52 bytes @4851   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @4903   ?25h
+sync         52 bytes @4909   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @4961   ?25h
+sync         96 bytes @4967   ?2026h ?25l CUP(8,1) "• Generating (4s)" " (↑8 ↓91" CUP(10,3) ?2026l
+outside       6 bytes @5063   ?25h
+sync         52 bytes @5069   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @5121   ?25h
+sync         52 bytes @5127   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @5179   ?25h
+sync         52 bytes @5185   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @5237   ?25h
+sync         52 bytes @5243   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @5295   ?25h
+sync         55 bytes @5301   ?2026h ?25l CUP(8,24) "101)" CUP(10,3) ?2026l
+outside       6 bytes @5356   ?25h
+sync         36 bytes @5362   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside       6 bytes @5398   ?25h
+sync         52 bytes @5404   ?2026h ?25l CUP(8,26) "3" CUP(10,3) ?2026l
+outside       6 bytes @5456   ?25h
+sync         52 bytes @5462   ?2026h ?25l CUP(8,15) "5" CUP(10,3) ?2026l
+outside       6 bytes @5514   ?25h
+sync         52 bytes @5520   ?2026h ?25l CUP(8,26) "5" CUP(10,3) ?2026l
+outside       6 bytes @5572   ?25h
+sync         52 bytes @5578   ?2026h ?25l CUP(8,26) "7" CUP(10,3) ?2026l
+outside       6 bytes @5630   ?25h
+sync         52 bytes @5636   ?2026h ?25l CUP(8,26) "9" CUP(10,3) ?2026l
+outside     520 bytes @5688   ?25h CUP(12,1) CR LF CUP(7,1) "  MARKER-A word10 wor.." CUP(12,1) CR LF CUP(7,1) "  word100 word101 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word109 word110 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word118 word119 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word127 word128 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word136 word137 wor.." EL
+sync        174 bytes @6208   ?2026h ?25l CUP(8,1) " " " Generating (5s)" " (↑8 ↓116)" CUP(10,1) "┃" " " CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       6 bytes @6382   ?25h
+sync        100 bytes @6388   ?2026h ?25l CUP(8,1) "• Generating (5s)" " (↑8 ↓40)" EL CUP(10,3) ?2026l
+outside     166 bytes @6488   ?25h [CUP+EL x4] CUP(9,1) "  Closing line of the.." EL CUP(12,1) CR LF CUP(9,1) EL CUP(12,1) CR LF CUP(9,1) "  5s (↑8 ↓40)" EL CUP(12,1) CR LF CUP(9,1) EL
+sync        139 bytes @6654   ?2026h ?25l OSC2"stream a long answer please" CUP(10,1) "┃" " " CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       7 bytes @6793   ?25h BEL
+
+# xfx-before-notice-wire-24x80-end.wire: 6907 bytes, 74 sync blocks, 75 outside segments, 6 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         62 bytes @298    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(3,30) ?2026l
+outside      96 bytes @360    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "stream a long answer .." EL [CUP+EL x2]
+sync        169 bytes @456    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑8 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @625    ?25h
+sync         91 bytes @631    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑8 ↓7)" CUP(7,3) ?2026l
+outside      53 bytes @722    ?25h CUP(5,1) EL CUP(5,1) "  Opening line of the.." EL
+sync        190 bytes @775    ?2026h ?25l CUP(6,1) "• Generating (0s)" " (↑8 ↓7)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @965    ?25h
+sync         51 bytes @971    ?2026h ?25l CUP(6,24) "9" CUP(8,3) ?2026l
+outside       6 bytes @1022   ?25h
+sync         53 bytes @1028   ?2026h ?25l CUP(6,24) "11)" CUP(8,3) ?2026l
+outside       6 bytes @1081   ?25h
+sync         51 bytes @1087   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1138   ?25h
+sync         51 bytes @1144   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1195   ?25h
+sync         35 bytes @1201   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @1236   ?25h
+sync         51 bytes @1242   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1293   ?25h
+sync         51 bytes @1299   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1350   ?25h
+sync         52 bytes @1356   ?2026h ?25l CUP(6,24) "21" CUP(8,3) ?2026l
+outside       6 bytes @1408   ?25h
+sync         51 bytes @1414   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1465   ?25h
+sync         51 bytes @1471   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1522   ?25h
+sync         51 bytes @1528   ?2026h ?25l CUP(6,15) "1" CUP(8,3) ?2026l
+outside       6 bytes @1579   ?25h
+sync         52 bytes @1585   ?2026h ?25l CUP(6,1) "•" CUP(8,3) ?2026l
+outside       6 bytes @1637   ?25h
+sync         51 bytes @1643   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1694   ?25h
+sync         51 bytes @1700   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1751   ?25h
+sync         52 bytes @1757   ?2026h ?25l CUP(6,24) "31" CUP(8,3) ?2026l
+outside       6 bytes @1809   ?25h
+sync         51 bytes @1815   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1866   ?25h
+sync         51 bytes @1872   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1923   ?25h
+sync         51 bytes @1929   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1980   ?25h
+sync         35 bytes @1986   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @2021   ?25h
+sync         51 bytes @2027   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @2078   ?25h
+sync         52 bytes @2084   ?2026h ?25l CUP(6,24) "41" CUP(8,3) ?2026l
+outside       6 bytes @2136   ?25h
+sync         51 bytes @2142   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @2193   ?25h
+sync         80 bytes @2199   ?2026h ?25l CUP(6,15) "2s)" " (↑8 ↓45" CUP(8,3) ?2026l
+outside       6 bytes @2279   ?25h
+sync        790 bytes @2285   ?2026h ?25l CUP(8,3) "/version" CUP(9,1) "─────────────────────.." CUP(10,1) "Commands 1" EL CUP(12,1) "  /version   " "show the xfx version .." CUP(18,1) "─────────────────────.." CUP(19,1) "↑↓ navigate     enter.." CUP(8,11) ?2026l
+outside       6 bytes @3075   ?25h
+sync         52 bytes @3081   ?2026h ?25l CUP(6,25) "7" CUP(8,11) ?2026l
+outside       6 bytes @3133   ?25h
+sync         53 bytes @3139   ?2026h ?25l CUP(6,1) "•" CUP(8,11) ?2026l
+outside       6 bytes @3192   ?25h
+sync         52 bytes @3198   ?2026h ?25l CUP(6,25) "9" CUP(8,11) ?2026l
+outside       6 bytes @3250   ?25h
+sync         53 bytes @3256   ?2026h ?25l CUP(6,24) "51" CUP(8,11) ?2026l
+outside     121 bytes @3309   ?25h [CUP+EL x3] CUP(7,1) "* " "version:" " 0.1.0" EL [CUP+EL x2]
+sync        218 bytes @3430   ?2026h ?25l CUP(9,1) "• Generating (2s)" " (↑8 ↓51)" EL CUP(10,1) EL CUP(11,1) "┃" " " CUP(12,1) EL CUP(13,1) "auto" " · model-a" [CUP+EL x2] CUP(11,3) ?2026l
+outside       6 bytes @3648   ?25h
+sync         52 bytes @3654   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @3706   ?25h
+sync         52 bytes @3712   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @3764   ?25h
+sync         52 bytes @3770   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @3822   ?25h
+sync         94 bytes @3828   ?2026h ?25l CUP(9,1) " " " Generating (2s)" " (↑8 ↓59" CUP(11,3) ?2026l
+outside       6 bytes @3922   ?25h
+sync         53 bytes @3928   ?2026h ?25l CUP(9,24) "61" CUP(11,3) ?2026l
+outside       6 bytes @3981   ?25h
+sync         52 bytes @3987   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4039   ?25h
+sync         52 bytes @4045   ?2026h ?25l CUP(9,15) "3" CUP(11,3) ?2026l
+outside       6 bytes @4097   ?25h
+sync         52 bytes @4103   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4155   ?25h
+sync         52 bytes @4161   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4213   ?25h
+sync         52 bytes @4219   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @4271   ?25h
+sync         53 bytes @4277   ?2026h ?25l CUP(9,1) "•" CUP(11,3) ?2026l
+outside       6 bytes @4330   ?25h
+sync         53 bytes @4336   ?2026h ?25l CUP(9,24) "71" CUP(11,3) ?2026l
+outside       6 bytes @4389   ?25h
+sync         52 bytes @4395   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4447   ?25h
+sync         52 bytes @4453   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4505   ?25h
+sync         52 bytes @4511   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4563   ?25h
+sync         52 bytes @4569   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @4621   ?25h
+sync         36 bytes @4627   ?2026h ?25l CUP(9,1) " " CUP(11,3) ?2026l
+outside       6 bytes @4663   ?25h
+sync         53 bytes @4669   ?2026h ?25l CUP(9,24) "81" CUP(11,3) ?2026l
+outside       6 bytes @4722   ?25h
+sync         52 bytes @4728   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4780   ?25h
+sync         52 bytes @4786   ?2026h ?25l CUP(9,15) "4" CUP(11,3) ?2026l
+outside       6 bytes @4838   ?25h
+sync         52 bytes @4844   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4896   ?25h
+sync         52 bytes @4902   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4954   ?25h
+sync         52 bytes @4960   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5012   ?25h
+sync         53 bytes @5018   ?2026h ?25l CUP(9,24) "91" CUP(11,3) ?2026l
+outside       6 bytes @5071   ?25h
+sync         53 bytes @5077   ?2026h ?25l CUP(9,1) "•" CUP(11,3) ?2026l
+outside       6 bytes @5130   ?25h
+sync         52 bytes @5136   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @5188   ?25h
+sync         52 bytes @5194   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @5246   ?25h
+sync         52 bytes @5252   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @5304   ?25h
+sync         52 bytes @5310   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5362   ?25h
+sync         55 bytes @5368   ?2026h ?25l CUP(9,24) "101)" CUP(11,3) ?2026l
+outside       6 bytes @5423   ?25h
+sync         36 bytes @5429   ?2026h ?25l CUP(9,1) " " CUP(11,3) ?2026l
+outside       6 bytes @5465   ?25h
+sync         52 bytes @5471   ?2026h ?25l CUP(9,26) "3" CUP(11,3) ?2026l
+outside       6 bytes @5523   ?25h
+sync         52 bytes @5529   ?2026h ?25l CUP(9,15) "5" CUP(11,3) ?2026l
+outside       6 bytes @5581   ?25h
+sync         52 bytes @5587   ?2026h ?25l CUP(9,26) "5" CUP(11,3) ?2026l
+outside       6 bytes @5639   ?25h
+sync         52 bytes @5645   ?2026h ?25l CUP(9,26) "7" CUP(11,3) ?2026l
+outside       6 bytes @5697   ?25h
+sync         52 bytes @5703   ?2026h ?25l CUP(9,26) "9" CUP(11,3) ?2026l
+outside     530 bytes @5755   ?25h [CUP+EL x6] CUP(9,1) "  MARKER-A word10 wor.." CUP(10,1) "  word100 word101 wor.." EL CUP(11,1) "  word109 word110 wor.." EL CUP(12,1) "  word118 word119 wor.." EL CUP(13,1) "  word127 word128 wor.." EL CUP(14,1) "  word136 word137 wor.." EL
+sync        175 bytes @6285   ?2026h ?25l CUP(15,1) " " " Generating (5s)" " (↑8 ↓116)" CUP(17,1) "┃" " " CUP(19,1) "auto" " · model-a" CUP(17,3) ?2026l
+outside       6 bytes @6460   ?25h
+sync         54 bytes @6466   ?2026h ?25l CUP(15,1) "•" CUP(17,3) ?2026l
+outside       6 bytes @6520   ?25h
+sync         58 bytes @6526   ?2026h ?25l CUP(15,24) "40)" EL CUP(17,3) ?2026l
+outside     177 bytes @6584   ?25h [CUP+EL x4] CUP(16,1) "  Closing line of the.." EL [CUP+EL x3] CUP(18,1) "  5s (↑8 ↓40)" EL [CUP+EL x2]
+sync        139 bytes @6761   ?2026h ?25l OSC2"stream a long answer please" CUP(20,1) "┃" " " CUP(22,1) "auto" " · model-a" CUP(20,3) ?2026l
+outside       7 bytes @6900   ?25h BEL
+
+# xfx-before-reset-wire-24x80-clear.wire: 2527 bytes, 11 sync blocks, 12 outside segments, 5 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         55 bytes @298    ?2026h ?25l CUP(3,3) "first question alpha" CUP(3,23) ?2026l
+outside      89 bytes @353    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "first question alpha" EL [CUP+EL x2]
+sync        107 bytes @442    ?2026h ?25l CUP(5,1) "┃" " " EL CUP(7,1) "auto" " · model-a" CUP(5,3) ?2026l
+outside       6 bytes @549    ?25h
+sync        172 bytes @555    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑6 ↓0)" CUP(7,1) "┃" " " EL CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @727    ?25h
+sync         91 bytes @733    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑6 ↓6)" CUP(7,3) ?2026l
+outside      48 bytes @824    ?25h CUP(5,1) EL CUP(5,1) "  ALPHA answer line one." EL
+sync        191 bytes @872    ?2026h ?25l CUP(6,1) "• Generating (0s)" " (↑6 ↓14)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @1063   ?25h
+sync         52 bytes @1069   ?2026h ?25l CUP(6,24) "40" CUP(8,3) ?2026l
+outside     184 bytes @1121   ?25h [CUP+EL x4] CUP(7,1) "  Second paragraph with " "code" "." EL [CUP+EL x3] CUP(9,1) "  0s (↑6 ↓40)" EL [CUP+EL x2]
+sync        132 bytes @1305   ?2026h ?25l OSC2"first question alpha" CUP(11,1) "┃" " " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       7 bytes @1437   ?25h BEL
+sync        790 bytes @1444   ?2026h ?25l CUP(11,3) "/clear" CUP(12,1) "─────────────────────.." CUP(13,1) "Commands 1" EL CUP(15,1) "  /clear   " "start a fresh convers.." CUP(21,1) "─────────────────────.." CUP(22,1) "↑↓ navigate     enter.." CUP(11,9) ?2026l
+outside       6 bytes @2234   ?25h
+sync         57 bytes @2240   ?2026h ?25l CUP(10,1) ED CUP(24,1) CR LF CR LF CR LF CR LF CR LF CR LF CR LF CR LF CR LF ?2026l
+outside      98 bytes @2297   CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        126 bytes @2395   ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @2521   ?25h
+
+# xfx-before-reset-wire-24x80-turn1.wire: 1444 bytes, 8 sync blocks, 9 outside segments, 4 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         55 bytes @298    ?2026h ?25l CUP(3,3) "first question alpha" CUP(3,23) ?2026l
+outside      89 bytes @353    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "first question alpha" EL [CUP+EL x2]
+sync        107 bytes @442    ?2026h ?25l CUP(5,1) "┃" " " EL CUP(7,1) "auto" " · model-a" CUP(5,3) ?2026l
+outside       6 bytes @549    ?25h
+sync        172 bytes @555    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑6 ↓0)" CUP(7,1) "┃" " " EL CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @727    ?25h
+sync         91 bytes @733    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑6 ↓6)" CUP(7,3) ?2026l
+outside      48 bytes @824    ?25h CUP(5,1) EL CUP(5,1) "  ALPHA answer line one." EL
+sync        191 bytes @872    ?2026h ?25l CUP(6,1) "• Generating (0s)" " (↑6 ↓14)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @1063   ?25h
+sync         52 bytes @1069   ?2026h ?25l CUP(6,24) "40" CUP(8,3) ?2026l
+outside     184 bytes @1121   ?25h [CUP+EL x4] CUP(7,1) "  Second paragraph with " "code" "." EL [CUP+EL x3] CUP(9,1) "  0s (↑6 ↓40)" EL [CUP+EL x2]
+sync        132 bytes @1305   ?2026h ?25l OSC2"first question alpha" CUP(11,1) "┃" " " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       7 bytes @1437   ?25h BEL
+
+# xfx-before-stream-wire-12x80-end.wire: 1944 bytes, 15 sync blocks, 16 outside segments, 4 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         48 bytes @298    ?2026h ?25l CUP(3,3) "stream please" CUP(3,16) ?2026l
+outside      82 bytes @346    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "stream please" EL [CUP+EL x2]
+sync        169 bytes @428    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑4 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @597    ?25h
+sync         92 bytes @603    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓13)" CUP(7,3) ?2026l
+outside       6 bytes @695    ?25h
+sync         52 bytes @701    ?2026h ?25l CUP(5,24) "25" CUP(7,3) ?2026l
+outside       6 bytes @753    ?25h
+sync         52 bytes @759    ?2026h ?25l CUP(5,24) "38" CUP(7,3) ?2026l
+outside       6 bytes @811    ?25h
+sync         35 bytes @817    ?2026h ?25l CUP(5,1) " " CUP(7,3) ?2026l
+outside     182 bytes @852    ?25h [CUP+EL x2] CUP(5,1) "  STREAM-HEAD the fir.." EL CUP(6,1) "  past the right edge.." EL
+sync        174 bytes @1034   ?2026h ?25l CUP(7,1) " " " Generating (0s)" " (↑4 ↓38)" CUP(9,1) "┃" " " EL CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1208   ?25h
+sync         52 bytes @1214   ?2026h ?25l CUP(7,24) "44" CUP(9,3) ?2026l
+outside       6 bytes @1266   ?25h
+sync         52 bytes @1272   ?2026h ?25l CUP(7,24) "50" CUP(9,3) ?2026l
+outside       6 bytes @1324   ?25h
+sync         51 bytes @1330   ?2026h ?25l CUP(7,25) "4" CUP(9,3) ?2026l
+outside       6 bytes @1381   ?25h
+sync         51 bytes @1387   ?2026h ?25l CUP(7,15) "1" CUP(9,3) ?2026l
+outside       6 bytes @1438   ?25h
+sync         95 bytes @1444   ?2026h ?25l CUP(7,1) "• Generating (1s)" " (↑4 ↓61" CUP(9,3) ?2026l
+outside       6 bytes @1539   ?25h
+sync         52 bytes @1545   ?2026h ?25l CUP(7,24) "40" CUP(9,3) ?2026l
+outside     215 bytes @1597   ?25h [CUP+EL x4] CUP(8,1) "  A second paragraph,.." EL [CUP+EL x2] CUP(12,1) CR LF CUP(9,1) "  1s (↑4 ↓40)" EL CUP(12,1) CR LF CUP(9,1) EL
+sync        125 bytes @1812   ?2026h ?25l OSC2"stream please" CUP(10,1) "┃" " " CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       7 bytes @1937   ?25h BEL
+
+# xfx-before-stream-wire-24x80-end.wire: 1965 bytes, 16 sync blocks, 17 outside segments, 4 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         48 bytes @298    ?2026h ?25l CUP(3,3) "stream please" CUP(3,16) ?2026l
+outside      82 bytes @346    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "stream please" EL [CUP+EL x2]
+sync        169 bytes @428    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑4 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @597    ?25h
+sync         92 bytes @603    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓13)" CUP(7,3) ?2026l
+outside       6 bytes @695    ?25h
+sync         52 bytes @701    ?2026h ?25l CUP(5,24) "25" CUP(7,3) ?2026l
+outside       6 bytes @753    ?25h
+sync         52 bytes @759    ?2026h ?25l CUP(5,24) "38" CUP(7,3) ?2026l
+outside     182 bytes @811    ?25h [CUP+EL x2] CUP(5,1) "  STREAM-HEAD the fir.." EL CUP(6,1) "  past the right edge.." EL
+sync        176 bytes @993    ?2026h ?25l CUP(7,1) "• Generating (0s)" " (↑4 ↓38)" CUP(9,1) "┃" " " EL CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1169   ?25h
+sync         35 bytes @1175   ?2026h ?25l CUP(7,1) " " CUP(9,3) ?2026l
+outside       6 bytes @1210   ?25h
+sync         52 bytes @1216   ?2026h ?25l CUP(7,24) "44" CUP(9,3) ?2026l
+outside       6 bytes @1268   ?25h
+sync         52 bytes @1274   ?2026h ?25l CUP(7,24) "50" CUP(9,3) ?2026l
+outside       6 bytes @1326   ?25h
+sync         51 bytes @1332   ?2026h ?25l CUP(7,25) "4" CUP(9,3) ?2026l
+outside       6 bytes @1383   ?25h
+sync         52 bytes @1389   ?2026h ?25l CUP(7,24) "61" CUP(9,3) ?2026l
+outside       6 bytes @1441   ?25h
+sync         51 bytes @1447   ?2026h ?25l CUP(7,15) "1" CUP(9,3) ?2026l
+outside       6 bytes @1498   ?25h
+sync         52 bytes @1504   ?2026h ?25l CUP(7,1) "•" CUP(9,3) ?2026l
+outside       6 bytes @1556   ?25h
+sync         52 bytes @1562   ?2026h ?25l CUP(7,24) "40" CUP(9,3) ?2026l
+outside     219 bytes @1614   ?25h [CUP+EL x4] CUP(8,1) "  A second paragraph,.." EL [CUP+EL x3] CUP(10,1) "  1s (↑4 ↓40)" EL [CUP+EL x2]
+sync        125 bytes @1833   ?2026h ?25l OSC2"stream please" CUP(12,1) "┃" " " CUP(14,1) "auto" " · model-a" CUP(12,3) ?2026l
+outside       7 bytes @1958   ?25h BEL
+
+# xfx-before-toolgroup-wire-24x80-end.wire: 2703 bytes, 15 sync blocks, 16 outside segments, 4 outside segments that write cells or scroll
+outside     157 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2]
+sync        135 bytes @157    ?2026h ?25l OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         49 bytes @298    ?2026h ?25l CUP(3,3) "read the files" CUP(3,17) ?2026l
+outside      83 bytes @347    ?25h CUP(3,1) EL CUP(3,1) "┃" " " "read the files" EL [CUP+EL x2]
+sync        169 bytes @430    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑4 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @599    ?25h
+sync         92 bytes @605    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓40)" CUP(7,3) ?2026l
+outside       6 bytes @697    ?25h
+sync         93 bytes @703    ?2026h ?25l CUP(5,3) "Thinking (0s)" " (↑4 ↓40)" EL CUP(7,3) ?2026l
+outside       6 bytes @796    ?25h
+sync         51 bytes @802    ?2026h ?25l CUP(5,22) "8" CUP(7,3) ?2026l
+outside       6 bytes @853    ?25h
+sync         92 bytes @859    ?2026h ?25l CUP(5,3) "Running (0s)" " (↑4 ↓80)" EL CUP(7,3) ?2026l
+outside     907 bytes @951    ?25h CUP(5,1) EL CUP(5,1) "  I will look at the .." EL [CUP+EL x5] CUP(7,1) "●" " " "1 tool call · 1 read" EL CUP(8,1) "└ Reading a.txt" EL CUP(9,1) EL CUP(8,1) "└ Read a.txt" EL CUP(10,1) EL CUP(7,1) "●" " " "2 tool calls · 2 read" EL CUP(8,1) "├ Read a.txt" EL CUP(9,1) "└ Reading b.txt" EL CUP(10,1) EL CUP(9,1) "└ Read b.txt" EL CUP(11,1) EL CUP(7,1) "●" " " "3 tool ...
+sync        174 bytes @1858   ?2026h ?25l CUP(13,1) "• Thinking (0s)" " (↑4 ↓80)" CUP(15,1) "┃" " " CUP(17,1) "auto" " · model-a" CUP(15,3) ?2026l
+outside       6 bytes @2032   ?25h
+sync         94 bytes @2038   ?2026h ?25l CUP(13,3) "Generating (0s)" " (↑4 ↓81)" CUP(15,3) ?2026l
+outside       6 bytes @2132   ?25h
+sync         53 bytes @2138   ?2026h ?25l CUP(13,25) "3" CUP(15,3) ?2026l
+outside       6 bytes @2191   ?25h
+sync         53 bytes @2197   ?2026h ?25l CUP(13,25) "6" CUP(15,3) ?2026l
+outside       6 bytes @2250   ?25h
+sync         37 bytes @2256   ?2026h ?25l CUP(13,1) " " CUP(15,3) ?2026l
+outside       6 bytes @2293   ?25h
+sync         53 bytes @2299   ?2026h ?25l CUP(13,25) "9" CUP(15,3) ?2026l
+outside       6 bytes @2352   ?25h
+sync         56 bytes @2358   ?2026h ?25l CUP(13,24) "120)" CUP(15,3) ?2026l
+outside     153 bytes @2414   ?25h CUP(13,1) EL CUP(13,1) "  Both files were rea.." EL [CUP+EL x3] CUP(15,1) "  0s (↑4 ↓120)" EL [CUP+EL x2]
+sync        129 bytes @2567   ?2026h ?25l OSC2"read the files" CUP(17,1) "┃" " " EL CUP(19,1) "auto" " · model-a" CUP(17,3) ?2026l
+outside       7 bytes @2696   ?25h BEL
+
+# xfx-after-notice-wire-12x80-end.wire: 7042 bytes, 76 sync blocks, 77 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         62 bytes @298    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(3,30) ?2026l
+outside       6 bytes @360    ?25h
+sync        197 bytes @366    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "stream a long answer .." EL [CUP+EL x2] CUP(5,1) "┃" " " EL CUP(7,1) "auto" " · model-a" CUP(5,3) ?2026l
+outside       6 bytes @563    ?25h
+sync        172 bytes @569    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑8 ↓0)" CUP(7,1) "┃" " " EL CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @741    ?25h
+sync         91 bytes @747    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑8 ↓7)" CUP(7,3) ?2026l
+outside       6 bytes @838    ?25h
+sync        237 bytes @844    ?2026h ?25l CUP(5,1) EL CUP(5,1) "  Opening line of the.." EL CUP(6,1) "• Generating (0s)" " (↑8 ↓7)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @1081   ?25h
+sync         51 bytes @1087   ?2026h ?25l CUP(6,24) "9" CUP(8,3) ?2026l
+outside       6 bytes @1138   ?25h
+sync         53 bytes @1144   ?2026h ?25l CUP(6,24) "11)" CUP(8,3) ?2026l
+outside       6 bytes @1197   ?25h
+sync         51 bytes @1203   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1254   ?25h
+sync         51 bytes @1260   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1311   ?25h
+sync         35 bytes @1317   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @1352   ?25h
+sync         51 bytes @1358   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1409   ?25h
+sync         51 bytes @1415   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1466   ?25h
+sync         52 bytes @1472   ?2026h ?25l CUP(6,24) "21" CUP(8,3) ?2026l
+outside       6 bytes @1524   ?25h
+sync         51 bytes @1530   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1581   ?25h
+sync         51 bytes @1587   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1638   ?25h
+sync         51 bytes @1644   ?2026h ?25l CUP(6,15) "1" CUP(8,3) ?2026l
+outside       6 bytes @1695   ?25h
+sync         52 bytes @1701   ?2026h ?25l CUP(6,1) "•" CUP(8,3) ?2026l
+outside       6 bytes @1753   ?25h
+sync         51 bytes @1759   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1810   ?25h
+sync         51 bytes @1816   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1867   ?25h
+sync         52 bytes @1873   ?2026h ?25l CUP(6,24) "31" CUP(8,3) ?2026l
+outside       6 bytes @1925   ?25h
+sync         51 bytes @1931   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1982   ?25h
+sync         51 bytes @1988   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @2039   ?25h
+sync         51 bytes @2045   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @2096   ?25h
+sync         35 bytes @2102   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @2137   ?25h
+sync         51 bytes @2143   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @2194   ?25h
+sync         52 bytes @2200   ?2026h ?25l CUP(6,24) "41" CUP(8,3) ?2026l
+outside       6 bytes @2252   ?25h
+sync         51 bytes @2258   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @2309   ?25h
+sync         51 bytes @2315   ?2026h ?25l CUP(6,15) "2" CUP(8,3) ?2026l
+outside       6 bytes @2366   ?25h
+sync        786 bytes @2372   ?2026h ?25l CUP(12,1) CR LF CUP(5,25) "5" CUP(7,3) "/version" CUP(8,1) "─────────────────────.." CUP(9,1) "  /version   " "show the xfx version .." CUP(11,1) "─────────────────────.." CUP(12,1) "↑↓ navigate     enter.." CUP(7,11) ?2026l
+outside       6 bytes @3158   ?25h
+sync         52 bytes @3164   ?2026h ?25l CUP(5,25) "7" CUP(7,11) ?2026l
+outside       6 bytes @3216   ?25h
+sync         53 bytes @3222   ?2026h ?25l CUP(5,1) "•" CUP(7,11) ?2026l
+outside       6 bytes @3275   ?25h
+sync         52 bytes @3281   ?2026h ?25l CUP(5,25) "9" CUP(7,11) ?2026l
+outside       6 bytes @3333   ?25h
+sync         53 bytes @3339   ?2026h ?25l CUP(5,24) "51" CUP(7,11) ?2026l
+outside       6 bytes @3392   ?25h
+sync        120 bytes @3398   ?2026h ?25l [CUP+EL x2] CUP(9,1) "auto" " · model-a" EL [CUP+EL x2] CUP(7,3) ?2026l
+outside       6 bytes @3518   ?25h
+sync        299 bytes @3524   ?2026h ?25l [CUP+EL x3] CUP(6,1) "* " "version:" " 0.1.0" EL [CUP+EL x2] CUP(8,1) "• Generating (2s)" " (↑8 ↓51)" CUP(9,1) EL CUP(10,1) "┃" " " CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       6 bytes @3823   ?25h
+sync         52 bytes @3829   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @3881   ?25h
+sync         52 bytes @3887   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @3939   ?25h
+sync         52 bytes @3945   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @3997   ?25h
+sync         36 bytes @4003   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside       6 bytes @4039   ?25h
+sync         52 bytes @4045   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @4097   ?25h
+sync         53 bytes @4103   ?2026h ?25l CUP(8,24) "61" CUP(10,3) ?2026l
+outside       6 bytes @4156   ?25h
+sync         52 bytes @4162   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @4214   ?25h
+sync         52 bytes @4220   ?2026h ?25l CUP(8,15) "3" CUP(10,3) ?2026l
+outside       6 bytes @4272   ?25h
+sync         52 bytes @4278   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @4330   ?25h
+sync         52 bytes @4336   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @4388   ?25h
+sync         52 bytes @4394   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @4446   ?25h
+sync         53 bytes @4452   ?2026h ?25l CUP(8,1) "•" CUP(10,3) ?2026l
+outside       6 bytes @4505   ?25h
+sync         53 bytes @4511   ?2026h ?25l CUP(8,24) "71" CUP(10,3) ?2026l
+outside       6 bytes @4564   ?25h
+sync         52 bytes @4570   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @4622   ?25h
+sync         52 bytes @4628   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @4680   ?25h
+sync         52 bytes @4686   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @4738   ?25h
+sync         52 bytes @4744   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @4796   ?25h
+sync         36 bytes @4802   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside       6 bytes @4838   ?25h
+sync         53 bytes @4844   ?2026h ?25l CUP(8,24) "81" CUP(10,3) ?2026l
+outside       6 bytes @4897   ?25h
+sync         52 bytes @4903   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @4955   ?25h
+sync         52 bytes @4961   ?2026h ?25l CUP(8,15) "4" CUP(10,3) ?2026l
+outside       6 bytes @5013   ?25h
+sync         52 bytes @5019   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @5071   ?25h
+sync         52 bytes @5077   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @5129   ?25h
+sync         52 bytes @5135   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @5187   ?25h
+sync         53 bytes @5193   ?2026h ?25l CUP(8,24) "91" CUP(10,3) ?2026l
+outside       6 bytes @5246   ?25h
+sync         53 bytes @5252   ?2026h ?25l CUP(8,1) "•" CUP(10,3) ?2026l
+outside       6 bytes @5305   ?25h
+sync         52 bytes @5311   ?2026h ?25l CUP(8,25) "3" CUP(10,3) ?2026l
+outside       6 bytes @5363   ?25h
+sync         52 bytes @5369   ?2026h ?25l CUP(8,25) "5" CUP(10,3) ?2026l
+outside       6 bytes @5421   ?25h
+sync         52 bytes @5427   ?2026h ?25l CUP(8,25) "7" CUP(10,3) ?2026l
+outside       6 bytes @5479   ?25h
+sync         52 bytes @5485   ?2026h ?25l CUP(8,25) "9" CUP(10,3) ?2026l
+outside       6 bytes @5537   ?25h
+sync         55 bytes @5543   ?2026h ?25l CUP(8,24) "101)" CUP(10,3) ?2026l
+outside       6 bytes @5598   ?25h
+sync         36 bytes @5604   ?2026h ?25l CUP(8,1) " " CUP(10,3) ?2026l
+outside       6 bytes @5640   ?25h
+sync         52 bytes @5646   ?2026h ?25l CUP(8,26) "3" CUP(10,3) ?2026l
+outside       6 bytes @5698   ?25h
+sync         52 bytes @5704   ?2026h ?25l CUP(8,15) "5" CUP(10,3) ?2026l
+outside       6 bytes @5756   ?25h
+sync         52 bytes @5762   ?2026h ?25l CUP(8,26) "5" CUP(10,3) ?2026l
+outside       6 bytes @5814   ?25h
+sync         52 bytes @5820   ?2026h ?25l CUP(8,26) "7" CUP(10,3) ?2026l
+outside       6 bytes @5872   ?25h
+sync         52 bytes @5878   ?2026h ?25l CUP(8,26) "9" CUP(10,3) ?2026l
+outside       6 bytes @5930   ?25h
+sync        688 bytes @5936   ?2026h ?25l CUP(12,1) CR LF CUP(7,1) "  MARKER-A word10 wor.." CUP(12,1) CR LF CUP(7,1) "  word100 word101 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word109 word110 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word118 word119 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word127 word128 wor.." EL CUP(12,1) CR LF CUP(7,1) "  word136 word137 wor.." EL CUP(8,1) " " " Generating (5s)" " (↑8 ...
+outside       6 bytes @6624   ?25h
+sync        100 bytes @6630   ?2026h ?25l CUP(8,1) "• Generating (5s)" " (↑8 ↓40)" EL CUP(10,3) ?2026l
+outside       6 bytes @6730   ?25h
+sync        299 bytes @6736   ?2026h ?25l [CUP+EL x4] CUP(9,1) "  Closing line of the.." EL CUP(12,1) CR LF CUP(9,1) EL CUP(12,1) CR LF CUP(9,1) "  5s (↑8 ↓40)" EL CUP(12,1) CR LF CUP(9,1) EL OSC2"stream a long answer please" CUP(10,1) "┃" " " CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       7 bytes @7035   ?25h BEL
+
+# xfx-after-notice-wire-24x80-end.wire: 6982 bytes, 77 sync blocks, 78 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         62 bytes @298    ?2026h ?25l CUP(3,3) "stream a long answer .." CUP(3,30) ?2026l
+outside       6 bytes @360    ?25h
+sync        259 bytes @366    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "stream a long answer .." EL [CUP+EL x2] CUP(5,1) "• Thinking (0s)" " (↑8 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @625    ?25h
+sync         91 bytes @631    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑8 ↓7)" CUP(7,3) ?2026l
+outside       6 bytes @722    ?25h
+sync        237 bytes @728    ?2026h ?25l CUP(5,1) EL CUP(5,1) "  Opening line of the.." EL CUP(6,1) "• Generating (0s)" " (↑8 ↓7)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @965    ?25h
+sync         51 bytes @971    ?2026h ?25l CUP(6,24) "9" CUP(8,3) ?2026l
+outside       6 bytes @1022   ?25h
+sync         53 bytes @1028   ?2026h ?25l CUP(6,24) "11)" CUP(8,3) ?2026l
+outside       6 bytes @1081   ?25h
+sync         35 bytes @1087   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @1122   ?25h
+sync         51 bytes @1128   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1179   ?25h
+sync         51 bytes @1185   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1236   ?25h
+sync         51 bytes @1242   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1293   ?25h
+sync         51 bytes @1299   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1350   ?25h
+sync         52 bytes @1356   ?2026h ?25l CUP(6,24) "21" CUP(8,3) ?2026l
+outside       6 bytes @1408   ?25h
+sync         51 bytes @1414   ?2026h ?25l CUP(6,15) "1" CUP(8,3) ?2026l
+outside       6 bytes @1465   ?25h
+sync         51 bytes @1471   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1522   ?25h
+sync         52 bytes @1528   ?2026h ?25l CUP(6,1) "•" CUP(8,3) ?2026l
+outside       6 bytes @1580   ?25h
+sync         51 bytes @1586   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1637   ?25h
+sync         51 bytes @1643   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @1694   ?25h
+sync         51 bytes @1700   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @1751   ?25h
+sync         52 bytes @1757   ?2026h ?25l CUP(6,24) "31" CUP(8,3) ?2026l
+outside       6 bytes @1809   ?25h
+sync         51 bytes @1815   ?2026h ?25l CUP(6,25) "3" CUP(8,3) ?2026l
+outside       6 bytes @1866   ?25h
+sync         35 bytes @1872   ?2026h ?25l CUP(6,1) " " CUP(8,3) ?2026l
+outside       6 bytes @1907   ?25h
+sync         51 bytes @1913   ?2026h ?25l CUP(6,25) "5" CUP(8,3) ?2026l
+outside       6 bytes @1964   ?25h
+sync         51 bytes @1970   ?2026h ?25l CUP(6,25) "7" CUP(8,3) ?2026l
+outside       6 bytes @2021   ?25h
+sync         51 bytes @2027   ?2026h ?25l CUP(6,25) "9" CUP(8,3) ?2026l
+outside       6 bytes @2078   ?25h
+sync         52 bytes @2084   ?2026h ?25l CUP(6,24) "41" CUP(8,3) ?2026l
+outside       6 bytes @2136   ?25h
+sync         51 bytes @2142   ?2026h ?25l CUP(6,15) "2" CUP(8,3) ?2026l
+outside       6 bytes @2193   ?25h
+sync        790 bytes @2199   ?2026h ?25l CUP(8,3) "/version" CUP(9,1) "─────────────────────.." CUP(10,1) "Commands 1" EL CUP(12,1) "  /version   " "show the xfx version .." CUP(18,1) "─────────────────────.." CUP(19,1) "↑↓ navigate     enter.." CUP(8,11) ?2026l
+outside       6 bytes @2989   ?25h
+sync         52 bytes @2995   ?2026h ?25l CUP(6,25) "3" CUP(8,11) ?2026l
+outside       6 bytes @3047   ?25h
+sync         52 bytes @3053   ?2026h ?25l CUP(6,25) "5" CUP(8,11) ?2026l
+outside       6 bytes @3105   ?25h
+sync         53 bytes @3111   ?2026h ?25l CUP(6,1) "•" CUP(8,11) ?2026l
+outside       6 bytes @3164   ?25h
+sync         52 bytes @3170   ?2026h ?25l CUP(6,25) "7" CUP(8,11) ?2026l
+outside       6 bytes @3222   ?25h
+sync        333 bytes @3228   ?2026h ?25l [CUP+EL x3] CUP(7,1) "* " "version:" " 0.1.0" EL [CUP+EL x2] CUP(9,1) "• Generating (2s)" " (↑8 ↓49)" EL CUP(10,1) EL CUP(11,1) "┃" " " CUP(12,1) EL CUP(13,1) "auto" " · model-a" [CUP+EL x2] CUP(11,3) ?2026l
+outside       6 bytes @3561   ?25h
+sync         53 bytes @3567   ?2026h ?25l CUP(9,24) "51" CUP(11,3) ?2026l
+outside       6 bytes @3620   ?25h
+sync         52 bytes @3626   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @3678   ?25h
+sync         52 bytes @3684   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @3736   ?25h
+sync         36 bytes @3742   ?2026h ?25l CUP(9,1) " " CUP(11,3) ?2026l
+outside       6 bytes @3778   ?25h
+sync         52 bytes @3784   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @3836   ?25h
+sync         52 bytes @3842   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @3894   ?25h
+sync         53 bytes @3900   ?2026h ?25l CUP(9,24) "61" CUP(11,3) ?2026l
+outside       6 bytes @3953   ?25h
+sync         52 bytes @3959   ?2026h ?25l CUP(9,15) "3" CUP(11,3) ?2026l
+outside       6 bytes @4011   ?25h
+sync         52 bytes @4017   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4069   ?25h
+sync         52 bytes @4075   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4127   ?25h
+sync         52 bytes @4133   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4185   ?25h
+sync         53 bytes @4191   ?2026h ?25l CUP(9,1) "•" CUP(11,3) ?2026l
+outside       6 bytes @4244   ?25h
+sync         52 bytes @4250   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @4302   ?25h
+sync         53 bytes @4308   ?2026h ?25l CUP(9,24) "71" CUP(11,3) ?2026l
+outside       6 bytes @4361   ?25h
+sync         52 bytes @4367   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4419   ?25h
+sync         52 bytes @4425   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4477   ?25h
+sync         52 bytes @4483   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4535   ?25h
+sync         36 bytes @4541   ?2026h ?25l CUP(9,1) " " CUP(11,3) ?2026l
+outside       6 bytes @4577   ?25h
+sync         52 bytes @4583   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @4635   ?25h
+sync         53 bytes @4641   ?2026h ?25l CUP(9,24) "81" CUP(11,3) ?2026l
+outside       6 bytes @4694   ?25h
+sync         52 bytes @4700   ?2026h ?25l CUP(9,15) "4" CUP(11,3) ?2026l
+outside       6 bytes @4752   ?25h
+sync         52 bytes @4758   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @4810   ?25h
+sync         52 bytes @4816   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @4868   ?25h
+sync         52 bytes @4874   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @4926   ?25h
+sync         53 bytes @4932   ?2026h ?25l CUP(9,1) "•" CUP(11,3) ?2026l
+outside       6 bytes @4985   ?25h
+sync         52 bytes @4991   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5043   ?25h
+sync         53 bytes @5049   ?2026h ?25l CUP(9,24) "91" CUP(11,3) ?2026l
+outside       6 bytes @5102   ?25h
+sync         52 bytes @5108   ?2026h ?25l CUP(9,25) "3" CUP(11,3) ?2026l
+outside       6 bytes @5160   ?25h
+sync         52 bytes @5166   ?2026h ?25l CUP(9,25) "5" CUP(11,3) ?2026l
+outside       6 bytes @5218   ?25h
+sync         52 bytes @5224   ?2026h ?25l CUP(9,25) "7" CUP(11,3) ?2026l
+outside       6 bytes @5276   ?25h
+sync         52 bytes @5282   ?2026h ?25l CUP(9,25) "9" CUP(11,3) ?2026l
+outside       6 bytes @5334   ?25h
+sync         36 bytes @5340   ?2026h ?25l CUP(9,1) " " CUP(11,3) ?2026l
+outside       6 bytes @5376   ?25h
+sync         55 bytes @5382   ?2026h ?25l CUP(9,24) "101)" CUP(11,3) ?2026l
+outside       6 bytes @5437   ?25h
+sync         52 bytes @5443   ?2026h ?25l CUP(9,15) "5" CUP(11,3) ?2026l
+outside       6 bytes @5495   ?25h
+sync         52 bytes @5501   ?2026h ?25l CUP(9,26) "3" CUP(11,3) ?2026l
+outside       6 bytes @5553   ?25h
+sync         52 bytes @5559   ?2026h ?25l CUP(9,26) "5" CUP(11,3) ?2026l
+outside       6 bytes @5611   ?25h
+sync         52 bytes @5617   ?2026h ?25l CUP(9,26) "7" CUP(11,3) ?2026l
+outside       6 bytes @5669   ?25h
+sync         52 bytes @5675   ?2026h ?25l CUP(9,26) "9" CUP(11,3) ?2026l
+outside       6 bytes @5727   ?25h
+sync         53 bytes @5733   ?2026h ?25l CUP(9,1) "•" CUP(11,3) ?2026l
+outside       6 bytes @5786   ?25h
+sync        701 bytes @5792   ?2026h ?25l [CUP+EL x6] CUP(9,1) "  MARKER-A word10 wor.." CUP(10,1) "  word100 word101 wor.." EL CUP(11,1) "  word109 word110 wor.." EL CUP(12,1) "  word118 word119 wor.." EL CUP(13,1) "  word127 word128 wor.." EL CUP(14,1) "  word136 word137 wor.." EL CUP(15,1) "• Generating (5s)" " (↑8 ↓116)" CUP(17,1) "┃" " " CUP(19,1) "auto" " · model-a" CUP(17,3) ?2026l
+outside       6 bytes @6493   ?25h
+sync         58 bytes @6499   ?2026h ?25l CUP(15,24) "40)" EL CUP(17,3) ?2026l
+outside       6 bytes @6557   ?25h
+sync         37 bytes @6563   ?2026h ?25l CUP(15,1) " " CUP(17,3) ?2026l
+outside       6 bytes @6600   ?25h
+sync         53 bytes @6606   ?2026h ?25l CUP(15,15) "6" CUP(17,3) ?2026l
+outside       6 bytes @6659   ?25h
+sync        310 bytes @6665   ?2026h ?25l [CUP+EL x4] CUP(16,1) "  Closing line of the.." EL [CUP+EL x3] CUP(18,1) "  6s (↑8 ↓40)" EL [CUP+EL x2] OSC2"stream a long answer please" CUP(20,1) "┃" " " CUP(22,1) "auto" " · model-a" CUP(20,3) ?2026l
+outside       7 bytes @6975   ?25h BEL
+
+# xfx-after-reset-wire-24x80-clear.wire: 2470 bytes, 11 sync blocks, 11 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         55 bytes @298    ?2026h ?25l CUP(3,3) "first question alpha" CUP(3,23) ?2026l
+outside       6 bytes @353    ?25h
+sync        252 bytes @359    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "first question alpha" EL [CUP+EL x2] CUP(5,1) "• Thinking (0s)" " (↑6 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @611    ?25h
+sync         91 bytes @617    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑6 ↓6)" CUP(7,3) ?2026l
+outside       6 bytes @708    ?25h
+sync         53 bytes @714    ?2026h ?25l CUP(5,24) "14)" CUP(7,3) ?2026l
+outside       6 bytes @767    ?25h
+sync        233 bytes @773    ?2026h ?25l CUP(5,1) EL CUP(5,1) "  ALPHA answer line one." EL CUP(6,1) "• Generating (0s)" " (↑6 ↓14)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @1006   ?25h
+sync         52 bytes @1012   ?2026h ?25l CUP(6,24) "40" CUP(8,3) ?2026l
+outside       6 bytes @1064   ?25h
+sync        310 bytes @1070   ?2026h ?25l [CUP+EL x4] CUP(7,1) "  Second paragraph with " "code" "." EL [CUP+EL x3] CUP(9,1) "  0s (↑6 ↓40)" EL [CUP+EL x2] OSC2"first question alpha" CUP(11,1) "┃" " " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       7 bytes @1380   ?25h BEL
+sync        790 bytes @1387   ?2026h ?25l CUP(11,3) "/clear" CUP(12,1) "─────────────────────.." CUP(13,1) "Commands 1" EL CUP(15,1) "  /clear   " "start a fresh convers.." CUP(21,1) "─────────────────────.." CUP(22,1) "↑↓ navigate     enter.." CUP(11,9) ?2026l
+outside       6 bytes @2177   ?25h
+sync         57 bytes @2183   ?2026h ?25l CUP(10,1) ED CUP(24,1) CR LF CR LF CR LF CR LF CR LF CR LF CR LF CR LF CR LF ?2026l
+sync        224 bytes @2240   ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @2464   ?25h
+
+# xfx-after-reset-wire-24x80-turn1.wire: 1387 bytes, 8 sync blocks, 9 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         55 bytes @298    ?2026h ?25l CUP(3,3) "first question alpha" CUP(3,23) ?2026l
+outside       6 bytes @353    ?25h
+sync        252 bytes @359    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "first question alpha" EL [CUP+EL x2] CUP(5,1) "• Thinking (0s)" " (↑6 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @611    ?25h
+sync         91 bytes @617    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑6 ↓6)" CUP(7,3) ?2026l
+outside       6 bytes @708    ?25h
+sync         53 bytes @714    ?2026h ?25l CUP(5,24) "14)" CUP(7,3) ?2026l
+outside       6 bytes @767    ?25h
+sync        233 bytes @773    ?2026h ?25l CUP(5,1) EL CUP(5,1) "  ALPHA answer line one." EL CUP(6,1) "• Generating (0s)" " (↑6 ↓14)" CUP(7,1) EL CUP(8,1) "┃" " " CUP(9,1) EL CUP(10,1) "auto" " · model-a" CUP(8,3) ?2026l
+outside       6 bytes @1006   ?25h
+sync         52 bytes @1012   ?2026h ?25l CUP(6,24) "40" CUP(8,3) ?2026l
+outside       6 bytes @1064   ?25h
+sync        310 bytes @1070   ?2026h ?25l [CUP+EL x4] CUP(7,1) "  Second paragraph with " "code" "." EL [CUP+EL x3] CUP(9,1) "  0s (↑6 ↓40)" EL [CUP+EL x2] OSC2"first question alpha" CUP(11,1) "┃" " " CUP(13,1) "auto" " · model-a" CUP(11,3) ?2026l
+outside       7 bytes @1380   ?25h BEL
+
+# xfx-after-stream-wire-12x80-end.wire: 2005 bytes, 15 sync blocks, 16 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         48 bytes @298    ?2026h ?25l CUP(3,3) "stream please" CUP(3,16) ?2026l
+outside       6 bytes @346    ?25h
+sync        183 bytes @352    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "stream please" EL [CUP+EL x2] CUP(5,1) "┃" " " EL CUP(7,1) "auto" " · model-a" CUP(5,3) ?2026l
+outside       6 bytes @535    ?25h
+sync        172 bytes @541    ?2026h ?25l CUP(5,1) "• Thinking (0s)" " (↑4 ↓0)" CUP(7,1) "┃" " " EL CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @713    ?25h
+sync         92 bytes @719    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓13)" CUP(7,3) ?2026l
+outside       6 bytes @811    ?25h
+sync         52 bytes @817    ?2026h ?25l CUP(5,24) "25" CUP(7,3) ?2026l
+outside       6 bytes @869    ?25h
+sync         52 bytes @875    ?2026h ?25l CUP(5,24) "38" CUP(7,3) ?2026l
+outside       6 bytes @927    ?25h
+sync        350 bytes @933    ?2026h ?25l [CUP+EL x2] CUP(5,1) "  STREAM-HEAD the fir.." EL CUP(6,1) "  past the right edge.." EL CUP(7,1) " " " Generating (0s)" " (↑4 ↓38)" CUP(9,1) "┃" " " EL CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1283   ?25h
+sync         52 bytes @1289   ?2026h ?25l CUP(7,24) "44" CUP(9,3) ?2026l
+outside       6 bytes @1341   ?25h
+sync         52 bytes @1347   ?2026h ?25l CUP(7,24) "50" CUP(9,3) ?2026l
+outside       6 bytes @1399   ?25h
+sync         51 bytes @1405   ?2026h ?25l CUP(7,25) "4" CUP(9,3) ?2026l
+outside       6 bytes @1456   ?25h
+sync         80 bytes @1462   ?2026h ?25l CUP(7,15) "1s)" " (↑4 ↓61" CUP(9,3) ?2026l
+outside       6 bytes @1542   ?25h
+sync         52 bytes @1548   ?2026h ?25l CUP(7,1) "•" CUP(9,3) ?2026l
+outside       6 bytes @1600   ?25h
+sync         52 bytes @1606   ?2026h ?25l CUP(7,24) "40" CUP(9,3) ?2026l
+outside       6 bytes @1658   ?25h
+sync        334 bytes @1664   ?2026h ?25l [CUP+EL x4] CUP(8,1) "  A second paragraph,.." EL [CUP+EL x2] CUP(12,1) CR LF CUP(9,1) "  1s (↑4 ↓40)" EL CUP(12,1) CR LF CUP(9,1) EL OSC2"stream please" CUP(10,1) "┃" " " CUP(12,1) "auto" " · model-a" CUP(10,3) ?2026l
+outside       7 bytes @1998   ?25h BEL
+
+# xfx-after-stream-wire-24x80-end.wire: 1965 bytes, 16 sync blocks, 17 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         48 bytes @298    ?2026h ?25l CUP(3,3) "stream please" CUP(3,16) ?2026l
+outside       6 bytes @346    ?25h
+sync        245 bytes @352    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "stream please" EL [CUP+EL x2] CUP(5,1) "• Thinking (0s)" " (↑4 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @597    ?25h
+sync         92 bytes @603    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓13)" CUP(7,3) ?2026l
+outside       6 bytes @695    ?25h
+sync         52 bytes @701    ?2026h ?25l CUP(5,24) "25" CUP(7,3) ?2026l
+outside       6 bytes @753    ?25h
+sync         52 bytes @759    ?2026h ?25l CUP(5,24) "38" CUP(7,3) ?2026l
+outside       6 bytes @811    ?25h
+sync        352 bytes @817    ?2026h ?25l [CUP+EL x2] CUP(5,1) "  STREAM-HEAD the fir.." EL CUP(6,1) "  past the right edge.." EL CUP(7,1) "• Generating (0s)" " (↑4 ↓38)" CUP(9,1) "┃" " " EL CUP(11,1) "auto" " · model-a" CUP(9,3) ?2026l
+outside       6 bytes @1169   ?25h
+sync         35 bytes @1175   ?2026h ?25l CUP(7,1) " " CUP(9,3) ?2026l
+outside       6 bytes @1210   ?25h
+sync         52 bytes @1216   ?2026h ?25l CUP(7,24) "44" CUP(9,3) ?2026l
+outside       6 bytes @1268   ?25h
+sync         52 bytes @1274   ?2026h ?25l CUP(7,24) "50" CUP(9,3) ?2026l
+outside       6 bytes @1326   ?25h
+sync         51 bytes @1332   ?2026h ?25l CUP(7,25) "4" CUP(9,3) ?2026l
+outside       6 bytes @1383   ?25h
+sync         52 bytes @1389   ?2026h ?25l CUP(7,24) "61" CUP(9,3) ?2026l
+outside       6 bytes @1441   ?25h
+sync         51 bytes @1447   ?2026h ?25l CUP(7,15) "1" CUP(9,3) ?2026l
+outside       6 bytes @1498   ?25h
+sync         52 bytes @1504   ?2026h ?25l CUP(7,1) "•" CUP(9,3) ?2026l
+outside       6 bytes @1556   ?25h
+sync         52 bytes @1562   ?2026h ?25l CUP(7,24) "40" CUP(9,3) ?2026l
+outside       6 bytes @1614   ?25h
+sync        338 bytes @1620   ?2026h ?25l [CUP+EL x4] CUP(8,1) "  A second paragraph,.." EL [CUP+EL x3] CUP(10,1) "  1s (↑4 ↓40)" EL [CUP+EL x2] OSC2"stream please" CUP(12,1) "┃" " " CUP(14,1) "auto" " · model-a" CUP(12,3) ?2026l
+outside       7 bytes @1958   ?25h BEL
+
+# xfx-after-toolgroup-wire-24x80-end.wire: 3485 bytes, 23 sync blocks, 24 outside segments, 0 outside segments that write cells or scroll
+outside      59 bytes @0      CSI >1u ?2004h ?7l ?2031h CSI 22;2t OSC 11;? CSI ?996n CSI 6n
+sync        233 bytes @59     ?2026h ?25l CUP(1,1) "x𝒇x" " v0.1.0 · Run /help f.." EL [CUP+EL x2] OSC2"xfx v0.1.0 | work" CUP(3,1) ED CUP(3,1) "┃" " " CUP(5,1) "auto" " · model-a" CUP(3,3) ?2026l
+outside       6 bytes @292    ?25h
+sync         49 bytes @298    ?2026h ?25l CUP(3,3) "read the files" CUP(3,17) ?2026l
+outside       6 bytes @347    ?25h
+sync        246 bytes @353    ?2026h ?25l CUP(3,1) EL CUP(3,1) "┃" " " "read the files" EL [CUP+EL x2] CUP(5,1) "• Thinking (0s)" " (↑4 ↓0)" CUP(7,1) "┃" " " CUP(9,1) "auto" " · model-a" CUP(7,3) ?2026l
+outside       6 bytes @599    ?25h
+sync         35 bytes @605    ?2026h ?25l CUP(5,1) " " CUP(7,3) ?2026l
+outside       6 bytes @640    ?25h
+sync         92 bytes @646    ?2026h ?25l CUP(5,3) "Generating (0s)" " (↑4 ↓40)" CUP(7,3) ?2026l
+outside       6 bytes @738    ?25h
+sync        420 bytes @744    ?2026h ?25l CUP(5,1) EL CUP(5,1) "  I will look at the .." EL [CUP+EL x5] CUP(7,1) "●" " " "1 tool call · 1 read" EL CUP(8,1) "└ Reading a.txt" EL CUP(9,1) EL CUP(8,1) "└ Read a.txt" EL CUP(10,1) " " " Thinking (0s)" " (↑4 ↓40)" CUP(12,1) "┃" " " CUP(14,1) "auto" " · model-a" CUP(12,3) ?2026l
+outside       6 bytes @1164   ?25h
+sync         53 bytes @1170   ?2026h ?25l CUP(10,13) "1" CUP(12,3) ?2026l
+outside       6 bytes @1223   ?25h
+sync         54 bytes @1229   ?2026h ?25l CUP(10,1) "•" CUP(12,3) ?2026l
+outside       6 bytes @1283   ?25h
+sync        396 bytes @1289   ?2026h ?25l CUP(10,1) EL CUP(7,1) "●" " " "2 tool calls · 2 read" EL CUP(8,1) "├ Read a.txt" EL CUP(9,1) "└ Reading b.txt" EL CUP(10,1) EL CUP(9,1) "└ Read b.txt" EL CUP(11,1) "• Thinking (1s)" " (↑4 ↓40)" CUP(12,1) EL CUP(13,1) "┃" " " CUP(14,1) EL CUP(15,1) "auto" " · model-a" CUP(13,3) ?2026l
+outside       6 bytes @1685   ?25h
+sync         53 bytes @1691   ?2026h ?25l CUP(11,22) "8" CUP(13,3) ?2026l
+outside       6 bytes @1744   ?25h
+sync        418 bytes @1750   ?2026h ?25l CUP(11,1) EL CUP(7,1) "●" " " "3 tool calls · 2 read.." EL CUP(9,1) "├ Read b.txt" EL CUP(10,1) "└ Matching **/*.txt" EL CUP(11,1) EL CUP(10,1) "└ Matched **/*.txt" EL CUP(12,1) "• Thinking (1s)" " (↑4 ↓80)" CUP(13,1) EL CUP(14,1) "┃" " " CUP(15,1) EL CUP(16,1) "auto" " · model-a" CUP(14,3) ?2026l
+outside       6 bytes @2168   ?25h
+sync         37 bytes @2174   ?2026h ?25l CUP(12,1) " " CUP(14,3) ?2026l
+outside       6 bytes @2211   ?25h
+sync        419 bytes @2217   ?2026h ?25l CUP(12,1) EL CUP(7,1) "●" " " "4 tool calls · 3 read.." EL CUP(10,1) "├ Matched **/*.txt" EL CUP(11,1) "└ Searching alpha" EL CUP(12,1) EL CUP(11,1) "└ Searched alpha" EL CUP(13,1) " " " Thinking (1s)" " (↑4 ↓80)" CUP(14,1) EL CUP(15,1) "┃" " " CUP(16,1) EL CUP(17,1) "auto" " · model-a" CUP(15,3) ?2026l
+outside       6 bytes @2636   ?25h
+sync         53 bytes @2642   ?2026h ?25l CUP(13,13) "2" CUP(15,3) ?2026l
+outside       6 bytes @2695   ?25h
+sync         94 bytes @2701   ?2026h ?25l CUP(13,3) "Generating (2s)" " (↑4 ↓81)" CUP(15,3) ?2026l
+outside       6 bytes @2795   ?25h
+sync         54 bytes @2801   ?2026h ?25l CUP(13,1) "•" CUP(15,3) ?2026l
+outside       6 bytes @2855   ?25h
+sync         53 bytes @2861   ?2026h ?25l CUP(13,25) "3" CUP(15,3) ?2026l
+outside       6 bytes @2914   ?25h
+sync         53 bytes @2920   ?2026h ?25l CUP(13,25) "6" CUP(15,3) ?2026l
+outside       6 bytes @2973   ?25h
+sync         53 bytes @2979   ?2026h ?25l CUP(13,25) "9" CUP(15,3) ?2026l
+outside       6 bytes @3032   ?25h
+sync         37 bytes @3038   ?2026h ?25l CUP(13,1) " " CUP(15,3) ?2026l
+outside       6 bytes @3075   ?25h
+sync         56 bytes @3081   ?2026h ?25l CUP(13,24) "120)" CUP(15,3) ?2026l
+outside       6 bytes @3137   ?25h
+sync         53 bytes @3143   ?2026h ?25l CUP(13,15) "3" CUP(15,3) ?2026l
+outside       6 bytes @3196   ?25h
+sync        276 bytes @3202   ?2026h ?25l CUP(13,1) EL CUP(13,1) "  Both files were rea.." EL [CUP+EL x3] CUP(15,1) "  3s (↑4 ↓120)" EL [CUP+EL x2] OSC2"read the files" CUP(17,1) "┃" " " EL CUP(19,1) "auto" " · model-a" CUP(17,3) ?2026l
+outside       7 bytes @3478   ?25h BEL
+

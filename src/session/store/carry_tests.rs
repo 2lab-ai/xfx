@@ -450,6 +450,7 @@ fn a_compacted_conversation_carries_its_checkpoint_to_either_wire_as_a_user_mess
             last_tool: 0,
             tools: Vec::new(),
         }],
+        open: None,
         turn_count: 1,
         tool_count: 0,
     };

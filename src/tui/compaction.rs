@@ -45,6 +45,8 @@ pub(crate) enum Feedback {
     Failed,
     /// Even compacting everything leaves a request the model cannot take.
     TooLarge,
+    /// The checkpoint was written and whether it landed is not known.
+    Unconfirmed,
 }
 
 /// The grey a feedback sentence is painted in (`activity_status.zig:29-35`).
@@ -70,13 +72,16 @@ impl Feedback {
             Self::TooLarge => {
                 "Context is too large to compact. Choose a model with a larger context window."
             }
+            Self::Unconfirmed => {
+                "Compaction could not confirm saved context. Reopen the session before retrying."
+            }
         }
     }
 
     pub(crate) fn tone(self) -> Tone {
         match self {
             Self::Busy => Tone::Warning,
-            Self::NotStarted | Self::Failed | Self::TooLarge => Tone::Danger,
+            Self::NotStarted | Self::Failed | Self::TooLarge | Self::Unconfirmed => Tone::Danger,
             Self::Succeeded | Self::NoOp | Self::Cancelled => Tone::Neutral,
         }
     }
@@ -332,6 +337,11 @@ mod tests {
             (
                 Feedback::TooLarge,
                 "Context is too large to compact. Choose a model with a larger context window.",
+                Tone::Danger,
+            ),
+            (
+                Feedback::Unconfirmed,
+                "Compaction could not confirm saved context. Reopen the session before retrying.",
                 Tone::Danger,
             ),
         ];

@@ -496,18 +496,107 @@ pub struct HistoryTurn {
     pub seqs: TurnSeqs,
 }
 
+impl HistoryTurn {
+    /// Adds a step recorded in frame `seq`.
+    fn push_step(&mut self, seq: u64, step: TurnStep) {
+        self.steps.push(step);
+        self.seqs.steps.push(seq);
+    }
+
+    /// The turn from its step `first` on: its message and images, and the
+    /// steps a checkpoint that cut before `first` left.
+    pub fn from_step(&self, first: usize) -> HistoryTurn {
+        let first = first.min(self.steps.len());
+        let mut seqs = self.seqs.clone();
+        seqs.steps = seqs.steps.get(first..).unwrap_or_default().to_vec();
+        HistoryTurn {
+            user: self.user.clone(),
+            images: self.images.clone(),
+            steps: self.steps[first..].to_vec(),
+            outcome: self.outcome.clone(),
+            timing: self.timing,
+            seqs,
+        }
+    }
+
+    /// The turn up to its step `end`, as an unfinished turn: what a
+    /// checkpoint that cuts there covers of it, with no conclusion to close.
+    pub fn until_step(&self, end: usize) -> HistoryTurn {
+        let end = end.min(self.steps.len());
+        let mut seqs = self.seqs.clone();
+        seqs.steps.truncate(end);
+        if let Some(last) = seqs.steps.last() {
+            seqs.last = *last;
+        }
+        HistoryTurn {
+            user: self.user.clone(),
+            images: self.images.clone(),
+            steps: self.steps[..end].to_vec(),
+            outcome: None,
+            timing: self.timing,
+            seqs,
+        }
+    }
+
+    /// Whether step `index` is an assistant step that called tools: the step
+    /// each exchange is built around (upstream's `ToolExecutionStep`).
+    pub fn calls_tools(&self, index: usize) -> bool {
+        matches!(
+            self.steps.get(index),
+            Some(TurnStep::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+        )
+    }
+
+    /// Where each of the turn's exchanges starts: the first at its first
+    /// step, each later one right after the results of the step before it.
+    /// So a steer, and the answer it cut short, go with the tool step that
+    /// came after them -- upstream keeps a steer with the step its
+    /// `after_tool_step_count` reaches, and those after the last step with
+    /// the last (`selectRecentContext`, `window.zig:219-224`). Empty for a
+    /// turn that called no tools. A cut inside a turn falls at one of these
+    /// but the first, or at the end of a turn still running
+    /// (`ContextHistoryCut`'s `tool_steps` and `steering`).
+    pub fn exchange_starts(&self) -> Vec<usize> {
+        let calls: Vec<usize> = (0..self.steps.len())
+            .filter(|index| self.calls_tools(*index))
+            .collect();
+        let Some((_, before_last)) = calls.split_last() else {
+            return Vec::new();
+        };
+        std::iter::once(0)
+            .chain(before_last.iter().map(|call| self.results_end(*call)))
+            .collect()
+    }
+
+    /// The step after the results of the tool step at `call`, and after what
+    /// the user said beside them.
+    fn results_end(&self, call: usize) -> usize {
+        let mut end = call + 1;
+        while matches!(
+            self.steps.get(end),
+            Some(TurnStep::ToolResult { .. } | TurnStep::ToolFeedback { .. })
+        ) {
+            end += 1;
+        }
+        end
+    }
+}
+
 /// The sequence numbers of a turn's first and last frames.
 ///
 /// A checkpoint names the last frame it covers, as upstream's does
 /// (`covers_through_seq`, `vercel-labs/fx@c1db9191
 /// src/core/session/session_event.zig:169-172`); these are what say which
 /// turns that is. Read off the envelopes, so nothing new is written for them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TurnSeqs {
     /// The `user_message` frame's.
     pub opened: u64,
     /// The last frame that belongs to the turn.
     pub last: u64,
+    /// Each step's frame, in [`HistoryTurn::steps`] order: where a checkpoint
+    /// that cuts inside the turn falls among them.
+    pub steps: Vec<u64>,
 }
 
 /// The compaction in force: which turns it covers and what replaces them in
@@ -516,9 +605,16 @@ pub struct TurnSeqs {
 pub struct Checkpoint {
     /// The last frame it covers.
     pub covers_through_seq: u64,
-    /// How many of [`DurableState::turns`] it covers, oldest first.
+    /// How many of [`DurableState::turns`] it covers whole, oldest first.
     pub covered_turns: usize,
+    /// How many steps of the turn after those it covers, when it cut inside
+    /// that turn: the turn's first user message, and its steps from this
+    /// one on, are what the model reads after the compacted form.
+    pub covered_steps: usize,
     pub compacted: super::checkpoint::Compacted,
+    /// How many compactions the session has had, this one counted: what
+    /// `/trace` calls `compaction_count` (`compactor.zig:207`).
+    pub count: usize,
 }
 
 /// When one turn was asked, when it ended, and the tokens its provider
@@ -687,6 +783,29 @@ impl DurableState {
         &self.turns[covered.min(self.turns.len())..]
     }
 
+    /// [`Self::uncovered_turns`] as the model reads them: the first one cut
+    /// to what a checkpoint that cut inside it left -- its first user
+    /// message, its images, and its steps from the first one the checkpoint
+    /// does not cover (`split`'s `retained_history`,
+    /// `vercel-labs/fx@c1db9191 src/core/compactor/window.zig:286-290`).
+    pub fn retained_turns(&self) -> Vec<std::borrow::Cow<'_, HistoryTurn>> {
+        let covered_steps = self
+            .checkpoint
+            .as_ref()
+            .map_or(0, |checkpoint| checkpoint.covered_steps);
+        self.uncovered_turns()
+            .iter()
+            .enumerate()
+            .map(|(index, turn)| {
+                if index == 0 && covered_steps > 0 {
+                    std::borrow::Cow::Owned(turn.from_step(covered_steps))
+                } else {
+                    std::borrow::Cow::Borrowed(turn)
+                }
+            })
+            .collect()
+    }
+
     /// What the session is called: the title the user gave it, or else the
     /// one the first prompt that can give one gives ([`title_of`]).
     ///
@@ -740,6 +859,26 @@ impl DurableState {
     /// turns after it as they are -- the shape upstream sends after a
     /// compaction (`receipts/w4/README.md`, "The next request").
     pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
+        self.history_of(&self.retained_turns(), active)
+    }
+
+    /// The history a turn still in progress carries once a compaction in its
+    /// middle has replaced what came before: the compacted form and every
+    /// later turn but the open one, whose own messages the turn keeps -- and
+    /// trims itself, when the compaction took its earlier steps.
+    pub fn history_messages_before_open(&self, active: Wire) -> ReplayedHistory {
+        let mut turns = self.retained_turns();
+        if turns.last().is_some_and(|turn| turn.outcome.is_none()) {
+            turns.pop();
+        }
+        self.history_of(&turns, active)
+    }
+
+    fn history_of(
+        &self,
+        turns: &[std::borrow::Cow<'_, HistoryTurn>],
+        active: Wire,
+    ) -> ReplayedHistory {
         let mut out = Vec::new();
         let mut notices = Vec::new();
         if let Some(checkpoint) = &self.checkpoint {
@@ -747,8 +886,8 @@ impl DurableState {
                 &checkpoint.compacted,
             )));
         }
-        for turn in self.uncovered_turns() {
-            out.extend(turn_messages(turn, &active, &mut notices));
+        for turn in turns {
+            out.extend(turn_messages(turn.as_ref(), &active, &mut notices));
         }
         ReplayedHistory {
             messages: out,
@@ -2553,6 +2692,19 @@ impl TurnJournal for SessionRecorder {
         self.commit(event);
     }
 
+    // The log keeps a change in its result's record
+    // (`SessionEvent::ToolResult`'s `change`); this hand-over is for a
+    // surface watching the turn, which a recorder is not.
+    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+    // What the screen showed in a result's place is the screen's; the log
+    // keeps the result.
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn state(&self) -> Option<&DurableState> {
+        Some(SessionRecorder::state(self))
+    }
+
     fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<PathBuf> {
         SessionRecorder::attach_images(self, images)
     }
@@ -2789,6 +2941,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             seqs: TurnSeqs {
                 opened: envelope.seq,
                 last: envelope.seq,
+                steps: Vec::new(),
             },
         }),
         SessionEvent::ImagesAttached { images } => {
@@ -2813,15 +2966,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             responses_state,
             wire,
         } => {
-            open_turn(state, "an assistant step", envelope.seq)?
-                .steps
-                .push(TurnStep::Assistant {
+            open_turn(state, "an assistant step", envelope.seq)?.push_step(
+                envelope.seq,
+                TurnStep::Assistant {
                     text: text.clone(),
                     tool_calls: tool_calls.clone(),
                     raw_content: raw_content.clone(),
                     responses_state: responses_state.clone(),
                     wire: wire.clone(),
-                });
+                },
+            );
         }
         SessionEvent::ToolResult {
             call_id,
@@ -2832,9 +2986,9 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             lines,
             change,
         } => {
-            open_turn(state, "a tool result", envelope.seq)?
-                .steps
-                .push(TurnStep::ToolResult {
+            open_turn(state, "a tool result", envelope.seq)?.push_step(
+                envelope.seq,
+                TurnStep::ToolResult {
                     call_id: call_id.clone(),
                     tool: tool.clone(),
                     ok: *ok,
@@ -2843,7 +2997,8 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     ending: *ending,
                     lines: *lines,
                     change: change.clone(),
-                });
+                },
+            );
         }
         SessionEvent::ToolImagesAttached { call_id, images } => {
             let turn = open_turn(state, "a tool's images", envelope.seq)?;
@@ -2873,17 +3028,17 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             // A step of the open turn, exactly as a result is. Reducing it the
             // way a `UserMessage` is reduced would push a new turn and leave
             // the rest of the batch's results with no call ahead of them.
-            open_turn(state, "an approval amendment", envelope.seq)?
-                .steps
-                .push(TurnStep::ToolFeedback {
+            open_turn(state, "an approval amendment", envelope.seq)?.push_step(
+                envelope.seq,
+                TurnStep::ToolFeedback {
                     call_id: call_id.clone(),
                     text: text.clone(),
-                });
+                },
+            );
         }
         SessionEvent::Steered { text } => {
             open_turn(state, "a steer", envelope.seq)?
-                .steps
-                .push(TurnStep::Steered { text: text.clone() });
+                .push_step(envelope.seq, TurnStep::Steered { text: text.clone() });
         }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
             let grant = Grant::new(tool.clone(), target.clone());
@@ -2974,26 +3129,71 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     state.last_event_seq
                 ));
             }
-            // Whole turns: every turn it opens over ends inside it, so the
-            // compacted form and the turns sent after it never share one.
+            // Upstream's coverage is a frame, and it may fall inside a turn
+            // (`appendContextCompaction`, `session_log.zig:343-360`): the
+            // turns it covers whole are the concluded ones it reaches the
+            // end of; the turn after them it may cover the first steps of, up
+            // to where an exchange starts, or every step so far of a turn
+            // still running. That turn's first message stays after the
+            // compacted form, so a running turn is never covered whole.
             let covered = state
                 .turns
                 .iter()
-                .take_while(|turn| turn.seqs.opened <= *covers_through_seq)
+                .take_while(|turn| turn.outcome.is_some() && turn.seqs.last <= *covers_through_seq)
                 .count();
-            if covered == 0 {
+            let covered_steps = match state.turns.get(covered) {
+                Some(turn) if turn.seqs.opened <= *covers_through_seq => {
+                    let steps = turn
+                        .seqs
+                        .steps
+                        .iter()
+                        .take_while(|seq| **seq <= *covers_through_seq)
+                        .count();
+                    // A running turn's steps so far end an exchange: its
+                    // reply would have ended it.
+                    let ends_exchange = matches!(
+                        turn.steps.get(steps.wrapping_sub(1)),
+                        Some(
+                            TurnStep::ToolResult { .. }
+                                | TurnStep::ToolFeedback { .. }
+                                | TurnStep::Steered { .. }
+                        )
+                    );
+                    let at_boundary = turn
+                        .exchange_starts()
+                        .get(1..)
+                        .is_some_and(|starts| starts.contains(&steps))
+                        // Where a cut fell when a steer went with the step
+                        // before it: a log written then still reads.
+                        || turn.calls_tools(steps)
+                        || (turn.outcome.is_none() && steps == turn.steps.len() && ends_exchange);
+                    if steps == 0 || !at_boundary {
+                        return Err("a checkpoint covers part of a turn".to_string());
+                    }
+                    steps
+                }
+                _ => 0,
+            };
+            if covered == 0 && covered_steps == 0 {
                 return Err("a checkpoint covers no turn".to_string());
             }
-            if state.turns[..covered]
-                .iter()
-                .any(|turn| turn.seqs.last > *covers_through_seq)
-            {
-                return Err("a checkpoint covers part of a turn".to_string());
+            // Never less than the one in force covered of the same turn.
+            if let Some(in_force) = &state.checkpoint {
+                if covered == in_force.covered_turns && covered_steps < in_force.covered_steps {
+                    return Err("a checkpoint covers less than the one in force".to_string());
+                }
             }
+            let count = state
+                .checkpoint
+                .as_ref()
+                .map_or(0, |checkpoint| checkpoint.count)
+                + 1;
             state.checkpoint = Some(Checkpoint {
                 covers_through_seq: *covers_through_seq,
                 covered_turns: covered,
+                covered_steps,
                 compacted: compacted.clone(),
+                count,
             });
         }
     }
@@ -5365,6 +5565,7 @@ mod tests {
                 last_tool: 0,
                 tools: Vec::new(),
             }],
+            open: None,
             turn_count: 1,
             tool_count: 0,
         }
@@ -5400,6 +5601,41 @@ mod tests {
         let messages = state.history_messages(Wire::VercelGateway).messages;
         assert_eq!(
             messages,
+            vec![
+                Message::user(super::super::checkpoint::render(&compacted_first())),
+                Message::user("two"),
+                Message::assistant(Some("TWO"), Vec::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_written_inside_a_turn_covers_the_turns_before_it_and_the_turn_goes_on() {
+        // What a compaction between a turn's steps writes
+        // (`crate::tui::worker`'s `TurnCompactor`): the second turn's prompt
+        // (frame 5), a checkpoint covering the first turn, then the rest of
+        // the second turn.
+        let mut events = two_turns();
+        events.truncate(5);
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let open = reduce(events.clone()).expect("a checkpoint inside a turn");
+        // The turn in progress goes on without the turns before it.
+        assert_eq!(
+            open.history_messages_before_open(Wire::VercelGateway)
+                .messages,
+            vec![Message::user(super::super::checkpoint::render(
+                &compacted_first()
+            ))]
+        );
+        events.push(answer("TWO"));
+        events.push(concluded());
+        let state = reduce(events).expect("the turn's later frames are taken");
+        assert_eq!(state.checkpoint.as_ref().map(|c| c.covered_turns), Some(1));
+        assert_eq!(
+            state.history_messages(Wire::VercelGateway).messages,
             vec![
                 Message::user(super::super::checkpoint::render(&compacted_first())),
                 Message::user("two"),
@@ -5452,9 +5688,243 @@ mod tests {
     }
 
     #[test]
-    fn a_step_into_a_covered_turn_is_refused() {
-        // A turn left open by a crash, then covered: nothing more may land in
-        // it, or a request would carry a step the compacted form never held.
+    fn a_checkpoint_inside_a_concluded_turn_leaves_its_message_and_later_steps() {
+        // Upstream's coverage may fall at an exchange inside a turn
+        // (`appendContextCompaction`, `session_log.zig:343-360`; `split`,
+        // `window.zig:286-290`): the turn's first message stays, then its
+        // steps from the first exchange the checkpoint does not cover.
+        let call = |id: &str| SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: id.to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "a.txt"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        };
+        // Frames: 2 the prompt; 3-4 and 5-6 two reads; 7 the reply; 8 done.
+        let turn = vec![
+            started(),
+            user("read twice"),
+            call("r1"),
+            result("r1", "read_file", true, "FIRST-READ"),
+            call("r2"),
+            result("r2", "read_file", true, "SECOND-READ"),
+            answer("READ"),
+            concluded(),
+        ];
+        let mut events = turn.clone();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let state = reduce(events).expect("a cut at an exchange");
+        let checkpoint = state.checkpoint.as_ref().expect("in force");
+        assert_eq!((checkpoint.covered_turns, checkpoint.covered_steps), (0, 2));
+        let messages = state.history_messages(Wire::VercelGateway).messages;
+        assert_eq!(messages.len(), 5, "{messages:#?}");
+        assert_eq!(messages[1], Message::user("read twice"));
+        assert!(
+            !messages
+                .iter()
+                .any(|message| format!("{message:?}").contains("FIRST-READ")),
+            "the covered read came back: {messages:#?}"
+        );
+        assert_eq!(messages[4], Message::assistant(Some("READ"), Vec::new()));
+        // Not between a call and its result, nor at the reply.
+        for inside in [3, 6] {
+            let mut events = turn.clone();
+            events.push(SessionEvent::ContextCheckpoint {
+                covers_through_seq: inside,
+                compacted: compacted_first(),
+            });
+            assert_eq!(
+                reduce(events).err().as_deref(),
+                Some("a checkpoint covers part of a turn"),
+                "frame {inside}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_steer_goes_with_the_tool_step_after_it_and_a_cut_falls_before_it() {
+        // `selectRecentContext`, `window.zig:219-224`: a steer whose
+        // `after_tool_step_count` is one goes with step two, so the exchange
+        // boundary is right after step one's result.
+        let call = |id: &str| SessionEvent::AssistantMessage {
+            text: String::new(),
+            tool_calls: vec![RecordedToolCall {
+                id: id.to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "a.txt"}),
+            }],
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        };
+        let steered = |text: &str| SessionEvent::Steered {
+            text: text.to_string(),
+        };
+        // Frames: 2 the prompt; 3-4 a read; 5 a steer; 6-7 a read; 8 a steer
+        // after the last; 9 the reply; 10 done.
+        let turn = vec![
+            started(),
+            user("read twice"),
+            call("r1"),
+            result("r1", "read_file", true, "FIRST-READ"),
+            steered("also the second"),
+            call("r2"),
+            result("r2", "read_file", true, "SECOND-READ"),
+            steered("and sum up"),
+            answer("READ"),
+            concluded(),
+        ];
+        let state = reduce(turn.clone()).expect("a valid log");
+        let read = &state.turns[0];
+        assert_eq!(read.exchange_starts(), [0, 2]);
+        // The cut before the steer, and -- written when a steer went with the
+        // step before it -- the one after it: both read.
+        for (covers, steps) in [(4, 2), (5, 3)] {
+            let mut events = turn.clone();
+            events.push(SessionEvent::ContextCheckpoint {
+                covers_through_seq: covers,
+                compacted: compacted_first(),
+            });
+            let state = reduce(events).expect("a cut at an exchange");
+            let checkpoint = state.checkpoint.as_ref().expect("in force");
+            assert_eq!(checkpoint.covered_steps, steps, "frame {covers}");
+        }
+        // Not between the second read and the reply: the steer after the
+        // last step goes with it.
+        let mut events = turn.clone();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 7,
+            compacted: compacted_first(),
+        });
+        assert_eq!(
+            reduce(events).err().as_deref(),
+            Some("a checkpoint covers part of a turn")
+        );
+    }
+
+    #[test]
+    fn a_compacted_turns_images_go_with_it_and_a_cut_turns_stay_with_its_message() {
+        // Upstream sends a compacted turn as text (`turnsFrom` takes the
+        // message's text, `compactor.zig:266`), and a turn cut inside of keeps
+        // its first message whole, images and all (`contextHistoryRange`,
+        // `history_range.zig:36`).
+        use crate::gateway::protocol::ContentPart;
+        let image = |id: u32| TurnImage {
+            recorded: RecordedImage {
+                id,
+                path: format!("shot{id}.png"),
+                media_type: "image/png".to_string(),
+                sha256: "0".repeat(64),
+                bytes: 3,
+            },
+            snapshot: Snapshot::Loaded {
+                bytes: std::sync::Arc::from(&b"png"[..]),
+                path: std::sync::Arc::from(std::path::Path::new(&format!("shot{id}.png"))),
+            },
+        };
+        let step = |calls: bool, text: &str| TurnStep::Assistant {
+            text: text.to_string(),
+            tool_calls: if calls {
+                vec![RecordedToolCall {
+                    id: "c1".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({"path": "a"}),
+                }]
+            } else {
+                Vec::new()
+            },
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        };
+        let turn = |user: &str, id: u32, seq: u64| HistoryTurn {
+            user: user.to_string(),
+            images: vec![image(id)],
+            steps: vec![
+                step(true, ""),
+                TurnStep::ToolResult {
+                    call_id: "c1".to_string(),
+                    tool: "read_file".to_string(),
+                    ok: true,
+                    output: "x".to_string(),
+                    images: Vec::new(),
+                    ending: None,
+                    lines: None,
+                    change: None,
+                },
+                step(false, "done"),
+            ],
+            outcome: Some(TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            }),
+            timing: TurnTiming::default(),
+            seqs: TurnSeqs {
+                opened: seq,
+                last: seq + 4,
+                steps: vec![seq + 1, seq + 2, seq + 3],
+            },
+        };
+        let mut state = DurableState::empty_for_tests();
+        state.turns = vec![
+            turn("[Image #1] first", 1, 2),
+            turn("[Image #2] second", 2, 7),
+        ];
+        // The first turn whole, and the second cut at its reply's step --
+        // as a cut at an exchange of a longer turn would leave it.
+        state.checkpoint = Some(Checkpoint {
+            covers_through_seq: 9,
+            covered_turns: 1,
+            covered_steps: 2,
+            compacted: compacted_first(),
+            count: 1,
+        });
+        let messages = state.history_messages(Wire::VercelGateway).messages;
+        let images: Vec<usize> = messages
+            .iter()
+            .map(|message| {
+                message
+                    .content
+                    .iter()
+                    .filter(|part| matches!(part, ContentPart::Image { .. }))
+                    .count()
+            })
+            .collect();
+        assert_eq!(images, [0, 1, 0], "{messages:#?}");
+        assert_eq!(messages[1].text(), "[Image #2] second");
+    }
+
+    #[test]
+    fn an_older_log_replays_as_it_did_and_a_part_in_progress_is_omitted_when_absent() {
+        // The frame a whole-turn checkpoint writes has no `open`: written
+        // and read back exactly as before the field existed.
+        let mut events = two_turns();
+        events.push(SessionEvent::ContextCheckpoint {
+            covers_through_seq: 4,
+            compacted: compacted_first(),
+        });
+        let line = serde_json::to_string(events.last().expect("the checkpoint")).unwrap();
+        assert!(!line.contains("\"open\""), "{line}");
+        let older = r#"{"kind":"context_checkpoint","covers_through_seq":4,"compacted":{"turns":[],"turn_count":1,"tool_count":0}}"#;
+        let read: SessionEvent = serde_json::from_str(older).expect("an older frame");
+        assert!(matches!(
+            read,
+            SessionEvent::ContextCheckpoint { ref compacted, .. } if compacted.open.is_none()
+        ));
+    }
+
+    #[test]
+    fn a_checkpoint_over_a_running_turns_reply_is_refused() {
+        // A running turn may be covered through its last exchange, and goes
+        // on; never through a reply, which would have ended it -- a request
+        // would carry a step the compacted form never held.
         let events = vec![
             started(),
             user("one"),
@@ -5467,7 +5937,7 @@ mod tests {
         ];
         assert_eq!(
             reduce(events).err().as_deref(),
-            Some("an assistant step appears in a turn a checkpoint covers")
+            Some("a checkpoint covers part of a turn")
         );
     }
 
