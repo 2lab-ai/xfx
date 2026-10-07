@@ -19031,10 +19031,7 @@ mod tests {
         let _ = live.picks_up();
         live.apply(UiEvent::TurnStarted);
         live.apply(UiEvent::Delta(LINKED_ANSWER.to_string()));
-        live.apply(UiEvent::Usage {
-            input: Some(6),
-            output: Some(40),
-        });
+        live.apply(UiEvent::Usage { input: Some(6) });
         live.apply(UiEvent::TurnEnded { failure: None });
         live.shell.flush_paced();
         let live_rows = live.painted_document();
