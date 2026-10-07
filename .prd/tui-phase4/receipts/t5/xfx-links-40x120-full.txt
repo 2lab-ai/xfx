@@ -2,15 +2,15 @@
   more)
   mcp: none
 
-  2026-10-07 00:16:31.151 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 461ms
+  2026-10-07 00:36:32.578 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 455ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-10-07 00:16:30.369 UTC · Prompt
+  2026-10-07 00:36:31.686 UTC · Prompt
 ┃ show me the links
 
-  2026-10-07 00:16:30.789 UTC · Response
+  2026-10-07 00:36:32.203 UTC · Response
   Here are the links.
 
   See the docs and https://example.org/path for more.
@@ -32,7 +32,7 @@
 
   Done.
 
-  2026-10-07 00:16:31.860 UTC · Usage
+  2026-10-07 00:36:33.357 UTC · Usage
   1s (↑5 ↓40)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

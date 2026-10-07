@@ -1,15 +1,15 @@
   [38;5;250mskills: loading[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-10-07 00:17:01.599 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 494ms[39m
+[38;5;245m  2026-10-07 00:37:10.460 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 674ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-10-07 00:17:01.078 UTC · Prompt[39m
+[38;5;245m  2026-10-07 00:37:09.600 UTC · Prompt[39m
 [38;5;255m┃[39m [1mshow me the links[0m
 
-[38;5;245m  2026-10-07 00:17:01.110 UTC · Response[39m
+[38;5;245m  2026-10-07 00:37:09.913 UTC · Response[39m
   Here are the links.
 
   See [4m[38;5;75m]8;id=fx-1;https://example.com/docs\the docs[0m]8;;\ and [4m[38;5;75m]8;id=fx-2;https://example.org/path\https://example.org/path[0m]8;;\ for more.
@@ -29,10 +29,10 @@
   │ docs │ [4m[38;5;75m]8;id=fx-10;https://example.com/table\site[0m]8;;\ │
   └──────┴──────┘
 
-[38;5;245m  2026-10-07 00:17:01.424 UTC · Response[39m
+[38;5;245m  2026-10-07 00:37:10.224 UTC · Response[39m
   Done.
 
-[38;5;245m  2026-10-07 00:17:01.590 UTC · Usage[39m
+[38;5;245m  2026-10-07 00:37:10.507 UTC · Usage[39m
 [38;5;245m  0s (↑5 ↓40)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m

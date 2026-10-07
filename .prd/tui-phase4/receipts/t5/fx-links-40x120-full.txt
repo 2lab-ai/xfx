@@ -1,15 +1,15 @@
   skills: loading
   mcp: none
 
-  2026-10-07 00:17:01.599 UTC · Notice
-* network: provider: gateway · model: fake/model-a · 494ms
+  2026-10-07 00:37:10.460 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 674ms
   finish: stop
   tokens: 1200 in · 40 out
 
-  2026-10-07 00:17:01.078 UTC · Prompt
+  2026-10-07 00:37:09.600 UTC · Prompt
 ┃ show me the links
 
-  2026-10-07 00:17:01.110 UTC · Response
+  2026-10-07 00:37:09.913 UTC · Response
   Here are the links.
 
   See the docs and https://example.org/path for more.
@@ -29,10 +29,10 @@
   │ docs │ site │
   └──────┴──────┘
 
-  2026-10-07 00:17:01.424 UTC · Response
+  2026-10-07 00:37:10.224 UTC · Response
   Done.
 
-  2026-10-07 00:17:01.590 UTC · Usage
+  2026-10-07 00:37:10.507 UTC · Usage
   0s (↑5 ↓40)
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close

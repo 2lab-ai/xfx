@@ -4,13 +4,13 @@ Two scenarios, run at 40x120 on both binaries through the repo harness:
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
-XFX_BIN=<xfx fb20de8 debug>       scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
+XFX_BIN=<xfx b12eb45 debug>       scripts/fxcap/capture.sh xfx <scenario> 40x120 <dir>
 ```
 
 with `TMPDIR=/private/tmp/claude-501`, for `links` and `links-image`
 (`scripts/fxcap/scenarios/`). The xfx binary is `target/debug/xfx` built at
-`fb20de8` -- this branch with `plan/tui-phase4` at `b887a7f` merged; its
-banner says `v0.1.0-fb20de8 [debug]`. fx is the c1db919 build (banner
+`b12eb45` -- this branch with `plan/tui-phase4` at `1fc2ea4` merged; its
+banner says `v0.1.0-b12eb45 [debug]`. fx is the c1db919 build (banner
 `v0.0.13`). Both runs used the harness as it is on this branch, with its
 shims, `FX_NO_OPEN_BROWSER=1` and its fx sound guard (every fx run exited 0
 with the chime names still directories).

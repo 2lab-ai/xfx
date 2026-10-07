@@ -2,15 +2,15 @@
 [39m  [38;5;250mmore)[39m
   [38;5;250mmcp: none[39m
 
-[38;5;245m  2026-10-07 00:16:31.151 UTC · Notice[39m
-[38;5;250m* network: provider: gateway · model: fake/model-a · 461ms[39m
+[38;5;245m  2026-10-07 00:36:32.578 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 455ms[39m
   [38;5;250mfinish: stop[39m
   [38;5;250mtokens: 1200 in · 40 out[39m
 
-[38;5;245m  2026-10-07 00:16:30.369 UTC · Prompt[39m
+[38;5;245m  2026-10-07 00:36:31.686 UTC · Prompt[39m
 [38;5;255m┃[39m [1mshow me the links[0m
 
-[38;5;245m  2026-10-07 00:16:30.789 UTC · Response[39m
+[38;5;245m  2026-10-07 00:36:32.203 UTC · Response[39m
   Here are the links.
 
   See [4m[38;5;75m]8;id=fx-1;https://example.com/docs\the docs[0m]8;;\ and [4m[38;5;75m]8;id=fx-2;https://example.org/path\https://example.org/path[0m]8;;\ for more.
@@ -32,7 +32,7 @@
 
   Done.
 
-[38;5;245m  2026-10-07 00:16:31.860 UTC · Usage[39m
+[38;5;245m  2026-10-07 00:36:33.357 UTC · Usage[39m
 [38;5;245m  1s (↑5 ↓40)[39m
 
 [38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
