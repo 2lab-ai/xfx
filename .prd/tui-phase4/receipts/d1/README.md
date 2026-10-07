@@ -40,6 +40,11 @@ the one kept, has all eighteen. `resume`'s xfx side was taken twice for the
 same reason (load average above 30): the first run lost `first question
 alpha` the same way and listed two sessions; the run kept lists all three.
 
+Re-checked at the end of the round on `afd5c83` (plan `b887a7f`): xfx's
+`resume`, `resume-tools`, `resume-paging` and `rename-midturn` retaken, and
+every snap is the receipt's but for session ids, wall-clock stamps and
+seconds, and how many tokens had streamed at the snap.
+
 ## What matches
 
 Every pair below is identical row for row, SGR included, **except row 1 where
@@ -166,6 +171,13 @@ Every comparison of the first round holds on this tree, the same way:
   `a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript`);
   a rename holding one refuses its log (`src/session/store.rs`
   `a_rename_the_validation_would_refuse_is_not_a_log_xfx_wrote`).
+- **A turn stopped while its automatic compaction ran** replays as its card
+  alone, as fx's (`cancellation_origin: compaction`; e2e
+  `tui-compaction-activity.test.ts:481-488`): `tests/tui.rs`
+  `ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped`
+  resumes the session and finds neither `Cancelled` nor `✗ system`;
+  `src/tui/shell.rs`
+  `a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed`.
 - **The derived title** (`src/session/store.rs`
   `a_title_is_the_first_line_of_the_first_prompt_and_is_bounded`,
   `a_session_is_titled_by_the_first_prompt_that_gives_a_title`).
