@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* session titles: saved to user settings (scope=user)
+
+* session titles: saved to user settings (scope=user)
+
+┃ titles
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 1  [All]  Interface  Agent  Notifications  Advanced
+
+  Session titles    off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
