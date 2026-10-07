@@ -599,6 +599,10 @@ pub(crate) struct StagedDocument {
     geometry: Geometry,
     retint_debt: bool,
     collapse_debt: bool,
+    /// What a resume's reset staged into the update moves ([`Shell::wiped`]).
+    wipe: bool,
+    handoff: Option<u16>,
+    tail_unknown: bool,
 }
 
 /// The UI's state: what the band shows, and what it owes the screen.
@@ -11638,9 +11642,10 @@ impl Shell {
     /// the band's (`super::event_loop`'s `commit_primary`), and saves what the
     /// document's writers move as they are staged into it.
     ///
-    /// Everything those writers record -- the rows the document reaches, the
-    /// band floated under them, the recolour and collapse debts paid, the
-    /// transcript's operations taken -- is recorded as if the vector had
+    /// Everything those writers record -- a resume's reset owed and paid, the
+    /// rows the document reaches, the band floated under them, the recolour
+    /// and collapse debts paid, the transcript's operations taken -- is
+    /// recorded as if the vector had
     /// landed, because each one is measured against the screen the one before
     /// it leaves. [`Self::unstage_document`] is what makes that honest: a
     /// vector the screen did not take puts every one of them back.
@@ -11651,6 +11656,9 @@ impl Shell {
             geometry: self.geometry,
             retint_debt: self.retint_debt,
             collapse_debt: self.collapse_debt,
+            wipe: self.wipe,
+            handoff: self.handoff,
+            tail_unknown: self.tail_unknown,
         }
     }
 
@@ -11670,6 +11678,9 @@ impl Shell {
         self.geometry = staged.geometry;
         self.retint_debt = staged.retint_debt;
         self.collapse_debt = staged.collapse_debt;
+        self.wipe = staged.wipe;
+        self.handoff = staged.handoff;
+        self.tail_unknown = staged.tail_unknown;
         self.transcript.unstage();
     }
 

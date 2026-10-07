@@ -602,7 +602,7 @@ fn collect_facts(
         // else has been writing to.
         super::resume(launch.tmux)?;
         // The handler that stopped this process wrote the abnormal restore, and
-        // that sequence leads with `1049l` whichever plane was on the screen
+        // that sequence writes `1049l` whichever plane was on the screen
         // (`super::term::abnormal_restore`); the mode set `resume` has just
         // re-announced carries no `1049h`. So a session that was reviewing a
         // change on the approval plane is on the normal buffer now, and the
@@ -827,24 +827,18 @@ fn commit_frame(
             };
         }
     }
-    // `/resume`, before everything else on the primary plane -- a handoff
-    // included, which a wipe makes moot: the screen and its scrollback are
-    // reset (`Band::wipe`), so the resume notice and the turns the shell has
-    // already queued land from row 1 of a terminal with nothing above it, as
-    // upstream's do after its terminal reset (`fx-sessions-40x120-resumed`).
-    // Held, and retried, under exactly the rules of the handoff below and for
-    // the same reasons: a question's plane is not this screen, a screen no
-    // band fits on is addressed by nothing, and the turns must not be appended
-    // onto the document they replace.
-    if !band.on_alternate() && !shell.blind() && shell.owes_wipe() {
-        if let Err(emit) = band.wipe(out, &shell.geometry) {
-            return match disposed(emit, failures, now) {
-                Some(fatal) => Err(fatal),
-                None => Ok(()),
-            };
-        }
-        shell.wiped();
-    }
+    // `/resume`'s terminal reset is not written here: it is the first part of
+    // the primary plane's update ([`commit_primary`]), ahead of the replay it
+    // clears the screen for, as upstream's reset bytes follow its `?2026h`
+    // (`render_engine/terminal_diff.zig:611-616`, `:1311-1327`). It makes a
+    // handoff moot -- the screen and its scrollback are reset (`Band::wipe`),
+    // so the resume notice and the turns the shell has already queued land
+    // from row 1 of a terminal with nothing above it, as upstream's do after
+    // its terminal reset (`fx-sessions-40x120-resumed`) -- so the handoff below
+    // waits while one is owed, and is dropped when it lands
+    // (`Shell::wiped`). Held, and retried, under exactly the rules of that
+    // update: a question's plane is not this screen, a screen no band fits on
+    // is addressed by nothing, and a refused update leaves it owed.
     // `/clear`, `/new` and `/reset`, and before everything else on the primary
     // plane: the document still on the screen goes into the terminal's own
     // scrollback and the screen is left blank (`Band::hand_off`), so the
@@ -867,7 +861,7 @@ fn commit_frame(
     // it owed for the next tick under the existing budget, and the tick ends
     // here: the welcome must not be appended under the document it replaces.
     // `Partial` is fatal on the spot, like every other scroll.
-    if !band.on_alternate() && !shell.blind() && shell.owes_handoff() {
+    if !band.on_alternate() && !shell.blind() && shell.owes_handoff() && !shell.owes_wipe() {
         if let Err(emit) = band.hand_off(
             out,
             shell.document_rows(),
@@ -925,7 +919,7 @@ fn commit_frame(
         // band moved, and `owes_document` alone would call that tick square.
         if taking_the_plane
             && !shell.blind()
-            && (shell.owes_document() || band.owes_primary_frame())
+            && (shell.owes_wipe() || shell.owes_document() || band.owes_primary_frame())
         {
             // **The whole of what the primary plane is owed, in the order the
             // primary tick pays it**: the rows first, then the band the rows
@@ -1355,12 +1349,14 @@ fn write_cleanup(out: &mut impl Sink) -> Result<(), Emit> {
     out.emit(super::check::RECOVERY_CLEANUP.as_bytes())
 }
 
-/// Whether this tick owes the document anything that writes: a recolour, a
-/// collapse, rows a grown band must carry off, or an operation the transcript
-/// has queued. Asked before an update is assembled, so a tick that owes none
-/// of them -- most ticks -- saves nothing and writes the band alone.
+/// Whether this tick owes the document anything that writes: a resume's
+/// reset, a recolour, a collapse, rows a grown band must carry off, or an
+/// operation the transcript has queued. Asked before an update is assembled,
+/// so a tick that owes none of them -- most ticks -- saves nothing and writes
+/// the band alone.
 fn owes_document_write(shell: &Shell, band: &Band) -> bool {
-    shell.owes_retint()
+    shell.owes_wipe()
+        || shell.owes_retint()
         || shell.owes_collapse()
         || shell.owes_document()
         || band.owes_carry(&shell.geometry)
@@ -1425,6 +1421,24 @@ fn commit_primary(
     band.save_document();
     let mut assembly = Assembly(Vec::new());
     assembly.0.extend_from_slice(BEGIN_FRAME.as_bytes());
+    // A resume's terminal reset, first in the update and ahead of the replay,
+    // as upstream's reset bytes are the first movement after its `?2026h`
+    // (`appendFrameReset`, `render_engine/terminal_diff.zig:1311-1327`, written
+    // after the opener for any reset but `RIS`, `:611-616`). The handoff a
+    // reset owes is held while one is owed (`commit_frame`): the wipe takes
+    // the old screen and its scrollback with it.
+    if shell.owes_wipe() {
+        if let Err(emit) = band.wipe(&mut assembly, &shell.geometry) {
+            // A builder's refusal: nothing was written, and the reset is owed.
+            shell.unstage_document(staged);
+            band.restore_document();
+            return match disposed(emit, failures, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(false),
+            };
+        }
+        shell.wiped();
+    }
     let paid = match commit_document(shell, band, &mut assembly, failures, now) {
         Ok(paid) => paid,
         Err(fatal) => {
@@ -1435,8 +1449,7 @@ fn commit_primary(
             return Err(fatal);
         }
     };
-    let opener = BEGIN_FRAME.len();
-    if assembly.0.len() == opener {
+    if assembly.0.len() == BEGIN_FRAME.len() {
         // Nothing that writes: an operation that was a state change, a debt
         // with nothing knowable to pay. Those are settled, and the band goes
         // out as it always does.
@@ -1447,7 +1460,6 @@ fn commit_primary(
         }
         return commit_band(shell, band, out, failures, now);
     }
-    let document_end = assembly.0.len();
     // The band, as the rest of this update -- unless a document write was
     // refused, which ends the tick there as it always has: the rows that were
     // staged before it go out, and the band waits for the next tick.
@@ -1470,16 +1482,29 @@ fn commit_primary(
         (None, false)
     };
     let framed = matches!(&ready, Some(ready) if ready.built == Built::Frame);
+    // The window title, when this frame owes one, **ahead of** the update:
+    // upstream's title is a write of its own between two frames
+    // (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`), and the
+    // band built this frame `opened`, so it carries none. Only with the band's
+    // frame, whose landing is what records the title as told.
+    let mut vector = Vec::with_capacity(assembly.0.len() + band.frame_bytes().len() + 64);
+    if framed {
+        band.write_title_lead(&mut vector);
+    }
+    let lead = vector.len();
+    let opener = lead + BEGIN_FRAME.len();
+    vector.extend_from_slice(&assembly.0);
+    let document_end = vector.len();
     let closer = if framed {
-        assembly.0.extend_from_slice(band.frame_bytes());
-        assembly.0.len() - END_FRAME.len()
+        vector.extend_from_slice(band.frame_bytes());
+        vector.len() - END_FRAME.len()
     } else {
-        let closer = assembly.0.len();
+        let closer = vector.len();
         // No band frame in this update: the caret is shown again only where a
         // frame left it and nothing has moved it since -- a recolour puts it
         // back, a scroll does not, and the frame that still owes the `CUP` is
         // what shows it.
-        assembly.0.extend_from_slice(if band.owes_primary_frame() {
+        vector.extend_from_slice(if band.owes_primary_frame() {
             END_FRAME_HIDDEN.as_bytes()
         } else {
             END_FRAME.as_bytes()
@@ -1487,17 +1512,24 @@ fn commit_primary(
         closer
     };
     let cursor_visible = framed || !band.owes_primary_frame();
+    // The matrix rows for a terminal that takes part of an update: where in
+    // it the armed tear lands is said here, the one place that knows where
+    // the rows end and the band begins.
+    #[cfg(feature = "fault-injection")]
+    super::fault::mark_update(opener, document_end, vector.len());
     let written = super::check::preflight_update(
         &super::check::TerminalModel::seed_foreign(shell.geometry.rows, shell.geometry.cols, None),
-        &assembly.0,
+        &vector,
         super::check::Update {
+            lead,
+            title: band.title_owed().filter(|_| lead > 0),
             opener,
             closer,
             cursor_visible,
         },
     )
     .map_err(Emit::rejected)
-    .and_then(|()| out.emit(&assembly.0));
+    .and_then(|()| out.emit(&vector));
     match written {
         Ok(()) => {
             shell.settle_document();
@@ -1533,6 +1565,8 @@ fn commit_primary(
                 shell.render.restore(ready.attempt);
             }
             match emit {
+                // The title ahead of the update and the opener, and nothing
+                // after them: no cell moved.
                 Emit::Partial { delivered, .. } if delivered <= opener => {
                     recover_tear(emit, failures, now, "document update", || {
                         write_cleanup(out)
@@ -1543,7 +1577,8 @@ fn commit_primary(
                     // Best effort: the update must not be left open on a
                     // terminal the session is about to give back, and the
                     // error that ends the session is the tear, whatever
-                    // became of this.
+                    // became of this. If the terminal refuses it too, the
+                    // exit's restore closes the update (`term::RESTORE`).
                     let _ = write_cleanup(out);
                     Err(disposed(emit, failures, now).unwrap_or_else(|| {
                         io::Error::other("a torn document update was not reported as fatal")
@@ -3097,9 +3132,10 @@ mod tests {
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
-        // Past the update's opener and into the answer's row: a tear there has
-        // put part of the document on the terminal.
-        let mut out = HalfDeaf::taking(20);
+        // Past the window title written ahead of the update and the update's
+        // opener, and into the answer's row: a tear there has put part of the
+        // document on the terminal.
+        let mut out = HalfDeaf::taking(40);
         shell.apply(UiEvent::Delta("HALF-A-FRAME".to_string()));
 
         let broken = shut_down(
@@ -3117,7 +3153,7 @@ mod tests {
 
         let broken = broken.expect("a screen that took half a frame was reported as sound");
         assert!(
-            broken.to_string().contains("20"),
+            broken.to_string().contains("40"),
             "the exit's failure does not say how much the screen accepted: {broken}"
         );
         assert_eq!(
@@ -3129,7 +3165,7 @@ mod tests {
         // left open -- upstream's cleanup before `DocumentAppendInterrupted`
         // (`render_engine/terminal_diff.zig:648-689`) -- and no frame.
         assert_eq!(
-            &out.written[20..],
+            &out.written[40..],
             super::super::check::RECOVERY_CLEANUP.as_bytes(),
             "something other than the cleanup was written after the screen took half \
              of an update: {:?}",
@@ -3351,6 +3387,20 @@ mod tests {
     const OPENS: &str = "\u{1b}[?2026h\u{1b}[?25l";
     const CLOSES: &str = "\u{1b}[?2026l\u{1b}[?25h";
 
+    /// `vector` without the window title a frame writes **ahead of** its
+    /// update (`OSC 2 ; … BEL`, upstream's position: a write of its own
+    /// between two frames, `syncTerminalTitleWith`,
+    /// `app_session_runtime.zig:3608-3629`) -- and the vector unchanged when it
+    /// has none.
+    fn untitled(vector: &str) -> &str {
+        if let Some(rest) = vector.strip_prefix("\u{1b}]2;") {
+            if let Some(end) = rest.find('\u{7}') {
+                return &rest[end + 1..];
+            }
+        }
+        vector
+    }
+
     /// The one-based rows every `CUP` in `text` addresses, in order.
     fn rows_addressed(text: &str) -> Vec<u16> {
         let mut rows = Vec::new();
@@ -3378,6 +3428,9 @@ mod tests {
     /// `render_engine/terminal_diff.zig:604-645`).
     #[track_caller]
     fn one_update(vector: &str, document: &str, band_top: u16) {
+        // A title, if the frame owes one, is ahead of the update and is the
+        // only thing that may be.
+        let vector = untitled(vector);
         assert!(
             vector.starts_with(OPENS),
             "the vector does not open its synchronized update first: {vector:?}"
@@ -3423,6 +3476,7 @@ mod tests {
             !frame.starts_with(OPENS),
             "the band's last frame was not built as part of an update: {frame:?}"
         );
+        let update = untitled(update);
         let at = update
             .rfind(frame)
             .unwrap_or_else(|| panic!("the band's frame is not in the update: {update:?}"));
@@ -3625,7 +3679,7 @@ mod tests {
 
         let text = String::from_utf8(screen.written).expect("utf-8");
         assert!(
-            text.starts_with(&format!("{OPENS}\u{1b}[24;1H\n\u{1b}[21;1Hanswered")),
+            untitled(&text).starts_with(&format!("{OPENS}\u{1b}[24;1H\n\u{1b}[21;1Hanswered")),
             "the append did not scroll the screen and place the row: {text:?}"
         );
         let (document, frame) = parts(&text, &band);
@@ -3930,7 +3984,7 @@ mod tests {
             "a document shorter than the screen scrolled it: {text:?}"
         );
         assert!(
-            text.starts_with(&format!("{OPENS}\u{1b}[1;1Hanswered")),
+            untitled(&text).starts_with(&format!("{OPENS}\u{1b}[1;1Hanswered")),
             "the row was not placed on the screen's first row: {text:?}"
         );
         assert_eq!(shell.document_rows(), 1);
@@ -4167,15 +4221,41 @@ mod tests {
 
         shell.hydrate(one_saved_turn(), true);
         assert!(shell.owes_wipe());
-        let text = committed(&mut shell, &mut band);
-
-        assert!(
-            text.starts_with("\u{1b}[H\u{1b}[2J\u{1b}[3J"),
-            "the reset is not the first thing written: {text:?}"
+        let mut screen = EveryVector::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the resume's tick");
+        assert_eq!(
+            screen.0.len(),
+            1,
+            "the reset, the replay and the band are one write: {:?}",
+            screen.0
         );
+        let text = String::from_utf8(screen.0.remove(0)).expect("utf-8");
+
+        // The first thing inside the update, ahead of the replay -- upstream's
+        // reset bytes are the first movement after its `?2026h` for any reset
+        // but `RIS` (`terminal_diff.zig:611-616`, `:1311-1327`) -- with the
+        // session's title ahead of the update, where upstream writes a title.
+        let reset = format!("{OPENS}\u{1b}[H\u{1b}[2J\u{1b}[3J");
+        assert!(
+            untitled(&text).starts_with(&reset),
+            "the reset is not the first thing the update does: {text:?}"
+        );
+        assert!(
+            text.starts_with("\u{1b}]2;first question alpha\u{7}"),
+            "{text:?}"
+        );
+        assert!(text.ends_with(CLOSES), "{text:?}");
         assert_eq!(text.matches("\u{1b}[3J").count(), 1, "{text:?}");
         assert!(!shell.owes_wipe(), "a reset that landed is still owed");
-        let rest = &text["\u{1b}[H\u{1b}[2J\u{1b}[3J".len()..];
+        let rest = &untitled(&text)[reset.len()..];
         let notice_at = rest
             .find("\u{1b}[1;1H")
             .unwrap_or_else(|| panic!("the replay does not start on row 1: {rest:?}"));
@@ -4189,13 +4269,12 @@ mod tests {
             "{rest:?}"
         );
         assert!(!text.contains("\u{1b}[24;1H\n"), "{text:?}");
-        // The band is painted whole, under the replay: notice, blank, card,
-        // blank, answer, blank, summary, blank -- composer on row 9.
-        let band_at = rest
-            .find("\u{1b}[?2026h")
-            .unwrap_or_else(|| panic!("no band frame followed: {rest:?}"));
+        // The band is painted whole, under the replay and in the same
+        // update: notice, blank, card, blank, answer, blank, summary, blank --
+        // composer on row 9.
+        let (_, frame) = parts(&text, &band);
         assert!(
-            rest[band_at..].contains(&format!("\u{1b}[9;1H\u{1b}[38;5;255m{COMPOSER_MARKER}")),
+            frame.contains(&format!("\u{1b}[9;1H\u{1b}[38;5;255m{COMPOSER_MARKER}")),
             "the composer is not under the replay: {rest:?}"
         );
         assert_eq!(shell.document_rows(), 8);
@@ -4214,13 +4293,81 @@ mod tests {
         shell.hydrate(one_saved_turn(), true);
         assert!(!shell.owes_handoff(), "the handoff outlived the reset");
         let text = committed(&mut shell, &mut band);
-        assert!(text.starts_with("\u{1b}[H\u{1b}[2J\u{1b}[3J"), "{text:?}");
+        assert!(
+            untitled(&text).starts_with(&format!("{OPENS}\u{1b}[H\u{1b}[2J\u{1b}[3J")),
+            "{text:?}"
+        );
         assert!(
             !text.contains("\u{1b}[J\u{1b}[24;1H"),
             "a handoff was written: {text:?}"
         );
         // The fresh session's welcome line went with it: a resume writes none.
         assert!(!text.contains("Run /help for commands"), "{text:?}");
+    }
+
+    #[test]
+    fn a_refused_resume_update_still_owes_its_reset_and_retries_it_in_one_write() {
+        // The reset is part of the resume's update now, so a terminal that
+        // took none of that update took none of the reset either: it is owed
+        // with the replay, and the retry is the same one write -- reset first
+        // inside it -- not a reset alone and a replay after it.
+        let mut shell = floating();
+        let mut band = Band::new();
+        shell.write_transcript("line 1\nline 2\n");
+        shell.end_transcript_line();
+        committed(&mut shell, &mut band);
+
+        shell.hydrate(one_saved_turn(), true);
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = ScriptedSink::new([Err(Emit::ZeroProgress(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "the screen took nothing",
+        )))]);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a zero-progress refusal is not fatal");
+        assert_eq!(screen.calls.len(), 1, "{:?}", screen.calls);
+        let refused = String::from_utf8_lossy(&screen.calls[0]).into_owned();
+        assert!(
+            untitled(&refused).starts_with(&format!("{OPENS}\u{1b}[H\u{1b}[2J\u{1b}[3J")),
+            "the refused update did not carry the reset: {refused:?}"
+        );
+        assert!(
+            shell.owes_wipe() && shell.owes_document(),
+            "a reset the terminal never took was recorded as done"
+        );
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 58),
+            Reconciled,
+        )
+        .expect("the retry");
+        assert_eq!(
+            screen.calls.len(),
+            2,
+            "the retry was not one write: {:?}",
+            screen.calls
+        );
+        let retried = String::from_utf8_lossy(&screen.calls[1]).into_owned();
+        assert!(
+            untitled(&retried).starts_with(&format!("{OPENS}\u{1b}[H\u{1b}[2J\u{1b}[3J")),
+            "{retried:?}"
+        );
+        assert_eq!(retried.matches("\u{1b}[3J").count(), 1, "{retried:?}");
+        assert!(retried.contains("session resumed:"), "{retried:?}");
+        assert!(retried.ends_with(CLOSES), "{retried:?}");
+        assert!(!shell.owes_wipe(), "a reset that landed is still owed");
     }
 
     #[test]
@@ -4518,6 +4665,9 @@ mod tests {
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
+        // The window title told first, so the update below carries no title
+        // ahead of it and three bytes past its opener are in its rows.
+        let _ = vectors_of(&mut shell, &mut band);
         let torn_at = OPENS.len() + 3;
         let mut screen = ScriptedSink::new([Err(Emit::Partial {
             delivered: torn_at,
@@ -4567,6 +4717,7 @@ mod tests {
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
         let start = Instant::now();
+        let _ = vectors_of(&mut shell, &mut band);
         let mut screen = ScriptedSink::new([Err(Emit::Partial {
             delivered: OPENS.len(),
             cause: io::Error::new(io::ErrorKind::WouldBlock, "full"),
@@ -4656,7 +4807,7 @@ mod tests {
         );
         assert_eq!(calls[1], super::super::check::RECOVERY_CLEANUP);
         assert!(
-            calls[2].starts_with(OPENS)
+            untitled(&calls[2]).starts_with(OPENS)
                 && calls[2].ends_with(CLOSES)
                 && !calls[2].contains("KEPT-ROW"),
             "the rebuild is not the band's own whole frame: {calls:?}"
@@ -9659,7 +9810,7 @@ mod tests {
         // The one path on which the terminal changes plane without a frame
         // saying so. A `SIGTSTP` at a question runs `signals`'s
         // `stop_for_job_control`, which writes the abnormal restore --
-        // `1049l` first (`term::abnormal_restore`) -- and stops the process on
+        // `1049l` unconditionally (`term::abnormal_restore`) -- and stops the process on
         // the user's own screen. The resume re-announces the mode set
         // (`super::resume`), and that carries **no** `1049h`.
         //

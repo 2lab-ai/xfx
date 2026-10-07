@@ -746,6 +746,16 @@ impl TerminalModel {
         model
     }
 
+    /// The same seed on a terminal that may be holding an update open -- a
+    /// frame the terminal took part of, and a cleanup it refused -- which is
+    /// the terminal every restore has to be ready for: the metadata check
+    /// refuses a vector that leaves synchronized output open, so a restore
+    /// seeded this way that does not close it is refused.
+    pub(crate) fn update_open(mut self) -> Self {
+        self.sync_open = true;
+        self
+    }
+
     /// A seed for the vectors that carry no cells: the mode set and the exit's
     /// restore.
     pub(crate) fn seed_modes(
@@ -1274,12 +1284,18 @@ pub(crate) fn preflight(
 /// and ends -- the document's growth and the band under it, written in one
 /// vector (`super::event_loop`'s `commit_primary`).
 ///
-/// Offsets into that vector, from the composer that built it: the opener is
-/// `bytes[..opener]`, the parts are `bytes[opener..closer]`, the closer is
-/// `bytes[closer..]`. They are claims about the vector, and
-/// [`preflight_update`] decodes each slice to hold the vector to them.
+/// Offsets into that vector, from the composer that built it: the window
+/// title, when the update carries one, is `bytes[..lead]`, ahead of the update
+/// as upstream writes it; the opener is `bytes[lead..opener]`, the parts are
+/// `bytes[opener..closer]`, the closer is `bytes[closer..]`. They are claims
+/// about the vector, and [`preflight_update`] decodes each slice to hold the
+/// vector to them.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Update {
+pub(crate) struct Update<'a> {
+    pub(crate) lead: usize,
+    /// The title the lead leaves the window with -- the title it writes, or
+    /// the one the window had when there is no lead.
+    pub(crate) title: Option<&'a str>,
     pub(crate) opener: usize,
     pub(crate) closer: usize,
     /// Whether the update ends with the caret shown: a band frame's caret, or
@@ -1308,9 +1324,9 @@ pub(crate) struct Update {
 pub(crate) fn preflight_update(
     seed: &TerminalModel,
     bytes: &[u8],
-    update: Update,
+    update: Update<'_>,
 ) -> Result<(), Reject> {
-    if update.opener > update.closer || update.closer > bytes.len() {
+    if update.lead > update.opener || update.opener > update.closer || update.closer > bytes.len() {
         return Err(Reject::new("an update whose parts are out of order", 0));
     }
     let mut model = seed.clone();
@@ -1318,7 +1334,32 @@ pub(crate) fn preflight_update(
     model.sync_sets = 0;
     model.sync_resets = 0;
     model.shown_in_update = false;
-    apply(&mut model, &bytes[..update.opener], None)?;
+    // The lead: a title and nothing else, outside the update -- no cell, no
+    // caret, no cursor, no mode -- as upstream's title is a write between two
+    // frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`).
+    let caret = model.caret;
+    let cursor = model.cursor_visible;
+    apply(&mut model, &bytes[..update.lead], None)?;
+    if !model.effects.is_empty()
+        || model.sync_sets != 0
+        || model.sync_resets != 0
+        || model.caret != caret
+        || model.cursor_visible != cursor
+        || model.bells != 0
+        || !model.queries.is_empty()
+    {
+        return Err(Reject::new(
+            "an update led by something other than its title",
+            update.lead,
+        ));
+    }
+    if update.lead > 0 && model.shown_title.as_deref() != update.title {
+        return Err(Reject::new(
+            "a title that is not the one asked for",
+            update.lead,
+        ));
+    }
+    apply(&mut model, &bytes[update.lead..update.opener], None)?;
     if !(model.sync_open && model.sync_sets == 1)
         || model.cursor_visible != Some(false)
         || !model.effects.is_empty()
@@ -2814,7 +2855,7 @@ mod tests {
     /// One update as `commit_primary` assembles it: the opener, a document
     /// append (a scroll and a placed row), the band's rows, the caret, and the
     /// closer -- with the offsets the composer would hand the check.
-    fn composed(document: &str, band: &str, closer: &str) -> (Vec<u8>, Update) {
+    fn composed(document: &str, band: &str, closer: &str) -> (Vec<u8>, Update<'static>) {
         let mut bytes = b"\x1b[?2026h\x1b[?25l".to_vec();
         let opener = bytes.len();
         bytes.extend_from_slice(document.as_bytes());
@@ -2824,6 +2865,8 @@ mod tests {
         (
             bytes,
             Update {
+                lead: 0,
+                title: None,
                 opener,
                 closer: closer_at,
                 cursor_visible: closer.contains("?25h"),
@@ -2849,6 +2892,50 @@ mod tests {
         let (bytes, update) = composed(APPEND, "", "\u{1b}[?2026l");
         preflight_update(&update_seed(), &bytes, update)
             .expect("the rows alone, the caret left for the frame still owed");
+    }
+
+    /// [`composed`], led by `lead` -- the window title, as the composer writes
+    /// it ahead of the update.
+    fn led(lead: &str, title: Option<&'static str>) -> (Vec<u8>, Update<'static>) {
+        let (update, mut shape) = composed(APPEND, BAND, "\u{1b}[?2026l\u{1b}[?25h");
+        let mut bytes = lead.as_bytes().to_vec();
+        bytes.extend_from_slice(&update);
+        shape.lead = lead.len();
+        shape.title = title;
+        shape.opener += lead.len();
+        shape.closer += lead.len();
+        (bytes, shape)
+    }
+
+    #[test]
+    fn an_update_led_by_its_title_and_nothing_else_is_accepted() {
+        // Upstream writes the window title outside any update, between one
+        // frame and the next (`syncTerminalTitleWith`,
+        // `app_session_runtime.zig:3608-3629`): the composer puts it at the
+        // head of the vector, ahead of the `?2026h`.
+        let (bytes, shape) = led("\u{1b}]2;a title\u{7}", Some("a title"));
+        preflight_update(&update_seed(), &bytes, shape).expect("a title ahead of the update");
+        for (lead, title, shape_name) in [
+            (
+                "\u{1b}]2;another\u{7}",
+                Some("a title"),
+                "a title that is not the one asked for",
+            ),
+            (
+                "\u{1b}]2;a title\u{7}\u{1b}[1;1Hx",
+                Some("a title"),
+                "an update led by something other than its title",
+            ),
+            (
+                "\u{1b}[?25h",
+                None,
+                "an update led by something other than its title",
+            ),
+        ] {
+            let (bytes, shape) = led(lead, title);
+            let reject = preflight_update(&update_seed(), &bytes, shape).expect_err(shape_name);
+            assert_eq!(reject.shape(), shape_name, "{lead:?}");
+        }
     }
 
     #[test]
@@ -2913,6 +3000,8 @@ mod tests {
             &update_seed(),
             &bytes,
             Update {
+                lead: 0,
+                title: None,
                 opener,
                 closer,
                 cursor_visible: true,
@@ -3711,6 +3800,8 @@ mod tests {
             let closer = update.len();
             update.extend_from_slice(b"\x1b[?2026l\x1b[?25h");
             let shape = Update {
+                lead: 0,
+                title: None,
                 opener,
                 closer,
                 cursor_visible: true,
