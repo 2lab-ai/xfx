@@ -1,0 +1,4 @@
+[
+  {"tool": {"name": "terminal", "input": {"action": "exec", "command": "echo started; sleep 130"}}},
+  {"delayMs": 100, "chunks": ["Done."]}
+]

@@ -534,7 +534,11 @@ fn command_result(output: &str) -> Option<(String, Option<String>)> {
     let rest = output.strip_prefix("<command>")?;
     let (_, rest) = rest.split_once("</command>\n<cwd>")?;
     let (_, rest) = rest.split_once("</cwd>\n")?;
-    let (status, rest) = if let Some(rest) = rest.strip_prefix("<exit_code>") {
+    let (status, rest) = if let Some(rest) = rest.strip_prefix("<timed_out/>\n") {
+        // One xfx killed at its deadline: upstream's `timed out` row
+        // (`fx-timeout-40x120-live-ctrl-o`).
+        (Some("timed out".to_string()), rest)
+    } else if let Some(rest) = rest.strip_prefix("<exit_code>") {
         let (code, rest) = rest.split_once("</exit_code>\n")?;
         let code: i32 = code.parse().ok()?;
         ((code != 0).then(|| format!("exit code {code}")), rest)
@@ -3277,6 +3281,19 @@ mod tests {
                     output: "started".into(),
                     status: Some("signal 15".into()),
                 },
+            }
+        );
+
+        // And one killed at its deadline: what it wrote, then `timed out`
+        // (`fx-timeout-40x120-live-ctrl-o`).
+        assert_eq!(
+            result(
+                "terminal",
+                "<command>x</command>\n<cwd>.</cwd>\n<timed_out/>\n<stdout>\nstarted\n</stdout>\n<stderr>\n</stderr>\n",
+            ),
+            Detail::Command {
+                output: "started".into(),
+                status: Some("timed out".into()),
             }
         );
 
