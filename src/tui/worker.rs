@@ -82,6 +82,7 @@ use super::bridge::{
     UiEventSink,
 };
 use super::compaction::{Feedback, Update};
+use super::notice::Notice;
 use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
@@ -92,7 +93,8 @@ use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{
-    bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
+    bind_conversation, conversation_scope, open_conversation, rename_conversation, status_snapshot,
+    Conversation,
 };
 use crate::output::StatusSnapshot;
 use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
@@ -102,6 +104,7 @@ use crate::provider::model::{
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// How long the UI keeps painting what the worker has already produced before
@@ -250,6 +253,8 @@ pub(crate) struct WorkHandle {
     saved_rules: SavedRulesAt,
     /// What `/usage`'s session scope reads, as the runtime last published it.
     spend: SessionSpend,
+    /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
+    credits: CreditsBoard,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -538,6 +543,23 @@ impl WorkHandle {
         self.spend.publish(spent);
     }
 
+    /// What `/credits` would ask now, or the answer it has without asking,
+    /// from the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn credits_question(
+        &self,
+    ) -> Result<crate::credits::Question, crate::credits::Answer> {
+        self.credits.read()
+    }
+
+    /// Stands in for the runtime's publication of what `/credits` asks.
+    #[cfg(test)]
+    pub(crate) fn publish_credits(
+        &self,
+        question: Result<crate::credits::Question, crate::credits::Answer>,
+    ) {
+        self.credits.publish(question);
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -589,6 +611,7 @@ impl WorkHandle {
                 grants: Grants::default(),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             work_rx,
             control_rx,
@@ -663,6 +686,45 @@ impl LastReply {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+}
+
+/// What `/credits` asks: the endpoint and key of the provider in force, or the
+/// answer it has without asking anybody -- published by the runtime, which is
+/// the thread a provider switch changes them on, and read by the UI without
+/// waiting for it ([`super::credits_ask`]).
+///
+/// The key crosses here because the question is asked off the runtime
+/// thread, which may be a minute into a turn. It is the credential's own
+/// type, whose `Debug` is redacted.
+#[derive(Debug, Clone)]
+pub(crate) struct CreditsBoard(
+    Arc<Mutex<Result<crate::credits::Question, crate::credits::Answer>>>,
+);
+
+impl CreditsBoard {
+    fn new(question: Result<crate::credits::Question, crate::credits::Answer>) -> Self {
+        Self(Arc::new(Mutex::new(question)))
+    }
+
+    fn publish(&self, question: Result<crate::credits::Question, crate::credits::Answer>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = question;
+    }
+
+    fn read(&self) -> Result<crate::credits::Question, crate::credits::Answer> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Default for CreditsBoard {
+    /// A board nothing has published to: a provider with nothing to ask.
+    fn default() -> Self {
+        Self::new(Err(crate::credits::Answer::Failed(
+            crate::credits::UNAVAILABLE.to_string(),
+        )))
     }
 }
 
@@ -900,6 +962,10 @@ pub(crate) fn spawn(
     let loops_rules = rules.clone();
     let spend = SessionSpend::default();
     let publishes_spend = spend.clone();
+    // Published from the start, so a `/credits` typed before the runtime's
+    // first publication asks what that publication would say.
+    let credits = CreditsBoard::new(crate::credits::question(&config));
+    let publishes_credits = credits.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -925,8 +991,10 @@ pub(crate) fn spawn(
             state.live = loops_live;
             state.rules = loops_rules;
             state.spend = publishes_spend;
+            state.credits = publishes_credits;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
+                state.ask_for_bills();
                 // A resumed conversation's last reply is `/copy`'s from the
                 // start, as fx's hydrated history is (`session.zig:2067-2079`).
                 state.publish_reply();
@@ -962,6 +1030,7 @@ pub(crate) fn spawn(
                 grants,
                 saved_rules,
                 spend,
+                credits,
             },
             resumable: None,
         },
@@ -989,7 +1058,7 @@ impl Resumption {
         config: &RuntimeConfig,
         selector: &crate::session::Selector,
     ) -> io::Result<Self> {
-        let scope = AccessScope::primary_only(&config.workspace_root).map_err(io::Error::other)?;
+        let scope = conversation_scope(config).map_err(io::Error::other)?;
         let store = open_store(config)?;
         let resumed = store
             .resume(selector, &config.workspace_root)
@@ -1129,6 +1198,23 @@ struct Runtime {
     /// prompt, so the log's own creation is the first prompt's time, and the
     /// clock is kept here instead.
     began_ms: i64,
+    /// Asks the Gateway for the bills the conversation's streams did not
+    /// carry ([`Runtime::ask_for_bills`]), and hands the answers to
+    /// [`turn_loop`] to write down ([`Runtime::settle_bill`]).
+    bills: super::reconcile::Reconciler,
+    /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
+    /// [`Runtime::publish`] beside the others.
+    credits: CreditsBoard,
+    /// The directories `/workspace` saved for this workspace, each as the real
+    /// path it was when it was read: at launch, from the profile, and after
+    /// each change, from what the change read back.
+    ///
+    /// The **identities** a turn's scope is made of ([`Runtime::ready`]),
+    /// looked at again before every turn and never resolved again: a saved
+    /// directory that has since become a link to somewhere else is out of the
+    /// scope rather than the somewhere else in it
+    /// (`crate::workspace::AccessScope::with_observed_roots`).
+    workspace: WorkspaceAccess,
 }
 
 impl Runtime {
@@ -1163,6 +1249,8 @@ impl Runtime {
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let effort = config.effort.clone();
         let config_mode = config.permission_mode;
+        let workspace =
+            WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
         let config_rules = config.permission.effective().clone();
         Self {
             config,
@@ -1182,6 +1270,9 @@ impl Runtime {
             rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
             began_ms: crate::session::event::system_now_ms(),
+            bills: super::reconcile::Reconciler::new(),
+            credits: CreditsBoard::default(),
+            workspace,
         }
     }
 
@@ -1233,6 +1324,7 @@ impl Runtime {
                 .unwrap_or_default(),
             started_at_ms: Some(self.began_ms),
         });
+        self.credits.publish(crate::credits::question(&self.config));
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1317,6 +1409,56 @@ impl Runtime {
     /// out of the stream the UI was shown, because that stream has been made
     /// inert on its way over (`bridge::inert`): a tab in a code block reached
     /// the screen as a space, and the clipboard is owed the tab.
+    /// Starts asking the Gateway for the bills of the conversation's pending
+    /// requests, with the Gateway credential that made them
+    /// (`startReconciliationWithCredential`, `session_usage.zig:2008-2100`).
+    ///
+    /// Called after every piece of work, so a turn that recorded one and a
+    /// resume that opened a session holding one are both asked about, and
+    /// asked about once ([`super::reconcile::Reconciler::ask`]). Without a
+    /// Gateway credential nothing is asked and the requests stay pending, as
+    /// upstream withholds its asking without a credential for them
+    /// (`:1924-1945`).
+    fn ask_for_bills(&mut self) {
+        let Some(conversation) = self.conversation.as_ref() else {
+            return;
+        };
+        if self.config.provider != crate::provider::ProviderId::Gateway {
+            return;
+        }
+        let Some(credential) = self.config.credential.as_ref() else {
+            return;
+        };
+        let state = conversation.recorder.state();
+        let pending: Vec<&crate::session::RequestUsage> = state.usage.pending().collect();
+        if pending.is_empty() {
+            return;
+        }
+        self.bills.ask(
+            conversation.recorder.id().as_str(),
+            &pending,
+            credential.secret(),
+        );
+    }
+
+    /// Writes what the Gateway said about a pending request into the log of
+    /// the session it belongs to, and tells `/usage` (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`).
+    ///
+    /// Only into the conversation in front of the user: an answer about one
+    /// that was dropped or replaced is left unwritten, and that session's
+    /// request stays pending for the next time it is opened.
+    fn settle_bill(&mut self, answered: &super::reconcile::Answered) {
+        let Some(conversation) = self.conversation.as_mut() else {
+            return;
+        };
+        if conversation.recorder.id().as_str() != answered.session {
+            return;
+        }
+        conversation.recorder.commit(answered.frame());
+        self.publish();
+    }
+
     fn publish_reply(&self) {
         self.reply.publish(
             self.conversation
@@ -1351,6 +1493,18 @@ impl Runtime {
                 Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
+        }
+        // **The scope this turn runs in**, made now from the saved directories
+        // that are still themselves ([`Runtime::workspace`]): a `/workspace`
+        // change between turns is in force from the next one, and a directory
+        // that vanished or was swapped for a link since is not.
+        let scope = self
+            .workspace
+            .refreshed()
+            .scope(&self.config.workspace_root)
+            .map_err(|err| err.to_string())?;
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation.tools.set_scope(scope);
         }
         Ok(())
     }
@@ -1404,6 +1558,43 @@ impl Runtime {
     fn rename(&mut self, title: &str, mirror: &CancelToken) -> Result<(), String> {
         let conversation = self.conversation(mirror)?;
         rename_conversation(conversation, title)
+    }
+
+    /// One `/workspace` change, between turns, and what the band is told of
+    /// it (`handleWorkspaceCommand`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:245-328`).
+    ///
+    /// The profile is changed and read back ([`workspace_access::execute`]);
+    /// what was read back is what the next turn's scope is made of
+    /// ([`Runtime::ready`]) -- this runs only between turns, so no tool call
+    /// sees half of it -- and what a conversation `/new` opens is made of. A
+    /// change the profile did not take changes nothing here either, as
+    /// upstream's durable-or-nothing rule has it.
+    fn change_workspace(&mut self, action: &workspace_access::Action) -> UiEvent {
+        let primary = self.config.workspace_root.clone();
+        let updated = match workspace_access::execute(
+            &primary,
+            self.config.user_settings_path.as_deref(),
+            &self.workspace,
+            action,
+        ) {
+            Ok(updated) => updated,
+            Err(failure) => {
+                return UiEvent::Workspace {
+                    notice: Notice::error(workspace_access::TOPIC, failure.message()),
+                    access: None,
+                }
+            }
+        };
+        self.config.additional_directories = updated.access.saved();
+        self.workspace = updated.access.clone();
+        UiEvent::Workspace {
+            notice: Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::snapshot(&primary, &updated.access, Some(&updated.mutation)),
+            ),
+            access: Some(updated.access),
+        }
     }
 
     /// What a `/resume` picker lists, read now: both scopes, newest first,
@@ -1470,8 +1661,7 @@ impl Runtime {
     ) -> Result<super::hydration::Hydration, super::session_picker::ResumeFailure> {
         use super::session_picker::ResumeFailure;
         let id = crate::session::SessionId::parse(id).map_err(|_| ResumeFailure::Unavailable)?;
-        let scope = AccessScope::primary_only(&self.config.workspace_root)
-            .map_err(|_| ResumeFailure::Unavailable)?;
+        let scope = conversation_scope(&self.config).map_err(|_| ResumeFailure::Unavailable)?;
         let resumed = self
             .store
             .resume_without_waiting(
@@ -1571,6 +1761,7 @@ impl Runtime {
     /// from a log, and the model is the configuration's, so a later resume
     /// reads what this one really used.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
+        self.bills.forget();
         let mut conversation = bind_conversation(
             &self.store,
             resumed.session,
@@ -1659,6 +1850,12 @@ impl Runtime {
         self.config = reloaded;
         self.config.permission_mode = mode;
         self.config.yolo_acknowledged = acknowledged;
+        // The directories too: the file was read again, and what it saves
+        // for this workspace is what a turn runs in.
+        self.workspace = WorkspaceAccess::load(
+            &self.config.workspace_root,
+            &self.config.additional_directories,
+        );
         // The model comes back with it, because the selector is where the model
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
@@ -1666,6 +1863,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.bills.forget();
         self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
@@ -1969,6 +2167,10 @@ async fn turn_loop(
             // does, as upstream syncs its queued prompts to a new mode
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
+            // A bill the Gateway gave later, written down between pieces of
+            // work by the recorder that owns the log; never during one, which
+            // may be writing that log itself.
+            answered = state.bills.next() => Taken::Bill(answered),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -2000,6 +2202,10 @@ async fn turn_loop(
                 continue;
             }
             Taken::Nothing => continue,
+            Taken::Bill(answered) => {
+                state.settle_bill(&answered);
+                continue;
+            }
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
                 // Not a terminal event -- nothing is waiting on one for a
@@ -2049,9 +2255,6 @@ async fn turn_loop(
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
-            TurnWork::Credits => {
-                run_credits(&mut state, events, &cancel, &control, &mut queue).await
-            }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
             // there is no socket to stop and nothing a Ctrl-C would shorten.
@@ -2072,6 +2275,11 @@ async fn turn_loop(
                 run_rename(&mut state, &title, events, &cancel.mirror()).await;
                 Ended::Turn
             }
+            TurnWork::Workspace(action) => {
+                let answer = state.change_workspace(&action);
+                bridge::send_terminal(events, answer).await;
+                Ended::Turn
+            }
             TurnWork::Compact => {
                 run_compact(&mut state, events, &cancel, &control, &mut queue).await
             }
@@ -2082,6 +2290,9 @@ async fn turn_loop(
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
+        // And a request this work recorded without its bill, or a session it
+        // opened holding one, is asked about now.
+        state.ask_for_bills();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
         // given back is the moment the queue really has room -- and by then the
@@ -2130,6 +2341,7 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    state.bills.forget();
     state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
@@ -2176,6 +2388,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
+    /// What the Gateway said about a pending request's bill.
+    Bill(super::reconcile::Answered),
     /// The session is over.
     Shutdown,
 }
@@ -3035,34 +3249,6 @@ async fn run_catalog(
     ended
 }
 
-/// `/credits`: asks the configured provider what its account has left, and
-/// answers with the notice ([`UiEvent::Credits`]).
-///
-/// **Here, never on the thread that holds the terminal**: the Gateway's
-/// answer is a socket, and upstream's blocking wait for it on its UI thread
-/// (`commandShowCredits`, `app_commands.zig:2052-2082`) is the one part of
-/// its behaviour this does not copy. Raced against the control channel like a
-/// catalog load, so a Ctrl-C stops a question nobody wants answered any more;
-/// a cancelled one says nothing.
-async fn run_credits(
-    state: &mut Runtime,
-    events: &Sender<UiEvent>,
-    cancel: &Cancellation,
-    control: &ControlChannel,
-    queue: &mut Queue<'_>,
-) -> Ended {
-    let turn = cancel.turn();
-    let (answer, ended) =
-        raced_against_control(crate::credits::fetch(&state.config), control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
-        .await;
-    let _ = bridge::send_ui(events, &turn.token, UiEvent::Credits(answer)).await;
-    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-    ended
-}
-
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -3579,6 +3765,7 @@ mod tests {
                 grants: Grants::default(),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3641,6 +3828,7 @@ mod tests {
                 grants: Grants::default(),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3682,6 +3870,7 @@ mod tests {
                 grants: Grants::default(),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -4041,6 +4230,7 @@ mod tests {
             grants: Grants::default(),
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
+            credits: CreditsBoard::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -5116,10 +5306,13 @@ mod tests {
                 reasoning_tokens: None,
                 cost: Some(0.01),
                 generation_id: None,
+                origin: None,
             }],
             unaccounted: false,
             lines_added: 4,
             lines_removed: 1,
+            settled: Vec::new(),
+            rejected: Vec::new(),
         });
         state.publish();
         let spent = spend.read();
@@ -5138,6 +5331,116 @@ mod tests {
             spent.started_at_ms.is_some_and(|at| at > 1_000),
             "{spent:?}"
         );
+    }
+
+    /// A request whose stream named its generation and not its bill is asked
+    /// about with the Gateway key, and the answer is written into the log of
+    /// the session it belongs to -- `/usage`'s session scope reads it at once,
+    /// and the log says it on the next read (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`). An answer about another session is not
+    /// written into this one.
+    #[test]
+    fn a_pending_bill_is_asked_for_with_the_gateway_key_and_written_into_its_session() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        let spend = SessionSpend::default();
+        state.spend = spend.clone();
+        const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+        let bill = crate::gateway::protocol::Billing {
+            at_ms: 1_900,
+            model: "fake/model-a".to_string(),
+            generation_id: Some(ID.to_string()),
+            cost: 0.0125,
+            input_tokens: 1340,
+            output_tokens: 250,
+            cache_read_tokens: 300,
+            cache_write_tokens: 40,
+            reasoning_tokens: Some(50),
+        };
+        let answered_bill = bill.clone();
+        state.bills = super::super::reconcile::Reconciler::answering(
+            move |origin, secret, id| {
+                assert_eq!((origin, secret, id), ("http://127.0.0.1:4100", "key", ID));
+                crate::gateway::generation::Lookup::Found(answered_bill.clone())
+            },
+            Duration::from_millis(1),
+        );
+        let recorder = &mut state.conversation.as_mut().expect("opened").recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: None,
+                generation_id: Some(ID.to_string()),
+                origin: Some("http://127.0.0.1:4100".to_string()),
+            }],
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        });
+        let session = recorder.id().clone();
+        state.publish();
+        assert_eq!(spend.read().usage.pending().count(), 1);
+
+        state.ask_for_bills();
+        let answered = on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, state.bills.next())
+                .await
+                .expect("an answer")
+        });
+        assert_eq!(answered.session, session.as_str());
+
+        let elsewhere = super::super::reconcile::Answered {
+            session: "another".to_string(),
+            ..answered.clone()
+        };
+        state.settle_bill(&elsewhere);
+        assert_eq!(spend.read().usage.pending().count(), 1);
+
+        state.settle_bill(&answered);
+        let settled = &spend.read().usage.requests[0];
+        assert_eq!(settled.cost, Some(0.0125));
+        assert_eq!((settled.at_ms, settled.duration_ms), (1_900, 700));
+        assert!(!settled.pending());
+        state.conversation = None;
+        let detail = state
+            .store
+            .detail(&crate::session::Selector::Id(session), workspace.path())
+            .expect("the log reads back");
+        assert_eq!(detail.state.usage.requests[0], *settled);
     }
 
     #[test]
@@ -5600,6 +5903,7 @@ mod tests {
                 grants: Grants::default(),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -7068,6 +7372,109 @@ mod tests {
             .expect("open the store");
         let runtime = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         (home, workspace, runtime)
+    }
+
+    /// The roots a conversation's next turn runs in, besides the workspace.
+    fn turn_roots(state: &mut Runtime) -> Vec<std::path::PathBuf> {
+        state.ready(&CancelToken::new()).expect("a conversation");
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .scope()
+            .additional_roots()
+            .to_vec()
+    }
+
+    #[test]
+    fn a_workspace_change_is_saved_and_in_force_from_the_next_turn() {
+        let (home, workspace, mut state) = a_runtime_that_can_open_one();
+        let extra = tempfile::tempdir().expect("extra");
+        let extra_path = extra.path().canonicalize().expect("canonical");
+        assert!(turn_roots(&mut state).is_empty());
+
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add(extra.path().to_string_lossy().into_owned()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+        assert_eq!(notice.topic, "workspace");
+        assert!(
+            notice
+                .body
+                .contains("saved_changed=true runtime_changed=true"),
+            "{}",
+            notice.body
+        );
+        assert_eq!(
+            access.expect("in force").saved(),
+            [extra_path.to_string_lossy().into_owned()]
+        );
+        // The open conversation's next turn, and the profile a launch reads.
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra_path));
+        let reloaded = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(
+            reloaded.additional_directories,
+            [extra_path.to_string_lossy().into_owned()]
+        );
+
+        let UiEvent::Workspace { notice, access } =
+            state.change_workspace(&workspace_access::Action::Clear)
+        else {
+            panic!("not a workspace answer");
+        };
+        assert!(
+            notice.body.ends_with("additional directories: (none)"),
+            "{}",
+            notice.body
+        );
+        assert!(access.expect("in force").entries().is_empty());
+        assert!(turn_roots(&mut state).is_empty());
+    }
+
+    #[test]
+    fn a_refused_workspace_change_changes_nothing() {
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add("../no-such-directory".to_string()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Error);
+        assert_eq!(
+            notice.body,
+            "Workspace update rejected: directory does not exist"
+        );
+        assert!(access.is_none());
+        assert!(state.config.additional_directories.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_directory_swapped_for_a_link_is_out_of_the_next_turn() {
+        // Resolved once, when it was added, and never again: the turn after
+        // the swap does not run in the link's target.
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let base = tempfile::tempdir().expect("base");
+        let base = base.path().canonicalize().expect("canonical");
+        let extra = base.join("extra");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir(&extra).expect("extra");
+        std::fs::create_dir(&elsewhere).expect("elsewhere");
+        state.change_workspace(&workspace_access::Action::Add(
+            extra.to_string_lossy().into_owned(),
+        ));
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra));
+
+        std::fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("swap");
+        assert!(turn_roots(&mut state).is_empty());
     }
 
     #[test]

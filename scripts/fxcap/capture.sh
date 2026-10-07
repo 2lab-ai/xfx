@@ -27,6 +27,11 @@
 #                          workspace before launch
 #   githead <branch>       makes the workspace a checkout on <branch>: a
 #                          `.git/HEAD` naming it, and nothing else
+#   dir <name> [<from>]    a directory beside the workspace, <run>/<name>, made
+#                          before launch -- empty, or a copy of scenarios/<from>
+#                          -- so `/workspace add ../<name>` names a directory
+#                          inside the run and nowhere else (a plain name: no
+#                          `/`, not `.` or `..`)
 #   sparsepng <name> <bytes>
 #                          a file of <bytes> in the workspace that begins with
 #                          the PNG signature and is a hole after it -- an image
@@ -159,6 +164,13 @@ main() {
       dd if=/dev/zero of="$run/work/${png%% *}" bs=1 count=0 seek="${png#* }" 2>/dev/null
       printf '\211PNG\r\n\032\n' | dd of="$run/work/${png%% *}" conv=notrunc 2>/dev/null
     fi
+    if [[ $line == dir\ * ]]; then
+      local name from
+      read -r name from <<< "${line#dir }"
+      case $name in ''|.|..|*/*) echo "dir takes a plain name, not $name" >&2; exit 2 ;; esac
+      mkdir -p "$run/$name"
+      [[ -n $from ]] && cp -R "$scenarios/$from/." "$run/$name/"
+    fi
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
@@ -251,7 +263,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng) ;;
+      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;

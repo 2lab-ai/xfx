@@ -52,7 +52,7 @@ use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use crate::gateway::protocol::{
-    Completion, CompletionRequest, ContentPart, FinishReason, Message, ToolChoice,
+    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message, ToolChoice,
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
@@ -164,12 +164,29 @@ pub(crate) fn may_have_billed(err: &ProviderError) -> bool {
 /// bill when it gave one ([`Completion::billing`]); otherwise the request as
 /// asked of `model`, its token totals when they were said, and **no cost** --
 /// a request whose spend nobody reported, which `/usage` counts as missing
-/// rather than as free. A turn's steps and a compaction's notes requests are
-/// kept alike (`crate::agent::compact`).
+/// rather than as free. One whose generation was named is pending rather than
+/// missing: it keeps the id and where to ask, and the runtime asks
+/// (upstream's `.deferred`, `gateway.zig:650-660`). A turn's steps and a
+/// compaction's notes requests are kept alike (`crate::agent::compact`).
 pub(crate) fn request_usage(completion: &Completion, model: &str, took: Duration) -> RequestUsage {
     let duration_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+    let unbilled = |generation: Option<&Deferred>| RequestUsage {
+        at_ms: crate::session::event::system_now_ms(),
+        duration_ms,
+        model: model.to_string(),
+        input_tokens: completion.usage.input_tokens.unwrap_or(0),
+        output_tokens: completion.usage.output_tokens.unwrap_or(0),
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        reasoning_tokens: None,
+        cost: None,
+        generation_id: generation.map(|deferred| deferred.generation_id.clone()),
+        origin: generation.map(|deferred| deferred.origin.clone()),
+    };
     match &completion.billing {
-        Some(bill) => RequestUsage {
+        Some(Bill::Deferred(deferred)) => unbilled(Some(deferred)),
+        None => unbilled(None),
+        Some(Bill::Exact(bill)) => RequestUsage {
             at_ms: bill.at_ms,
             duration_ms,
             model: bill.model.clone(),
@@ -180,18 +197,7 @@ pub(crate) fn request_usage(completion: &Completion, model: &str, took: Duration
             reasoning_tokens: bill.reasoning_tokens,
             cost: Some(bill.cost),
             generation_id: bill.generation_id.clone(),
-        },
-        None => RequestUsage {
-            at_ms: crate::session::event::system_now_ms(),
-            duration_ms,
-            model: model.to_string(),
-            input_tokens: completion.usage.input_tokens.unwrap_or(0),
-            output_tokens: completion.usage.output_tokens.unwrap_or(0),
-            cache_read_tokens: 0,
-            cache_write_tokens: 0,
-            reasoning_tokens: None,
-            cost: None,
-            generation_id: None,
+            origin: None,
         },
     }
 }
@@ -480,6 +486,8 @@ impl TurnMachine {
                 unaccounted: self.unaccounted,
                 lines_added: u64::try_from(self.lines.added).unwrap_or(u64::MAX),
                 lines_removed: u64::try_from(self.lines.removed).unwrap_or(u64::MAX),
+                settled: Vec::new(),
+                rejected: Vec::new(),
             });
         }
 
@@ -976,12 +984,8 @@ impl TurnMachine {
         }
     }
 
-    /// Keeps what one completed request cost, for `/usage`.
-    ///
-    /// The provider's own bill when it gave one ([`Completion::billing`]);
-    /// otherwise the request as asked, its token totals when they were said,
-    /// and **no cost** -- a request whose spend nobody reported, which
-    /// `/usage` counts as missing rather than as free.
+    /// Keeps what one completed request cost, for `/usage`
+    /// ([`request_usage`]).
     fn account(&mut self, completion: &Completion, took: Duration) {
         self.requests
             .push(request_usage(completion, &self.request.model, took));
