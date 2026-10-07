@@ -1,15 +1,15 @@
-x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
 
 ┃ run cmd
 
-● 1 tool call · 1 command
-└ Ran sleep 6
+● 1 tool call · 1 command · 1 cancelled
+└ Cancelled sleep 6
 
-■ Cancelled · What can xfx do differently?
+■ Cancelled sleep 6 · What can xfx do differently?
 
 ┃
 
-yolo · model-a
+full access · model-a
 
 
 

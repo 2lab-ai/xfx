@@ -1,0 +1,33 @@
+# The row after a retried request gets through. One 500, then a command
+# (each product's own shell tool, in its no-questions mode) that runs four
+# seconds while the turn goes on: the step that recovered is not the turn's
+# last, so whatever the row says about the recovery is on the screen while
+# the command runs (rec-*). Then a 500 and a slow answer: what the row says
+# while a retried stream is arriving (slow-*).
+fx: gateway interrupt-recovered-fx.json
+xfx: gateway interrupt-recovered-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 2
+type run it
+key Enter
+wait 0.5
+snap rec-0.5
+wait 0.9
+snap rec-1.4
+wait 0.4
+snap rec-1.8
+wait 0.6
+snap rec-2.4
+wait 0.8
+snap rec-3.2
+wait 4
+snap rec-done
+type slowly
+key Enter
+wait 1.8
+snap slow-1.8
+wait 1
+snap slow-2.8
+wait 4
+snap slow-done

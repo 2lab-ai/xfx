@@ -271,7 +271,9 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
         .iter()
         .filter_map(|step| match step {
             TurnStep::ToolResult { tool, .. } => Some(tool.as_str()),
-            TurnStep::Assistant { .. } | TurnStep::ToolFeedback { .. } => None,
+            TurnStep::Assistant { .. }
+            | TurnStep::ToolFeedback { .. }
+            | TurnStep::Steered { .. } => None,
         })
         .collect();
     assert_eq!(tools, ["read_file", "edit_file", "terminal"]);

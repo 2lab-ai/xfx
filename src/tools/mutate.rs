@@ -737,18 +737,13 @@ fn commit(
     let source = match decision {
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
-            return ToolResult::failure(format!("{tool} was not permitted: {reason}"))
-                .ending(Outcome::Denied)
-                .with_feedback(feedback)
+            return ToolResult::refused(tool, &reason).with_feedback(feedback)
         }
         // `decide_with_feedback` resolves every prompt; this arm exists so that
         // a future decision variant cannot be silently treated as an approval.
         PolicyDecision::Prompt => {
-            return ToolResult::failure(format!(
-                "{tool} was not permitted: the approval was never resolved"
-            ))
-            .ending(Outcome::Denied)
-            .with_feedback(feedback)
+            return ToolResult::refused(tool, "the approval was never resolved")
+                .with_feedback(feedback)
         }
     };
 

@@ -1,0 +1,41 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "stream lines"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "line 0 of the streamed answer\nline 1 of the streamed answer\nline 2 of the streamed answer\nline 3 of the streamed answer\nline 4 of the streamed answer\nline 5 of the streamed answer\nline 6 of the streamed answer\nline 7 of the streamed answer\nline 8 of the streamed answer\nline 9 of the streamed answer\nline 10 of the streamed answer\nline 11 of the streamed answer\nline 12 of the streamed answer\nline 13 of the streamed answer\nline 14 of the streamed answer\nline 15 of the streamed answer\nline 16 of the streamed answer\nline 17 of the streamed answer\n\n\nThe previous response ended before completion."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may have partially executed. Do not continue this request unless the user explicitly asks to continue.\n</turn_aborted>"
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "stream words"
+    }
+   ]
+  }
+ ]
+}

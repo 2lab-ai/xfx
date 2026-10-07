@@ -102,6 +102,9 @@ pub(crate) enum HydratedStep {
     },
     /// What the user said at an approval, as the live amendment row says it.
     Feedback(String),
+    /// A prompt the person sent into the turn, as its card was written when
+    /// the turn took it.
+    Steer(String),
 }
 
 /// How a turn ended, as far as its summary row is concerned.
@@ -181,6 +184,7 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
             TurnStep::ToolFeedback { text, .. } => {
                 steps.push(HydratedStep::Feedback(text.clone()));
             }
+            TurnStep::Steered { text } => steps.push(HydratedStep::Steer(text.clone())),
         }
     }
     let ending = match &turn.outcome {

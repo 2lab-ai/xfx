@@ -877,13 +877,16 @@ pub(crate) struct Shell {
     /// and so are the cancelled work starting late rather than a new turn
     /// ([`UiEvent::TurnStarted`]).
     cancel_covers: usize,
-    /// The retry the turn is waiting on, while it is ([`super::retry`]).
+    /// What the activity row says about the turn's recovery, while it says
+    /// anything ([`super::retry::Row`]).
     ///
     /// It replaces the activity row rather than sitting beside it, as
-    /// upstream's recovery label does (`worker_status.zig:41-49`), and it goes
-    /// the moment the turn shows any sign of having got through -- an answer,
-    /// a tool, a question -- or of being over.
-    retry: Option<super::retry::Standing>,
+    /// upstream's recovery label does (`worker_status.zig:41-49`): a retry's
+    /// label until the step it retried has got through, then `✓ recovered ·
+    /// attempt N` for a moment -- through whatever the turn does next, a tool
+    /// included (`fx-interrupt-recovered-40x120-rec-1.4`) -- and nothing once
+    /// the turn is over.
+    retry: Option<super::retry::Row>,
     /// The compaction the activity row is about, running or just ended
     /// ([`super::compaction`]).
     ///
@@ -891,9 +894,6 @@ pub(crate) struct Shell {
     /// over the turn's (`frameOwnedActivityProjection`, `render_input.zig:
     /// 699-719`), and it never writes into the document.
     compaction: Option<Compaction>,
-    /// How many submissions are waiting behind the one in flight, as of the
-    /// last settle. Cached for the same reason [`Self::escape_armed`] is.
-    queued: usize,
     /// What the turn is doing, and how long it has been doing it.
     activity: Activity,
     /// Which phase of the activity row's blink the band is on.
@@ -1123,6 +1123,10 @@ pub(crate) struct Shell {
     /// re-solved from exactly this field, so the row's presence and its text
     /// cannot disagree.
     activity_row: Option<String>,
+    /// The rows a recovery's label wraps onto under [`Self::activity_row`],
+    /// up to two (`max_static_status_activity_rows`, `render_input.zig:406`).
+    /// Re-solved into the geometry with the row, as the row is.
+    activity_more: Vec<String>,
     /// Whether the screen owes a reset's scrollback handoff
     /// (`super::frame::Band::hand_off`), and how many blank rows the document
     /// it hands off ends on.
@@ -1197,6 +1201,12 @@ pub(crate) struct Shell {
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
     prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>)>,
+    /// The prompts sent into the running turn and not yet taken by it
+    /// ([`crate::agent::steering`]), oldest first: the number the runtime
+    /// knows each by, the prompt as the model is given it, and its card.
+    /// Shown in the band as upstream shows a steer (`┋ <prompt>`), and each
+    /// card written when the turn takes it ([`UiEvent::Steered`]).
+    steers: Vec<(u64, String, String)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -1860,7 +1870,6 @@ impl Shell {
             cancel_covers: 0,
             retry: None,
             compaction: None,
-            queued: 0,
             activity: Activity::new(),
             phase: 0,
             panel: None,
@@ -1922,6 +1931,7 @@ impl Shell {
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
+            activity_more: Vec::new(),
             handoff: None,
             tail_unknown: false,
             draining: None,
@@ -1934,6 +1944,7 @@ impl Shell {
             trailer: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
+            steers: Vec::new(),
             session_title: None,
             turn_title: None,
             title_owed: true,
@@ -1987,19 +1998,33 @@ impl Shell {
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
-            // A waiting prompt's rows, between the turn's blank row and a
-            // blank row of their own -- when the band was solved with them
-            // ([`layout::solve_band_with_banner`]), which is the only way the
-            // padding is that tall.
+            // A recovery's wrapped rows under it, then the turn's blank row,
+            // then a waiting prompt's rows and a blank row of their own --
+            // each only when the band was solved with it
+            // ([`layout::solve_band_tall`]). The padding is how tall the
+            // band was solved, and [`Self::fit`] tries the three shapes in
+            // this order, so the first shape the padding matches is the one
+            // it chose.
             let banner = self.banner_rows(self.geometry.cols);
-            if !banner.is_empty() && padding == banner.len() + 2 {
+            let more = self.activity_more.len();
+            let with_banner =
+                |more: usize| !banner.is_empty() && padding == more + banner.len() + 2;
+            let (more, show_banner) = if more > 0 && with_banner(more) {
+                (more, true)
+            } else if more > 0 && padding == more + 1 {
+                (more, false)
+            } else {
+                (0, with_banner(0))
+            };
+            rows.extend(self.activity_more.iter().take(more).cloned());
+            if show_banner {
                 rows.push(String::new());
                 for row in banner {
                     rows.push(self.painted(self.palette.dim(), row));
                 }
                 rows.push(String::new());
             } else {
-                rows.extend(std::iter::repeat_n(String::new(), padding));
+                rows.extend(std::iter::repeat_n(String::new(), padding - more));
             }
         }
         // The composer's own rows, as many of them as the window shows, each
@@ -2310,11 +2335,10 @@ impl Shell {
         // `red_style` while it has time on the screen left
         // ([`Self::warning_shown`]). An armed cue outranks the warning
         // (`dangerStatusText` is empty while one is, `:580`).
-        let cue_style = format!("{}{}", self.palette.reset(), self.palette.dim());
+        let cue_style = self.palette.dim().to_string();
         let (model, effort, speed) = self.hinted_model();
         let mut hint = Hint {
             missing_credential: self.missing_credential,
-            queued: self.queued,
             mode: self.mode,
             model: &model,
             effort: effort.as_ref().map(Effort::display),
@@ -2352,6 +2376,7 @@ impl Shell {
             } else {
                 self.palette.danger()
             },
+            close: self.palette.reset(),
             accent: (self.palette.activity(), self.palette.statusline()),
         };
         let cols = self.geometry.cols;
@@ -2894,6 +2919,8 @@ impl Shell {
                     ),
                     Role::Notice,
                 )),
+                // A steer carries no images, so its card has no badge links.
+                HydratedStep::Steer(text) => self.run_mark(Mark::Card(text, BadgeLinks::new())),
             }
         }
         self.full.stamp_with(Some(concluded));
@@ -3046,8 +3073,10 @@ impl Shell {
             // ([`Self::cancel_turn`]).
             UiEvent::Delta(text) => {
                 if !self.cancelling {
-                    // The attempt got through: the answer is the evidence.
-                    self.retry = None;
+                    // A retried answer arriving leaves the row as it is:
+                    // upstream's says the retry until the step has got
+                    // through (`fx-interrupt-recovered-40x120-slow-2.8`), and
+                    // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
                 }
             }
@@ -3066,10 +3095,41 @@ impl Shell {
                 delay,
             } => {
                 if !self.cancelling {
-                    self.retry = Some(super::retry::Standing {
+                    self.retry = Some(super::retry::Row::Retrying(super::retry::Standing {
                         cause,
                         diagnostic,
                         deadline: Instant::now() + delay,
+                    }));
+                    self.render.request(Reason::Footer);
+                }
+            }
+            // The turn took these steers: each leaves the band and its card is
+            // written now -- behind whatever of the answer the pacer still
+            // holds, and after the line the answer was in the middle of, which
+            // the card closes (`fx-interrupt-steer-40x120-steer-stream`: the
+            // cut answer's words, then `┃ what are you doing`).
+            UiEvent::Steered { ids } => {
+                let mut delivered = Vec::new();
+                self.steers.retain(|(id, _, card)| {
+                    let taken = ids.contains(id);
+                    if taken {
+                        delivered.push(card.clone());
+                    }
+                    !taken
+                });
+                // A steer carries no images, so no badge links.
+                for card in delivered {
+                    self.echo(&card, BadgeLinks::new());
+                }
+                self.refit();
+                self.render.request(Reason::Footer);
+            }
+            // The retried step got through: said for a moment, from now.
+            UiEvent::Recovered { attempt } => {
+                if !self.cancelling {
+                    self.retry = Some(super::retry::Row::Recovered {
+                        attempt,
+                        until: Instant::now() + super::retry::RECOVERED_VISIBLE,
                     });
                     self.render.request(Reason::Footer);
                 }
@@ -3090,7 +3150,6 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Tool { name: tool });
                 }
-                self.retry = None;
                 self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
@@ -3304,7 +3363,6 @@ impl Shell {
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
             UiEvent::Approval(asked) => {
-                self.retry = None;
                 self.ask(asked.id, asked.request);
             }
             // The same three facts for a question the **model** asked: the
@@ -3312,7 +3370,6 @@ impl Shell {
             // not is an approval -- nothing is granted, and refusing it denies
             // nothing ([`super::question`]).
             UiEvent::Question(request) => {
-                self.retry = None;
                 self.ask_question(request);
             }
             UiEvent::TurnEnded { failure } => {
@@ -3393,6 +3450,12 @@ impl Shell {
                 self.retry = None;
                 self.pacer.finish();
                 self.gestures.turn_ended();
+                // A steer the turn never took -- sent after its last answer
+                // had looked for one, or into a turn that failed first -- is
+                // an ordinary prompt now, for the turn after, as upstream
+                // runs a prompt that missed its turn (`handoff`,
+                // `worker_runtime.zig:1196-1206`).
+                self.hand_on_steers();
                 // A column that wanted the catalog while this held the queue
                 // asks for it now, rather than on the next keystroke.
                 if self.catalog_known == CatalogKnown::Wanted
@@ -6933,11 +6996,6 @@ impl Shell {
         self.settle_usage();
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
-        let queued = self.work.queued();
-        if queued != self.queued {
-            self.queued = queued;
-            self.render.request(Reason::Footer);
-        }
         // **Nothing in hand is nothing that can still answer a cancel.** The
         // runtime reads a cancellation at the top of its loop before it takes
         // the next item (`super::worker`'s `turn_loop`, `biased`), so a prompt
@@ -7214,11 +7272,20 @@ impl Shell {
         // A retry the turn is waiting on is the row, whole, in the warning
         // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
         // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
-        // counting down on this clock.
+        // counting down on this clock; a recovery is `✓ recovered · attempt
+        // N` in `green_style`, which is the same grey in both palettes
+        // (`theme.zig:87`, `:130`). Either one too wide for the screen goes on
+        // up to two rows more, as upstream's does (`fx-interrupt-retry-24x80-
+        // r0.15`: `  request in 1s` under the label), each row painted and
+        // closed on its own.
         //
         // A compaction takes the row from the turn's own label while it shows
         // anything (`frameOwnedActivityProjection`, `render_input.zig:699-719`):
         // its phase and clock while it runs, its sentence once it has ended.
+        let said = self
+            .retry
+            .as_ref()
+            .and_then(|row| row.label(now).map(|label| (label, row.keeps_tail())));
         let compaction = self.compaction.as_ref().and_then(|compaction| {
             compaction.row(
                 now,
@@ -7228,29 +7295,39 @@ impl Shell {
                 colours,
             )
         });
-        let row = match (self.retry.as_ref(), compaction) {
-            _ if self.modal() => None,
-            (Some(standing), _) if self.activity.working() => {
-                Some(self.painted(self.palette.warning(), standing.label(now)))
+        let (row, more) = match (said, compaction) {
+            _ if self.modal() => (None, Vec::new()),
+            (Some((label, keep_tail)), _) if self.activity.working() => {
+                let mut rows = super::retry::wrapped(&label, self.geometry.cols, keep_tail)
+                    .into_iter()
+                    .map(|row| self.painted(self.palette.warning(), row));
+                let first = rows.next();
+                (first, rows.collect())
             }
-            (_, Some(compaction::Row::Running(row))) => Some(row),
+            (_, Some(compaction::Row::Running(row))) => (Some(row), Vec::new()),
             (_, Some(compaction::Row::Feedback(feedback))) => {
                 let colour = match feedback.tone() {
                     compaction::Tone::Neutral => self.palette.dim(),
                     compaction::Tone::Warning => self.palette.warning(),
                     compaction::Tone::Danger => self.palette.danger(),
                 };
-                Some(self.painted(colour, feedback.label().to_string()))
+                (
+                    Some(self.painted(colour, feedback.label().to_string())),
+                    Vec::new(),
+                )
             }
-            _ => self.activity.row(
-                now,
-                self.phase,
-                self.geometry.cols,
-                (self.tally.input, output),
-                colours,
+            _ => (
+                self.activity.row(
+                    now,
+                    self.phase,
+                    self.geometry.cols,
+                    (self.tally.input, output),
+                    colours,
+                ),
+                Vec::new(),
             ),
         };
-        if row == self.activity_row {
+        if row == self.activity_row && more == self.activity_more {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
             // row that says the same thing is a cost paid on every link.
@@ -7259,8 +7336,10 @@ impl Shell {
         // A row that appeared or went away is a row the band gained or gave
         // back, so the geometry is re-solved before the frame is asked for --
         // `refit` is what moves the divider, and the caret with it.
-        let appeared = row.is_some() != self.activity_row.is_some();
+        let appeared =
+            row.is_some() != self.activity_row.is_some() || more.len() != self.activity_more.len();
         self.activity_row = row;
+        self.activity_more = more;
         if appeared {
             self.refit();
         }
@@ -7881,6 +7960,14 @@ impl Shell {
                     self.moved();
                     return;
                 }
+                // Up at an empty composer, outside a walk, takes back the
+                // newest steer that still waits for a tool's results, into the
+                // composer to be edited -- before the history is walked
+                // (`restoreQueuedSteerToComposer`, `input_completion_runtime.
+                // zig:290-310`; e2e `tui-interrupt-recovery.test.ts:393`).
+                if matches!(action, Action::Up) && self.retract_steer() {
+                    return;
+                }
                 let step = if matches!(action, Action::Up) {
                     HistoryStep::Previous
                 } else {
@@ -8190,10 +8277,12 @@ impl Shell {
     /// The cancellation goes out on the **control** channel, which is unbounded
     /// and read by the runtime *inside* the turn (`super::worker`'s `run_turn`),
     /// so it cannot queue behind the backlog of deltas it is trying to stop.
-    /// The UI deliberately does not cancel anything itself: what it holds is the
-    /// **session's** cancellation, and cancelling that would make every later
-    /// turn be born cancelled (`super::bridge`'s `Cancellation::turn`) -- one
-    /// Ctrl-C would end the conversation rather than the answer.
+    /// The UI does not cancel the **session's** cancellation, which would make
+    /// every later turn be born cancelled (`super::bridge`'s
+    /// `Cancellation::turn`) -- one Ctrl-C would end the conversation rather
+    /// than the answer. What the message raises on its way out is the running
+    /// turn's own flag (`super::worker`'s `WorkHandle::control`), which is how
+    /// a command that holds the runtime's thread is stopped at the keystroke.
     ///
     /// **What the screen shows is decided here, at the keystroke, and not at
     /// the conclusion**: upstream publishes the cancellation the moment it is
@@ -8214,18 +8303,22 @@ impl Shell {
     /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
     /// 5378-5383`).
     ///
-    /// **A call that is still running is not settled by this keystroke**, and
-    /// that is the difference from upstream's `fx-interrupt-40x120-cmd-cc`,
-    /// where the command is killed at once. Here a running executor holds the
-    /// runtime's thread until it returns, so the stop is read only after the
-    /// command has finished (`super::worker`'s `raced_against_control` polls
-    /// the control channel beside the turn, not inside a tool). A `Cancelled`
-    /// row now would be the screen claiming a stop the command never had, and
-    /// so would the turn's line: both wait for the turn to end. The call's
-    /// real result settles its row, one the turn ends without is settled as
-    /// stopped with its own line ([`Mark::TurnOver`]), and the turn's line is
-    /// written then only when no call's line was ([`Self::cancel_owed`]). The
-    /// activity row stays while the command runs, because it does.
+    /// **A running command is settled by this keystroke**, as upstream's is
+    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
+    /// sleep 6 · …` at once): the turn's flag is raised before the message goes
+    /// ([`super::worker::WorkHandle::control`]), and the command's supervisor
+    /// kills it and its group within a poll (`crate::tools::terminal`). Its
+    /// line is the turn's, so no second one is written; the result the runtime
+    /// reports for it next is the same stop in the tool's words, and is dropped
+    /// ([`Self::abandoned`]).
+    ///
+    /// **Any other running call is not**: a file tool does not poll the flag,
+    /// and runs to its end before the turn reads the stop. A `Cancelled` row
+    /// for it now would be the screen claiming a stop the call never had --
+    /// a write that landed shown as one that did not. Its real result settles
+    /// its row, one the turn ends without is settled as stopped with its own
+    /// line ([`Mark::TurnOver`]), and the turn's line is written then only when
+    /// no call's line was ([`Self::cancel_owed`]).
     fn cancel_turn_with(&mut self, written: bool) {
         if self.compacting() {
             self.stop_compaction();
@@ -8235,7 +8328,13 @@ impl Shell {
         // is dropping exactly these and the count is on its way to zero: what
         // the user is owed a sentence about is what was waiting when they
         // pressed the key.
-        let waiting = self.work.queued() > 0;
+        let waiting = self.work.queued() > 0 || !self.steers.is_empty();
+        // The steers go with the turn they were sent into, as the queue goes
+        // with it: before the stop is sent, so the turn cannot take one on
+        // its way out.
+        self.work.drop_steers();
+        let steered = !self.steers.is_empty();
+        self.steers.clear();
         // Quoting what has been submitted **so far** is what keeps the drop
         // from reaching past this keystroke: a prompt typed while this message
         // is still in flight is a new intention, and the runtime is told
@@ -8254,10 +8353,13 @@ impl Shell {
             self.prompts.clear();
             // The waiting prompt's rows go with it.
             self.refit();
+        } else if steered {
+            self.refit();
         }
         // A prompt the runtime took before it read this is still to say it
         // started; with nothing waiting behind it, it is the only entry left.
         self.cancel_covers = self.prompts.len();
+        let written = written || (self.group.running_command() && self.settle_group());
         if !written && self.group.running() {
             self.cancel_owed = Some(waiting);
             return;
@@ -8539,6 +8641,26 @@ impl Shell {
         // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
         // #3][Image #4] what is in this image?`). Read before the draft goes.
         let counted = self.editor.entities().with_image_tokens(text);
+        // **Into the turn that is running**, as upstream's steer
+        // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
+        // takes it at its next boundary -- at once over an answer, after a
+        // tool's results, after the model's answer -- and its card is written
+        // then ([`UiEvent::Steered`]). Not into a turn the person has stopped,
+        // and not into one that has taken its last steer: then it is an
+        // ordinary prompt, for the turn after. Nor a prompt with images, which
+        // upstream hands to the next turn rather than steering
+        // (`sameTurnSteeringEligible`, `worker_runtime.zig:1109-1113`).
+        if images.is_empty() && self.activity.working() && !self.cancelling {
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.take_draft();
+                self.edited(None);
+                self.steers.push((id, prompt, text.to_string()));
+                self.refit();
+                self.render.request(Reason::Footer);
+                self.gestures.submitted();
+                return;
+            }
+        }
         // What the card's badges link to: the files these images were read
         // from, as the composer's badges did.
         let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
@@ -8581,6 +8703,65 @@ impl Shell {
             }
             Err(rejected) => self.refused(rejected),
         }
+    }
+
+    /// Takes the newest steer back into an empty composer, while the turn has
+    /// not taken it (`popQueuedSteerForEdit`, `worker_runtime.zig:1340-1386`):
+    /// only one waiting on a tool's results, and only from an empty composer
+    /// outside a history walk. `true` when one came back.
+    fn retract_steer(&mut self) -> bool {
+        if !self.editor.is_empty() || self.history.walking() {
+            return false;
+        }
+        let Some(steer) = self.work.retract_steer() else {
+            return false;
+        };
+        let Some(at) = self.steers.iter().position(|(id, _, _)| *id == steer.id) else {
+            return false;
+        };
+        let (_, prompt, card) = self.steers.remove(at);
+        if !self.editor.set_text(&prompt, Entities::new()) {
+            // Past what a composer holds: sent back into the turn rather than
+            // lost (the paste it came from was summarized in the band).
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.steers.insert(at, (id, prompt, card));
+            }
+            return false;
+        }
+        self.edit_history.boundary();
+        self.edited(None);
+        self.refit();
+        self.render.request(Reason::Footer);
+        true
+    }
+
+    /// Sends on, as ordinary prompts, the steers the turn ended without taking
+    /// ([`Self::steers`]), each waiting in the band for its own turn as a
+    /// prompt submitted behind a running one does. One the queue has no room
+    /// for goes back into an empty composer rather than nowhere.
+    fn hand_on_steers(&mut self) {
+        for (_, prompt, card) in std::mem::take(&mut self.steers) {
+            match self.work.submit(TurnWork::Submit(prompt.clone())) {
+                Ok(()) => {
+                    let mut estimate = Estimator::default();
+                    estimate.consume(&card);
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title_of(&prompt),
+                        Some((card, BadgeLinks::new())),
+                    ));
+                }
+                Err(rejected) => {
+                    if self.editor.is_empty() {
+                        let _ = self.editor.set_text(&prompt, Entities::new());
+                        self.edited(None);
+                    }
+                    self.refused(rejected);
+                }
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Footer);
     }
 
     /// What a submission the runtime would not take costs.
@@ -10036,7 +10217,10 @@ impl Shell {
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
+        // Nor will a steer sent into that turn.
         self.prompts.clear();
+        self.work.drop_steers();
+        self.steers.clear();
         self.forget_session_title();
         self.tally = Tally::default();
         self.activity.end();
@@ -10114,6 +10298,8 @@ impl Shell {
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Retrying { .. }
+            | UiEvent::Recovered { .. }
+            | UiEvent::Steered { .. }
             | UiEvent::Usage { .. }
             | UiEvent::Output(_) => true,
             // A question the cancelled turn asked before it heard about the
@@ -10533,20 +10719,33 @@ impl Shell {
         } else {
             0
         };
+        // **And a recovery's rows under the turn's**, when its label wraps: the
+        // band grows by them, as upstream's activity block does
+        // (`activityProjectionRows`, `render_input.zig:689-697`). Given up
+        // before the waiting prompt's when the screen cannot hold both, and
+        // the first row is then the label cut at the screen's edge.
+        let more = if activity {
+            u16::try_from(self.activity_more.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let tries: &[(u16, u16)] = &[(more, banner), (more, 0), (0, banner)];
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
-                (banner > 0)
-                    .then(|| {
-                        layout::solve_band_with_banner(
+                tries
+                    .iter()
+                    .filter(|(more, banner)| *more > 0 || *banner > 0)
+                    .find_map(|&(more, banner)| {
+                        layout::solve_band_tall(
                             rows,
                             cols,
                             input_rows,
                             panel(input_rows),
+                            more,
                             banner,
                         )
                     })
-                    .flatten()
                     .or_else(|| {
                         layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
                     })
@@ -10563,8 +10762,14 @@ impl Shell {
     fn banner_rows(&self, cols: u16) -> Vec<String> {
         let width = usize::from(cols.saturating_sub(2)).max(1);
         let mut rows = Vec::new();
-        for (_, _, card) in &self.prompts {
-            let Some((card, _)) = card else {
+        // A steer carries no images, so its card has no badge to link.
+        let steers = self.steers.iter().map(|(_, _, card)| Some(card.as_str()));
+        let waiting = self
+            .prompts
+            .iter()
+            .map(|(_, _, card)| card.as_ref().map(|(card, _)| card.as_str()));
+        for card in steers.chain(waiting) {
+            let Some(card) = card else {
                 continue;
             };
             rows.extend(
@@ -11010,9 +11215,13 @@ mod tests {
     /// the row is there to say.
     const IDLE_HINT: &str = "run `xfx setup` · auto · glm-5.2";
 
-    /// The same row with `queued N` in its place in the order.
-    fn queued_hint(depth: usize) -> String {
-        format!("run `xfx setup` · queued {depth} · auto · glm-5.2")
+    /// The same row with a prompt waiting: unchanged, because upstream's hint
+    /// row has no queue segment (`buildStatuslineItems`,
+    /// `app_render_runtime.zig:875-899`; `fx-interrupt-steer-40x120-steer-tool`)
+    /// -- the waiting prompt is its `┋` row in the band. Kept as a name so
+    /// each case still says it was asked with a prompt waiting.
+    fn queued_hint(_depth: usize) -> String {
+        IDLE_HINT.to_string()
     }
 
     /// The same row with the double-Escape warning flush against the last
@@ -11021,10 +11230,12 @@ mod tests {
         let padding = usize::from(cols)
             - usize::from(super::super::wrap::width(IDLE_HINT))
             - usize::from(super::super::wrap::width(ESCAPE_ARMED));
+        // The row's run closed before the padding, as upstream's is before
+        // the slot's column (`input_presentation.zig:551-567`).
         format!(
             "{IDLE_HINT}{}{}{}{ESCAPE_ARMED}",
-            " ".repeat(padding),
             PALETTE.reset(),
+            " ".repeat(padding),
             PALETTE.dim()
         )
     }
@@ -15766,6 +15977,122 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_sent_while_a_turn_runs_goes_into_it_and_its_card_waits_for_delivery() {
+        // Upstream's steer (`fx-interrupt-steer-40x120-steer-tool`): the prompt
+        // is the band's `┋` row while the turn holds it, holds no place in the
+        // queue, and its card is written when the turn takes it
+        // (`-steer-done`: `┃ change tone` under the command's row).
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        shell.route_bytes(b"change tone\r");
+        assert!(steering.pending(), "the prompt never reached the turn");
+        assert!(
+            shell.work.outstanding() <= 1,
+            "the steer took a place in the queue"
+        );
+        assert_eq!(shell.editor.text(), "", "the draft stayed");
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .band_rows()
+                .iter()
+                .any(|row| uncoloured(row) == "\u{250b} change tone"),
+            "{:#?}",
+            shell.band_rows()
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the card was written at the keystroke"
+        );
+
+        let taken = steering.take();
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let document = shell.released();
+        assert!(
+            document
+                .iter()
+                .any(|row| uncoloured(row) == "\u{2503} change tone"),
+            "{document:#?}"
+        );
+        assert!(
+            !shell
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the steer stayed in the band after delivery"
+        );
+    }
+
+    #[test]
+    fn up_takes_back_a_steer_waiting_on_a_tool_and_not_one_that_cut_an_answer() {
+        // `tui-interrupt-recovery.test.ts:393` and `popQueuedSteerForEdit`
+        // (`worker_runtime.zig:1340-1386`): only while a tool runs, only at an
+        // empty composer.
+        let mut answering = running("run it");
+        let steering = answering.work.steering();
+        steering.open();
+        answering.route_bytes(b"change tone\r");
+        // Up walks the history instead, as upstream's does when nothing can
+        // be taken back.
+        answering.route_bytes(b"\x1b[A");
+        assert!(steering.pending(), "a steer that cut an answer came back");
+        assert_eq!(answering.steers.len(), 1);
+
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the steer was taken back and still sent"
+        );
+        assert!(shell.steers.is_empty());
+        // Edited and sent again: a steer once more.
+        shell.route_bytes(b" and keep it short\r");
+        assert_eq!(
+            steering.take().first().map(|steer| steer.text.clone()),
+            Some("change tone and keep it short".to_string())
+        );
+    }
+
+    #[test]
+    fn a_steer_the_turn_never_took_is_the_next_prompt_and_a_stop_drops_it() {
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"later\r");
+        // The turn ended without taking it (the runtime closes the box first).
+        steering.close();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.picks_up(), TurnWork::Submit("later".to_string()));
+        assert!(shell.steers.is_empty());
+
+        let mut stopped = running("run it");
+        let steering = stopped.work.steering();
+        steering.open();
+        stopped.route_bytes(b"never\r");
+        stopped.route_bytes(&[0x03]);
+        assert!(!steering.pending(), "a stopped turn kept the steer");
+        assert!(stopped.steers.is_empty());
+        assert!(
+            stopped.document().iter().any(|row| row.contains("queue")),
+            "the drop was not said: {:#?}",
+            stopped.document()
+        );
+    }
+
+    #[test]
     fn a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between() {
         // `fx-interrupt2-40x120-esc1`: `esc again to interrupt` flush with the
         // last column; `-esc2`: the cancelled line, and the row the session's
@@ -15804,10 +16131,13 @@ mod tests {
     #[test]
     fn the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed() {
         // `fx-interrupt-40x120-esc1.ansi`: `…model-aESC[39m<spaces>ESC[38;5;245m
-        // esc again to interrupt` -- the row's run closed, the cue in
-        // `dim_style`. The same number as the row's grey in the dark palette,
-        // so the light one is where the role shows (`theme.zig:123,128`: 241
-        // for the row, 247 for the cue).
+        // esc again to interrupt` -- the row's run closed **before** the
+        // padding, the padding in no colour, the cue in `dim_style`. Claim
+        // changed: the reset was after the padding, so tmux read the padding
+        // as the row's grey (the byte difference the F4 receipt recorded). The
+        // same number as the row's grey in the dark palette, so the light one
+        // is where the role shows (`theme.zig:123,128`: 241 for the row, 247
+        // for the cue).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
             depth: super::super::theme::Depth::Ansi256,
@@ -15815,19 +16145,24 @@ mod tests {
         let mut shell = shell_with(24, 80, light, false);
         shell.escape_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to clear"),
-            "{row:?}"
-        );
+        let closed = |row: &str, cue: &str| {
+            let at = row.find(cue).expect("the cue");
+            let before = &row[..at];
+            let reset = before.rfind("\u{1b}[0m").expect("the run closed");
+            before[reset..]
+                == format!(
+                    "\u{1b}[0m{}\u{1b}[38;5;247m",
+                    " ".repeat(before.len() - reset - 4 - 11)
+                )
+                && before[..reset].ends_with("glm-5.2")
+        };
+        assert!(closed(&row, "esc again to clear"), "{row:?}");
         assert!(row.starts_with("\u{1b}[38;5;241m"), "{row:?}");
 
         shell.escape_armed = false;
         shell.interrupt_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to interrupt"),
-            "{row:?}"
-        );
+        assert!(closed(&row, "esc again to interrupt"), "{row:?}");
     }
 
     #[test]
@@ -16095,10 +16430,14 @@ mod tests {
     #[test]
     fn a_retry_the_turn_waits_on_is_the_activity_row_counting_down() {
         // `fx-retry-40x120-r0.6`: the row, whole, in the warning grey, no
-        // marker; `-r1.3`: the count gone once the attempt is under way;
-        // `-r2.0`: the answer, and the row the turn's own again.
+        // marker; `-r1.3`: the count gone once the attempt is under way. Claim
+        // changed: the retried answer arriving leaves the row as it is
+        // (`fx-interrupt-recovered-40x120-slow-2.8`), and the row is
+        // `✓ recovered · attempt 2` once the step has got through, for 1.5 s
+        // (`worker_status.zig:5`, `fx-interrupt-recovered-40x120-rec-1.4`),
+        // then the turn's own again.
         let mut shell = running("try it");
-        // The capture's width: at 80 columns the label is cut, as upstream's is.
+        // The capture's width: at 80 columns the label wraps, as upstream's does.
         shell.resize(40, 120);
         let now = Instant::now();
         shell.apply(UiEvent::Retrying {
@@ -16114,18 +16453,90 @@ mod tests {
         );
         assert_eq!(PALETTE.warning(), "\u{1b}[38;5;252m");
         shell.settle_band(now + Duration::from_secs(1));
-        assert_eq!(
-            shell.activity_row.as_deref(),
-            Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()).as_str())
-        );
+        let waiting = Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()));
+        assert_eq!(shell.activity_row, waiting);
 
         shell.apply(UiEvent::Delta("Recovered answer.".to_string()));
         shell.settle_band(now + Duration::from_secs(1));
+        assert_eq!(
+            shell.activity_row, waiting,
+            "the answer arriving took the row"
+        );
+
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        // Read after the event, whose moment begins when it is applied.
+        let recovered = Instant::now();
+        shell.settle_band(recovered);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{}\u{2713} recovered \u{b7} attempt 2{}",
+                    PALETTE.warning(),
+                    PALETTE.reset()
+                )
+                .as_str()
+            )
+        );
+        shell.settle_band(recovered + super::super::retry::RECOVERED_VISIBLE);
         let row = shell.activity_row.clone().expect("the turn's row");
         assert!(
             uncoloured(&row).contains("Generating"),
-            "the retry outlived the answer that ended it: {row:?}"
+            "the recovery outlived its moment: {row:?}"
         );
+    }
+
+    #[test]
+    fn escape_at_a_retry_arms_the_interrupt_as_upstreams_does_for_a_retry() {
+        // Upstream's Escape pauses a recovery only while it is waiting for
+        // connectivity (`pauseActiveRecovery`, `input_interrupt_runtime.zig`:
+        // `isConnectivityWaitActive`, set only for `waiting_for_connectivity`,
+        // `worker_runtime.zig:884-888`), the unbudgeted wait a lost connection
+        // gets (`model_response_recovery.zig:166-180`). Every retry this turn
+        // makes is a budgeted one, and over those upstream's Escape goes on to
+        // the interrupt gesture (`app_input_runtime.zig:3163-3176`): armed by
+        // the first, the turn stopped by the second.
+        let mut shell = running("try it");
+        shell.apply(UiEvent::Retrying {
+            cause: "Connection lost",
+            diagnostic: "connection refused".to_string(),
+            delay: Duration::from_secs(2),
+        });
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Escape)], now);
+        shell.settle_band(now);
+        assert!(shell.controlled().is_none(), "one Escape stopped the turn");
+        assert!(shell.interrupt_armed, "the first Escape armed nothing");
+        shell.consume(
+            vec![Input::Action(Action::Escape)],
+            now + Duration::from_millis(300),
+        );
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.retry.is_none());
+    }
+
+    #[test]
+    fn a_recovery_stays_through_the_tool_it_led_to_and_goes_with_the_turn() {
+        // `fx-interrupt-recovered-40x120-rec-1.4`: `✓ recovered · attempt 2`
+        // over the running command's row; the turn's end clears it
+        // (`clear_recovered_route`, `runtime.zig:6471`).
+        let mut shell = running("run it");
+        shell.resize(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        shell.settle_band(now);
+        let row = shell.activity_row.clone().expect("a row");
+        assert_eq!(uncoloured(&row), "\u{2713} recovered \u{b7} attempt 2");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert!(shell.retry.is_none(), "the recovery outlived its turn");
     }
 
     #[test]
@@ -16173,18 +16584,44 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_row_is_cut_to_the_screen_with_its_colour_closed() {
+    fn a_retry_row_too_wide_wraps_onto_the_band_as_upstreams_does() {
+        // Renamed, claim changed (was `a_retry_row_is_cut_to_the_screen_with_
+        // its_colour_closed`): `fx-interrupt-retry-24x80-r0.15` -- the label
+        // broken at the last space that fits, `  request in 1s` under it, each
+        // row painted and closed on its own, and the band a row taller.
         let mut shell = running("try it");
-        shell.resize(24, 40);
+        shell.resize(24, 80);
+        let before = shell.geometry;
         shell.apply(UiEvent::Retrying {
             cause: "Provider unavailable",
-            diagnostic: "HTTP 500: unexpected request".to_string(),
-            delay: Duration::from_secs(2),
+            diagnostic: "HTTP 500 \u{b7} server_error: upstream exploded".to_string(),
+            delay: Duration::from_millis(900),
         });
         shell.settle_band(Instant::now());
-        let row = shell.activity_row.clone().expect("a row");
-        assert!(row.ends_with(PALETTE.reset()), "{row:?}");
-        assert_eq!(super::super::wrap::width(&row), 40, "{row:?}");
+        let warning = PALETTE.warning();
+        let reset = PALETTE.reset();
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{warning}\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream \
+                     exploded \u{b7} retrying{reset}"
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(
+            shell.activity_more,
+            [format!("{warning}  request in 1s{reset}")]
+        );
+        assert_eq!(shell.geometry.activity_padding, before.activity_padding + 1);
+        let band = shell.band_rows();
+        let at = band
+            .iter()
+            .position(|row| row.contains("retrying"))
+            .expect("the row");
+        assert_eq!(band[at + 1], format!("{warning}  request in 1s{reset}"));
+        assert_eq!(band[at + 2], "", "{band:#?}");
     }
 
     #[test]
@@ -16268,27 +16705,29 @@ mod tests {
 
     #[test]
     fn a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile() {
-        // The command holds the turn until it returns, so the turn's line
+        // A file call holds the turn until it returns, so the turn's line
         // waits for the turn's end -- and a prompt typed while it waits is
-        // queued behind it, not a reason to forget the line.
-        let mut shell = running("run it");
+        // queued behind it, not a reason to forget the line. (A command no
+        // longer waits: it is stopped at the keystroke, and this case is now
+        // about the calls that are not.)
+        let mut shell = running("read it");
         shell.apply(tool_start(
             "1",
-            "terminal",
-            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
         ));
         shell.route_bytes(&[0x03]);
         assert!(
             shell.activity_row.is_some(),
-            "the row went while the command still runs"
+            "the row went while the call still runs"
         );
         shell.route_bytes(b"second\r");
         shell.apply(tool_ended(
             "1",
-            "terminal",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::Delta("MARKER-STOPPED\n".to_string()));
         shell.apply(UiEvent::TurnEnded {
@@ -22276,15 +22715,16 @@ mod tests {
     }
 
     #[test]
-    fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
-        // A running executor holds the runtime's thread until it returns, so
-        // the stop is read after the command has finished: a `Cancelled` row at
-        // the keystroke would claim a stop the command never had. The sentence
-        // that answers the key goes under the group, and the command's real
-        // result settles its row above it when it comes. Claim changed: the
-        // answer to the key is the turn's `■ Cancelled` line, written once the
-        // turn has ended -- after the command's real row -- rather than an
-        // interrupt notice at the keystroke.
+    fn stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke() {
+        // Renamed, claim changed (was `stopping_the_turn_while_a_command_runs_
+        // leaves_its_row_to_its_result`): the stop now reaches the command at
+        // once -- the turn's flag is raised with the message and the command's
+        // supervisor kills it within a poll -- so the screen says so at the
+        // keystroke, as upstream's does (`fx-interrupt-40x120-cmd-cc`): the
+        // group's `· 1 cancelled`, `└ Cancelled sleep 30`, and the call's own
+        // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+        // runtime's result for the call, the same stop in the tool's words,
+        // changes nothing, and neither does the turn's conclusion.
         let mut shell = shell(24, 80);
         let _ = turn_running(&mut shell, b"run it\r");
         shell.apply(tool_start(
@@ -22295,32 +22735,87 @@ mod tests {
         let _ = shell.written();
 
         shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.activity_row.is_none(), "the row outlived the stop");
+        let at_the_key = shell.written();
+        assert_eq!(
+            at_the_key,
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
+                "\u{2514} Cancelled sleep 30",
+                "",
+                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "",
+            ],
+            "{at_the_key:#?}"
+        );
+
         shell.apply(tool_ended(
             "1",
             "terminal",
+            false,
+            "aborted by user",
+            CallOutcome::Cancelled,
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let after = shell.written();
+        assert!(
+            !after
+                .iter()
+                .any(|row| row.contains("Cancelled") || row.contains("system")),
+            "the stop was answered twice: {after:#?}"
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result() {
+        // A file tool does not poll the turn's flag and runs to its end before
+        // the turn reads the stop, so a `Cancelled` row at the keystroke would
+        // claim a stop the call never had. Its real result settles its row,
+        // and the turn's line follows once the turn has ended.
+        let mut shell = shell(24, 80);
+        let _ = turn_running(&mut shell, b"read it\r");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
+        ));
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        assert!(
+            !shell.written().iter().any(|row| row.contains("Cancelled")),
+            "a stop the call never had was drawn"
+        );
+        shell.apply(tool_ended(
+            "1",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the turn was cancelled".to_string()),
         });
         let written = shell.written();
         assert!(
-            !written
-                .iter()
-                .any(|row| row.contains("Cancelled sleep") || row.contains("cancelled")),
-            "a stop the command never had was drawn: {written:#?}"
+            !written.iter().any(|row| row.contains("Cancelled big")),
+            "{written:#?}"
         );
-        let notice = written
+        let line = written
             .iter()
             .position(|row| row.starts_with(INTERRUPTED_ROW))
-            .expect("the interrupt notice");
+            .expect("the turn's line");
         assert_eq!(
-            written[notice - 3..notice],
+            written[line - 3..line],
             [
-                "\u{25cf} 1 tool call \u{b7} 1 command",
-                "\u{2514} Ran sleep 30",
+                "\u{25cf} 1 tool call \u{b7} 1 read",
+                "\u{2514} Read big.txt",
                 ""
             ],
             "{written:#?}"

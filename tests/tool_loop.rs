@@ -26,11 +26,11 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 
 use xfx::agent::tokens::Progress;
-use xfx::agent::{run_turn, run_turn_saved, TurnError, TurnJournal, TurnRequest};
+use xfx::agent::{run_turn, run_turn_saved, Steering, TurnError, TurnJournal, TurnRequest};
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
-    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message, Role,
-    ToolCall, ToolChoice, Usage,
+    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message,
+    ResultStatus, Role, ToolCall, ToolChoice, Usage,
 };
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux;
@@ -2407,12 +2407,15 @@ fn replay_shape(messages: &[Message]) -> Vec<String> {
                     ContentPart::ToolResult {
                         call_id,
                         output,
-                        error,
+                        status,
                         ..
-                    } => match (*error, output.as_str()) {
-                        (true, "aborted by user") => format!("{call_id} error aborted by user"),
-                        (true, _) => format!("{call_id} error"),
-                        (false, _) => call_id.clone(),
+                    } => match (status, output.as_str()) {
+                        (ResultStatus::Success, _) => call_id.clone(),
+                        (ResultStatus::Denied, _) => format!("{call_id} denied"),
+                        (ResultStatus::Failure, "aborted by user") => {
+                            format!("{call_id} error aborted by user")
+                        }
+                        (ResultStatus::Failure, _) => format!("{call_id} error"),
                     },
                     ContentPart::RawBlocks(_) => "raw".to_string(),
                     ContentPart::Image { media_type, .. } => {
@@ -2904,6 +2907,253 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
         ],
         "{:#?}",
         replay.messages
+    );
+}
+
+/// A provider that sends a steer into the turn during its call `at`
+/// (0-based), as the person would while that request was answering -- and,
+/// when `hang`, streams `PARTIAL ` and then never answers that call, as a
+/// long answer the steer cuts short.
+struct SteeredProvider {
+    inner: ScriptedProvider,
+    steering: Steering,
+    at: usize,
+    text: &'static str,
+    hang: bool,
+    calls: std::cell::Cell<usize>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for SteeredProvider {
+    async fn stream(
+        &self,
+        request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        if call == self.at {
+            if self.hang {
+                self.inner.seen.borrow_mut().push(request.clone());
+                deltas.text_delta("PARTIAL ").map_err(ProviderError::Sink)?;
+                assert!(self.steering.offer(1, self.text.to_string()));
+                return std::future::pending().await;
+            }
+            assert!(self.steering.offer(1, self.text.to_string()));
+        }
+        self.inner.stream(request, deltas).await
+    }
+}
+
+/// Runs `steps` with a steer sent during call `at`, and hands back the
+/// requests, the journal and the steers the sink was told were taken.
+async fn steered_turn(
+    tree: &Tree,
+    steps: Vec<ScriptedStep>,
+    at: usize,
+    hang: bool,
+) -> (Vec<CompletionRequest>, RecordingJournal, Vec<Event>) {
+    let steering = Steering::new();
+    steering.open();
+    let provider = SteeredProvider {
+        inner: ScriptedProvider::new(steps),
+        steering: steering.clone(),
+        at,
+        text: "change tone",
+        hang,
+        calls: std::cell::Cell::new(0),
+    };
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    xfx::agent::TurnMachine::new(turn("go", context(tree)))
+        .with_steering(steering)
+        .run_journaled(&provider, &mut sink, &mut journal)
+        .await
+        .expect("the turn completes");
+    (provider.inner.requests(), journal, sink.events().to_vec())
+}
+
+/// Each message as `role: text`, results by their call, for a case about the
+/// order the model is told things in.
+fn told(messages: &[Message]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| {
+            let parts: Vec<String> = message
+                .content
+                .iter()
+                .map(|part| match part {
+                    ContentPart::Text { text } => text.clone(),
+                    ContentPart::ToolCall(call) => format!("call {}", call.id),
+                    ContentPart::ToolResult { call_id, .. } => format!("result {call_id}"),
+                    ContentPart::RawBlocks(_) => "raw".to_string(),
+                    ContentPart::Image { media_type, .. } => {
+                        format!("image {}", media_type.label())
+                    }
+                })
+                .collect();
+            format!("{}: {}", message.role.label(), parts.join(" | "))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_steer_cuts_a_tool_free_answer_and_the_turn_goes_on_with_it() {
+    // `fx-interrupt-steer-40x120-bodies/004-completion.json`: the answer as far
+    // as it got, then the steer in upstream's wrapper -- no `ended before
+    // completion`, no `<turn_aborted>` (e2e `tui-interrupt-recovery.test.ts:
+    // 291`). One turn, two requests.
+    let tree = Tree::new();
+    let (requests, journal, _) =
+        steered_turn(&tree, vec![final_step("steered answer.")], 0, true).await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        told(&requests[1].messages),
+        [
+            "user: go".to_string(),
+            "assistant: PARTIAL ".to_string(),
+            format!("user: {}", xfx::agent::steering::message("change tone")),
+        ]
+    );
+    assert_eq!(
+        journal.kinds(),
+        [
+            "user_message",
+            "assistant_message",
+            "steered",
+            "assistant_message",
+            "usage_recorded",
+            "turn_concluded"
+        ]
+    );
+    // A later turn is told the steer as the person typed it
+    // (`fx-interrupt-steer-40x120-bodies/005-completion.json`).
+    let state = replayed(&journal.events, tree.root());
+    assert_eq!(
+        told(&state.history_messages(Wire::VercelGateway).messages),
+        [
+            "user: go",
+            "assistant: PARTIAL ",
+            "user: change tone",
+            "assistant: steered answer."
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_steer_sent_while_a_tool_runs_is_told_after_its_results() {
+    // `fx-interrupt-steer-40x120-bodies/006-completion.json`: the call, its
+    // result, then the steer -- inside the same turn.
+    let tree = Tree::new();
+    tree.write("notes.md", "alpha\n");
+    let (requests, _, events) = steered_turn(
+        &tree,
+        vec![
+            calls_step(vec![read_call("c1", "notes.md")]),
+            final_step("after steer."),
+        ],
+        0,
+        false,
+    )
+    .await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        told(&requests[1].messages),
+        [
+            "user: go".to_string(),
+            "assistant: call c1".to_string(),
+            "tool: result c1".to_string(),
+            format!("user: {}", xfx::agent::steering::message("change tone")),
+        ]
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ToolResult { .. })),
+        "the call never ran"
+    );
+}
+
+#[tokio::test]
+async fn a_steer_that_arrives_with_the_answer_is_told_after_it_and_the_turn_goes_on() {
+    // `append_pending_steering_after_assistant` (`orchestrator.zig:215-238`):
+    // the model's answer, then the steer, and another request.
+    let tree = Tree::new();
+    let (requests, _, _) = steered_turn(
+        &tree,
+        vec![final_step("first answer."), final_step("second answer.")],
+        0,
+        false,
+    )
+    .await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        told(&requests[1].messages),
+        [
+            "user: go".to_string(),
+            "assistant: first answer.".to_string(),
+            format!("user: {}", xfx::agent::steering::message("change tone")),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_refused_call_goes_back_as_a_refusal_live_and_on_resume() {
+    // Upstream says a refused call as `execution-denied` with the refusal as
+    // its reason (`vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:
+    // 742-744`), and a call that failed on its own as `error-text`. Both the
+    // next request of the turn and a resumed session's replay say it so.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment {
+            answer: ApprovalAnswer::Deny,
+            feedback: None,
+            then_cancel: false,
+        }],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![write_call("c1", "notes.md", "alpha\n")]),
+        final_step("not written"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        asking_turn(
+            "write it",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    let refusal = |messages: &[Message]| {
+        messages.iter().find_map(|message| {
+            message.content.iter().find_map(|part| match part {
+                ContentPart::ToolResult { status, output, .. } => Some((*status, output.clone())),
+                _ => None,
+            })
+        })
+    };
+    let (status, output) = refusal(&provider.requests()[1].messages).expect("the result");
+    assert_eq!(status, ResultStatus::Denied, "{output}");
+    assert!(
+        output.starts_with("write_file was not permitted: "),
+        "{output}"
+    );
+
+    let state = replayed(&journal.events, tree.root());
+    let replay = state.history_messages(Wire::VercelGateway);
+    assert_eq!(
+        refusal(&replay.messages),
+        Some((ResultStatus::Denied, output)),
+        "the replay said the refusal as something else"
     );
 }
 
@@ -3826,6 +4076,132 @@ async fn a_retried_attempt_counts_what_it_streamed_before_it_failed() {
         ]
     );
     assert_eq!(turn, Some(43));
+}
+
+/// Streams `half an ans`, sends a steer into the turn and never answers its
+/// first call, as a long answer a steer cuts short; then answers `ok`,
+/// reporting 40.
+struct SteerCutProvider {
+    steering: Steering,
+    calls: std::cell::Cell<usize>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for SteerCutProvider {
+    async fn stream(
+        &self,
+        _request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        if call == 0 {
+            deltas
+                .text_delta("half an ans")
+                .map_err(ProviderError::Sink)?;
+            assert!(self.steering.offer(1, "change tone".to_string()));
+            return std::future::pending().await;
+        }
+        reporting(final_step("ok"), Some(40))
+    }
+}
+
+#[tokio::test]
+async fn a_request_a_steer_cut_short_counts_what_it_streamed() {
+    // The steer's own boundary (`append_immediate_steering_after_cancel`,
+    // `orchestrator.zig:240-261`) ends the attempt as a stop does, and upstream
+    // settles every attempt that ends without usage at its estimate
+    // (`finishTokenRequestWithoutUsage`, `telemetry.zig:149-155`): the cut
+    // answer's 3 and then the continued step's 40.
+    let tree = Tree::new();
+    let steering = Steering::new();
+    steering.open();
+    let provider = SteerCutProvider {
+        steering: steering.clone(),
+        calls: std::cell::Cell::new(0),
+    };
+    let mut sink = Counted::default();
+    let mut journal = RecordingJournal::default();
+    xfx::agent::TurnMachine::new(turn("hi", context(&tree)))
+        .with_steering(steering)
+        .run_journaled(&provider, &mut sink, &mut journal)
+        .await
+        .expect("the turn completes");
+    assert_eq!(sink.progress, [Progress::Settled(3), Progress::Settled(43)]);
+    let SessionEvent::UsageRecorded {
+        turn_output_tokens,
+        output_tokens,
+        ..
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    assert_eq!((*turn_output_tokens, *output_tokens), (Some(43), Some(40)));
+}
+
+#[tokio::test]
+async fn a_command_the_person_stopped_leaves_the_request_that_asked_for_it_counted() {
+    // The stop reaches a running command at once (`terminal::supervise`), and
+    // the turn still settles: the request that asked for the command is in the
+    // turn's frame, for `/usage`, at what it reported.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(vec![Amendment::plain()], cancel.clone());
+    let provider = StreamingProvider::new(vec![(
+        vec![Chunk::ToolInput("{\"command\":\"sleep 30\"}")],
+        reporting(
+            calls_step(vec![ToolCall {
+                id: "c1".to_string(),
+                name: "terminal".to_string(),
+                input: json!({ "action": "exec", "command": "sleep 30" }),
+            }]),
+            Some(40),
+        ),
+    )]);
+    // From another thread: the command holds this one while it runs.
+    let stopper = cancel.clone();
+    let stop = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        stopper.cancel();
+    });
+    let mut sink = Counted::default();
+    let mut journal = RecordingJournal::default();
+    let started = std::time::Instant::now();
+    let _ = run_turn_saved(
+        asking_turn(
+            "run it",
+            // The tools hold the turn's token, as the TUI's conversation does.
+            asking_context(&tree, ToolLimits::default(), prompter).with_cancel(cancel.clone()),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await;
+    stop.join().expect("the stopper");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "the command ran on"
+    );
+    assert_eq!(sink.progress.last(), Some(&Progress::Settled(40)));
+    let SessionEvent::UsageRecorded {
+        turn_output_tokens,
+        requests,
+        ..
+    } = usage_frame(&journal)
+    else {
+        unreachable!()
+    };
+    assert_eq!(*turn_output_tokens, Some(40));
+    assert_eq!(
+        requests
+            .iter()
+            .map(|request| request.output_tokens)
+            .collect::<Vec<_>>(),
+        [40]
+    );
 }
 
 #[tokio::test]

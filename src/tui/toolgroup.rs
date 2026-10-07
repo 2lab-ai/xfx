@@ -302,6 +302,15 @@ impl ToolGroup {
         self.calls.iter().any(|call| call.state == State::Running)
     }
 
+    /// Whether a command is among the calls that have not returned: the one
+    /// kind of call a stop reaches while it runs (`crate::tools::terminal`'s
+    /// supervisor polls the turn's flag), so the one a keystroke may settle.
+    pub(crate) fn running_command(&self) -> bool {
+        self.calls.iter().any(|call| {
+            call.state == State::Running && call.shown.presentation.activity == Activity::Command
+        })
+    }
+
     /// Whether the group's block is on the screen (or on its way there).
     pub(crate) fn drawn(&self) -> bool {
         !self.drawn.is_empty()

@@ -297,6 +297,15 @@ pub(crate) enum UiEvent {
         diagnostic: String,
         delay: std::time::Duration,
     },
+    /// The turn took these steers -- prompts the person sent into it while it
+    /// ran -- and the model is being told them (`crate::agent::steering`): the
+    /// band writes each one's card now, at its delivery, as upstream writes a
+    /// steer's (`append_user_feedback`, `worker_runtime.zig:1233-1240`).
+    Steered { ids: Vec<u64> },
+    /// A retried request got through on `attempt`
+    /// (`crate::output::EventSink::recovered`): the row says so for a moment
+    /// ([`super::retry::Row::Recovered`]).
+    Recovered { attempt: u32 },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
     /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
@@ -661,6 +670,10 @@ impl UiEvent {
                 diagnostic: inert_owned(diagnostic),
                 delay,
             },
+            // A count. There is nothing here a terminal can be made to obey.
+            Self::Recovered { attempt } => Self::Recovered { attempt },
+            // Numbers the band gave out.
+            Self::Steered { ids } => Self::Steered { ids },
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
@@ -793,6 +806,7 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
             outcome,
         },
         HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
+        HydratedStep::Steer(text) => HydratedStep::Steer(inert_owned(text)),
     }
 }
 
@@ -1517,9 +1531,19 @@ impl EventSink for UiEventSink {
         }
     }
 
-    /// The `✓ recovery:` record of an attempt that got through after a retry.
+    /// Which of the band's steers the turn took.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = self.send(UiEvent::Steered {
+            ids: steers.iter().map(|steer| steer.id).collect(),
+        });
+    }
+
+    /// The row that says an attempt got through after a retry, and its
+    /// `✓ recovery:` record, in upstream's order: the status is set, then
+    /// recorded (`app_worker_runtime.zig:1121-1129`).
     fn recovered(&mut self, attempt: u32, limit: u32) {
         if self.retried.take().is_some() {
+            let _ = self.send(UiEvent::Recovered { attempt });
             let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
         }
     }
@@ -1671,11 +1695,16 @@ mod tests {
         sink.recovered(2, 3);
         drop(sink);
         let mut records = Vec::new();
+        let mut recovered = Vec::new();
         while let Some(event) = rx.blocking_recv() {
-            if let UiEvent::FullDetail(record) = event {
-                records.push(record.body);
+            match event {
+                UiEvent::FullDetail(record) => records.push(record.body),
+                // The row's own event, once, for the retried step only.
+                UiEvent::Recovered { attempt } => recovered.push(attempt),
+                _ => {}
             }
         }
+        assert_eq!(recovered, [2]);
         assert_eq!(
             records,
             [
