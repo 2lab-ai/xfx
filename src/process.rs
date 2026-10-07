@@ -21,14 +21,20 @@
 //! library resets `SIGPIPE` itself today (`unix.rs:364-376`, `:741-754`);
 //! doing it here too keeps the rule ours rather than a version's.
 //!
+//! A signal xfx was *started* ignoring is left ignored, as a shell leaves it:
+//! `nohup` ignores `SIGHUP`, and a non-interactive shell's `&` ignores `SIGINT`
+//! and `SIGQUIT`, precisely so that everything started under them inherits the
+//! ignore through `exec`. That is the launcher's choice, not a disposition xfx
+//! set.
+//!
 //! The case `no_child_process_is_made_any_other_way` keeps every
 //! `Command::new` in the library's own code in this file.
 
 use std::ffi::OsStr;
 use std::process::Command;
 
-/// A command for `program` whose child starts with no signal blocked and none
-/// ignored.
+/// A command for `program` whose child starts with no signal blocked and
+/// `SIGPIPE` at its default.
 pub fn command(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
     #[cfg(unix)]
@@ -127,12 +133,76 @@ mod tests {
         }
     }
 
+    /// `command`, with each of `signals` that this test binary was started
+    /// ignoring put back to its default in the child.
+    ///
+    /// A launcher can hand the runner an ignored signal -- `nohup` ignores
+    /// `SIGHUP`, a non-interactive shell's `&` ignores `SIGINT` and `SIGQUIT`
+    /// -- and `exec` keeps it, in the runner and in every child [`command`]
+    /// makes there (the module's rule, not a lapse). A case that sends such a
+    /// signal and waits for a death, or a shell that traps it, would then be
+    /// reading the launcher instead of the mask: a runner started with
+    /// `nohup … &` failed the case below on `SIGINT` with no status at all,
+    /// every time.
+    ///
+    /// So the fixture is undone where it was inherited, and nowhere else. The
+    /// dispositions are only *read* here -- they are the runner's, other cases
+    /// install and release handlers on them, and `nohup` set them for the whole
+    /// run -- and the reset is the child's, after [`command`]'s own: a signal
+    /// the runner does not ignore is not touched, so a case started the
+    /// ordinary way runs exactly the child it always did. Never `SIGPIPE`,
+    /// whose default is [`command`]'s to prove.
+    fn undoing_the_runners_ignores(mut command: Command, signals: &[libc::c_int]) -> Command {
+        use std::os::unix::process::CommandExt;
+
+        assert!(
+            !signals.contains(&libc::SIGPIPE),
+            "SIGPIPE's default is the claim under test, not a fixture"
+        );
+        let ignored: Vec<libc::c_int> = signals
+            .iter()
+            .copied()
+            .filter(|&signal| {
+                // SAFETY: a null new action makes `sigaction` a pure query, and
+                // `current` is a valid out-parameter for the call.
+                unsafe {
+                    let mut current: libc::sigaction = std::mem::zeroed();
+                    libc::sigaction(signal, std::ptr::null(), &mut current) == 0
+                        && current.sa_sigaction == libc::SIG_IGN
+                }
+            })
+            .collect();
+        if ignored.is_empty() {
+            return command;
+        }
+        // SAFETY: as `clean_signals`.
+        let default = unsafe {
+            let mut default: libc::sigaction = std::mem::zeroed();
+            default.sa_sigaction = libc::SIG_DFL;
+            libc::sigemptyset(&mut default.sa_mask);
+            default
+        };
+        // SAFETY: as `clean_signals`: the child only reads `ignored` and calls
+        // `sigaction`.
+        unsafe {
+            command.pre_exec(move || {
+                for &signal in &ignored {
+                    if libc::sigaction(signal, &default, std::ptr::null_mut()) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+        command
+    }
+
     #[test]
     fn a_child_of_a_thread_that_blocks_everything_takes_a_sigterm() {
         // The shell signals itself; a mask the child inherited would hold it
         // pending and the `echo` would run.
         let output = on_a_blocked_thread(|| {
-            command("/bin/sh")
+            undoing_the_runners_ignores(command("/bin/sh"), &[libc::SIGTERM])
                 .args(["-c", "kill -TERM $$; echo survived"])
                 .output()
                 .expect("a child")
@@ -153,8 +223,13 @@ mod tests {
             (libc::SIGHUP, "HUP"),
             (libc::SIGPIPE, "PIPE"),
         ] {
-            let mut child =
-                on_a_blocked_thread(|| command("/bin/sleep").arg("30").spawn().expect("a child"));
+            let fixture = (signal != libc::SIGPIPE).then_some(signal);
+            let mut child = on_a_blocked_thread(move || {
+                undoing_the_runners_ignores(command("/bin/sleep"), fixture.as_slice())
+                    .arg("30")
+                    .spawn()
+                    .expect("a child")
+            });
             let pid = libc::pid_t::try_from(child.id()).expect("a pid");
             // SAFETY: `kill` on a child this case started and has not reaped.
             assert_eq!(unsafe { libc::kill(pid, signal) }, 0);
@@ -166,11 +241,11 @@ mod tests {
                 "SIG{name} did not end the child"
             );
         }
-        for name in ["CONT", "WINCH"] {
+        for (signal, name) in [(libc::SIGCONT, "CONT"), (libc::SIGWINCH, "WINCH")] {
             let script =
                 format!("trap 'echo {name}; exit 0' {name}; kill -{name} $$; sleep 5 & wait");
             let output = on_a_blocked_thread(move || {
-                command("/bin/sh")
+                undoing_the_runners_ignores(command("/bin/sh"), &[signal])
                     .args(["-c", &script])
                     .output()
                     .expect("a child")
@@ -181,6 +256,61 @@ mod tests {
                 "SIG{name} was held from the child"
             );
         }
+    }
+
+    /// The two cases above, run again in a copy of this test binary started
+    /// the way `nohup … &` starts one -- and further, ignoring every signal
+    /// they send that is not the product's claim. Without the fixture both
+    /// fail here on every run; with it they test the mask, wherever the runner
+    /// came from.
+    #[test]
+    fn the_signal_cases_hold_in_a_runner_started_ignoring_what_they_send() {
+        use std::os::unix::process::CommandExt;
+
+        const CASES: [&str; 2] = [
+            "process::tests::a_child_of_a_thread_that_blocks_everything_takes_a_sigterm",
+            "process::tests::every_owned_signal_reaches_a_child_and_sigpipe_is_its_default",
+        ];
+        // SAFETY: `ignore` is a plain struct for which all-zero is valid, then
+        // given `SIG_IGN`.
+        let ignore = unsafe {
+            let mut ignore: libc::sigaction = std::mem::zeroed();
+            ignore.sa_sigaction = libc::SIG_IGN;
+            libc::sigemptyset(&mut ignore.sa_mask);
+            ignore
+        };
+        let mut runner = command(std::env::current_exe().expect("this test binary"));
+        runner.args(["--exact", "--test-threads=1"]).args(CASES);
+        // SAFETY: as `clean_signals`: the child only calls `sigaction` on a
+        // value it owns by copy.
+        unsafe {
+            runner.pre_exec(move || {
+                for signal in [
+                    libc::SIGHUP,
+                    libc::SIGINT,
+                    libc::SIGQUIT,
+                    libc::SIGTERM,
+                    libc::SIGCONT,
+                    libc::SIGWINCH,
+                ] {
+                    if libc::sigaction(signal, &ignore, std::ptr::null_mut()) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
+        }
+        let output = runner.output().expect("a runner");
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // Counted, not only exited-zero: a filter that matched nothing passes.
+        assert!(
+            output.status.success() && report.contains("test result: ok. 2 passed"),
+            "{report}"
+        );
     }
 
     /// The rule, kept by reading the library's own code: every child process

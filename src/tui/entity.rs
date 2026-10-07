@@ -87,10 +87,10 @@ pub(crate) enum EntityKind {
     /// number (`writeImageBadge` and `writeImagePlaceholder`,
     /// `vercel-labs/fx@c1db9191 src/core/images/image_attachments.zig:1336`,
     /// `:1376`). The badge **is** the attachment: a delete that takes it drops
-    /// the image (`kill_ring.zig:562-584`), and nothing that brings its words
-    /// back -- an undo, a yank, a recalled line -- brings the image with them
-    /// ([`super::edit_history::EditHistory::record`], [`Entities::snapshots`],
-    /// [`Entities::renumber_recalled`]).
+    /// the image (`kill_ring.zig:562-584`), no undo brings it back
+    /// ([`super::edit_history::EditHistory::record`]), and a yank or a
+    /// recalled line brings a fresh image under a fresh number
+    /// ([`Entities::snapshots`], [`Entities::renumber_recalled_with_images`]).
     Image {
         image: Arc<crate::image::Image>,
         /// [`crate::image::token`] of its id: what [`Entities::expand`] puts
@@ -395,6 +395,40 @@ impl Entities {
         }
         out.push_str(&draft[cut..]);
         out
+    }
+
+    /// `draft` with every block put back as the text it stands for, and the
+    /// spans left the badges alone, moved to where they now stand: what a yank
+    /// puts in the composer, as upstream's kill ring holds a killed block's
+    /// text rather than the block (`capturePayload`, `kill_ring.zig:429-447`)
+    /// and its yank registers no block (`yank`, `:119-190`). The badges stay
+    /// badges -- each yank of one is a fresh image ([`Self::renumber_recalled_with_images`]).
+    pub(crate) fn inline_pastes(&mut self, draft: &mut String) {
+        if !self.spans.iter().any(Span::is_paste) {
+            return;
+        }
+        let mut out = String::with_capacity(draft.len().saturating_add(self.retained()));
+        let mut kept: Vec<Span> = Vec::with_capacity(self.spans.len());
+        let mut cut = 0usize;
+        for span in std::mem::take(&mut self.spans) {
+            out.push_str(&draft[cut..span.start]);
+            cut = span.end;
+            if span.is_paste() {
+                out.push_str(span.text());
+                continue;
+            }
+            let start = out.len();
+            out.push_str(&draft[span.start..span.end]);
+            kept.push(Span {
+                start,
+                end: out.len(),
+                kind: span.kind,
+            });
+        }
+        out.push_str(&draft[cut..]);
+        *draft = out;
+        self.spans = kept;
+        self.reindex();
     }
 
     /// `draft` with each image badge spelled as the token the prompt carries,
