@@ -1,7 +1,11 @@
 # W2 receipt: /image (/img), /images, /paste and Ctrl-V
 
-Eight scenarios, run at 40x120 on both binaries through the repo harness -- the
-first four below, two in the follow-up section, two in round 3:
+Nine scenarios, run at 40x120 on both binaries through the repo harness -- the
+first four below, two in the follow-up section, two in round 3, one in round 4.
+`image-paste`, `image-inline` and `image-composer` were retaken in round 4, once
+the painter drew links: the files here are those, and round 4 says how they
+compare. The tables in the earlier sections describe the first takes, when
+every `.ansi` difference was the badge's missing link:
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120 <dir>
@@ -268,6 +272,28 @@ Wire (`*-image-readfile-40x120-wire.json`), the requests after each read:
 - `shot.png`: the result is a `content` output whose text is `<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>`, and a user message follows the results with `Attached image(s) from the tool result.` and one `image/png` file part (sha256 `3fd6e6be528c…`). The same on both, and the next turn's requests carry it again.
 - `wide.png`: a `text` output, `image not attached: image/png (24 bytes); the image exceeds 8000 pixels per side. Use an available image tool to save a smaller copy to a new file, then read_file the copy. If no image tool is available, ask the user before installing one.`, and no image. The same on both.
 - Two differences, neither the image: fx's attached result begins `Saved images: image-result-read_file-….txt. Use read_tool_result with this handle to load them again.` -- fx stores a result's images under a handle its `read_tool_result` tool reads back (`retainToolImages`, `execution_memory.zig:672-688`); xfx has no `read_tool_result`, keeps the copy beside its log (`tool_images_attached`) and sends it again itself, so the sentence would name a tool the model does not have. And fx sends a `Session file evidence from previous tool execution…` user message before the next prompt, which xfx has never sent.
+
+## Round 4: links, and the amendment's refusal
+
+xfx `target/debug/xfx` at `eb375fa` (plan `13dac71` merged: T5's OSC 8
+links), fx the c1db919 build. Retaken: `image-paste`, `image-inline`,
+`image-composer`. New: `approvals-amend-limit.cap` -- the edit's question, Tab
+to amend, `keep` typed, a paste of 4097 `x`s, a second one, ` this` typed, a
+third one, then Escape twice.
+
+Compared row by row with the run directory written `<scratch>` on both and fx's
+`.fx` and xfx's `.xfx` taken as one name:
+
+| scenario | `.txt` | `.ansi` |
+|---|---|---|
+| `image-inline` (5 snaps) | identical | **identical, links included**: `\e]8;;file://<scratch>/work/shot.png\e\[Image 1]\e]8;;\e\` on the composer and on each card |
+| `image-composer` (8 snaps) | identical | identical in 6. In `yanked` and `recalled` the links go to the same file on every cell but one: fx leaves the space inside the first yanked or recalled badge (`[Image 4]`, `[Image 6]`) unlinked, and the runs are split differently. Each binary's frame diff rewrote different cells over the composer's previous contents, and tmux keeps a link per OSC 8 written; fx's unlinked space is a cell its writer did not rewrite. Cards and `*-sent` rows are identical. |
+| `image-paste` (6 snaps) | identical | identical but **the target** of the clipboard badges' links: fx links `<scratch>/home/.fx/sessions/<id>/images/image-N-3fd6e6be528c182d.bin`, xfx `<scratch>/xfxtmp/xfx-image-snapshots-<random>/image-N-3fd6e6be528c182d.bin`. Both write the copy at the paste and link it (`image_commands.zig:138-147`); fx's session exists from launch, so its copy goes into the session, while xfx's session opens with the first prompt, so its paste copy goes where fx puts one with no session -- a private temporary directory, removed when the process ends (`session_store.zig:102-118`, `image_attachments.zig:240-262`). The session keeps its own copy once the prompt is recorded, and a resumed card links that. `ls /private/tmp/claude-501 \| grep xfx-image-snapshots` was 0 after the runs. |
+| `approvals-amend-limit` (5 snaps) | the `✗ input:` rows identical: one after the first paste, two after the second, three after the third | the `✗ input:` rows identical: `\e[38;5;252m✗ input:\e[38;5;250m That edit exceeds the input limit and was not applied.\e[39m`. Every other difference is not this unit's: the second choice's wording and its explanation row (xfx's permission panel), `What can xfx do differently?` (the product's name). |
+
+Wire: `image-inline` and `image-paste` send the same user messages and file
+parts as before on both (`*-wire.json`), and `image-composer` the same four
+requests as round 3.
 
 ## Differences, and why
 
