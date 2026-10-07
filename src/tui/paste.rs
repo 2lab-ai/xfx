@@ -165,6 +165,11 @@ pub(crate) enum Pasted {
     },
     /// Nothing goes into the composer, and the hint row says why.
     Refused(Refusal),
+    /// It names an image file: the shell reads it for images and puts the
+    /// rest in as typed, never collapsed, whatever its length
+    /// (`finalizePastedBlock`, `input_paste_runtime.zig:370-377`). No number
+    /// is spent on it.
+    Paths(String),
 }
 
 impl Paste {
@@ -232,13 +237,30 @@ impl Paste {
     /// blocks a draft already holds go into one prompt ([`fits`]). A refusal
     /// puts nothing in the composer and spends no number, so the next paste is
     /// still `#N`.
+    #[cfg(test)]
     pub(crate) fn finish(&mut self, draft: usize, retained: usize) -> Pasted {
+        self.finish_with(draft, retained, |_| false)
+    }
+
+    /// [`Self::finish`], with `paths` asked of the text first: a paste it
+    /// answers yes for is [`Pasted::Paths`], ahead of the collapse and of its
+    /// number, as upstream asks `hasImagePathToken` before
+    /// `shouldUsePlaceholder` (`input_paste_runtime.zig:370-377`).
+    pub(crate) fn finish_with(
+        &mut self,
+        draft: usize,
+        retained: usize,
+        paths: impl FnOnce(&str) -> bool,
+    ) -> Pasted {
         let bytes = std::mem::take(&mut self.buffer);
         // Lossy rather than strict: a paste in an encoding this session does
         // not read must not be lost whole to one bad byte.
         let text = transcript::normalize(&String::from_utf8_lossy(&bytes));
         if let Some(refusal) = self.refused {
             return Pasted::Refused(refusal);
+        }
+        if paths(&text) {
+            return Pasted::Paths(text);
         }
 
         // The *decoded* size is what both budgets are about, and this is where
@@ -308,6 +330,28 @@ pub(crate) fn summary(id: u32, lines: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paste_naming_an_image_is_handed_over_whole_and_spends_no_number() {
+        let long = format!("{} shot.png", "x".repeat(COLLAPSE_ABOVE + 1));
+        let mut state = Paste::default();
+        state.begin();
+        for byte in long.as_bytes() {
+            state.byte(*byte);
+        }
+        assert_eq!(
+            state.finish_with(0, 0, |text| text.ends_with(".png")),
+            Pasted::Paths(long.clone())
+        );
+        state.begin();
+        for byte in long.as_bytes() {
+            state.byte(*byte);
+        }
+        let Pasted::Collapsed { id, .. } = state.finish(0, 0) else {
+            panic!("a long paste with no path collapses");
+        };
+        assert_eq!(id, 1, "the paths spent a number");
+    }
 
     /// One whole paste, into an empty composer.
     fn paste(text: &str) -> Pasted {

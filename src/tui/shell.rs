@@ -83,7 +83,7 @@ use super::clipboard_image::ClipboardReads;
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
-use super::entity::{Entities, EntityKind};
+use super::entity::{Entities, EntityKind, Span};
 use super::file_index::Files;
 use super::file_picker::{self, FilePicker};
 use super::frame::Caret;
@@ -93,6 +93,7 @@ use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
+use super::image_paths;
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
@@ -6606,6 +6607,215 @@ impl Shell {
         true
     }
 
+    /// A paste that names image files: each one that loads becomes its badge
+    /// where its path was, the rest of the paste goes in as it came, and no
+    /// notice is written for an image that was attached
+    /// (`handlePastedBytes`, `input_paste_runtime.zig:445-622`).
+    ///
+    /// A path to a file over 20 MiB says so and stays as words; any other
+    /// that does not load stays as words in silence -- a pasted sentence that
+    /// mentions `notes.png` is a sentence. With no image the paste is text,
+    /// inline whatever its length. With one, a `/image ` the paste began with
+    /// and an `/image` alone in the composer are the command the path was
+    /// meant for, and go (`stripPastedImageSlashPrefix`,
+    /// `isBareImageSlashPrefix`, `:27-78`, `:573-580`).
+    fn paste_paths(&mut self, text: &str) {
+        let first = self.images_next;
+        let mut replacement = String::with_capacity(text.len());
+        let mut spans: Vec<Span> = Vec::new();
+        let mut cut = 0;
+        for word in image_paths::find(text) {
+            let (path, media_type, bytes) =
+                match image_paths::load(&self.workspace, self.home.as_deref(), &word) {
+                    Ok(loaded) => loaded,
+                    Err(crate::image::AttachError::TooLarge) => {
+                        self.announce(notice::Notice::error(
+                            crate::image::TOPIC,
+                            crate::image::TOO_LARGE,
+                        ));
+                        continue;
+                    }
+                    Err(_) => continue,
+                };
+            let Some(id) = u32::try_from(spans.len())
+                .ok()
+                .and_then(|count| first.checked_add(count))
+                .filter(|id| id.checked_add(1).is_some())
+            else {
+                continue;
+            };
+            replacement.push_str(&text[cut..word.range.start]);
+            let start = replacement.len();
+            replacement.push_str(&crate::image::badge(id));
+            spans.push(Span {
+                start,
+                end: replacement.len(),
+                kind: EntityKind::Image {
+                    token: std::sync::Arc::from(crate::image::token(id)),
+                    image: std::sync::Arc::new(crate::image::Image::new(
+                        id,
+                        path,
+                        media_type,
+                        std::sync::Arc::from(bytes),
+                    )),
+                },
+            });
+            cut = word.range.end;
+        }
+        replacement.push_str(&text[cut..]);
+        let refused = |shell: &mut Self| {
+            shell.notice = Some(PASTE_REFUSED);
+            shell.render.request(Reason::Footer);
+        };
+        if spans.is_empty() {
+            if !paste::fits(
+                self.editor.text().len(),
+                self.editor.retained(),
+                replacement.len(),
+            ) {
+                refused(self);
+                return;
+            }
+            match self.editor.insert(&replacement) {
+                Some(delta) => self.amended(Some(delta)),
+                None if replacement.is_empty() => {}
+                None => refused(self),
+            }
+            return;
+        }
+        if self.editor.is_empty() {
+            if let Some(prefix) = image_slash_prefix(&replacement) {
+                if spans[0].start == prefix {
+                    replacement.drain(..prefix);
+                    for span in &mut spans {
+                        span.start -= prefix;
+                        span.end -= prefix;
+                    }
+                }
+            }
+        }
+        let consume = self.editor.entities().images().next().is_none()
+            && self.editor.selection().is_none()
+            && self.editor.caret_at_end()
+            && matches!(
+                self.editor.text().trim_matches([' ', '\t']),
+                "/image" | "/img"
+            );
+        let draft = if consume { 0 } else { self.editor.text().len() };
+        if !paste::fits(draft, self.editor.retained(), replacement.len()) {
+            refused(self);
+            return;
+        }
+        if consume {
+            self.take_draft();
+        }
+        if self
+            .editor
+            .insert_with_entities(&replacement, &spans)
+            .is_none()
+        {
+            refused(self);
+            return;
+        }
+        self.images_next = first + spans.len() as u32;
+        self.edit_history.boundary();
+        self.amended(None);
+    }
+
+    /// The image paths typed into a prompt that is about to be sent, made
+    /// badges in the draft (`extractInlineImageAttachments`,
+    /// `input_submit_runtime.zig:756-776`): each that loads is attached as
+    /// `/image` would attach it, numbered in the order they stand.
+    ///
+    /// A path that is not there, not an image, not a file, or means nothing
+    /// is the words it is ([`image_paths::passed_over_at_submit`]); any other
+    /// failure is said under `images` in `/image`'s words, and the prompt is
+    /// not sent -- the draft stays as typed for the user to fix. A path inside
+    /// a badge or a paste's summary is not a word of the draft.
+    fn attach_typed(&mut self, text: &str) -> Typed {
+        let spans = self.editor.entities().spans();
+        let words: Vec<image_paths::ImagePath> = image_paths::find(text)
+            .into_iter()
+            .filter(|word| {
+                !spans
+                    .iter()
+                    .any(|span| span.start < word.range.end && word.range.start < span.end)
+            })
+            .collect();
+        let mut found = Vec::new();
+        for word in words {
+            match image_paths::load(&self.workspace, self.home.as_deref(), &word) {
+                Ok(loaded) => found.push((word.range, loaded)),
+                Err(problem) if image_paths::passed_over_at_submit(&problem) => {}
+                Err(problem) => {
+                    self.announce(notice::Notice::error(
+                        crate::image::TOPIC,
+                        problem.to_string(),
+                    ));
+                    return Typed::Refused;
+                }
+            }
+        }
+        let first = self.images_next;
+        let Some(next) = u32::try_from(found.len())
+            .ok()
+            .and_then(|count| first.checked_add(count))
+        else {
+            return Typed::Nothing;
+        };
+        if found.is_empty() {
+            return Typed::Nothing;
+        }
+        let before = Typed::Attached {
+            text: text.to_string(),
+            spans: spans.to_vec(),
+            next: first,
+        };
+        // From the last to the first, so each range is still where it was.
+        for (index, (range, (path, media_type, bytes))) in found.into_iter().enumerate().rev() {
+            let id = first + index as u32;
+            let kind = EntityKind::Image {
+                token: std::sync::Arc::from(crate::image::token(id)),
+                image: std::sync::Arc::new(crate::image::Image::new(
+                    id,
+                    path,
+                    media_type,
+                    std::sync::Arc::from(bytes),
+                )),
+            };
+            let placed = self
+                .editor
+                .replace(range.start, range.end, "", range.start)
+                .and_then(|_| self.editor.insert_entity(&crate::image::badge(id), kind));
+            if placed.is_none() {
+                // No room for the badge: the draft as it was, the paths words.
+                self.restore_typed(before);
+                return Typed::Nothing;
+            }
+        }
+        self.images_next = next;
+        self.edit_history.boundary();
+        before
+    }
+
+    /// Puts back the draft [`Self::attach_typed`] changed, as it was before:
+    /// a prompt the runtime would not take keeps the paths the user typed, as
+    /// upstream's composer does when the admission fails.
+    fn restore_typed(&mut self, before: Typed) {
+        let Typed::Attached { text, spans, next } = before else {
+            return;
+        };
+        let mut entities = Entities::new();
+        for span in spans {
+            entities.register(span);
+        }
+        self.edit_history.boundary();
+        if self.editor.set_text(&text, entities) {
+            self.images_next = next;
+        }
+        self.edited(None);
+    }
+
     /// Says how each `/trace` that has finished went, in upstream's one
     /// sentence and with no topic (`finish_trace_notice`,
     /// `app_commands.zig:55-65`): an error when the copy or the write failed.
@@ -7090,10 +7300,17 @@ impl Shell {
     /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
     /// paste that plainly did not happen, and the hint row says which it was.
     fn pasted(&mut self) {
-        let pasted = self
-            .paste
-            .finish(self.editor.text().len(), self.editor.retained());
+        // `/model`'s search is typed in the composer, and an image attached
+        // there would outlive the query, so a path pasted into it is the words
+        // it is (`modelPickerBorrowsComposer`, `input_paste_runtime.zig:355-364`, `:370-377`).
+        let borrowed = self.model_draft.is_some() || self.model_menu.is_some();
+        let pasted =
+            self.paste
+                .finish_with(self.editor.text().len(), self.editor.retained(), |text| {
+                    !borrowed && image_paths::any(text)
+                });
         match pasted {
+            Pasted::Paths(text) => self.paste_paths(&text),
             Pasted::Refused(refusal) => {
                 self.notice = Some(match refusal {
                     Refusal::Oversized => PASTE_REFUSED,
@@ -7712,12 +7929,26 @@ impl Shell {
         if self.editor.is_empty() {
             return;
         }
-        let text = self.editor.text().to_string();
+        let mut text = self.editor.text().to_string();
         if let Some((cut, submitted)) = self.after_badges(&text) {
             self.run_command_after_badges(&text, cut, &submitted);
             return;
         }
-        let submitted = router::classify(&text);
+        let mut submitted = router::classify(&text);
+        // A prompt's typed image paths first, because a path that cannot be
+        // attached stops the prompt before anything below records it.
+        let mut typed = Typed::Nothing;
+        if matches!(submitted, Submitted::Prompt(_)) {
+            typed = self.attach_typed(&text);
+            match typed {
+                Typed::Refused => return,
+                Typed::Nothing => {}
+                Typed::Attached { .. } => {
+                    text = self.editor.text().to_string();
+                    submitted = router::classify(&text);
+                }
+            }
+        }
         // **Before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
         // command arms clear the composer through `run_command`, the prompt arm
@@ -7804,7 +8035,9 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                self.send(self.expanded_prompt(&text, prompt), &text);
+                if !self.send(self.expanded_prompt(&text, prompt), &text) {
+                    self.restore_typed(typed);
+                }
             }
         }
         // To the file after the line has been acted on, as upstream appends
@@ -7846,7 +8079,7 @@ impl Shell {
     /// already thrown the draft away. What it takes is echoed into the
     /// terminal's document, so a submission is something the session visibly
     /// did rather than something that vanished.
-    fn send(&mut self, prompt: String, text: &str) {
+    fn send(&mut self, prompt: String, text: &str) -> bool {
         // Of the prompt as the runtime is given it, which is what the store
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
@@ -7896,8 +8129,12 @@ impl Shell {
                     self.echo(text);
                 }
                 self.gestures.submitted();
+                true
             }
-            Err(rejected) => self.refused(rejected),
+            Err(rejected) => {
+                self.refused(rejected);
+                false
+            }
         }
     }
 
@@ -8124,6 +8361,35 @@ impl Shell {
         self.gestures.submitted();
         router::route(submitted, self);
     }
+}
+
+/// What [`Shell::attach_typed`] did to a prompt's draft.
+enum Typed {
+    /// Nothing: no path in it loaded, or it holds none.
+    Nothing,
+    /// A path could not be attached and the user has been told; the prompt
+    /// is not sent.
+    Refused,
+    /// Its paths are badges now, and this is the draft as it was before, for
+    /// a prompt the runtime refuses ([`Shell::restore_typed`]).
+    Attached {
+        text: String,
+        spans: Vec<Span>,
+        next: u32,
+    },
+}
+
+/// Where the path after a pasted `/image ` or `/img ` begins, or `None` when
+/// the paste does not begin with one (`pastedImageSlashPrefixLen`,
+/// `input_paste_runtime.zig:32-42`): the name, at least one blank, and every
+/// blank after it.
+fn image_slash_prefix(text: &str) -> Option<usize> {
+    let lead = text.len() - text.trim_start_matches([' ', '\t']).len();
+    ["/image", "/img"].into_iter().find_map(|name| {
+        let rest = text[lead..].strip_prefix(name)?;
+        let blanks = rest.len() - rest.trim_start_matches([' ', '\t']).len();
+        (blanks > 0).then_some(lead + name.len() + blanks)
+    })
 }
 
 /// `event` with Shift taken off Up and Down.
@@ -25924,6 +26190,196 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+    }
+
+    // -- image paths pasted or typed into a prompt ---------------------------
+
+    /// The prompt and the numbers of the images the runtime was handed.
+    fn sent_with_images(shell: &mut Fixture) -> (String, Vec<u32>) {
+        match shell.picks_up() {
+            TurnWork::Attached { prompt, images } => {
+                (prompt, images.iter().map(|image| image.id).collect())
+            }
+            TurnWork::Submit(prompt) => (prompt, Vec::new()),
+            other => panic!("not a prompt: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pasted_path_is_its_badge_at_once_and_says_nothing() {
+        // `fx-image-40x120-inline-typed.ansi`: `┃ [Image 5] describe this
+        // too`, no notice, before Enter (`input_paste_runtime.zig:445-622`).
+        let mut shell = attaching();
+        pasted(&mut shell, "shot.png describe this too");
+        assert_eq!(shell.editor.text(), "[Image 1] describe this too");
+        assert_eq!(attached_ids(&shell), [1]);
+        assert!(shell.document().is_empty(), "a pasted image wrote a notice");
+        assert!(shell.sent.try_recv().is_err(), "the paste was sent");
+        // Its words and punctuation stay around it, and an absolute path is a
+        // path as well as a relative one (`tui-composer-edit-contracts.test.ts:1050-1065`).
+        let absolute = shell.workspace.join("shot.png");
+        pasted(&mut shell, &format!(" HEAD {}, TAIL", absolute.display()));
+        assert_eq!(
+            shell.editor.text(),
+            "[Image 1] describe this too HEAD [Image 2], TAIL"
+        );
+        assert_eq!(attached_ids(&shell), [1, 2]);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            (
+                "[Image #1] describe this too HEAD [Image #2], TAIL".to_string(),
+                vec![1, 2]
+            )
+        );
+    }
+
+    #[test]
+    fn a_paste_whose_paths_do_not_load_is_text_however_long_and_too_large_says_so() {
+        // `handlePastedBytes`: a path over 20 MiB is said and stays as
+        // words; one that is missing or no image stays in silence.
+        let mut shell = attaching();
+        pasted(&mut shell, "see nope.png and notes.png");
+        assert_eq!(shell.editor.text(), "see nope.png and notes.png");
+        assert!(shell.document().is_empty());
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, "huge.png");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "image exceeds the 20 MiB limit"
+            ))
+        );
+        assert_eq!(shell.editor.text(), "huge.png");
+        assert!(attached_ids(&shell).is_empty());
+        // A paste that names an image is never a summary, even one long
+        // enough to be (`finalizePastedBlock`, `input_paste_runtime.zig:370-377`).
+        shell.route_bytes(b"\x15");
+        let long = format!("{} nope.png", "x".repeat(paste::COLLAPSE_ABOVE + 1));
+        pasted(&mut shell, &long);
+        assert_eq!(shell.editor.text(), long);
+        assert!(shell.editor.entities().is_empty());
+    }
+
+    #[test]
+    fn a_pasted_path_after_slash_image_is_the_command_it_was_for() {
+        // `stripPastedImageSlashPrefix` and `isBareImageSlashPrefix`
+        // (`input_paste_runtime.zig:27-95`, `:573-580`).
+        let mut shell = attaching();
+        pasted(&mut shell, "/image shot.png describe");
+        assert_eq!(shell.editor.text(), "[Image 1] describe");
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"/img ");
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert_eq!(attached_ids(&shell), [2]);
+        // With no image the prefix is the words it is.
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, "/image missing.png");
+        assert_eq!(shell.editor.text(), "/image missing.png");
+        // And after a word, a pasted `/image` is not a command.
+        shell.route_bytes(b"\x15");
+        pasted(&mut shell, "see /image shot.png");
+        assert_eq!(shell.editor.text(), "see /image [Image 3]");
+    }
+
+    #[test]
+    fn a_path_pasted_into_the_model_search_is_the_words_it_is() {
+        // `modelPickerBorrowsComposer` (`input_paste_runtime.zig:355-364`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/model\r");
+        assert!(
+            shell.model_menu.is_some(),
+            "no menu, so this proves nothing"
+        );
+        pasted(&mut shell, "shot.png");
+        assert_eq!(shell.editor.text(), "shot.png");
+        assert!(attached_ids(&shell).is_empty());
+    }
+
+    #[test]
+    fn a_typed_path_is_attached_as_the_prompt_is_sent() {
+        // `tui-composer-edit-contracts.test.ts:1018-1030`: `inspect i.png,`
+        // sends `inspect [Image #1],` and one file.
+        let mut shell = attaching();
+        shell.route_bytes(b"inspect shot.png,\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("inspect [Image #1],".to_string(), vec![1])
+        );
+        assert_eq!(shell.document(), card("inspect [Image 1],"));
+        shell.work.finished_one();
+        // The picker's spelling, quoted, and the next number. Put in whole:
+        // typed, the `@` would open the picker and the Return be its.
+        shell
+            .editor
+            .set_text("@\"shot.png\" and @shot.png", Entities::new());
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #2] and [Image #3]".to_string(), vec![2, 3])
+        );
+        shell.work.finished_one();
+        // A badge already in the draft keeps its number and goes first in
+        // the order the draft holds them.
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" vs shot.png\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("[Image #4] vs [Image #5]".to_string(), vec![4, 5])
+        );
+    }
+
+    #[test]
+    fn a_typed_path_that_cannot_be_attached_stops_the_prompt_or_is_left_as_words() {
+        // `input_submit_runtime.zig:756-776`: missing, unsupported, a
+        // directory -- words; too large -- said, nothing sent, the draft kept.
+        let mut shell = attaching();
+        std::fs::create_dir(shell.workspace.join("pics.png")).expect("a directory");
+        shell.route_bytes(b"read nope.png notes.png pics.png\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("read nope.png notes.png pics.png".to_string(), Vec::new())
+        );
+        shell.document();
+        shell.route_bytes(b"and huge.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "image exceeds the 20 MiB limit"
+            ))
+        );
+        assert!(shell.sent.try_recv().is_err(), "the prompt was sent");
+        assert_eq!(shell.editor.text(), "and huge.png");
+        // Nothing was recorded for the line that did not go.
+        shell.route_bytes(b"\x15\x1b[A");
+        assert_eq!(shell.editor.text(), "read nope.png notes.png pics.png");
+    }
+
+    #[test]
+    fn a_prompt_the_runtime_refuses_keeps_the_paths_that_were_typed() {
+        // Upstream attaches a typed path only once the prompt is admitted
+        // (`commitStableExtractedImageIds`, `input_submit_runtime.zig:872-873`):
+        // a full queue leaves the draft as typed and spends no number.
+        let mut shell = attaching();
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.document();
+        shell.route_bytes(b"look at shot.png\r");
+        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        assert_eq!(shell.editor.text(), "look at shot.png");
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        shell.work.finished_one();
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            sent_with_images(&mut shell),
+            ("look at [Image #1]".to_string(), vec![1])
+        );
     }
 
     #[test]

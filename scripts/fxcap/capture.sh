@@ -31,6 +31,10 @@
 #                          a file of <bytes> in the workspace that begins with
 #                          the PNG signature and is a hole after it -- an image
 #                          over a size limit, without one in the repository
+#   pnghdr <name> <width> <height>
+#                          a PNG signature and an IHDR declaring <width> x
+#                          <height> and nothing else, in the workspace -- an
+#                          image over a pixel limit, as fx's own tests make one
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
@@ -159,6 +163,18 @@ main() {
       dd if=/dev/zero of="$run/work/${png%% *}" bs=1 count=0 seek="${png#* }" 2>/dev/null
       printf '\211PNG\r\n\032\n' | dd of="$run/work/${png%% *}" conv=notrunc 2>/dev/null
     fi
+    if [[ $line == pnghdr\ * ]]; then
+      local header name width height value bits
+      read -r name width height <<< "${line#pnghdr }"
+      header='\211PNG\r\n\032\n\000\000\000\015IHDR'
+      for value in "$width" "$height"; do
+        for bits in 24 16 8 0; do
+          header+=$(printf '\\%03o' $(( (value >> bits) & 255 )))
+        done
+      done
+      # shellcheck disable=SC2059 # the format is the bytes, built above
+      printf "$header" > "$run/work/$name"
+    fi
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
@@ -251,7 +267,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng) ;;
+      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|sparsepng|pnghdr) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;

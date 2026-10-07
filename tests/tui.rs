@@ -8160,6 +8160,68 @@ fn an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_ev
     );
 }
 
+#[test]
+fn an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood() {
+    // `fx-image-40x120-inline-typed.ansi`: a pasted path is a badge before
+    // Enter, with no notice (`input_paste_runtime.zig:370-377`); a typed one
+    // is attached as the prompt is sent, its punctuation kept
+    // (`tui-composer-edit-contracts.test.ts:1018-1030`).
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-PASTED"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-TYPED"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"\x1b[200~shot.png describe this too\x1b[201~");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] describe this too"],
+        &["images:", "shot.png"],
+    );
+    assert_eq!(gateway.request_count(), 0, "the paste was sent");
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-PASTED");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"inspect shot.png,\r");
+    session.wait_for("MARKER-TYPED");
+    wait_for_conclusions(&sandbox, 2);
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} [Image 1] describe this too",
+            "\u{2503} inspect [Image 2],",
+        ],
+        &["shot.png,"],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(
+        user_messages(&requests[0].json()),
+        ["[Image #1] describe this too"]
+    );
+    assert_eq!(
+        file_parts(&requests[0].json()),
+        [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+    );
+    assert_eq!(
+        user_messages(&requests[1].json()),
+        ["[Image #1] describe this too", "inspect [Image #2],"]
+    );
+    assert_eq!(file_parts(&requests[1].json()).len(), 2);
+}
+
 /// A PNG signature and an `IHDR` declaring `width` x `height`: upstream's
 /// `testPngHeader` (`image_data.zig:370-379`).
 fn png_header(width: u32, height: u32) -> Vec<u8> {
