@@ -367,6 +367,135 @@ fn notice_row(text: &str, start: usize, cols: u16) -> (Row, usize) {
     (row(text.len(), used), text.len())
 }
 
+/// The rows a submitted prompt's **card** occupies on a screen `cols` wide:
+/// upstream's `wrapCut`, looped over each line
+/// (`vercel-labs/fx@c1db9191 src/ui/assistant/user_message_card.zig:45-77`,
+/// `:358-382`), which is neither [`wrap`]'s nor [`wrap_notice`]'s.
+///
+/// Each row is cut from what is left of its line, and the cut is one rule:
+///
+/// * **The longest run that fits** is measured first -- every cluster that
+///   still has room, with the escape sequences and the clusters that take no
+///   cell carried along wherever they fall, the ones in front of the cluster
+///   that does not fit included. When that is the rest of the line, it is the
+///   row.
+/// * **Otherwise the row ends at the last space or tab inside that run**, and
+///   the next row begins one byte after it: exactly one blank is dropped per
+///   break, so of a run of spaces the others stay where they fell -- at the end
+///   of the row, or at the start of the next one, the row's bold over them.
+///   The run stops *before* a space that would cross the margin, so a word that
+///   ends at the margin is not followed by a space inside it: the break is at
+///   an earlier space, which takes the word down with it, or, with none, the
+///   word is the row and the next one begins **on** the space -- whose cut
+///   finds it as its last blank when nothing after it fits beside it, keeps
+///   nothing before it, and leaves a row with nothing on it.
+/// * **With no blank inside it, the run is the row**, a word longer than a
+///   whole row broken at the cluster that would cross; and a single cluster
+///   wider than the whole row is a row of its own.
+///
+/// A hard line break ends a row and is on neither; an empty line is one empty
+/// row, and so is an empty text. The rows do **not** tile the text.
+///
+/// A **tab** is a blank the cut may break at and takes no cell in its
+/// measurement ([`card_cells`]), as upstream's; a row's `width` counts it the
+/// same way, and what it paints is the caller's (the screen's tab stops).
+///
+/// A blank is found among the clusters rather than the bytes, so a space inside
+/// an escape sequence -- an OSC 8 target -- is never a break; upstream scans
+/// the bytes, and the only sequences a card carries (its bold, a badge's link,
+/// whose target is percent-encoded, `super::hyperlink`) have no space in them,
+/// so the two read the same breaks.
+pub(crate) fn wrap_card(text: &str, cols: u16) -> Vec<Row> {
+    let cols = cols.max(1);
+    let mut rows = Vec::new();
+    let mut line_start = 0usize;
+    for line in text.split('\n') {
+        let line_end = line_start + line.len();
+        if line.is_empty() {
+            rows.push(Row {
+                start: line_start,
+                end: line_start,
+                width: 0,
+            });
+        }
+        let mut start = line_start;
+        while start < line_end {
+            let (keep, skip) = card_cut(&text[start..line_end], cols);
+            let end = start + keep;
+            rows.push(Row {
+                start,
+                end,
+                width: card_width(&text[start..end]),
+            });
+            // `skip > 0` always, so this ends: a cut keeps a cluster, or drops
+            // a blank, or both.
+            start += skip;
+        }
+        line_start = line_end + 1;
+    }
+    rows
+}
+
+/// One card row's cut of `text` at `cols`: how many bytes the row keeps, and
+/// how many it consumes (`wrapCut`'s `keep_bytes` and `skip_bytes`,
+/// `user_message_card.zig:57-77`).
+fn card_cut(text: &str, cols: u16) -> (usize, usize) {
+    let mut used = 0u16;
+    // Where the longest run that fits ends, the last blank inside it, and
+    // where the first cluster ends.
+    let mut fits = text.len();
+    let mut blank: Option<usize> = None;
+    let mut first: Option<usize> = None;
+    for painted in painting(text) {
+        let at = painted.end - painted.cluster.len();
+        first.get_or_insert(painted.end);
+        let cells = card_cells(painted.cluster);
+        // `used` never passes `cols`: a cluster is only counted when it fits.
+        if cells > cols - used {
+            fits = at;
+            break;
+        }
+        used += cells;
+        if matches!(painted.cluster.as_bytes().first(), Some(b' ' | b'\t')) {
+            blank = Some(at);
+        }
+    }
+    if fits == text.len() {
+        return (fits, fits);
+    }
+    if let Some(blank) = blank {
+        return (blank, blank + 1);
+    }
+    if fits == 0 {
+        // Not even the first cluster fits, and nothing is in front of it: it
+        // is the row on its own, so the cut moves (`:66-75`).
+        let unit = first.unwrap_or(text.len());
+        return (unit, unit);
+    }
+    (fits, fits)
+}
+
+/// One cluster's cells as the card's cut counts them: [`cluster_width`], but
+/// a **tab is none**. Upstream measures every control at no cells
+/// (`display_width.zig`'s `displayUnitAt`) and writes the tab to the terminal
+/// as it is, which advances to the screen's next stop; the transcript paints
+/// it as those spaces (`super::prose::expand_tabs`).
+fn card_cells(cluster: &str) -> u16 {
+    if cluster == "\t" {
+        return 0;
+    }
+    cluster_width(cluster)
+}
+
+/// The cells a card row takes as its cut measured it: a tab at none
+/// ([`card_cells`]).
+fn card_width(row: &str) -> u16 {
+    let cells: usize = painting(row)
+        .map(|painted| usize::from(card_cells(painted.cluster)))
+        .sum();
+    u16::try_from(cells).unwrap_or(u16::MAX)
+}
+
 /// Which row a byte offset is on, and how many cells are to the left of it
 /// there.
 ///
@@ -502,6 +631,49 @@ mod tests {
                 &wrap_notice("see C:\\Users\\me\\file", 14)
             ),
             ["see C:\\Users\\", "me\\file"]
+        );
+    }
+
+    #[test]
+    fn a_card_row_is_wrap_cuts_keep_and_the_next_begins_at_its_skip() {
+        // `wrapCut` (`user_message_card.zig:57-77`), row by row: fx's
+        // `card-wrap` receipt at 118 cells, `A-R2b` -- a word that fills the
+        // row, then a space and a token as wide as the row: the word, an
+        // empty row, the token, and the tail that starts with its blank.
+        let word = "=".repeat(118);
+        let token = "p".repeat(118);
+        let text = format!("{word} {token} end");
+        let rows = wrap_card(&text, 118);
+        assert_eq!(texts(&text, &rows), [&word[..], "", &token[..], " end"]);
+        assert_eq!(
+            rows.iter().map(|row| row.width).collect::<Vec<_>>(),
+            [118, 0, 118, 4]
+        );
+        // An escape in front of the cluster that does not fit stays on the
+        // row before it, as upstream's prefix takes it; the row's own text is
+        // what was measured.
+        let text = "abcd\u{1b}[0mef";
+        assert_eq!(texts(text, &wrap_card(text, 4)), ["abcd\u{1b}[0m", "ef"]);
+        // A space inside a sequence is not a break: the cut is at the one
+        // in front of it.
+        let text = "ab \u{1b}]8;;file:///a b\u{1b}\\cdef";
+        assert_eq!(
+            texts(text, &wrap_card(text, 4)),
+            ["ab", "\u{1b}]8;;file:///a b\u{1b}\\cdef"]
+        );
+        // A cluster wider than the whole row is a row of its own, and the
+        // empty text one empty row.
+        assert_eq!(
+            texts("\u{6f22}a", &wrap_card("\u{6f22}a", 1)),
+            ["\u{6f22}", "a"]
+        );
+        assert_eq!(
+            wrap_card("", 10),
+            [Row {
+                start: 0,
+                end: 0,
+                width: 0
+            }]
         );
     }
 

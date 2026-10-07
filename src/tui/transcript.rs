@@ -462,8 +462,9 @@ impl Gutter {
     }
 
     /// The rows `text` occupies at `cols` behind this gutter: a notice's by
-    /// upstream's notice rule, the answer's by upstream's assistant wrap, and
-    /// everything else's by the composer's.
+    /// upstream's notice rule, the answer's by upstream's assistant wrap, a
+    /// card's by upstream's card cut ([`wrap::wrap_card`]), and everything
+    /// else's by the composer's.
     fn wrap(self, text: &str, cols: u16) -> Vec<ProseRow> {
         let bare = |rows: Vec<wrap::Row>| {
             rows.into_iter()
@@ -472,7 +473,8 @@ impl Gutter {
         };
         match self {
             Gutter::Head(_) | Gutter::NoticeIndent => bare(wrap::wrap_notice(text, cols)),
-            Gutter::None | Gutter::Rail => bare(wrap::wrap(text, cols)),
+            Gutter::None => bare(wrap::wrap(text, cols)),
+            Gutter::Rail => bare(wrap::wrap_card(text, cols)),
             Gutter::Indent => prose::prose(text, cols, self.width(), Opening::Line),
             Gutter::Carried(carried) => {
                 prose::prose(text, cols, self.width(), Opening::Continued(carried))
@@ -1386,11 +1388,22 @@ fn body_rows(
             let slice = if gutter.is_answer() {
                 let first = usize::from(gutter.width()) + usize::from(laid.lead_width()) + 1;
                 prose::expand_tabs(slice, first, screen)
+            } else if gutter == Gutter::Rail {
+                // A card's too: upstream writes its tabs to the terminal as
+                // they are, so they stop where the screen's stops are -- which
+                // its cut, measuring them at nothing, did not count.
+                prose::expand_tabs(slice, usize::from(gutter.width()) + 1, screen)
             } else {
                 std::borrow::Cow::Borrowed(slice)
             };
+            let width = match slice {
+                std::borrow::Cow::Owned(ref expanded) if gutter == Gutter::Rail => {
+                    wrap::width(expanded)
+                }
+                _ => row.width,
+            };
             let slice = slice.as_ref();
-            let cut = drawn(slice, row.width, cols);
+            let cut = drawn(slice, width, cols);
             let plain = roles.only(row.start..row.end) == Some(Role::Plain);
             if !(styled && plain) {
                 // A plain row is written as it is; only a role paints.
@@ -1409,7 +1422,11 @@ fn body_rows(
             // word is a blank one there. Written after the close here, they
             // are blank cells too -- where an underline under them, or a link
             // a click on them would follow, is a cell upstream does not paint.
-            let hung = if row.end < text.len() {
+            //
+            // Not a card's: its cut has already dropped the one space it broke
+            // at, and the spaces it keeps are text, inside the row's bold as
+            // upstream writes them (`user_message_card.zig:370-379`).
+            let hung = if row.end < text.len() && gutter != Gutter::Rail {
                 shown.len() - shown.trim_end_matches([' ', '\n']).len()
             } else {
                 0
@@ -2485,6 +2502,166 @@ mod tests {
         ));
         transcript.resize_unfinished(9);
         assert_eq!(transcript.tail_rows(), 1);
+    }
+
+    /// The card's bold, as `super::super::shell`'s `write_card` opens each of
+    /// its lines.
+    const BOLD: &str = "\u{1b}[1m";
+
+    /// The rows a submitted `text` makes at `cols` behind the card's rail, as
+    /// `super::super::shell`'s `write_card` queues it: each line opened in
+    /// bold and closed with a reset.
+    fn card_rows(cols: u16, text: &str) -> Vec<String> {
+        let mut transcript = Transcript::new(cols);
+        transcript.queue_gutter(Gutter::Rail);
+        let card = text
+            .split('\n')
+            .map(|line| format!("{BOLD}{line}{RESET}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        transcript.queue_push(&card, Role::Plain);
+        transcript.queue_end_line();
+        replay(drain(&mut transcript, DARK_256))
+    }
+
+    /// `rows` as upstream's card writes them: the rail, then each row's text
+    /// in bold and a reset (`user_message_card.zig:319-325`, `:39-43`).
+    fn railed_rows(rows: &[&str]) -> Vec<String> {
+        let rail = Gutter::Rail.prefix(DARK_256);
+        rows.iter()
+            .map(|row| format!("{rail}{BOLD}{row}{RESET}"))
+            .collect()
+    }
+
+    /// What a row shows: its text with every sequence in it stepped over.
+    fn shown(row: &str) -> String {
+        let mut text = String::new();
+        let mut rest = row;
+        while let Some(character) = rest.chars().next() {
+            if let Some(len) = super::super::pacer::escape_at(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            text.push(character);
+            rest = &rest[character.len_utf8()..];
+        }
+        text
+    }
+
+    #[test]
+    fn a_card_breaks_at_its_last_space_that_fits_and_drops_that_space() {
+        // `wrapCut` (`user_message_card.zig:57-64`): the row ends before the
+        // last space inside the width and the next row begins after it -- the
+        // space is on neither, not hung after the row's bold is closed.
+        assert_eq!(
+            card_rows(12, "the quick brown fox"),
+            railed_rows(&["the quick", "brown fox"])
+        );
+    }
+
+    #[test]
+    fn a_card_word_that_ends_at_the_margin_before_a_space_leaves_an_empty_row() {
+        // The width's prefix stops before the space that would cross, so with
+        // no space inside it the row is the word; the next cut begins on that
+        // space, finds it as its last, keeps nothing before it and drops it --
+        // a row with the rail and nothing on it (`:59-64`, `:369-381`).
+        assert_eq!(
+            card_rows(6, "aaaa bbbb"),
+            railed_rows(&["aaaa", "", "bbbb"])
+        );
+    }
+
+    #[test]
+    fn a_card_word_that_ends_at_the_margin_goes_down_when_a_space_before_it_fits() {
+        // The same prefix with an earlier space in it: the cut is at that
+        // space, so the word that filled the row starts the next one.
+        assert_eq!(
+            card_rows(11, "aaaa bbbb cccc"),
+            railed_rows(&["aaaa", "bbbb cccc"])
+        );
+    }
+
+    #[test]
+    fn a_card_keeps_every_space_but_the_one_it_breaks_at() {
+        // Only one space is dropped per break (`skip_bytes = sp + 1`): the
+        // rest of a run stays where it fell, the row's bold over it, and a
+        // continuation row can begin with blanks or be nothing but them.
+        assert_eq!(card_rows(6, "aa   bb"), railed_rows(&["aa ", " bb"]));
+        assert_eq!(
+            card_rows(6, &format!("a{}b", " ".repeat(10))),
+            railed_rows(&["a  ", "   ", "   b"])
+        );
+        // A space after a word that fills the row is a row of its own.
+        assert_eq!(card_rows(6, "aaaa "), railed_rows(&["aaaa", " "]));
+    }
+
+    #[test]
+    fn a_card_tab_is_a_break_of_no_width_painted_to_the_screens_next_stop() {
+        // fx's `card-wrap` receipt at 40x120 (`A-R8`): upstream writes the tab
+        // as it is, so it stops at the screen's eighth columns -- the rail
+        // and its space put `A-R8` at columns 3-6, and `tab` at 9.
+        assert_eq!(
+            card_rows(120, "A-R8\ttab\tstops"),
+            railed_rows(&["A-R8  tab     stops"])
+        );
+        // Measured at nothing by the cut, and a break like a space: `abc`,
+        // the tab and `d` are the four cells that fit, and the cut is at the
+        // tab, which is dropped.
+        assert_eq!(card_rows(6, "abc\tdefg"), railed_rows(&["abc", "defg"]));
+    }
+
+    #[test]
+    fn a_card_word_or_wide_glyph_that_does_not_fit_breaks_at_the_margin() {
+        // No space inside the width: the row is the prefix that fits
+        // (`:76`), and a two-cell glyph that would cross starts the next row.
+        assert_eq!(
+            card_rows(6, "abcdefghij"),
+            railed_rows(&["abcd", "efgh", "ij"])
+        );
+        assert_eq!(
+            card_rows(5, "ab\u{6f22}\u{5b57}"),
+            railed_rows(&["ab", "\u{6f22}", "\u{5b57}"])
+        );
+        // A hard break is a row of its own, and an empty line an empty row
+        // (`:358-368`).
+        assert_eq!(
+            card_rows(80, "one\n\nthree"),
+            railed_rows(&["one", "", "three"])
+        );
+    }
+
+    #[test]
+    fn a_card_badge_cut_by_a_break_is_closed_on_its_row_and_opened_on_the_next() {
+        // `terminal image badges balance hyperlinks across narrow card rows`
+        // (`user_message_card.zig:713-761`): `AA [Image #1] ZZZ` at seven
+        // columns. The space inside the badge is not a break the cut reaches
+        // from `[Imag`, and the space after the link's close is.
+        const OPEN: &str = "\u{1b}]8;;file:///tmp/x.png\u{1b}\\";
+        const CLOSE: &str = "\u{1b}]8;;\u{1b}\\";
+        let painted: Vec<String> = card_rows(7, &format!("AA {OPEN}[Image 1]{CLOSE} ZZZ"))
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 7).into_owned())
+            .collect();
+        for row in &painted {
+            assert_eq!(
+                row.matches("\u{1b}]8;;file").count(),
+                row.matches(CLOSE).count(),
+                "{row:?} leaves the badge's link open"
+            );
+        }
+        // Both halves of the badge are linked -- the second because its row
+        // opened the link again -- and neither row of plain text is.
+        let linked: Vec<bool> = painted.iter().map(|row| row.contains(OPEN)).collect();
+        assert_eq!(linked, [false, true, true, false], "{painted:?}");
+        assert_eq!(
+            painted.iter().map(|row| shown(row)).collect::<Vec<_>>(),
+            [
+                "\u{2503} AA",
+                "\u{2503} [Imag",
+                "\u{2503} e 1]",
+                "\u{2503} ZZZ"
+            ]
+        );
     }
 
     /// The document a sequence of appends leaves behind, replayed exactly as

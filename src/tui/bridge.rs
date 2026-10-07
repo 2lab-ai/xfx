@@ -625,13 +625,30 @@ impl UiEvent {
                         first_line: diff.first_line,
                         lines_below: diff.lines_below,
                     }),
-                    // The path and the command a review lays out on rows of
-                    // their own: the same quotation as the summary, so the same
-                    // policy.
+                    // The path a review lays out on rows of its own: the same
+                    // quotation as the summary, so the same policy.
+                    //
+                    // **The command is spelled rather than blanked**, as
+                    // upstream's approval spells it
+                    // (`super::approval_view::command_text`,
+                    // `approval_ui.zig:228-247`): an `ESC` is the four
+                    // characters `\x1b`, a tab `\x09`, a `CR` `\x0d`, a C1
+                    // control its `\u{…}`. The channel's promise holds, and
+                    // more strictly than `inert`'s: every character `inert`
+                    // would blank is spelled, every token is printable ASCII,
+                    // and the carriage return `inert` keeps is spelled too --
+                    // only the line break crosses as itself. What changes is
+                    // what the reviewer reads: a command with an escape
+                    // sequence in it shows the sequence, where a space would
+                    // show a command that is not the one being asked about.
+                    // The command is read for display only, by
+                    // `super::approval_view`'s `subject_rows`, which spells it
+                    // again -- and a spelling is its own answer, so twice is
+                    // once.
                     subject: match asked.request.subject {
                         ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
                         ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
-                            command: inert_owned(command),
+                            command: super::approval_view::command_text(&command),
                             cwd: inert_owned(cwd),
                         },
                     },
@@ -2299,8 +2316,11 @@ mod tests {
                         first_line: 1,
                         lines_below: 0,
                     }),
+                    // The command spelled as upstream's approval spells it,
+                    // the `ESC` named rather than blanked; nothing in it is a
+                    // character a terminal obeys.
                     subject: ApprovalSubject::Command {
-                        command: " [2Jrm".into(),
+                        command: "\\x1b[2Jrm".into(),
                         cwd: " ]0;. ".into(),
                     },
                 },

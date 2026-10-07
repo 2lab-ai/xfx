@@ -16,13 +16,15 @@
 //!
 //! # Every string is made row-safe here
 //!
-//! `super::bridge::inert` turns the controls in an event into spaces, and the
-//! permission boundary escaped the diff (`crate::permission::bounded_diff_side`)
-//! keeping its line breaks. Neither is trusted: a raw `\n` moves the cursor in
-//! the middle of a layout placed by row number, and a bidirectional override
-//! reorders the glyphs of a change a reviewer is reading. So every quoted
-//! string goes through [`safe_rows`] (or [`tamed`] for one line) before it is
-//! wrapped.
+//! `super::bridge::inert` turns the controls in an event into spaces -- a
+//! command's are spelled instead, as upstream's approval spells them
+//! ([`command_text`]) -- and the permission boundary escaped the diff
+//! (`crate::permission::bounded_diff_side`) keeping its line breaks. Neither
+//! is trusted: a raw `\n` moves the cursor in the middle of a layout placed by
+//! row number, and a bidirectional override reorders the glyphs of a change a
+//! reviewer is reading. So every quoted string goes through [`safe_rows`] (or
+//! [`tamed`] for one line) before it is wrapped, and a command through
+//! [`command_rows`].
 
 use crate::permission::{ApprovalDiff, ApprovalRequest, ApprovalSubject};
 
@@ -661,7 +663,7 @@ pub(crate) fn subject_rows(
                 blank(),
             ];
             let text = format!("# terminal.exec cwd={cwd}\n{command}");
-            let segments = safe_rows(&text, cols.saturating_sub(4).max(1));
+            let segments = command_rows(&text, cols.saturating_sub(4).max(1));
             for (index, segment) in segments.iter().enumerate() {
                 let lead = if index == 0 { "  $ " } else { "    " };
                 rows.push(styles.finish(
@@ -977,6 +979,183 @@ pub(crate) fn safe_rows(text: &str, budget: u16) -> Vec<String> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// a command, as upstream's approval shows one
+// ---------------------------------------------------------------------------
+
+/// A command with nothing left in it a terminal would obey or reorder, spelled
+/// as upstream's approval spells it (`projectCommandText`,
+/// `vercel-labs/fx@c1db9191 src/ui/footer/approval_ui.zig:228-247`; the token
+/// policy is `terminalSafeToken`, `src/core/shared/text_utils.zig:560-616`).
+///
+/// A line break is kept: it is a row break. Every other C0 control and `DEL`
+/// is `\xNN`, two lowercase hex digits -- a tab is `\x09` and a carriage
+/// return `\x0d`, where [`tamed`] names them `\t` and `\r`. The C1 controls
+/// and the zero-width, line-separator, bidirectional, invisible-operator and
+/// byte-order-mark code points upstream names (`isNonPrintingCodepoint`,
+/// `:608-614`) are `\u{NNNN}`, at least four lowercase hex digits.
+///
+/// **One code point more than upstream's**: the Arabic letter mark (`U+061C`)
+/// is named too, because [`reorders`] counts it among the characters that
+/// reorder the glyphs around them, and a command a reviewer is asked to run
+/// is the last place to let one through. Upstream shows it as it is.
+///
+/// Every token is printable ASCII, so the result is its own answer: text this
+/// has already spelled is unchanged by spelling it again. That is what lets
+/// the bridge spell a command at the seam (`super::bridge`'s `made_inert`) and
+/// this module spell it again where it is laid out, the policy each module's
+/// own.
+pub(crate) fn command_text(command: &str) -> String {
+    let mut safe = String::with_capacity(command.len());
+    for character in command.chars() {
+        let code = u32::from(character);
+        if character == '\n' {
+            safe.push('\n');
+        } else if code < 0x20 || code == 0x7f {
+            safe.push_str(&format!("\\x{code:02x}"));
+        } else if names_code_point(code) {
+            safe.push_str(&format!("\\u{{{code:04x}}}"));
+        } else {
+            safe.push(character);
+        }
+    }
+    safe
+}
+
+/// Whether upstream's command text names `code` by its number
+/// (`isNonPrintingCodepoint`, `text_utils.zig:608-614`), or xfx's bidi rule
+/// does ([`reorders`], `U+061C`).
+fn names_code_point(code: u32) -> bool {
+    matches!(
+        code,
+        0x80..=0x9f | 0x200b..=0x200f | 0x2028..=0x202e | 0x2060..=0x206f | 0xfeff | 0x061c
+    )
+}
+
+/// The rows of an approval's command text at `content` cells, one segment
+/// each, as upstream's `CommandSegmentIterator` cuts them
+/// (`approval_ui.zig:265-340`) -- the text first spelled by [`command_text`].
+///
+/// Each line is its own run of rows, and an empty line is an empty row (a
+/// trailing line break included). Within a line, a row is:
+///
+/// * **The longest run of tokens that fits** (`prefixTerminalSafeByWidth`,
+///   `text_utils.zig:294-309`): a `\xNN` or `\u{…}` is one token, so a
+///   spelled control is never split across two rows; it goes down whole.
+/// * **Cut back to the last space inside the width, when that is shorter**
+///   (`wrapCutIgnoringAnsi`, `display_width.zig:333-353`) -- and not a space
+///   at the row's very start. The width is measured to the margin, not to the
+///   end of the tokens that fit, so a word that ends exactly at the margin
+///   goes down with the space before it when another space is in front of it.
+/// * **Every blank after the cut is dropped** (`trimBreakWhitespace`), so a
+///   continuation row never begins with one; the blanks before the cut stay on
+///   the row they end, painted as the command is.
+///
+/// A token wider than the whole row is a row of its own (upstream refuses such
+/// a command, `error.CommandDoesNotFit`; the narrowest band xfx lays out
+/// leaves sixteen cells, wider than any token).
+pub(crate) fn command_rows(text: &str, content: u16) -> Vec<String> {
+    let content = content.max(1);
+    let text = command_text(text);
+    let mut rows = Vec::new();
+    for line in text.split('\n') {
+        if line.is_empty() {
+            rows.push(String::new());
+            continue;
+        }
+        let mut rest = line;
+        while !rest.is_empty() {
+            let hard = token_prefix(rest, content);
+            let segment = if hard < rest.len() {
+                match soft_cut(rest, content) {
+                    soft if soft > 0 && soft < hard => soft,
+                    _ => hard,
+                }
+            } else {
+                hard
+            };
+            rows.push(rest[..segment].to_string());
+            rest = rest[segment..].trim_start_matches([' ', '\t']);
+        }
+    }
+    rows
+}
+
+/// How many bytes of `line` the longest run of whole tokens within `content`
+/// cells takes (`prefixTerminalSafeByWidth`), and at least one token.
+fn token_prefix(line: &str, content: u16) -> usize {
+    let mut used = 0u16;
+    let mut end = 0usize;
+    while end < line.len() {
+        let token = token_len(&line[end..]);
+        let cells = super::wrap::width(&line[end..end + token]);
+        if used.saturating_add(cells) > content {
+            break;
+        }
+        used += cells;
+        end += token;
+    }
+    if end == 0 {
+        // Wider than the row on its own: the row is that token.
+        end = token_len(line);
+    }
+    end
+}
+
+/// The bytes the token `text` begins with takes (`terminalSafeEncodedTokenLen`,
+/// `text_utils.zig:311-341`): a `\xNN`, a `\u{…}` of one to eight hex digits,
+/// or one character.
+fn token_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    if bytes.len() >= 4
+        && bytes[0] == b'\\'
+        && bytes[1] == b'x'
+        && bytes[2].is_ascii_hexdigit()
+        && bytes[3].is_ascii_hexdigit()
+    {
+        return 4;
+    }
+    if bytes.len() >= 5 && bytes.starts_with(b"\\u{") {
+        let digits = bytes[3..]
+            .iter()
+            .take(9)
+            .take_while(|byte| byte.is_ascii_hexdigit())
+            .count();
+        if (1..=8).contains(&digits) && bytes.get(3 + digits) == Some(&b'}') {
+            return 3 + digits + 1;
+        }
+    }
+    text.chars().next().map_or(1, char::len_utf8)
+}
+
+/// Where `line` is cut by its spaces within `content` cells
+/// (`wrapCutIgnoringAnsi`, `display_width.zig:333-353`): the prefix that fits
+/// is measured cluster by cluster to the margin, and the cut is before the
+/// last space in it when that space is past the first byte -- else the prefix
+/// itself, or the whole line when all of it fits.
+fn soft_cut(line: &str, content: u16) -> usize {
+    let mut used = 0u16;
+    let mut fits = line.len();
+    let mut space = None;
+    for painted in super::wrap::painting(line) {
+        let at = painted.end - painted.cluster.len();
+        let cells = super::wrap::cluster_width(painted.cluster);
+        // `used` never passes `content`: a cluster is only counted when it fits.
+        if cells > content - used {
+            fits = at;
+            break;
+        }
+        used += cells;
+        if matches!(painted.cluster.as_bytes().first(), Some(b' ' | b'\t')) {
+            space = Some(at);
+        }
+    }
+    if fits == line.len() {
+        return fits;
+    }
+    space.filter(|at| *at > 0).unwrap_or(fits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1157,6 +1336,97 @@ mod tests {
         let rows = subject_rows(Kind::Command, &long, 40, &Styles::PLAIN);
         let steps: usize = rows.iter().map(|row| row.matches("step").count()).sum();
         assert_eq!(steps, 20, "the command was not shown whole: {rows:?}");
+    }
+
+    #[test]
+    fn a_command_word_that_ends_at_the_margin_goes_down_with_the_space_before_it() {
+        // `CommandSegmentIterator` (`approval_ui.zig:290-330`): the tokens
+        // that fit end at the margin, the cut is back at the last space inside
+        // the width, and the word that filled the row starts the next one --
+        // fx's `cmd-wrap` receipt, `... past the margin` / `eeeeeeeeeeeee goes
+        // down`. The composer's wrap kept the word and hung the space.
+        assert_eq!(command_rows("aa bbbbbbbbb cc", 12), ["aa", "bbbbbbbbb cc"]);
+        // Every blank after the cut is dropped, and the one before it kept.
+        assert_eq!(command_rows("aaaa    bbbb", 6), ["aaaa ", "bbbb"]);
+        // A space at the row's very start is not a cut.
+        assert_eq!(command_rows(" bbbbbbb", 6), [" bbbbb", "bb"]);
+    }
+
+    #[test]
+    fn a_long_command_with_no_spaces_is_cut_at_the_margin_glyphs_whole() {
+        assert_eq!(
+            command_rows("abcdefghijklmnop", 6),
+            ["abcdef", "ghijkl", "mnop"]
+        );
+        // A two-cell glyph that would cross the margin starts the next row.
+        assert_eq!(
+            command_rows("\u{6f22}\u{5b57}\u{304b}\u{306a}\u{6f22}", 5),
+            ["\u{6f22}\u{5b57}", "\u{304b}\u{306a}", "\u{6f22}"]
+        );
+    }
+
+    #[test]
+    fn a_command_with_escape_and_link_bytes_shows_them_spelled_and_never_split() {
+        // `projectCommandText` and `terminalSafeToken` (`approval_ui.zig:228-
+        // 247`, `text_utils.zig:560-616`): what a terminal would obey is its
+        // number, and the number is one token, so it goes down whole --
+        // fx's `cmd-wrap` receipt, `A-C2:xxx...` / `\x1b[31mred\x1b[0m`.
+        assert_eq!(
+            command_rows("xxxxxxxxx\u{1b}[31mred\u{1b}[0m", 12),
+            ["xxxxxxxxx", "\\x1b[31mred", "\\x1b[0m"]
+        );
+        let link = "printf '\u{1b}]8;;https://e.x/\u{1b}\\l\u{1b}]8;;\u{1b}\\' &&\ttab";
+        let rows = command_rows(link, 116);
+        assert_eq!(
+            rows,
+            ["printf '\\x1b]8;;https://e.x/\\x1b\\l\\x1b]8;;\\x1b\\' &&\\x09tab"]
+        );
+        assert!(
+            rows.iter().all(|row| !row.chars().any(char::is_control)),
+            "{rows:?}"
+        );
+        // A carriage return is spelled rather than taken as a line break;
+        // the C1 controls, the zero-width and bidirectional marks and the
+        // byte-order mark are named by their code points, and so is the
+        // Arabic letter mark xfx's bidi rule names.
+        assert_eq!(
+            command_text("a\rb\u{85}c\u{200d}d\u{202e}e\u{2066}f\u{feff}g\u{61c}h\u{7f}"),
+            "a\\x0db\\u{0085}c\\u{200d}d\\u{202e}e\\u{2066}f\\u{feff}g\\u{061c}h\\x7f"
+        );
+        // Spelling is its own answer, so the bridge's and this module's
+        // passes are one.
+        let once = command_text(link);
+        assert_eq!(command_text(&once), once);
+    }
+
+    #[test]
+    fn a_commands_lines_are_rows_and_an_empty_one_or_a_trailing_break_is_an_empty_row() {
+        // `consumeHardLine` (`approval_ui.zig:332-339`, and the upstream case
+        // `command segments retain empty hard lines`, `:2509-2517`).
+        assert_eq!(command_rows("one\n\nthree\n", 80), ["one", "", "three", ""]);
+    }
+
+    #[test]
+    fn upstreams_command_cases_with_their_inputs_unchanged() {
+        // `inline command panel wraps commands at word boundaries`
+        // (`approval_ui.zig:2519-2531`): a panel 28 wide is 24 cells of
+        // command behind `  $ `.
+        assert_eq!(
+            command_rows("curl --header alpha --header bravo", 28 - 4),
+            ["curl --header alpha", "--header bravo"]
+        );
+        // `approval command projection keeps literal escapes and encodes
+        // controls` (`:2497-2507`).
+        assert_eq!(
+            command_text("printf '\\x0a'\nprintf '\u{1b}[31m'\r"),
+            "printf '\\x0a'\nprintf '\\x1b[31m'\\x0d"
+        );
+        // `inline command panel preserves hard newlines from the raw command`
+        // (`:2468-2495`).
+        assert_eq!(
+            command_rows("cat <<'EOF'\nline one\nEOF", 120 - 4),
+            ["cat <<'EOF'", "line one", "EOF"]
+        );
     }
 
     #[test]
