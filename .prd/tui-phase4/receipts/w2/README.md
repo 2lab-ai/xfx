@@ -264,8 +264,8 @@ paste with that one notice row, which is what xfx now writes.
 
 | snap | fx | xfx | matches |
 |---|---|---|---|
-| `read` | `● 1 tool call · 1 read` / `└ Read shot.png`, `A small red square.`, `0s (↑6 ↓80)` | the same rows, `0s (↑6 ↓40)` | Identical but the turn summary's output count: fx adds both requests' 40, xfx says the last one's. Not this unit's -- `receipts/d4a`'s `after-refusal` shows the same (`↓120` against `↓40`). |
-| `wide` | the second turn, `Read wide.png`, `Too wide.` | same | As above. |
+| `read` | `● 1 tool call · 1 read` / `└ Read shot.png`, `A small red square.`, `0s (↑6 ↓80)` | same | `.txt` and `.ansi` identical (retaken in round 5; at `d84afb4` xfx said `↓40`, the last request's count, where fx adds both requests' 40). |
+| `wide` | the second turn, `Read wide.png`, `Too wide.`, `0s (↑4 ↓80)` | same | As above. |
 
 Wire (`*-image-readfile-40x120-wire.json`), the requests after each read:
 
@@ -295,13 +295,30 @@ Wire: `image-inline` and `image-paste` send the same user messages and file
 parts as before on both (`*-wire.json`), and `image-composer` the same four
 requests as round 3.
 
+## Round 5: F4 merged, `image-readfile` retaken
+
+xfx `target/debug/xfx` at `ee00a1e` (plan's `e17dd02` merged: F4's steering
+and T6's output count), fx the c1db919 build. `image-readfile.cap` now waits
+ten seconds after each Enter, not five: with F4 a prompt typed while a turn
+still runs steers that turn, and on a loaded host the second prompt was typed
+before the first turn ended.
+
+| snap | `.txt` | `.ansi` |
+|---|---|---|
+| `read` | identical: `0s (↑6 ↓80)` on both | identical |
+| `wide` | identical: `0s (↑6 ↓80)`, then `0s (↑4 ↓80)` | identical |
+
+The output count matches now: a turn's summary adds every request's output
+tokens, as fx does. Wire: the same requests as round 3 (the image after
+`shot.png`'s result, none after `wide.png`'s), with round 3's two differences,
+`Saved images: …` and `Session file evidence…`.
+
 ## Differences, and why
 
-- **The badge is not an OSC 8 hyperlink.** fx wraps `[Image N]` in a link to
-  its file (`writeImageBadge`, `image_attachments.zig:1336-1340`). xfx's painter
-  draws no hyperlink of any kind yet -- the open F5 links row in `loop.md`, a
-  check-vocabulary decision -- so the badge is its text. Every `.ansi`
-  difference in the badge rows is this and nothing else.
+- **Where a clipboard badge's link goes** (round 4): fx's copy is in the
+  session it opened at launch, xfx's in a temporary directory until the prompt
+  is recorded. Rounds 1-3's other badge-row `.ansi` differences were the link
+  itself, which xfx did not draw before round 4.
 - **The vision-tool route** (`image-nonnative`), above and in `ssot.md`.
 - **No title request**: xfx never had one; not this unit's.
 - **Wall-clock seconds** in turn summaries: timing.
