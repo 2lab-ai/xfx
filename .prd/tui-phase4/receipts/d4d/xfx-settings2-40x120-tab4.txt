@@ -1,13 +1,13 @@
-x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
 
 ┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Settings 1  All  Interface  Agent  Notifications  [Advanced]
+Settings 2  All  Interface  Agent  Notifications  [Advanced]
 
-  Prompt history    off  on
+  Startup scrollback    off  on
+  Prompt history        off  on
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ↑↓ navigate     tab category     ←→ change     esc close
-
 
 
 
