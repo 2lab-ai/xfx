@@ -26,15 +26,15 @@
     3. No
   [38;5;245m2 = allow every future run of exactly `echo A-C1 echo the quick brown fox jumps over the lazy dog and the command[39m
   [38;5;245mkeeps going past the margin eeeeeeeeeeeee goes down[39m
-  [38;5;245mA-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[39m
-  [38;5;245m[31mred [0m[39m
-  [38;5;245mprintf ' ]8;;https://example.com/A \link ]8;; \' && echo 漢字かな && tab[39m
+  [38;5;245mA-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1b
+[39m  [38;5;245m[31mred\x1b[0m[39m
+  [38;5;245mprintf '\x1b]8;;https://example.com/A\x1b\link\x1b]8;;\x1b\' && echo 漢字かな &&\x09tab[39m
 
   [38;5;245mA-C5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space
 [39m  [38;5;245m-token-no-space-token-no-space-token-[39m
   [38;5;245mecho A-C6 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin echo zzzzzz[39m
   [38;5;245mafter three spaces` in . for the rest of this session, and in every later `xfx ask --resume-id[39m
-  [38;5;245m1791355406191-7184771b4a65bec6` of this saved session[39m
+  [38;5;245m1791355859583-59e18c35728c5aba` of this saved session[39m
 
 [38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m

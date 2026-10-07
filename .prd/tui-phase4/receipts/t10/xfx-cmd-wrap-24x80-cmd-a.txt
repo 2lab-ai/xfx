@@ -17,8 +17,8 @@
     3. No
   2 = allow every future run of exactly `echo B-C1 echo the quick brown fox
   jumps over the lazy dog and eeeeeeeeeeeee goes down
-  B-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-  [31mred [0m` in . for the rest of this session, and in every later `xfx ask
-  --resume-id 1791355405928-c6b3b60e38e58c6f` of this saved session
+  B-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\x1b
+  [31mred\x1b[0m` in . for the rest of this session, and in every later `xfx ask
+  --resume-id 1791355859671-1d46e0cfb2b63a61` of this saved session
 ────────────────────────────────────────────────────────────────────────────────
 1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
