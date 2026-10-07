@@ -1,0 +1,25 @@
+# The arrows at the composer's edge (`input_completion_runtime.zig:265-284`):
+# Up from anywhere but the draft's start takes the caret there and only the
+# next Up recalls -- so a recalled line, its caret at its end, takes two.
+# Each caret is shown by the letter typed at it.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+wait 2
+type /version
+key Enter
+wait 1
+type /status
+key Enter
+wait 1
+type half
+key Up
+type X
+wait 0.5
+snap start
+key Up Up
+wait 0.5
+snap recalled
+key Up
+type Y
+wait 0.5
+snap recalled-start
