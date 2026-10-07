@@ -146,34 +146,50 @@ const NAME_ATTEMPTS: usize = 8;
 ///
 /// The name is `xfx-trace-YYYY-MM-DD-HHMMSS-<12 hex>.md`, the time in UTC, as
 /// upstream names its `fx-trace-` files (`app_commands.zig:2197-2206`). The
-/// file is **created exclusively**, so neither an existing file nor a link
-/// planted under that name is ever written through, and **owner-only from its
-/// first byte** (mode `0600` at creation, which no umask can widen); it is
-/// synced before its path is handed back. A name that is taken is tried again
-/// with other hex, at most [`NAME_ATTEMPTS`] times.
+/// file is **owner-only from its first byte** (mode `0600` at creation, which
+/// no umask can widen) and synced before its path is handed back. A name that
+/// is taken is tried again with other hex, at most [`NAME_ATTEMPTS`] times.
 ///
-/// A file that was created and could not be written is removed again, where
-/// upstream leaves it: a half report nothing points at is one more private
-/// file in a shared directory.
+/// **A report is whole or it is not there.** Upstream creates the report
+/// under its own name and writes into it (`app_commands.zig:2207-2224`), so a
+/// process killed mid-write leaves a truncated report where a person would
+/// look for one. Here the bytes go to a hidden stage beside it
+/// (`.<name>.partial`), created exclusively and synced, and only then is the
+/// stage renamed onto the report's name -- **without replacing** anything
+/// already there ([`publish`]). So neither an existing file nor a link
+/// planted under the name is ever written through or replaced, and a kill at
+/// any moment leaves either the whole report or no report: at worst a hidden
+/// stage, never a report that stops short.
+///
+/// A stage that could not be written or published is removed again.
 pub fn write_report(dir: &Path, contents: &str, now_ms: i64) -> io::Result<PathBuf> {
     let stamp = file_stamp(now_ms);
-    write_named(dir, contents, || {
-        format!(
-            "xfx-trace-{stamp}-{}.md",
-            &crate::session::new_identifier()[..12]
-        )
-    })
+    write_named(
+        dir,
+        contents,
+        || {
+            format!(
+                "xfx-trace-{stamp}-{}.md",
+                &crate::session::new_identifier()[..12]
+            )
+        },
+        before_publish,
+    )
 }
 
-/// [`write_report`], with each name it tries asked of `name`.
+/// [`write_report`], with each name it tries asked of `name`, and `staged`
+/// told of each stage once it is whole and synced, before it is published.
 fn write_named(
     dir: &Path,
     contents: &str,
     mut name: impl FnMut() -> String,
+    mut staged: impl FnMut(&Path),
 ) -> io::Result<PathBuf> {
     let mut last = io::Error::from(io::ErrorKind::AlreadyExists);
     for _ in 0..NAME_ATTEMPTS {
-        let path = dir.join(name());
+        let name = name();
+        let path = dir.join(&name);
+        let stage = dir.join(format!(".{name}.partial"));
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -181,7 +197,7 @@ fn write_named(
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = match options.open(&path) {
+        let mut file = match options.open(&stage) {
             Ok(file) => file,
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
                 last = err;
@@ -192,15 +208,63 @@ fn write_named(
         let written = file
             .write_all(contents.as_bytes())
             .and_then(|()| file.sync_all());
+        drop(file);
         if let Err(err) = written {
-            drop(file);
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(&stage);
             return Err(err);
         }
-        return Ok(path);
+        staged(&stage);
+        match publish(&stage, &path) {
+            Ok(()) => return Ok(path),
+            Err(err) => {
+                let _ = std::fs::remove_file(&stage);
+                if err.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(err);
+                }
+                last = err;
+            }
+        }
     }
     Err(last)
 }
+
+/// Gives the whole `stage` the report's name, failing with `AlreadyExists`
+/// rather than replacing whatever is there.
+///
+/// One `rename` that refuses to replace (`RENAME_EXCL` on macOS,
+/// `RENAME_NOREPLACE` on Linux), so the name appears with every byte behind it
+/// at once. Where the filesystem has no such rename, a hard link -- which
+/// refuses an existing name the same way -- and the stage's removal; a kill
+/// between the two leaves the whole report and a hidden copy of it.
+fn publish(stage: &Path, path: &Path) -> io::Result<()> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use rustix::fs::{renameat_with, RenameFlags, CWD};
+        use rustix::io::Errno;
+        match renameat_with(CWD, stage, CWD, path, RenameFlags::NOREPLACE) {
+            Ok(()) => return Ok(()),
+            Err(err) if err == Errno::INVAL || err == Errno::NOSYS || err == Errno::OPNOTSUPP => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+    std::fs::hard_link(stage, path)?;
+    let _ = std::fs::remove_file(stage);
+    Ok(())
+}
+
+/// Where a build made to fail on purpose waits between a report's write and
+/// its publication, so a test can kill the process there
+/// (`XFX_TUI_FAULT=trace-before-publish`). Nothing in any other build.
+#[cfg(all(unix, feature = "fault-injection"))]
+fn before_publish(_stage: &Path) {
+    use crate::tui::fault::{injected, Fault};
+    if injected(Fault::TraceBeforePublish) {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+    }
+}
+
+#[cfg(not(all(unix, feature = "fault-injection")))]
+fn before_publish(_stage: &Path) {}
 
 /// `YYYY-MM-DD-HHMMSS` for the file name, in UTC; a clock before 1970 is the
 /// epoch, as upstream clamps it (`@max(..., 0)`, `app_commands.zig:2187`).
@@ -1855,29 +1919,132 @@ mod tests {
         let again = write_report(dir.path(), "two", NOW).expect("written");
         assert_ne!(again, path);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "# xfx trace\n");
+        // And the two reports are all there is: no stage is left behind.
+        let mut names: Vec<PathBuf> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        names.sort();
+        let mut expected = vec![path, again];
+        expected.sort();
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn a_report_killed_between_its_write_and_its_publication_is_no_report() {
+        // The moment a kill can land that upstream's write leaves a truncated
+        // report at (`app_commands.zig:2207-2224`): the bytes are written and
+        // synced and the name is not yet given. A panic there stands in for
+        // the process ending -- nothing after it runs -- and what is on disk
+        // is what a SIGKILL would leave.
+        let dir = tempfile::tempdir().expect("a directory");
+        let killed = std::panic::catch_unwind(|| {
+            let _ = write_named(
+                dir.path(),
+                "# xfx trace\nthe whole report\n",
+                || "xfx-trace-2026-10-07-031245-0123456789ab.md".to_string(),
+                |_| panic!("killed"),
+            );
+        });
+        assert!(killed.is_err());
+        let names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [".xfx-trace-2026-10-07-031245-0123456789ab.md.partial"],
+            "a report was published before it was whole"
+        );
+        // Every earlier moment is the stage, partly written or not created;
+        // every later one is the whole report under its name.
+        let published = write_named(
+            dir.path(),
+            "# xfx trace\nthe whole report\n",
+            || "xfx-trace-2026-10-07-031246-0123456789ab.md".to_string(),
+            |stage| {
+                assert_eq!(
+                    std::fs::read_to_string(stage).unwrap(),
+                    "# xfx trace\nthe whole report\n",
+                    "the stage is published before it is whole"
+                );
+            },
+        )
+        .expect("published");
+        assert_eq!(
+            std::fs::read_to_string(published).unwrap(),
+            "# xfx trace\nthe whole report\n"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_report_is_never_published_over_a_file_that_appeared_under_its_name() {
+        // The name was free when the stage was made and taken before it was
+        // published: the publication refuses rather than replacing it, and the
+        // next name is tried.
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut names = 0;
+        let path = write_named(
+            dir.path(),
+            "report",
+            || {
+                names += 1;
+                format!("xfx-trace-{names}.md")
+            },
+            |stage| {
+                if stage.ends_with(".xfx-trace-1.md.partial") {
+                    std::fs::write(stage.with_file_name("xfx-trace-1.md"), "theirs").unwrap();
+                }
+            },
+        )
+        .expect("published under the next name");
+        assert_eq!(path.file_name().unwrap(), "xfx-trace-2.md");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("xfx-trace-1.md")).unwrap(),
+            "theirs"
+        );
+        assert!(!dir.path().join(".xfx-trace-1.md.partial").exists());
     }
 
     #[test]
     #[cfg(unix)]
     fn a_report_never_writes_through_a_name_that_is_already_there() {
-        // Exclusive creation: a link planted under every name the write could
-        // pick is not followed, and the file it points at is not touched.
+        // Exclusive publication: a link planted under every name the write
+        // could pick is neither followed nor replaced, the file it points at
+        // is not touched, and no stage is left behind.
         let dir = tempfile::tempdir().expect("a directory");
         let victim = dir.path().join("victim");
         std::fs::write(&victim, "keep").unwrap();
         let mut names = 0;
-        let refused = write_named(dir.path(), "report", || {
-            names += 1;
-            let name = format!("taken-{names}.md");
-            std::os::unix::fs::symlink(&victim, dir.path().join(&name)).unwrap();
-            name
-        });
+        let refused = write_named(
+            dir.path(),
+            "report",
+            || {
+                names += 1;
+                let name = format!("taken-{names}.md");
+                std::os::unix::fs::symlink(&victim, dir.path().join(&name)).unwrap();
+                name
+            },
+            |_| {},
+        );
         assert_eq!(
             refused.map_err(|err| err.kind()).unwrap_err(),
             io::ErrorKind::AlreadyExists
         );
         assert_eq!(names, NAME_ATTEMPTS);
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        for taken in 1..=NAME_ATTEMPTS {
+            let link = dir.path().join(format!("taken-{taken}.md"));
+            assert!(std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert!(!dir
+                .path()
+                .join(format!(".taken-{taken}.md.partial"))
+                .exists());
+        }
     }
 
     #[test]
