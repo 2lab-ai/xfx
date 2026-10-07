@@ -836,10 +836,10 @@ pub(crate) struct Shell {
     enqueued: usize,
     /// How many of them have reached the transcript.
     emitted: usize,
-    /// How each speed save the band started went, by its id, once the writer
+    /// How each save the band holds an announcement for went, once its writer
     /// has answered: what to say above the announcement its [`Mark::Saving`]
-    /// holds ([`super::speed_save`]).
-    speed_said: std::collections::BTreeMap<u64, Option<notice::Notice>>,
+    /// holds ([`super::speed_save`], [`super::sound`]).
+    saves_said: std::collections::BTreeMap<Held, Option<notice::Notice>>,
     /// Text the pacer released while a [`Mark::Saving`] at or before its
     /// position was still waiting for its write: the emission and the queue
     /// bytes it carried, released again the moment the write answers, so
@@ -1144,6 +1144,13 @@ pub(crate) struct Shell {
     /// writes because two resets before one tick are one handoff: the second
     /// has no document of its own to hand off.
     handoff: Option<u16>,
+    /// The document a reset handed off while it still owed rows that were
+    /// said before the reset: what a held save's announcement wrote when the
+    /// reset waited for it ([`Shell::say_held_saves`]). Its rows land first
+    /// ([`Shell::emit_document_front`]) and the handoff waits for them
+    /// ([`Shell::owes_handoff`]), so they go into scrollback with the rest of
+    /// the old screen, as upstream's -- written when the command ran -- do.
+    departing: Option<Transcript>,
     /// Whether the rows above the band may no longer end the way the
     /// transcript's own record of its tail says ([`Transcript::ends_blank`]).
     ///
@@ -1495,13 +1502,23 @@ enum Mark {
     /// The turn is over: whatever of its group is still running was stopped
     /// with it, and the group is closed.
     TurnOver,
-    /// A `/fast` or `/ultrafast` change, said once its save has answered:
-    /// what the save came to -- a layer above the profile, or the failure --
-    /// and then `then`, the change itself, as upstream persists before it
-    /// announces (`applyFastMode`, `session_commands.zig:781-797`). Until the
-    /// write answers ([`Shell::speed_said`]) it holds everything behind it,
+    /// A change said once its save has answered -- `/fast`, `/ultrafast`,
+    /// `/sound`: what the save came to -- a layer above the profile, or the
+    /// failure -- and then `then`, the change itself, as upstream persists
+    /// before it announces (`applyFastMode`, `session_commands.zig:781-797`;
+    /// `handleNotificationsCommand`, `app_commands.zig:4014-4027`). Until the
+    /// write answers ([`Shell::saves_said`]) it holds everything behind it,
     /// the stream included, so the order said is the order given.
-    Saving { id: u64, then: notice::Notice },
+    Saving { save: Held, then: notice::Notice },
+}
+
+/// Which writer a [`Mark::Saving`] waits for, and which of its saves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Held {
+    /// [`super::speed_save::Saves`].
+    Speed(u64),
+    /// [`Sound`]'s.
+    Sound(u64),
 }
 
 /// The answer being written: whether its prose block is open, and the line
@@ -1817,7 +1834,8 @@ impl Shell {
             marks: VecDeque::new(),
             enqueued: 0,
             emitted: 0,
-            speed_said: std::collections::BTreeMap::new(),
+            saves_said: std::collections::BTreeMap::new(),
+            departing: None,
             stalled: None,
             running_mark: false,
             work,
@@ -2755,13 +2773,17 @@ impl Shell {
     /// Written straight into the transcript rather than through the pacer: a
     /// conversation that already happened is not streamed again.
     pub(crate) fn hydrate(&mut self, replay: Hydration, wipe: bool) {
+        // What a held save's announcement says first: upstream's was written
+        // when the command ran, so it is above the replay -- and, under a
+        // wipe, erased with the rest, as upstream's terminal reset erases it.
+        let _ = self.say_held_saves();
         // Whatever the screen still owed the conversation being replaced: a
         // tail the pacer holds, the lines behind it, a presenter's open block,
         // a tool group. None of it belongs above the session that replaces it.
         self.pacer.forget();
         self.marks.clear();
         self.stalled = None;
-        self.speed_said.clear();
+        self.saves_said.clear();
         self.emitted = self.enqueued;
         self.markdown.reset();
         self.answer = Answer::default();
@@ -2780,6 +2802,7 @@ impl Shell {
             // be erased, scrollback and all.
             self.retint_debt = false;
             self.handoff = None;
+            self.departing = None;
             self.wipe = true;
             self.transcript = Transcript::new(self.geometry.cols);
             // And the full transcript is the document's record: the session
@@ -2933,7 +2956,7 @@ impl Shell {
     /// holding is deliberately **not** counted -- it is not a row yet, and it
     /// waits for its own release whichever plane the session is on.
     pub(crate) fn owes_document(&self) -> bool {
-        self.transcript.owes()
+        self.departing.as_ref().is_some_and(Transcript::owes) || self.transcript.owes()
     }
 
     /// Offers the oldest thing the document is owed to the terminal, measured
@@ -2954,6 +2977,18 @@ impl Shell {
         &mut self,
         emit: impl FnOnce(&Append) -> Landed<E>,
     ) -> Option<Result<(), E>> {
+        // A handed-off document's last rows first ([`Self::departing`]); once
+        // they have landed the handoff is measured against them, and nothing
+        // of the new document is offered before the handoff has run.
+        if let Some(departing) = self.departing.as_mut() {
+            if departing.owes() {
+                return departing.emit_front(self.palette, emit);
+            }
+            let ends_blank = departing.ends_blank();
+            self.departing = None;
+            self.handoff = Some(u16::from(!self.tail_unknown && ends_blank));
+            return None;
+        }
         self.transcript.emit_front(self.palette, emit)
     }
 
@@ -5377,22 +5412,34 @@ impl Shell {
     fn settle_speed_saves(&mut self) {
         let mut answered = false;
         while let Some(saved) = self.speed_saves.saved() {
-            answered |= self.speed_saved(saved);
+            answered |= self.file_save(Held::Speed(saved.id), saved.said);
         }
         if answered {
             self.resume_after_saves();
         }
     }
 
-    /// Files one save's answer under its mark, and says whether one was
-    /// waiting for it: a mark a reset dropped has nothing to say it to.
-    fn speed_saved(&mut self, saved: super::speed_save::Saved) -> bool {
+    /// What a `/sound` save that failed says, before its level: upstream's
+    /// failure report (`reportUserSettingsFailure`,
+    /// `session_commands.zig:110-133`). A save that landed says nothing.
+    fn sound_said(saved: super::sound::Saved) -> Option<notice::Notice> {
+        saved.outcome.err().map(|reason| {
+            notice::Notice::error(
+                crate::sound::TOPIC,
+                crate::sound::not_saved(saved.changed, &reason),
+            )
+        })
+    }
+
+    /// Files one save's answer under the mark holding its announcement, and
+    /// says whether one was: a mark a wipe dropped has nothing to say it to.
+    fn file_save(&mut self, save: Held, said: Option<notice::Notice>) -> bool {
         let waiting = self
             .marks
             .iter()
-            .any(|(_, mark)| matches!(mark, Mark::Saving { id, .. } if *id == saved.id));
+            .any(|(_, mark)| matches!(mark, Mark::Saving { save: held, .. } if *held == save));
         if waiting {
-            self.speed_said.insert(saved.id, saved.said);
+            self.saves_said.insert(save, said);
         }
         waiting
     }
@@ -5405,25 +5452,63 @@ impl Shell {
         }
     }
 
-    /// The exit's: waits for every save still being written -- a settings
-    /// write, two `fsync`s -- so what was said for it is said before the band
-    /// comes down. One that never answers is said without its report.
-    fn finish_speed_saves(&mut self) {
+    /// Waits for every save an announcement is held for -- a settings write,
+    /// two `fsync`s -- so it can be said: the exit's, before the band comes
+    /// down, and a reset's, before the screen is handed on. Upstream's saves
+    /// are made on the thread that ran the command, so what it said for them
+    /// is always on the screen by then. One that never answers is said
+    /// without its report.
+    fn wait_for_saves(&mut self) {
         const LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
-        while let Some(id) = self.marks.iter().find_map(|(_, mark)| match mark {
-            Mark::Saving { id, .. } if !self.speed_said.contains_key(id) => Some(*id),
+        while let Some(save) = self.marks.iter().find_map(|(_, mark)| match mark {
+            Mark::Saving { save, .. } if !self.saves_said.contains_key(save) => Some(*save),
             _ => None,
         }) {
-            match self.speed_saves.wait(LIMIT) {
-                Some(saved) => {
-                    let _ = self.speed_saved(saved);
+            let answered = match save {
+                Held::Speed(_) => self
+                    .speed_saves
+                    .wait(LIMIT)
+                    .map(|saved| (Held::Speed(saved.id), saved.said)),
+                Held::Sound(_) => self
+                    .sound
+                    .wait(LIMIT)
+                    .map(|saved| (Held::Sound(saved.id), Self::sound_said(saved))),
+            };
+            match answered {
+                Some((held, said)) => {
+                    let _ = self.file_save(held, said);
                 }
                 None => {
-                    self.speed_said.insert(id, None);
+                    self.saves_said.insert(save, None);
                 }
             }
         }
+    }
+
+    /// The exit's: every held announcement said, and the text it held let go.
+    fn finish_saves(&mut self) {
+        self.wait_for_saves();
         self.resume_after_saves();
+    }
+
+    /// A reset's, before it drops what the old screen was owed: the saves
+    /// waited for, and every announcement held for one written -- with what
+    /// was due behind it -- while the rest of the queue, the stream's, is
+    /// left for the reset to drop. Answers whether anything was written, so
+    /// the reset knows its document has rows still to land.
+    fn say_held_saves(&mut self) -> bool {
+        if !self.held_by_save() {
+            return false;
+        }
+        self.wait_for_saves();
+        self.run_due_marks();
+        let rest = std::mem::take(&mut self.marks);
+        for (_, mark) in rest {
+            if matches!(mark, Mark::Saving { .. }) {
+                self.run_mark(mark);
+            }
+        }
+        true
     }
 
     /// What `/credits` found, under its topic: neutral for the fields or the
@@ -6454,7 +6539,7 @@ impl Shell {
 
     /// Whether `mark` is a speed save whose write has not answered yet.
     fn waiting(&self, mark: &Mark) -> bool {
-        matches!(mark, Mark::Saving { id, .. } if !self.speed_said.contains_key(id))
+        matches!(mark, Mark::Saving { save, .. } if !self.saves_said.contains_key(save))
     }
 
     /// Whether anything is held behind a speed save still being written.
@@ -6550,7 +6635,7 @@ impl Shell {
     /// taken, and once more after the drain, for the session that had nothing
     /// left to drain and a queue to empty anyway.
     pub(crate) fn flush_paced(&mut self) {
-        self.finish_speed_saves();
+        self.finish_saves();
         let before = self.pacer.pending();
         if let Some(chunk) = self.pacer.drain() {
             // Through the same splitter a tick's release goes through, so an
@@ -6582,8 +6667,8 @@ impl Shell {
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
         // A speed save that has answered: what it came to, then the change.
-        if let Mark::Saving { id, then } = mark {
-            if let Some(said) = self.speed_said.remove(&id).flatten() {
+        if let Mark::Saving { save, then } = mark {
+            if let Some(said) = self.saves_said.remove(&save).flatten() {
                 self.run_mark(Mark::Notice(said));
             }
             self.run_mark(Mark::Notice(then));
@@ -7093,13 +7178,12 @@ impl Shell {
     /// failed, as upstream reports a commit with `announce_commit=false`
     /// (`app_commands.zig:4005-4021`): the level was said when it was typed.
     fn settle_saves(&mut self) {
+        let mut answered = false;
         while let Some(saved) = self.sound.saved() {
-            if let Err(reason) = saved.outcome {
-                self.announce(notice::Notice::error(
-                    crate::sound::TOPIC,
-                    crate::sound::not_saved(saved.changed, &reason),
-                ));
-            }
+            answered |= self.file_save(Held::Sound(saved.id), Self::sound_said(saved));
+        }
+        if answered {
+            self.resume_after_saves();
         }
     }
 
@@ -7596,7 +7680,7 @@ impl Shell {
     /// ([`Self::handed_off`]), so a write the terminal refused leaves it owed
     /// without a second call that would have to remember to put it back.
     pub(crate) fn owes_handoff(&self) -> bool {
-        self.handoff.is_some()
+        self.handoff.is_some() && self.departing.is_none()
     }
 
     /// How many of the rows the handed-off document ends on are blank -- the
@@ -9563,13 +9647,23 @@ impl CommandHandlers for Shell {
         };
         let level = request.level(self.sound.notifications());
         let (changed, started) = self.sound.set(level);
-        if let Err(reason) = started {
-            self.announce(notice::Notice::error(
-                crate::sound::TOPIC,
-                crate::sound::not_saved(changed, &reason),
-            ));
+        let announcement = notice::Notice::neutral(crate::sound::TOPIC, level.label());
+        match started {
+            // Upstream saves, reports a failure, then says the level
+            // (`handleNotificationsCommand`, `app_commands.zig:4014-4027`):
+            // the level is held until the writer has answered.
+            Ok(id) => self.mark(Mark::Saving {
+                save: Held::Sound(id),
+                then: announcement,
+            }),
+            Err(reason) => {
+                self.announce(notice::Notice::error(
+                    crate::sound::TOPIC,
+                    crate::sound::not_saved(changed, &reason),
+                ));
+                self.announce(announcement);
+            }
         }
-        self.announce(notice::Notice::neutral(crate::sound::TOPIC, level.label()));
     }
 }
 
@@ -9950,6 +10044,19 @@ impl Shell {
         }));
     }
 
+    /// Gives the band a speed writer that writes nothing and answers only
+    /// what the case delivers ([`super::speed_save::Saves::by_hand`]).
+    #[cfg(test)]
+    pub(crate) fn save_speeds_by_hand(&mut self) {
+        self.speed_saves = super::speed_save::Saves::by_hand();
+    }
+
+    /// Answers the speed save `id` as the writer would.
+    #[cfg(test)]
+    pub(crate) fn deliver_speed_save(&self, id: u64, said: Option<notice::Notice>) {
+        self.speed_saves.deliver(id, said);
+    }
+
     /// Saves a speed change and says it the way upstream does: the save
     /// first -- its report, when it has one -- then `announcement`
     /// (`applyFastMode`, `session_commands.zig:781-797`; `applyUltrafastMode`,
@@ -9960,7 +10067,7 @@ impl Shell {
     fn announce_saved(&mut self, order: super::speed_save::Order, announcement: notice::Notice) {
         match self.speed_saves.start(order) {
             super::speed_save::Started::Writing(id) => self.mark(Mark::Saving {
-                id,
+                save: Held::Speed(id),
                 then: announcement,
             }),
             super::speed_save::Started::Nowhere => self.announce(announcement),
@@ -10138,7 +10245,11 @@ impl Shell {
     /// loop's to write ([`Self::owes_handoff`]); what is dropped here is
     /// everything owed against the old screen -- the appends not yet written
     /// and the pacer's text, so the partial answer of a cancelled turn does
-    /// not follow it -- and what is queued is the welcome line.
+    /// not follow it -- and what is queued is the welcome line. **Except what
+    /// was said for a save** still being written when the reset came: the
+    /// reset waits for the write, says it, and hands that document off once
+    /// its rows have landed ([`Self::departing`]), as upstream's synchronous
+    /// save has it on the screen already.
     ///
     /// **No notice**, and the window title goes back to the workspace
     /// (`clearCachedSessionTitle`, `:1982`). The context meter's numerator goes
@@ -10168,6 +10279,12 @@ impl Shell {
         // (`retireLiveSessionCompaction`, `app_session_runtime.zig:1958-1964`).
         self.compaction = None;
         self.context_used = None;
+        // What was said for a save still being written, said now -- after the
+        // write, which this waits for -- and kept for the old screen with the
+        // rows it wrote ([`Self::departing`]): upstream's save runs on the
+        // command's own thread, so its `* fast: on` is always on the screen
+        // this hands to scrollback.
+        let said_saves = self.say_held_saves();
         // The old screen's debts: the text the pacer holds, the lines placed
         // behind it, the answer block a cancelled turn left open, and -- once
         // its tail has been read below -- the rows not yet written. The stream
@@ -10176,7 +10293,7 @@ impl Shell {
         self.pacer.forget();
         self.marks.clear();
         self.stalled = None;
-        self.speed_said.clear();
+        self.saves_said.clear();
         self.emitted = self.enqueued;
         self.markdown.reset();
         self.answer = Answer::default();
@@ -10201,7 +10318,10 @@ impl Shell {
             let known = !self.transcript.owes() && !self.tail_unknown;
             self.handoff = Some(u16::from(known && self.transcript.ends_blank()));
         }
-        self.transcript = Transcript::new(self.geometry.cols);
+        let old = std::mem::replace(&mut self.transcript, Transcript::new(self.geometry.cols));
+        if said_saves && self.departing.is_none() && old.owes() {
+            self.departing = Some(old);
+        }
         // The full transcript is the document's record, and the document
         // starts again: the old one is in scrollback, not on this screen
         // (upstream's projection is of the session's entries, which the reset
@@ -17442,8 +17562,10 @@ mod tests {
         ] {
             shell.route_bytes(line.as_bytes());
             shell.route_bytes(b"\r");
+            // Said once saved, as upstream saves before it answers: the exit's
+            // view waits for the write.
             assert_eq!(
-                shell.document(),
+                shell.released(),
                 said(notice::Notice::neutral("sound", level)),
                 "{line:?}"
             );
@@ -17491,21 +17613,19 @@ mod tests {
     }
 
     #[test]
-    fn a_save_that_failed_says_so_after_the_level() {
+    fn a_save_that_failed_says_so_before_the_level() {
         // `reportUserSettingsFailure` (`session_commands.zig:110-133`): an
-        // error under `sound`, saying the switch is in force anyway. Upstream
-        // says it before the level because it saves before it answers; here
-        // the save is on its own thread, so it is said when the thread says.
+        // error under `sound`, saying the switch is in force anyway -- and
+        // before the level, as upstream saves before it answers
+        // (`handleNotificationsCommand`, `app_commands.zig:4014-4027`). The
+        // save is on its own thread, so the level waits for it.
         let (home, path) = profile();
         std::fs::create_dir_all(path.parent().expect("a profile")).expect("profile");
         std::fs::write(&path, "{ not json").expect("seed");
         let mut shell = sounding(24, false, Some(path.clone()));
         shell.route_bytes(b"/sound\r");
-        assert_eq!(
-            shell.document(),
-            said(notice::Notice::neutral("sound", "on"))
-        );
-        let failed = joined(&save_settled(&mut shell));
+        let said_rows = save_settled(&mut shell);
+        let failed = joined(&said_rows);
         assert!(
             failed.starts_with(
                 "\u{2717} sound: active for this process but not saved to user settings ("
@@ -17513,6 +17633,7 @@ mod tests {
             "{failed}"
         );
         assert!(failed.contains("not valid JSON"), "{failed}");
+        assert!(failed.ends_with("* sound: on"), "{failed}");
         assert_eq!(std::fs::read(&path).expect("read"), b"{ not json");
         // The switch is in force all the same.
         assert_eq!(
@@ -21095,6 +21216,73 @@ mod tests {
                 .unwrap_or_else(|| panic!("{rest}")),
         );
         assert!(on < after, "{rest}");
+    }
+
+    #[test]
+    fn a_reset_typed_behind_a_save_in_flight_waits_for_it_and_keeps_what_it_said_for_the_old_screen(
+    ) {
+        // `/fast`, `/sound` and `/clear` typed ahead: upstream saved and said
+        // each before the reset ran, so both lines are on the screen the
+        // reset hands to scrollback. Here the reset waits for the real
+        // writers, writes what they held, and those rows are the old screen's
+        // ([`Shell::departing`]): they land first, and the handoff waits for
+        // them.
+        let (_home, path) = profile();
+        let mut shell = speed_shell();
+        shell.shell.speed_saves =
+            super::super::speed_save::Saves::new(Some(path.clone()), Default::default());
+        shell.sound = Sound::new(
+            crate::config::Notifications::both(false),
+            Some(path.clone()),
+        );
+        shell.shell.use_model("anthropic/claude-opus-5");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        // Typed ahead, read in one burst.
+        shell.route_bytes(b"/fast\r/sound\r/clear\r");
+        let old_screen = joined(&shell.document());
+        assert!(
+            old_screen.contains("* fast: on") && old_screen.contains("* sound: on"),
+            "{old_screen}"
+        );
+        assert!(
+            old_screen.find("* fast: on") < old_screen.find("* sound: on"),
+            "{old_screen}"
+        );
+        assert!(shell.owes_handoff(), "the handoff waited for nothing");
+        shell.shell.handed_off();
+        let fresh = joined(&shell.document());
+        assert!(
+            !fresh.contains("fast:") && !fresh.contains("sound:"),
+            "{fresh}"
+        );
+        // Both were written, in the order given.
+        saved_as(
+            &path,
+            serde_json::json!({"models": {"gateway": "anthropic/claude-opus-5"},
+                               "provider": "gateway", "fast_mode": true,
+                               "ultrafast_mode": false, "fast_mode_model_bound": true,
+                               "notifications": {"turn_end": true, "attention_required": true}}),
+        );
+    }
+
+    #[test]
+    fn a_resume_says_a_held_save_above_the_replay_and_a_wipe_erases_it_with_the_screen() {
+        // Upstream's `* fast: on` is on the screen before a resume replays
+        // onto it -- and gone with the rest when the picker's resume resets
+        // the terminal (`requestTerminalReset`).
+        for wipe in [false, true] {
+            let mut shell = speed_shell();
+            shell.shell.speed_saves = super::super::speed_save::Saves::by_hand();
+            shell.shell.use_model("anthropic/claude-opus-5");
+            let _ = change(&mut shell);
+            let _ = shell.document();
+            shell.route_bytes(b"/fast\r");
+            shell.shell.speed_saves.deliver(1, None);
+            shell.hydrate(replay(Some("a title"), Vec::new()), wipe);
+            let shown = joined(&shell.document());
+            assert_eq!(shown.contains("* fast: on"), !wipe, "wipe={wipe}: {shown}");
+        }
     }
 
     #[test]
@@ -29195,7 +29383,7 @@ mod tests {
         down(&mut shell, 8);
         shell.route_bytes(RIGHT);
         assert_eq!(
-            shell.document(),
+            shell.released(),
             said(notice::Notice::neutral("sound", "on"))
         );
         assert_eq!(
