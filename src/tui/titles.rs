@@ -41,9 +41,9 @@
 //! (`session_changed`, `:3720-3728`); the screen is the same either way, and
 //! the socket is closed sooner here.
 //!
-//! **The thread is started from the runtime thread**, which was itself started
-//! with the owned death signals blocked, so it inherits that mask, and it is
-//! never waited for -- the reason [`super::reconcile`]'s asker gives.
+//! **The thread is started with every owned signal blocked**
+//! ([`super::signals::spawn_unsignalled`]), as [`super::reconcile`]'s asker
+//! is, so no handler can run on it, and it is never waited for.
 
 use std::future::Future;
 use std::io;
@@ -363,29 +363,27 @@ impl Titles {
         let ask = Arc::clone(&self.ask);
         let done = self.done.clone();
         let session = session.to_string();
-        let started = std::thread::Builder::new()
-            .name(THREAD_NAME.to_string())
-            .spawn(move || {
-                let outcome = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(runtime) => {
-                        let outcome = runtime.block_on(ask(question));
-                        // A resolver still in `getaddrinfo` is not waited for.
-                        runtime.shutdown_background();
-                        outcome
-                    }
-                    Err(_) => Outcome::Unavailable(Unavailable::NotStarted),
-                };
-                // Nobody left to tell is a session that has ended.
-                let _ = done.send(Titled {
-                    ticket,
-                    session,
-                    outcome,
-                });
-            })
-            .is_ok();
+        let started = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+            let outcome = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => {
+                    let outcome = runtime.block_on(ask(question));
+                    // A resolver still in `getaddrinfo` is not waited for.
+                    runtime.shutdown_background();
+                    outcome
+                }
+                Err(_) => Outcome::Unavailable(Unavailable::NotStarted),
+            };
+            // Nobody left to tell is a session that has ended.
+            let _ = done.send(Titled {
+                ticket,
+                session,
+                outcome,
+            });
+        })
+        .is_ok();
         if !started {
             return false;
         }
@@ -441,8 +439,8 @@ impl Titles {
 
 impl Drop for Titles {
     /// Cancels the question in flight. Its thread is not waited for: it can
-    /// take no death signal (the module's own note), and it ends at its next
-    /// look at the flag or at [`TIMEOUT`].
+    /// take no signal (the module's own note), and it ends at its next look at
+    /// the flag or at [`TIMEOUT`].
     fn drop(&mut self) {
         self.forget();
     }
@@ -854,6 +852,27 @@ mod tests {
             (titled.session.as_str(), titled.title()),
             ("s-2", Some("Second"))
         );
+    }
+
+    /// The question is asked on the asking thread, so the asker reads that
+    /// thread's mask: every owned signal blocked, whoever started it.
+    #[test]
+    fn the_asking_thread_can_take_no_owned_signal() {
+        let mut titles = Titles::answering(|_| {
+            // A thread that could take one answers nothing usable.
+            if super::super::signals::owned_blocked_here()
+                .iter()
+                .all(|(_, blocked)| *blocked)
+            {
+                Outcome::Generated("Masked".into())
+            } else {
+                Outcome::Unavailable(Unavailable::NotStarted)
+            }
+        });
+        let (endpoint, credential) = a_question();
+        assert!(titles.start("s-1", "x", endpoint, credential));
+        let titled = next_within(&mut titles).expect("an answer");
+        assert_eq!(titled.title(), Some("Masked"));
     }
 
     #[test]
