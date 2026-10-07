@@ -2601,8 +2601,17 @@ async fn compact_between_turns(
         return Feedback::NoOp;
     }
     if state.ready(&turn.mirror).is_err() {
-        // Upstream's compaction is unavailable without a provider it may ask
-        // (`ContextCompactionUnavailable`, `compactor.zig:185-193`).
+        // Upstream's compaction is unavailable without a credential it may
+        // ask with (`ContextCompactionUnavailable`, `compactor.zig:185-193`),
+        // and `/trace` says which.
+        compaction_trace::failure(
+            Context::default(),
+            TraceKind::CredentialUnauthorized,
+            format!(
+                "provider={} credential_source=none",
+                state.config.provider.label()
+            ),
+        );
         transaction_failed(
             Context::default(),
             "preparation",

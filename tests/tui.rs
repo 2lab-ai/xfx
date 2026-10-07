@@ -9203,9 +9203,12 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
     let id = sandbox.session_ids().remove(0);
     let pty = Pty::open();
     pty.resize(40, 120);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
     let mut keyless = tui_with(&sandbox, &gateway);
     keyless.env_remove("AI_GATEWAY_API_KEY");
     keyless.arg("--resume").arg(&id);
+    clipboard.first_on_path(&mut keyless);
+    clipboard.reports_into(&mut keyless);
     let mut resumed = Session::spawn_without_taking_the_terminal(&pty, keyless);
     resumed.wait_for(READY);
     resumed.wait_for("MARKER-TWO");
@@ -9218,6 +9221,21 @@ fn compact_with_no_credential_is_not_started_and_asks_nobody() {
     );
     assert_eq!(gateway.request_count(), 2);
     assert!(checkpoints(&sandbox).is_empty());
+    // `/trace` says why (`compactor.zig:185-193`).
+    resumed.type_bytes(b"/trace\r");
+    let deadline = Instant::now() + WAIT;
+    while clipboard.reports().is_empty() {
+        assert!(Instant::now() < deadline, "no report was written");
+        std::thread::sleep(IDLE_POLL);
+    }
+    let report = std::fs::read_to_string(&clipboard.reports()[0]).expect("the report");
+    for needle in [
+        "event=credential_unauthorized failed provider=gateway credential_source=none",
+        "event=transaction_failed failed stage=preparation origin=manual \
+         err=ContextCompactionUnavailable",
+    ] {
+        assert!(report.contains(needle), "{needle:?} is not in:\n{report}");
+    }
     resumed.type_bytes(b"/quit\r");
     assert_eq!(resumed.wait_exit().code(), Some(0));
 }
