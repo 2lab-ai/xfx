@@ -372,6 +372,19 @@ impl std::fmt::Debug for Compactor {
     }
 }
 
+/// What was asked of the compactor before the turn opened in the log
+/// ([`TurnMachine::run_journaled`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Start {
+    /// Nothing: there is no compactor.
+    Fresh,
+    /// The first request was measured and nothing was compacted.
+    Checked,
+    /// A compaction rebuilt the first request, which is measured again
+    /// before it goes and not compacted again.
+    Rebuilt,
+}
+
 /// Where a turn is in its one recovery from a request the provider refused as
 /// too large (`ContextOverflowRecoveryState`, `orchestrator.zig:4447-4451`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -502,6 +515,51 @@ impl TurnMachine {
         }
         self.finalized = true;
 
+        // **A compaction the first request needs comes before the turn opens
+        // in the log**, as upstream's does: one that fails leaves no turn
+        // behind -- upstream persists a failed turn only once it has
+        // execution to keep (`finishExecutionOnlyFailureIfNeeded`,
+        // `finalization.zig:213-246`) -- and only what its notes requests
+        // cost is written. One the user stopped is a turn that was asked and
+        // stopped, and is recorded as one (`persistCompactionInterruptedTurnOnce`,
+        // `orchestrator.zig:7413-7423`).
+        let mut start = Start::Fresh;
+        let mut stopped = None;
+        if self.compactor.is_some() {
+            match self
+                .compact_before_step(provider, journal, false, false)
+                .await
+            {
+                Ok(Some(history)) => {
+                    self.history = history;
+                    start = Start::Rebuilt;
+                }
+                Ok(None) => start = Start::Checked,
+                Err(TurnError::Cancelled) => stopped = Some(TurnError::Cancelled),
+                Err(err) => {
+                    let requests = std::mem::take(&mut self.requests);
+                    if !requests.is_empty() || self.unaccounted {
+                        journal.record(SessionEvent::UsageRecorded {
+                            input_tokens: None,
+                            output_tokens: None,
+                            requests,
+                            unaccounted: self.unaccounted,
+                            lines_added: 0,
+                            lines_removed: 0,
+                            settled: Vec::new(),
+                            rejected: Vec::new(),
+                        });
+                    }
+                    events
+                        .emit(&Event::Error {
+                            message: err.to_string(),
+                        })
+                        .map_err(TurnError::Sink)?;
+                    return Err(err);
+                }
+            }
+        }
+
         // The user's message opens the turn in the log before anything can go
         // wrong, so a turn that fails on its first request is still a turn that
         // was asked.
@@ -510,7 +568,10 @@ impl TurnMachine {
         });
         journal.attach_images(&self.request.images);
 
-        let result = self.drive(provider, events, journal).await;
+        let result = match stopped {
+            Some(err) => Err(err),
+            None => self.drive(provider, events, journal, start).await,
+        };
 
         // The answer a failed step had put in front of the user, as the turn's
         // last step: the conclusion closes it.
@@ -594,12 +655,15 @@ impl TurnMachine {
         provider: &dyn Provider,
         events: &mut dyn EventSink,
         journal: &mut dyn TurnJournal,
+        start: Start,
     ) -> Result<TurnOutcome, TurnError> {
         let mut overflow = Overflow::Ready;
         // The provider's refusal, while it is being recovered from.
         let mut refusal: Option<TurnError> = None;
         // A compaction has rebuilt the request, which has not gone yet.
-        let mut rebuilt = false;
+        let mut rebuilt = start == Start::Rebuilt;
+        // The first request was measured before the turn opened.
+        let mut checked = start == Start::Checked;
         loop {
             if self.request.cancel.is_cancelled() {
                 return Err(TurnError::Cancelled);
@@ -613,7 +677,7 @@ impl TurnMachine {
                 });
             }
 
-            if self.compactor.is_some() {
+            if self.compactor.is_some() && !std::mem::take(&mut checked) {
                 let pending = overflow == Overflow::Pending;
                 match self
                     .compact_before_step(provider, journal, pending, rebuilt)
@@ -1415,6 +1479,63 @@ mod tests {
         let (_three, context) = tools();
         let provider = Script::new(vec![too_large()]);
         assert!(machine(context).run(&provider, &mut Quiet).await.is_err());
+    }
+
+    /// Fails every check with `error`.
+    struct Failing(fn() -> TurnError);
+
+    #[async_trait::async_trait(?Send)]
+    impl StepCompactor for Failing {
+        async fn before_step(
+            &mut self,
+            _check: StepCheck<'_>,
+        ) -> Result<Option<Vec<Message>>, TurnError> {
+            Err((self.0)())
+        }
+    }
+
+    #[derive(Default)]
+    struct Kept(Vec<SessionEvent>);
+
+    impl TurnJournal for Kept {
+        fn record(&mut self, event: SessionEvent) {
+            self.0.push(event);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_compaction_the_first_request_needed_that_failed_leaves_no_turn_and_a_stopped_one_does(
+    ) {
+        // `finishExecutionOnlyFailureIfNeeded`, `finalization.zig:213-246`:
+        // nothing ran, so nothing of the turn is kept.
+        let (_one, context) = tools();
+        let mut turn =
+            machine(context).with_compactor(Box::new(Failing(|| TurnError::ContextNotReduced {
+                reason: "ModelFailed",
+            })));
+        let provider = Script::new(Vec::new());
+        let mut journal = Kept::default();
+        let err = turn
+            .run_journaled(&provider, &mut Quiet, &mut journal)
+            .await
+            .expect_err("refused");
+        assert!(matches!(err, TurnError::ContextNotReduced { .. }));
+        assert!(journal.0.is_empty(), "{:?}", journal.0);
+        assert!(provider.asked.borrow().is_empty());
+
+        // Stopped: asked and stopped (`persistCompactionInterruptedTurnOnce`,
+        // `orchestrator.zig:7413-7423`).
+        let (_two, context) = tools();
+        let mut turn = machine(context).with_compactor(Box::new(Failing(|| TurnError::Cancelled)));
+        let mut journal = Kept::default();
+        assert!(matches!(
+            turn.run_journaled(&provider, &mut Quiet, &mut journal)
+                .await,
+            Err(TurnError::Cancelled)
+        ));
+        let kinds: Vec<&str> = journal.0.iter().map(SessionEvent::kind).collect();
+        assert_eq!(kinds, ["user_message", "turn_concluded"]);
+        assert!(provider.asked.borrow().is_empty());
     }
 
     #[test]

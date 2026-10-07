@@ -2900,8 +2900,8 @@ impl TurnCompactor {
     fn ended_turn(failure: &Failure) -> crate::agent::TurnError {
         match failure {
             Failure::Cancelled => crate::agent::TurnError::Cancelled,
-            other => crate::agent::TurnError::ProviderFailure {
-                detail: format!("compaction failed: {}", other.name()),
+            other => crate::agent::TurnError::ContextNotReduced {
+                reason: other.name(),
             },
         }
     }
@@ -2948,8 +2948,8 @@ impl crate::agent::StepCompactor for TurnCompactor {
                         check.request_tokens
                     ),
                 );
-                return Err(crate::agent::TurnError::ProviderFailure {
-                    detail: "ContextCapacityExceeded".to_string(),
+                return Err(crate::agent::TurnError::ContextNotReduced {
+                    reason: "ContextCapacityExceeded",
                 });
             }
             return Ok(None);
@@ -3057,8 +3057,8 @@ impl crate::agent::StepCompactor for TurnCompactor {
         let Some((count, text, tools, history)) = committed else {
             transaction_failed(context, "publication", origin, "SessionWriteFailed");
             self.settle(Feedback::Failed).await;
-            return Err(crate::agent::TurnError::ProviderFailure {
-                detail: "compaction failed: SessionWriteFailed".to_string(),
+            return Err(crate::agent::TurnError::ContextNotReduced {
+                reason: "SessionWriteFailed",
             });
         };
         compaction_trace::info(

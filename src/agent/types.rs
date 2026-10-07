@@ -182,6 +182,12 @@ pub enum TurnError {
     StepLimit { limit: u32 },
     /// The attempt budget was exhausted, or was zero to begin with.
     AttemptLimit { limit: u32 },
+    /// The conversation had to be made smaller before the next request, and
+    /// could not be: its earlier turns' notes could not be written, or the
+    /// request was too large even so. `reason` is upstream's error name
+    /// (`ModelFailed`, `ContextCapacityExceeded`, ...). Said in words that
+    /// do not name the compaction, whose own row says what went wrong.
+    ContextNotReduced { reason: &'static str },
     /// The turn was cancelled.
     Cancelled,
     /// Turn events could not be written.
@@ -219,6 +225,11 @@ impl fmt::Display for TurnError {
                 "the model finished with `tool-calls` but named no tool to call"
             ),
             Self::ProviderFailure { detail } => write!(f, "the provider failed: {detail}"),
+            Self::ContextNotReduced { reason } => write!(
+                f,
+                "the conversation could not be made small enough for the model's window \
+                 ({reason})"
+            ),
             Self::StepLimit { limit } => {
                 write!(f, "the turn reached its limit of {limit} model steps")
             }

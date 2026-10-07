@@ -9484,6 +9484,84 @@ fn a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again() {
 }
 
 #[test]
+fn an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it() {
+    // Upstream keeps a failed turn only once it has execution to keep
+    // (`finishExecutionOnlyFailureIfNeeded`, `finalization.zig:213-246`;
+    // `orchestrator.zig:5782-5797`), and a compaction's failure is the row's
+    // alone (`compactionErrorHandled`): a turn whose opening request needed a
+    // compaction that failed is not in the log, and a resume shows nothing
+    // of it -- its e2e forbids `compaction` anywhere in a reopened
+    // transcript (`COMPACTION_OUTPUT`, `tui-compaction-activity.test.ts:24`).
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let line = "evidence ".repeat(25);
+    let big: String = (0..400).map(|_| format!("{line}\n")).collect();
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "read-1",
+                "read_file",
+                serde_json::json!({ "path": "big.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-ONE"])),
+        Reply::Status(400, "Synthetic summary rejection".to_string()),
+        Reply::Status(400, "Synthetic summary rejection".to_string()),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "zai/glm-5.2", "type": "language", "owned_by": "zai",
+         "released": 1_700_000_000, "tags": ["tool-use"],
+         "context_window": 16_000, "max_tokens": 4_000},
+    ]}));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("big.txt"), &big).expect("write the fixture");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-ONE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"second question\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Compaction failed. Try /compact again."],
+        &["the conversation could not", "\u{2717}"],
+    );
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 4, "{requests:?}");
+    assert!(is_summary(&requests[2].json()) && is_summary(&requests[3].json()));
+    assert!(checkpoints(&sandbox).is_empty());
+    assert!(
+        !session_frames(&sandbox)
+            .iter()
+            .any(|frame| frame["event"]["text"] == "second question"),
+        "the turn the compaction failed for was recorded"
+    );
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let id = sandbox.session_ids().remove(0);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    again.wait_for("MARKER-ONE");
+    on_screen(
+        &again,
+        (40, 120),
+        &["MARKER-ONE"],
+        &["ompact", "second question", "\u{2717}", "Synthetic"],
+    );
+    again.type_bytes(b"/quit\r");
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped() {
     // Upstream's `auto: cancellation provenance` (`tui-compaction-activity.test.ts:
     // 446-503`): the turn that reached the compaction point is stopped with the
