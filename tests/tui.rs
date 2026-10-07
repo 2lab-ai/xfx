@@ -2733,7 +2733,7 @@ fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
     let first = "y".repeat(1100);
     paste(&mut session, &first);
     session.wait_until("the paste to be summarized", |text| {
-        composer(text) == "\u{2503} [Pasted text #1, 1 lines]"
+        composer(text) == "\u{2503} [Pasted text #1, 1 line]"
     });
     session.type_bytes(&[0x7f]);
     session.wait_until("the whole block to go with one backspace", |text| {
@@ -2746,12 +2746,12 @@ fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
     let second = "z".repeat(1100);
     paste(&mut session, &second);
     session.wait_until("the second paste to be summarized", |text| {
-        composer(text) == "\u{2503} [Pasted text #2, 1 lines]"
+        composer(text) == "\u{2503} [Pasted text #2, 1 line]"
     });
     session.type_bytes(b"\x1b[D");
     session.type_bytes(b"see ");
     session.wait_until("the caret to have stepped over the whole unit", |text| {
-        composer(text) == "\u{2503} see [Pasted text #2, 1 lines]"
+        composer(text) == "\u{2503} see [Pasted text #2, 1 line]"
     });
 
     session.type_bytes(&[0x0d]);
@@ -2771,7 +2771,7 @@ fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
     // number rather than the one it was submitted with.
     session.type_bytes(b"\x1b[A");
     session.wait_until("the submitted line to come back renumbered", |text| {
-        composer(text) == "\u{2503} see [Pasted text #3, 1 lines]"
+        composer(text) == "\u{2503} see [Pasted text #3, 1 line]"
     });
     session.type_bytes(&[0x0d]);
     session.wait_for("MARKER-RECALLED");

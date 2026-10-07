@@ -8634,7 +8634,7 @@ impl Shell {
     /// **A paste past the budget puts nothing in the composer at all.** There
     /// is no block registered for it ([`super::paste::Paste::finish`]), so the
     /// summary would be words rather than a stand-in for the text -- a draft
-    /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
+    /// that submitted `[Pasted text #1, 1 line]` as a prompt is worse than a
     /// paste that plainly did not happen, and the hint row says which it was.
     fn pasted(&mut self) {
         // `/model`'s search is typed in the composer, and an image attached
@@ -13039,11 +13039,11 @@ mod tests {
         );
         let _echo = shell.document();
 
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string()),
             "a block the draft no longer held was expanded into a later prompt"
         );
     }
@@ -13060,12 +13060,12 @@ mod tests {
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
-        shell.route_bytes(b" and [Pasted text #1, 1 lines]");
+        shell.route_bytes(b" and [Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 lines]")),
+            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 line]")),
             "a summary the user typed was sent as a second copy of the paste"
         );
     }
@@ -13077,7 +13077,7 @@ mod tests {
         // whichever of the two a search for the name would have found first.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
-        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
+        shell.route_bytes(b"[Pasted text #1, 1 line] ");
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -13085,7 +13085,7 @@ mod tests {
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("[Pasted text #1, 1 lines] {block}")),
+            TurnWork::Submit(format!("[Pasted text #1, 1 line] {block}")),
             "the words the user had already typed were expanded in the \
              placeholder's place"
         );
@@ -13101,7 +13101,7 @@ mod tests {
         // never it.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x01]); // C-a: the caret goes back to the start
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
@@ -13110,7 +13110,7 @@ mod tests {
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("{block}[Pasted text #1, 1 lines]")),
+            TurnWork::Submit(format!("{block}[Pasted text #1, 1 line]")),
             "the copies were counted in the whole draft rather than in front \
              of the caret"
         );
@@ -13168,7 +13168,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the block was not collapsed, so this case proves nothing"
         );
 
@@ -13202,12 +13202,12 @@ mod tests {
         // The whole budget less the name that will stand in for it, which is
         // the largest block a draft can hold: a collapsed paste is charged its
         // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 line]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         let summary = shell.editor.text().to_string();
-        assert_eq!(summary, "[Pasted text #1, 1 lines]");
+        assert_eq!(summary, "[Pasted text #1, 1 line]");
 
         for _ in 0..summary.chars().count() {
             shell.route_bytes(&[0x7f]);
@@ -13292,7 +13292,7 @@ mod tests {
         // than inside it, so the name survives and its megabytes are still
         // going to be sent -- and the draft is at the cap.
         let mut shell = shell(24, 80);
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 line]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -13348,7 +13348,7 @@ mod tests {
         // nothing.
         let mut shell = shell(24, 80);
         let _block = collapsed(&mut shell, 1);
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 line]");
 
         shell.route_bytes(&[0x7f]);
         assert!(
@@ -13389,7 +13389,7 @@ mod tests {
         shell.route_bytes(b"!");
         assert_eq!(
             shell.editor.text(),
-            "![Pasted text #1, 1 lines]",
+            "![Pasted text #1, 1 line]",
             "a left step landed inside the name"
         );
         shell.route_bytes(&[0x0d]);
@@ -13413,7 +13413,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
+            "[Pasted text #2, 1 line]",
             "the recalled summary kept a number this session had already used"
         );
         shell.route_bytes(&[0x0d]);
@@ -13443,7 +13443,7 @@ mod tests {
             shell
                 .editor
                 .text()
-                .contains(&format!("[Pasted text #{BLOCKS}, 1 lines]")),
+                .contains(&format!("[Pasted text #{BLOCKS}, 1 line]")),
             "the last block is not in the draft"
         );
         shell.route_bytes(&[0x0d]);
@@ -13491,7 +13491,7 @@ mod tests {
         // `submit` would send.
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #4, 1 lines]",
+            "[Pasted text #4, 1 line]",
             "the walk handed back numbers this session had already spent"
         );
     }
@@ -13508,7 +13508,7 @@ mod tests {
         shell.route_bytes(b"  ");
         let block = collapsed(&mut shell, 1);
         shell.route_bytes(b"  ");
-        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 lines]  ");
+        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 line]  ");
 
         shell.route_bytes(&[0x0d]);
         assert_eq!(
@@ -13577,15 +13577,15 @@ mod tests {
         assert_eq!(shell.edit_depths(), (0, 0), "the paste was an entry");
         shell.document();
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
         assert_eq!(shell.editor.expanded(), format!("look {block}"));
         assert!(shell.document().is_empty(), "the undo said something");
         // A keystroke after it is an entry of its own, and only it is taken.
         shell.route_bytes(b"!");
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
         // Backspace takes the block whole, and that too is a boundary: the
         // undo after it finds nothing, the block stays gone, and so does the
         // redo (capture `fx-paste-block-undo-40x120-deleted`).
@@ -13998,7 +13998,7 @@ mod tests {
                 .edit_history
                 .killed()
                 .expect("the slot is still loaded");
-            assert_eq!(text, "[Pasted text #1, 1 lines]");
+            assert_eq!(text, "[Pasted text #1, 1 line]");
             assert_eq!(spans.len(), 1);
             assert_eq!(
                 spans[0].text().len(),
@@ -14082,18 +14082,18 @@ mod tests {
         // lines identical. Folding them would drop the entry that stands on the
         // block and hand back the one that stands on nothing.
         let mut shell = shell(24, 80);
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string())
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string())
         );
         let _echo = shell.document();
 
         let block = collapsed(&mut shell, 1);
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the paste did not take the number the typed line names, so this \
              case proves nothing"
         );
@@ -14103,7 +14103,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A"); // Up: one step back
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
+            "[Pasted text #2, 1 line]",
             "the pasted line was folded into the typed one: {:?}",
             shell.editor.text()
         );
@@ -14130,7 +14130,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A"); // Up
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the recalled line is not the one that was submitted"
         );
         assert!(
@@ -14140,7 +14140,7 @@ mod tests {
         assert_eq!(shell.notice, Some(RECALL_UNNUMBERED));
         assert_eq!(
             shell.editor.expanded(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the summary still stood for eight megabytes"
         );
     }
@@ -28726,7 +28726,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("first[Pasted text #1, 1 lines]")
+            composer_row("first[Pasted text #1, 1 line]")
         );
 
         older(&mut shell);
@@ -28774,7 +28774,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
@@ -28783,7 +28783,7 @@ mod tests {
         shell.route_bytes(&[0x0e]);
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #2, 1 lines]"),
+            composer_row("[Pasted text #2, 1 line]"),
             "the draft the walk began from did not come back, or came back \
              under a number this session had already used"
         );
@@ -28805,27 +28805,27 @@ mod tests {
         // installed and keep the block alive, and the recalled line would then
         // be expanded into megabytes nobody pasted into it.
         let mut shell = shell(24, 80);
-        submitted(&mut shell, "[Pasted text #1, 1 lines]");
+        submitted(&mut shell, "[Pasted text #1, 1 line]");
         let block = "y".repeat(1200);
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
         older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the recalled line is not the one whose words match the summary"
         );
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string()),
             "a block survived the recall and expanded into the line the walk handed back"
         );
     }
