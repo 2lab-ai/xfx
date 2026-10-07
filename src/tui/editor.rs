@@ -297,31 +297,14 @@ impl Editor {
     /// not there.
     /// The span the caller still needs is read back from the delta
     /// ([`Delta::inserted_entities`]), which is the same fact with one producer
-    /// instead of two: a paste is one recorded transaction, and the entity in it
-    /// is the one that was really registered.
+    /// instead of two: the entity in it is the one that was really registered.
     pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Delta> {
-        // Where the summary goes: the caret, or the start of what it replaces
-        // -- whose ends are carets, so never inside a block.
-        let at = self.selection().map_or(self.cursor, |range| range.start);
         let span = Span {
             start: 0,
             end: summary.len(),
             kind,
         };
-        let delta = self.insert_with_entities(summary, std::slice::from_ref(&span))?;
-        debug_assert_eq!(delta.at(), at);
-        Some(Delta::new(
-            delta.at(),
-            delta.removed().to_string(),
-            delta.inserted().to_string(),
-            delta.removed_entities().to_vec(),
-            delta.inserted_entities().to_vec(),
-            delta.caret_before(),
-            delta.caret_after(),
-            // One framed paste is one transaction, whatever it weighed and
-            // however many reads of the terminal it arrived in.
-            DeltaKind::Paste,
-        ))
+        self.insert_with_entities(summary, std::slice::from_ref(&span))
     }
 
     /// Replaces the whole draft, or refuses it whole.

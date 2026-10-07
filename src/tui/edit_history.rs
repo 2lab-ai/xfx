@@ -51,18 +51,14 @@ pub(crate) const MAX_RETAINED_BYTES: usize = 1 << 20;
 /// block marker standing for bytes that are no longer behind it.
 pub(crate) const MAX_KILL_BYTES: usize = 1 << 20;
 
-/// What kind of edit made a delta, for the two questions the kind decides:
-/// whether it loads the kill slot, and whether it is one gesture or many.
+/// What kind of edit made a delta, for the one question the kind decides:
+/// whether it loads the kill slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeltaKind {
-    /// A typed character, a backspace, a forward delete, a yank.
+    /// A typed character, a backspace, a forward delete, a paste, a yank.
     Ordinary,
     /// `C-k`, `C-u`, `C-w`: what it removed goes to the kill slot.
     Kill,
-    /// A collapsed paste or a badge put in at the caret
-    /// ([`super::editor::Editor::insert_entity`]): it puts an entity in, so
-    /// recording it is a boundary ([`EditHistory::record`]).
-    Paste,
 }
 
 /// One difference between two drafts.
