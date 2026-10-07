@@ -1121,7 +1121,7 @@ pub(crate) struct Shell {
     /// ([`Self::banner_rows`]) and its card is written when its turn starts,
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
-    prompts: VecDeque<(u64, Option<String>, Option<String>)>,
+    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -1353,12 +1353,73 @@ pub(crate) fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice)
     owed
 }
 
+/// Each image badge a card names and the link that opens around it, in no
+/// particular order: the badge as the card spells it (`[Image N]`) and
+/// upstream's open for its file (`writeImageBadge`,
+/// `image_attachments.zig:1336-1340`) -- no parameters, the path
+/// percent-encoded ([`super::hyperlink::file_uri`]).
+type BadgeLinks = Vec<(String, String)>;
+
+/// A prompt's card while it waits for its turn: the text and its badges'
+/// links ([`Shell::prompts`]).
+type WaitingCard = (String, BadgeLinks);
+
+/// [`BadgeLinks`] for these images. One whose file has no target a link may
+/// carry -- a relative path, or one too long -- is left out, and its badge
+/// stays text.
+fn badge_links<'a>(images: impl IntoIterator<Item = (u32, &'a std::path::Path)>) -> BadgeLinks {
+    images
+        .into_iter()
+        .filter_map(|(id, path)| {
+            let uri = super::hyperlink::file_uri(path)?;
+            Some((crate::image::badge(id), super::hyperlink::open("", &uri)))
+        })
+        .collect()
+}
+
+/// `line` with every badge [`BadgeLinks`] names wrapped in its link: upstream's
+/// card (`expandPlaceholdersWithLinkedBadges`, `user_message_card.zig:222-230`).
+///
+/// A link changes only where the target does, as upstream's writer emits one
+/// (`emitHyperlinkTransition`, `engine.zig:3245-3260`): two badges side by side
+/// that name one file are one run under one open, and a badge next to another
+/// file's opens that file's link without a close between them. The last one is
+/// closed before the text after it.
+fn linked_badges(line: &str, links: &BadgeLinks) -> String {
+    if links.is_empty() {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut open: Option<&str> = None;
+    let mut rest = line;
+    while !rest.is_empty() {
+        let found = links
+            .iter()
+            .find(|(badge, _)| rest.starts_with(badge.as_str()));
+        let (taken, link) = match found {
+            Some((badge, link)) => (badge.len(), Some(link.as_str())),
+            None => (rest.chars().next().map_or(1, char::len_utf8), None),
+        };
+        if link != open {
+            out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
+            open = link;
+        }
+        out.push_str(&rest[..taken]);
+        rest = &rest[taken..];
+    }
+    if open.is_some() {
+        out.push_str(super::hyperlink::CLOSE);
+    }
+    out
+}
+
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
     /// The line the user submitted, as upstream's card: the rail, the text in
-    /// bold, and a blank row under it (`user_message_card.zig:319-325`).
-    Card(String),
+    /// bold, and a blank row under it (`user_message_card.zig:319-325`) --
+    /// and each image badge on it a link to its file ([`BadgeLinks`]).
+    Card(String, BadgeLinks),
     /// The turn's summary under its answer, and a blank row under it
     /// (`transcript/runtime.zig:540-547`).
     Summary(String),
@@ -2603,7 +2664,8 @@ impl Shell {
             .iter()
             .rposition(|step| !matches!(step, HydratedStep::Text(_)))
             .map_or(0, |last| last + 1);
-        self.run_mark(Mark::Card(turn.user.clone()));
+        let links = badge_links(turn.images.iter().map(|(id, path)| (*id, path.as_path())));
+        self.run_mark(Mark::Card(turn.user.clone(), links));
         let mut streamed = Estimator::default();
         for (index, step) in turn.steps.into_iter().enumerate() {
             if index == concluding {
@@ -2768,9 +2830,9 @@ impl Shell {
                 // The waiting prompt is delivered: its card goes into the
                 // document behind whatever the last turn still has to say,
                 // and its rows leave the band.
-                if let Some(card) = card {
+                if let Some((card, links)) = card {
                     if !self.cancelling {
-                        self.echo(&card);
+                        self.echo(&card, links);
                     }
                     self.refit();
                     self.render.request(Reason::Footer);
@@ -3490,7 +3552,7 @@ impl Shell {
     /// the document by roads other than a mark as well.
     fn record(&mut self, mark: &Mark) {
         match mark {
-            Mark::Card(text) => self.full.prompt(text),
+            Mark::Card(text, _) => self.full.prompt(text),
             Mark::Summary(line) => self.full.usage(line),
             // The one line said this way is what the user said at an
             // approval, which upstream's screen heads as a prompt.
@@ -6022,7 +6084,7 @@ impl Shell {
         // ([`Self::present`]) -- before the mark's own write.
         self.record(&mark);
         match mark {
-            Mark::Card(text) => self.write_card(&text),
+            Mark::Card(text, links) => self.write_card(&text, &links),
             Mark::Summary(line) => {
                 self.write_document_line(&line, Role::Dim);
                 self.end_transcript_line();
@@ -7863,6 +7925,9 @@ impl Shell {
         // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
         // #3][Image #4] what is in this image?`). Read before the draft goes.
         let counted = self.editor.entities().with_image_tokens(text);
+        // What the card's badges link to: the files these images were read
+        // from, as the composer's badges did.
+        let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
         let work = if images.is_empty() {
             TurnWork::Submit(prompt)
         } else {
@@ -7887,13 +7952,16 @@ impl Shell {
                 let mut estimate = Estimator::default();
                 estimate.consume(&counted);
                 if waits {
-                    self.prompts
-                        .push_back((estimate.estimate(), title, Some(text.to_string())));
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title,
+                        Some((text.to_string(), links)),
+                    ));
                     self.refit();
                     self.render.request(Reason::Footer);
                 } else {
                     self.prompts.push_back((estimate.estimate(), title, None));
-                    self.echo(text);
+                    self.echo(text, links);
                 }
                 self.gestures.submitted();
             }
@@ -7924,14 +7992,14 @@ impl Shell {
     /// The line ends whether or not the last thing typed was a newline: what
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
-    fn echo(&mut self, text: &str) {
+    fn echo(&mut self, text: &str, links: BadgeLinks) {
         // The user's own line, so xfx paints no colour onto it: what is written
         // here is what they typed, in bold behind the rail, as upstream's card.
-        self.mark(Mark::Card(text.to_string()));
+        self.mark(Mark::Card(text.to_string(), links));
     }
 
     /// The card [`Mark::Card`] asks for.
-    fn write_card(&mut self, text: &str) {
+    fn write_card(&mut self, text: &str, links: &BadgeLinks) {
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::Rail) {
             self.owed();
@@ -7941,7 +8009,7 @@ impl Shell {
         // its style per row (`user_message_card.zig:365,374`).
         let card = text
             .split('\n')
-            .map(|line| format!("{BOLD}{line}{RESET}"))
+            .map(|line| format!("{BOLD}{}{RESET}", linked_badges(line, links)))
             .collect::<Vec<_>>()
             .join("\n");
         self.write_transcript_as(&card, Role::Plain);
@@ -9538,7 +9606,7 @@ impl Shell {
         let width = usize::from(cols.saturating_sub(2)).max(1);
         let mut rows = Vec::new();
         for (_, _, card) in &self.prompts {
-            let Some(card) = card else {
+            let Some((card, _)) = card else {
                 continue;
             };
             rows.extend(
@@ -17485,6 +17553,7 @@ mod tests {
             started_at_ms: 0,
             concluded_at_ms: None,
             details: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -17502,6 +17571,129 @@ mod tests {
             }
             document
         }
+    }
+
+    /// An answer carrying each kind of link upstream's presenter makes, and a
+    /// target this crate does not link.
+    const LINKED_ANSWER: &str = "See [the docs](https://example.com/docs) and \
+        https://example.org/path, <someone@example.com>, `https://example.com/code` \
+        and [script](javascript:alert(1)).";
+
+    /// The links an answer's rows open, in order.
+    fn opened(rows: &[String]) -> Vec<String> {
+        rows.iter()
+            .flat_map(|row| {
+                row.match_indices("\u{1b}]8;id=")
+                    .map(move |(at, _)| &row[at..])
+            })
+            .map(|tail| {
+                let end = tail.find("\u{1b}\\").expect("a terminated link");
+                tail[..end + 2].to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_answers_links_reach_the_document_as_upstreams_and_the_full_transcript_and_a_replay_agree()
+    {
+        // `fx-links-40x120-answered`: every link is `ESC ] 8 ; id=fx-N ; URI
+        // ST` around the styled text, numbered from 1 in a fresh process
+        // (upstream's counter is process-wide, `assistant_presentation.zig:13`).
+        let mut live = shell(40, 120);
+        live.route_bytes(b"show me the links\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted);
+        live.apply(UiEvent::Delta(LINKED_ANSWER.to_string()));
+        live.apply(UiEvent::Usage {
+            input: Some(6),
+            output: Some(40),
+        });
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let live_rows = live.painted_document();
+        let links = opened(&live_rows);
+        // The presenter numbers the `javascript:` link fx-5, as upstream's
+        // does (`isValidLinkUrl` has no scheme rule, `inline_render.zig:917-921`).
+        assert_eq!(
+            links,
+            [
+                "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\",
+                "\u{1b}]8;id=fx-2;https://example.org/path\u{1b}\\",
+                "\u{1b}]8;id=fx-3;mailto:someone@example.com\u{1b}\\",
+                "\u{1b}]8;id=fx-4;https://example.com/code\u{1b}\\",
+                "\u{1b}]8;id=fx-5;javascript:alert(1)\u{1b}\\",
+            ],
+            "{live_rows:?}"
+        );
+        // The painter is what refuses it: the link goes and its text stays.
+        let wire: Vec<String> = live_rows
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 120).into_owned())
+            .collect();
+        assert!(!wire.concat().contains("javascript:"), "{wire:?}");
+        assert!(
+            wire.concat().contains("\u{1b}[4mscript\u{1b}[24m"),
+            "{wire:?}"
+        );
+        assert_eq!(
+            opened(&wire),
+            links[..4],
+            "the painter dropped an admitted link"
+        );
+
+        // The full transcript shows the answer the presenter gave, ids and
+        // all, as upstream's does (`fx-links-40x120-second`).
+        live.route_bytes(b"\x0f");
+        let screen = live.shell.screen_rows();
+        assert_eq!(opened(&screen), links, "{screen:?}");
+
+        // A relaunch replays it as a fresh process writes it.
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            replay(
+                Some("show me the links"),
+                vec![saved(
+                    "show me the links",
+                    vec![HydratedStep::Text(LINKED_ANSWER.to_string())],
+                    0,
+                    Some(40),
+                )],
+            ),
+            true,
+        );
+        let rows = resumed.painted_document();
+        assert_eq!(
+            rows[2..],
+            live_rows[..],
+            "the replay is not the live document"
+        );
+    }
+
+    #[test]
+    fn a_replayed_card_links_its_badges_to_the_files_the_log_names() {
+        // `fx-image-40x120-resumed.ansi`: the replayed card's badges are one
+        // link to the file the images were read from.
+        let mut resumed = shell(40, 120);
+        let mut turn = saved(
+            "[Image 3][Image 4] what is in this image?",
+            vec![HydratedStep::Text("Red.".to_string())],
+            0,
+            Some(40),
+        );
+        turn.images = vec![
+            (3, std::path::PathBuf::from("/w/shot.png")),
+            (4, std::path::PathBuf::from("/w/shot.png")),
+        ];
+        resumed.hydrate(replay(Some("x"), vec![turn]), true);
+        let rows = resumed.painted_document();
+        let open = "\u{1b}]8;;file:///w/shot.png\u{1b}\\";
+        assert_eq!(
+            rows[2],
+            card_row(&format!(
+                "{open}[Image 3][Image 4]\u{1b}]8;;\u{1b}\\ what is in this image?"
+            )),
+            "{rows:?}"
+        );
     }
 
     #[test]
@@ -17794,6 +17986,7 @@ mod tests {
                         started_at_ms: 0,
                         concluded_at_ms: None,
                         details: Vec::new(),
+                        images: Vec::new(),
                     },
                 ],
             ),
@@ -19813,7 +20006,7 @@ mod tests {
     #[test]
     fn every_line_of_a_multi_line_card_is_bold() {
         let mut fixture = shell(24, 80);
-        fixture.echo("first\nsecond");
+        fixture.echo("first\nsecond", Vec::new());
         let document = fixture.released();
         let bold: Vec<&String> = document.iter().filter(|row| row.contains(BOLD)).collect();
         assert_eq!(bold.len(), 2, "{document:?}");
@@ -25879,9 +26072,17 @@ mod tests {
         assert!(images
             .iter()
             .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
+        // Both badges are one run under one link to the file they name, and
+        // the text after them is outside it: `fx-image-40x120-sent.ansi`'s
+        // card is `\x1b[1m\x1b]8;;file://<scratch>/work/shot.png\x1b\\[Image
+        // 3][Image 4]\x1b]8;;\x1b\\ what is in this image?`.
+        let uri = crate::tui::hyperlink::file_uri(&images[0].path).expect("a resolved path");
+        assert!(uri.ends_with("/shot.png"), "{uri}");
         assert_eq!(
             shell.document(),
-            card("[Image 1][Image 2] what is in this image?")
+            card(&format!(
+                "\x1b]8;;{uri}\x1b\\[Image 1][Image 2]\x1b]8;;\x1b\\ what is in this image?"
+            ))
         );
         assert!(shell.editor.is_empty());
         // The bytes are the ones attached: the file changing afterwards is

@@ -712,6 +712,7 @@ mod help_menu;
 mod hint;
 mod history;
 mod hydration;
+mod hyperlink;
 mod input;
 mod layout;
 mod model_column;
