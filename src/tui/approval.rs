@@ -825,6 +825,10 @@ pub(crate) enum Deferred {
         after_reset: bool,
         announced: bool,
     },
+    /// [`TurnControl::Catalog`] read while work that could not start a read
+    /// ran -- a provider switch, whose catalog is not yet the one to read --
+    /// answered as soon as it is over.
+    Catalog,
 }
 
 impl ControlChannel {
@@ -883,6 +887,13 @@ impl ControlChannel {
             after_reset,
             announced,
         });
+    }
+
+    /// Puts a catalog request aside until the work that is running ends
+    /// ([`Deferred::Catalog`]). **A catalog request answers no question**
+    /// either.
+    pub(crate) fn defer_catalog(&self) {
+        self.deferred.guarded().push(Deferred::Catalog);
     }
 
     /// Whether a `/rename` of the conversation the work is in is put aside
@@ -1190,6 +1201,14 @@ impl ApprovalPrompter for TuiPrompter {
                     // ([`ControlChannel::defer_rename`]).
                     Some(TurnControl::Rename { title, announced }) => {
                         self.control.defer_rename(title, false, announced);
+                        continue;
+                    }
+                    // `/model`'s menu asking for the catalog while this question
+                    // is up: handed back to the work's own loop, which starts
+                    // the read the moment the question lets the thread go --
+                    // this wait holds it -- and the question stays up.
+                    Some(TurnControl::Catalog) => {
+                        self.control.give_back(TurnControl::Catalog);
                         continue;
                     }
                     // A cancel (Escape at the panel, or an interrupt) or a

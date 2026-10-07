@@ -950,6 +950,23 @@ pub(crate) enum TurnControl {
     /// channel, so a title typed before a `/new` is the session the reset
     /// drops and one typed after it is the session the reset starts.
     Rename { title: String, announced: bool },
+    /// `/model`'s menu or its column wants the configured provider's model
+    /// catalog: told to the UI as it is when the runtime holds it, and read
+    /// otherwise -- read **again** after a read that failed, which is the
+    /// `retry /model.` the menu says -- with the answer told the moment it
+    /// arrives ([`UiEvent::CatalogLoaded`], [`UiEvent::CatalogUnread`]).
+    ///
+    /// **A control message rather than work**, because upstream's is not
+    /// queued behind anything: opening the menu starts the load on a thread of
+    /// its own at once, a turn streaming or not (`ensureModelCache` from
+    /// `openModelBrowseCatalog`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_input_runtime.zig:2346-2349`; `startWarmup`,
+    /// `src/core/app/model_cache_runtime.zig:321-349`), and the open menu is
+    /// refreshed when it lands (`pollLoadTransition`, `:549-557`). The read
+    /// is a task beside whatever the runtime is doing
+    /// ([`crate::provider::model::CatalogReader`]), so the socket is still
+    /// not the UI thread's.
+    Catalog,
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -1073,12 +1090,6 @@ pub(crate) enum TurnWork {
     /// happen under a running turn, and none of it may happen on the thread
     /// holding the terminal.
     Setup(crate::provider::ProviderId),
-    /// Load the configured provider's model catalog.
-    ///
-    /// Work rather than a control message because it opens a socket. The UI
-    /// thread sits in `pselect(2)` holding the terminal and may not wait for a
-    /// daemon that is not answering.
-    Catalog,
     /// List the saved sessions a `/resume` picker offers
     /// ([`UiEvent::Sessions`]). Work because it reads the store, which the
     /// thread holding the terminal does not.
