@@ -3343,6 +3343,65 @@ fn usage_frame(journal: &RecordingJournal) -> &SessionEvent {
     frame
 }
 
+/// Whether `program` is on this process's `PATH`, which the terminal tool
+/// passes to its commands.
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+}
+
+/// A command the terminal tool runs starts with no signal blocked, whichever
+/// thread runs the tool. The TUI runs it on a thread that blocks every signal
+/// the session owns, and a child born with that mask holds a `SIGTERM`
+/// pending: `timeout 1 sleep 5` would have waited out the whole sleep
+/// (`xfx::process`).
+#[test]
+fn a_timeout_inside_a_command_ends_it_on_time_from_a_thread_that_blocks_signals() {
+    // `timeout` is coreutils'; where it is not installed, the shell does what
+    // it does -- `TERM` to the command after a second.
+    let command = if on_path("timeout") {
+        "timeout 1 sleep 5"
+    } else {
+        "sleep 5 & pid=$!; (sleep 1; kill -TERM $pid) & wait $pid"
+    };
+    let (result, took) = std::thread::spawn(move || {
+        // SAFETY: `set` is a valid set this closure owns for the call.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            for signal in [
+                libc::SIGINT,
+                libc::SIGTERM,
+                libc::SIGHUP,
+                libc::SIGTSTP,
+                libc::SIGCONT,
+                libc::SIGWINCH,
+            ] {
+                libc::sigaddset(&mut set, signal);
+            }
+            assert_eq!(
+                libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()),
+                0
+            );
+        }
+        let tree = Tree::new();
+        let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
+        let started = std::time::Instant::now();
+        let result = call(
+            &tools,
+            "terminal",
+            json!({ "action": "exec", "command": command }),
+        );
+        (result, started.elapsed())
+    })
+    .join()
+    .expect("the tool's thread");
+    assert!(
+        took >= std::time::Duration::from_millis(900) && took < std::time::Duration::from_secs(3),
+        "{command} took {took:?}: {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_changed() {
     let tree = Tree::new();
