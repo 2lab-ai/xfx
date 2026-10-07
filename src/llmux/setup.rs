@@ -62,8 +62,8 @@ pub async fn run(
     env: &Environment,
     explicit_url: Option<&str>,
 ) -> Result<SetupReport, SetupError> {
-    let prepared = prepare(config, env, explicit_url).await?;
-    crate::provider::setup::commit(&prepared)?;
+    let mut prepared = prepare(config, env, explicit_url).await?;
+    crate::provider::setup::commit(&mut prepared)?;
     Ok(prepared.report)
 }
 
@@ -112,12 +112,12 @@ pub async fn prepare(
         .unwrap_or(crate::config::DEFAULT_MODEL);
     let (model, model_reason) = select_model(configured, &catalog);
 
-    let selection = profile::Selection {
+    let selection = crate::provider::setup::SetupSelection {
         provider: crate::provider::ProviderId::Llmux,
-        model: &model,
-        llmux_url: Some(&url),
+        model: model.clone(),
+        llmux_url: Some(url.clone()),
     };
-    let document = profile::document_for(existing, &selection);
+    let document = profile::document_for(existing, &selection.as_selection());
     Ok(PreparedSetup {
         report: SetupReport {
             provider: crate::provider::ProviderId::Llmux,
@@ -132,6 +132,7 @@ pub async fn prepare(
         },
         settings_path,
         document,
+        selection,
     })
 }
 
@@ -936,8 +937,13 @@ mod tests {
         );
         assert_eq!(prepared.document, expected);
 
-        crate::provider::setup::commit(&prepared).expect("commit");
+        let mut committed = prepared.clone();
+        crate::provider::setup::commit(&mut committed).expect("commit");
         assert_eq!(fs::read(&settings).expect("read"), prepared.document);
+        assert_eq!(
+            committed.document, prepared.document,
+            "nobody wrote in between"
+        );
         server.abort();
     }
 

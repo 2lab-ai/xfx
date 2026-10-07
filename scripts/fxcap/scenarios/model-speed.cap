@@ -1,0 +1,66 @@
+# /model's speed column: Enter on a level of a model that offers Fast opens
+# it with `fast` marked -- previewed on the footer from the levels on -- Down
+# to Ultra, Tab, Left back to the levels, a level spelled out and a space;
+# the turns sent at Ultra and then, after /fast, at Fast; and the explicit
+# form with a speed, refused and applied.
+models models.json
+gateway speed-turns.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Space
+wait 0.8
+type gpt
+key Enter
+wait 0.4
+snap effort
+key Enter
+wait 0.4
+snap speed-open
+key Down
+wait 0.3
+snap speed-down
+key Tab
+wait 0.3
+snap speed-tab
+key Left
+wait 0.3
+snap speed-left
+type high
+key Space
+wait 0.4
+snap speed-space
+key Down
+key Enter
+wait 1.2
+snap commit
+home after-commit
+type say something
+key Enter
+wait 2.5
+snap turn-ultra
+type /fast
+key Enter
+wait 1
+snap fast-on
+home after-fast
+type say more
+key Enter
+wait 2.5
+snap turn-fast
+paste /model anthropic/claude-opus-5 high ultrafast
+wait 0.6
+key Enter
+wait 1.2
+snap explicit-bad
+key C-u
+wait 0.3
+paste /model openai/gpt-6-astra xhigh fast
+wait 0.6
+key Enter
+wait 1.2
+snap explicit-ok
+home end
+gwlog

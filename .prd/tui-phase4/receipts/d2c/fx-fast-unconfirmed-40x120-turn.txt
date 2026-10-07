@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* ultrafast: requested on
+
+┃ say something
+
+  Ultrafast was requested, but Gateway did not confirm it was served; this response may have used a standard or
+  lower tier.
+  MARKER-ULTRA-UNCONFIRMED
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · gpt-6-astra · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

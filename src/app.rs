@@ -427,6 +427,9 @@ async fn run_ask(
             recorder.commit(SessionEvent::PreferencesChanged {
                 model: model_changed.then(|| model.clone()),
                 permission_mode: mode_changed.then(|| mode.label().to_string()),
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
             });
         }
     }

@@ -84,6 +84,13 @@ pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
 /// for its own record). Sent as the catalog spells it: llmux clamps a value a
 /// backend does not take itself, and `max` -- which the Gateway's route
 /// refuses -- is one llmux's own catalog publishes.
+///
+/// **No speed is sent**, because llmux reads none from a request: its codex
+/// "fast" tier is the daemon's own setting (`src/config/schema.rs:545-550`,
+/// applied from the shape at `src/provider/codex.rs:422-437` and
+/// `src/provider/responses_request.rs:248`), and its catalog marks no model
+/// as offering Fast or Ultra -- so `/model`'s speed column never opens for a
+/// llmux model, and `/fast` says the model has none.
 pub fn body_with(
     request: &CompletionRequest,
     options: &RequestOptions,
@@ -289,7 +296,7 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 call_id,
                 tool: _,
                 output,
-                error,
+                status,
             } => {
                 let mut block = json_block([
                     ("type", Value::from("tool_result")),
@@ -298,8 +305,12 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 ]);
                 // Anthropic's own flag for a result that is an error
                 // (`tool_result.is_error`), written only when it is one, so
-                // every other result is the bytes it always was.
-                if *error {
+                // every other result is the bytes it always was. A refusal is
+                // one too: the Messages tool result has no word for a denial
+                // of its own, and llmux reads exactly this boolean
+                // (`2lab-ai/llmux src/provider/responses_request.rs:1148-1151`).
+                // What it was refused for is the content.
+                if *status != crate::gateway::protocol::ResultStatus::Success {
                     if let Value::Object(map) = &mut block {
                         map.insert("is_error".to_string(), Value::Bool(true));
                     }
@@ -461,6 +472,14 @@ mod tests {
                 "is_error": true
             })]
         );
+        // A refusal too: the Messages tool result has no denial of its own.
+        let refused = map_message(&crate::gateway::protocol::Message::tool_ended(
+            "toolu_1",
+            "write_file",
+            "write_file was not permitted: no",
+            crate::gateway::protocol::ResultStatus::Denied,
+        ));
+        assert_eq!(refused.results[0]["is_error"], json!(true));
         let ordinary = map_message(&crate::gateway::protocol::Message::tool_result(
             "toolu_1", "terminal", "ok",
         ));
@@ -502,6 +521,10 @@ mod tests {
                 &request,
                 &RequestOptions {
                     reasoning: Some("max".to_string()),
+                    // llmux reads no per-request speed (its codex tier is the
+                    // daemon's own `fast` setting), so these are not sent.
+                    fast: true,
+                    ultrafast: true,
                     ..RequestOptions::default()
                 },
             )
@@ -509,6 +532,8 @@ mod tests {
         )
         .expect("json");
         assert_eq!(max["output_config"], json!({ "effort": "max" }));
+        assert_eq!(max.get("service_tier"), None);
+        assert_eq!(max.get("providerOptions"), None);
     }
 
     #[test]

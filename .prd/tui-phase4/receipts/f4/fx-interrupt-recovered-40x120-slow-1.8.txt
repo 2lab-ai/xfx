@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run it
+
+● 1 tool call · 1 command
+└ Ran sleep 4
+
+  after recovery.
+
+  5s (↑2 ↓80)
+
+┃ slowly
+
+⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

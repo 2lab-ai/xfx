@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+
+* Switched to openai/gpt-6-astra (effort: high, speed: ultrafast)
+
+┃
+
+auto · gpt-6-astra · high · ⚡︎
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

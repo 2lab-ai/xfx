@@ -57,6 +57,22 @@ pub struct ToolCall {
 }
 
 /// One typed piece of a message's content.
+/// How a tool call ended, as the wire is told it.
+///
+/// Upstream's three output types (`vercel-labs/fx@c1db9191
+/// src/gateway/vercel_protocol.zig:717-751`): `text` for a result, `error-text`
+/// for one whose status is a failure -- broken, or stopped under its turn
+/// (`aborted by user`, `src/core/session/session.zig:64`) -- and
+/// `execution-denied`, with the refusal as its `reason`, for a call the
+/// permission policy or the user refused. Anthropic's tool result has one
+/// flag for both of the last two, `is_error` (the llmux path).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultStatus {
+    Success,
+    Failure,
+    Denied,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentPart {
     Text {
@@ -67,14 +83,9 @@ pub enum ContentPart {
         call_id: String,
         tool: String,
         output: String,
-        /// Whether the call failed -- refused, broken, or stopped under its
-        /// turn (`aborted by user`, `vercel-labs/fx@c1db9191
-        /// src/core/session/session.zig:64`). Each wire has its own word for
-        /// it: the Gateway's output type `error-text`, which upstream gives
-        /// every result whose status is a failure
-        /// (`src/gateway/vercel_protocol.zig:742-747`), and Anthropic's
-        /// `is_error`.
-        error: bool,
+        /// How the call ended, which each wire says in its own words
+        /// ([`ResultStatus`]).
+        status: ResultStatus,
     },
     /// The provider's own content blocks, kept exactly as they arrived.
     ///
@@ -231,17 +242,27 @@ impl Message {
                 call_id: call_id.into(),
                 tool: tool.into(),
                 output: output.into(),
-                error: false,
+                status: ResultStatus::Success,
             }],
         }
     }
 
     /// The answer to a call that failed, said as a failure on the wire
-    /// ([`ContentPart::ToolResult::error`]).
+    /// ([`ResultStatus::Failure`]).
     pub fn tool_error(
         call_id: impl Into<String>,
         tool: impl Into<String>,
         output: impl Into<String>,
+    ) -> Self {
+        Self::tool_ended(call_id, tool, output, ResultStatus::Failure)
+    }
+
+    /// The answer to a call that ended as `status`.
+    pub fn tool_ended(
+        call_id: impl Into<String>,
+        tool: impl Into<String>,
+        output: impl Into<String>,
+        status: ResultStatus,
     ) -> Self {
         Self {
             role: Role::Tool,
@@ -249,7 +270,7 @@ impl Message {
                 call_id: call_id.into(),
                 tool: tool.into(),
                 output: output.into(),
-                error: true,
+                status,
             }],
         }
     }
@@ -320,6 +341,16 @@ pub struct RequestOptions {
     /// llmux's wire reads nothing from it: it sends its own `max_tokens`
     /// (`crate::llmux::protocol`), and no title is asked of llmux.
     pub max_output_tokens: Option<u32>,
+    /// Fast mode, for a model that offers it: the Gateway's
+    /// `providerOptions.gateway.speed = "fast"` (`writeProviderOptions`,
+    /// `vercel_protocol.zig:469-472`).
+    pub fast: bool,
+    /// Ultra mode, for an OpenAI model on the Gateway that offers it:
+    /// `providerOptions.gateway.only = ["openai"]` and
+    /// `providerOptions.openai.serviceTier = "ultrafast"` (`:478-494`). Never
+    /// set with [`Self::fast`]; if both were, Ultra is what is sent, as
+    /// upstream's writer does.
+    pub ultrafast: bool,
 }
 
 /// The effort the Gateway's language-model route is sent for `label`.
@@ -497,6 +528,22 @@ impl Serialize for WireRequest<'_> {
         if let Some(reasoning) = &self.1.reasoning {
             map.serialize_entry("reasoning", reasoning_wire_value(reasoning))?;
         }
+        // `writeProviderOptions`: the key only when there is something in it,
+        // `gateway` before `openai`.
+        if self.1.ultrafast {
+            map.serialize_entry(
+                "providerOptions",
+                &serde_json::json!({
+                    "gateway": {"only": ["openai"]},
+                    "openai": {"serviceTier": "ultrafast"},
+                }),
+            )?;
+        } else if self.1.fast {
+            map.serialize_entry(
+                "providerOptions",
+                &serde_json::json!({"gateway": {"speed": "fast"}}),
+            )?;
+        }
         map.end()
     }
 }
@@ -583,14 +630,26 @@ impl Serialize for WireParts<'_> {
                     call_id,
                     tool,
                     output,
-                    error,
+                    status,
                 } => seq.serialize_element(&ToolResultPart {
                     r#type: "tool-result",
                     tool_call_id: call_id,
                     tool_name: tool,
-                    output: TextOutput {
-                        r#type: if *error { "error-text" } else { "text" },
-                        value: output,
+                    output: match status {
+                        ResultStatus::Success => ResultOutput::Value {
+                            r#type: "text",
+                            value: output,
+                        },
+                        ResultStatus::Failure => ResultOutput::Value {
+                            r#type: "error-text",
+                            value: output,
+                        },
+                        // The refusal is the reason, under its own field name
+                        // (`vercel_protocol.zig:742-744`).
+                        ResultStatus::Denied => ResultOutput::Denied {
+                            r#type: "execution-denied",
+                            reason: output,
+                        },
                     },
                 })?,
                 // The v4 file part (`writeVerifiedImageFilePartJsonWithBudget`,
@@ -645,13 +704,20 @@ struct ToolResultPart<'a> {
     r#type: &'static str,
     tool_call_id: &'a str,
     tool_name: &'a str,
-    output: TextOutput<'a>,
+    output: ResultOutput<'a>,
 }
 
 #[derive(Serialize)]
-struct TextOutput<'a> {
-    r#type: &'static str,
-    value: &'a str,
+#[serde(untagged)]
+enum ResultOutput<'a> {
+    Value {
+        r#type: &'static str,
+        value: &'a str,
+    },
+    Denied {
+        r#type: &'static str,
+        reason: &'a str,
+    },
 }
 
 /// Why the provider stopped generating.
@@ -789,6 +855,34 @@ pub struct Completion {
     /// generation to ask about it ([`Bill`]). `None` is "unknown", never
     /// "free".
     pub billing: Option<Bill>,
+    /// The tier the Gateway says it served the response at, from the finish
+    /// event's `providerMetadata.gateway.serviceTier` (`parseSseServiceTier`,
+    /// `client.zig:3451-3463`). `None` is "not confirmed" -- absent, unknown,
+    /// or said anywhere else -- and never "standard".
+    pub service_tier: Option<ServiceTier>,
+}
+
+/// A tier the Gateway confirms a response was served at
+/// (`ProviderServiceTier`, `types.zig:1679-1692`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceTier {
+    Standard,
+    Flex,
+    Priority,
+    Ultrafast,
+}
+
+impl ServiceTier {
+    /// Upstream's spellings: `default` is standard, and `fast` is priority.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "default" | "standard" => Some(Self::Standard),
+            "priority" | "fast" => Some(Self::Priority),
+            "flex" => Some(Self::Flex),
+            "ultrafast" => Some(Self::Ultrafast),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -818,6 +912,30 @@ mod tests {
         assert_eq!(
             parts(&Message::tool_result("call_1", "terminal", "ok"))[0]["output"]["type"],
             json!("text")
+        );
+    }
+
+    #[test]
+    fn a_refused_call_is_answered_with_execution_denied_and_its_reason() {
+        // `vercel_protocol.zig:742-744`: `{"type":"execution-denied","reason":
+        // <the refusal>}`, the refusal under `reason` rather than `value`.
+        let parts = |message: &Message| serde_json::to_value(WireParts(&message.content)).unwrap();
+        assert_eq!(
+            parts(&Message::tool_ended(
+                "call_1",
+                "write_file",
+                "write_file was not permitted: you declined",
+                ResultStatus::Denied,
+            )),
+            json!([{
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "write_file",
+                "output": {
+                    "type": "execution-denied",
+                    "reason": "write_file was not permitted: you declined"
+                }
+            }])
         );
     }
 
@@ -885,18 +1003,21 @@ mod tests {
             })
             .expect("valid");
         assert!(max.ends_with(r#""reasoning":"xhigh"}"#), "{max}");
-        // An output cap goes between the two, where upstream writes it
-        // (`vercel_protocol.zig:375-381`): after `toolChoice`, before
-        // `reasoning`.
+        // An output cap goes between the two, where upstream writes it, and
+        // the provider options after all three (`vercel_protocol.zig:365-384`:
+        // `toolChoice`, the response format xfx never sends, `maxOutputTokens`,
+        // `reasoning`, then `writeProviderOptions`).
         let capped = request
             .body_with(&RequestOptions {
                 reasoning: Some("low".to_string()),
                 max_output_tokens: Some(128),
+                fast: true,
+                ultrafast: false,
             })
             .expect("valid");
         assert!(
             capped.ends_with(
-                r#""toolChoice":{"type":"auto"},"maxOutputTokens":128,"reasoning":"low"}"#
+                r#""toolChoice":{"type":"auto"},"maxOutputTokens":128,"reasoning":"low","providerOptions":{"gateway":{"speed":"fast"}}}"#
             ),
             "{capped}"
         );
@@ -912,6 +1033,54 @@ mod tests {
             }),
             Err(ProtocolError::EmptyPrompt)
         );
+    }
+
+    #[test]
+    fn fast_and_ultra_are_upstreams_provider_options_after_the_effort() {
+        // `writeProviderOptions` (`vercel_protocol.zig:453-494`, `c1db919`),
+        // less upstream's `caching` entry, which xfx does not send.
+        let request = CompletionRequest {
+            model: "m".to_string(),
+            messages: vec![Message::user("go")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let fast = request
+            .body_with(&RequestOptions {
+                reasoning: Some("low".to_string()),
+                fast: true,
+                ultrafast: false,
+                ..RequestOptions::default()
+            })
+            .expect("valid");
+        assert!(
+            fast.ends_with(r#""reasoning":"low","providerOptions":{"gateway":{"speed":"fast"}}}"#),
+            "{fast}"
+        );
+        let ultra = request
+            .body_with(&RequestOptions {
+                reasoning: None,
+                fast: false,
+                ultrafast: true,
+                ..RequestOptions::default()
+            })
+            .expect("valid");
+        assert!(
+            ultra.ends_with(
+                r#""providerOptions":{"gateway":{"only":["openai"]},"openai":{"serviceTier":"ultrafast"}}}"#
+            ),
+            "{ultra}"
+        );
+        // Ultra wins a pair that should never be sent.
+        let both = request
+            .body_with(&RequestOptions {
+                reasoning: None,
+                fast: true,
+                ultrafast: true,
+                ..RequestOptions::default()
+            })
+            .expect("valid");
+        assert_eq!(both, ultra);
     }
 
     #[test]
@@ -1022,7 +1191,7 @@ mod tests {
             call_id: "c".to_string(),
             tool: "t".to_string(),
             output: "o".to_string(),
-            error: false,
+            status: ResultStatus::Success,
         };
         assert!(text.allowed_on(Role::System) && text.allowed_on(Role::User));
         assert!(!text.allowed_on(Role::Tool));

@@ -48,7 +48,7 @@ use std::cmp::Ordering;
 use std::io::Read;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering as Atomic};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
@@ -401,7 +401,7 @@ fn walk(
 /// `git ls-files -z <args>` run in `root`, or `None` when git said no, said
 /// too much, or was stopped.
 fn ls_files(root: &Path, git: &Path, args: &[&str], stop: &AtomicBool) -> Option<String> {
-    let mut child = Command::new(git)
+    let mut child = crate::process::command(git)
         .arg("--no-optional-locks")
         .arg("ls-files")
         .arg("-z")
@@ -1128,6 +1128,7 @@ impl Drop for Files {
 pub(crate) mod tests {
     use super::*;
 
+    use std::process::Command;
     use std::time::{Duration, Instant};
 
     /// One span, as a list.

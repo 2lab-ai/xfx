@@ -15,14 +15,13 @@
 //!    a previously operator-chosen endpoint and never a compiled default.
 //!
 //! **Atomicity scope:** File replacement is atomic (stage + rename), so a reader
-//! never sees a half-written file. A **preference** write
-//! ([`write_preferences`]) is also a serialized transaction: its read, change
-//! and rename happen under an in-process mutex and upstream's cross-process
-//! `settings.lock`, so two writers of different keys both survive. `xfx
-//! setup`'s transaction (read in `prepare`, written in `commit`) does not take
-//! that lock: concurrent `xfx setup` invocations are last-writer-wins and may
-//! lose the other setup's `models{}` or `llmux_url` updates. Recovery is simple:
-//! re-run `xfx setup` to overwrite with the intended configuration.
+//! never sees a half-written file. Every write is also a serialized
+//! transaction: its read, change and rename happen under an in-process mutex
+//! and upstream's cross-process `settings.lock`, so two writers of different
+//! keys both survive -- a **preference** write ([`write_preferences`]) and
+//! `xfx setup`'s ([`rewrite_document`]), which decides its selection before it
+//! takes the lock and merges it into the file as the file stands once it has
+//! the lock.
 
 use std::fs;
 use std::io;
@@ -313,6 +312,29 @@ pub fn edit_document<E: From<io::Error>>(
     Ok(true)
 }
 
+/// One read-modify-write of the whole settings file, under the same two locks
+/// as [`write_preferences`]: the file as it stands **now** is read and handed
+/// to `decide`, and the bytes `decide` answers are what is written.
+///
+/// What `xfx setup` writes through (`crate::provider::setup::commit`): its
+/// selection is decided before -- the daemon probed, the catalog read -- and
+/// merged here into whatever another writer left meanwhile, so a key written
+/// between the two is kept rather than written over. A file that cannot be
+/// read is an error and `decide` is not asked.
+pub fn rewrite_document(
+    path: &Path,
+    decide: impl FnOnce(Map<String, Value>) -> Vec<u8>,
+) -> io::Result<()> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    let document = decide(read_existing(path)?);
+    write_document(path, &document)
+}
+
 /// How long a settings write waits for another process's `settings.lock`
 /// before it gives up: upstream's two seconds (`settings_store.zig:19`).
 const SETTINGS_LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2000);
@@ -407,11 +429,24 @@ impl SettingsLock {
 /// environment override or this workspace's entry outranks what was just
 /// written.
 pub fn saved_but_shadowed(field: &str, source: crate::config::SettingSource) -> Option<String> {
-    (source > crate::config::SettingSource::UserGlobal).then(|| {
+    saved_but_any_shadowed(&[(field, source)])
+}
+
+/// [`saved_but_shadowed`] for a write of several fields: every one a layer
+/// above the profile still decides, in the order given and joined by `, `
+/// after the one header, as `appendShadowedUserSource` writes them
+/// (`session_commands.zig:225-240`); nothing when none is.
+pub fn saved_but_any_shadowed(fields: &[(&str, crate::config::SettingSource)]) -> Option<String> {
+    let shadowed: Vec<String> = fields
+        .iter()
+        .filter(|(_, source)| *source > crate::config::SettingSource::UserGlobal)
+        .map(|(field, source)| format!("{field}={}", source.label()))
+        .collect();
+    (!shadowed.is_empty()).then(|| {
         format!(
             "saved to user settings (scope=user); fresh sessions here use \
-             higher-precedence {field}={}",
-            source.label()
+             higher-precedence {}",
+            shadowed.join(", ")
         )
     })
 }
@@ -646,8 +681,9 @@ impl Drop for StagedFile {
 ///
 /// A reader of `settings.json` therefore sees either the old document or the new
 /// one -- never a half-written file. Note: this is file-replacement atomicity.
-/// The read-modify-write transaction that calls this is NOT atomic; concurrent
-/// writers are last-writer-wins (recoverable by re-running the operation).
+/// The read-modify-write around it is serialized by its callers' locks
+/// ([`write_preferences`], [`rewrite_document`]); a caller that writes without
+/// them is last-writer-wins.
 pub fn replace_private_file(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     replace_private_file_at(dir, path, bytes, PRIVATE_MODE)
 }
@@ -1255,6 +1291,30 @@ mod tests {
                 "saved to user settings (scope=user); fresh sessions here use \
                  higher-precedence model=user_workspace"
             )
+        );
+    }
+
+    #[test]
+    fn a_save_of_several_fields_names_every_one_still_decided_above_it_in_order() {
+        use crate::config::SettingSource;
+        assert_eq!(
+            saved_but_any_shadowed(&[
+                ("model", SettingSource::ProcessOverride),
+                ("fast_mode", SettingSource::UserGlobal),
+                ("ultrafast_mode", SettingSource::UserWorkspace),
+            ])
+            .as_deref(),
+            Some(
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override, ultrafast_mode=user_workspace"
+            )
+        );
+        assert_eq!(
+            saved_but_any_shadowed(&[
+                ("model", SettingSource::UserGlobal),
+                ("fast_mode", SettingSource::Project),
+            ]),
+            None
         );
     }
 

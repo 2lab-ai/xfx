@@ -137,18 +137,35 @@ fn session(
     // or override outranks what a past turn happened to use. The band and the
     // runtime both read the model from the configuration, so it is restored
     // there, once, for both of them.
+    //
+    // The effort and the speed switches the session recorded come back with
+    // it whatever the profile says, as upstream's do
+    // (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`, which
+    // only a launch flag outranks -- xfx has none): they are the session's, and
+    // the profile's are only what the last session left.
     let restored;
     let config = match &resumed {
-        Some(resumed)
-            if config.sources.model == crate::config::SettingSource::CompiledDefault
-                && config.model != resumed.model() =>
-        {
+        Some(resumed) => {
             let mut owned = config.clone();
-            owned.model = resumed.model().to_string();
+            if config.sources.model == crate::config::SettingSource::CompiledDefault {
+                owned.model = resumed.model().to_string();
+            }
+            // The Fast binding survives only for the selection this launch
+            // was configured with: the session's model and its Fast
+            // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+            owned.fast_mode_model_bound =
+                config.fast_mode_model_bound && config.model == resumed.model();
+            if let Some(settings) = resumed.settings() {
+                owned.fast_mode_model_bound =
+                    owned.fast_mode_model_bound && config.fast_mode == settings.fast;
+                owned.effort = settings.effort.clone();
+                owned.fast_mode = settings.fast && !settings.ultrafast;
+                owned.ultrafast_mode = settings.ultrafast;
+            }
             restored = owned;
             &restored
         }
-        _ => config,
+        None => config,
     };
 
     let stdin = io::stdin();
@@ -448,6 +465,10 @@ fn hold(
     band.invalidate(geometry.rows, geometry.cols);
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
+    shell.set_ultra_marker(theme::ultra_marker(
+        colorterm.as_deref(),
+        term_program.as_deref(),
+    ));
     // A resumed launch writes no welcome line, as upstream's does not
     // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
     // are the document, on the screen the launch's push left.
@@ -714,6 +735,7 @@ mod help_menu;
 mod hint;
 mod history;
 mod hydration;
+mod hyperlink;
 mod input;
 mod layout;
 mod model_column;

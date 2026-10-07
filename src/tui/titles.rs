@@ -176,11 +176,14 @@ pub(crate) fn request(excerpt: &str) -> CompletionRequest {
 }
 
 /// What the title provider asks of its one request: no effort, which the
-/// session's model may take and this one is not asked for, and the output cap.
+/// session's model may take and this one is not asked for, no Fast or Ultra
+/// -- upstream's `.provider_options = .{}` (`session_title_generation.zig:173`)
+/// -- and the output cap.
 pub(crate) fn options() -> RequestOptions {
     RequestOptions {
         reasoning: None,
         max_output_tokens: Some(MAX_OUTPUT_TOKENS),
+        ..RequestOptions::default()
     }
 }
 

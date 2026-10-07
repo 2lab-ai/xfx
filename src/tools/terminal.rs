@@ -35,7 +35,7 @@
 //! reach a child (design, "Risks and controls").
 
 use std::io::Read;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -203,16 +203,11 @@ fn execute_terminal(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let source = match decision {
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
-            return ToolResult::failure(format!("terminal did not run the command: {reason}"))
-                .ending(CallOutcome::Denied)
-                .with_feedback(feedback)
+            return ToolResult::refused("terminal", &reason).with_feedback(feedback)
         }
         PolicyDecision::Prompt => {
-            return ToolResult::failure(
-                "terminal did not run the command: the approval was never resolved",
-            )
-            .ending(CallOutcome::Denied)
-            .with_feedback(feedback)
+            return ToolResult::refused("terminal", "the approval was never resolved")
+                .with_feedback(feedback)
         }
     };
 
@@ -310,14 +305,21 @@ impl Outcome {
                 ))
                 .ending(CallOutcome::TimedOut)
             }
+            // Stopped by the user under its turn: upstream's answer for the
+            // call, `aborted by user` and nothing of the command's output
+            // (`aborted_tool_output`, `vercel-labs/fx@c1db9191
+            // src/core/session/session.zig:64`, `:82-108`; fx's capture
+            // `fx-interrupt-next-cmd-40x120-bodies/003-completion.json`). The one
+            // thing kept is xfx's own: a group that could not be emptied is
+            // still said, because something the command started may be running.
             Ending::Cancelled { stranded } => {
-                return ToolResult::failure(format!(
-                    "terminal was cancelled: `{}` was killed before it finished\n{}{}",
-                    framed(plan.command()),
-                    self.streams(),
-                    stranded_notice(stranded)
-                ))
-                .ending(CallOutcome::Cancelled)
+                let notice = stranded_notice(stranded);
+                let output = if notice.is_empty() {
+                    crate::tools::question::ABORTED_OUTPUT.to_string()
+                } else {
+                    format!("{}\n{notice}", crate::tools::question::ABORTED_OUTPUT)
+                };
+                return ToolResult::failure(output).ending(CallOutcome::Cancelled);
             }
         }
         out.push_str(&self.streams());
@@ -418,12 +420,12 @@ impl Captured {
 fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
     let mut command = match plan.route() {
         CommandRoute::Direct { argv } => {
-            let mut command = Command::new(&argv[0]);
+            let mut command = crate::process::command(&argv[0]);
             command.args(&argv[1..]);
             command
         }
         CommandRoute::Shell { program } => {
-            let mut command = Command::new(program);
+            let mut command = crate::process::command(program);
             command.arg("-c").arg(plan.command());
             command
         }
@@ -1352,6 +1354,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::cell::Cell;
+    use std::process::Command;
     use std::rc::Rc;
 
     #[test]

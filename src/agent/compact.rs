@@ -389,7 +389,8 @@ fn turn_cost(turn: &HistoryTurn) -> usize {
                 .saturating_add(text_tokens(tool))
                 .saturating_add(text_tokens(output))
                 .saturating_add(8),
-            crate::session::TurnStep::ToolFeedback { text, .. } => text_tokens(text),
+            crate::session::TurnStep::ToolFeedback { text, .. }
+            | crate::session::TurnStep::Steered { text } => text_tokens(text),
         });
     }
     total
@@ -467,14 +468,15 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
                         call_id,
                         tool,
                         output,
-                        error,
+                        status,
                     } = part
                     {
                         items.push(Item::ToolResult {
                             call_id,
                             name: tool,
                             output,
-                            failed: error,
+                            // A refusal did not succeed either.
+                            failed: status != crate::gateway::protocol::ResultStatus::Success,
                         });
                     }
                 }
@@ -1920,6 +1922,9 @@ async fn summarize_with(caller: &Caller<'_>, user: &str) -> Result<String, Failu
 /// One notes request to `model`, with no tools, at its lowest reasoning
 /// (`ask`, `model.zig:134-161`).
 async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Failure> {
+    // No speed: upstream's summarizer asks for a reasoning level and nothing
+    // else (`Summarizer.ask`, `model.zig:134-145`), whatever the session's
+    // Fast or Ultra.
     caller.provider.set_options(RequestOptions {
         reasoning: lowest_effort(&(caller.efforts)(model)),
         ..RequestOptions::default()
@@ -2122,6 +2127,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         })
     }
 

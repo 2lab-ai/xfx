@@ -49,7 +49,7 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::TurnJournal;
 use crate::config::PermissionMode;
-use crate::gateway::protocol::{Message, ToolCall};
+use crate::gateway::protocol::{Message, ResultStatus, ToolCall};
 use crate::permission::Grant;
 use crate::provider::Wire;
 
@@ -406,6 +406,9 @@ pub enum TurnStep {
     /// opens a turn here, and one opened mid-batch would leave the results still
     /// to come with no call ahead of them.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the turn while it ran
+    /// ([`SessionEvent::Steered`]), in the words they typed.
+    Steered { text: String },
 }
 
 /// What the model is told after a turn that did not finish, before the next
@@ -520,9 +523,10 @@ pub struct TurnTiming {
     pub started_at_ms: i64,
     /// The `turn_concluded` frame's, for a turn that has one.
     pub concluded_at_ms: Option<i64>,
-    /// Output tokens the provider reported for the turn, or `None` when its
-    /// `usage_recorded` frame said nothing or there was none -- a failed turn
-    /// has none.
+    /// Out as the turn's summary row said it (`turn_output_tokens`), or, on
+    /// a frame from before that was kept, what the provider reported for the
+    /// answering step. `None` when its `usage_recorded` frame said neither or
+    /// there was none.
     pub output_tokens: Option<u64>,
 }
 
@@ -550,6 +554,10 @@ pub struct DurableState {
     /// The title the user gave the session, the last `session_renamed` in the
     /// log. Outranks the one derived from the first prompt ([`Self::title`]).
     pub renamed: Option<String>,
+    /// The effort and speed switches the session last recorded, or `None` for
+    /// a session that never recorded them -- a resume then keeps what the
+    /// profile says.
+    pub turn_settings: Option<crate::provider::effort::TurnSettings>,
     /// What the session's `usage_recorded` frames say about its spend, for
     /// `/usage` ([`crate::usage`]).
     pub usage: RecordedUsage,
@@ -639,6 +647,7 @@ impl DurableState {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            turn_settings: None,
             usage: RecordedUsage::default(),
             checkpoint: None,
         }
@@ -723,6 +732,15 @@ impl DurableState {
             notices,
         }
     }
+}
+
+/// Whether a recorded result is the answer of a call its turn was stopped
+/// under: a failure whose first line is [`ABORTED_TOOL_OUTPUT`] -- alone, or
+/// followed by xfx's own note that a stopped command left something running
+/// (`crate::tools::terminal`). No tool's own failure begins with those words:
+/// every other failure is a sentence xfx writes about the call.
+fn stopped_answer(ok: bool, output: &str) -> bool {
+    !ok && output.split('\n').next() == Some(ABORTED_TOOL_OUTPUT)
 }
 
 /// One turn as the messages a request carries for it on `active`, its user
@@ -841,21 +859,26 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 ok,
                 output,
             } => {
-                // Replayed as it was sent: a failure as a failure.
-                pending.push(if *ok {
-                    Message::tool_result(call_id, tool, output.clone())
+                // Replayed as it was sent: a failure as a failure, a
+                // refusal as a refusal.
+                let status = if *ok {
+                    ResultStatus::Success
+                } else if crate::tools::is_refusal(tool, output) {
+                    ResultStatus::Denied
                 } else {
-                    Message::tool_error(call_id, tool, output.clone())
-                });
+                    ResultStatus::Failure
+                };
+                pending.push(Message::tool_ended(call_id, tool, output.clone(), status));
                 awaiting.retain(|id| id != call_id);
                 // A call that answered `aborted by user` did not
                 // finish: its turn was stopped under it (a question the
-                // user cancelled, `crate::tools::question`). It is the
+                // user cancelled, `crate::tools::question`; a command
+                // the user stopped, `crate::tools::terminal`). It is the
                 // call upstream keeps on the interrupted turn rather
                 // than among the completed ones
                 // (`InterruptedHistoryTurn.tool_call`,
                 // `session.zig:2701-2736`).
-                if !*ok && output == ABORTED_TOOL_OUTPUT {
+                if stopped_answer(*ok, output) {
                     stopped = true;
                 } else {
                     finished.push(tool.clone());
@@ -871,6 +894,15 @@ pub fn turn_messages(turn: &HistoryTurn, active: &Wire, notices: &mut Vec<String
                 // one it is dropped with the group, rather than
                 // arriving as a user message about a result the model
                 // was never shown.
+                pending.push(Message::user(text.clone()));
+            }
+            // The person's words as a user message of their own, as
+            // upstream's history replays a steer: plain, not in the
+            // wrapper the model was given live (`fx-interrupt-steer-
+            // 40x120-bodies/005-completion.json`: `user "what are you
+            // doing"`). Delivered only after every result of its step,
+            // so it goes out with the group.
+            TurnStep::Steered { text } => {
                 pending.push(Message::user(text.clone()));
             }
         }
@@ -2506,6 +2538,9 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::PreferencesChanged {
             model,
             permission_mode,
+            effort,
+            fast_mode,
+            ultrafast_mode,
         } => {
             if let Some(model) = model {
                 state.model = model.clone();
@@ -2513,6 +2548,20 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             if let Some(raw) = permission_mode {
                 state.permission_mode = PermissionMode::parse(raw)
                     .ok_or_else(|| format!("unknown permission mode `{raw}`"))?;
+            }
+            if effort.is_some() || fast_mode.is_some() || ultrafast_mode.is_some() {
+                let mut settings = state.turn_settings.clone().unwrap_or_default();
+                if let Some(raw) = effort {
+                    settings.effort = crate::provider::effort::Effort::parse(raw)
+                        .ok_or_else(|| format!("unknown reasoning effort `{raw}`"))?;
+                }
+                if let Some(on) = fast_mode {
+                    settings.fast = *on;
+                }
+                if let Some(on) = ultrafast_mode {
+                    settings.ultrafast = *on;
+                }
+                state.turn_settings = Some(settings);
             }
         }
         SessionEvent::ProjectContextRecorded { sources, .. } => {
@@ -2598,6 +2647,11 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     text: text.clone(),
                 });
         }
+        SessionEvent::Steered { text } => {
+            open_turn(state, "a steer", envelope.seq)?
+                .steps
+                .push(TurnStep::Steered { text: text.clone() });
+        }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
             let grant = Grant::new(tool.clone(), target.clone());
             if !state.grants.contains(&grant) {
@@ -2610,6 +2664,7 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
+            turn_output_tokens,
             requests,
             unaccounted,
             lines_added,
@@ -2641,14 +2696,16 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             // The turn it is about, when one is open: it is written just
             // before that turn's conclusion (`agent::machine`'s
             // `run_journaled`). One outside a turn still counts toward the
-            // totals, as it always has.
+            // totals, as it always has. What its summary row said, where the
+            // frame kept it; an older frame's answering step otherwise, which
+            // is what the row said when that binary wrote it.
             if let Some(turn) = state.turns.last_mut().filter(|turn| turn.outcome.is_none()) {
-                if let Some(output) = output_tokens {
+                if let Some(output) = turn_output_tokens.or(*output_tokens) {
                     turn.timing.output_tokens = Some(
                         turn.timing
                             .output_tokens
                             .unwrap_or(0)
-                            .saturating_add(*output),
+                            .saturating_add(output),
                     );
                 }
             }
@@ -3403,6 +3460,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(3),
                 output_tokens: Some(4),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -3413,6 +3471,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -3465,6 +3524,7 @@ mod tests {
         let frame = |requests, settled, rejected| SessionEvent::UsageRecorded {
             input_tokens: None,
             output_tokens: None,
+            turn_output_tokens: None,
             requests,
             unaccounted: false,
             lines_added: 0,
@@ -3565,9 +3625,15 @@ mod tests {
                         ContentPart::ToolResult {
                             call_id,
                             output,
-                            error,
+                            status,
                             ..
-                        } => format!("result {call_id} {output} error={error}"),
+                        } => match status {
+                            ResultStatus::Denied => format!("result {call_id} {output} denied"),
+                            _ => format!(
+                                "result {call_id} {output} error={}",
+                                *status != ResultStatus::Success
+                            ),
+                        },
                         ContentPart::RawBlocks(_) => "raw".to_string(),
                         ContentPart::Image { media_type, .. } => {
                             format!("image {}", media_type.label())
@@ -3790,6 +3856,37 @@ mod tests {
                 (Role::User, TURN_ABORTED.to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn history_answers_a_command_the_user_stopped_as_the_call_its_turn_stopped_under() {
+        // A command stopped under its turn answers `aborted by user`
+        // (`crate::tools::terminal`), with xfx's note after it when its group
+        // could not be emptied; either way it is the call the turn stopped
+        // under, not a tool that completed (`fx-interrupt-next-cmd-40x120-
+        // bodies/003-completion.json`).
+        for output in [
+            ABORTED_TOOL_OUTPUT.to_string(),
+            format!("{ABORTED_TOOL_OUTPUT}\n... [the command's process group was still there]\n"),
+        ] {
+            let state = reduce(vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "run cmd".to_string(),
+                },
+                assistant("", &[("c1", "terminal")]),
+                result("c1", "terminal", false, &output),
+                interrupted(),
+            ])
+            .expect("reduces");
+            let shown = shape(&state.history_messages(Wire::VercelGateway).messages);
+            assert_eq!(shown.len(), 4, "{shown:#?}");
+            assert_eq!(shown[1], (Role::Assistant, "call c1".to_string()));
+            assert_eq!(shown[3], (Role::User, TURN_ABORTED.to_string()));
+        }
+        // A tool's own failure that merely mentions the words is not one.
+        assert!(!stopped_answer(false, "no such file: aborted by user"));
+        assert!(!stopped_answer(true, ABORTED_TOOL_OUTPUT));
     }
 
     #[test]
@@ -4040,6 +4137,7 @@ mod tests {
             SessionEvent::UsageRecorded {
                 input_tokens: Some(6),
                 output_tokens: Some(40),
+                turn_output_tokens: None,
                 requests: Vec::new(),
                 unaccounted: false,
                 lines_added: 0,
@@ -4084,6 +4182,54 @@ mod tests {
         );
         assert_eq!(state.turns[2].timing.concluded_at_ms, None);
         assert_eq!(state.total_output_tokens, 40);
+    }
+
+    #[test]
+    fn a_turn_replays_the_out_its_summary_said_and_an_older_frame_its_answering_step() {
+        // A turn of two requests, 40 each, said `↓80` under it: the frame
+        // keeps that beside the answering step's 40, and the replay reads the
+        // 80. The session's own total is still the answering steps', as the
+        // meter has always counted it.
+        let usage = |output: u64, turn: Option<u64>| SessionEvent::UsageRecorded {
+            input_tokens: Some(1300),
+            output_tokens: Some(output),
+            turn_output_tokens: turn,
+            requests: Vec::new(),
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        };
+        let concluded = || SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 2,
+            },
+        };
+        let asked = || SessionEvent::UserMessage {
+            text: "q".to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            asked(),
+            usage(40, Some(80)),
+            concluded(),
+            asked(),
+            usage(40, None),
+            concluded(),
+            asked(),
+            usage(40, Some(0)),
+            concluded(),
+        ])
+        .expect("a valid log");
+        let outs: Vec<Option<u64>> = state
+            .turns
+            .iter()
+            .map(|turn| turn.timing.output_tokens)
+            .collect();
+        assert_eq!(outs, [Some(80), Some(40), Some(0)]);
+        assert_eq!(state.total_output_tokens, 120);
     }
 
     #[test]

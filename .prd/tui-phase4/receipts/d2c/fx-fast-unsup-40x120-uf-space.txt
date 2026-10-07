@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* fast: This model does not come with a fast mode.
+
+✗ command: Unknown command. Try /help.
+
+* ultrafast: requested: off
+
+┃ /ultrafast
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,11 +1,11 @@
-[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-ddca9d9 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-1578121 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
 
 [38;5;255m┃[39m [1mrun cmd[0m
 
-[38;5;255m●[39m [38;5;245m1 tool call · 1 command[39m
-[38;5;245m└ Ran [38;5;252msleep[38;5;245m 6[39m
+[38;5;255m●[39m [38;5;245m1 tool call · 1 command · 1 cancelled[39m
+[38;5;245m└ Cancelled [38;5;252msleep[38;5;245m 6[39m
 
-[38;5;252m■[39m [38;5;255mCancelled[39m · What can xfx do differently?
+[38;5;252m■[38;5;255m Cancelled[39m [38;5;252msleep[38;5;245m 6[39m · What can xfx do differently?
 
 [38;5;255m┃[39m [1mnext[0m
 
