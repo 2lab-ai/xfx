@@ -8377,16 +8377,21 @@ impl Shell {
                 }
             }
         }
-        // **Before any arm below, because every one of them consumes the
+        // **Read before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
         // command arms clear the composer through `run_command`, the prompt arm
-        // through `send`, and a line recorded afterwards would be recorded from
-        // an empty editor. A command is recorded like anything else -- it is a
+        // through `send`, and a line read afterwards would be read from an
+        // empty editor. A command is recorded like anything else -- it is a
         // line the user typed, and running one again is the commonest reason to
         // reach for the recall. Whitespace and nothing else is the one line
         // that is not: it is consumed and never written down, so there is
         // nothing to come back to, and an entry for it would put a keypress
         // between the user and the line they really sent.
+        //
+        // **A prompt is written down only once the runtime has taken it**, as
+        // upstream records one only after its admission
+        // (`input_submit_runtime.zig:872-886`): a prompt refused for a full
+        // queue stays in the composer, and is not a line that was sent.
         //
         // `Blank` still ends the walk, for the same reason recording one does:
         // the draft the walk was standing beside has been consumed.
@@ -8394,25 +8399,21 @@ impl Shell {
         // **Neither while the prompt history is off** (`/settings`): the line
         // is kept nowhere, and the walk still ends, because the draft it stood
         // beside has been consumed either way.
-        let mut saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
-            .then(|| self.saved_line(&text));
+        let recording = !matches!(submitted, Submitted::Blank) && self.recall.enabled;
+        let mut saved = recording.then(|| self.saved_line(&text));
         // **With the blocks its summaries name.** An entry is the line as the
         // composer held it, which for a collapsed paste is 25 bytes standing
         // for as much as 8 MiB; an entry that recorded only the words would
         // recall a summary that stands for nothing
         // (`super::entity::EntitySnapshot`).
-        let mut entry = saved
-            .is_some()
-            .then(|| HistoryEntry::new(text.clone(), self.editor.entities().snapshots()));
-        // A prompt whose typed paths became badges is written down once the
-        // runtime has answered: a refusal gives the paths back to the draft,
-        // and the line walked back to is that line, not badges' words that
-        // would attach nothing ([`Self::restore_typed`]).
-        let deferred = matches!(typed, Typed::Attached { .. });
-        match entry.take() {
-            None => self.history.leave(),
-            Some(now) if !deferred => self.history.record(now),
-            later => entry = later,
+        let mut entry =
+            recording.then(|| HistoryEntry::new(text.clone(), self.editor.entities().snapshots()));
+        if !recording {
+            self.history.leave();
+        } else if !matches!(submitted, Submitted::Prompt(_)) {
+            if let Some(entry) = entry.take() {
+                self.history.record(entry);
+            }
         }
         match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
@@ -8468,21 +8469,24 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                if !self.send(self.expanded_prompt(&text, prompt), &text) && deferred {
-                    self.restore_typed(typed);
-                    if entry.is_some() {
-                        let draft = self.editor.text();
-                        saved = Some(self.saved_line(draft));
-                        entry = Some(HistoryEntry::new(
-                            draft.to_string(),
-                            self.editor.entities().snapshots(),
-                        ));
+                // Upstream writes a prompt that carries images to the history
+                // file not at all (`!has_images_for_submit`,
+                // `input_submit_runtime.zig:884`): the file is words, and the
+                // words of a badge attach nothing in another session.
+                let carries_images = self.editor.entities().images().next().is_some();
+                if self.send(self.expanded_prompt(&text, prompt), &text) {
+                    if let Some(entry) = entry.take() {
+                        self.history.record(entry);
                     }
+                    if carries_images {
+                        saved = None;
+                    }
+                } else {
+                    self.restore_typed(typed);
+                    self.history.leave();
+                    saved = None;
                 }
             }
-        }
-        if let Some(entry) = entry {
-            self.history.record(entry);
         }
         // To the file after the line has been acted on, as upstream appends
         // once the submission is through (`input_submit_runtime.zig:884-886`,
@@ -25209,11 +25213,11 @@ mod tests {
     }
 
     #[test]
-    fn a_line_the_runtime_refused_is_still_walked_back_to() {
+    fn a_line_the_runtime_refused_is_not_walked_back_to() {
         // The refusal leaves the draft in the composer and says so on the hint
-        // row, so the line was submitted -- and a history that recorded only
-        // what the runtime accepted would forget exactly the line the user is
-        // most likely to want back.
+        // row: the line is still there, and it was not sent, so upstream
+        // writes it down nowhere (`input_submit_runtime.zig:872-886`, a
+        // rejected admission returns before the history is touched).
         let mut shell = shell(24, 80);
         shell.route_bytes(b"first\r");
         let _first = shell.picks_up();
@@ -25235,7 +25239,7 @@ mod tests {
         shell.route_bytes(b"\x15");
         assert_eq!(shell.band_rows()[0], composer_row(""));
         shell.route_bytes(b"\x1b[A");
-        assert_eq!(shell.band_rows()[0], composer_row("third"));
+        assert_eq!(shell.band_rows()[0], composer_row("second"));
     }
 
     #[test]
@@ -27690,10 +27694,12 @@ mod tests {
         assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
         assert_eq!(shell.editor.text(), "look at shot.png");
         assert!(attached_ids(&shell).is_empty());
-        // And the line walked back to is the line the draft gives back, not
-        // a badge's words that would attach nothing.
+        // And it was not sent, so it is not walked back to: the newest line
+        // is the last one the runtime took.
         shell.route_bytes(b"\x15\x1b[A");
-        assert_eq!(shell.editor.text(), "look at shot.png");
+        assert_eq!(shell.editor.text(), "second");
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"look at shot.png");
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
         shell.work.finished_one();
@@ -28826,6 +28832,30 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_carrying_an_image_is_recalled_in_session_but_not_written_to_the_file() {
+        // `!has_images_for_submit` (`input_submit_runtime.zig:884`): the file
+        // is words, and a badge's words attach nothing in another session.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        std::fs::write(
+            shell.workspace.join("shot.png"),
+            crate::image::fixture::SHOT_PNG,
+        )
+        .expect("shot");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b" look\r");
+        let _ = shell.picks_up();
+        shell.work.finished_one();
+        shell.route_bytes(b"plain\r");
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["/image shot.png", "plain"]
+        );
+        assert_eq!(recalled(&mut shell), "plain");
+        assert_eq!(recalled(&mut shell), "[Image 1] look");
+    }
+
+    #[test]
     fn prompt_history_off_keeps_no_line_anywhere_and_on_keeps_them_again() {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = remembering(root.path());
@@ -28855,6 +28885,12 @@ mod tests {
         assert!(shell.recall.enabled);
         assert!(profile_at(root.path()).contains("\"enabled\": true"));
         escape(&mut shell);
+        // The two prompts above hold the runtime's two places; a third would
+        // be refused, and a refused prompt is written down nowhere.
+        for _ in 0..2 {
+            let _ = shell.picks_up();
+            shell.work.finished_one();
+        }
         shell.route_bytes(b"public\r");
         assert_eq!(
             saved_texts(&mut shell, root.path()),
