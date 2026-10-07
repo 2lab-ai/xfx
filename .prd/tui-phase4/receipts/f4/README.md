@@ -21,7 +21,24 @@ xfx retaken at `1578121` (plan `51ba257` merged) for `interrupt` 40x120,
 (with bodies), `interrupt-retry` 24x80, and the new `interrupt-recovered` and
 `interrupt-steer-retract`; fx captured for the two new scenarios and for
 `interrupt-steer` again, to keep its request bodies. The snaps below that say
-"round 2" are those. Scenarios under
+"round 2" are those.
+
+**Re-checked at `66728b6`** (plan `b887a7f` merged: the W1, W3, W4 and W5
+follow-ups): every xfx scenario in the table retaken at its sizes and diffed
+against the files here, row 1 aside; the files here are not replaced. 31 of the
+78 snaps have identical text (29 of them identical SGR too), and the rest
+differ only in timing: stream position, the steer's cut point (`word14` /
+`word15`), the summaries' seconds, which part of a retry's countdown a snap
+caught, the marker's blink, and the full-access warning at `rec-1.8`, which
+lands about 3.8 s into its 4 s on the screen (present in one of two further
+runs, absent in the other). The `/help` catalog also lists the commands plan
+added; its Ctrl-C row is unchanged. The rows this receipt is about are
+byte-identical: the recovered row (`rec-1.4`, as fx's), the wrapped retry row
+at 24x80 (`r0.45`), all of `interrupt-cmd`, and the Escape cue's hint row
+(`esc1`, as fx's). Every request body has the same messages; only the
+interrupted answer is cut at a different point.
+
+Scenarios under
 `scripts/fxcap/scenarios/`, each run on both binaries:
 
 ```
