@@ -60,6 +60,8 @@ pub(crate) trait CommandHandlers {
     /// `/trace`. It takes nothing either: `/trace now` is a line that names
     /// no command, as upstream's is (`commands.zig:486` has no `has_args`).
     fn trace(&mut self);
+    /// `/compact`. It takes nothing: `/compact now` never reaches it.
+    fn compact(&mut self);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
@@ -94,10 +96,28 @@ pub(crate) trait CommandHandlers {
     /// when there was none. What it may be is
     /// `crate::permission::slash::Request::parse`'s to say, not the router's.
     fn permissions(&mut self, argument: &str);
+    /// `/image` (or its alias `/img`), with the rest of the line -- already
+    /// trimmed, and empty when there was none, which is the usage line. What
+    /// file it names is `crate::image::resolve`'s to say.
+    fn image(&mut self, argument: &str);
+    /// `/images`, with the rest of the line: `clear` drops every attachment
+    /// and any other word lists them, as upstream reads it
+    /// (`managePending`, `image_commands.zig:58-84`).
+    fn images(&mut self, argument: &str);
+    /// `/paste`: the clipboard's image. It takes nothing.
+    fn paste(&mut self);
+    /// `/allowlist`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which lists the rules in force. What it may be is
+    /// `crate::permission::allowlist::Request::parse`'s to say.
+    fn allowlist(&mut self, argument: &str);
     /// `/settings`, with the rest of the line -- already trimmed, and empty
     /// when there was none. Empty opens the settings menu; anything else is
     /// its usage line, because xfx answers none of upstream's argument forms.
     fn settings(&mut self, argument: &str);
+    /// `/workspace`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which opens the picker. What the rest may be is
+    /// `crate::workspace::access::parse`'s to say, its refusal included.
+    fn workspace(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -178,9 +198,14 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
+        Slash::Allowlist => handlers.allowlist(argument),
         Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
+        Slash::Image => handlers.image(argument),
+        Slash::Images => handlers.images(argument),
+        Slash::Paste => handlers.paste(),
         Slash::Trace => handlers.trace(),
+        Slash::Compact => handlers.compact(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Usage => handlers.usage(),
@@ -188,6 +213,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Status => handlers.status(),
         Slash::Statusline => handlers.statusline(argument),
         Slash::Settings => handlers.settings(argument),
+        Slash::Workspace => handlers.workspace(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -255,6 +281,9 @@ mod tests {
         fn trace(&mut self) {
             self.calls.push("trace".to_string());
         }
+        fn compact(&mut self) {
+            self.calls.push("compact".to_string());
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
@@ -285,8 +314,23 @@ mod tests {
         fn permissions(&mut self, argument: &str) {
             self.calls.push(format!("permissions {argument}"));
         }
+        fn image(&mut self, argument: &str) {
+            self.calls.push(format!("image {argument}"));
+        }
+        fn images(&mut self, argument: &str) {
+            self.calls.push(format!("images {argument}"));
+        }
+        fn paste(&mut self) {
+            self.calls.push("paste".to_string());
+        }
+        fn allowlist(&mut self, argument: &str) {
+            self.calls.push(format!("allowlist {argument}"));
+        }
         fn settings(&mut self, argument: &str) {
             self.calls.push(format!("settings {argument}"));
+        }
+        fn workspace(&mut self, argument: &str) {
+            self.calls.push(format!("workspace {argument}"));
         }
     }
 
@@ -308,6 +352,7 @@ mod tests {
             ("/model", "model "),
             ("/copy", "copy"),
             ("/trace", "trace"),
+            ("/compact", "compact"),
             ("/sound", "sound "),
             ("/stats", "stats"),
             ("/usage", "usage"),
@@ -318,14 +363,47 @@ mod tests {
             ("/quit", "quit"),
             ("/provider", "setup "),
             ("/permissions", "permissions "),
+            ("/image", "image "),
+            ("/images", "images "),
+            ("/paste", "paste"),
+            ("/allowlist", "allowlist "),
             ("/settings", "settings "),
             ("/undo", "undo"),
+            ("/workspace", "workspace "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
             assert!(SLASH_COMMANDS.contains(&name), "{name} is not canonical");
             assert_eq!(routed(name), vec![call.to_string()], "{name}");
         }
+    }
+
+    #[test]
+    fn an_image_line_is_a_command_and_never_a_prompt() {
+        // Before this surface had the command, `/image shot.png` was a slash
+        // word with more on the line -- a prompt, and the path went to the
+        // model as prose (`cap/xfx-xfx-today-40x120-all.ansi`, row 3).
+        for (line, call) in [
+            ("/image shot.png", "image shot.png"),
+            ("/img shot.png", "image shot.png"),
+            ("/image   \"my shot.png\"  ", "image \"my shot.png\""),
+            ("/image", "image "),
+            ("/images", "images "),
+            ("/images clear", "images clear"),
+            ("/images foo", "images foo"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(
+                matches!(super::classify(line), Submitted::Command { .. }),
+                "{line:?} is not a command on this surface"
+            );
+        }
+        // `/paste` takes nothing, so with a word after it it names nothing.
+        assert_eq!(routed("/paste"), vec!["paste".to_string()]);
+        assert!(matches!(
+            super::classify("/paste now"),
+            Submitted::UnknownCommand { .. }
+        ));
     }
 
     #[test]
@@ -381,6 +459,21 @@ mod tests {
                 argument: "bogus words".to_string()
             }
         );
+        // Every form `/workspace` is typed in reaches its one handler, a path
+        // with spaces whole; what each means -- `bogus` is the usage line --
+        // is the handler's (`parseWorkspaceCommand`, `app_commands.zig:198-216`).
+        for (line, call) in [
+            ("/workspace", "workspace "),
+            ("/workspace   ", "workspace "),
+            ("/workspace list", "workspace list"),
+            ("/workspace add ../a b", "workspace add ../a b"),
+            ("/workspace remove /x", "workspace remove /x"),
+            ("/workspace clear", "workspace clear"),
+            ("/workspace bogus", "workspace bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
         // Every form `/sound` is typed in reaches its one handler, the words
         // it does not know included: refusing them is the handler's, with the
         // usage line (`app_commands.zig:3984-3988`), not this module's with

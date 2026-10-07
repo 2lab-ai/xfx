@@ -21,12 +21,13 @@
 //! hook that restored for any thread would cook the terminal while the thread
 //! actually holding it still believed it was raw.
 //!
-//! **The runtime thread takes no signal from the UI thread.** It is spawned
-//! while [`super::signals::block_owned`]'s mask is still whole -- before
-//! `install` lifts the death signals -- so it inherits a mask with `SIGINT`,
-//! `SIGTERM`, `SIGHUP` and `SIGTSTP` blocked and can never be the thread the
-//! kernel picks to deliver one to. That was Task 3's standing constraint on
-//! whichever task added the process's second thread, and this is the task.
+//! **The runtime thread takes no signal from the UI thread.** It is started
+//! with every owned signal blocked ([`super::signals::spawn_unsignalled`]) --
+//! `SIGINT`, `SIGTERM`, `SIGHUP` and `SIGTSTP`, and the flag-setting
+//! `SIGCONT` and `SIGWINCH` with them -- so it, and every thread it starts,
+//! can never be the thread the kernel picks to deliver one to. That was Task
+//! 3's standing constraint on whichever task added the process's second
+//! thread, and `signals::release`'s safety argument rests on it.
 //!
 //! **Exactly one terminal event per turn.** `agent::machine` emits its
 //! conclusion *and* returns it (`machine.rs:334-345`); the sink drops the
@@ -81,24 +82,29 @@ use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
     UiEventSink,
 };
-use super::permissions::{self, Change, Grants};
+use super::compaction::{Feedback, Update};
+use super::notice::Notice;
+use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::compact::{self, Caller, Failure, Size};
+use crate::agent::{run_turn_saved, TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{
-    bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
+    bind_conversation, conversation_scope, open_conversation, rename_conversation, status_snapshot,
+    Conversation,
 };
 use crate::output::StatusSnapshot;
-use crate::permission::{LiveAuthority, PermissionSession};
+use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{SessionEvent, SessionId, SessionStore, WritableSession};
+use crate::session::{SessionEvent, SessionId, SessionStore, TurnConclusion, WritableSession};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// How long the UI keeps painting what the worker has already produced before
@@ -231,10 +237,24 @@ pub(crate) struct WorkHandle {
     /// (`yolo-permission-mode.test.ts:373-450`) -- and never by the runtime,
     /// whose channel messages can be older than what the person chose since.
     live: LiveAuthority,
+    /// The configured permission table every conversation's authority reads
+    /// at each decision ([`LiveRules`]).
+    ///
+    /// Written here, on the UI thread, by `/allowlist` the moment it has
+    /// written the file -- so the change governs the next tool call, of a
+    /// running turn too, as upstream's live engine does
+    /// (`replaceEffectivePermissionRules`, `session_commands.zig:927-941`) --
+    /// and read by a bare `/permissions` for its `configured rules`.
+    rules: LiveRules,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, as the
+    /// runtime last published it ([`SavedRulesAt`]).
+    saved_rules: SavedRulesAt,
     /// What `/usage`'s session scope reads, as the runtime last published it.
     spend: SessionSpend,
+    /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
+    credits: CreditsBoard,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -492,6 +512,19 @@ impl WorkHandle {
         }
     }
 
+    /// Where the live conversation keeps its saved-session permission rules,
+    /// or `None` while no saved session is open.
+    pub(crate) fn saved_rules_path(&self) -> Option<std::path::PathBuf> {
+        self.saved_rules.read()
+    }
+
+    /// Stands in for the runtime's publication of where the saved-session
+    /// rules are kept.
+    #[cfg(test)]
+    pub(crate) fn publish_saved_rules(&self, path: Option<std::path::PathBuf>) {
+        self.saved_rules.publish(path);
+    }
+
     /// Whether a reset has happened since the runtime last published, so
     /// every grant that publication counted is out of force.
     pub(crate) fn grants_reset_since_published(&self) -> bool {
@@ -508,6 +541,23 @@ impl WorkHandle {
     #[cfg(test)]
     pub(crate) fn publish_spent(&self, spent: Spent) {
         self.spend.publish(spent);
+    }
+
+    /// What `/credits` would ask now, or the answer it has without asking,
+    /// from the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn credits_question(
+        &self,
+    ) -> Result<crate::credits::Question, crate::credits::Answer> {
+        self.credits.read()
+    }
+
+    /// Stands in for the runtime's publication of what `/credits` asks.
+    #[cfg(test)]
+    pub(crate) fn publish_credits(
+        &self,
+        question: Result<crate::credits::Question, crate::credits::Answer>,
+    ) {
+        self.credits.publish(question);
     }
 
     /// A handle onto channels with no runtime behind them, and both receiving
@@ -557,13 +607,22 @@ impl WorkHandle {
                 status: StatusBoard::unpublished(),
                 permissions,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             work_rx,
             control_rx,
             changes,
         )
+    }
+
+    /// The configured permission table every conversation decides with, for
+    /// the UI thread to read and to replace ([`LiveRules`]).
+    pub(crate) fn rules(&self) -> &LiveRules {
+        &self.rules
     }
 
     /// Stands in for the runtime's publication of the grants list, as of the
@@ -627,6 +686,45 @@ impl LastReply {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+}
+
+/// What `/credits` asks: the endpoint and key of the provider in force, or the
+/// answer it has without asking anybody -- published by the runtime, which is
+/// the thread a provider switch changes them on, and read by the UI without
+/// waiting for it ([`super::credits_ask`]).
+///
+/// The key crosses here because the question is asked off the runtime
+/// thread, which may be a minute into a turn. It is the credential's own
+/// type, whose `Debug` is redacted.
+#[derive(Debug, Clone)]
+pub(crate) struct CreditsBoard(
+    Arc<Mutex<Result<crate::credits::Question, crate::credits::Answer>>>,
+);
+
+impl CreditsBoard {
+    fn new(question: Result<crate::credits::Question, crate::credits::Answer>) -> Self {
+        Self(Arc::new(Mutex::new(question)))
+    }
+
+    fn publish(&self, question: Result<crate::credits::Question, crate::credits::Answer>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = question;
+    }
+
+    fn read(&self) -> Result<crate::credits::Question, crate::credits::Answer> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Default for CreditsBoard {
+    /// A board nothing has published to: a provider with nothing to ask.
+    fn default() -> Self {
+        Self::new(Err(crate::credits::Answer::Failed(
+            crate::credits::UNAVAILABLE.to_string(),
+        )))
     }
 }
 
@@ -799,11 +897,23 @@ impl Drop for Finished {
     }
 }
 
+/// One runtime thread, and its owned signals with whether each was blocked.
+#[cfg(test)]
+type ThreadMask = (std::thread::ThreadId, Vec<(libc::c_int, bool)>);
+
+/// Each runtime thread's owned-signal mask as the thread itself read it, the
+/// first thing it did: what a case looks up by the thread's id.
+#[cfg(test)]
+static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
+
 /// Starts the runtime thread, and hands back the channel the UI reads.
 ///
-/// **Called while the owned signals are still blocked**, so the thread inherits
-/// a mask in which none of them can be delivered to it. `hold` does that by
-/// calling this before [`super::signals::install`] consumes the block.
+/// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
+/// so none can be delivered to it -- nor to the threads it starts, its runtime's
+/// blocking pool and the bills it asks for ([`super::reconcile`]) included --
+/// and every handler runs on the UI thread, as `signals::release` requires.
+/// `hold` calls this before [`super::signals::install`] as well, which is the
+/// order its own startup needs; the mask no longer depends on it.
 ///
 /// The session store is opened *here*, on the calling thread, rather than
 /// lazily inside the first turn: "xfx cannot write here" is a fact about the
@@ -852,54 +962,74 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    let saved_rules = SavedRulesAt::default();
+    let publishes_saved_rules = saved_rules.clone();
     // One live authority for the session: the handle writes it, every
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
+    // The same for the configured table: one handle, written by `/allowlist`
+    // on the UI thread, read by every conversation the runtime opens.
+    let rules = LiveRules::new(config.permission.effective().clone());
+    let loops_rules = rules.clone();
     let spend = SessionSpend::default();
     let publishes_spend = spend.clone();
+    // Published from the start, so a `/credits` typed before the runtime's
+    // first publication asks what that publication would say.
+    let credits = CreditsBoard::new(crate::credits::question(&config));
+    let publishes_credits = credits.clone();
     let session_cancel = cancel.clone();
-    let thread = std::thread::Builder::new()
-        .name(THREAD_NAME.to_string())
-        .spawn(move || {
-            // Declared first so it is dropped **last**: the flag must be set
-            // after the sender below has gone, or the UI could join a thread
-            // whose channel has not closed yet and wait out its own deadline
-            // for a message that will never come.
-            let _done = Finished(done);
-            let events_tx = events_tx;
-            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                // Nothing can run. Say so through the one channel the UI reads.
-                fatal_before_the_runtime(&events_tx, NO_RUNTIME);
-                return None;
-            };
-            let mut state = Runtime::new(config, store, prompter, questioner);
-            state.reply = loops_reply;
-            state.grants = publishes_grants;
-            state.live = loops_live;
-            state.spend = publishes_spend;
-            if let Some(resumed) = resumed {
-                state.resume(resumed, &session_cancel.mirror());
-                // A resumed conversation's last reply is `/copy`'s from the
-                // start, as fx's hydrated history is (`session.zig:2067-2079`).
-                state.publish_reply();
-            }
-            // `/status` reads the resumed conversation's counts from the start
-            // too: `publishing_to` publishes what the runtime is now.
-            let state = state.publishing_to(publishes);
-            runtime.block_on(turn_loop(
-                state,
-                &events_tx,
-                &mut work_rx,
-                &mut permissions_rx,
-                control,
-                session_cancel,
-                &loops_outstanding,
-            ))
-        })?;
+    let thread = super::signals::spawn_unsignalled(THREAD_NAME, move || {
+        #[cfg(test)]
+        RUNTIME_MASKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                std::thread::current().id(),
+                super::signals::owned_blocked_here(),
+            ));
+        // Declared first so it is dropped **last**: the flag must be set
+        // after the sender below has gone, or the UI could join a thread
+        // whose channel has not closed yet and wait out its own deadline
+        // for a message that will never come.
+        let _done = Finished(done);
+        let events_tx = events_tx;
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            // Nothing can run. Say so through the one channel the UI reads.
+            fatal_before_the_runtime(&events_tx, NO_RUNTIME);
+            return None;
+        };
+        let mut state = Runtime::new(config, store, prompter, questioner);
+        state.reply = loops_reply;
+        state.grants = publishes_grants;
+        state.saved_rules = publishes_saved_rules;
+        state.live = loops_live;
+        state.rules = loops_rules;
+        state.spend = publishes_spend;
+        state.credits = publishes_credits;
+        if let Some(resumed) = resumed {
+            state.resume(resumed, &session_cancel.mirror());
+            state.ask_for_bills();
+            // A resumed conversation's last reply is `/copy`'s from the
+            // start, as fx's hydrated history is (`session.zig:2067-2079`).
+            state.publish_reply();
+        }
+        // `/status` reads the resumed conversation's counts from the start
+        // too: `publishing_to` publishes what the runtime is now.
+        let state = state.publishing_to(publishes);
+        runtime.block_on(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut permissions_rx,
+            control,
+            session_cancel,
+            &loops_outstanding,
+        ))
+    })?;
     Ok((
         Worker {
             thread: Some(thread),
@@ -914,8 +1044,11 @@ pub(crate) fn spawn(
                 status,
                 permissions: permissions_tx,
                 live,
+                rules,
                 grants,
+                saved_rules,
                 spend,
+                credits,
             },
             resumable: None,
         },
@@ -943,7 +1076,7 @@ impl Resumption {
         config: &RuntimeConfig,
         selector: &crate::session::Selector,
     ) -> io::Result<Self> {
-        let scope = AccessScope::primary_only(&config.workspace_root).map_err(io::Error::other)?;
+        let scope = conversation_scope(config).map_err(io::Error::other)?;
         let store = open_store(config)?;
         let resumed = store
             .resume(selector, &config.workspace_root)
@@ -1060,10 +1193,16 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, published
+    /// with the grants.
+    saved_rules: SavedRulesAt,
     /// The mode and reset count the UI writes and every conversation's
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// The configured table the UI writes and every conversation's authority
+    /// reads ([`WorkHandle::rules`]). Read here, never written.
+    rules: LiveRules,
     /// Where `/usage`'s session scope reads the conversation's spend from,
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
@@ -1077,6 +1216,23 @@ struct Runtime {
     /// prompt, so the log's own creation is the first prompt's time, and the
     /// clock is kept here instead.
     began_ms: i64,
+    /// Asks the Gateway for the bills the conversation's streams did not
+    /// carry ([`Runtime::ask_for_bills`]), and hands the answers to
+    /// [`turn_loop`] to write down ([`Runtime::settle_bill`]).
+    bills: super::reconcile::Reconciler,
+    /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
+    /// [`Runtime::publish`] beside the others.
+    credits: CreditsBoard,
+    /// The directories `/workspace` saved for this workspace, each as the real
+    /// path it was when it was read: at launch, from the profile, and after
+    /// each change, from what the change read back.
+    ///
+    /// The **identities** a turn's scope is made of ([`Runtime::ready`]),
+    /// looked at again before every turn and never resolved again: a saved
+    /// directory that has since become a link to somewhere else is out of the
+    /// scope rather than the somewhere else in it
+    /// (`crate::workspace::AccessScope::with_observed_roots`).
+    workspace: WorkspaceAccess,
 }
 
 impl Runtime {
@@ -1111,6 +1267,9 @@ impl Runtime {
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let effort = config.effort.clone();
         let config_mode = config.permission_mode;
+        let workspace =
+            WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
+        let config_rules = config.permission.effective().clone();
         Self {
             config,
             env,
@@ -1124,9 +1283,14 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             live: LiveAuthority::new(config_mode),
+            rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
             began_ms: crate::session::event::system_now_ms(),
+            bills: super::reconcile::Reconciler::new(),
+            credits: CreditsBoard::default(),
+            workspace,
         }
     }
 
@@ -1162,6 +1326,14 @@ impl Runtime {
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.grant_lines());
+        self.saved_rules
+            .publish(self.conversation.as_ref().and_then(|conversation| {
+                conversation
+                    .tools
+                    .permissions()
+                    .session_rules_path()
+                    .map(std::path::Path::to_path_buf)
+            }));
         self.spend.publish(Spent {
             usage: self
                 .conversation
@@ -1170,6 +1342,7 @@ impl Runtime {
                 .unwrap_or_default(),
             started_at_ms: Some(self.began_ms),
         });
+        self.credits.publish(crate::credits::question(&self.config));
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1254,6 +1427,56 @@ impl Runtime {
     /// out of the stream the UI was shown, because that stream has been made
     /// inert on its way over (`bridge::inert`): a tab in a code block reached
     /// the screen as a space, and the clipboard is owed the tab.
+    /// Starts asking the Gateway for the bills of the conversation's pending
+    /// requests, with the Gateway credential that made them
+    /// (`startReconciliationWithCredential`, `session_usage.zig:2008-2100`).
+    ///
+    /// Called after every piece of work, so a turn that recorded one and a
+    /// resume that opened a session holding one are both asked about, and
+    /// asked about once ([`super::reconcile::Reconciler::ask`]). Without a
+    /// Gateway credential nothing is asked and the requests stay pending, as
+    /// upstream withholds its asking without a credential for them
+    /// (`:1924-1945`).
+    fn ask_for_bills(&mut self) {
+        let Some(conversation) = self.conversation.as_ref() else {
+            return;
+        };
+        if self.config.provider != crate::provider::ProviderId::Gateway {
+            return;
+        }
+        let Some(credential) = self.config.credential.as_ref() else {
+            return;
+        };
+        let state = conversation.recorder.state();
+        let pending: Vec<&crate::session::RequestUsage> = state.usage.pending().collect();
+        if pending.is_empty() {
+            return;
+        }
+        self.bills.ask(
+            conversation.recorder.id().as_str(),
+            &pending,
+            credential.secret(),
+        );
+    }
+
+    /// Writes what the Gateway said about a pending request into the log of
+    /// the session it belongs to, and tells `/usage` (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`).
+    ///
+    /// Only into the conversation in front of the user: an answer about one
+    /// that was dropped or replaced is left unwritten, and that session's
+    /// request stays pending for the next time it is opened.
+    fn settle_bill(&mut self, answered: &super::reconcile::Answered) {
+        let Some(conversation) = self.conversation.as_mut() else {
+            return;
+        };
+        if conversation.recorder.id().as_str() != answered.session {
+            return;
+        }
+        conversation.recorder.commit(answered.frame());
+        self.publish();
+    }
+
     fn publish_reply(&self) {
         self.reply.publish(
             self.conversation
@@ -1288,6 +1511,18 @@ impl Runtime {
                 Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
                 mirror,
             )?);
+        }
+        // **The scope this turn runs in**, made now from the saved directories
+        // that are still themselves ([`Runtime::workspace`]): a `/workspace`
+        // change between turns is in force from the next one, and a directory
+        // that vanished or was swapped for a link since is not.
+        let scope = self
+            .workspace
+            .refreshed()
+            .scope(&self.config.workspace_root)
+            .map_err(|err| err.to_string())?;
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation.tools.set_scope(scope);
         }
         Ok(())
     }
@@ -1341,6 +1576,43 @@ impl Runtime {
     fn rename(&mut self, title: &str, mirror: &CancelToken) -> Result<(), String> {
         let conversation = self.conversation(mirror)?;
         rename_conversation(conversation, title)
+    }
+
+    /// One `/workspace` change, between turns, and what the band is told of
+    /// it (`handleWorkspaceCommand`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:245-328`).
+    ///
+    /// The profile is changed and read back ([`workspace_access::execute`]);
+    /// what was read back is what the next turn's scope is made of
+    /// ([`Runtime::ready`]) -- this runs only between turns, so no tool call
+    /// sees half of it -- and what a conversation `/new` opens is made of. A
+    /// change the profile did not take changes nothing here either, as
+    /// upstream's durable-or-nothing rule has it.
+    fn change_workspace(&mut self, action: &workspace_access::Action) -> UiEvent {
+        let primary = self.config.workspace_root.clone();
+        let updated = match workspace_access::execute(
+            &primary,
+            self.config.user_settings_path.as_deref(),
+            &self.workspace,
+            action,
+        ) {
+            Ok(updated) => updated,
+            Err(failure) => {
+                return UiEvent::Workspace {
+                    notice: Notice::error(workspace_access::TOPIC, failure.message()),
+                    access: None,
+                }
+            }
+        };
+        self.config.additional_directories = updated.access.saved();
+        self.workspace = updated.access.clone();
+        UiEvent::Workspace {
+            notice: Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::snapshot(&primary, &updated.access, Some(&updated.mutation)),
+            ),
+            access: Some(updated.access),
+        }
     }
 
     /// What a `/resume` picker lists, read now: both scopes, newest first,
@@ -1407,8 +1679,7 @@ impl Runtime {
     ) -> Result<super::hydration::Hydration, super::session_picker::ResumeFailure> {
         use super::session_picker::ResumeFailure;
         let id = crate::session::SessionId::parse(id).map_err(|_| ResumeFailure::Unavailable)?;
-        let scope = AccessScope::primary_only(&self.config.workspace_root)
-            .map_err(|_| ResumeFailure::Unavailable)?;
+        let scope = conversation_scope(&self.config).map_err(|_| ResumeFailure::Unavailable)?;
         let resumed = self
             .store
             .resume_without_waiting(
@@ -1450,6 +1721,29 @@ impl Runtime {
         self.selector.model()
     }
 
+    /// How large the conversation may be for the model in force: its catalog
+    /// row's window, when a catalog has been read (`compactionSize`,
+    /// `vercel-labs/fx@c1db9191 src/core/agent/runtime/orchestrator.zig:
+    /// 6190-6200`). With no row, nothing is known, and upstream's rule for
+    /// that holds: a manual compaction keeps the newest four turns, and
+    /// nothing compacts by itself (`window.zig:127-131`).
+    fn compaction_size(&self) -> Size {
+        let entry = self.selector.entry(self.selector.model());
+        Size::of(
+            entry.and_then(|entry| entry.max_context),
+            entry.and_then(|entry| entry.facts.max_output),
+            compact::DEFAULT_PERCENT,
+        )
+    }
+
+    /// Whether the conversation holds a turn no compaction covers yet
+    /// (`hasContextToCompact`, `session.zig:1946-1951`).
+    fn has_context_to_compact(&self) -> bool {
+        self.conversation
+            .as_ref()
+            .is_some_and(|conversation| !conversation.recorder.state().uncovered_turns().is_empty())
+    }
+
     /// The permission authority a turn on this thread runs under.
     ///
     /// **Not `app::permission_session`**, and this is the one line of the
@@ -1467,6 +1761,8 @@ impl Runtime {
             // Read at every decision, so a change the person makes while a
             // turn runs governs that turn's next call (`LiveAuthority`).
             .with_live(self.live.clone())
+            // And the configured table, for the same reason (`LiveRules`).
+            .with_live_rules(self.rules.clone())
     }
 
     /// Makes a saved session this runtime's conversation, before any work.
@@ -1483,6 +1779,7 @@ impl Runtime {
     /// from a log, and the model is the configuration's, so a later resume
     /// reads what this one really used.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
+        self.bills.forget();
         let mut conversation = bind_conversation(
             &self.store,
             resumed.session,
@@ -1571,6 +1868,12 @@ impl Runtime {
         self.config = reloaded;
         self.config.permission_mode = mode;
         self.config.yolo_acknowledged = acknowledged;
+        // The directories too: the file was read again, and what it saves
+        // for this workspace is what a turn runs in.
+        self.workspace = WorkspaceAccess::load(
+            &self.config.workspace_root,
+            &self.config.additional_directories,
+        );
         // The model comes back with it, because the selector is where the model
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
@@ -1578,6 +1881,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.bills.forget();
         self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
@@ -1881,6 +2185,10 @@ async fn turn_loop(
             // does, as upstream syncs its queued prompts to a new mode
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
+            // A bill the Gateway gave later, written down between pieces of
+            // work by the recorder that owns the log; never during one, which
+            // may be writing that log itself.
+            answered = state.bills.next() => Taken::Bill(answered),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -1912,6 +2220,10 @@ async fn turn_loop(
                 continue;
             }
             Taken::Nothing => continue,
+            Taken::Bill(answered) => {
+                state.settle_bill(&answered);
+                continue;
+            }
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
                 // Not a terminal event -- nothing is waiting on one for a
@@ -1934,7 +2246,22 @@ async fn turn_loop(
         };
         let ended = match item {
             TurnWork::Submit(prompt) => {
-                run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
+                run_turn(
+                    &mut state,
+                    prompt,
+                    Vec::new(),
+                    events,
+                    &cancel,
+                    &control,
+                    &mut queue,
+                )
+                .await
+            }
+            TurnWork::Attached { prompt, images } => {
+                run_turn(
+                    &mut state, prompt, images, events, &cancel, &control, &mut queue,
+                )
+                .await
             }
             // Both of these open a socket, so both are work rather than control
             // messages, and both owe **exactly one** terminal event -- which is
@@ -1945,9 +2272,6 @@ async fn turn_loop(
             }
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
-            }
-            TurnWork::Credits => {
-                run_credits(&mut state, events, &cancel, &control, &mut queue).await
             }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
@@ -1969,6 +2293,14 @@ async fn turn_loop(
                 run_rename(&mut state, &title, events, &cancel.mirror()).await;
                 Ended::Turn
             }
+            TurnWork::Workspace(action) => {
+                let answer = state.change_workspace(&action);
+                bridge::send_terminal(events, answer).await;
+                Ended::Turn
+            }
+            TurnWork::Compact => {
+                run_compact(&mut state, events, &cancel, &control, &mut queue).await
+            }
         };
         // After **every** piece of work rather than in the arms that change
         // the conversation: a provider switch replaces it, and a piece of work
@@ -1976,6 +2308,9 @@ async fn turn_loop(
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
+        // And a request this work recorded without its bill, or a session it
+        // opened holding one, is asked about now.
+        state.ask_for_bills();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
         // given back is the moment the queue really has room -- and by then the
@@ -2024,6 +2359,7 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    state.bills.forget();
     state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
@@ -2070,6 +2406,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
+    /// What the Gateway said about a pending request's bill.
+    Bill(super::reconcile::Answered),
     /// The session is over.
     Shutdown,
 }
@@ -2176,6 +2514,7 @@ enum Ended {
 async fn run_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
     control: &ControlChannel,
@@ -2195,7 +2534,7 @@ async fn run_turn(
     // event either way.
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, events, &turn,
+        state, prompt, images, events, &turn,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -2230,6 +2569,258 @@ async fn run_turn(
             // remembering to.
             bridge::send_terminal(events, UiEvent::Fatal(panic_message(&*payload))).await;
             Ended::Session
+        }
+    }
+}
+
+/// `/compact`: compacts the conversation between turns and tells the band
+/// how it ended ([`UiEvent::Compaction`]).
+///
+/// Raced against the control channel like a turn, so the Ctrl-C or Escape
+/// pair that stops a turn stops this too (`cancelActiveOperation`'s
+/// `context_compaction` target, `input_interrupt_runtime.zig:77-90`): the
+/// notes request is cancelled with the work's own token, and what was queued
+/// behind it goes with it. The ending is sent through `send_terminal`, so a
+/// cancellation cannot drop the one event that clears the row. Nothing about
+/// a compaction is written into the transcript, which is upstream's tested
+/// contract (`tui-compaction-activity.test.ts:228-241`).
+async fn run_compact(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let body = compact_between_turns(state, events, &turn);
+    let (feedback, ended) = raced_against_control(body, control, |through| {
+        turn.cancel();
+        queue.abandon(through);
+    })
+    .await;
+    // `/status` reads the conversation it compacted.
+    state.publish();
+    bridge::send_terminal(events, UiEvent::Compaction(Update::Settled(feedback))).await;
+    ended
+}
+
+/// A manual compaction, in upstream's order (`request_context_compaction`,
+/// `input_submit_runtime.zig:139-161`, then `compactContext`,
+/// `orchestrator.zig:6206-6260`): nothing to compact is "No context to
+/// compact."; then the provider it will ask, which failing is "Compaction was
+/// not started."; then the window, which may still find nothing older than
+/// the turns it keeps.
+async fn compact_between_turns(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Feedback {
+    if !state.has_context_to_compact() {
+        return Feedback::NoOp;
+    }
+    if state.ready(&turn.mirror).is_err() {
+        return Feedback::NotStarted;
+    }
+    let size = state.compaction_size();
+    compact_conversation(state, size, false, events, turn).await
+}
+
+/// Plans, asks for, and saves one compaction of the open conversation, and
+/// says how it ended. The band is told when it begins -- an automatic one
+/// only once something has been chosen, as upstream's progress starts at
+/// `.chosen` (`compactor.zig:181-184`) -- and when the notes request is about
+/// to go.
+async fn compact_conversation(
+    state: &mut Runtime,
+    size: Size,
+    automatic: bool,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Feedback {
+    let Some(conversation) = state.conversation.as_ref() else {
+        return Feedback::NoOp;
+    };
+    let plan = match compact::plan(conversation.recorder.state(), &size) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => return Feedback::NoOp,
+        Err(failure) => return feedback_of(failure),
+    };
+    if automatic {
+        let _ = bridge::send_ui(
+            events,
+            &turn.token,
+            UiEvent::Compaction(Update::Began { automatic: true }),
+        )
+        .await;
+    }
+    if plan.needs_model() {
+        let _ = bridge::send_ui(
+            events,
+            &turn.token,
+            UiEvent::Compaction(Update::Summarizing),
+        )
+        .await;
+    }
+    let event = {
+        let model = state.model().to_string();
+        let selector = &state.selector;
+        let efforts = |name: &str| {
+            selector
+                .entry(name)
+                .map(|entry| entry.efforts.clone())
+                .unwrap_or_default()
+        };
+        let caller = Caller {
+            provider: state
+                .provider
+                .as_ref()
+                .expect("the bundle was built before compacting")
+                .stream
+                .as_ref(),
+            model: &model,
+            fallback: state.config.provider == ProviderId::Gateway,
+            efforts: &efforts,
+        };
+        match compact::finish(&plan, &caller).await {
+            Ok(event) => event,
+            Err(failure) => return feedback_of(failure),
+        }
+    };
+    // Stopped while the notes were written: nothing is saved
+    // (`orchestrator.zig:6241`).
+    if turn.mirror.is_cancelled() {
+        return Feedback::Cancelled;
+    }
+    let Some(conversation) = state.conversation.as_mut() else {
+        return Feedback::Failed;
+    };
+    let before = conversation.recorder.state().last_event_seq;
+    conversation.recorder.commit(event);
+    if conversation.recorder.state().last_event_seq == before {
+        // The log would not take it; the conversation is what it was.
+        return Feedback::Failed;
+    }
+    Feedback::Succeeded
+}
+
+/// The band's sentence for a compaction that did not happen.
+fn feedback_of(failure: Failure) -> Feedback {
+    match failure {
+        Failure::TooLarge => Feedback::TooLarge,
+        Failure::Cancelled => Feedback::Cancelled,
+        Failure::Summary(_) => Feedback::Failed,
+    }
+}
+
+/// Compacts the conversation before a turn whose request has reached the
+/// automatic compaction point (`orchestrator.zig:7306-7322`, `size.due()`):
+/// the request the turn would open with, measured as upstream measures a
+/// request -- its body, by the token estimate
+/// (`measureProviderRequest`, `prompt_context.zig:83-86`).
+///
+/// The window is the catalog's, so a conversation with something to compact
+/// reads the catalog once if nothing has yet, as a turn in a non-default
+/// effort does; a model the catalog does not describe never compacts by
+/// itself, as upstream's does not (`due` with no window).
+///
+/// `Err` is a compaction that began and did not finish: the turn does not
+/// run, and the band keeps the sentence, as upstream keeps the error on the
+/// row rather than in the transcript (`compactionErrorHandled`,
+/// `app_process_runtime.zig:10-17`, `:55-56`).
+async fn compact_if_due(
+    state: &mut Runtime,
+    prompt: &str,
+    context: &ProjectContext,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Result<(), Feedback> {
+    if !state.has_context_to_compact() {
+        return Ok(());
+    }
+    if matches!(state.selector.catalog(), CatalogState::NotLoaded) {
+        let fresh = tokio::select! {
+            biased;
+            () = turn.token.cancelled() => false,
+            fresh = state.load_catalog() => fresh,
+        };
+        if fresh {
+            let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+        }
+    }
+    let mut size = state.compaction_size();
+    if size.compact_at.is_none() {
+        return Ok(());
+    }
+    let Some(conversation) = state.conversation.as_ref() else {
+        return Ok(());
+    };
+    // Measured as text: upstream prices an image apart from the text around
+    // it (`measureProviderRequest`, `prompt_context.zig:87-120`), so an
+    // image's bytes are not counted as words here either.
+    let mut history = conversation
+        .recorder
+        .state()
+        .history_messages(state.config.provider.wire())
+        .messages;
+    for message in &mut history {
+        message
+            .content
+            .retain(|part| !matches!(part, crate::gateway::protocol::ContentPart::Image { .. }));
+    }
+    let request = TurnRequest {
+        images: Vec::new(),
+        model: state.model().to_string(),
+        prompt: prompt.to_string(),
+        history,
+        max_steps: state.config.max_agent_steps,
+        max_attempts: DEFAULT_MAX_ATTEMPTS,
+        cancel: turn.mirror.clone(),
+        tools: conversation.tools.clone(),
+    };
+    let Ok(body) = TurnMachine::new(request)
+        .with_context(context.clone())
+        .completion_request()
+        .body()
+    else {
+        // A request that cannot be built is the turn's to report.
+        return Ok(());
+    };
+    size.request = Some(compact::text_tokens(&body));
+    if !size.due() {
+        return Ok(());
+    }
+    match compact_conversation(state, size, true, events, turn).await {
+        // Nothing was chosen, so nothing began: the turn goes on as it was.
+        Feedback::NoOp => Ok(()),
+        Feedback::Succeeded => {
+            bridge::send_terminal(
+                events,
+                UiEvent::Compaction(Update::Settled(Feedback::Succeeded)),
+            )
+            .await;
+            Ok(())
+        }
+        other => {
+            // A turn stopped while it compacted is a turn that was asked and
+            // stopped, and its log says so as an ordinary stopped turn's does
+            // (`persistCompactionInterruptedTurnOnce`, `orchestrator.zig:
+            // 7413-7423`; e2e `tui-compaction-activity.test.ts:467-471`): a
+            // resume shows the prompt, and the model is told the turn ended
+            // before completion. One that failed never began; the row says why.
+            if other == Feedback::Cancelled {
+                if let Some(conversation) = state.conversation.as_mut() {
+                    conversation.recorder.commit(SessionEvent::UserMessage {
+                        text: prompt.to_string(),
+                    });
+                    conversation.recorder.commit(SessionEvent::TurnConcluded {
+                        outcome: TurnConclusion::Interrupted {
+                            reason: crate::agent::TurnError::Cancelled.to_string(),
+                        },
+                    });
+                }
+            }
+            bridge::send_terminal(events, UiEvent::Compaction(Update::Settled(other))).await;
+            Err(other)
         }
     }
 }
@@ -2595,34 +3186,6 @@ async fn run_catalog(
     ended
 }
 
-/// `/credits`: asks the configured provider what its account has left, and
-/// answers with the notice ([`UiEvent::Credits`]).
-///
-/// **Here, never on the thread that holds the terminal**: the Gateway's
-/// answer is a socket, and upstream's blocking wait for it on its UI thread
-/// (`commandShowCredits`, `app_commands.zig:2052-2082`) is the one part of
-/// its behaviour this does not copy. Raced against the control channel like a
-/// catalog load, so a Ctrl-C stops a question nobody wants answered any more;
-/// a cancelled one says nothing.
-async fn run_credits(
-    state: &mut Runtime,
-    events: &Sender<UiEvent>,
-    cancel: &Cancellation,
-    control: &ControlChannel,
-    queue: &mut Queue<'_>,
-) -> Ended {
-    let turn = cancel.turn();
-    let (answer, ended) =
-        raced_against_control(crate::credits::fetch(&state.config), control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
-        .await;
-    let _ = bridge::send_ui(events, &turn.token, UiEvent::Credits(answer)).await;
-    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-    ended
-}
-
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -2733,9 +3296,53 @@ async fn raced_against_control<F: Future>(
 }
 
 /// One turn, exactly as `xfx ask` runs one. `Some` is why it did not finish.
+/// Why a turn carrying an image may not be sent to the model in force, or
+/// `None` when it may.
+///
+/// **On the Gateway, the catalog decides** (`image_input_support`,
+/// `vercel-labs/fx@c1db9191 src/core/config/model_capabilities.zig:96-104`): a
+/// row tagged `vision` and `file-input` both reads images inline; a row without
+/// them would be upstream's second route, a forced `vision` tool call answered
+/// by another model, which xfx does not have ([`crate::image::NOT_NATIVE`]); and
+/// a model the catalog does not list -- or a catalog that could not be read --
+/// is one whose support nobody can vouch for
+/// ([`crate::image::CAPABILITY_UNKNOWN`]). The catalog is read for it like the
+/// effort's: once, raced against this turn's cancellation, and told to the UI.
+///
+/// **On llmux, the daemon decides.** Its catalog has no capability field
+/// (`2lab-ai/llmux@4b3d4a4 src/catalog.rs:1227`), so the image is sent and a
+/// model that cannot read it is the daemon's 400, reported as any refusal it
+/// sends is.
+async fn image_refusal(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Option<String> {
+    if state.config.provider != ProviderId::Gateway {
+        return None;
+    }
+    let fresh = tokio::select! {
+        biased;
+        () = turn.token.cancelled() => false,
+        fresh = state.load_catalog() => fresh,
+    };
+    if turn.token.is_cancelled() {
+        return Some(crate::agent::TurnError::Cancelled.to_string());
+    }
+    if fresh {
+        let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    }
+    match state.selector.entry(state.selector.model()) {
+        Some(entry) if entry.facts.image_input => None,
+        Some(_) => Some(crate::image::NOT_NATIVE.to_string()),
+        None => Some(crate::image::CAPABILITY_UNKNOWN.to_string()),
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) -> Option<String> {
@@ -2766,6 +3373,45 @@ async fn one_turn(
             let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
         }
     }
+    // **Whether the model reads images, before anything is sent or written.**
+    // A turn whose prompt -- or whose history, which every request re-sends --
+    // carries one goes inline only to a model the catalog tags `vision` and
+    // `file-input`; any other is refused here, with upstream's words, and no
+    // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
+    let carries_images = !images.is_empty()
+        || state.conversation.as_ref().is_some_and(|conversation| {
+            conversation
+                .recorder
+                .state()
+                .turns
+                .iter()
+                .any(|turn| !turn.images.is_empty())
+        });
+    if carries_images {
+        if let Some(refusal) = image_refusal(state, events, turn).await {
+            return Some(refusal);
+        }
+    }
+    // Project instructions are read now rather than remembered, so editing
+    // `AGENTS.md` in another window takes effect on the next prompt -- and
+    // before the automatic compaction below, which measures the request they
+    // are part of.
+    let context = ProjectContext::discover(
+        state
+            .conversation
+            .as_ref()
+            .expect("the conversation was just opened")
+            .tools
+            .scope(),
+    );
+    if compact_if_due(state, &prompt, &context, events, turn)
+        .await
+        .is_err()
+    {
+        // The row says why; the turn did not run, and there is nothing more
+        // for its conclusion to say (`compactionErrorHandled`).
+        return None;
+    }
     let options = state.request_options();
     state
         .provider
@@ -2791,9 +3437,6 @@ async fn one_turn(
         .as_mut()
         .expect("the conversation was just opened");
 
-    // Project instructions are read now rather than remembered, so editing
-    // `AGENTS.md` in another window takes effect on the next prompt.
-    let context = ProjectContext::discover(conversation.tools.scope());
     conversation
         .recorder
         .commit(SessionEvent::ProjectContextRecorded {
@@ -2822,6 +3465,7 @@ async fn one_turn(
     }
 
     let request = TurnRequest {
+        images,
         model,
         prompt,
         history: replay.messages,
@@ -3054,8 +3698,11 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3114,8 +3761,11 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3153,8 +3803,11 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3510,8 +4163,11 @@ mod tests {
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
             live: LiveAuthority::new(PermissionMode::Auto),
+            rules: LiveRules::default(),
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
+            credits: CreditsBoard::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -4191,6 +4847,7 @@ mod tests {
         let ended = on_a_runtime(run_turn(
             &mut state,
             "hello".to_string(),
+            Vec::new(),
             &events_tx,
             &cancel,
             &control,
@@ -4380,6 +5037,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -4480,6 +5138,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -4584,10 +5243,13 @@ mod tests {
                 reasoning_tokens: None,
                 cost: Some(0.01),
                 generation_id: None,
+                origin: None,
             }],
             unaccounted: false,
             lines_added: 4,
             lines_removed: 1,
+            settled: Vec::new(),
+            rejected: Vec::new(),
         });
         state.publish();
         let spent = spend.read();
@@ -4606,6 +5268,162 @@ mod tests {
             spent.started_at_ms.is_some_and(|at| at > 1_000),
             "{spent:?}"
         );
+    }
+
+    /// A request whose stream named its generation and not its bill is asked
+    /// about with the Gateway key, and the answer is written into the log of
+    /// the session it belongs to -- `/usage`'s session scope reads it at once,
+    /// and the log says it on the next read (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`). An answer about another session is not
+    /// written into this one.
+    #[test]
+    fn a_pending_bill_is_asked_for_with_the_gateway_key_and_written_into_its_session() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        let spend = SessionSpend::default();
+        state.spend = spend.clone();
+        const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+        let bill = crate::gateway::protocol::Billing {
+            at_ms: 1_900,
+            model: "fake/model-a".to_string(),
+            generation_id: Some(ID.to_string()),
+            cost: 0.0125,
+            input_tokens: 1340,
+            output_tokens: 250,
+            cache_read_tokens: 300,
+            cache_write_tokens: 40,
+            reasoning_tokens: Some(50),
+        };
+        let answered_bill = bill.clone();
+        state.bills = super::super::reconcile::Reconciler::answering(
+            move |origin, secret, id| {
+                assert_eq!((origin, secret, id), ("http://127.0.0.1:4100", "key", ID));
+                crate::gateway::generation::Lookup::Found(answered_bill.clone())
+            },
+            Duration::from_millis(1),
+        );
+        let recorder = &mut state.conversation.as_mut().expect("opened").recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: None,
+                generation_id: Some(ID.to_string()),
+                origin: Some("http://127.0.0.1:4100".to_string()),
+            }],
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        });
+        let session = recorder.id().clone();
+        state.publish();
+        assert_eq!(spend.read().usage.pending().count(), 1);
+
+        state.ask_for_bills();
+        let answered = on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, state.bills.next())
+                .await
+                .expect("an answer")
+        });
+        assert_eq!(answered.session, session.as_str());
+
+        let elsewhere = super::super::reconcile::Answered {
+            session: "another".to_string(),
+            ..answered.clone()
+        };
+        state.settle_bill(&elsewhere);
+        assert_eq!(spend.read().usage.pending().count(), 1);
+
+        state.settle_bill(&answered);
+        let settled = &spend.read().usage.requests[0];
+        assert_eq!(settled.cost, Some(0.0125));
+        assert_eq!((settled.at_ms, settled.duration_ms), (1_900, 700));
+        assert!(!settled.pending());
+        state.conversation = None;
+        let detail = state
+            .store
+            .detail(&crate::session::Selector::Id(session), workspace.path())
+            .expect("the log reads back");
+        assert_eq!(detail.state.usage.requests[0], *settled);
+    }
+
+    /// `signals::release`'s argument is that no handler runs off the UI
+    /// thread, so the runtime thread is started with **every** owned signal
+    /// blocked -- the four whose default ends or stops the process and the
+    /// two whose handlers only set a flag -- read back by the thread itself.
+    /// Started here from a test thread that blocks nothing, so what it has is
+    /// what its own start gave it, not what it inherited.
+    #[test]
+    fn the_runtime_thread_is_started_with_every_owned_signal_blocked() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let (mut worker, mut events) = spawn(
+            config(home.path(), workspace.path()),
+            Cancellation::new(CancelToken::new()),
+            None,
+        )
+        .expect("a runtime");
+        let id = worker
+            .thread
+            .as_ref()
+            .expect("the thread is held")
+            .thread()
+            .id();
+        let deadline = Instant::now() + TEST_DRAIN;
+        let mask = loop {
+            let found = RUNTIME_MASKS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|(thread, _)| *thread == id)
+                .map(|(_, mask)| mask.clone());
+            if let Some(mask) = found {
+                break mask;
+            }
+            assert!(Instant::now() < deadline, "the runtime never started");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert_eq!(mask.len(), 6, "{mask:?}");
+        for (signal, blocked) in mask {
+            assert!(
+                blocked,
+                "signal {signal} is deliverable on the runtime thread"
+            );
+        }
     }
 
     #[test]
@@ -5064,8 +5882,11 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -6318,6 +7139,43 @@ mod tests {
         );
         assert_eq!(state.authority().mode(), state.config.permission_mode);
     }
+
+    #[test]
+    fn the_authority_decides_with_the_profiles_table_and_with_what_the_ui_puts_in_force() {
+        use crate::permission::{ConfiguredRule, RuleAction, RuleSet};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        crate::provider::profile::write_document(
+            &home.path().join(".xfx").join("settings.json"),
+            br#"{"permission":{"bash":{"git *":"allow"}}}"#,
+        )
+        .expect("an owner-only profile");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // At launch: the table the profile holds.
+        assert_eq!(
+            state.authority().rules().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        // The handle the UI writes is the one every authority reads, so a
+        // `/allowlist` change reaches a conversation already open.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        state.rules = handle.rules().clone();
+        let authority = state.authority();
+        handle
+            .rules()
+            .replace(RuleSet::new(vec![ConfiguredRule::new(
+                "edit",
+                "*",
+                RuleAction::Deny,
+            )]));
+        assert_eq!(
+            authority.rules().rules(),
+            &[ConfiguredRule::new("edit", "*", RuleAction::Deny)]
+        );
+    }
+
     #[test]
     fn the_catalog_a_ui_is_given_is_bounded_at_the_event() {
         // A daemon may advertise any number of models; the browser renders at
@@ -6497,6 +7355,109 @@ mod tests {
             .expect("open the store");
         let runtime = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         (home, workspace, runtime)
+    }
+
+    /// The roots a conversation's next turn runs in, besides the workspace.
+    fn turn_roots(state: &mut Runtime) -> Vec<std::path::PathBuf> {
+        state.ready(&CancelToken::new()).expect("a conversation");
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .scope()
+            .additional_roots()
+            .to_vec()
+    }
+
+    #[test]
+    fn a_workspace_change_is_saved_and_in_force_from_the_next_turn() {
+        let (home, workspace, mut state) = a_runtime_that_can_open_one();
+        let extra = tempfile::tempdir().expect("extra");
+        let extra_path = extra.path().canonicalize().expect("canonical");
+        assert!(turn_roots(&mut state).is_empty());
+
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add(extra.path().to_string_lossy().into_owned()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+        assert_eq!(notice.topic, "workspace");
+        assert!(
+            notice
+                .body
+                .contains("saved_changed=true runtime_changed=true"),
+            "{}",
+            notice.body
+        );
+        assert_eq!(
+            access.expect("in force").saved(),
+            [extra_path.to_string_lossy().into_owned()]
+        );
+        // The open conversation's next turn, and the profile a launch reads.
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra_path));
+        let reloaded = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(
+            reloaded.additional_directories,
+            [extra_path.to_string_lossy().into_owned()]
+        );
+
+        let UiEvent::Workspace { notice, access } =
+            state.change_workspace(&workspace_access::Action::Clear)
+        else {
+            panic!("not a workspace answer");
+        };
+        assert!(
+            notice.body.ends_with("additional directories: (none)"),
+            "{}",
+            notice.body
+        );
+        assert!(access.expect("in force").entries().is_empty());
+        assert!(turn_roots(&mut state).is_empty());
+    }
+
+    #[test]
+    fn a_refused_workspace_change_changes_nothing() {
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add("../no-such-directory".to_string()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Error);
+        assert_eq!(
+            notice.body,
+            "Workspace update rejected: directory does not exist"
+        );
+        assert!(access.is_none());
+        assert!(state.config.additional_directories.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_directory_swapped_for_a_link_is_out_of_the_next_turn() {
+        // Resolved once, when it was added, and never again: the turn after
+        // the swap does not run in the link's target.
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let base = tempfile::tempdir().expect("base");
+        let base = base.path().canonicalize().expect("canonical");
+        let extra = base.join("extra");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir(&extra).expect("extra");
+        std::fs::create_dir(&elsewhere).expect("elsewhere");
+        state.change_workspace(&workspace_access::Action::Add(
+            extra.to_string_lossy().into_owned(),
+        ));
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra));
+
+        std::fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("swap");
+        assert!(turn_roots(&mut state).is_empty());
     }
 
     #[test]
@@ -6747,6 +7708,7 @@ mod tests {
         };
         let turn = cancel.turn();
         let request = TurnRequest {
+            images: Vec::new(),
             model: "vendor/model".to_string(),
             prompt: "write two files".to_string(),
             history: Vec::new(),
@@ -6910,6 +7872,7 @@ mod tests {
         ) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "anything".to_string(),
                 history: Vec::new(),
@@ -6980,6 +7943,7 @@ mod tests {
         fn plain_turn(&mut self, provider: &ScriptedProvider) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "and now".to_string(),
                 history: Vec::new(),

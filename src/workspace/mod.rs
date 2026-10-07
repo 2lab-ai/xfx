@@ -7,9 +7,13 @@
 //!
 //! [`context`] sits on the same boundary from the other side: it decides which
 //! `AGENTS.md` files a turn may deliver to the model, and it is deliberately
-//! narrower than the read scope, because a directory the user opened for
-//! *reading* must not also become a source of instructions.
+//! narrower than the read scope, because a directory the user added to the
+//! session must not also become a source of instructions.
+//!
+//! [`access`] is which directories those are besides the workspace: the ones
+//! `/workspace` saves in the profile.
 
+pub mod access;
 pub mod context;
 pub mod path;
 

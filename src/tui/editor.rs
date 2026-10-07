@@ -528,6 +528,7 @@ impl Editor {
             | Action::Undo
             | Action::Redo
             | Action::Yank
+            | Action::PasteImage
             | Action::PasteStart
             | Action::PasteEnd
             | Action::ToggleTranscript

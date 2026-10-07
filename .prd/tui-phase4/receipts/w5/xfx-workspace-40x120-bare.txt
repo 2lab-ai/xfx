@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1aa1153 [debug] · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Workspace
+
+  Primary                   <scratch>/work
+  Additional directories    0 / 16
+
+❯ Add directory…             Grant access to another directory
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -462,10 +462,12 @@ pub(crate) fn install_tstp() -> io::Result<()> {
 ///
 /// The order is the safety argument. Dispositions first, so no *new* handler
 /// invocation can begin; then the poke, so no handler can read a stale
-/// descriptor. A handler already executing cannot be in flight, because in this
-/// phase every handler runs on the UI thread and the UI thread is the one
-/// running this function -- a property a later phase that gives another thread
-/// an unblocked signal would have to re-establish.
+/// descriptor. A handler already executing cannot be in flight, because every
+/// handler runs on the UI thread and the UI thread is the one running this
+/// function: every other thread of a session is started through
+/// [`spawn_unsignalled`] -- or by a thread that was -- and so with the whole
+/// owned set blocked, and a process-directed signal is delivered only to a
+/// thread that does not block it.
 ///
 /// `SIGPIPE` is left alone on purpose: the Rust runtime sets it to `SIG_IGN`
 /// before `main`, so "restoring the default" would hand back a process more
@@ -479,6 +481,81 @@ pub(crate) fn release() {
         }
     }
     POKE.store(-1, Ordering::Release);
+}
+
+/// Starts a thread on which no owned signal can ever be delivered: **the way
+/// every thread of a session other than the UI thread is started**.
+///
+/// A thread is born with its creator's mask, so the whole owned set is blocked
+/// on the calling thread for the length of the spawn and put back after: the
+/// new thread -- and every thread it starts in turn, a runtime's blocking pool
+/// and a resolver's included -- never runs a handler, which is what makes
+/// [`release`]'s argument true. It is also what lets a thread be **left to
+/// finish on its own** rather than waited for before [`release`]: a socket a
+/// user stopped caring about is not a reason to hold the terminal.
+///
+/// **A child process such a thread starts inherits the mask too**: the
+/// standard library's `Command` does not reset it (measured, and pinned by
+/// `a_child_process_inherits_the_mask_its_thread_was_started_with`). So a
+/// command run from one of these threads starts with `SIGINT`, `SIGTERM`,
+/// `SIGHUP`, `SIGTSTP`, `SIGCONT` and `SIGWINCH` blocked -- a `kill -TERM` or a
+/// `timeout` inside it does nothing until the command unblocks them itself,
+/// while the `SIGKILL` every caller here gives up a child with still lands.
+///
+/// A signal that arrives during the spawn stays pending on this thread and is
+/// delivered into its handler the moment the mask is put back.
+pub(crate) fn spawn_unsignalled<F, T>(name: &str, body: F) -> io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    // SAFETY: every argument is a valid, initialized `sigset_t` this function
+    // owns for the whole call, and the signal numbers are the platform's own.
+    let previous = unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for signal in OWNED {
+            libc::sigaddset(&mut set, signal);
+        }
+        let mut previous: libc::sigset_t = std::mem::zeroed();
+        let code = libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut previous);
+        if code != 0 {
+            return Err(io::Error::from_raw_os_error(code));
+        }
+        previous
+    };
+    let spawned = std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(body);
+    // SAFETY: `previous` is the set this thread's own `pthread_sigmask` wrote.
+    unsafe {
+        libc::pthread_sigmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+    }
+    spawned
+}
+
+/// Each owned signal, and whether it is blocked on the calling thread: what a
+/// case runs on a thread it wants to know the mask of.
+#[cfg(test)]
+pub(crate) fn owned_blocked_here() -> Vec<(libc::c_int, bool)> {
+    // SAFETY: a `NULL` `set` makes this a pure query, and `current` is a valid
+    // out-parameter for the whole call.
+    let current = unsafe {
+        let mut current: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut current);
+        libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut current);
+        current
+    };
+    OWNED
+        .iter()
+        // SAFETY: `current` is a set this function initialized.
+        .map(|signal| {
+            (
+                *signal,
+                unsafe { libc::sigismember(&current, *signal) } == 1,
+            )
+        })
+        .collect()
 }
 
 /// # Safety
@@ -643,6 +720,53 @@ mod tests {
             assert_eq!(libc::sigwait(&set, &mut taken), 0, "sigwait");
             assert_eq!(taken, signal, "sigwait took the wrong signal");
         }
+    }
+
+    #[test]
+    fn a_thread_started_unsignalled_can_take_no_owned_signal_and_its_creator_is_unchanged() {
+        let before: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
+        let (own, started) = spawn_unsignalled("xfx-test", || {
+            // And a thread it starts in turn, as a runtime starts its blocking
+            // pool, is born with the same mask.
+            let started = std::thread::spawn(owned_blocked_here)
+                .join()
+                .expect("joined");
+            (owned_blocked_here(), started)
+        })
+        .expect("a thread")
+        .join()
+        .expect("joined");
+        for (signal, blocked) in own.into_iter().chain(started) {
+            assert!(blocked, "signal {signal} is deliverable off the UI thread");
+        }
+        let after: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
+        assert_eq!(after, before);
+    }
+
+    /// What `spawn_unsignalled` says of a child process: it is born with its
+    /// thread's mask, because `Command` does not reset it -- so a `SIGTERM`
+    /// stays pending and the child keeps running. Pinned, so a standard
+    /// library that starts resetting the mask fails here and the comment is
+    /// read again.
+    #[test]
+    fn a_child_process_inherits_the_mask_its_thread_was_started_with() {
+        let mut child = spawn_unsignalled("xfx-test", || {
+            std::process::Command::new("/bin/sleep")
+                .arg("30")
+                .spawn()
+                .expect("a child")
+        })
+        .expect("a thread")
+        .join()
+        .expect("joined");
+        let pid = libc::pid_t::try_from(child.id()).expect("a pid");
+        // SAFETY: `kill` on a child this case started and has not reaped.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let running = child.try_wait().expect("a status").is_none();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(running, "the child took a SIGTERM its thread had blocked");
     }
 
     #[test]

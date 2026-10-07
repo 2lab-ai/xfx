@@ -27,7 +27,9 @@
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::session::{DurableState, TurnStep};
@@ -166,9 +168,15 @@ impl Clipboard {
     ///
     /// **Blocks** until the tool exits or [`FILE_DEADLINE`] passes, when it is
     /// killed and the copy is a failure; the TUI calls it from a thread of its
-    /// own. Its output goes nowhere, for the reason [`Self::copy`]'s does, and
-    /// only an exit status of 0 is a success.
+    /// own ([`Self::copy_file_until`]). Its output goes nowhere, for the reason
+    /// [`Self::copy`]'s does, and only an exit status of 0 is a success.
     pub fn copy_file(&self, path: &Path) -> bool {
+        self.copy_file_until(path, &Stop::default())
+    }
+
+    /// [`Self::copy_file`], given up -- the tool killed, the copy a failure --
+    /// once `stop` is.
+    pub fn copy_file_until(&self, path: &Path, stop: &Stop) -> bool {
         if !cfg!(target_os = "macos") {
             return false;
         }
@@ -176,38 +184,20 @@ impl Clipboard {
         command
             .args(["-l", "JavaScript", "-e", FILE_SCRIPT])
             .arg(path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        if let Some(search) = &self.search {
-            command.env("PATH", search);
-        }
-        let Ok(mut child) = command.spawn() else {
-            return false;
-        };
-        let deadline = Instant::now() + self.deadline.unwrap_or(FILE_DEADLINE);
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => return status.success(),
-                Ok(None) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                // Past the deadline, or a wait that failed: either way the tool
-                // is not answering, and it is not left running.
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return false;
-                }
-            }
-        }
+            .stdin(Stdio::null());
+        self.run(
+            command,
+            None,
+            Some(self.deadline.unwrap_or(FILE_DEADLINE)),
+            stop,
+        )
     }
 
     /// Puts `text` on the clipboard, byte for byte, and says whether it worked.
     ///
     /// **Blocks until the tool exits.** That is upstream's contract too
     /// (`copyToClipboard` waits for the child), and it is why the TUI never
-    /// calls this on its UI thread.
+    /// calls this on its UI thread ([`Self::copy_until`]).
     ///
     /// Everything that is not "the tool took every byte and exited 0" is
     /// `false`: a system with no tool, a tool that is not on the path, a pipe
@@ -216,31 +206,280 @@ impl Clipboard {
     /// error go nowhere, because the only thing the tool is asked is its exit
     /// status -- and because the TUI owns the terminal they would land on.
     pub fn copy(&self, text: &str) -> bool {
+        self.copy_until(text, &Stop::default())
+    }
+
+    /// [`Self::copy`], given up -- the tool killed, the copy a failure -- once
+    /// `stop` is.
+    pub fn copy_until(&self, text: &str, stop: &Stop) -> bool {
         let Some((program, args)) = TOOL else {
             return false;
         };
         let mut command = Command::new(program);
-        command
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        command.args(args).stdin(Stdio::piped());
+        self.run(command, Some(text.as_bytes()), None, stop)
+    }
+
+    /// Runs one clipboard tool to its end: fed `input` when there is some, and
+    /// waited for until it exits, `deadline` passes or `stop` is given up.
+    ///
+    /// The child is held by `stop` while it runs ([`Stop::stop`]), and is only
+    /// ever reaped under that hold -- so a kill from another thread always
+    /// reaches this tool and never a process that has since taken its id. A
+    /// write the tool is not reading blocks here until the kill closes its end.
+    fn run(
+        &self,
+        mut command: Command,
+        input: Option<&[u8]>,
+        deadline: Option<Duration>,
+        stop: &Stop,
+    ) -> bool {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
         if let Some(search) = &self.search {
             command.env("PATH", search);
         }
         let Ok(mut child) = command.spawn() else {
             return false;
         };
+        let stdin = child.stdin.take();
+        if !stop.hold(child) {
+            return false;
+        }
         // Dropped at the end of the statement: the tool sees its end of input
         // there, and only then can it exit. A write that failed still drops it,
         // so the wait below cannot be a wait for input that is never coming.
-        let written = child
-            .stdin
-            .take()
-            .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
-        let exited = child.wait().is_ok_and(|status| status.success());
-        written && exited
+        let written = match (stdin, input) {
+            (Some(mut stdin), Some(bytes)) => stdin.write_all(bytes).is_ok(),
+            (_, None) => true,
+            (None, Some(_)) => false,
+        };
+        let deadline = deadline.map(|limit| Instant::now() + limit);
+        loop {
+            let exited = stop.settle(|| deadline.is_some_and(|at| Instant::now() >= at));
+            if let Some(exited) = exited {
+                return written && exited;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
+}
+
+/// A way to give up clipboard work running on another thread, from the thread
+/// that started it: the tool it is waiting for is killed and the work says it
+/// failed.
+///
+/// What a session that is ending does with a copy still in flight
+/// (`crate::tui`'s `copy` and `trace`): the terminal is about to be given back,
+/// and a tool that never exits must not keep a thread of xfx's alive past
+/// that. One `Stop` per piece of work.
+#[derive(Debug, Clone, Default)]
+pub struct Stop(Arc<StopState>);
+
+#[derive(Debug, Default)]
+struct StopState {
+    stopped: AtomicBool,
+    /// The tool the work is waiting for, while it runs.
+    child: Mutex<Option<Child>>,
+}
+
+impl Stop {
+    /// Gives the work up: a tool it is running is killed, and one it has not
+    /// started yet is never started. Idempotent, and it never waits.
+    pub fn stop(&self) {
+        self.0.stopped.store(true, Ordering::Release);
+        if let Some(child) = self.lock().as_mut() {
+            // Not reaped yet -- only `settle` reaps, under this lock -- so the
+            // id is still this tool's.
+            let _ = child.kill();
+        }
+    }
+
+    /// Whether [`Self::stop`] has been called.
+    pub fn stopped(&self) -> bool {
+        self.0.stopped.load(Ordering::Acquire)
+    }
+
+    /// Takes the tool that was just started, or kills and reaps it when the
+    /// work was given up first. `false` when it was.
+    fn hold(&self, mut child: Child) -> bool {
+        let mut slot = self.lock();
+        if self.stopped() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+        *slot = Some(child);
+        true
+    }
+
+    /// How the held tool ended -- `Some(true)` for an exit status of 0 --
+    /// once it has; or, given up or `overdue`, kills and reaps it and says
+    /// `Some(false)`; `None` while it is still running.
+    fn settle(&self, overdue: impl FnOnce() -> bool) -> Option<bool> {
+        let mut slot = self.lock();
+        let child = slot.as_mut()?;
+        let ended = match child.try_wait() {
+            Ok(Some(status)) => Some(status.success()),
+            Ok(None) if !self.stopped() && !overdue() => None,
+            // Given up, past its deadline, or a wait that failed: either way
+            // the tool is not answering, and it is not left running.
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Some(false)
+            }
+        };
+        if ended.is_some() {
+            *slot = None;
+        }
+        ended
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Option<Child>> {
+        self.0.child.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Why the clipboard gave no image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageReadError {
+    /// It holds none: the tool said so by its exit status.
+    NoImage,
+    /// This system has no way to read one that xfx knows of. Upstream says
+    /// nothing at all here (`image_commands.zig:91`).
+    Unsupported,
+    /// Anything else, by upstream's name for it: the tool could not be
+    /// started (`FileNotFound`), it said it wrote a file that is not there,
+    /// what it gave is no image this build reads, or it is too large.
+    Failed(&'static str),
+}
+
+/// The AppleScript upstream reads the clipboard with
+/// (`loadClipboardImageAttachment`, `image_attachments.zig:1779-1823`): the
+/// clipboard as PNG, written to `path`. The clipboard converts whatever image
+/// it holds on the way out, so what comes back is always a PNG.
+fn clipboard_script(path: &std::path::Path) -> String {
+    format!(
+        "set outFile to POSIX file \"{}\"\n\
+         set pngData to the clipboard as \u{ab}class PNGf\u{bb}\n\
+         set fileRef to open for access outFile with write permission\n\
+         set eof fileRef to 0\n\
+         write pngData to fileRef\n\
+         close access fileRef\n",
+        path.display()
+    )
+}
+
+impl Clipboard {
+    /// The image on the clipboard, as its format and bytes.
+    ///
+    /// **Blocks until the tool exits**, as [`Self::copy`] does, so the TUI
+    /// never calls it on its UI thread (`crate::tui`'s `clipboard_image`).
+    ///
+    /// On macOS, upstream's way: `osascript` found on the path writes the
+    /// clipboard as PNG into a directory of this read's own, owner-only, and
+    /// removed again before this returns; an exit status other than 0 is a
+    /// clipboard with no image. On Linux, the copy tool's other half: `xclip
+    /// -selection clipboard -t image/png -o`, its standard output read up to the
+    /// ceiling -- where upstream has nothing (`error.Unsupported`), and a
+    /// command that answered nothing at all would be one that did not work.
+    /// Elsewhere, [`ImageReadError::Unsupported`].
+    pub fn read_image(&self) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
+        if cfg!(target_os = "macos") {
+            self.read_image_with_osascript()
+        } else if cfg!(target_os = "linux") {
+            self.read_image_with_xclip()
+        } else {
+            Err(ImageReadError::Unsupported)
+        }
+    }
+
+    fn command(&self, program: &str) -> Command {
+        let mut command = Command::new(program);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(search) = &self.search {
+            command.env("PATH", search);
+        }
+        command
+    }
+
+    fn read_image_with_osascript(
+        &self,
+    ) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
+        let dir = private_directory()
+            .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
+        let path = dir.join("clipboard.png");
+        let outcome = self
+            .command("osascript")
+            .arg("-e")
+            .arg(clipboard_script(&path))
+            .status();
+        let read = match outcome {
+            Err(err) => Err(ImageReadError::Failed(crate::image::io_name(err.kind()))),
+            Ok(status) if !status.success() => Err(ImageReadError::NoImage),
+            Ok(_) => crate::image::read(&path).map_err(|err| ImageReadError::Failed(err.name())),
+        };
+        // Gone whichever way it went: what the clipboard held is the session's
+        // to keep, in its own copy, and not this directory's.
+        let _ = std::fs::remove_dir_all(&dir);
+        read
+    }
+
+    fn read_image_with_xclip(&self) -> Result<(crate::image::MediaType, Vec<u8>), ImageReadError> {
+        use std::io::Read;
+        let mut child = self
+            .command("xclip")
+            .args(["-selection", "clipboard", "-t", "image/png", "-o"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|err| ImageReadError::Failed(crate::image::io_name(err.kind())))?;
+        let mut bytes = Vec::new();
+        let read = child.stdout.take().map(|stdout| {
+            stdout
+                .take(crate::image::MAX_IMAGE_BYTES + 1)
+                .read_to_end(&mut bytes)
+        });
+        // Over the ceiling, the tool may still be writing: it is not waited
+        // on to finish what will not be read.
+        if bytes.len() as u64 > crate::image::MAX_IMAGE_BYTES {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ImageReadError::Failed(
+                crate::image::AttachError::TooLarge.name(),
+            ));
+        }
+        let status = child.wait();
+        if !status.is_ok_and(|status| status.success()) || !matches!(read, Some(Ok(_))) {
+            return Err(ImageReadError::NoImage);
+        }
+        let media_type = crate::image::MediaType::sniff(&bytes).ok_or(ImageReadError::Failed(
+            crate::image::AttachError::Unsupported.name(),
+        ))?;
+        Ok((media_type, bytes))
+    }
+}
+
+/// A new directory only this user can enter, under the system's temporary
+/// directory, for one clipboard read.
+fn private_directory() -> std::io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::DirBuilderExt;
+    let base = std::env::temp_dir();
+    let mut last = None;
+    for _ in 0..16 {
+        let dir = base.join(format!(
+            "xfx-clipboard-{}",
+            crate::session::new_identifier()
+        ));
+        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => last = Some(err),
+            Err(err) => return Err(err),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::from(std::io::ErrorKind::AlreadyExists)))
 }
 
 #[cfg(test)]
@@ -396,6 +635,65 @@ mod tests {
         }
 
         #[test]
+        fn an_image_on_the_clipboard_is_read_whole_and_typed_by_its_bytes() {
+            let tool = FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+            assert_eq!(
+                tool.clipboard().read_image(),
+                Ok((
+                    crate::image::MediaType::Png,
+                    crate::image::fixture::SHOT_PNG.to_vec()
+                ))
+            );
+        }
+
+        #[test]
+        fn a_clipboard_with_no_image_says_so_by_the_tools_exit_status() {
+            let tool = FakeTool::holding(None);
+            assert_eq!(
+                tool.clipboard().read_image(),
+                Err(super::super::ImageReadError::NoImage)
+            );
+        }
+
+        #[test]
+        fn what_the_clipboard_gave_that_is_no_image_is_refused_by_upstreams_name() {
+            let tool = FakeTool::holding(Some(b"just some text"));
+            assert_eq!(
+                tool.clipboard().read_image(),
+                Err(super::super::ImageReadError::Failed("UnsupportedImageType"))
+            );
+        }
+
+        #[test]
+        fn a_reader_that_is_not_on_the_path_is_upstreams_file_not_found() {
+            let empty = tempfile::tempdir().expect("an empty directory");
+            assert_eq!(
+                super::super::Clipboard::searching(empty.path().as_os_str()).read_image(),
+                Err(super::super::ImageReadError::Failed("FileNotFound"))
+            );
+        }
+
+        /// The capture harness's shim: `osascript` that exits 0 and writes
+        /// nothing. Upstream then fails to load the file it was promised, and
+        /// says so by that name (`fx-paste-40x120-paste.ansi`).
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn an_osascript_that_writes_nothing_is_a_file_not_found() {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::tempdir().expect("a directory");
+            let shim = dir.path().join("osascript");
+            std::fs::write(&shim, "#!/bin/sh\nexit 0\n").expect("a shim");
+            std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))
+                .expect("executable");
+            let clipboard =
+                super::super::Clipboard::searching(format!("{}:/bin", dir.path().display()));
+            assert_eq!(
+                clipboard.read_image(),
+                Err(super::super::ImageReadError::Failed("FileNotFound"))
+            );
+        }
+
+        #[test]
         fn a_tool_that_is_not_on_the_path_is_a_failure() {
             let empty = tempfile::tempdir().expect("an empty directory");
             assert!(!super::super::Clipboard::searching(empty.path().as_os_str()).copy("reply"));
@@ -456,6 +754,72 @@ mod tests {
             );
         }
 
+        /// Waits, up to a minute, until `ready` says so: a fresh fake tool is
+        /// assessed by macOS the first time it runs, slowly under load.
+        fn until(ready: impl Fn() -> bool) {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while !ready() {
+                assert!(std::time::Instant::now() < deadline, "never happened");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+
+        #[test]
+        fn a_copy_given_up_from_another_thread_kills_its_tool_and_fails() {
+            // What a session that is ending does with a copy still waiting on a
+            // tool that will not exit (`crate::tui`'s `Errands`).
+            let tool =
+                FakeTool::running("cat >/dev/null\necho $$ > \"${0%/*}/hung\"\nexec sleep 30");
+            let stop = super::super::Stop::default();
+            let copying = {
+                let (clipboard, stop) = (tool.clipboard(), stop.clone());
+                std::thread::spawn(move || clipboard.copy_until("reply", &stop))
+            };
+            until(|| tool.hung().is_some());
+            let pid = tool.hung().expect("the tool started");
+            let started = std::time::Instant::now();
+            stop.stop();
+            assert!(
+                !copying.join().expect("the copy's thread"),
+                "a killed copy succeeded"
+            );
+            assert!(started.elapsed() < std::time::Duration::from_secs(5));
+            assert!(!FakeTool::alive(pid), "the tool outlived the copy");
+        }
+
+        #[test]
+        fn work_given_up_before_its_tool_starts_never_starts_it() {
+            let tool = FakeTool::keeping();
+            let stop = super::super::Stop::default();
+            stop.stop();
+            assert!(stop.stopped());
+            assert!(!tool.clipboard().copy_until("reply", &stop));
+            assert_eq!(tool.copied(), None, "a tool given up was run to the end");
+            assert!(!tool
+                .clipboard()
+                .copy_file_until(std::path::Path::new(REPORT), &stop));
+            assert_eq!(tool.copied_file(), None);
+        }
+
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn a_file_copy_given_up_kills_its_tool_long_before_its_deadline() {
+            let tool = FakeTool::keeping();
+            tool.hang();
+            let stop = super::super::Stop::default();
+            let copying = {
+                let (clipboard, stop) = (tool.clipboard(), stop.clone());
+                std::thread::spawn(move || {
+                    clipboard.copy_file_until(std::path::Path::new(REPORT), &stop)
+                })
+            };
+            until(|| tool.hung().is_some());
+            let pid = tool.hung().expect("the tool started");
+            stop.stop();
+            assert!(!copying.join().expect("the copy's thread"));
+            assert!(!FakeTool::alive(pid), "the tool outlived the copy");
+        }
+
         #[test]
         #[cfg(not(target_os = "macos"))]
         fn a_file_copy_off_macos_runs_nothing_and_is_not_a_success() {
@@ -513,7 +877,7 @@ pub(crate) mod fake {
                 concat!(
                     "#!/bin/sh\n",
                     "if [ -f \"${0%/*}/fail\" ]; then exit 1; fi\n",
-                    "if [ -f \"${0%/*}/hang\" ]; then exec sleep 30; fi\n",
+                    "if [ -f \"${0%/*}/hang\" ]; then echo $$ > \"${0%/*}/hung\"; exec sleep 30; fi\n",
                     "for arg in \"$@\"; do last=$arg; done\n",
                     "printf '%s' \"$last\" > \"${0%/*}/copied-file\"\n",
                 ),
@@ -521,15 +885,6 @@ pub(crate) mod fake {
             .expect("write a fake osascript");
             std::fs::set_permissions(&osascript, std::fs::Permissions::from_mode(0o755))
                 .expect("make it executable");
-            // Run once now: macOS assesses an executable the first time it
-            // runs, which took 0.5 to 2.4 s for a fresh script on an idle
-            // machine and more under the suite's load -- past a file copy's
-            // deadline, which would fail a case about something else.
-            std::process::Command::new(&osascript)
-                .arg("warm-up")
-                .status()
-                .expect("run the fake osascript once");
-            std::fs::remove_file(dir.path().join("copied-file")).expect("forget the warm-up");
             Self { dir }
         }
 
@@ -540,10 +895,44 @@ pub(crate) mod fake {
         /// A file copy gets a minute rather than five seconds: a deadline is
         /// what a case about the deadline sets ([`Clipboard::waiting`]), and
         /// every other case is about what the copy did, not how fast a loaded
-        /// machine ran it.
+        /// machine ran it. macOS assesses an executable the first time it
+        /// runs -- 0.5 to 2.4 s for a fresh script on an idle machine, past
+        /// five under the suite's load -- and each fake here is fresh.
         pub(crate) fn clipboard(&self) -> Clipboard {
             Clipboard::searching(format!("{}:/bin", self.dir.path().display()))
                 .waiting(std::time::Duration::from_secs(60))
+        }
+
+        /// A clipboard holding `image`: an `osascript` that writes it to the
+        /// file its script names (`POSIX file "<path>"`) and an `xclip` that
+        /// prints it, so a case reads the same on either system. With no
+        /// image, both exit 1 -- a clipboard that holds none.
+        pub(crate) fn holding(image: Option<&[u8]>) -> Self {
+            let dir = tempfile::tempdir().expect("a directory for the fake tools");
+            let held = dir.path().join("held");
+            if let Some(image) = image {
+                std::fs::write(&held, image).expect("the clipboard's image");
+            }
+            // The path is cut out of the script with the shell's own
+            // expansions, so the fake needs nothing but `cat` from `/bin`.
+            let osascript = format!(
+                "[ -f '{held}' ] || exit 1\n\
+                 out=${{2#*POSIX file \\\"}}\n\
+                 out=${{out%%\\\"*}}\n\
+                 cat '{held}' > \"$out\"\n",
+                held = held.display()
+            );
+            let xclip = format!(
+                "[ -f '{held}' ] || exit 1\ncat '{held}'\n",
+                held = held.display()
+            );
+            for (tool, body) in [("osascript", osascript), ("xclip", xclip)] {
+                let path = dir.path().join(tool);
+                std::fs::write(&path, format!("#!/bin/sh\n{body}")).expect("write a fake tool");
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                    .expect("make it executable");
+            }
+            Self { dir }
         }
 
         /// What the tool was last fed, or `None` when it has kept nothing.
@@ -565,6 +954,21 @@ pub(crate) mod fake {
         /// Makes every file copy from now on wait far past any deadline.
         pub(crate) fn hang(&self) {
             std::fs::write(self.path("hang"), "").expect("arm the wait");
+        }
+
+        /// The process id of the last tool that hung -- a file copy armed
+        /// with [`Self::hang`], or a tool whose body writes `$$` to `hung`
+        /// before it waits -- once it has started.
+        pub(crate) fn hung(&self) -> Option<i32> {
+            std::fs::read_to_string(self.path("hung"))
+                .ok()
+                .and_then(|pid| pid.trim().parse().ok())
+        }
+
+        /// Whether process `pid` still exists.
+        pub(crate) fn alive(pid: i32) -> bool {
+            rustix::process::Pid::from_raw(pid)
+                .is_some_and(|pid| rustix::process::test_kill_process(pid).is_ok())
         }
 
         fn path(&self, name: &str) -> PathBuf {

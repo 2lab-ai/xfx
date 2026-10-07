@@ -66,6 +66,32 @@ pub struct RecordedToolCall {
     pub input: Value,
 }
 
+/// One image a user message carried, as the log remembers it: which one, where
+/// it came from, and how to know its saved copy when it is read back.
+///
+/// **References, never bytes.** The bytes are in a file of the session's own
+/// -- `images/` + [`crate::image::snapshot_name`] of `id` and `sha256` -- which
+/// a frame of at most [`MAX_EVENT_FRAME_BYTES`] could not hold, and the name of
+/// that file is **derived** from these fields rather than written in them, so a
+/// log cannot point a resume at any other file. Upstream records the same
+/// facts on its user event (`images: [{id, path, media_type, snapshot_path,
+/// snapshot_sha256}]`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_store.zig:102-118`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedImage {
+    /// The number the prompt's `[Image #N]` names it by.
+    pub id: u32,
+    /// The file it was read from, or the name of its saved copy for one that
+    /// came off the clipboard.
+    pub path: String,
+    /// Its MIME type, one of [`crate::image::MediaType`]'s.
+    pub media_type: String,
+    /// The SHA-256 of its bytes, lowercase hex.
+    pub sha256: String,
+    /// How many bytes it is.
+    pub bytes: u64,
+}
+
 /// One model request a turn made, as the provider accounted for it.
 ///
 /// What `/usage` adds up (`GenerationFact`, `vercel-labs/fx@c1db9191
@@ -79,6 +105,12 @@ pub struct RecordedToolCall {
 /// existence is the fact that some spend is unknown, and counted nowhere:
 /// upstream's dashboard counts a generation only once its cost is known
 /// (`session_usage.zig:110-175`).
+///
+/// One with no `cost` and an `origin` is **pending**: the stream named its
+/// generation and not its bill, and the Gateway at `origin` is asked for it
+/// by id (upstream's deferred usage, `session_usage.zig:608-640`, reconciled
+/// by `reconcilePendingBlocking`, `:3322-3423`). Its answer arrives as a later
+/// frame's `settled` or `rejected` ([`SessionEvent::UsageRecorded`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestUsage {
     /// When the request was billed: the Gateway's own `response-metadata`
@@ -108,6 +140,19 @@ pub struct RequestUsage {
     /// request from being counted twice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation_id: Option<String>,
+    /// Where to ask what it cost, while that is still to be asked: the scheme
+    /// and authority of the endpoint the request went to (the `scope` of
+    /// upstream's deferred reference, `gateway.zig:668-686`). `None` once the
+    /// bill is known, or will never be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+}
+
+impl RequestUsage {
+    /// Whether its bill is still to be asked for.
+    pub fn pending(&self) -> bool {
+        self.cost.is_none() && self.origin.is_some() && self.generation_id.is_some()
+    }
 }
 
 /// For `skip_serializing_if`: a flag that is off is a flag that is not written.
@@ -178,6 +223,16 @@ pub enum SessionEvent {
     ProjectContextRecorded { sources: Vec<String>, bytes: u64 },
     /// The user's message. This is what opens a turn.
     UserMessage { text: String },
+    /// The images the message just opened carries, in the order they were
+    /// attached -- written immediately after it and before anything else of
+    /// its turn, with their copies already saved beside the log.
+    ///
+    /// A frame of its own rather than a field on [`Self::UserMessage`], under
+    /// schema 1 like [`Self::ToolFeedback`] and for its reason: a new binary
+    /// reads every old log, and an older one refuses a log that holds this
+    /// frame rather than resuming the conversation without the images its
+    /// prompts name.
+    ImagesAttached { images: Vec<RecordedImage> },
     /// One assistant step: its text, then the tools it asked for, in order.
     ///
     AssistantMessage {
@@ -286,6 +341,18 @@ pub enum SessionEvent {
         lines_added: u64,
         #[serde(default, skip_serializing_if = "is_zero")]
         lines_removed: u64,
+        /// Bills the Gateway gave later for pending requests an earlier frame
+        /// recorded ([`RequestUsage::pending`]), each the request as it is now
+        /// known, under the same generation id (`applyGeneration`,
+        /// `session_usage.zig:1080-1126`). Written by the runtime between
+        /// turns, on a frame of its own: one with these carries nothing else.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        settled: Vec<RequestUsage>,
+        /// Generation ids of pending requests whose bill will never be known:
+        /// spend that stays missing (`rejectPendingGeneration`,
+        /// `session_usage.zig:2171-2187`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rejected: Vec<String>,
     },
     /// The turn ended. Exactly one per opened turn.
     TurnConcluded { outcome: TurnConclusion },
@@ -304,6 +371,28 @@ pub enum SessionEvent {
     /// binary reads every old log, and an older one refuses a log that holds
     /// this frame rather than half-reading it.
     SessionRenamed { title: String },
+    /// The conversation was compacted (`/compact`, or a turn that reached the
+    /// automatic compaction point): every turn opened at or before
+    /// `covers_through_seq` is replaced, in what the model reads from here on,
+    /// by `compacted` ([`super::checkpoint::render`]).
+    ///
+    /// Upstream's `context_checkpoint { covers_through_seq, summary }`
+    /// (`vercel-labs/fx@c1db9191 src/core/session/session_event.zig:169-172`,
+    /// `:182`), with the payload typed rather than a string behind a marker --
+    /// see the module header on why there is no blob event here. The turns it
+    /// covers stay in the log and on a resumed screen; only the next request
+    /// carries the compacted form instead of them. The latest one in a log is
+    /// the one in force, and each one carries everything the one before it
+    /// kept.
+    ///
+    /// Written under schema 1 for the reason [`Self::ToolFeedback`] is: a new
+    /// binary reads every old log, and an older one refuses a log that holds
+    /// this frame rather than half-reading it -- which would be resuming with
+    /// the whole history after the user compacted it.
+    ContextCheckpoint {
+        covers_through_seq: u64,
+        compacted: super::checkpoint::Compacted,
+    },
 }
 
 impl SessionEvent {
@@ -315,6 +404,7 @@ impl SessionEvent {
             Self::PreferencesChanged { .. } => "preferences_changed",
             Self::ProjectContextRecorded { .. } => "project_context_recorded",
             Self::UserMessage { .. } => "user_message",
+            Self::ImagesAttached { .. } => "images_attached",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",
@@ -323,6 +413,7 @@ impl SessionEvent {
             Self::UsageRecorded { .. } => "usage_recorded",
             Self::TurnConcluded { .. } => "turn_concluded",
             Self::SessionRenamed { .. } => "session_renamed",
+            Self::ContextCheckpoint { .. } => "context_checkpoint",
         }
     }
 }
@@ -644,6 +735,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
@@ -737,6 +830,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             }
         );
         assert_eq!(frame.encode().expect("encodes").trim_end(), line);
@@ -760,10 +855,13 @@ mod tests {
                     reasoning_tokens: Some(900),
                     cost: Some(0.421),
                     generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1".to_string()),
+                    origin: None,
                 }],
                 unaccounted: true,
                 lines_added: 3,
                 lines_removed: 1,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
         );
         let encoded = frame.encode().expect("encodes");
@@ -783,6 +881,7 @@ mod tests {
         let unbilled = RequestUsage {
             cost: None,
             generation_id: None,
+            origin: None,
             reasoning_tokens: None,
             ..match &frame.event {
                 SessionEvent::UsageRecorded { requests, .. } => requests[0].clone(),

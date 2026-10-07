@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-5c0ea7d [debug] · Run /help for commands
+
+┃ first question
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  ANSWER-ONE: the notes are read.
+
+  0s (↑4 ↓40)
+
+┃ second question
+
+  ANSWER-TWO: noted.
+
+  0s (↑4 ↓40)
+
+┃ third question
+
+Wait for the active work to finish before compacting context.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

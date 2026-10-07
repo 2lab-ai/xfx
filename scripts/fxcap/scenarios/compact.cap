@@ -1,0 +1,50 @@
+# W4 `/compact`: nothing to compact, a real compaction (one read, so the
+# model is asked for notes), the busy refusal under a running turn, and a
+# resume that continues from the compacted conversation.
+gateway compact-turns.json
+work compact-ws
+wait 3
+type /compact
+key Enter
+wait 0.3
+snap empty-0.3s
+wait 2
+snap empty-2.3s
+type first question
+key Enter
+wait 3
+type second question
+key Enter
+wait 2.5
+snap answered
+type /compact
+key Enter
+wait 0.4
+snap compacting-0.4s
+wait 1.5
+snap compacting-1.9s
+wait 2.5
+snap after
+type third question
+key Enter
+wait 0.8
+type /compact
+key Enter
+wait 0.3
+snap busy
+wait 1.7
+snap busy-2.0s
+wait 2.5
+snap third-answered
+keep
+type /quit
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 4
+type fourth question
+key Enter
+wait 3
+snap resumed
+gwlog

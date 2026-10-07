@@ -34,13 +34,22 @@ pub(crate) struct Hydration {
     /// where the caller already shows the right one -- the launch, whose band
     /// is built from the configuration the session's model was restored into.
     pub(crate) model: Option<String>,
+    /// The number the next attached image takes: one past the highest the
+    /// session's prompts already name, so `[Image #N]` never means two images
+    /// in one conversation (upstream rebases a resumed session's ids the same
+    /// way, `vision-route-fake-gateway.test.ts:1871`).
+    pub(crate) next_image: u32,
 }
 
 /// One turn of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HydratedTurn {
-    /// The prompt, exactly as the log holds it.
+    /// The prompt as its card shows it: the log's text, with each image's
+    /// `[Image #N]` spelled as the badge the composer showed, `[Image N]`.
     pub(crate) user: String,
+    /// The prompt exactly as the log holds it -- what the model was sent, and
+    /// what the turn's summary counts, as a live turn's does.
+    pub(crate) sent: String,
     pub(crate) steps: Vec<HydratedStep>,
     pub(crate) ending: Ending,
     /// When it started and when it concluded, as the log has them
@@ -96,6 +105,13 @@ impl Hydration {
             title: state.title(),
             turns: state.turns.iter().map(turn).collect(),
             model,
+            next_image: state
+                .turns
+                .iter()
+                .flat_map(|turn| turn.images.iter())
+                .map(|image| image.recorded.id.saturating_add(1))
+                .max()
+                .unwrap_or(1),
         }
     }
 }
@@ -161,8 +177,18 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         }
         None => Ending::Unconcluded,
     };
+    // The card says what the composer said: each image's badge, `[Image N]`,
+    // where the prompt the model was sent says `[Image #N]`.
+    let mut user = turn.user.clone();
+    for image in &turn.images {
+        user = user.replace(
+            &crate::image::token(image.recorded.id),
+            &crate::image::badge(image.recorded.id),
+        );
+    }
     HydratedTurn {
-        user: turn.user.clone(),
+        user,
+        sent: turn.user.clone(),
         steps,
         ending,
         started_at_ms: turn.timing.started_at_ms,
@@ -181,13 +207,67 @@ mod tests {
     fn concluded(user: &str, steps: Vec<TurnStep>, timing: TurnTiming) -> HistoryTurn {
         HistoryTurn {
             user: user.to_string(),
+            images: Vec::new(),
             steps,
             outcome: Some(TurnConclusion::Final {
                 finish_reason: "stop".to_string(),
                 steps: 1,
             }),
             timing,
+            seqs: crate::session::TurnSeqs::default(),
         }
+    }
+
+    #[test]
+    fn a_replayed_card_shows_the_badges_and_the_summary_counts_what_was_sent() {
+        // `fx-image-40x120-resumed`: the replayed card is `┃ [Image 3][Image 4]
+        // what is in this image?` and its summary `↑12`, the count of the
+        // prompt the model was sent.
+        let image = |id: u32| crate::session::TurnImage {
+            recorded: crate::session::RecordedImage {
+                id,
+                path: "/w/shot.png".to_string(),
+                media_type: "image/png".to_string(),
+                sha256: "0".repeat(64),
+                bytes: 73,
+            },
+            snapshot: crate::session::Snapshot::Unread,
+        };
+        let mut turn = concluded(
+            "[Image #3][Image #4] what is in this image? [Image #9]",
+            Vec::new(),
+            TurnTiming::default(),
+        );
+        turn.images = vec![image(3), image(4)];
+        let state = DurableState {
+            id: "s".to_string(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            origin_workspace_root: "/w".to_string(),
+            workspace_root: "/w".to_string(),
+            model: "m".to_string(),
+            permission_mode: crate::config::PermissionMode::Auto,
+            turns: vec![turn],
+            grants: Vec::new(),
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            context_sources: Vec::new(),
+            last_event_seq: 0,
+            renamed: None,
+            usage: crate::session::RecordedUsage::default(),
+            checkpoint: None,
+        };
+        let replay = Hydration::of(&state, None);
+        // `#9` names no image of the turn: those are the user's own words.
+        assert_eq!(
+            replay.turns[0].user,
+            "[Image 3][Image 4] what is in this image? [Image #9]"
+        );
+        assert_eq!(
+            replay.turns[0].sent,
+            "[Image #3][Image #4] what is in this image? [Image #9]"
+        );
+        assert_eq!(replay.next_image, 5);
     }
 
     #[test]

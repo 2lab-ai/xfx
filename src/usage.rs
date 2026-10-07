@@ -140,6 +140,9 @@ pub enum Coverage {
 pub enum Completeness {
     /// Every request in it said what it cost.
     Complete,
+    /// A request in it named its generation and not yet its bill, which is
+    /// being asked for (`pending`, `usage_report.zig:90-95`).
+    Pending,
     /// Something in it was spent without saying how much.
     Incomplete,
     /// The session's turns were recorded as totals only, before requests were:
@@ -208,6 +211,9 @@ pub struct Ledger {
     /// none, a turn recorded as totals only, a request lost after it was sent,
     /// a session that could not be read.
     incidents: Vec<i64>,
+    /// When each request was made whose bill is still being asked for
+    /// ([`RequestUsage::pending`]).
+    pending: Vec<i64>,
 }
 
 impl Ledger {
@@ -228,6 +234,8 @@ impl Ledger {
                 oldest = Some(oldest.map_or(request.at_ms, |seen| seen.min(request.at_ms)));
                 if request.cost.is_some() {
                     ledger.facts.push(request.clone());
+                } else if request.pending() {
+                    ledger.pending.push(request.at_ms);
                 } else {
                     ledger.incidents.push(request.at_ms);
                 }
@@ -264,12 +272,16 @@ impl Ledger {
             Some(at) if at <= start => Coverage::Full,
             Some(_) => Coverage::Partial,
         };
+        // Missing spend outranks spend still being asked for
+        // (`buildRollingSnapshot`, `usage_report.zig:530-539`).
         let mut completeness = if self
             .incidents
             .iter()
             .any(|at| *at == i64::MAX || inside(*at))
         {
             Completeness::Incomplete
+        } else if self.pending.iter().any(|at| inside(*at)) {
+            Completeness::Pending
         } else {
             Completeness::Complete
         };
@@ -342,9 +354,14 @@ pub fn session_snapshot(
             activity: Some(activity),
         };
     }
-    let unbilled = usage.requests.iter().any(|request| request.cost.is_none());
-    let completeness = if unbilled || !usage.unaccounted_at_ms.is_empty() {
+    let missing = usage
+        .requests
+        .iter()
+        .any(|request| request.cost.is_none() && !request.pending());
+    let completeness = if missing || !usage.unaccounted_at_ms.is_empty() {
         Completeness::Incomplete
+    } else if usage.pending().next().is_some() {
+        Completeness::Pending
     } else {
         Completeness::Complete
     };
@@ -523,17 +540,25 @@ pub fn tracking_started(profile_dir: &Path) -> Option<i64> {
 ///
 /// A session last written before the window began holds nothing it could
 /// count, and is not opened. Off the thread that holds the terminal: this
-/// replays logs.
-pub fn read_ledger(profile_dir: &Path, now_ms: i64) -> io::Result<Ledger> {
+/// replays logs. `Ok(None)` once `cancel` is set, which is looked at between
+/// sessions ([`crate::session::SessionStore::usage_since`]).
+pub fn read_ledger(
+    profile_dir: &Path,
+    now_ms: i64,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> io::Result<Option<Ledger>> {
     let store = crate::session::SessionStore::read_only(profile_dir);
-    let scan = store
-        .usage_since(now_ms.saturating_sub(LONGEST_WINDOW_MS))
-        .map_err(|err| io::Error::other(err.to_string()))?;
-    Ok(Ledger::from_sessions(
+    let Some(scan) = store
+        .usage_since(now_ms.saturating_sub(LONGEST_WINDOW_MS), cancel)
+        .map_err(|err| io::Error::other(err.to_string()))?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(Ledger::from_sessions(
         scan.sessions.iter(),
         &scan.unreadable,
         tracking_started(profile_dir),
-    ))
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -674,6 +699,7 @@ mod tests {
             reasoning_tokens: Some(0),
             cost,
             generation_id: None,
+            origin: None,
         }
     }
 
@@ -690,12 +716,14 @@ mod tests {
             RequestUsage {
                 cache_read_tokens: 4000,
                 generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ0".to_string()),
+                origin: None,
                 ..request("fake/model-a", at_ms, 12000, 800, Some(0.0125))
             },
             RequestUsage {
                 cache_read_tokens: 30000,
                 reasoning_tokens: Some(900),
                 generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1".to_string()),
+                origin: None,
                 ..request(
                     "anthropic/claude-opus-5",
                     at_ms + 1,
@@ -901,6 +929,49 @@ mod tests {
         assert_eq!(activity.wall_duration_ms, 12_000);
         assert_eq!(activity.api_duration_ms, 100);
         assert_eq!((activity.lines_added, activity.lines_removed), (3, 1));
+    }
+
+    /// A request whose bill is being asked for makes its windows `pending`
+    /// -- `Partial data` all the same -- and spend that is missing outranks it
+    /// (`buildRollingSnapshot`, `usage_report.zig:530-539`).
+    #[test]
+    fn a_bill_still_being_asked_for_is_pending_and_missing_spend_outranks_it() {
+        let pending = RequestUsage {
+            generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1".to_string()),
+            origin: Some("http://127.0.0.1:4100".to_string()),
+            ..request("a/m", NOW - 60_000, 10, 2, None)
+        };
+        let billed = request("a/m", NOW - 2 * DAY_MS, 1, 1, Some(0.5));
+        let sessions = [usage(vec![billed.clone(), pending.clone()])];
+        let ledger = Ledger::from_sessions(sessions.iter(), &[], Some(0));
+        for scope in [Scope::Hours24, Scope::Days30] {
+            let snapshot = ledger.snapshot(scope, NOW);
+            assert_eq!(snapshot.completeness, Completeness::Pending, "{scope:?}");
+            // Nothing of it is counted until its bill is known.
+            assert_eq!(
+                snapshot.totals.expect("totals").request_count,
+                Some(u64::from(scope == Scope::Days30))
+            );
+        }
+        assert_eq!(
+            session_snapshot(&sessions[0], Some(0), NOW).completeness,
+            Completeness::Pending
+        );
+        // Rejected, it is spend that is missing.
+        let rejected = RequestUsage {
+            origin: None,
+            ..pending.clone()
+        };
+        let sessions = [usage(vec![billed, pending, rejected])];
+        let ledger = Ledger::from_sessions(sessions.iter(), &[], Some(0));
+        assert_eq!(
+            ledger.snapshot(Scope::Hours24, NOW).completeness,
+            Completeness::Incomplete
+        );
+        assert_eq!(
+            session_snapshot(&sessions[0], Some(0), NOW).completeness,
+            Completeness::Incomplete
+        );
     }
 
     #[test]
