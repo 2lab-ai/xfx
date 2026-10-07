@@ -47,6 +47,7 @@ pub(crate) struct Job {
     pub(crate) outstanding: usize,
     pub(crate) timeline: Vec<Entry>,
     pub(crate) network: Vec<Entry>,
+    pub(crate) title: crate::trace::TitleTrace,
 }
 
 impl Job {
@@ -72,6 +73,7 @@ impl Job {
                 reason,
             },
         };
+        let compaction = crate::agent::compaction_trace::snapshot();
         Report {
             generated_ms: now_ms,
             status: &self.status,
@@ -86,6 +88,8 @@ impl Job {
                 timeline: &self.timeline,
                 network: &self.network,
             }),
+            compaction: &compaction,
+            title: Some(&self.title),
         }
         .render()
     }
@@ -173,6 +177,7 @@ mod tests {
             outstanding: 0,
             timeline: Vec::new(),
             network: Vec::new(),
+            title: crate::trace::TitleTrace::default(),
         }
     }
 

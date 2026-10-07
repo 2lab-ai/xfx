@@ -1,8 +1,8 @@
-  2026-10-07 03:08:08.679 UTC · Tool
+  2026-10-07 04:31:50.742 UTC · Tool
 ├ Failed missing.txt: Path not found: missing.txt
 │  Path not found: missing.txt
 
-  2026-10-07 03:08:08.689 UTC · Tool
+  2026-10-07 04:31:50.753 UTC · Tool
 └ Exited 3 echo boom; echo err >&2; exit 3
 │  action: run
 │  yield_time_ms: 30000
@@ -10,25 +10,25 @@
 │ err
 │ exit code 3
 
-  2026-10-07 03:08:12.249 UTC · Response
+  2026-10-07 04:31:54.428 UTC · Response
   All done. The files were updated.
 
-  2026-10-07 03:08:12.245 UTC · Usage
+  2026-10-07 04:31:54.420 UTC · Usage
   13s (↑8 ↓320)
 
-  2026-10-07 03:08:13.765 UTC · Prompt
+  2026-10-07 04:31:55.908 UTC · Prompt
 ┃ and once more
 
-  2026-10-07 03:08:16.418 UTC · Tool
+  2026-10-07 04:31:58.563 UTC · Tool
 ● 1 tool call · 1 write · 1 cancelled
 └ Cancelled file
 │  path: d.txt
 │  content: one more
 
-  2026-10-07 03:08:17.838 UTC · Prompt
+  2026-10-07 04:32:00.020 UTC · Prompt
 ┃ run the long one
 
-  2026-10-07 03:08:17.861 UTC · Tool
+  2026-10-07 04:32:00.073 UTC · Tool
 ● 1 tool call · 1 command · 1 cancelled
 └ Cancelled sleep 4
 │  action: run

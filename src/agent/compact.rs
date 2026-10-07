@@ -28,18 +28,30 @@
 //! (`records.zig`); xfx has no such tool, so the request says what upstream
 //! says for a session it cannot save records for -- "the tool calls will not
 //! be available later" -- and an earlier compaction is never folded away. The
-//! window is chosen at whole turns: upstream can also cut inside a turn's tool
-//! steps (`window.zig:226-248`) and compact a turn still running; here a
-//! compaction runs between turns, so it never needs to. The notes are not
-//! linted (`lint.zig`), and a conversation too large for one notes request is
-//! clipped rather than sent in parts (`partEnd`, `summarize.zig:335-345`).
+//! window is cut at an exchange, as upstream's is: the newest exchanges stay,
+//! and a turn cut inside of -- the one in progress, or an older one -- keeps
+//! its first message after the checkpoint while its earlier part is carried
+//! as the turn in progress ([`choose`], [`plan_in_turn`]; `window.zig:169-295`).
+//! Inside a turn the notes request goes right after the conversation the
+//! turn was about to send, so the provider reuses what it cached of it, when
+//! the room after it fits; otherwise the turns are written out
+//! (`summarize.zig:571-595`; [`Caller::conversation`]). Estimates are scaled
+//! by the provider's count of the request before ([`Calibration`]). The
+//! notes are not linted (`lint.zig`), and a conversation too large for one
+//! notes request is clipped rather than sent in parts (`partEnd`,
+//! `summarize.zig:335-345`).
 //!
 //! Nothing here touches a file or the terminal: the caller saves the event
 //! and shows progress, as upstream's caller does (`compactor.zig:22-23`).
 
+use std::cell::{Cell, RefCell};
 use std::io;
+use std::time::Instant;
 
 use serde_json::Value;
+
+use super::compaction_trace::{self as trace, Context, Kind};
+use super::machine::{may_have_billed, request_usage};
 
 use crate::gateway::protocol::{
     CompletionRequest, ContentPart, FinishReason, Message, RequestOptions, Role, ToolChoice,
@@ -47,10 +59,11 @@ use crate::gateway::protocol::{
 use crate::gateway::{DeltaSink, Provider, ProviderError};
 use crate::provider::Wire;
 use crate::session::checkpoint::{
-    highest_ids, is_entry_id, Compacted, CompactedTurn, Entry, ToolLine, ENTRY_KINDS, REPLACED_MARK,
+    highest_ids, is_entry_id, Compacted, CompactedTurn, Entry, OpenTurn, ToolLine, ENTRY_KINDS,
+    REPLACED_MARK,
 };
 use crate::session::store::TURN_ABORTED;
-use crate::session::{turn_messages, DurableState, HistoryTurn, SessionEvent};
+use crate::session::{turn_messages, DurableState, HistoryTurn, RequestUsage, SessionEvent};
 
 /// The notes request's system message (`summarize.zig:159-162`).
 pub const SYSTEM_PROMPT: &str = "You write compaction notes on an AI coding assistant's work \
@@ -173,6 +186,27 @@ pub struct Size {
     /// The request that needs the room, when there is one: an automatic
     /// compaction's. A manual one has none (`app_agent_runtime.zig:1136`).
     pub request: Option<usize>,
+    /// The provider refused that request as too large, so the estimate ran
+    /// low and the room after compaction is bounded by the request instead
+    /// (`overflow`, `window.zig:44-46`).
+    pub overflow: bool,
+    /// What compaction cannot shrink: the request's instructions and tool
+    /// definitions, measured like the request. When unknown, a share of the
+    /// room after compaction is set aside for it (`fixed_tokens`,
+    /// `window.zig:36-40`).
+    pub fixed: Option<usize>,
+    /// How far the token estimate ran from the provider's count on a recent
+    /// request: the compactor measures text with that estimate, so its room
+    /// is scaled by the same ratio (`correction`, `window.zig:41-43`).
+    pub correction: Option<Correction>,
+}
+
+/// The provider counted `measured` tokens for a request estimated at
+/// `estimated` (`Size.Correction`, `window.zig:48-50`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Correction {
+    pub estimated: usize,
+    pub measured: usize,
 }
 
 impl Size {
@@ -185,12 +219,52 @@ impl Size {
             compact_at: usable.map(|usable| percent_of(usable, percent.clamp(10, 80))),
             usable,
             request: None,
+            overflow: false,
+            fixed: None,
+            correction: None,
         }
     }
 
-    /// Estimated tokens one notes request may use (`summaryRequestTokens`).
+    /// `tokens` as the provider counts them, in the estimate's terms
+    /// (`estimate`, `window.zig:52-57`).
+    fn estimate(&self, tokens: usize) -> usize {
+        let Some(correction) = self.correction else {
+            return tokens;
+        };
+        if correction.estimated == 0 || correction.measured == 0 || tokens == usize::MAX {
+            return tokens;
+        }
+        usize::try_from(tokens as u128 * correction.estimated as u128 / correction.measured as u128)
+            .unwrap_or(usize::MAX)
+    }
+
+    /// The request the provider refused, when it refused one.
+    fn rejected(&self) -> Option<usize> {
+        self.request.filter(|_| self.overflow)
+    }
+
+    /// Estimated tokens one notes request may use: the usable input, and
+    /// after a refusal well below the refused request
+    /// (`summaryRequestTokens`, `window.zig:68-77`).
     fn summary_request_tokens(&self) -> usize {
-        self.usable.unwrap_or(usize::MAX)
+        let mut room = self.usable.unwrap_or(usize::MAX);
+        if let Some(rejected) = self.rejected() {
+            room = room.min(rejected / 4 * 3);
+        }
+        self.estimate(room)
+    }
+
+    /// Estimated tokens a notes request may use when sent right after the
+    /// conversation of [`Self::request`] tokens: `None` when either size is
+    /// unknown, nothing is left, or the provider refused that conversation
+    /// as too large (`roomAfterConversation`, `window.zig:79-89`).
+    pub fn room_after_conversation(&self) -> Option<usize> {
+        let usable = self.usable?;
+        let conversation = self.request?;
+        if self.overflow || conversation >= usable {
+            return None;
+        }
+        Some(self.estimate(usable - conversation))
     }
 
     /// Estimated tokens the whole request may use right after compaction
@@ -203,20 +277,23 @@ impl Size {
         if let Some(usable) = self.usable {
             after = after.min(percent_of(usable, AFTER_PERCENT));
         }
+        if let Some(rejected) = self.rejected() {
+            after = after.min(percent_of(rejected, AFTER_PERCENT));
+        }
         after
     }
 
     /// Estimated tokens the compacted conversation may use: the room after
-    /// compaction less the part it cannot shrink, which is unmeasured here
-    /// and so half of that room, as upstream sets aside when it has no
-    /// measurement (`conversationTokens`, `window.zig:101-110`).
+    /// compaction less the part it cannot shrink -- half of that room when
+    /// it is unmeasured -- never below a quarter of the room
+    /// (`conversationTokens`, `window.zig:101-110`).
     fn conversation_tokens(&self) -> usize {
         let after = self.after_tokens();
         if after == usize::MAX {
             return after;
         }
-        let fixed = after / 2;
-        after.saturating_sub(fixed).max(after / 4)
+        let fixed = self.fixed.unwrap_or(after / 2);
+        self.estimate(after.saturating_sub(fixed).max(after / 4))
     }
 
     /// Estimated tokens the compacted text may use and still free half the
@@ -225,10 +302,12 @@ impl Size {
         let Some(point) = self.compact_at.or(self.request) else {
             return usize::MAX;
         };
-        let most = point / 2;
-        let fixed = most / 4;
-        most.saturating_sub(fixed)
-            .max(most / 4)
+        let mut most = point / 2;
+        if let Some(rejected) = self.rejected() {
+            most = most.min(rejected / 2);
+        }
+        let fixed = self.fixed.unwrap_or(most / 4);
+        self.estimate(most.saturating_sub(fixed).max(most / 4))
             .saturating_sub(kept_used)
     }
 
@@ -240,8 +319,10 @@ impl Size {
     /// Compaction must free room: without it the request cannot be sent
     /// (`required`).
     fn required(&self) -> bool {
-        self.request
-            .is_some_and(|request| request > self.usable.unwrap_or(usize::MAX))
+        match self.request {
+            None => self.overflow,
+            Some(request) => self.overflow || request > self.usable.unwrap_or(usize::MAX),
+        }
     }
 }
 
@@ -266,16 +347,143 @@ fn percent_of(tokens: usize, percent: usize) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// calibration (prompt_context.zig:11-28, :153-189)
+// ---------------------------------------------------------------------------
+
+/// A request as measured before it is sent (`RequestCost`,
+/// `prompt_context.zig:11-18`): its whole body's length, its text by the
+/// token estimate with any image left out, and which images it carries.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RequestCost {
+    pub bytes: usize,
+    pub text_tokens: usize,
+    /// A digest of its image parts, in order; `None` when it carries none.
+    pub images: Option<[u8; 32]>,
+}
+
+/// The provider's count of one request, paired with what was measured of it
+/// (`RequestTokenCalibration`, `prompt_context.zig:20-28`), and the
+/// conversation it was counted in.
+///
+/// Kept across turns, so a turn's first request is measured against the
+/// count of the request before it (`agent.zig:14-19`), and for as long as
+/// the history it was counted on is the one sent: a compaction replaces that
+/// history, and with it the count's use (`orchestrator.zig:7458`;
+/// `clearHistory`, `agent.zig:79-83`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Calibration {
+    /// The model that counted it.
+    pub model: String,
+    pub request: RequestCost,
+    pub exact: usize,
+    /// How many compactions the conversation had had when it was counted.
+    pub compactions: u64,
+}
+
+/// The longest model id a calibration is kept for
+/// (`max_request_calibration_model_bytes`, `agent.zig:144`).
+const MAX_CALIBRATION_MODEL_BYTES: usize = 128;
+
+impl Calibration {
+    /// `model`'s count of `request`, or `None` for a model id no later
+    /// request could match (`storeRequestTokenCalibration`, `agent.zig:85-101`).
+    pub fn new(model: &str, request: RequestCost, exact: u64, compactions: u64) -> Option<Self> {
+        if model.is_empty() || model.len() > MAX_CALIBRATION_MODEL_BYTES {
+            return None;
+        }
+        Some(Self {
+            model: model.to_string(),
+            request,
+            exact: usize::try_from(exact).unwrap_or(usize::MAX),
+            compactions,
+        })
+    }
+
+    /// Whether it may scale `cost`, a request to `model`: counted by that
+    /// model, for a measured request with the same images (`applies`,
+    /// `prompt_context.zig:24-27`; the model, `orchestrator.zig:7293-7299`).
+    pub fn applies(&self, model: &str, cost: &RequestCost) -> bool {
+        self.model == model
+            && self.request.bytes != 0
+            && self.exact != 0
+            && self.request.images == cost.images
+    }
+
+    /// `cost`'s estimate scaled by the count (`calibrateProviderRequest`,
+    /// `prompt_context.zig:153-171`): by the bytes for a request with no
+    /// image; for one with the same images, the count plus the text it adds
+    /// or less the text it drops, never below its own text.
+    pub fn estimate(&self, cost: &RequestCost) -> usize {
+        if cost.images.is_some() {
+            let calibrated = if cost.text_tokens >= self.request.text_tokens {
+                self.exact
+                    .saturating_add(cost.text_tokens - self.request.text_tokens)
+            } else {
+                self.exact
+                    .saturating_sub(self.request.text_tokens - cost.text_tokens)
+            };
+            cost.text_tokens.max(calibrated)
+        } else {
+            multiply_divide_ceil(cost.bytes, self.exact, self.request.bytes).max(1)
+        }
+    }
+
+    /// What a compaction's room is scaled by, when the count is `model`'s
+    /// and its request carried no image (`compactionSize`,
+    /// `orchestrator.zig:6190-6200`).
+    pub fn correction(&self, model: &str) -> Option<Correction> {
+        (self.model == model && self.request.images.is_none()).then_some(Correction {
+            estimated: self.request.text_tokens,
+            measured: self.exact,
+        })
+    }
+}
+
+/// `value * numerator / denominator`, rounded up, saturating
+/// (`multiplyDivideCeilSaturating`, `prompt_context.zig:173-189`).
+fn multiply_divide_ceil(value: usize, numerator: usize, denominator: usize) -> usize {
+    if denominator == 0 {
+        return usize::MAX;
+    }
+    let product = value as u128 * numerator as u128;
+    let denominator = denominator as u128;
+    usize::try_from(product.div_ceil(denominator)).unwrap_or(usize::MAX)
+}
+
+// ---------------------------------------------------------------------------
 // window
 // ---------------------------------------------------------------------------
+
+/// Where the part kept as it is starts (`ContextHistoryCut`): the first
+/// `turns` turns are compacted whole, and of the turn after them its first
+/// `exchanges` exchanges -- each an assistant step that called tools, with
+/// the results and notes that answered it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Cut {
+    pub turns: usize,
+    pub exchanges: usize,
+}
 
 /// What [`choose`] picked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Window {
-    /// How many of the uncovered turns are compacted, oldest first.
-    pub cut: usize,
-    /// Estimated tokens of the turns kept as they are.
+    pub cut: Cut,
+    /// Estimated tokens of the part kept as it is.
     pub kept_used: usize,
+    /// The room the part kept as it is was chosen within.
+    pub kept_tokens: usize,
+}
+
+impl Window {
+    /// The cut falls inside a turn: that turn's first user message stays with
+    /// the part kept (`splitsLastTurn`, `window.zig:267-269`).
+    pub fn splits(&self) -> bool {
+        self.cut.exchanges > 0
+    }
+
+    fn compacts_anything(&self) -> bool {
+        self.cut.turns > 0 || self.cut.exchanges > 0
+    }
 }
 
 /// Why a compaction did not happen.
@@ -287,99 +495,249 @@ pub enum Failure {
     /// The user stopped it.
     Cancelled,
     /// The notes could not be written: the provider failed, refused, said
-    /// nothing, or stopped short. What it said is kept for the record.
-    Summary(String),
+    /// nothing, or stopped short.
+    Summary(SummaryError),
 }
 
-/// Chooses what to compact of `turns`, the ones no compaction covers yet.
-/// `None` when nothing needs compacting (`choose`, `window.zig:297-318`).
-pub fn choose(turns: &[HistoryTurn], size: &Size) -> Result<Option<Window>, Failure> {
+/// Why the notes could not be written, in upstream's error name
+/// (`ModelFailed`, `SummaryIncomplete`, `EmptySummary`; `model.zig:149-161`,
+/// `summarize.zig:598`) and what was said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummaryError {
+    pub name: &'static str,
+    pub detail: String,
+}
+
+impl Failure {
+    fn summary(name: &'static str, detail: impl Into<String>) -> Self {
+        Self::Summary(SummaryError {
+            name,
+            detail: detail.into(),
+        })
+    }
+
+    /// Upstream's error name for it, as `/trace` writes it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::TooLarge => "ContextCapacityExceeded",
+            Self::Cancelled => "Cancelled",
+            Self::Summary(error) => error.name,
+        }
+    }
+}
+
+/// A turn's exchanges, as ranges of its steps: one per assistant step that
+/// called tools, with its results, and before it the steers -- and the
+/// answers they cut short -- that came after the step before it, as upstream
+/// keeps a steer with the tool step its `after_tool_step_count` reaches
+/// (`window.zig:219-224`; [`HistoryTurn::exchange_starts`]). The last runs to
+/// the turn's reply, those after the last step's results with it: the final
+/// text of a turn that ended, nothing of one still running
+/// (`ExecutionMemory.tool_steps`).
+pub(crate) fn exchanges(turn: &HistoryTurn) -> Vec<std::ops::Range<usize>> {
+    let starts = turn.exchange_starts();
+    let reply = match turn.steps.last() {
+        Some(crate::session::TurnStep::Assistant { tool_calls, .. })
+            if tool_calls.is_empty() && turn.outcome.is_some() =>
+        {
+            turn.steps.len() - 1
+        }
+        _ => turn.steps.len(),
+    };
+    starts
+        .iter()
+        .enumerate()
+        .map(|(at, start)| *start..starts.get(at + 1).copied().unwrap_or(reply.max(*start + 1)))
+        .collect()
+}
+
+/// Chooses what to compact (`choose`, `window.zig:297-318`): `history`, the
+/// turns no compaction covers yet as the model reads them, and `active`, the
+/// turn in progress, whose first user message always stays. `None` when
+/// nothing needs compacting. When the request cannot be sent otherwise,
+/// everything is compacted before giving up.
+pub fn choose(
+    history: &[&HistoryTurn],
+    active: Option<&HistoryTurn>,
+    size: &Size,
+    context: Context,
+) -> Result<Option<Window>, Failure> {
     let mut kept = percent_of(size.conversation_tokens(), KEPT_PERCENT);
     loop {
-        let window = if kept == 0 {
-            Window {
-                cut: turns.len(),
-                kept_used: 0,
-            }
-        } else {
-            select_recent(turns, kept, size.usable)
-        };
-        if window.cut > 0 {
+        let window = split(history, active, kept, size.usable);
+        if window.compacts_anything() {
             return Ok(Some(window));
         }
         if !size.required() {
             return Ok(None);
         }
         if kept == 0 {
+            trace::failure(
+                context,
+                Kind::RetentionExhausted,
+                format!("estimated_tokens={}", size.request.unwrap_or(0)),
+            );
             return Err(Failure::TooLarge);
         }
+        trace::failure(
+            context,
+            Kind::RetentionForcedZero,
+            format!(
+                "estimated_tokens={} kept_tokens={kept}",
+                size.request.unwrap_or(0)
+            ),
+        );
         kept = 0;
     }
 }
 
-/// The newest turns within `target` tokens and [`MAX_KEPT_TURNS`] turns
-/// (`selectRecentContext`, `window.zig:169-251`, at whole turns). The oldest
-/// turn is never kept once a newer one is, so two turns compact one.
-fn select_recent(turns: &[HistoryTurn], target: usize, capacity: Option<usize>) -> Window {
-    let mut selected = Window {
-        cut: turns.len(),
-        kept_used: 0,
+/// The newest exchanges stay, at most [`MAX_KEPT_TURNS`] turns of them
+/// within `kept_tokens`; everything older is compacted. Zero keeps nothing.
+/// Compacting all of a turn in progress means cutting after its last
+/// exchange, so its first message stays (`split`, `window.zig:271-295`).
+fn split(
+    history: &[&HistoryTurn],
+    active: Option<&HistoryTurn>,
+    kept_tokens: usize,
+    capacity: Option<usize>,
+) -> Window {
+    let mut combined: Vec<&HistoryTurn> = history.to_vec();
+    combined.extend(active);
+    let (mut cut, kept_used) = if kept_tokens == 0 {
+        (
+            Cut {
+                turns: combined.len(),
+                exchanges: 0,
+            },
+            0,
+        )
+    } else {
+        select_recent(&combined, kept_tokens, capacity)
     };
+    if let Some(turn) = active {
+        if cut.turns > history.len() {
+            cut = Cut {
+                turns: history.len(),
+                exchanges: exchanges(turn).len(),
+            };
+        }
+    }
+    Window {
+        cut,
+        kept_used,
+        kept_tokens,
+    }
+}
+
+/// Where the kept part starts: the newest complete exchanges within `target`
+/// tokens and [`MAX_KEPT_TURNS`] turns, and their estimated tokens. A newest
+/// exchange larger than `target` is not kept; payloads are measured, never
+/// shortened. The oldest turn is never kept whole once a newer one is
+/// (`selectRecentContext`, `window.zig:169-251`).
+fn select_recent(turns: &[&HistoryTurn], target: usize, capacity: Option<usize>) -> (Cut, usize) {
+    let mut raw_count = turns.len();
+    let mut selected = (
+        Cut {
+            turns: raw_count,
+            exchanges: 0,
+        },
+        0usize,
+    );
     let mut total = 0usize;
-    // `used` is how many turns are kept so far: every one before this was.
-    for (used, (index, turn)) in turns.iter().enumerate().rev().enumerate() {
-        let selected_any = used > 0;
-        if selected_any && used >= MAX_KEPT_TURNS {
+    let mut selected_any = false;
+    let mut turns_used = 0usize;
+    for turn in turns.iter().rev() {
+        if selected_any && turns_used >= MAX_KEPT_TURNS {
             break;
         }
-        let cost = turn_cost(turn);
-        let has_steps = turn.steps.iter().any(|step| match step {
-            crate::session::TurnStep::Assistant { tool_calls, .. } => !tool_calls.is_empty(),
-            _ => true,
-        });
-        // A newest turn that did work and is larger than the room for the
-        // kept part is not kept (`:236`); one larger than the whole input
-        // never is (`:216-218`, `:237-239`).
-        if !selected_any && has_steps && cost > target {
-            break;
+        raw_count -= 1;
+        let mut base = base_tokens(turn);
+        let ranges = exchanges(turn);
+        if ranges.is_empty() {
+            if !selected_any && capacity.is_some_and(|capacity| base >= capacity) {
+                break;
+            }
+            if selected_any && (raw_count == 0 || total.saturating_add(base) > target) {
+                break;
+            }
+            total = total.saturating_add(base);
+            selected = (
+                Cut {
+                    turns: raw_count,
+                    exchanges: 0,
+                },
+                total,
+            );
+            selected_any = true;
+            turns_used += 1;
+            continue;
         }
-        if !selected_any && capacity.is_some_and(|capacity| cost >= capacity) {
-            break;
+        let mut turn_counted = false;
+        for (index, range) in ranges.iter().enumerate().rev() {
+            let cost = base.saturating_add(exchange_tokens(turn, range.clone()));
+            if !selected_any && cost > target {
+                return selected;
+            }
+            if !selected_any && capacity.is_some_and(|capacity| cost >= capacity) {
+                return selected;
+            }
+            if selected_any
+                && ((raw_count == 0 && index == 0) || total.saturating_add(cost) > target)
+            {
+                return selected;
+            }
+            total = total.saturating_add(cost);
+            selected = (
+                Cut {
+                    turns: raw_count,
+                    exchanges: index,
+                },
+                total,
+            );
+            selected_any = true;
+            if !turn_counted {
+                turns_used += 1;
+            }
+            turn_counted = true;
+            base = 0;
         }
-        if selected_any && (index == 0 || total.saturating_add(cost) > target) {
-            break;
-        }
-        total = total.saturating_add(cost);
-        selected = Window {
-            cut: index,
-            kept_used: total,
-        };
     }
     selected
 }
 
-/// A turn's estimated tokens: its user message and final reply, plus each
-/// step as upstream counts an execution step (`window.zig:208`, `:259-269`).
-fn turn_cost(turn: &HistoryTurn) -> usize {
+/// A turn's estimated tokens besides its exchanges: its user message and its
+/// replies, a message's overhead, and in a turn that called no tools its
+/// steers and the answers they cut short (`window.zig:208-213`).
+fn base_tokens(turn: &HistoryTurn) -> usize {
+    let ranges = exchanges(turn);
     let mut total = text_tokens(&turn.user).saturating_add(8);
-    for step in &turn.steps {
+    for (index, step) in turn.steps.iter().enumerate() {
+        if ranges.iter().any(|range| range.contains(&index)) {
+            continue;
+        }
+        if let crate::session::TurnStep::Assistant { text, .. }
+        | crate::session::TurnStep::Steered { text } = step
+        {
+            total = total.saturating_add(text_tokens(text));
+        }
+    }
+    total
+}
+
+/// One exchange's estimated tokens, as upstream counts an execution step
+/// (`executionStepTokens`, `window.zig:259-269`).
+fn exchange_tokens(turn: &HistoryTurn, range: std::ops::Range<usize>) -> usize {
+    let mut total = 8usize;
+    for step in &turn.steps[range] {
         total = total.saturating_add(match step {
             crate::session::TurnStep::Assistant {
                 text, tool_calls, ..
-            } => {
-                let mut cost = text_tokens(text);
-                if !tool_calls.is_empty() {
-                    cost = cost.saturating_add(8);
-                }
-                for call in tool_calls {
-                    cost = cost
-                        .saturating_add(text_tokens(&call.id))
-                        .saturating_add(text_tokens(&call.name))
-                        .saturating_add(text_tokens(&call.input.to_string()))
-                        .saturating_add(8);
-                }
-                cost
-            }
+            } => tool_calls.iter().fold(text_tokens(text), |cost, call| {
+                cost.saturating_add(text_tokens(&call.id))
+                    .saturating_add(text_tokens(&call.name))
+                    .saturating_add(text_tokens(&call.input.to_string()))
+                    .saturating_add(8)
+            }),
             crate::session::TurnStep::ToolResult {
                 call_id,
                 tool,
@@ -404,6 +762,10 @@ fn turn_cost(turn: &HistoryTurn) -> usize {
 /// (`summarize.Item`, `summarize.zig:62-71`).
 #[derive(Debug, Clone, PartialEq)]
 enum Item {
+    /// A message the person sent while the turn ran -- a steer
+    /// (`crate::agent::steering`): upstream's `user` item, exact
+    /// (`appendItems`, `compactor.zig:286-288`).
+    User(String),
     Assistant(String),
     /// Text xfx itself added -- an approval's feedback, the close of a turn
     /// that did not finish. Never a user message.
@@ -428,6 +790,16 @@ enum Item {
 fn items_of(turn: &HistoryTurn) -> Vec<Item> {
     let mut ignored = Vec::new();
     let messages = turn_messages(turn, &Wire::VercelGateway, &mut ignored);
+    // The person's steers, in the words they typed, as the turn's steps
+    // hold them.
+    let mut steers: Vec<&str> = turn
+        .steps
+        .iter()
+        .filter_map(|step| match step {
+            crate::session::TurnStep::Steered { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
     let mut items = Vec::new();
     for message in messages.into_iter().skip(1) {
         match message.role {
@@ -435,6 +807,11 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
             Role::User => {
                 let text = message.text();
                 if text.is_empty() {
+                    continue;
+                }
+                if let Some(at) = steers.iter().position(|steer| *steer == text) {
+                    steers.remove(at);
+                    items.push(Item::User(text));
                     continue;
                 }
                 // A user message inside a turn is never the user's prompt:
@@ -503,8 +880,17 @@ struct PendingTool {
 /// One turn ready to compact (`Prepared`, `summarize.zig:729-750`).
 #[derive(Debug, Clone)]
 struct Prepared {
+    /// Its number; zero for the turn in progress, which takes one only once
+    /// it is compacted to its end.
     number: usize,
+    /// Its first user message, which stays after the checkpoint while the
+    /// turn is in progress.
     user: String,
+    /// The user messages its compacted form shows: the first, unless it is in
+    /// progress, and those the earlier part of it held.
+    users: Vec<String>,
+    /// The earlier part of this turn, from the previous compaction.
+    continued: Option<OpenTurn>,
     items: Vec<Item>,
     /// Each item's tool number, zero for items that are not tools.
     tool_numbers: Vec<usize>,
@@ -518,8 +904,16 @@ struct Prepared {
 }
 
 /// Pairs every call with its result, numbers both, and finds the final reply
-/// (`prepare`, `summarize.zig:759-833`).
-fn prepare(number: usize, turn: &HistoryTurn, next_tool: &mut usize) -> Prepared {
+/// (`prepare`, `summarize.zig:759-833`). `continued` is the earlier part of
+/// this turn a previous compaction kept; a turn `open` -- in progress, or
+/// cut inside of -- has no final reply yet.
+fn prepare(
+    number: usize,
+    turn: &HistoryTurn,
+    continued: Option<OpenTurn>,
+    open: bool,
+    next_tool: &mut usize,
+) -> Prepared {
     let items = items_of(turn);
     let mut numbers = vec![0usize; items.len()];
     let mut tools: Vec<PendingTool> = Vec::new();
@@ -567,20 +961,47 @@ fn prepare(number: usize, turn: &HistoryTurn, next_tool: &mut usize) -> Prepared
             _ => {}
         }
     }
-    let final_index = final_index(&items);
-    let has_work = items.iter().enumerate().any(|(index, item)| match item {
-        Item::Assistant(_) => Some(index) != final_index,
-        _ => true,
-    });
+    let final_index = if open { None } else { final_index(&items) };
+    let mut users = Vec::new();
+    if !open {
+        users.push(turn.user.clone());
+    }
+    if let Some(earlier) = &continued {
+        users.extend(earlier.users.iter().cloned());
+    }
+    // A steer is the person's, exact, as the first message is
+    // (`summarize.zig:793-800`).
+    users.extend(items.iter().filter_map(|item| match item {
+        Item::User(text) => Some(text.clone()),
+        _ => None,
+    }));
+    let has_work = continued
+        .as_ref()
+        .is_some_and(|earlier| !earlier.work.is_empty() || earlier.first_tool > 0)
+        || items.iter().enumerate().any(|(index, item)| match item {
+            Item::Assistant(_) => Some(index) != final_index,
+            Item::User(_) => false,
+            _ => true,
+        });
     let final_reply = match final_index.map(|index| &items[index]) {
         Some(Item::Assistant(text)) => text.clone(),
         _ => String::new(),
     };
+    let first_own = tools.first().map_or(0, |tool| tool.number);
+    let last_own = tools.last().map_or(0, |tool| tool.number);
+    let first_earlier = continued.as_ref().map_or(0, |earlier| earlier.first_tool);
+    let last_earlier = continued.as_ref().map_or(0, |earlier| earlier.last_tool);
     Prepared {
         number,
         user: turn.user.clone(),
-        first_tool: tools.first().map_or(0, |tool| tool.number),
-        last_tool: tools.last().map_or(0, |tool| tool.number),
+        users,
+        continued,
+        first_tool: if first_earlier > 0 {
+            first_earlier
+        } else {
+            first_own
+        },
+        last_tool: if last_own > 0 { last_own } else { last_earlier },
         items,
         tool_numbers: numbers,
         tools,
@@ -741,7 +1162,7 @@ fn candidates(turns: &[Prepared], filed: &[Entry]) -> Vec<Candidate> {
     for turn in turns {
         let mut before: [String; 2] = [String::new(), String::new()];
         let mut fenced = false;
-        for raw in turn.user.split('\n') {
+        for raw in turn.users.iter().flat_map(|user| user.split('\n')) {
             let line = raw.trim_matches([' ', '\t', '\r']);
             if line.starts_with("```") {
                 fenced = !fenced;
@@ -912,11 +1333,35 @@ fn needs_context(words: &[String]) -> bool {
 
 /// A turn the notes are asked for, and its tool calls (`Heading`,
 /// `ledger.zig:30-40`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Heading {
     number: usize,
     first_tool: usize,
     last_tool: usize,
+    /// For a model reading the conversation itself, where turns and tool
+    /// calls carry no IDs: how the turn's first user message begins, and a
+    /// line naming each tool call, like `T12 shell: zig build test`.
+    begins: String,
+    tools: Vec<String>,
+}
+
+/// How much of a turn's first message and of a tool call's index line a
+/// request shows to identify them (`summarize.zig:1007-1010`).
+const MAX_BEGINS_BYTES: usize = 80;
+const MAX_FINDABLE_TOOL_BYTES: usize = 60;
+
+/// Which complete turns a request lists, and how (`Listing`,
+/// `summarize.zig:960-970`).
+#[derive(Debug, Clone, Copy, Default)]
+struct Listing<'a> {
+    /// Turns an in-between line was already written for, left out.
+    noted: &'a [usize],
+    /// Every turn, not only those with work in between, so a model reading
+    /// the conversation itself learns every turn's number.
+    every_turn: bool,
+    /// How each turn begins and a line naming each tool call, so a model
+    /// reading the conversation itself can find them.
+    findable: bool,
 }
 
 /// One compaction, chosen and prepared, before anything is sent.
@@ -924,82 +1369,216 @@ struct Heading {
 pub struct Plan {
     /// The compaction in force, which this one carries on.
     earlier: Compacted,
+    /// Whether there is one: the first compaction of a session has none.
+    has_earlier: bool,
     turns: Vec<Prepared>,
+    /// The last of [`Self::turns`] is cut inside of, and stays in progress
+    /// after the checkpoint (`Plan.complete_end`, `summarize.zig:922-932`).
+    open: bool,
     candidates: Vec<Candidate>,
-    /// The last frame of the last turn this compacts.
+    /// The last frame it covers.
     covers_through_seq: u64,
+    /// How many exchanges of the turn in progress the compacted form holds
+    /// once this is saved, counted from that turn's start; zero when it
+    /// holds none of it.
+    active_exchanges: usize,
     max_prompt_tokens: usize,
     max_text_tokens: usize,
+    /// What a notes request sent right after the conversation may use, when
+    /// it can be sent that way: the room left after the request that needed
+    /// the compaction, for a compaction whose turns fit one notes request
+    /// (`roomAfterConversation`, `window.zig:79-89`; `summarize.zig:199-201`).
+    after_room: Option<usize>,
+    /// The room it was chosen in, as `/trace` reports it.
+    room: Room,
+    /// Where it happened, for `/trace`.
+    context: Context,
 }
 
-/// Chooses and prepares a compaction of `state`'s conversation within
-/// `size`. `None` when nothing needs compacting -- no turn the compaction in
-/// force does not cover, or none older than the turns kept as they are
+/// The sizes a compaction was chosen with, for `/trace`'s "room after
+/// compaction" line (`compactor.zig:195`).
+#[derive(Debug, Clone, Copy)]
+struct Room {
+    after_tokens: usize,
+    fixed_tokens: Option<usize>,
+    kept_tokens: usize,
+    kept_used: usize,
+}
+
+/// Chooses and prepares a compaction of `state`'s conversation between
+/// turns. `None` when nothing needs compacting -- no turn the compaction in
+/// force does not cover, or none older than the part kept as it is
 /// (`compact`, `compactor.zig:160-180`).
-pub fn plan(state: &DurableState, size: &Size) -> Result<Option<Plan>, Failure> {
-    let turns = state.uncovered_turns();
-    if turns.is_empty() {
+pub fn plan(state: &DurableState, size: &Size, context: Context) -> Result<Option<Plan>, Failure> {
+    let retained = state.retained_turns();
+    let history: Vec<&HistoryTurn> = retained.iter().map(AsRef::as_ref).collect();
+    plan_of(state, &history, None, size, context)
+}
+
+/// [`plan`], in the middle of a turn: the log's newest turn is the one in
+/// progress, and its exchanges so far may be compacted too, while its first
+/// user message stays (`request.active`, `orchestrator.zig:7351-7357`).
+pub fn plan_in_turn(
+    state: &DurableState,
+    size: &Size,
+    context: Context,
+) -> Result<Option<Plan>, Failure> {
+    let retained = state.retained_turns();
+    let mut history: Vec<&HistoryTurn> = retained.iter().map(AsRef::as_ref).collect();
+    let active = history
+        .last()
+        .filter(|turn| turn.outcome.is_none())
+        .copied();
+    if active.is_some() {
+        history.pop();
+    }
+    plan_of(state, &history, active, size, context)
+}
+
+fn plan_of(
+    state: &DurableState,
+    history: &[&HistoryTurn],
+    active: Option<&HistoryTurn>,
+    size: &Size,
+    context: Context,
+) -> Result<Option<Plan>, Failure> {
+    // Nothing to take; but when the request cannot be sent otherwise, the
+    // choice is still made, and fails as upstream's does (`choose`,
+    // `window.zig:297-318`).
+    if history.is_empty()
+        && active.is_none_or(|turn| exchanges(turn).is_empty())
+        && !size.required()
+    {
         return Ok(None);
     }
-    let Some(window) = choose(turns, size)? else {
+    let Some(window) = choose(history, active, size, context)? else {
         return Ok(None);
     };
+    let mut combined: Vec<&HistoryTurn> = history.to_vec();
+    combined.extend(active);
     let earlier = state
         .checkpoint
         .as_ref()
         .map(|checkpoint| checkpoint.compacted.clone())
         .unwrap_or_default();
     let mut next_tool = earlier.tool_count + 1;
-    let prepared: Vec<Prepared> = turns[..window.cut]
-        .iter()
-        .enumerate()
-        .map(|(offset, turn)| prepare(earlier.turn_count + 1 + offset, turn, &mut next_tool))
-        .collect();
+    let mut continued = earlier.open.clone();
+    let mut prepared: Vec<Prepared> = Vec::new();
+    for (number, turn) in (earlier.turn_count + 1..).zip(&combined[..window.cut.turns]) {
+        prepared.push(prepare(
+            number,
+            turn,
+            continued.take(),
+            false,
+            &mut next_tool,
+        ));
+    }
+    // The covered part of the turn the cut falls inside, and where it ends.
+    let (covers_through_seq, split) = if window.splits() {
+        let turn = combined[window.cut.turns];
+        let ranges = exchanges(turn);
+        let end = ranges[window.cut.exchanges - 1].end;
+        let part = turn.until_step(end);
+        prepared.push(prepare(0, &part, continued.take(), true, &mut next_tool));
+        (turn.seqs.steps[end - 1], Some(turn))
+    } else {
+        (combined[window.cut.turns - 1].seqs.last, None)
+    };
+    // How much of the turn in progress the compacted form now holds: what
+    // the earlier compaction held of it, and this one's exchanges.
+    let active_exchanges = match (active, split) {
+        (Some(turn), Some(cut)) if std::ptr::eq(turn, cut) => {
+            let before = state.checkpoint.as_ref().map_or(0, |checkpoint| {
+                if checkpoint.covered_turns + 1 == state.turns.len() {
+                    let running = &state.turns[checkpoint.covered_turns];
+                    (0..checkpoint.covered_steps)
+                        .filter(|index| running.calls_tools(*index))
+                        .count()
+                } else {
+                    0
+                }
+            });
+            before + window.cut.exchanges
+        }
+        _ => 0,
+    };
     let candidates = candidates(&prepared, &earlier.entries);
+    let max_prompt_tokens = size.summary_request_tokens();
+    let after_room = size
+        .room_after_conversation()
+        .filter(|_| fits_one_request(&prepared, &earlier, max_prompt_tokens));
     Ok(Some(Plan {
-        covers_through_seq: turns[window.cut - 1].seqs.last,
+        covers_through_seq,
+        active_exchanges,
         earlier,
+        has_earlier: state.checkpoint.is_some(),
+        open: window.splits(),
         turns: prepared,
         candidates,
-        max_prompt_tokens: size.summary_request_tokens(),
+        max_prompt_tokens,
         max_text_tokens: size.compacted_tokens(window.kept_used),
+        after_room,
+        room: Room {
+            after_tokens: size.after_tokens(),
+            fixed_tokens: size.fixed,
+            kept_tokens: window.kept_tokens,
+            kept_used: window.kept_used,
+        },
+        context,
     }))
 }
 
 impl Plan {
     /// Whether the model is asked for notes: a turn did something besides its
-    /// exact message and reply, or a message may set a rule
-    /// (`needsNotes`, `summarize.zig:937-945`). Otherwise the compacted form
-    /// is those texts alone and nothing is sent.
+    /// exact message and reply, a message may set a rule, or a turn stays in
+    /// progress (`needsNotes`, `summarize.zig:937-945`). Otherwise the
+    /// compacted form is those texts alone and nothing is sent.
     pub fn needs_model(&self) -> bool {
-        !self.candidates.is_empty() || self.turns.iter().any(|turn| turn.has_work)
+        self.open || !self.candidates.is_empty() || self.complete().iter().any(|turn| turn.has_work)
     }
 
-    /// How many turns it compacts.
+    /// How many turns it compacts to their end.
     pub fn turn_count(&self) -> usize {
-        self.turns.len()
+        self.complete().len()
     }
 
-    fn headings(&self, noted: &[usize]) -> Vec<Heading> {
-        self.turns
+    /// How many exchanges of the turn in progress the compacted form holds
+    /// once this is saved, counted from that turn's start.
+    pub fn active_exchanges(&self) -> usize {
+        self.active_exchanges
+    }
+
+    fn complete(&self) -> &[Prepared] {
+        &self.turns[..self.turns.len() - usize::from(self.open)]
+    }
+
+    fn in_progress(&self) -> Option<&Prepared> {
+        self.open.then(|| self.turns.last()).flatten()
+    }
+
+    fn headings(&self, listing: Listing<'_>) -> Vec<Heading> {
+        self.complete()
             .iter()
-            .filter(|turn| turn.has_work && !noted.contains(&turn.number))
-            .map(|turn| Heading {
-                number: turn.number,
-                first_tool: turn.first_tool,
-                last_tool: turn.last_tool,
+            .filter(|turn| {
+                (turn.has_work || listing.every_turn) && !listing.noted.contains(&turn.number)
             })
+            .map(|turn| heading(turn, listing.findable))
             .collect()
+    }
+
+    fn open_heading(&self, findable: bool) -> Option<Heading> {
+        self.in_progress().map(|turn| heading(turn, findable))
     }
 
     fn known(&self) -> Known {
         Known {
-            turns: self.turns.iter().map(|turn| turn.number).collect(),
+            turns: self.complete().iter().map(|turn| turn.number).collect(),
             tools: self
                 .turns
                 .iter()
                 .flat_map(|turn| turn.tools.iter().map(|tool| tool.number))
                 .collect(),
+            open: self.open,
         }
     }
 
@@ -1007,27 +1586,26 @@ impl Plan {
     /// `summarize.zig:515-559`).
     fn checkpoint(&self, written: &Written) -> SessionEvent {
         let mut compacted = self.earlier.clone();
-        for turn in &self.turns {
+        for turn in self.complete() {
             compacted.turns.push(CompactedTurn {
                 number: turn.number,
-                users: vec![turn.user.clone()],
-                work: written.work(turn.number).to_string(),
+                users: turn.users.clone(),
+                work: turn_work(turn, written.work(turn.number)),
                 final_reply: turn.final_reply.clone(),
                 first_tool: turn.first_tool,
                 last_tool: turn.last_tool,
-                tools: turn
-                    .tools
-                    .iter()
-                    .map(|tool| ToolLine {
-                        number: tool.number,
-                        line: code_line(tool),
-                        why: written.tool(tool.number).to_string(),
-                    })
-                    .collect(),
+                tools: tool_lines(turn, written),
             });
         }
+        compacted.open = self.in_progress().map(|turn| OpenTurn {
+            users: turn.users.clone(),
+            work: turn_work(turn, written.work(0)),
+            first_tool: turn.first_tool,
+            last_tool: turn.last_tool,
+            tools: tool_lines(turn, written),
+        });
         compacted.entries.extend(written.entries.iter().cloned());
-        compacted.turn_count = self.earlier.turn_count + self.turns.len();
+        compacted.turn_count = self.earlier.turn_count + self.complete().len();
         compacted.tool_count = self
             .turns
             .iter()
@@ -1049,11 +1627,93 @@ impl Plan {
     }
 }
 
+/// A turn's heading in a request, with the tool calls of its own it shows;
+/// `findable` adds how the turn begins and a line naming each tool call
+/// (`heading`, `summarize.zig:987-1005`).
+fn heading(turn: &Prepared, findable: bool) -> Heading {
+    let mut heading = Heading {
+        number: turn.number,
+        first_tool: turn.tools.first().map_or(0, |tool| tool.number),
+        last_tool: turn.tools.last().map_or(0, |tool| tool.number),
+        begins: String::new(),
+        tools: Vec::new(),
+    };
+    if findable {
+        let first_user = turn.users.first().unwrap_or(&turn.user);
+        heading.begins = short_line(first_user, MAX_BEGINS_BYTES);
+        heading.tools = turn
+            .tools
+            .iter()
+            .map(|tool| {
+                let index = tool
+                    .arguments
+                    .as_deref()
+                    .map(index_line)
+                    .unwrap_or_default();
+                format!(
+                    "T{} {}: {}",
+                    tool.number,
+                    tool.name,
+                    short_line(&index, MAX_FINDABLE_TOOL_BYTES)
+                )
+            })
+            .collect();
+    }
+    heading
+}
+
+/// `text` on one line, cut to about `max` bytes with an ellipsis
+/// (`shortLine`, `summarize.zig:1012-1019`).
+fn short_line(text: &str, max: usize) -> String {
+    let mut line = String::new();
+    append_flat(&mut line, text);
+    let flat = line.trim_matches(' ');
+    if flat.len() <= max {
+        return flat.to_string();
+    }
+    format!(
+        "{}\u{2026}",
+        flat[..backward_boundary(flat, max)].trim_end_matches(' ')
+    )
+}
+
+/// What the assistant did in between: in a turn the previous compaction left
+/// in progress, what it wrote then, followed by `new` (`turnWork`,
+/// `summarize.zig:668-673`).
+fn turn_work(turn: &Prepared, new: &str) -> String {
+    let before = turn
+        .continued
+        .as_ref()
+        .map_or("", |part| part.work.as_str());
+    match (before.is_empty(), new.is_empty()) {
+        (true, _) => new.to_string(),
+        (false, true) => before.to_string(),
+        (false, false) => format!("{before}\n{new}"),
+    }
+}
+
+/// A line for each tool call: those the previous compaction listed for the
+/// turn, unchanged, then its own (`toolLines`, `summarize.zig:678-684`).
+fn tool_lines(turn: &Prepared, written: &Written) -> Vec<ToolLine> {
+    let mut lines: Vec<ToolLine> = turn
+        .continued
+        .as_ref()
+        .map(|part| part.tools.clone())
+        .unwrap_or_default();
+    lines.extend(turn.tools.iter().map(|tool| ToolLine {
+        number: tool.number,
+        line: code_line(tool),
+        why: written.tool(tool.number).to_string(),
+    }));
+    lines
+}
+
 /// While the compacted text is over `limit`, clips its longest user
 /// messages, final replies and notes shorter, never below
 /// [`MIN_CLIP_BYTES`] (`fitWithin`, `summarize.zig:1185-1208`).
 fn fit_within(compacted: &mut Compacted, limit: usize) {
-    if tokens(&[&crate::session::checkpoint::render(compacted)]) <= limit {
+    let before = tokens(&[&crate::session::checkpoint::render(compacted)]);
+    if before <= limit {
         return;
     }
     let mut clip = usize::MAX;
@@ -1070,9 +1730,24 @@ fn fit_within(compacted: &mut Compacted, limit: usize) {
         }
     }
     if clip == usize::MAX {
+        trace::log(
+            true,
+            format!(
+                "compacted text over its room with no text long enough to clip tokens={before} \
+                 limit={limit}"
+            ),
+        );
         return;
     }
     compacted.turns = clipped_turns(&compacted.turns, clip);
+    let after = tokens(&[&crate::session::checkpoint::render(compacted)]);
+    trace::log(
+        after > limit,
+        format!(
+            "compacted text over its room; its longest texts were clipped, whole in their saved \
+             turns tokens={before} clipped_tokens={after} limit={limit} clip_bytes={clip}"
+        ),
+    );
 }
 
 fn longest_exact(turns: &[CompactedTurn]) -> usize {
@@ -1162,7 +1837,7 @@ fn longest_text(plan: &Plan) -> usize {
         .iter()
         .flat_map(|turn| {
             std::iter::once(turn.user.len()).chain(turn.items.iter().map(|item| match item {
-                Item::Assistant(text) | Item::Note(text) => text.len(),
+                Item::User(text) | Item::Assistant(text) | Item::Note(text) => text.len(),
                 Item::ToolCall { arguments, .. } => arguments.len(),
                 Item::ToolResult { output, .. } => output.len(),
             }))
@@ -1183,13 +1858,47 @@ fn transcript(plan: &Plan, clip: usize, earlier_clip: usize) -> (String, usize) 
         text.push('\n');
     }
     for turn in &plan.turns {
-        text.push_str(&format!(
-            "[Turn {}]\n[User]\n{}\n\n",
-            turn.number,
-            clipped(&turn.user, clip)
-        ));
+        if turn.number > 0 {
+            text.push_str(&format!(
+                "[Turn {}]\n[User]\n{}\n\n",
+                turn.number,
+                clipped(&turn.user, clip)
+            ));
+        } else {
+            text.push_str(&format!(
+                "[Turn in progress]\n[User, this message stays in the conversation after the \
+                 summary]\n{}\n\n",
+                clipped(&turn.user, clip)
+            ));
+        }
+        if let Some(part) = &turn.continued {
+            if !part.work.is_empty() {
+                text.push_str(&format!(
+                    "[Earlier part of this turn, summarized]\n{}\n\n",
+                    clipped(&part.work, earlier_clip)
+                ));
+            }
+            for user in &part.users {
+                text.push_str(&format!(
+                    "[User, added while the assistant worked]\n{}\n\n",
+                    clipped(user, earlier_clip)
+                ));
+            }
+            if part.first_tool > 0 {
+                text.push_str(&format!(
+                    "[Its tools so far: T{} to T{}]\n\n",
+                    part.first_tool, part.last_tool
+                ));
+            }
+        }
         for (item, number) in turn.items.iter().zip(&turn.tool_numbers) {
             match item {
+                Item::User(added) => {
+                    text.push_str(&format!(
+                        "[User, added while the assistant worked]\n{}\n\n",
+                        clipped(added, clip)
+                    ));
+                }
                 Item::Assistant(assistant) => {
                     text.push_str(&format!("[Assistant]\n{}\n\n", clipped(assistant, clip)));
                 }
@@ -1217,42 +1926,193 @@ fn transcript(plan: &Plan, clip: usize, earlier_clip: usize) -> (String, usize) 
         }
     }
     let start = text.len();
-    write_request(&mut text, &plan.headings(&[]), &plan.earlier.highest_ids());
+    write_request(
+        &mut text,
+        &plan.headings(Listing::default()),
+        plan.open_heading(false),
+        &plan.earlier.highest_ids(),
+        false,
+    );
     write_candidates(&mut text, &plan.candidates);
     (text, start)
 }
 
-/// The request for the notes, for a session whose tool calls cannot be
-/// opened later (`writeRequest`, `ledger.zig:68-106`, `saved = false`).
-fn write_request(text: &mut String, headings: &[Heading], highest: &[usize; 5]) {
-    text.push_str(
-        "Write the compaction notes for the new turns above. The user's messages and the \
-         assistant's final replies stay in the conversation word for word, so do not repeat \
-         them. The tool calls will not be available later, so keep in your notes the details \
-         from them that the work still needs.",
+/// The notes request that follows the conversation, and where in it the
+/// request starts: the compactor's instructions first, since the
+/// conversation keeps the agent's own, then the request listing every turn,
+/// findable (`askFirstNotes`, `summarize.zig:572-579`; `writeRequest`,
+/// `:1288-1298`).
+fn after_conversation_request(plan: &Plan) -> (String, usize) {
+    let mut text = format!("{SYSTEM_PROMPT}\n\n");
+    let start = text.len();
+    write_request(
+        &mut text,
+        &plan.headings(Listing {
+            every_turn: true,
+            findable: true,
+            ..Listing::default()
+        }),
+        plan.open_heading(true),
+        &plan.earlier.highest_ids(),
+        true,
     );
-    if headings.is_empty() {
+    write_candidates(&mut text, &plan.candidates);
+    (text, start)
+}
+
+/// Whether every turn of a compaction fits one notes request, as upstream
+/// sizes the parts it sends them in -- the conversation serves only a
+/// request for all of them (`partEnd`, `summarize.zig:335-345`;
+/// `:199-201`). xfx clips a conversation too large for one rather than send
+/// it in parts, but sends it after the conversation only where upstream
+/// would.
+fn fits_one_request(turns: &[Prepared], earlier: &Compacted, max_prompt_tokens: usize) -> bool {
+    let mut used = REQUEST_OVERHEAD_TOKENS
+        .saturating_add(tokens(&[SYSTEM_PROMPT]))
+        .saturating_add(earlier_tokens(earlier));
+    for (index, turn) in turns.iter().enumerate() {
+        let cost = turn_tokens(turn);
+        if index > 0 && used.saturating_add(cost) > max_prompt_tokens {
+            return false;
+        }
+        used = used.saturating_add(cost);
+    }
+    true
+}
+
+/// A notes request's text besides its turns (`request_overhead_tokens`,
+/// `summarize.zig:328`), and a label's (`item_label_tokens`, `:330`).
+const REQUEST_OVERHEAD_TOKENS: usize = 596;
+const ITEM_LABEL_TOKENS: usize = 8;
+
+/// One turn's estimated tokens in a notes request (`turnTokens`,
+/// `summarize.zig:347-372`).
+fn turn_tokens(turn: &Prepared) -> usize {
+    let mut estimator = Estimator::default();
+    estimator.consume(&turn.user);
+    for item in &turn.items {
+        estimator.consume(" ");
+        match item {
+            Item::User(text) | Item::Assistant(text) | Item::Note(text) => estimator.consume(text),
+            Item::ToolCall {
+                name, arguments, ..
+            } => {
+                estimator.consume(name);
+                estimator.consume(" ");
+                estimator.consume(arguments);
+            }
+            Item::ToolResult { name, output, .. } => {
+                estimator.consume(name);
+                estimator.consume(" ");
+                estimator.consume(output);
+                estimator.consume(" ");
+            }
+        }
+    }
+    estimator
+        .estimate()
+        .saturating_add((turn.items.len().saturating_add(2)).saturating_mul(ITEM_LABEL_TOKENS))
+}
+
+/// What a notes request shows of the compaction in force: its entries and
+/// the turn it left in progress (`earlierTokens`, `summarize.zig:377-396`).
+fn earlier_tokens(earlier: &Compacted) -> usize {
+    let mut estimator = Estimator::default();
+    for entry in &earlier.entries {
+        estimator.consume(&entry.text);
+        estimator.consume(" ");
+    }
+    if let Some(open) = &earlier.open {
+        for user in &open.users {
+            estimator.consume(" ");
+            estimator.consume(user);
+        }
+        estimator.consume(" ");
+        estimator.consume(&open.work);
+        estimator.consume(" ");
+    }
+    estimator
+        .estimate()
+        .saturating_add((earlier.entries.len().saturating_add(1)).saturating_mul(ITEM_LABEL_TOKENS))
+}
+
+/// A request that follows the conversation reads like the user's next
+/// message, so the model is told not to note it (`from_fx`, `ledger.zig:62-64`)
+/// -- under this product's name, as the transcript's `[From xfx, not the
+/// user]` is.
+const FROM_XFX: &str = " This request comes from xfx, not from the user, so leave it and the \
+writing of these notes out of every note and entry.";
+
+/// The request for the notes, for a session whose tool calls cannot be
+/// opened later (`writeRequest`, `ledger.zig:66-107`, `saved = false`):
+/// after the turns written out, or with `after_conversation` after the
+/// conversation itself, whose turns and tool calls carry no IDs.
+fn write_request(
+    text: &mut String,
+    headings: &[Heading],
+    open: Option<Heading>,
+    highest: &[usize; 5],
+    after_conversation: bool,
+) {
+    let open_turn = open.is_some();
+    if after_conversation {
+        text.push_str(
+            "Write the compaction notes for the turns of the conversation above that are listed \
+             below; the turns after them stay in the conversation as they are. Answer with text \
+             only and call no tools.",
+        );
+        text.push_str(FROM_XFX);
+    } else {
+        text.push_str("Write the compaction notes for the new turns above.");
+    }
+    text.push_str(
+        " The user's messages and the assistant's final replies stay in the conversation word for \
+         word, so do not repeat them. The tool calls will not be available later, so keep in your \
+         notes the details from them that the work still needs.",
+    );
+    if headings.is_empty() && !open_turn {
         text.push_str("\n\n");
     } else {
         text.push_str(
             "\n\nWrite these headings, in this order and without skipping any, each followed by \
              its notes:\n\n",
         );
-        write_headings(text, headings);
+        write_headings(text, headings, open);
+        if after_conversation {
+            text.push_str(
+                "\nUnder each heading above are the turn's tool calls in order, with their IDs, so \
+                 you can find them in the conversation; do not copy those lines.\n",
+            );
+        }
         text.push_str(
             "\nUnder each heading:\nIn between: one to three sentences on what the assistant did \
              before its final reply: what it looked at, what it found, what it changed or \
              decided. Leave out what the final reply already says. Write \"none\" when there was \
              nothing.\nThen one line for every tool call of the turn, starting with its ID like \
              `T<number>:`, at most 15 words: why it was used and what it showed that matters. \
-             Calls with one purpose may share a line that starts `T<first>\u{2013}T<last>:`.\n\n",
+             Calls with one purpose may share a line that starts `T<first>\u{2013}T<last>:`.\n",
         );
+        if open_turn {
+            text.push_str(if after_conversation {
+                "For the turn in progress, give its notes so far, through the last tool call \
+                 listed under its heading; the calls after it stay in the conversation.\n"
+            } else {
+                "For the turn in progress, give its notes so far.\n"
+            });
+        }
+        text.push('\n');
     }
     text.push_str(
         "Then only the new entries of these sections, each starting with its ID and the turn or \
          tool call it comes from, like `F<number> (T<number>):`:\n\nRules:\nR1, R2, ...: each new \
          instruction, rule or preference from the user, quoted word for word in double quotes, \
-         with its turn, like `(turn <number>)`.\n\nFacts:\nF1, F2, ...: facts the work depends \
+         with its turn, like `(turn <number>)`",
+    );
+    if open_turn {
+        text.push_str(", or `(turn in progress)` for the turn still in progress");
+    }
+    text.push_str(
+        ".\n\nFacts:\nF1, F2, ...: facts the work depends \
          on, from these turns: names, paths, values, results, causes.\n\nDecisions:\nD1, D2, \
          ...: each decision and why. When it changes an earlier entry, end with \"replaces\" and \
          that entry's ID.\n\nStatus:\nS1, S2, ...: where each part of the work stands now. When \
@@ -1271,12 +2131,25 @@ fn write_request(text: &mut String, headings: &[Heading], highest: &[usize; 5]) 
 
 /// What a first reply left out, asked for once more (`writeFollowUp`,
 /// `ledger.zig:123-143`, with no earlier compaction to summarize).
-fn write_follow_up(text: &mut String, missing: &[Heading], highest: &[usize; 5]) {
+fn write_follow_up(
+    text: &mut String,
+    missing: &[Heading],
+    highest: &[usize; 5],
+    after_conversation: bool,
+) {
     text.push_str(
         "Your notes on the turns above left some out. Write the notes for only these turns now, \
          each heading followed by its notes:\n\n",
     );
-    write_headings(text, missing);
+    write_headings(text, missing, None);
+    if after_conversation {
+        text.push_str(
+            "\nUnder each heading above are the turn's tool calls, so you can find them; do not \
+             copy those lines. Answer with text only and call no tools.",
+        );
+        text.push_str(FROM_XFX);
+        text.push('\n');
+    }
     text.push_str(
         "\nUnder each heading, In between: with what the assistant did before its final reply, \
          then a line for every tool call, starting with its ID, on why it was used and what it \
@@ -1287,10 +2160,16 @@ fn write_follow_up(text: &mut String, missing: &[Heading], highest: &[usize; 5])
     text.push_str(" Write only these notes.");
 }
 
-/// `Turn 3 (T10–T19)` lines (`writeHeadings`, `ledger.zig:147-170`).
-fn write_headings(text: &mut String, headings: &[Heading]) {
-    for heading in headings {
-        text.push_str(&format!("Turn {}", heading.number));
+/// `Turn 3 (T10–T19)` lines, then `Turn in progress`, each with how it
+/// begins and its tool calls when it has them (`writeHeadings`,
+/// `ledger.zig:147-170`).
+fn write_headings(text: &mut String, headings: &[Heading], open: Option<Heading>) {
+    for heading in headings.iter().chain(open.as_ref()) {
+        if heading.number > 0 {
+            text.push_str(&format!("Turn {}", heading.number));
+        } else {
+            text.push_str("Turn in progress");
+        }
         if heading.first_tool == 0 {
             text.push_str(" (no tool calls)");
         } else if heading.first_tool == heading.last_tool {
@@ -1301,7 +2180,16 @@ fn write_headings(text: &mut String, headings: &[Heading]) {
                 heading.first_tool, heading.last_tool
             ));
         }
+        if !heading.begins.is_empty() {
+            text.push_str(&format!(
+                ", which begins \u{201c}{}\u{201d}",
+                heading.begins
+            ));
+        }
         text.push('\n');
+        for line in &heading.tools {
+            text.push_str(&format!("  {line}\n"));
+        }
     }
 }
 
@@ -1356,6 +2244,8 @@ fn write_candidates(text: &mut String, found: &[Candidate]) {
 struct Known {
     turns: Vec<usize>,
     tools: Vec<usize>,
+    /// A turn in progress may be written for, as turn zero.
+    open: bool,
 }
 
 /// A note for one turn or tool call.
@@ -1471,7 +2361,12 @@ fn read(reply: &str, known: &Known, earlier: &[Entry], highest: &[usize; 5]) -> 
         };
         if let Some(work) = in_between_rest(&plain) {
             current = Current::None;
-            if !known.turns.contains(&number) {
+            let allowed = if number == 0 {
+                known.open
+            } else {
+                known.turns.contains(&number)
+            };
+            if !allowed {
                 unknown += 1;
                 continue;
             }
@@ -1526,7 +2421,12 @@ fn read(reply: &str, known: &Known, earlier: &[Entry], highest: &[usize; 5]) -> 
     // A reply in none of the asked form is kept whole as the notes of the
     // newest turn rather than lost (`ledger.zig:504-517`).
     if works.is_empty() && tool_notes.is_empty() && sections.is_empty() && unknown == 0 {
-        if let Some(newest) = known.turns.last() {
+        let newest = if known.open {
+            Some(&0)
+        } else {
+            known.turns.last()
+        };
+        if let Some(newest) = newest {
             let text = reply.trim_matches([' ', '\t', '\r', '\n']);
             works.push(Building {
                 number: *newest,
@@ -1743,15 +2643,18 @@ fn undecorated(line: &str) -> String {
         .replace("**", "")
 }
 
-/// The turn a heading line starts the notes of (`turnNumber`,
-/// `ledger.zig:613-625`). xfx asks for no turn in progress, so one is not a
-/// turn here.
+/// The turn a heading line starts the notes of; zero for the turn in
+/// progress (`turnNumber`, `ledger.zig:613-625`).
 fn turn_number(plain: &str) -> Option<usize> {
     let rest = plain.trim_matches(['[', ']', ':', ' ']);
     if !starts_with_ignore_case(rest, "Turn ") {
         return None;
     }
     let rest = rest["Turn".len()..].trim_start_matches(['[', ' ']);
+    const IN_PROGRESS: &str = "in progress";
+    if starts_with_ignore_case(rest, IN_PROGRESS) {
+        return ends_heading(&rest[IN_PROGRESS.len()..]).then_some(0);
+    }
     let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
     if digits == 0 || !ends_heading(&rest[digits..]) {
         return None;
@@ -1878,6 +2781,58 @@ pub struct Caller<'a> {
     /// The reasoning efforts a model accepts, low to high, as its catalog row
     /// lists them; empty when unknown.
     pub efforts: &'a dyn Fn(&str) -> Vec<String>,
+    /// Where each notes request's cost is kept, whatever becomes of the
+    /// compaction.
+    pub spent: &'a Spent,
+    /// The request the turn was about to send, which a notes request may
+    /// follow so the provider reuses what it cached of it, with the options
+    /// it was to be sent with: `None` between turns, and after the provider
+    /// refused it as too large (`CompactorCaller.conversation`,
+    /// `orchestrator.zig:7390-7393`).
+    pub conversation: Option<(&'a CompletionRequest, &'a RequestOptions)>,
+}
+
+/// What a compaction's notes requests cost, for `/usage`.
+///
+/// Upstream bills them to the session's usage like any other request
+/// (`CompactorCaller.usage`, `app_agent_runtime.zig:1127`;
+/// `text_completion.zig:203-204`) -- and only there: they are never reported
+/// to the context meter, which moves on a turn's usage alone
+/// (`agentReportUsage`, `app_callbacks.zig:1447-1451`). Kept per request as a
+/// turn's are ([`crate::session::RequestUsage`]), whether the compaction then
+/// succeeds or not: a request that was answered was billed.
+#[derive(Debug, Default)]
+pub struct Spent {
+    requests: RefCell<Vec<RequestUsage>>,
+    /// A request was sent and then lost, so it may have been billed with
+    /// nothing to say what it cost (`crate::agent::machine`'s
+    /// `may_have_billed`).
+    unaccounted: Cell<bool>,
+}
+
+impl Spent {
+    /// What was kept, and whether a request was lost, emptying it.
+    pub fn take(&self) -> (Vec<RequestUsage>, bool) {
+        (self.requests.take(), self.unaccounted.replace(false))
+    }
+
+    /// The `usage_recorded` frame a compaction outside a turn writes for its
+    /// requests, or `None` when it sent none. Its totals stay absent: they
+    /// are a turn's answering step's, and this answered no turn.
+    pub fn frame(&self) -> Option<SessionEvent> {
+        let (requests, unaccounted) = self.take();
+        (!requests.is_empty() || unaccounted).then_some(SessionEvent::UsageRecorded {
+            input_tokens: None,
+            output_tokens: None,
+            requests,
+            unaccounted,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+            turn_output_tokens: None,
+        })
+    }
 }
 
 /// The model to try when the conversation's own model cannot write the
@@ -1908,24 +2863,54 @@ impl DeltaSink for Discard {
     }
 }
 
+/// How the notes requests of one compaction went, for `/trace`'s
+/// `provider_completed` line (`Summarizer`, `model.zig:92-97`).
+#[derive(Debug, Default)]
+struct Asked {
+    /// How many times notes were asked for, a fallback counted with its own.
+    summaries: Cell<usize>,
+    /// The other family's model, when it was asked.
+    fallback: Cell<Option<&'static str>>,
+}
+
 /// Asks the model for notes, and on a failure or an empty reply asks the
 /// fallback family once (`Summarizer.summarizeWith`, `model.zig:103-131`).
-async fn summarize_with(caller: &Caller<'_>, user: &str) -> Result<String, Failure> {
-    let primary = ask(caller, caller.model, user).await;
-    match &primary {
+async fn summarize_with(
+    caller: &Caller<'_>,
+    user: &str,
+    asked: &Asked,
+    context: Context,
+) -> Result<String, Failure> {
+    asked.summaries.set(asked.summaries.get() + 1);
+    let primary = ask(caller, caller.model, user, context).await;
+    let after = match &primary {
         Ok(text) if !text.trim().is_empty() => return primary,
         Err(Failure::Cancelled) => return primary,
-        _ => {}
-    }
+        Ok(_) => "empty_summary",
+        Err(failure) => failure.name(),
+    };
     if !caller.fallback {
         return primary;
     }
-    ask(caller, fallback_model(caller.model), user).await
+    let fallback = fallback_model(caller.model);
+    trace::info(
+        context,
+        Kind::Log,
+        format!("fallback model={fallback} after={after}"),
+    );
+    asked.fallback.set(Some(fallback));
+    ask(caller, fallback, user, context).await
 }
 
 /// One notes request to `model`, with no tools, at its lowest reasoning
-/// (`ask`, `model.zig:134-161`).
-async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Failure> {
+/// (`ask`, `model.zig:134-161`; `CompactorCaller.send`,
+/// `text_completion.zig:225-284`).
+async fn ask(
+    caller: &Caller<'_>,
+    model: &str,
+    user: &str,
+    context: Context,
+) -> Result<String, Failure> {
     // No speed: upstream's summarizer asks for a reasoning level and nothing
     // else (`Summarizer.ask`, `model.zig:134-145`), whatever the session's
     // Fast or Ultra.
@@ -1939,69 +2924,378 @@ async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Fai
         tools: Vec::new(),
         tool_choice: ToolChoice::None,
     };
-    let completion = match caller.provider.stream(&request, &mut Discard).await {
-        Ok(completion) => completion,
-        Err(ProviderError::Cancelled) => return Err(Failure::Cancelled),
-        Err(err) => return Err(Failure::Summary(err.to_string())),
+    send(caller, &request, false, context).await
+}
+
+/// One notes request right after the conversation, sent exactly as the turn
+/// was about to send it -- its instructions, tools and tool choice -- then
+/// `user` as one more user message, with the turn's own options but Ultra,
+/// which is for a turn's requests (`complete`, `text_completion.zig:68-80`;
+/// `CompactorCaller.send`, `:225-247`). Only the conversation's own model
+/// has it cached, so no other is asked (`Summarizer.summarizeWith`,
+/// `model.zig:106-108`).
+async fn ask_after_conversation(
+    caller: &Caller<'_>,
+    user: &str,
+    asked: &Asked,
+    context: Context,
+) -> Result<String, Failure> {
+    let Some((conversation, options)) = caller.conversation else {
+        return Err(Failure::summary("ModelFailed", "kind=no_conversation"));
     };
+    asked.summaries.set(asked.summaries.get() + 1);
+    caller.provider.set_options(RequestOptions {
+        ultrafast: false,
+        ..options.clone()
+    });
+    let mut request = conversation.clone();
+    request.messages.push(Message::user(user));
+    send(caller, &request, true, context).await
+}
+
+/// Sends one notes request and reads its whole reply as text: a tool call,
+/// an answer cut short, or one too long is no notes (`complete`,
+/// `text_completion.zig:65-148`; `Summarizer.ask`, `model.zig:146-161`).
+async fn send(
+    caller: &Caller<'_>,
+    request: &CompletionRequest,
+    after_conversation: bool,
+    context: Context,
+) -> Result<String, Failure> {
+    let model = request.model.as_str();
+    let began = Instant::now();
+    let outcome = caller.provider.stream(request, &mut Discard).await;
+    // What the provider reported the request used; the cache counts come
+    // with a bill, when the provider sent one (`text_completion.zig:272-275`).
+    let (usage, cached) = match &outcome {
+        Ok(completion) => (
+            completion.usage,
+            match &completion.billing {
+                Some(crate::gateway::protocol::Bill::Exact(bill)) => {
+                    (Some(bill.cache_read_tokens), Some(bill.cache_write_tokens))
+                }
+                _ => (None, None),
+            },
+        ),
+        Err(_) => (Default::default(), (None, None)),
+    };
+    if !matches!(outcome, Err(ProviderError::Cancelled)) {
+        trace::log(
+            false,
+            format!(
+                "compaction model call model={model} after_conversation={after_conversation} \
+                 input_tokens={} cache_read_tokens={} cache_write_tokens={} output_tokens={}",
+                trace::any(usage.input_tokens),
+                trace::any(cached.0),
+                trace::any(cached.1),
+                trace::any(usage.output_tokens),
+            ),
+        );
+    }
+    let completion = match outcome {
+        Ok(completion) => completion,
+        Err(err) => {
+            if may_have_billed(&err) {
+                caller.spent.unaccounted.set(true);
+            }
+            if matches!(err, ProviderError::Cancelled) {
+                return Err(Failure::Cancelled);
+            }
+            let detail = provider_failure(&err);
+            trace::failure(
+                context,
+                Kind::SummaryTransportFailed,
+                format!("model={model} {detail}"),
+            );
+            return Err(Failure::summary("ModelFailed", err.to_string()));
+        }
+    };
+    caller
+        .spent
+        .requests
+        .borrow_mut()
+        .push(request_usage(&completion, model, began.elapsed()));
     match completion.finish_reason {
         FinishReason::Stop if completion.tool_calls.is_empty() => {}
         FinishReason::Stop | FinishReason::ToolCalls => {
-            return Err(Failure::Summary(format!(
-                "{model} called a tool instead of writing notes"
-            )))
+            trace::failure(
+                context,
+                Kind::SummaryToolCallRejected,
+                format!("model={model}"),
+            );
+            return Err(Failure::summary(
+                "ModelFailed",
+                format!("{model} called a tool instead of writing notes"),
+            ));
         }
         other => {
-            return Err(Failure::Summary(format!(
-                "{model} stopped with `{}`",
-                other.label()
-            )))
+            trace::failure(
+                context,
+                Kind::SummaryIncomplete,
+                format!(
+                    "model={model} finish_reason={} bytes={}",
+                    other.label(),
+                    completion.text.len()
+                ),
+            );
+            return Err(Failure::summary(
+                "SummaryIncomplete",
+                format!("{model} stopped with `{}`", other.label()),
+            ));
         }
     }
     if completion.text.len() > MAX_SUMMARY_BYTES {
-        return Err(Failure::Summary(format!(
-            "{model} wrote {} bytes of notes",
-            completion.text.len()
-        )));
+        trace::failure(
+            context,
+            Kind::SummaryTruncated,
+            format!("model={model} bytes={}", completion.text.len()),
+        );
+        return Err(Failure::summary(
+            "ModelFailed",
+            format!("{model} wrote {} bytes of notes", completion.text.len()),
+        ));
     }
     Ok(completion.text)
+}
+
+/// A failed notes request as `/trace` describes it: the provider's refusal
+/// by its kind and its masked words (`kind=… detail=…`,
+/// `text_completion.zig:133-142`), a request that never completed by what
+/// went wrong (`err=…`).
+fn provider_failure(err: &ProviderError) -> String {
+    match err {
+        ProviderError::Status { status, body, .. } => format!(
+            "kind={} detail={}",
+            failure_kind(*status),
+            trace::provider_detail(body)
+        ),
+        other => format!("err={}", trace::provider_detail(&other.to_string())),
+    }
+}
+
+/// The provider's refusal by its status, in upstream's words
+/// (`agent_stream_provider.FailureKind`; `failureHttpStatus`,
+/// `orchestrator.zig:4413-4426`, read the other way).
+fn failure_kind(status: u16) -> &'static str {
+    match status {
+        400 => "invalid_request",
+        401 => "unauthorized",
+        403 => "forbidden",
+        413 => "request_too_large",
+        429 => "rate_limited",
+        500 => "server_error",
+        502 => "bad_gateway",
+        503 => "unavailable",
+        504 => "gateway_timeout",
+        _ => "provider_error",
+    }
 }
 
 /// The checkpoint for `plan`, asking the model for notes when it needs them
 /// (`summarize.compact` and `compactPart`, `summarize.zig:169-559`, for one
 /// part). A reply that skips a turn that did work is asked once more for just
 /// those turns; that request failing keeps the first notes.
+///
+/// Says what it did on `/trace` as upstream's compactor does: the room it
+/// was chosen in, `provider_start` and `provider_completed` around the notes
+/// -- both for a compaction that needs none -- and each request's failures
+/// (`compactor.zig:195-215`).
 pub async fn finish(plan: &Plan, caller: &Caller<'_>) -> Result<SessionEvent, Failure> {
+    let context = plan.context;
+    trace::log(
+        false,
+        format!(
+            "room after compaction after_tokens={} fixed_tokens={} kept_tokens={} \
+             kept_used={} compacted_tokens={}",
+            plan.room.after_tokens,
+            trace::any(plan.room.fixed_tokens),
+            plan.room.kept_tokens,
+            plan.room.kept_used,
+            plan.max_text_tokens
+        ),
+    );
+    trace::info(
+        context,
+        Kind::ProviderStart,
+        format!(
+            "model={} turns={} earlier={} store=false",
+            caller.model,
+            plan.turns.len(),
+            plan.has_earlier
+        ),
+    );
+    let asked = Asked::default();
+    let event = notes(plan, caller, &asked).await?;
+    if let SessionEvent::ContextCheckpoint { compacted, .. } = &event {
+        trace::info(
+            context,
+            Kind::ProviderCompleted,
+            format!(
+                "model={} summaries={} shown_turns={} turns={} tools={} entries={} used=0 \
+                 text_bytes={} fallback={}",
+                caller.model,
+                asked.summaries.get(),
+                compacted.turns.len(),
+                compacted.turn_count,
+                compacted.tool_count,
+                compacted.entries.len(),
+                crate::session::checkpoint::render(compacted).len(),
+                asked.fallback.get().unwrap_or("none")
+            ),
+        );
+    }
+    Ok(event)
+}
+
+async fn notes(plan: &Plan, caller: &Caller<'_>, asked: &Asked) -> Result<SessionEvent, Failure> {
+    let context = plan.context;
     if !plan.needs_model() {
         return Ok(plan.local());
     }
-    let (user, start) = fitting_transcript(plan);
-    let reply = summarize_with(caller, &user).await?;
-    let reply = reply.trim_matches([' ', '\t', '\r', '\n']);
-    if reply.is_empty() {
-        return Err(Failure::Summary("the notes were empty".to_string()));
-    }
+    let first = match after_conversation(plan, caller, asked).await? {
+        Some(first) => first,
+        None => {
+            let (user, start) = fitting_transcript(plan);
+            let reply = summarize_with(caller, &user, asked, context).await?;
+            let reply = reply.trim_matches([' ', '\t', '\r', '\n']).to_string();
+            if reply.is_empty() {
+                return Err(Failure::summary("EmptySummary", "the notes were empty"));
+            }
+            First {
+                reply,
+                user,
+                start,
+                after_conversation: false,
+            }
+        }
+    };
     let known = plan.known();
     let highest = plan.earlier.highest_ids();
-    let mut written = read(reply, &known, &plan.earlier.entries, &highest);
-    let missing = plan.headings(&written.noted);
+    let mut written = read(&first.reply, &known, &plan.earlier.entries, &highest);
+    trace::log(
+        false,
+        format!(
+            "compaction notes: turns_noted={}/{} tool_notes={} tools={} entries={} \
+             earlier_bytes=0 reply_bytes={} after_conversation={}",
+            written.works.len(),
+            known.turns.len() + usize::from(known.open),
+            written.tools.len(),
+            known.tools.len(),
+            written.entries.len(),
+            first.reply.len(),
+            first.after_conversation
+        ),
+    );
+    // A reply that skips turns with work is asked once more for just those.
+    // Everything before the request is the same, so the provider has it
+    // cached (`summarize.zig:470-495`).
+    let missing = plan.headings(Listing {
+        noted: &written.noted,
+        findable: first.after_conversation,
+        ..Listing::default()
+    });
     if !missing.is_empty() {
         let mut so_far = plan.earlier.entries.clone();
         so_far.extend(written.entries.iter().cloned());
         let highest_so_far = highest_ids(&so_far);
-        let mut follow_up = user[..start].to_string();
-        write_follow_up(&mut follow_up, &missing, &highest_so_far);
-        match summarize_with(caller, &follow_up).await {
+        let mut follow_up = first.user[..first.start].to_string();
+        write_follow_up(
+            &mut follow_up,
+            &missing,
+            &highest_so_far,
+            first.after_conversation,
+        );
+        let more = if first.after_conversation {
+            ask_after_conversation(caller, &follow_up, asked, context).await
+        } else {
+            summarize_with(caller, &follow_up, asked, context).await
+        };
+        match more {
             Ok(more) => {
+                let more_bytes = more.trim().len();
                 let more = read(more.trim(), &known, &so_far, &highest_so_far);
+                trace::log(
+                    false,
+                    format!(
+                        "compaction notes follow-up: missing_turns={} summary_missing=false \
+                         noted={} reply_bytes={}",
+                        missing.len(),
+                        more.noted.len(),
+                        more_bytes
+                    ),
+                );
                 written = written.merged(more);
             }
             Err(Failure::Cancelled) => return Err(Failure::Cancelled),
             // The first notes stand (`summarize.zig:491-494`).
-            Err(_) => {}
+            Err(failure) => trace::log(
+                true,
+                format!(
+                    "compaction notes follow-up failed err={}; keeping the first notes",
+                    failure.name()
+                ),
+            ),
         }
     }
     Ok(plan.checkpoint(&written))
+}
+
+/// The first notes, the request they answered, and where in it the request
+/// starts: what a follow-up repeats (`First`, `summarize.zig:561-565`).
+struct First {
+    reply: String,
+    user: String,
+    start: usize,
+    after_conversation: bool,
+}
+
+/// The first notes asked for right after the conversation, when the turn
+/// has one to follow and the request fits the room after it; `None` --
+/// and the turns written out instead -- when it cannot be asked that way,
+/// does not fit, or fails (`askFirstNotes`, `summarize.zig:571-595`).
+async fn after_conversation(
+    plan: &Plan,
+    caller: &Caller<'_>,
+    asked: &Asked,
+) -> Result<Option<First>, Failure> {
+    let (Some(room), Some(_)) = (plan.after_room, caller.conversation) else {
+        return Ok(None);
+    };
+    let (user, start) = after_conversation_request(plan);
+    let needed = tokens(&[&user]);
+    if needed > room {
+        trace::log(
+            false,
+            format!(
+                "compaction notes after the conversation do not fit tokens={needed} \
+                 room={room}; writing the turns out"
+            ),
+        );
+        return Ok(None);
+    }
+    let failed = match ask_after_conversation(caller, &user, asked, plan.context).await {
+        Ok(reply) => {
+            let reply = reply.trim_matches([' ', '\t', '\r', '\n']).to_string();
+            if !reply.is_empty() {
+                return Ok(Some(First {
+                    reply,
+                    user,
+                    start,
+                    after_conversation: true,
+                }));
+            }
+            "EmptySummary"
+        }
+        Err(Failure::Cancelled) => return Err(Failure::Cancelled),
+        Err(failure) => failure.name(),
+    };
+    trace::log(
+        true,
+        format!(
+            "compaction notes after the conversation failed err={failed}; writing the turns out"
+        ),
+    );
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -2035,6 +3329,7 @@ mod tests {
             seqs: TurnSeqs {
                 opened: seq,
                 last: seq + 2,
+                steps: vec![seq + 1],
             },
         }
     }
@@ -2058,7 +3353,6 @@ mod tests {
                     wire: None,
                 },
                 TurnStep::ToolResult {
-                    created_at_ms: None,
                     call_id: "read1".to_string(),
                     tool: "read_file".to_string(),
                     ok: true,
@@ -2081,8 +3375,13 @@ mod tests {
             seqs: TurnSeqs {
                 opened: seq,
                 last: seq + 4,
+                steps: vec![seq + 1, seq + 2, seq + 3],
             },
         }
+    }
+
+    fn refs(turns: &[HistoryTurn]) -> Vec<&HistoryTurn> {
+        turns.iter().collect()
     }
 
     fn state(turns: Vec<HistoryTurn>) -> DurableState {
@@ -2159,11 +3458,15 @@ mod tests {
     }
 
     fn caller<'a>(provider: &'a Scripted, fallback: bool) -> Caller<'a> {
+        // Leaked: a test's caller lives as long as the test.
+        let spent: &'static Spent = Box::leak(Box::default());
         Caller {
             provider,
             model: "anthropic/claude-opus-5",
             fallback,
             efforts: &efforts,
+            spent,
+            conversation: None,
         }
     }
 
@@ -2219,8 +3522,11 @@ mod tests {
     fn one_turn_has_nothing_older_than_the_kept_window() {
         // fx: `/compact` after one turn is `No context to compact.`
         // (`cap/fx-compact-40x120-compacting-0.4s`).
-        let turns = vec![said("one", "ONE", 2)];
-        assert_eq!(choose(&turns, &Size::default()), Ok(None));
+        let turns = [said("one", "ONE", 2)];
+        assert_eq!(
+            choose(&refs(&turns), None, &Size::default(), Context::default()),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -2228,17 +3534,25 @@ mod tests {
         // With no window known the newest four are kept and anything older
         // compacted; two turns compact one (`receipts/w4/fx-compact-text`,
         // request 4: the first turn compacted, the second as it was).
-        let two = vec![said("one", "ONE", 2), said("two", "TWO", 5)];
+        let whole = |turns: usize| {
+            Ok(Some(Cut {
+                turns,
+                exchanges: 0,
+            }))
+        };
+        let two = [said("one", "ONE", 2), said("two", "TWO", 5)];
         assert_eq!(
-            choose(&two, &Size::default()).map(|w| w.map(|w| w.cut)),
-            Ok(Some(1))
+            choose(&refs(&two), None, &Size::default(), Context::default())
+                .map(|w| w.map(|w| w.cut)),
+            whole(1)
         );
         let five: Vec<_> = (0..5u64)
             .map(|n| said(&format!("q{n}"), "answer", 2 + n * 3))
             .collect();
         assert_eq!(
-            choose(&five, &Size::default()).map(|w| w.map(|w| w.cut)),
-            Ok(Some(1))
+            choose(&refs(&five), None, &Size::default(), Context::default())
+                .map(|w| w.map(|w| w.cut)),
+            whole(1)
         );
     }
 
@@ -2249,10 +3563,225 @@ mod tests {
         let big = "word ".repeat(3_000);
         let turns = vec![said("a", &big, 2), said("b", &big, 5), said("c", &big, 8)];
         let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
-        let window = choose(&turns, &size)
+        let window = choose(&refs(&turns), None, &size, Context::default())
             .expect("chooses")
             .expect("something to compact");
-        assert_eq!(window.cut, 2, "only the newest fits the kept room");
+        assert_eq!(
+            window.cut,
+            Cut {
+                turns: 2,
+                exchanges: 0
+            },
+            "only the newest fits the kept room"
+        );
+    }
+
+    /// A turn of `reads` reads of `big` lines each, then `reply`, its frames
+    /// from `seq`: the prompt, then a call and a result per read, the reply,
+    /// the conclusion. `reply` empty leaves it in progress.
+    fn reading_turn(user: &str, reads: usize, big: &str, reply: &str, seq: u64) -> HistoryTurn {
+        let mut steps = Vec::new();
+        for n in 0..reads {
+            steps.push(TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![RecordedToolCall {
+                    id: format!("read{n}"),
+                    name: "read_file".to_string(),
+                    input: json!({"path": format!("f{n}.txt")}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            });
+            steps.push(TurnStep::ToolResult {
+                call_id: format!("read{n}"),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: big.to_string(),
+                images: Vec::new(),
+                ending: None,
+                lines: None,
+                change: None,
+            });
+        }
+        if !reply.is_empty() {
+            steps.push(TurnStep::Assistant {
+                text: reply.to_string(),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            });
+        }
+        let step_seqs: Vec<u64> = (0..steps.len() as u64).map(|n| seq + 1 + n).collect();
+        let last = step_seqs.last().copied().unwrap_or(seq) + u64::from(!reply.is_empty());
+        HistoryTurn {
+            user: user.to_string(),
+            images: Vec::new(),
+            steps,
+            outcome: if reply.is_empty() { None } else { concluded() },
+            timing: TurnTiming::default(),
+            seqs: TurnSeqs {
+                opened: seq,
+                last,
+                steps: step_seqs,
+            },
+        }
+    }
+
+    #[test]
+    fn the_newest_exchanges_stay_and_the_older_ones_of_their_turn_are_compacted() {
+        // `selectRecentContext` (`window.zig:169-251`) counts a turn's
+        // exchanges one by one, newest first: the kept room at a 128K window
+        // is 4_792 tokens, so the last read of about 3_000 stays and the two
+        // before it go, the turn's message staying after the checkpoint.
+        let big = "word ".repeat(3_000);
+        let turn = reading_turn("read them", 3, &big, "DONE", 2);
+        let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
+        let window = choose(&[&turn], None, &size, Context::default())
+            .expect("chooses")
+            .expect("something to compact");
+        assert_eq!(
+            window.cut,
+            Cut {
+                turns: 0,
+                exchanges: 2
+            }
+        );
+        assert!(window.splits());
+        let plan = plan(&state(vec![turn.clone()]), &size, Context::default())
+            .expect("plans")
+            .expect("a part to compact");
+        assert!(
+            plan.needs_model(),
+            "a part in progress always asks for notes"
+        );
+        assert_eq!(plan.turn_count(), 0);
+        let (asked, _) = fitting_transcript(&plan);
+        assert!(asked.starts_with(
+            "[Turn in progress]\n[User, this message stays in the conversation after the \
+             summary]\nread them\n\n[Tool call T1: read_file]"
+        ));
+        assert!(asked.contains("[Tool result T2: read_file]"));
+        assert!(!asked.contains("T3"), "the newest read stays: {asked}");
+        assert!(
+            asked.contains("Turn in progress (T1\u{2013}T2)\n"),
+            "{asked}"
+        );
+        assert!(asked.contains("For the turn in progress, give its notes so far.\n"));
+        assert!(asked.contains("`(turn in progress)` for the turn still in progress"));
+        let SessionEvent::ContextCheckpoint {
+            covers_through_seq,
+            compacted,
+        } = plan.checkpoint(&read(
+            "Turn in progress\nIn between: read two.\nT1: one\nT2: two\n",
+            &plan.known(),
+            &[],
+            &[0; 5],
+        ))
+        else {
+            panic!("a checkpoint");
+        };
+        // Through the second read's result: frames 3-6.
+        assert_eq!(covers_through_seq, 6);
+        assert!(compacted.turns.is_empty());
+        let open = compacted.open.expect("the part in progress");
+        assert_eq!((open.first_tool, open.last_tool), (1, 2));
+        assert_eq!(open.work, "read two.");
+        assert_eq!(open.tools[1].why, "two");
+        assert!(open.users.is_empty(), "its first message stays after it");
+        assert_eq!(compacted.turn_count, 0);
+        assert_eq!(compacted.tool_count, 2);
+    }
+
+    #[test]
+    fn a_turn_in_progress_is_never_compacted_whole() {
+        // `split`: compacting all of it cuts after its last exchange, and its
+        // first message stays (`window.zig:286-291`).
+        let big = "word ".repeat(1_000);
+        let before = said("one", "ONE", 2);
+        let running = reading_turn("go", 2, &big, "", 5);
+        let window = split(&[&before], Some(&running), 0, None);
+        assert_eq!(
+            window.cut,
+            Cut {
+                turns: 1,
+                exchanges: 2
+            }
+        );
+        // With no exchange yet, there is nothing of it to take.
+        let opening = reading_turn("go", 0, &big, "", 5);
+        assert_eq!(
+            split(&[&before], Some(&opening), 0, None).cut,
+            Cut {
+                turns: 1,
+                exchanges: 0
+            }
+        );
+    }
+
+    #[test]
+    fn a_later_compaction_carries_the_part_in_progress_into_its_turn() {
+        // `prepare`'s `continued` (`summarize.zig:759-833`): the earlier part's
+        // summary, tools and numbers go on in the turn once it is compacted
+        // to its end; its first message joins it then.
+        let big = "word ".repeat(3_000);
+        let turn = reading_turn("read them", 3, &big, "DONE", 2);
+        let size = Size::of(Some(128_000), Some(8_192), DEFAULT_PERCENT);
+        let first = plan(&state(vec![turn.clone()]), &size, Context::default())
+            .expect("plans")
+            .expect("a part");
+        let SessionEvent::ContextCheckpoint { compacted, .. } = first.checkpoint(&read(
+            "Turn in progress\nIn between: read two.\nT1: one\nT2: two\n",
+            &first.known(),
+            &[],
+            &[0; 5],
+        )) else {
+            panic!("a checkpoint");
+        };
+        let mut later = state(vec![turn, said("next", "NEXT", 11)]);
+        later.checkpoint = Some(crate::session::Checkpoint {
+            covers_through_seq: 6,
+            covered_turns: 0,
+            covered_steps: 4,
+            compacted,
+            count: 1,
+        });
+        let second = plan(&later, &Size::default(), Context::default())
+            .expect("plans")
+            .expect("the rest of the turn");
+        assert_eq!(second.turn_count(), 1);
+        let (asked, _) = fitting_transcript(&second);
+        assert!(
+            asked.starts_with(
+                "[Turn 1]\n[User]\nread them\n\n[Earlier part of this turn, summarized]\n\
+                 read two.\n\n[Its tools so far: T1 to T2]\n\n[Tool call T3: read_file]"
+            ),
+            "{asked}"
+        );
+        let SessionEvent::ContextCheckpoint { compacted, .. } = second.checkpoint(&read(
+            "Turn 1\nIn between: read the third.\nT3: three\n",
+            &second.known(),
+            &[],
+            &[0; 5],
+        )) else {
+            panic!("a checkpoint");
+        };
+        assert!(compacted.open.is_none());
+        let whole = &compacted.turns[0];
+        assert_eq!(whole.number, 1);
+        assert_eq!(whole.users, ["read them"]);
+        assert_eq!(whole.work, "read two.\nread the third.");
+        assert_eq!((whole.first_tool, whole.last_tool), (1, 3));
+        assert_eq!(
+            whole
+                .tools
+                .iter()
+                .map(|tool| tool.why.as_str())
+                .collect::<Vec<_>>(),
+            ["one", "two", "three"]
+        );
+        assert_eq!(whole.final_reply, "DONE");
     }
 
     #[test]
@@ -2260,6 +3789,7 @@ mod tests {
         let plan = plan(
             &state(vec![said("one", "ONE", 2), said("two", "TWO", 5)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn to compact");
@@ -2286,6 +3816,7 @@ mod tests {
                 said("two", "TWO", 5),
             ]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2304,6 +3835,7 @@ mod tests {
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2372,6 +3904,331 @@ these notes.";
         assert_eq!(compacted.tool_count, 1);
     }
 
+    /// The request a turn was about to send, which a notes request may
+    /// follow, and the options it was to go with.
+    fn conversation() -> (CompletionRequest, RequestOptions) {
+        (
+            CompletionRequest {
+                model: "anthropic/claude-opus-5".to_string(),
+                messages: vec![
+                    Message::system("the agent's instructions"),
+                    Message::user("question one"),
+                    Message::assistant(Some("ANSWER_1"), Vec::new()),
+                    Message::user("two"),
+                ],
+                tools: vec![json!({"name": "read_file", "description": "reads a file"})],
+                tool_choice: ToolChoice::Auto,
+            },
+            RequestOptions {
+                reasoning: Some("xhigh".to_string()),
+                fast: false,
+                ultrafast: true,
+                max_output_tokens: None,
+            },
+        )
+    }
+
+    fn worked_plan(room: Option<usize>) -> Plan {
+        let mut plan = plan(
+            &state(vec![read_turn(2), said("two", "TWO", 7)]),
+            &Size::default(),
+            Context::default(),
+        )
+        .expect("plans")
+        .expect("a turn");
+        plan.after_room = room;
+        plan
+    }
+
+    #[tokio::test]
+    async fn after_the_conversation_the_model_reads_only_the_request_with_every_turn_findable() {
+        // `summarize.zig:1487-1515`; the request repeats the conversation
+        // unchanged, then one user message (`text_completion.zig:68-80`),
+        // with the turn's own options but Ultra (`:236-247`).
+        // A turn with nothing in between, then the one that read, compacted;
+        // the newest four stay.
+        let mut plan = plan(
+            &state(vec![
+                said("zero", "ZERO", 2),
+                read_turn(5),
+                said("two", "TWO", 10),
+                said("three", "THREE", 13),
+                said("four", "FOUR", 16),
+                said("five", "FIVE", 19),
+            ]),
+            &Size::default(),
+            Context::default(),
+        )
+        .expect("plans")
+        .expect("two turns");
+        plan.after_room = Some(100_000);
+        let (sent, options) = conversation();
+        let provider = Scripted::new(vec![text(
+            "Turn 2\nIn between: Read notes.txt.\nT1: the seed value\n\nFacts:\nF1 (T1): \
+             SEED_VALUE_42",
+        )]);
+        let mut caller = caller(&provider, true);
+        caller.conversation = Some((&sent, &options));
+        let event = finish(&plan, &caller).await.expect("compacts");
+        let asked = provider.asked.borrow();
+        assert_eq!(asked.len(), 1);
+        let (request, used) = &asked[0];
+        assert_eq!(request.tools, sent.tools);
+        assert_eq!(request.tool_choice, ToolChoice::Auto);
+        assert_eq!(request.messages[..4], sent.messages[..]);
+        assert_eq!(request.messages.len(), 5);
+        assert_eq!(
+            used,
+            &RequestOptions {
+                ultrafast: false,
+                ..options.clone()
+            }
+        );
+        let seen = request.messages[4].text();
+        assert!(seen.starts_with(&format!(
+            "{SYSTEM_PROMPT}\n\nWrite the compaction notes for the turns of the conversation \
+             above that are listed below;"
+        )));
+        assert!(!seen.contains("[Turn 1]"), "{seen}");
+        assert!(!seen.contains("SEED_VALUE_42"), "{seen}");
+        assert!(seen.contains("Answer with text only and call no tools."));
+        assert!(seen.contains("This request comes from xfx, not from the user"));
+        // Turn 1 has nothing in between but is listed for its number.
+        assert!(
+            seen.contains(
+                "each followed by its notes:\n\nTurn 1 (no tool calls), which begins \
+                 \u{201c}zero\u{201d}\nTurn 2 (T1), which begins \u{201c}question one\u{201d}\n  \
+                 T1 read_file: notes.txt\n\nUnder each heading above are the turn's tool calls \
+                 in order"
+            ),
+            "{seen}"
+        );
+        let SessionEvent::ContextCheckpoint { compacted, .. } = event else {
+            panic!("a checkpoint");
+        };
+        assert_eq!(compacted.turns[1].work, "Read notes.txt.");
+    }
+
+    #[tokio::test]
+    async fn a_request_after_the_conversation_that_fails_or_does_not_fit_writes_the_turns_out() {
+        // `summarize.zig:1517-1536`: only the conversation's own model has it
+        // cached, so a failure there goes to the turns written out, which
+        // the model -- and its fallback -- are asked as ever.
+        let (sent, options) = conversation();
+        let provider = Scripted::new(vec![
+            Err(ProviderError::Status {
+                subject: "the Gateway",
+                status: 500,
+                body: "boom".to_string(),
+                retryable: false,
+                retry_after: None,
+            }),
+            text("Turn 1\nIn between: Read notes.txt.\nT1: the seed value"),
+        ]);
+        let mut failing = caller(&provider, true);
+        failing.conversation = Some((&sent, &options));
+        finish(&worked_plan(Some(100_000)), &failing)
+            .await
+            .expect("compacts");
+        {
+            let asked = provider.asked.borrow();
+            assert_eq!(asked.len(), 2);
+            assert_eq!(asked[0].0.messages.len(), 5);
+            assert_eq!(asked[1].0.messages[0].text(), SYSTEM_PROMPT);
+            assert!(user_text(&asked[1].0).starts_with("[Turn 1]\n"));
+            assert_eq!(asked[1].0.tool_choice, ToolChoice::None);
+        }
+
+        // Too little room after the conversation: never asked that way.
+        let provider = Scripted::new(vec![text(
+            "Turn 1\nIn between: Read notes.txt.\nT1: the seed value",
+        )]);
+        let mut cramped = caller(&provider, true);
+        cramped.conversation = Some((&sent, &options));
+        finish(&worked_plan(Some(50)), &cramped)
+            .await
+            .expect("compacts");
+        {
+            let asked = provider.asked.borrow();
+            assert_eq!(asked.len(), 1);
+            assert!(user_text(&asked[0].0).starts_with("[Turn 1]\n"));
+        }
+
+        // Nor between turns, with no request to follow.
+        let provider = Scripted::new(vec![text(
+            "Turn 1\nIn between: Read notes.txt.\nT1: the seed value",
+        )]);
+        finish(&worked_plan(Some(100_000)), &caller(&provider, true))
+            .await
+            .expect("compacts");
+        assert!(user_text(&provider.asked.borrow()[0].0).starts_with("[Turn 1]\n"));
+    }
+
+    #[tokio::test]
+    async fn a_follow_up_after_the_conversation_lists_only_the_skipped_turns_findable() {
+        // `summarize.zig:1538-1554`.
+        let (sent, options) = conversation();
+        let provider = Scripted::new(vec![
+            text("Facts:\nF1: INTERNAL_HANDOFF_4e12: preserve both."),
+            text("Turn 1 (T1)\nIn between: Read notes.txt.\nT1: the seed value"),
+        ]);
+        let mut caller = caller(&provider, true);
+        caller.conversation = Some((&sent, &options));
+        let event = finish(&worked_plan(Some(100_000)), &caller)
+            .await
+            .expect("compacts");
+        let asked = provider.asked.borrow();
+        assert_eq!(asked.len(), 2);
+        assert_eq!(asked[1].0.messages.len(), 5);
+        let follow_up = asked[1].0.messages[4].text();
+        assert!(follow_up.starts_with(&format!(
+            "{SYSTEM_PROMPT}\n\nYour notes on the turns above left some out."
+        )));
+        assert!(
+            follow_up.contains(
+                "each heading followed by its notes:\n\nTurn 1 (T1), which begins \
+                 \u{201c}question one\u{201d}\n  T1 read_file: notes.txt\n\nUnder each heading \
+                 above are the turn's tool calls, so you can find them; do not copy those lines. \
+                 Answer with text only and call no tools. This request comes from xfx"
+            ),
+            "{follow_up}"
+        );
+        assert!(!follow_up.contains("Turn 2"), "{follow_up}");
+        let SessionEvent::ContextCheckpoint { compacted, .. } = event else {
+            panic!("a checkpoint");
+        };
+        assert_eq!(compacted.turns[0].work, "Read notes.txt.");
+    }
+
+    #[test]
+    fn a_notes_request_after_the_conversation_gets_what_the_conversation_leaves() {
+        // `window.zig:592-598`.
+        let size = |request: Option<usize>, overflow: bool, correction: Option<Correction>| Size {
+            compact_at: Some(96_000),
+            usable: Some(120_000),
+            request,
+            overflow,
+            fixed: None,
+            correction,
+        };
+        assert_eq!(
+            size(Some(110_000), false, None).room_after_conversation(),
+            Some(10_000)
+        );
+        // In the estimate's terms when the provider counts a third more.
+        let more = Some(Correction {
+            estimated: 30_000,
+            measured: 40_000,
+        });
+        assert_eq!(
+            size(Some(110_000), false, more).room_after_conversation(),
+            Some(7_500)
+        );
+        assert_eq!(size(None, false, None).room_after_conversation(), None);
+        assert_eq!(
+            size(Some(120_000), false, None).room_after_conversation(),
+            None
+        );
+        assert_eq!(
+            size(Some(100_000), true, None).room_after_conversation(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_correction_shrinks_the_compactors_room_by_the_providers_count() {
+        // `window.zig:463-482`.
+        let large = Size {
+            compact_at: Some(800_000),
+            usable: Some(1_000_000),
+            request: None,
+            overflow: false,
+            fixed: Some(12_000),
+            correction: None,
+        };
+        assert_eq!(large.after_tokens(), 200_000);
+        assert_eq!(large.conversation_tokens(), 188_000);
+        let counted_more = Size {
+            correction: Some(Correction {
+                estimated: 30_000,
+                measured: 40_000,
+            }),
+            ..large
+        };
+        assert_eq!(counted_more.conversation_tokens(), 141_000);
+        assert_eq!(counted_more.summary_request_tokens(), 750_000);
+    }
+
+    #[test]
+    fn a_providers_count_scales_the_next_requests_estimate() {
+        // `prompt_context.zig:403-424`, `:513-535`.
+        let cost = |bytes, text_tokens, images| RequestCost {
+            bytes,
+            text_tokens,
+            images,
+        };
+        let calibration = |request, exact| Calibration::new("m", request, exact, 0).expect("kept");
+        // By the bytes, rounded up, for a request with no image.
+        let current = cost(1_456_988, 365_113, None);
+        let learned = calibration(cost(767_736, 192_000, None), 398_710);
+        assert!(learned.applies("m", &current));
+        assert!(learned.estimate(&current) > 695_142);
+        let same = cost(34_210, 8_892, None);
+        assert_eq!(calibration(same, 6_030).estimate(&same), 6_030);
+        // With the same images: the count plus the text added, without
+        // compounding, never below the text.
+        let first = cost(4_000_000, 100, Some([1; 32]));
+        let next = cost(4_000_200, 150, Some([1; 32]));
+        assert_eq!(calibration(first, 1000).estimate(&next), 1050);
+        let third = cost(4_000_200, 200, Some([1; 32]));
+        assert_eq!(calibration(next, 1050).estimate(&third), 1100);
+        assert_eq!(calibration(next, 1050).estimate(&first), 1000);
+        assert_eq!(calibration(third, 1).estimate(&next), 150);
+        // Other images, none, another model, no count: not applied.
+        assert!(!calibration(first, 1000).applies("m", &cost(4_000_200, 150, Some([2; 32]))));
+        assert!(!calibration(first, 1000).applies("m", &cost(4_000_200, 150, None)));
+        assert!(!calibration(next, 1000).applies("other", &next));
+        assert!(!calibration(first, 0).applies("m", &first));
+        // The room is corrected by a count of a request with no image only.
+        assert_eq!(
+            calibration(same, 6_030).correction("m"),
+            Some(Correction {
+                estimated: 8_892,
+                measured: 6_030
+            })
+        );
+        assert_eq!(calibration(first, 1000).correction("m"), None);
+        assert_eq!(calibration(same, 6_030).correction("other"), None);
+        // An id no request could be matched against is not kept.
+        assert!(Calibration::new("", same, 1, 0).is_none());
+        assert!(Calibration::new(&"x".repeat(129), same, 1, 0).is_none());
+    }
+
+    #[test]
+    fn a_steer_goes_with_the_exchange_after_it_and_those_after_the_last_with_the_last() {
+        // `selectRecentContext`, `window.zig:219-224`.
+        let mut turn = reading_turn("read them", 3, "word", "DONE", 2);
+        // After the first read's result, and after the last's.
+        turn.steps.insert(
+            2,
+            TurnStep::Steered {
+                text: "also this".to_string(),
+            },
+        );
+        turn.steps.insert(
+            7,
+            TurnStep::Steered {
+                text: "sum up".to_string(),
+            },
+        );
+        assert_eq!(exchanges(&turn), [0..2, 2..5, 5..8]);
+        // Its tokens are the exchange's it goes with.
+        assert!(
+            exchange_tokens(&turn, 2..5) > exchange_tokens(&turn, 0..2),
+            "the steer was not counted with the step after it"
+        );
+    }
+
     #[tokio::test]
     async fn a_reply_that_skips_a_turn_with_work_is_asked_once_more_for_it() {
         // fx's e2e: "The reply holds only facts, so fx asks once more for the
@@ -2379,6 +4236,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2419,6 +4277,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2452,6 +4311,7 @@ these notes.";
         let plan = plan(
             &state(vec![read_turn(2), said("two", "TWO", 7)]),
             &Size::default(),
+            Context::default(),
         )
         .expect("plans")
         .expect("a turn");
@@ -2463,11 +4323,62 @@ these notes.";
         assert_eq!(provider.asked.borrow().len(), 1);
     }
 
+    #[tokio::test]
+    async fn every_answered_notes_request_is_kept_for_usage_and_a_lost_one_is_marked() {
+        let plan = plan(
+            &state(vec![read_turn(2), said("two", "TWO", 7)]),
+            &Size::default(),
+            Context::default(),
+        )
+        .expect("plans")
+        .expect("a turn");
+        // Refused by the endpoint, then answered by the other family: the
+        // refusal never reached a model, so only the answer was billed.
+        let mut billed = text("## Turn 1\nIn between: read it.\n");
+        if let Ok(completion) = billed.as_mut() {
+            completion.usage = Usage {
+                input_tokens: Some(1200),
+                output_tokens: Some(40),
+            };
+        }
+        let provider = Scripted::new(vec![refused(), billed]);
+        let asked = caller(&provider, true);
+        assert!(finish(&plan, &asked).await.is_ok());
+        let (requests, unaccounted) = asked.spent.take();
+        assert!(!unaccounted, "a status is never billed");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].model, "openai/gpt-6-sol");
+        assert_eq!(
+            (requests[0].input_tokens, requests[0].output_tokens),
+            (1200, 40)
+        );
+        assert_eq!(requests[0].cost, None, "nobody said what it cost");
+
+        // Stopped mid-request: it may have been billed, and nothing says how
+        // much (`machine::may_have_billed`).
+        let provider = Scripted::new(vec![Err(ProviderError::Cancelled)]);
+        let asked = caller(&provider, true);
+        assert_eq!(finish(&plan, &asked).await, Err(Failure::Cancelled));
+        let frame = asked.spent.frame().expect("a lost request is a frame");
+        assert!(matches!(
+            frame,
+            SessionEvent::UsageRecorded {
+                input_tokens: None,
+                output_tokens: None,
+                ref requests,
+                unaccounted: true,
+                ..
+            } if requests.is_empty()
+        ));
+        assert_eq!(asked.spent.frame(), None, "taken once");
+    }
+
     #[test]
     fn a_reply_in_none_of_the_asked_form_is_the_newest_turns_notes() {
         let known = Known {
             turns: vec![1, 2],
             tools: vec![1],
+            open: false,
         };
         let written = read("Just some prose.", &known, &[], &[0; 5]);
         assert_eq!(written.work(2), "Just some prose.");
@@ -2479,6 +4390,7 @@ these notes.";
         let known = Known {
             turns: vec![3],
             tools: vec![4, 5, 6],
+            open: false,
         };
         let written = read(
             "## Turn 3 (T4\u{2013}T6)\nIn between: looked around\n  and found it.\n\
@@ -2554,7 +4466,7 @@ these notes.";
             said("two", "TWO", 7),
             said("three", "THREE", 10),
         ]);
-        let first = plan(&state, &Size::default())
+        let first = plan(&state, &Size::default(), Context::default())
             .expect("plans")
             .expect("a turn");
         let SessionEvent::ContextCheckpoint {
@@ -2569,9 +4481,11 @@ these notes.";
         state.checkpoint = Some(crate::session::Checkpoint {
             covers_through_seq,
             covered_turns: 1,
+            covered_steps: 0,
             compacted: compacted.clone(),
+            count: 1,
         });
-        let second = plan(&state, &Size::default())
+        let second = plan(&state, &Size::default(), Context::default())
             .expect("plans")
             .expect("a turn");
         let SessionEvent::ContextCheckpoint {
@@ -2603,6 +4517,7 @@ these notes.";
                 last_tool: 0,
                 tools: Vec::new(),
             }],
+            open: None,
             turn_count: 1,
             tool_count: 0,
         };

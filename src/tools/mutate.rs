@@ -284,13 +284,26 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(prepared) => prepared,
         Err(result) => return result,
     };
-    commit(context, located, plan, changes, before, |plan| {
-        format!(
-            "Wrote {} ({} bytes)",
-            plan.display(),
-            plan.staged_bytes().len()
-        )
-    })
+    commit(context, located, plan, changes, before, made)
+}
+
+/// What a made write or edit tells the model, in upstream's words: `wrote` or
+/// `edited`, the path, and the file's size once changed
+/// (`prepareFileMutationSuccessResult`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/file_mutation_execution.zig:159-187`) -- the line a
+/// resumed session's Ctrl-O lists above the change's diff
+/// (`fx-resume-tools-40x120-ctrl-o-up1`: `edited a.txt (41 bytes)`).
+fn made(plan: &MutationPlan) -> String {
+    let verb = if plan.kind() == MutationKind::Write {
+        "wrote"
+    } else {
+        "edited"
+    };
+    format!(
+        "{verb} {} ({} bytes)",
+        plan.display(),
+        plan.staged_bytes().len()
+    )
 }
 
 /// A change resolved, read and planned, and not made: what policy judges and
@@ -389,9 +402,7 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(prepared) => prepared,
         Err(result) => return result,
     };
-    commit(context, located, plan, changes, before, |plan| {
-        format!("Edited {}", plan.display())
-    })
+    commit(context, located, plan, changes, before, made)
 }
 
 /// `edit_file`, up to the decision.

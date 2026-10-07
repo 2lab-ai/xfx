@@ -367,6 +367,28 @@ fn banner_layout(text: &str, width: usize) -> Vec<String> {
     rows
 }
 
+/// As much of a waiting card as its [`BANNER_ROWS`] rows can show, and enough
+/// past them to know there is more: up to the line break after one more line,
+/// and no more than two more rows' worth of characters. A card is the prompt
+/// with its pastes expanded, and the banner is laid out on every frame, so a
+/// paste of megabytes is not copied each time to show two rows of it.
+fn banner_prefix(card: &str, width: usize) -> &str {
+    let chars = (BANNER_ROWS + 2).saturating_mul(width.max(1));
+    let mut breaks = 0usize;
+    for (count, (at, character)) in card.char_indices().enumerate() {
+        if count >= chars {
+            return &card[..at];
+        }
+        if character == '\n' {
+            breaks += 1;
+            if breaks > BANNER_ROWS {
+                return &card[..at];
+            }
+        }
+    }
+    card
+}
+
 /// The question a cancelled turn leaves in the document, after its marker and
 /// its word (`lifecycleTerminalLine`, `transcript/runtime.zig:644`), in this
 /// product's name.
@@ -459,13 +481,6 @@ const PASTE_UNNUMBERED: &str = "this session has no paste numbers left; nothing 
 /// nothing now and the line would be sent as the words it looks like. Said,
 /// rather than left for the user to discover in what the model answers.
 const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are words now";
-
-/// The same exhaustion seen from a yank.
-///
-/// Its own sentence rather than [`RECALL_UNNUMBERED`]'s, because a user who
-/// pressed `C-y` did not recall anything and a row that said so would be
-/// describing a keystroke they did not make.
-const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are words now";
 
 /// What a line that names no command -- or names one with something after it
 /// that the command does not take -- is answered with: upstream's own
@@ -575,6 +590,15 @@ pub(crate) enum Resize {
     /// answered**, and the band is left where it was until the screen can hold
     /// one again.
     TooSmall,
+}
+
+/// What [`Shell::stage_document`] saved: the session's record of the
+/// document, as the terminal last took it.
+pub(crate) struct StagedDocument {
+    document_rows: u32,
+    geometry: Geometry,
+    retint_debt: bool,
+    collapse_debt: bool,
 }
 
 /// The UI's state: what the band shows, and what it owes the screen.
@@ -1254,6 +1278,15 @@ pub(crate) struct Shell {
     /// The title the running turn's prompt would give its session, held from
     /// the turn's start to its end ([`Self::title_session`]).
     turn_title: Option<String>,
+    /// Whether a turn of this conversation has ended -- upstream's history is
+    /// no longer empty then (`session_untitled`, `app_session_runtime.zig:3674-3675`),
+    /// and a prompt asks for no title ([`Self::asks_for_title`]).
+    turned: bool,
+    /// Whether [`Self::session_title`] is one the user gave with `/rename`:
+    /// a generated title that reaches the band after it changes nothing, as
+    /// upstream's finds the user's on record (`installGeneratedTitle`,
+    /// `session_title_generation.zig:378-394`).
+    titled_by_user: bool,
     /// Whether the band has not yet been told the window title the session
     /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
     /// carries one.
@@ -1847,6 +1880,11 @@ impl Shell {
         theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
+        // The profile's `session_titles`, in the one switch the runtime reads
+        // too: launched from the same configuration, so in a session this
+        // writes what is there already, and a handle a test built starts where
+        // the test's configuration says.
+        work.set_session_titles(config.session_titles);
         // The user's clipboard -- except in a shell a test built, which
         // reaches none unless the test hands it a fake one: typing `/copy`
         // in a case about something else must not be able to write the
@@ -2047,6 +2085,8 @@ impl Shell {
             prompts: VecDeque::new(),
             steers: Vec::new(),
             session_title: None,
+            turned: false,
+            titled_by_user: false,
             turn_title: None,
             title_owed: true,
             workspace: config.workspace_root.clone(),
@@ -2719,8 +2759,7 @@ impl Shell {
         if !text.is_char_boundary(start) {
             return PROMPT_CELLS;
         }
-        let rows = super::wrap::wrap(text, self.text_cols());
-        let (_, at) = super::wrap::cursor_point(text, &rows, start);
+        let (_, at) = self.editor.point_of(start, self.text_cols());
         PROMPT_CELLS.saturating_add(at)
     }
 
@@ -2797,9 +2836,15 @@ impl Shell {
         let last = self.geometry.input_rows().saturating_sub(1);
         let offset =
             u16::try_from(row.saturating_sub(window.start).min(usize::from(last))).unwrap_or(last);
+        // A caret after a row that fills the screen -- its last cell taken, or
+        // spaces hanging past it -- sits on the last column, as upstream's
+        // does (`terminalColumn`, `visual_layout.zig:696-702`): one past it is
+        // off the screen, and the output check refuses that frame.
         (
             self.geometry.input_first.saturating_add(offset),
-            PROMPT_CELLS.saturating_add(column),
+            PROMPT_CELLS
+                .saturating_add(column)
+                .min(self.geometry.cols.saturating_sub(1)),
         )
     }
 
@@ -2958,6 +3003,9 @@ impl Shell {
         // Past every image number the session's prompts already name, so a
         // new attachment's `[Image #N]` is never one of theirs.
         self.images_next = self.images_next.max(replay.next_image);
+        // A replayed session has had its turns: no prompt in it asks for a
+        // title, as upstream's resumed history is not empty.
+        self.turned = !replay.turns.is_empty();
         if wipe {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
@@ -3018,11 +3066,16 @@ impl Shell {
     /// `.assistant` turn) and sets the stamp only for them (`:4764-4772`) --
     /// carries its start on the card and what it did on the way, and its
     /// conclusion on the answer after its last call and the summary. Any other
-    /// carries `carried`, the stamp the replay had reached, throughout. A
-    /// call's entry carries its result's own time where the log has one
-    /// ([`HydratedStep::ToolStart`]'s `at_ms`), as upstream's header prefers
-    /// it (`full_transcript_screen.zig:5801-5814`). Answers the stamp the next
-    /// turn is to carry.
+    /// carries `carried`, the stamp the replay had reached, throughout. Every
+    /// call's entry carries the turn's conclusion: upstream's header prefers
+    /// the call's persisted result's time (`full_transcript_screen.zig:
+    /// 5801-5814`, set `transcript/runtime.zig:5826`), and that is the moment
+    /// the turn was committed, when its results are built
+    /// (`PersistedToolResult.created_at_ms`, `execution_memory.zig:52`, from
+    /// `buildNormalExecutionMemory` `:421` at `orchestrator.zig:9260`; an
+    /// interrupted turn's at its own commit, `runtime/interruption.zig`) --
+    /// `fx-read-failures-40x120-ctrl-o`, every call at the Usage's instant.
+    /// Answers the stamp the next turn is to carry.
     fn replay_turn(&mut self, turn: HydratedTurn, carried: i64) -> i64 {
         for (call_id, detail) in turn.details {
             // Made inert here as the channel would have: a launch's replay is
@@ -3041,6 +3094,7 @@ impl Shell {
         } else {
             (carried, carried)
         };
+        let committed = turn.concluded_at_ms.unwrap_or(concluded);
         self.full.stamp_with(Some(started));
         self.full.replay(true);
         let concluding = turn
@@ -3060,8 +3114,8 @@ impl Shell {
                     streamed.consume(&text);
                     self.write_answer(&text);
                 }
-                HydratedStep::ToolStart { id, shown, at_ms } => {
-                    self.full.stamp_call(at_ms);
+                HydratedStep::ToolStart { id, shown } => {
+                    self.full.stamp_call(Some(committed));
                     self.run_mark(Mark::ToolStart { id, shown });
                     self.full.stamp_call(None);
                 }
@@ -3594,6 +3648,11 @@ impl Shell {
                 // (`postTurnEndHandler`). Owed once the answer is presented,
                 // which [`Self::settle_band`] notices.
                 self.sound.turn_ended(summary.is_some());
+                // A turn the runtime ran has ended, whichever way: upstream's
+                // history holds an interrupted turn too.
+                if self.tally.started.is_some() {
+                    self.turned = true;
+                }
                 self.tally.started = None;
                 // A turn this session stopped has already been answered for,
                 // at the keystroke: no summary under an answer that was cut
@@ -3707,6 +3766,15 @@ impl Shell {
             // A rename said nothing yet: the log has it now
             // (`app_commands.zig:3852-3857`).
             UiEvent::Renamed(title) => self.announce(renamed(&title)),
+            // A model named the session. The window and the status line take
+            // the title, and nothing is said about it.
+            UiEvent::SessionTitled(title) => {
+                let title = title.trim().to_string();
+                if !title.is_empty() && !self.titled_by_user {
+                    self.session_title = Some(title);
+                    self.retitle();
+                }
+            }
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.failed(id, failure);
@@ -4306,6 +4374,7 @@ impl Shell {
                 .catalog_row(&self.model)
                 .is_some_and(|entry| entry.facts.ultrafast),
             permission_mode: self.mode,
+            session_titles: self.work.session_titles(),
             sound: self.sound.notifications(),
             startup_scrollback: self.startup_scrollback,
             prompt_history: self.recall.enabled,
@@ -4638,6 +4707,20 @@ impl Shell {
                 self.save_preference(
                     settings::COLLAPSE_TOOL_CALLS_TOPIC,
                     &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            // `applySettingsCatalogChange`'s `.session_titles`
+            // (`app_commands.zig:4149-4166`): in force at once -- for the next
+            // fresh session's first prompt, a title already asked for is not
+            // taken back -- then saved and announced.
+            Setting::SessionTitles => {
+                let changed = on != self.work.session_titles();
+                self.work.set_session_titles(on);
+                self.save_preference(
+                    settings::SESSION_TITLES_TOPIC,
+                    &[crate::config::SESSION_TITLES_KEY],
                     serde_json::Value::Bool(on),
                     changed,
                 );
@@ -4995,7 +5078,11 @@ impl Shell {
         let Some(id) = self.sessions.as_ref().and_then(SessionPicker::selected) else {
             return;
         };
-        match self.work.submit(TurnWork::Resume(id.clone())) {
+        // A switch, as a provider switch is: Escape can take the picker down
+        // before the runtime has resumed, and a prompt typed then waits for
+        // the resume before it asks about its title
+        // ([`super::worker::WorkHandle::submit_switch`]).
+        match self.work.submit_switch(TurnWork::Resume(id.clone())) {
             Ok(()) => {
                 if let Some(sessions) = self.sessions.as_mut() {
                     sessions.resuming(id);
@@ -5086,10 +5173,9 @@ impl Shell {
     /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
     /// break after it).
     fn column_anchor(&self, offset: usize) -> u16 {
-        let text = self.editor.text();
-        let rows = super::wrap::wrap(text, self.text_cols());
-        let (row, cells) = super::wrap::cursor_point(text, &rows, offset);
-        let (caret_row, _) = super::wrap::cursor_point(text, &rows, self.editor.caret());
+        let cols = self.text_cols();
+        let (row, cells) = self.editor.point_of(offset, cols);
+        let (caret_row, _) = self.editor.point(cols);
         if row != caret_row {
             return PROMPT_CELLS;
         }
@@ -6560,7 +6646,9 @@ impl Shell {
             ));
             return;
         }
-        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
+        // A switch: a prompt submitted before the runtime has made it asks
+        // about its title only once it has ([`super::worker::WorkHandle::submit_switch`]).
+        if let Err(rejected) = self.work.submit_switch(TurnWork::Setup(provider)) {
             self.refused(rejected);
             return;
         }
@@ -8362,15 +8450,14 @@ impl Shell {
                 self.compaction
                     .get_or_insert_with(|| Compaction::began(automatic))
                     .settle(feedback, Instant::now());
-                if feedback == compaction::Feedback::Succeeded {
-                    // The meter's number measured a request no request will
-                    // carry again: the next one carries the compacted
-                    // conversation. It goes until a turn measures that one,
-                    // because a number no provider said is not one this row
-                    // puts up ([`Self::context_used`]).
-                    self.context_used = None;
-                    self.render.request(Reason::Footer);
-                } else if automatic {
+                // The meter is left as it is, success or not: it is the last
+                // number a turn's provider said, and upstream's moves only on
+                // that (`agentReportUsage`, `app_callbacks.zig:1447-1451`) --
+                // a compaction's notes request is billed to the session's
+                // usage and never reported to it (`CompactorCaller.send`,
+                // `text_completion.zig:225-284`). The next turn's request,
+                // which carries the compacted conversation, moves it.
+                if feedback != compaction::Feedback::Succeeded && automatic {
                     // The turn it ran in did not run, and the row says why: its
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
@@ -8847,7 +8934,7 @@ impl Shell {
     /// **A paste past the budget puts nothing in the composer at all.** There
     /// is no block registered for it ([`super::paste::Paste::finish`]), so the
     /// summary would be words rather than a stand-in for the text -- a draft
-    /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
+    /// that submitted `[Pasted text #1, 1 line]` as a prompt is worse than a
     /// paste that plainly did not happen, and the hint row says which it was.
     fn pasted(&mut self) {
         // `/model`'s search is typed in the composer, and an image attached
@@ -9244,12 +9331,15 @@ impl Shell {
         }
     }
 
-    /// Puts the kill slot's text at the caret, under numbers of its own.
+    /// Puts the kill slot's text at the caret.
     ///
-    /// **Fresh ids, and the summaries rewritten to say them.** A yank does not
-    /// move a block, it makes another one: the original may still be in the
-    /// draft, and `entity.rs:212-216` refuses two live blocks under one number
-    /// -- so the payload is shared (`Arc`) and the name is not. The delta is
+    /// **A killed block comes back as the text it stood for**, as upstream's
+    /// does: its kill ring holds a block's text, never the block
+    /// (`capturePayload`, `kill_ring.zig:429-447`), and its yank registers no
+    /// block (`yank`, `:119-190`) -- so the yank spends no paste number, and
+    /// the undo that takes it back is an ordinary one. A killed badge comes
+    /// back a badge, under a fresh number: each yank of one is a fresh image
+    /// (`kill_ring.zig:120-190`). The delta is
     /// [`super::edit_history::DeltaKind::Ordinary`] rather than `Kill`, so that
     /// recording it does not overwrite the slot it has just read.
     fn yank_killed(&mut self) -> Option<Delta> {
@@ -9259,21 +9349,14 @@ impl Shell {
         for span in spans {
             entities.register(span.clone());
         }
-        let wanted = entities.len();
-        // **Minted against a copy of the counter, and committed only if the
-        // edit happens.** `renumber_recalled` writes the numbers it spends
-        // straight back into whatever it is handed, and nothing in this session
-        // ever rewinds that: a number spent is spent for good, deliberately, so
-        // that two live blocks can never answer to one name
-        // (`super::entity::Entities::register`'s assertion). Handed the
-        // session's own counter, a yank the budget then refuses would burn a
-        // name for an edit that did not happen -- press `C-y` at a full
-        // composer often enough and the ids run out for pastes nobody made.
-        let mut next = *self.paste.ids();
-        // And the images, from a copy of their own counter: each yank of a
-        // killed badge is a fresh image (`kill_ring.zig:120-190`).
+        entities.inline_pastes(&mut text);
+        // **Minted against a copy of the image counter, and committed only if
+        // the edit happens**: a yank the budget refuses spends no number. No
+        // block is left to number, so the paste counter is only read.
         let mut images = self.images_next;
-        entities.renumber_recalled_with_images(&mut text, &mut next, &mut Some(&mut images));
+        let mut pastes = *self.paste.ids();
+        entities.renumber_recalled_with_images(&mut text, &mut pastes, &mut Some(&mut images));
+        debug_assert_eq!(pastes, *self.paste.ids(), "a yank numbered a block");
         // The same question a typed character asks, and for the same reason: a
         // yank brings its payload back too, so the draft plus what its blocks
         // stand for has to stay inside one budget (`super::paste::fits`).
@@ -9284,26 +9367,15 @@ impl Shell {
         ) {
             // Refused in upstream's words, like every other edit the budget
             // refuses ([`Self::over_budget`]): the slot keeps what it holds,
-            // the draft is exactly the text it was, and `next` is dropped with
-            // the numbers it was going to spend still unspent.
+            // and the draft is exactly the text it was.
             self.over_budget();
             return None;
         }
         let delta = self.editor.insert_with_entities(&text, entities.spans())?;
-        // The edit landed, so the names it put on the screen are this session's
-        // now. Committed **after** it and not before, because the composer has
-        // a refusal of its own (`super::editor::Editor::insert`) and a name on
-        // no summary is the same leak by another door.
-        *self.paste.ids() = next;
+        // The edit landed, so the image numbers it put on the screen are this
+        // session's now -- committed after it, because the composer has a
+        // refusal of its own (`super::editor::Editor::insert`).
         self.images_next = images;
-        if entities.len() < wanted {
-            // The end of the id space, seen from the yank: those summaries are
-            // words now, and a line that would be sent as its own description is
-            // one the user has to be told about. Said after the insert for the
-            // reason above -- and reachable only through it, since the budget
-            // question above is the stricter of the two.
-            self.notice = Some(YANK_UNNUMBERED);
-        }
         Some(delta)
     }
 
@@ -9653,9 +9725,10 @@ impl Shell {
             // **Expanded here, and only here.** What the composer holds for a
             // collapsed paste is a summary; what the user meant to send is the
             // text it stands for, so the prompt is expanded on its way to the
-            // runtime and the *document* still shows the summary -- a screen
-            // that echoed eight megabytes back at the user would be the paint
-            // the collapse exists to prevent.
+            // runtime -- and the card shows it expanded too, as upstream's
+            // does ([`Self::send`]). The summary is the composer's alone: a
+            // band that painted eight megabytes and re-wrapped them on every
+            // keystroke is what the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
                 // Upstream writes a prompt that carries images to the history
                 // file not at all (`!has_images_for_submit`,
@@ -9722,6 +9795,9 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // What a model would be asked to title the session from, if this is
+        // the prompt that asks ([`Self::asks_for_title`]).
+        let excerpt = super::titles::excerpt(&prompt).map(str::to_string);
         // The images whose badges the draft holds, in the order they stand:
         // what goes after the prompt's text on the wire.
         let images: Vec<crate::image::Image> = self
@@ -9730,10 +9806,18 @@ impl Shell {
             .images()
             .map(|image| crate::image::Image::clone(image))
             .collect();
-        // An image counts as the token the prompt names it by, as upstream's
-        // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
-        // #3][Image #4] what is in this image?`). Read before the draft goes.
-        let counted = self.editor.entities().with_image_tokens(text);
+        // **The card is the prompt as it is sent**: each block the text it
+        // stands for, each image the token that names it -- upstream's card
+        // is built from the submitted prompt, its blocks expanded
+        // (`expanded.text`, `input_submit_runtime.zig:705-706`, carried into
+        // the turn as `visual_text`, `:815-861`; the card,
+        // `transcript/store.zig:2814-2820`), whose tokens are made badges
+        // there ([`card_line`]). The turn's summary counts the same text
+        // (`TurnSummaryAccumulator.init(.., job.prompt)`,
+        // `orchestrator.zig:5482-5485`; `fx-image-40x120-sent`: `↑12` for
+        // `[Image #3][Image #4] what is in this image?`). Read before the
+        // draft goes.
+        let card = self.editor.entities().expand(text);
         // **Into the turn that is running**, as upstream's steer
         // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
         // takes it at its next boundary -- at once over an answer, after a
@@ -9745,9 +9829,16 @@ impl Shell {
         // (`sameTurnSteeringEligible`, `worker_runtime.zig:1109-1113`).
         if images.is_empty() && self.activity.working() && !self.cancelling {
             if let Some(id) = self.work.steer(prompt.clone()) {
+                // A steer asks too: upstream's steer is admitted through the
+                // same `snapshotPrompt` that asks for every prompt
+                // (`snapshotAndAdmitInteractivePromptWithSkillBindings`,
+                // `src/main.zig:1407-1420`, then `admitInteractivePrompt` ->
+                // `admitPrompt(.., steer_if_active = true)`,
+                // `worker_runtime.zig:966-968`, `:1064-1104`).
+                self.ask_for_title(excerpt.as_deref(), None);
                 self.take_draft();
                 self.edited(None);
-                self.steers.push((id, prompt, text.to_string()));
+                self.steers.push((id, prompt, card));
                 self.refit();
                 self.render.request(Reason::Footer);
                 self.gestures.submitted();
@@ -9757,9 +9848,6 @@ impl Shell {
         // What the card's badges link to: the files these images were read
         // from, as the composer's badges did.
         let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
-        // The card is the prompt as it is sent, its tokens made badges there
-        // ([`card_line`]).
-        let card = self.editor.entities().with_image_tokens(text);
         let work = if images.is_empty() {
             TurnWork::Submit(prompt)
         } else {
@@ -9773,6 +9861,7 @@ impl Shell {
         let waits = self.activity.working();
         match self.work.submit(work) {
             Ok(()) => {
+                self.ask_for_title(excerpt.as_deref(), Some(self.work.accepted()));
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
                 // (`super::worker::WORK_LIMIT`), and the band already says so
@@ -9782,7 +9871,7 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
                 let mut estimate = Estimator::default();
-                estimate.consume(&counted);
+                estimate.consume(&card);
                 if waits {
                     self.prompts
                         .push_back((estimate.estimate(), title, Some((card, links))));
@@ -10256,6 +10345,7 @@ impl CommandHandlers for Shell {
             announced,
         });
         self.session_title = Some(title.clone());
+        self.titled_by_user = true;
         self.retitle();
         if announced {
             self.announce(renamed(&title));
@@ -10755,7 +10845,13 @@ impl CommandHandlers for Shell {
     /// screen upstream ends on.
     fn trace(&mut self) {
         let (status, facts) = self.work.trace_facts();
-        let (timeline, network) = self.full.traced(TRACE_COLS, self.palette);
+        let (timeline, mut network) = self.full.traced(TRACE_COLS, self.palette);
+        // The title questions' requests beside the turns', in the order they
+        // were made, as upstream's one ring holds every model call
+        // (`writeNetworkCallsSummary`, `app_commands.zig:3005-3030`). Stable,
+        // so records of one moment keep their order.
+        network.extend(self.work.title_calls());
+        network.sort_by_key(|entry| entry.at_ms);
         let job = Job {
             status,
             facts,
@@ -10766,6 +10862,13 @@ impl CommandHandlers for Shell {
             outstanding: self.work.outstanding(),
             timeline,
             network,
+            // `## Session Title`: the switch, the title the window shows, and
+            // how asking a model for one stands.
+            title: crate::trace::TitleTrace {
+                setting: self.work.session_titles(),
+                title: self.session_title.clone(),
+                generation: self.work.title_generation(),
+            },
         };
         if !self.traces.start(job) {
             self.announce(notice::Notice::error("", crate::trace::UNAVAILABLE));
@@ -11481,6 +11584,11 @@ impl Shell {
         // new one.
         let through = self.work.accepted();
         self.work.control(TurnControl::Reset { through });
+        // After the reset is sent, so work the runtime takes before reading
+        // it is the old conversation's: a title asked about that one is
+        // cancelled now, as upstream clears its session at the keystroke, and
+        // one a prompt typed after this asks is the next one's.
+        self.work.new_title_lineage();
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
@@ -11614,6 +11722,9 @@ impl Shell {
                 self.gestures.turn_ended();
                 true
             }
+            // A title for the conversation the reset dropped: the session it
+            // names is in scrollback now, and the next one has none yet.
+            UiEvent::SessionTitled(_) => true,
             // A compaction the reset stopped: its sentence is about the
             // conversation that was dropped.
             UiEvent::Compaction(_) => {
@@ -11683,8 +11794,53 @@ impl Shell {
     /// conversation being dropped, and its end must not title the next one.
     fn forget_session_title(&mut self) {
         self.turn_title = None;
+        self.turned = false;
+        self.titled_by_user = false;
         if self.session_title.take().is_some() {
             self.retitle();
+        }
+    }
+
+    /// The band's half of upstream's gate for asking a model to title the
+    /// session (`shouldGenerate`, `vercel-labs/fx@c1db9191
+    /// src/core/session/session_title_generation.zig:40-46`, as
+    /// `maybeStartSessionTitleGeneration` assembles it,
+    /// `app_session_runtime.zig:3671-3678`): the session has no title yet --
+    /// none renamed, generated or derived, which is upstream's cached title
+    /// -- and no turn of it has ended. The switch, the provider and a
+    /// question already out are the desk's half ([`WorkHandle::ask_title`]).
+    fn asks_for_title(&self) -> bool {
+        self.session_title.is_none() && !self.turned
+    }
+
+    /// Asks for the session's title from a prompt the runtime has just taken
+    /// -- to run, to wait, or steered into the turn that runs -- when the gate
+    /// says this prompt is the one that asks. `at` is the prompt's position
+    /// in the runtime's queue, `None` for a steer.
+    ///
+    /// **At the keystroke**, as upstream's `snapshotPrompt` asks for every
+    /// prompt it hands its worker (`src/main.zig:1479-1481`), with the switch
+    /// as it stands now. On a thread of its own: the turn never waits for it
+    /// ([`super::titles`]). Not for a steer handed on as a prompt when its
+    /// turn ended without it, nor one sent back into the turn: neither is a
+    /// new submission, and upstream snapshots a prompt once.
+    ///
+    /// **Except behind a switch still to be made** -- a `/resume` or a
+    /// `/provider` the runtime has been handed and not yet done: what this
+    /// band shows is the conversation the prompt will *not* run in, so the
+    /// prompt is held for the runtime, which asks once it has made the switch,
+    /// of the conversation the prompt runs in -- as upstream holds a prompt
+    /// while its provider is prepared and asks when it finalizes it
+    /// (`app_auth_runtime.zig:1840-1842`; `src/main.zig:1238-1266`).
+    fn ask_for_title(&self, excerpt: Option<&str>, at: Option<usize>) {
+        let Some(excerpt) = excerpt else {
+            return;
+        };
+        if self.work.defer_title(excerpt, at) {
+            return;
+        }
+        if self.asks_for_title() {
+            self.work.ask_title(excerpt);
         }
     }
 
@@ -11710,6 +11866,45 @@ impl Shell {
     pub(crate) fn document_carried(&mut self, rows: u16) {
         self.document_rows = self.document_rows.saturating_sub(u32::from(rows));
         self.refloat();
+    }
+
+    /// Begins a frame that writes the document's rows in **one** vector with
+    /// the band's (`super::event_loop`'s `commit_primary`), and saves what the
+    /// document's writers move as they are staged into it.
+    ///
+    /// Everything those writers record -- the rows the document reaches, the
+    /// band floated under them, the recolour and collapse debts paid, the
+    /// transcript's operations taken -- is recorded as if the vector had
+    /// landed, because each one is measured against the screen the one before
+    /// it leaves. [`Self::unstage_document`] is what makes that honest: a
+    /// vector the screen did not take puts every one of them back.
+    pub(crate) fn stage_document(&mut self) -> StagedDocument {
+        self.transcript.stage();
+        StagedDocument {
+            document_rows: self.document_rows,
+            geometry: self.geometry,
+            retint_debt: self.retint_debt,
+            collapse_debt: self.collapse_debt,
+        }
+    }
+
+    /// The staged frame landed: its rows are the terminal's.
+    pub(crate) fn settle_document(&mut self) {
+        self.transcript.settle();
+    }
+
+    /// The staged frame did not land, so nothing it carried is on the
+    /// terminal: the document is owed again exactly what it was owed before
+    /// [`Self::stage_document`].
+    ///
+    /// The frame requests the staging raised are left raised: they ask for the
+    /// frame this session still owes.
+    pub(crate) fn unstage_document(&mut self, staged: StagedDocument) {
+        self.document_rows = staged.document_rows;
+        self.geometry = staged.geometry;
+        self.retint_debt = staged.retint_debt;
+        self.collapse_debt = staged.collapse_debt;
+        self.transcript.unstage();
     }
 
     /// This session as it stands once the document has filled the screen: the
@@ -12073,7 +12268,7 @@ impl Shell {
                 continue;
             };
             rows.extend(
-                banner_layout(&card_text(card, links), width)
+                banner_layout(&card_text(banner_prefix(card, width), links), width)
                     .into_iter()
                     .map(|row| format!("{BANNER_MARK}{row}")),
             );
@@ -13253,10 +13448,15 @@ mod tests {
     }
 
     #[test]
-    fn a_large_paste_is_a_summary_on_the_screen_and_the_whole_text_on_the_wire() {
+    fn a_large_paste_is_a_summary_in_the_composer_and_the_whole_text_on_the_wire_and_the_card() {
         // 1800 codepoints painted into a band is a band that has eaten the
         // screen -- and every later keystroke re-wraps whatever the composer
-        // holds. The summary is what is shown; the text is what is sent.
+        // holds. The summary is what the composer shows; the text is what is
+        // sent, and what the card shows: upstream's card is the prompt as it
+        // was submitted, its blocks expanded (`expanded.text`,
+        // `input_submit_runtime.zig:705-706`; the card built from it,
+        // `transcript/store.zig:2814-2820`), each line of it rows of its own
+        // (`collectLogicalLinesWithFirstPrefix`, `user_message_card.zig:348-383`).
         let mut shell = shell(24, 80);
         let block = format!("{}\n{}", "y".repeat(900), "z".repeat(900));
         shell.route_bytes(b"\x1b[200~");
@@ -13275,10 +13475,20 @@ mod tests {
             TurnWork::Submit(block),
             "the summary was sent in place of what was pasted"
         );
+        // Each line on rows of its own, wrapped at the 78 cells behind the
+        // rail.
+        let mut rows: Vec<String> = Vec::new();
+        for letter in ["y", "z"] {
+            rows.extend(
+                [78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 78, 42]
+                    .map(|cells| format!("{RAIL} {BOLD}{}", letter.repeat(cells))),
+            );
+        }
+        rows.push(String::new());
         assert_eq!(
             shell.document(),
-            card("[Pasted text #1, 2 lines]"),
-            "the document echoed the whole block back at the user"
+            rows,
+            "the card is not the text that was sent"
         );
     }
 
@@ -13300,11 +13510,11 @@ mod tests {
         );
         let _echo = shell.document();
 
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string()),
             "a block the draft no longer held was expanded into a later prompt"
         );
     }
@@ -13321,12 +13531,12 @@ mod tests {
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
-        shell.route_bytes(b" and [Pasted text #1, 1 lines]");
+        shell.route_bytes(b" and [Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 lines]")),
+            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 line]")),
             "a summary the user typed was sent as a second copy of the paste"
         );
     }
@@ -13338,7 +13548,7 @@ mod tests {
         // whichever of the two a search for the name would have found first.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
-        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
+        shell.route_bytes(b"[Pasted text #1, 1 line] ");
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -13346,7 +13556,7 @@ mod tests {
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("[Pasted text #1, 1 lines] {block}")),
+            TurnWork::Submit(format!("[Pasted text #1, 1 line] {block}")),
             "the words the user had already typed were expanded in the \
              placeholder's place"
         );
@@ -13362,7 +13572,7 @@ mod tests {
         // never it.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x01]); // C-a: the caret goes back to the start
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
@@ -13371,7 +13581,7 @@ mod tests {
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit(format!("{block}[Pasted text #1, 1 lines]")),
+            TurnWork::Submit(format!("{block}[Pasted text #1, 1 line]")),
             "the copies were counted in the whole draft rather than in front \
              of the caret"
         );
@@ -13429,7 +13639,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the block was not collapsed, so this case proves nothing"
         );
 
@@ -13463,12 +13673,12 @@ mod tests {
         // The whole budget less the name that will stand in for it, which is
         // the largest block a draft can hold: a collapsed paste is charged its
         // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 line]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         let summary = shell.editor.text().to_string();
-        assert_eq!(summary, "[Pasted text #1, 1 lines]");
+        assert_eq!(summary, "[Pasted text #1, 1 line]");
 
         for _ in 0..summary.chars().count() {
             shell.route_bytes(&[0x7f]);
@@ -13553,7 +13763,7 @@ mod tests {
         // than inside it, so the name survives and its megabytes are still
         // going to be sent -- and the draft is at the cap.
         let mut shell = shell(24, 80);
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 line]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -13590,6 +13800,18 @@ mod tests {
         text
     }
 
+    /// The length of [`inline_paste`]'s paste: short enough to stand in the
+    /// draft as itself ([`super::paste::COLLAPSE_ABOVE`]).
+    const INLINE_PASTE: usize = 500;
+
+    /// One framed paste of [`INLINE_PASTE`] `y`s, which the composer takes as
+    /// text: one entry of the history.
+    fn inline_paste(shell: &mut Shell) {
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes("y".repeat(INLINE_PASTE).as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+    }
+
     #[test]
     fn a_backspace_at_a_collapsed_pastes_edge_takes_the_whole_block() {
         // The narrowing item 16 closes. Phase 1 edited the summary's last
@@ -13597,7 +13819,7 @@ mod tests {
         // nothing.
         let mut shell = shell(24, 80);
         let _block = collapsed(&mut shell, 1);
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 line]");
 
         shell.route_bytes(&[0x7f]);
         assert!(
@@ -13638,7 +13860,7 @@ mod tests {
         shell.route_bytes(b"!");
         assert_eq!(
             shell.editor.text(),
-            "![Pasted text #1, 1 lines]",
+            "![Pasted text #1, 1 line]",
             "a left step landed inside the name"
         );
         shell.route_bytes(&[0x0d]);
@@ -13662,7 +13884,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
+            "[Pasted text #2, 1 line]",
             "the recalled summary kept a number this session had already used"
         );
         shell.route_bytes(&[0x0d]);
@@ -13692,7 +13914,7 @@ mod tests {
             shell
                 .editor
                 .text()
-                .contains(&format!("[Pasted text #{BLOCKS}, 1 lines]")),
+                .contains(&format!("[Pasted text #{BLOCKS}, 1 line]")),
             "the last block is not in the draft"
         );
         shell.route_bytes(&[0x0d]);
@@ -13740,7 +13962,7 @@ mod tests {
         // `submit` would send.
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #4, 1 lines]",
+            "[Pasted text #4, 1 line]",
             "the walk handed back numbers this session had already spent"
         );
     }
@@ -13757,7 +13979,7 @@ mod tests {
         shell.route_bytes(b"  ");
         let block = collapsed(&mut shell, 1);
         shell.route_bytes(b"  ");
-        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 lines]  ");
+        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 line]  ");
 
         shell.route_bytes(&[0x0d]);
         assert_eq!(
@@ -13770,16 +13992,15 @@ mod tests {
     #[test]
     fn one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in() {
         // **The boundary an undo takes**, fixed at the only moment that knows
-        // it. A paste is one gesture and a great many bytes, and the bytes
-        // arrive in as many reads as the terminal feels like: a boundary
-        // inferred later from the buffer would be a boundary per read, or per
-        // grapheme, and an undo built on it would take a megabyte back a
-        // character at a time. Migrated off the one-entry seam onto the delta
-        // the history really holds, which is now the thing `C-_` walks.
+        // it. A paste is one gesture and many bytes, and the bytes arrive in as
+        // many reads as the terminal feels like: a boundary inferred later from
+        // the buffer would be a boundary per read, or per grapheme, and an undo
+        // built on it would take the paste back a character at a time. A paste
+        // short enough to stand in the draft as itself is one entry.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x1b[200~");
         let chunk = vec![b'y'; 64];
-        for _ in 0..40 {
+        for _ in 0..15 {
             shell.route_bytes(&chunk);
         }
         shell.route_bytes(b"\x1b[201~");
@@ -13790,17 +14011,9 @@ mod tests {
             "a framed paste did not record exactly one entry"
         );
         let delta = shell.edit_history.last().expect("the paste's delta");
-        assert_eq!(delta.kind(), DeltaKind::Paste);
         assert_eq!(delta.at(), 0, "the draft before the paste was not empty");
         assert_eq!(delta.removed(), "", "a paste removed nothing");
-        assert_eq!(delta.inserted(), "[Pasted text #1, 1 lines]");
-        let entity = &delta.inserted_entities()[0];
-        assert_eq!(entity.range(), 0..delta.inserted().len());
-        assert_eq!(
-            entity.text().len(),
-            40 * 64,
-            "the delta's entity does not carry the whole paste"
-        );
+        assert_eq!(delta.inserted(), "y".repeat(15 * 64));
 
         // And the next edit is its **own** entry rather than an extension of
         // this one: one paste is one thing to undo, and the keystroke after it
@@ -13810,19 +14023,50 @@ mod tests {
         assert_eq!(
             shell.edit_history.last().map(Delta::kind),
             Some(DeltaKind::Ordinary),
-            "a keystroke after a paste was folded into the paste's transaction"
         );
 
         // The whole point of the boundary, driven: one `C-_` takes the
         // keystroke, the second takes the paste **whole**.
         shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        assert_eq!(shell.editor.text(), "y".repeat(15 * 64));
         shell.route_bytes(&[0x1f]);
         assert_eq!(shell.editor.text(), "");
-        assert!(
-            shell.editor.entities().is_empty(),
-            "the block outlived the summary it stands for"
-        );
+    }
+
+    #[test]
+    fn a_collapsed_paste_is_a_boundary_and_an_undo_after_it_finds_nothing() {
+        // Upstream registers the block, then draws a boundary under the
+        // history (`historyBoundary`, `input_paste_runtime.zig:436-438`): the
+        // paste is not an entry and what was typed before it is not one any
+        // more, so an undo changes nothing and says nothing
+        // (`app_input_runtime.zig:397-402`; capture
+        // `fx-paste-block-undo-40x120-undone`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"look ");
+        assert_eq!(shell.edit_depths(), (5, 0));
+        let block = collapsed(&mut shell, 1);
+        assert_eq!(shell.edit_depths(), (0, 0), "the paste was an entry");
+        shell.document();
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
+        assert_eq!(shell.editor.expanded(), format!("look {block}"));
+        assert!(shell.document().is_empty(), "the undo said something");
+        // A keystroke after it is an entry of its own, and only it is taken.
+        shell.route_bytes(b"!");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "look [Pasted text #1, 1 line]");
+        // Backspace takes the block whole, and that too is a boundary: the
+        // undo after it finds nothing, the block stays gone, and so does the
+        // redo (capture `fx-paste-block-undo-40x120-deleted`).
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.editor.text(), "look ");
+        shell.route_bytes(&[0x1f]);
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "look ");
+        assert!(shell.editor.entities().is_empty());
+        assert_eq!(shell.edit_depths(), (0, 0));
     }
 
     #[test]
@@ -13838,10 +14082,13 @@ mod tests {
         // draft: typed **before** the paste, because typing is an edit and the
         // entry this case is about is the paste's.
         shell.route_bytes(&[b'x'; 100]);
-        let _block = collapsed(&mut shell, 1);
+        inline_paste(&mut shell);
         assert_eq!(
-            shell.edit_history.last().map(Delta::kind),
-            Some(DeltaKind::Paste),
+            shell
+                .edit_history
+                .last()
+                .map(|delta| delta.inserted().len()),
+            Some(INLINE_PASTE),
             "the paste did not record an entry, so this case proves nothing"
         );
         let depths = shell.edit_depths();
@@ -13866,8 +14113,11 @@ mod tests {
         ] {
             shell.route_bytes(keys);
             assert_eq!(
-                shell.edit_history.last().map(Delta::kind),
-                Some(DeltaKind::Paste),
+                shell
+                    .edit_history
+                    .last()
+                    .map(|delta| delta.inserted().len()),
+                Some(INLINE_PASTE),
                 "{name} recorded a history entry for a caret that only moved"
             );
             assert_eq!(
@@ -13880,8 +14130,8 @@ mod tests {
         // And an edit -- any edit -- is its own entry on top of it.
         shell.route_bytes(b"!");
         assert_eq!(
-            shell.edit_history.last().map(Delta::kind),
-            Some(DeltaKind::Ordinary),
+            shell.edit_history.last().map(|delta| delta.inserted()),
+            Some("!"),
             "a keystroke after a paste recorded nothing of its own"
         );
     }
@@ -13900,10 +14150,10 @@ mod tests {
         ];
         for (name, keys) in edits {
             let mut shell = shell(24, 80);
-            let _block = collapsed(&mut shell, 1);
+            inline_paste(&mut shell);
             assert_eq!(
-                shell.edit_history.last().map(Delta::kind),
-                Some(DeltaKind::Paste),
+                shell.edit_depths(),
+                (1, 0),
                 "{name}: the paste did not record an entry"
             );
             shell.route_bytes(keys);
@@ -13912,11 +14162,12 @@ mod tests {
                 (2, 0),
                 "{name} was folded into the paste's transaction"
             );
-            assert!(
-                !matches!(
-                    shell.edit_history.last().map(Delta::kind),
-                    Some(DeltaKind::Paste)
-                ),
+            assert_ne!(
+                shell
+                    .edit_history
+                    .last()
+                    .map(|delta| delta.inserted().len()),
+                Some(INLINE_PASTE),
                 "{name} left the paste as the newest entry"
             );
         }
@@ -14170,71 +14421,33 @@ mod tests {
     }
 
     #[test]
-    fn a_pastes_payload_is_counted_and_undone_whole() {
-        // The delta carries the `Arc` behind the summary, so the history's byte
-        // budget is measured against what a paste really costs -- and the undo
-        // puts the block back under the number its summary says.
+    fn a_refused_yank_changes_nothing_and_a_killed_block_yanks_back_as_its_text() {
+        // Upstream's kill ring holds a killed block's **text**, never the block
+        // (`capturePayload`, `kill_ring.zig:429-447`), and its yank registers
+        // none (`yank`, `:119-190`): what comes back is the pasted text itself,
+        // under no number. A yank the budget refuses changes nothing at all,
+        // and the slot keeps what it holds.
         let mut shell = shell(24, 80);
         let block = collapsed(&mut shell, 1);
-        assert!(
-            shell.edit_history.retained() > block.len(),
-            "the paste's payload was not counted: {} bytes for a {}-byte block",
-            shell.edit_history.retained(),
-            block.len()
-        );
-
-        shell.route_bytes(&[0x1f]);
-        assert_eq!(shell.editor.text(), "");
-        assert!(shell.editor.entities().is_empty());
-        shell.act(Action::Redo, Instant::now());
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
-        assert_eq!(
-            shell.editor.entities().spans()[0].id(),
-            1,
-            "the redone block came back under a different number"
-        );
-        assert_eq!(
-            shell.editor.expanded(),
-            block,
-            "the redone block does not stand for the text it did"
-        );
-    }
-
-    #[test]
-    fn a_refused_yank_spends_no_paste_number() {
-        // **The allocation is transactional or it is a leak.** Renumbering a
-        // yank's blocks mints ids out of the session's one counter
-        // (`entity.rs`'s `renumber_recalled`, `*next = id`), and the counter is
-        // never rewound: a number this session has spent is spent for good. So
-        // a yank that is then refused by the budget has burned a number for an
-        // edit that did not happen -- press `C-y` at a full composer often
-        // enough and the session runs out of names for pastes it never made.
-        let mut shell = shell(24, 80);
-        let block = collapsed(&mut shell, 1);
-        // C-u takes the line and the block on it, so the slot holds a summary
-        // *and* the payload behind it -- which is what makes a yank a
-        // renumbering rather than an insertion of plain text.
+        // C-u takes the line and the block on it.
         shell.route_bytes(&[0x15]);
         assert_eq!(shell.editor.text(), "");
-        let spent = *shell.paste.ids();
-        assert_eq!(spent, 1, "the paste this case killed was #1");
+        assert_eq!(*shell.paste.ids(), 1, "the paste this case killed was #1");
 
-        // A draft with no room for what the slot holds: the summary's own
-        // bytes plus the payload behind it, against the one budget the two
-        // share (`super::paste::fits`). Put in whole rather than a keystroke at
-        // a time, like every other case here that needs a full composer.
-        let yanked = "[Pasted text #1, 1 lines]".len() + block.len();
+        // A draft with no room for the block's text, against the one budget
+        // the draft and its blocks share (`super::paste::fits`). Put in whole
+        // rather than a keystroke at a time, like every other case here that
+        // needs a full composer.
         assert!(
             shell
                 .editor
-                .insert(&"x".repeat(MAX_PASTE_BYTES - yanked + 1))
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() + 1))
                 .is_some(),
             "the draft could not be set up"
         );
         let draft = shell.editor.text().len();
         let caret = shell.editor.before_caret().len();
         let depths = shell.edit_depths();
-
         for attempt in 1..=3 {
             shell.route_bytes(&[0x19]);
             assert_eq!(
@@ -14256,79 +14469,53 @@ mod tests {
                 .edit_history
                 .killed()
                 .expect("the slot is still loaded");
-            assert_eq!(text, "[Pasted text #1, 1 lines]");
+            assert_eq!(text, "[Pasted text #1, 1 line]");
             assert_eq!(spans.len(), 1);
-            assert_eq!(spans[0].id(), 1, "refusal {attempt} renumbered the slot");
             assert_eq!(
                 spans[0].text().len(),
                 block.len(),
                 "refusal {attempt} damaged the killed payload"
             );
-            assert_eq!(
-                *shell.paste.ids(),
-                spent,
-                "refusal {attempt} spent a paste number on an edit that did not happen"
-            );
         }
 
-        // And with room again the yank takes the **next unspent** number -- #2,
-        // not #5 -- carries the payload, and is undoable like any other edit.
+        // With room again the yank is the block's text, as typed: no block,
+        // no number spent, and an entry an undo takes back.
         shell.route_bytes(&[0x03]); // an idle Ctrl-C throws the draft away
         assert_eq!(shell.editor.text(), "");
         shell.route_bytes(&[0x19]);
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
-            "the yank did not take the next unspent number"
-        );
-        assert_eq!(*shell.paste.ids(), 2);
-        assert_eq!(
-            shell.editor.expanded(),
-            block,
-            "the yanked summary stands for nothing"
-        );
+        assert_eq!(shell.editor.text(), block);
+        assert!(shell.editor.entities().is_empty());
+        assert_eq!(*shell.paste.ids(), 1, "the yank spent a paste number");
         assert_eq!(shell.edit_depths(), (1, 0));
         shell.route_bytes(&[0x1f]);
         assert_eq!(shell.editor.text(), "", "the yank was not undoable");
-        assert!(shell.editor.entities().is_empty());
         shell.act(Action::Redo, Instant::now());
-        assert_eq!(shell.editor.text(), "[Pasted text #2, 1 lines]");
-        assert_eq!(shell.editor.expanded(), block);
+        assert_eq!(shell.editor.text(), block);
     }
 
     #[test]
-    fn a_killed_block_comes_back_under_its_own_number_and_a_yank_mints_a_new_one() {
-        // Two live blocks may not answer to one number (`entity.rs:212-216`),
-        // so a yank cannot re-register the id it read: the summary is rewritten
-        // to say the new one and the payload is shared. An undo of the kill is
-        // the other case -- it reverts to a draft in which the old id was live,
-        // so that one comes back exactly as it was.
+    fn a_killed_block_is_yanked_back_as_its_text_and_the_kill_is_not_undone() {
+        // `fx-paste-block-undo-40x120-{killed,yanked,yank-undone,undone-again}`:
+        // Ctrl-U over a line with a block is a boundary
+        // (`composer_kill_ring.zig:90-118`), Ctrl-Y puts the block's text back
+        // as text, an undo takes that yank back, and a second undo finds
+        // nothing -- the kill is not an entry, so the block never returns.
         let mut shell = shell(24, 80);
+        shell.route_bytes(b"look ");
         let block = collapsed(&mut shell, 1);
         shell.route_bytes(&[0x15]); // C-u: kill the line, block and all
         assert_eq!(shell.editor.text(), "");
+        assert_eq!(shell.edit_depths(), (0, 0), "the kill was an entry");
 
         shell.route_bytes(&[0x19]); // C-y
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
-            "the yanked block kept the number the killed one had"
-        );
-        assert_eq!(
-            shell.editor.expanded(),
-            block,
-            "the payload did not come with it"
-        );
+        assert_eq!(shell.editor.text(), format!("look {block}"));
+        assert!(shell.editor.entities().is_empty());
 
         shell.route_bytes(&[0x1f]); // undo the yank
         assert_eq!(shell.editor.text(), "");
-        shell.route_bytes(&[0x1f]); // undo the kill
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
-            "the undone kill did not restore the block's own number"
-        );
-        assert_eq!(shell.editor.expanded(), block);
+        shell.route_bytes(&[0x1f]); // nothing left: the kill was a boundary
+        assert_eq!(shell.editor.text(), "");
+        assert!(shell.editor.entities().is_empty());
     }
 
     #[test]
@@ -14366,18 +14553,18 @@ mod tests {
         // lines identical. Folding them would drop the entry that stands on the
         // block and hand back the one that stands on nothing.
         let mut shell = shell(24, 80);
-        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(b"[Pasted text #1, 1 line]");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string())
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string())
         );
         let _echo = shell.document();
 
         let block = collapsed(&mut shell, 1);
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the paste did not take the number the typed line names, so this \
              case proves nothing"
         );
@@ -14387,7 +14574,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A"); // Up: one step back
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #2, 1 lines]",
+            "[Pasted text #2, 1 line]",
             "the pasted line was folded into the typed one: {:?}",
             shell.editor.text()
         );
@@ -14414,7 +14601,7 @@ mod tests {
         shell.route_bytes(b"\x1b[A"); // Up
         assert_eq!(
             shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the recalled line is not the one that was submitted"
         );
         assert!(
@@ -14424,7 +14611,7 @@ mod tests {
         assert_eq!(shell.notice, Some(RECALL_UNNUMBERED));
         assert_eq!(
             shell.editor.expanded(),
-            "[Pasted text #1, 1 lines]",
+            "[Pasted text #1, 1 line]",
             "the summary still stood for eight megabytes"
         );
     }
@@ -17437,6 +17624,47 @@ mod tests {
             shell.picks_up(),
             TurnWork::Attached { prompt, images } if prompt == "and [Image #1]" && images.len() == 1
         ));
+    }
+
+    #[test]
+    fn a_steered_paste_waits_as_its_text_and_its_card_is_the_text() {
+        // A steer's message is the prompt as sent (`admitInteractivePrompt`,
+        // `worker_runtime.zig:1080-1104`), its block expanded, and so is the
+        // card written when the turn takes it; while it waits, its banner is
+        // the first two rows of that text, the last cut for `…`
+        // (`composeSteeringMessageRows`, `input_presentation.zig:58-80`).
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        let block = "w".repeat(1500);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(b"\r");
+        assert!(steering.pending(), "the prompt did not steer");
+        let width = usize::from(shell.geometry.cols - 2);
+        assert_eq!(
+            shell.banner_rows(shell.geometry.cols),
+            [
+                format!("{BANNER_MARK}{}", "w".repeat(width)),
+                format!("{BANNER_MARK}{}\u{2026}", "w".repeat(width - 1)),
+            ]
+        );
+        let taken = steering.take();
+        assert_eq!(taken[0].text, block);
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let words: String = shell
+            .released()
+            .iter()
+            .map(|row| uncoloured(row))
+            .filter_map(|row| row.strip_prefix("\u{2503} ").map(str::to_string))
+            .collect();
+        assert!(words.contains(&block), "the steer's card is not its text");
+        assert!(!words.contains("Pasted text"));
     }
 
     #[test]
@@ -21207,7 +21435,6 @@ mod tests {
         lines: Option<crate::session::LineCounts>,
     ) -> crate::session::TurnStep {
         crate::session::TurnStep::ToolResult {
-            created_at_ms: None,
             images: Vec::new(),
             call_id: id.to_string(),
             tool: "t".to_string(),
@@ -21243,7 +21470,6 @@ mod tests {
                 wire: None,
             },
             crate::session::TurnStep::ToolResult {
-                created_at_ms: None,
                 call_id: "c1".into(),
                 tool: "read_file".into(),
                 ok: true,
@@ -21263,8 +21489,6 @@ mod tests {
                 HydratedStep::ToolStart {
                     id: "c1".into(),
                     shown,
-                    // Its result came back a second in.
-                    at_ms: Some(1_790_899_201_000),
                 },
                 HydratedStep::ToolResult {
                     id: "c1".into(),
@@ -21320,7 +21544,8 @@ mod tests {
             [
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
                 "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
-                "  2026-10-02 00:00:01.000 UTC \u{b7} Tool",
+                // At the turn's commit, as upstream's results are stamped.
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Tool",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
                 "  2026-10-02 00:00:02.000 UTC \u{b7} Prompt",
@@ -21501,7 +21726,6 @@ mod tests {
                 wire: None,
             },
             TurnStep::ToolResult {
-                created_at_ms: None,
                 images: Vec::new(),
                 call_id: "r".to_string(),
                 tool: "read_file".to_string(),
@@ -22111,6 +22335,267 @@ mod tests {
             })
         );
         assert_eq!(shell.take_title().as_deref(), Some("Next One"));
+    }
+
+    #[test]
+    fn a_generated_title_names_the_window_and_the_status_line_and_writes_nothing() {
+        // `pollSessionTitleGeneration` asks for a footer frame and writes no
+        // notice (`app_session_runtime.zig:3706-3779`, `src/main.zig:3141-3143`).
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.statusline.session = true;
+        turn_running(&mut shell, b"fix the renderer please\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        // Mid-turn, as the runtime sends it the moment it comes back.
+        shell.apply(UiEvent::SessionTitled("Fix the renderer".to_string()));
+        assert_eq!(shell.take_title().as_deref(), Some("Fix the renderer"));
+        assert_eq!(shell.document(), Vec::<String>::new());
+        assert!(
+            visible_text(&shell.hint_row()).contains("Fix the renderer"),
+            "{}",
+            visible_text(&shell.hint_row())
+        );
+        // The turn's end does not put the prompt's title back.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+        assert!(visible_text(&shell.hint_row()).contains("Fix the renderer"));
+    }
+
+    /// The fixture's desk, with somewhere to ask published as the runtime
+    /// publishes it, and answered by `answer` -- no network.
+    fn asking_desk(shell: &mut Fixture) -> super::super::titles::Answers {
+        asking_desk_answered(
+            shell,
+            super::super::titles::Outcome::Generated("Titled".to_string()),
+        )
+    }
+
+    /// [`asking_desk`], answered by `outcome`.
+    fn asking_desk_answered(
+        shell: &mut Fixture,
+        outcome: super::super::titles::Outcome,
+    ) -> super::super::titles::Answers {
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let credential = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                None,
+                std::collections::BTreeMap::from([(
+                    "AI_GATEWAY_API_KEY".to_string(),
+                    "fake-key-not-real".to_string(),
+                )]),
+            ),
+            workspace.path(),
+        )
+        .expect("a configuration")
+        .credential
+        .expect("a credential");
+        let (desk, answers) =
+            super::super::titles::TitleDesk::answering(true, move |_| outcome.clone());
+        desk.publish_asker(Some((
+            crate::gateway::Endpoint::resolve(Some("http://127.0.0.1:9/v4/ai/language-model"))
+                .expect("a loopback endpoint"),
+            credential,
+        )));
+        shell.work.titles_for_tests(desk);
+        answers
+    }
+
+    #[test]
+    fn a_fresh_sessions_first_prompt_asks_for_a_title_at_the_keystroke() {
+        // `snapshotPrompt` (`src/main.zig:1479-1481`): asked as the prompt is
+        // handed over, before its turn has started -- and, as the gate has it
+        // (`shouldGenerate`, `session_title_generation.zig:40-46`), not again
+        // while that question is out.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.route_bytes(b"fix the renderer\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("fix the renderer".to_string())
+        );
+        assert!(
+            shell.work.title_desk().running(),
+            "the first prompt asked for no title"
+        );
+        assert_eq!(shell.work.title_desk().lineage(), 0);
+    }
+
+    #[test]
+    fn a_prompt_asks_for_no_title_once_the_session_has_one_or_a_turn_has_ended() {
+        // The band's half of `session_untitled`
+        // (`app_session_runtime.zig:3674-3675`): the cached title is empty
+        // and the history is.
+        let mut titled = shell(24, 120);
+        let _answers = asking_desk(&mut titled);
+        titled.route_bytes(b"/rename Mine\r");
+        titled.route_bytes(b"fix the renderer\r");
+        let _ = titled.picks_up();
+        assert!(
+            !titled.work.title_desk().running(),
+            "a titled session asked"
+        );
+
+        // A first turn that ended -- interrupted too, as upstream's history
+        // holds an interrupted turn -- with no title given.
+        let mut turned = shell(24, 120);
+        let _answers = asking_desk(&mut turned);
+        turned.work.title_desk().set_on(false);
+        turn_running(&mut turned, b"first\r");
+        let _ = turned.picks_up();
+        turned.work.give_back();
+        turned.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: interrupted".to_string()),
+        });
+        turned.work.title_desk().set_on(true);
+        turned.route_bytes(b"second\r");
+        let _ = turned.picks_up();
+        assert!(
+            !turned.work.title_desk().running(),
+            "a session with a turn behind it asked"
+        );
+
+        // The switch, read at the keystroke.
+        let mut off = shell(24, 120);
+        let _answers = asking_desk(&mut off);
+        off.work.set_session_titles(false);
+        off.route_bytes(b"fix the renderer\r");
+        let _ = off.picks_up();
+        assert!(
+            !off.work.title_desk().running(),
+            "asked with the switch off"
+        );
+    }
+
+    #[test]
+    fn a_prompt_steered_into_the_first_turn_asks_when_no_title_came_back() {
+        // Upstream's steer is admitted through the same `snapshotPrompt` that
+        // asks for every prompt (`snapshotAndAdmitInteractivePromptWithSkillBindings`,
+        // `src/main.zig:1407-1420`, `:1479-1481`; then `admitInteractivePrompt`
+        // -> `admitPrompt(.., steer_if_active = true)`,
+        // `worker_runtime.zig:966-968`, `:1064-1104`), and its history is
+        // empty until the first turn ends: while the first prompt's question
+        // is out nothing more is asked, and once it came back with no title,
+        // a prompt steered into the first turn asks again.
+        let mut shell = shell(24, 120);
+        let mut answers = asking_desk_answered(
+            &mut shell,
+            super::super::titles::Outcome::Unavailable(super::super::titles::Unavailable::Empty),
+        );
+        turn_running(&mut shell, b"first prompt\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let steering = shell.work.steering();
+        steering.open();
+        assert!(shell.work.title_desk().running());
+        shell.route_bytes(b"while it runs\r");
+        assert!(steering.pending(), "the prompt was not steered");
+        // The first answer is read -- by the runtime, here by hand -- and it
+        // carried no title, so the band was told none.
+        let titled = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), answers.next())
+                    .await
+                    .expect("an answer")
+            });
+        assert_eq!(titled.title(), None);
+        assert!(shell.work.title_desk().settle(&titled));
+        assert!(!shell.work.title_desk().running());
+        shell.route_bytes(b"steered after the answer\r");
+        assert_eq!(
+            steering.take().len(),
+            2,
+            "the second prompt was not steered"
+        );
+        assert!(
+            shell.work.title_desk().running(),
+            "a prompt steered into a still-untitled first turn asked nothing"
+        );
+        let second = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), answers.next())
+                    .await
+                    .expect("an answer")
+            });
+        assert!(shell.work.title_desk().settle(&second));
+    }
+
+    #[test]
+    fn a_reset_moves_the_title_lineage_on_at_the_keystroke() {
+        // Upstream clears its session at `/new` before anything else is
+        // read. The question about the old one runs on to an answer that is
+        // dropped (`session_changed`, `app_session_runtime.zig:3720-3728`),
+        // and while it runs a prompt typed straight after asks nothing
+        // (`task_running`, `session_title_generation.zig:40-46`).
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.route_bytes(b"first\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        assert!(shell.work.title_desk().running());
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.work.title_desk().lineage(), 1);
+        assert!(
+            shell.work.title_desk().running(),
+            "the old conversation's question was stopped"
+        );
+        shell.route_bytes(b"straight away\r");
+        let _ = shell.picks_up();
+        assert_eq!(
+            shell.work.title_desk().generation().status,
+            crate::trace::TitleStatus::Running,
+            "the question out changed"
+        );
+    }
+
+    #[test]
+    fn a_generated_title_that_comes_after_a_rename_leaves_the_users_title_in_the_window() {
+        // Upstream writes a `/rename` at the keystroke, and a generated title
+        // that comes back after it finds a title of the user's on record and
+        // is dropped (`installGeneratedTitle`,
+        // `session_title_generation.zig:378-394`): the window keeps the
+        // user's. xfx's runtime writes a rename typed during a turn once the
+        // turn is over, so an answer can reach the band after it.
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        turn_running(&mut shell, b"fix the renderer\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/rename Mine\r");
+        assert_eq!(shell.session_title.as_deref(), Some("Mine"));
+        shell.apply(UiEvent::SessionTitled("Generated Title".to_string()));
+        assert_eq!(
+            shell.session_title.as_deref(),
+            Some("Mine"),
+            "a generated title replaced the user's"
+        );
+    }
+
+    #[test]
+    fn a_prompt_behind_a_provider_switch_asks_nothing_at_the_keystroke() {
+        // Upstream holds a prompt while its provider is prepared
+        // (`app_auth_runtime.zig:1840-1842`): the band hands the runtime the
+        // switch, and a prompt typed before it hears the switch was made is
+        // held for the runtime to ask from, of the conversation it runs in.
+        let mut shell = shell(24, 120);
+        let _answers = asking_desk(&mut shell);
+        shell.switch_provider(ProviderId::Llmux);
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        shell.route_bytes(b"fix the renderer\r");
+        assert!(
+            !shell.work.title_desk().running(),
+            "asked of the conversation the switch drops"
+        );
+        assert_eq!(
+            shell.work.title_desk().worked_through(1).as_deref(),
+            Some("fix the renderer"),
+            "the prompt was not held for the runtime"
+        );
     }
 
     #[test]
@@ -24007,6 +24492,8 @@ mod tests {
         shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
         shell.apply(UiEvent::Output(Progress::Settled(40)));
         shell.apply(UiEvent::Usage { input: Some(9_000) });
+        // A generated title for the session the reset dropped.
+        shell.apply(UiEvent::SessionTitled("The dropped session".to_string()));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("xfx: interrupted".to_string()),
         });
@@ -29019,7 +29506,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("first[Pasted text #1, 1 lines]")
+            composer_row("first[Pasted text #1, 1 line]")
         );
 
         older(&mut shell);
@@ -29067,7 +29554,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
@@ -29076,7 +29563,7 @@ mod tests {
         shell.route_bytes(&[0x0e]);
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #2, 1 lines]"),
+            composer_row("[Pasted text #2, 1 line]"),
             "the draft the walk began from did not come back, or came back \
              under a number this session had already used"
         );
@@ -29098,27 +29585,27 @@ mod tests {
         // installed and keep the block alive, and the recalled line would then
         // be expanded into megabytes nobody pasted into it.
         let mut shell = shell(24, 80);
-        submitted(&mut shell, "[Pasted text #1, 1 lines]");
+        submitted(&mut shell, "[Pasted text #1, 1 line]");
         let block = "y".repeat(1200);
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
         older(&mut shell);
         assert_eq!(
             shell.band_rows()[0],
-            composer_row("[Pasted text #1, 1 lines]"),
+            composer_row("[Pasted text #1, 1 line]"),
             "the recalled line is not the one whose words match the summary"
         );
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            TurnWork::Submit("[Pasted text #1, 1 line]".to_string()),
             "a block survived the recall and expanded into the line the walk handed back"
         );
     }
@@ -30912,6 +31399,24 @@ mod tests {
     }
 
     #[test]
+    fn a_caret_at_the_end_of_a_full_row_stays_on_the_screen() {
+        // `fx-composer-wrap-24x80-full-78`: a draft that fills its row exactly
+        // leaves the caret after its last cell, and upstream clamps the column
+        // to the screen's last one (`terminalColumn`, `visual_layout.zig:696-702`).
+        // xfx put it one past, and the output check refused the frame and
+        // ended the session: `caret placed off the screen ... column 81`.
+        for (rows, cols) in [(24, 80), (40, 120)] {
+            let mut shell = shell(rows, cols);
+            let text = usize::from(cols - PROMPT_CELLS);
+            shell.route_bytes("b".repeat(text).as_bytes());
+            assert_eq!(shell.cursor().1, cols - 1, "{cols} columns");
+            // Hanging spaces past the margin are clamped the same way.
+            shell.route_bytes(b"   ");
+            assert_eq!(shell.cursor().1, cols - 1, "{cols} columns, spaces");
+        }
+    }
+
+    #[test]
     fn a_yanked_badge_is_not_taken_back_by_an_undo() {
         // `composer_kill_ring.zig:44-88,303-332`: a kill over a badge and a
         // yank that brings one back are boundaries, not entries.
@@ -31939,12 +32444,12 @@ mod tests {
         let mut shell = with_settings(root.path());
         assert!(shell.document().is_empty(), "the menu wrote a notice");
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.geometry.panel, 15);
+        assert_eq!(shell.geometry.panel, 16);
         let model = format!("  Model                    {}", shell.model);
         assert_eq!(
             settings_text(&shell),
             [
-                "Settings 13  [All]  Interface  Agent  Notifications  Advanced",
+                "Settings 14  [All]  Interface  Agent  Notifications  Advanced",
                 "",
                 "  Status line context      off  on",
                 "  Status line session      off  on",
@@ -31956,6 +32461,7 @@ mod tests {
                 "  Fast mode                off",
                 "  Ultra mode               off",
                 "  Permission mode          ask  auto  full access",
+                "  Session titles           off  on",
                 "  Sound level              off  on",
                 "  Startup scrollback       off  on",
                 "  Prompt history           off  on",
@@ -32078,6 +32584,7 @@ mod tests {
                 "  Fast mode           off".to_string(),
                 "  Ultra mode          off".to_string(),
                 "  Permission mode     ask  auto  full access".to_string(),
+                "  Session titles      off  on".to_string(),
             ]
         );
         // Shift-Tab is the category back, and not the permission mode.
@@ -32105,8 +32612,8 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
         shell.route_bytes(b"\x1b[A");
-        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[15]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[15].matches(PALETTE.subtitle()).count(), 2);
         let before = shell.band_rows();
         shell.route_bytes(b"\r");
         assert_eq!(shell.band_rows(), before);
@@ -32186,7 +32693,7 @@ mod tests {
         let (_home, path) = profile();
         let mut shell = sounding(40, false, Some(path.clone()));
         shell.route_bytes(b"/settings\r");
-        down(&mut shell, 10);
+        down(&mut shell, 11);
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.released(),
@@ -32200,7 +32707,41 @@ mod tests {
             &path,
             serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
         );
-        assert!(settings_text(&shell)[12].ends_with("Sound level              off  on"));
+        assert!(settings_text(&shell)[13].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn right_on_session_titles_switches_them_saves_and_is_in_force_for_the_runtime() {
+        // `applySettingsCatalogChange`'s `.session_titles`
+        // (`app_commands.zig:4149-4166`): in force at once, saved, and
+        // announced as `persistUserPreferences` announces.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        assert!(shell.work.session_titles(), "upstream's default is on");
+        down(&mut shell, 10);
+        assert_eq!(
+            settings_text(&shell)[12],
+            "  Session titles           off  on"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(!shell.work.session_titles());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                settings::SESSION_TITLES_TOPIC,
+                interactive::STATUSLINE_SAVED
+            ))
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"session_titles\": false\n}\n"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(shell.work.session_titles());
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"session_titles\": true\n}\n"
+        );
     }
 
     #[test]
@@ -32382,8 +32923,8 @@ mod tests {
         // "active" about it.
         shell.recall.enabled = false;
         shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
-        assert!(visible_text(&menu(&shell)[14]).starts_with("  Prompt history"));
-        assert_eq!(menu(&shell)[14].matches(PALETTE.subtitle()).count(), 2);
+        assert!(visible_text(&menu(&shell)[15]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[15].matches(PALETTE.subtitle()).count(), 2);
         shell.route_bytes(RIGHT);
         assert!(!shell.recall.enabled);
         assert_eq!(
@@ -32656,8 +33197,8 @@ mod tests {
         // with no `saved to user settings` line.
         let root = tempfile::tempdir().expect("a root");
         let mut shell = with_settings(root.path());
-        down(&mut shell, 11);
-        assert!(visible_text(&menu(&shell)[13]).starts_with("  Startup scrollback"));
+        down(&mut shell, 12);
+        assert!(visible_text(&menu(&shell)[14]).starts_with("  Startup scrollback"));
         shell.route_bytes(RIGHT);
         assert_eq!(
             shell.document(),
@@ -32667,10 +33208,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            settings_text(&shell)[13],
+            settings_text(&shell)[14],
             "  Startup scrollback       off  on"
         );
-        assert!(menu(&shell)[13].contains(&format!(
+        assert!(menu(&shell)[14].contains(&format!(
             "{}off{}",
             PALETTE.subtitle(),
             PALETTE.reset()
@@ -33253,7 +33794,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compaction_clears_the_context_meter_until_a_turn_measures_again() {
+    fn a_compaction_leaves_the_context_meter_until_a_turn_measures_again() {
         let mut shell = with_a_turn();
         shell.apply(UiEvent::Usage {
             input: Some(90_000),
@@ -33268,7 +33809,13 @@ mod tests {
         shell.apply(UiEvent::Compaction(compaction::Update::Settled(
             compaction::Feedback::Succeeded,
         )));
-        assert_eq!(shell.shell.context_used, None);
+        assert_eq!(
+            shell.shell.context_used,
+            Some(90_000),
+            "upstream's meter moves only on a turn's usage"
+        );
+        shell.apply(UiEvent::Usage { input: Some(4_000) });
+        assert_eq!(shell.shell.context_used, Some(4_000));
     }
 
     #[test]

@@ -1,0 +1,22 @@
+# W9: `session_titles: false` (the `/settings` row's off). No title request is
+# sent -- the gateway log and the bodies have none -- and the session keeps the
+# title its first prompt gives it, in the window, the status line and the
+# `/resume` picker. The fake would answer one with titles-answer.json.
+gateway titles-turns.json
+titled titles-answer.json
+seed titles-off-seed.json
+xfx: env XFX_SOUND=off
+wait 3
+type fix the renderer loop, it redraws every row twice
+key Enter
+wait 4
+snap answered
+title answered
+type /new
+key Enter
+wait 2
+type /resume
+key Enter
+wait 2
+snap resume
+gwlog

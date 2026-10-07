@@ -181,7 +181,6 @@ fn evidence_events() -> Vec<SessionEvent> {
             wire: None,
         },
         SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,
@@ -191,7 +190,6 @@ fn evidence_events() -> Vec<SessionEvent> {
             output: "1\thi".to_string(),
         },
         SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,
@@ -201,7 +199,6 @@ fn evidence_events() -> Vec<SessionEvent> {
             output: "Edited greeting.txt".to_string(),
         },
         SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,
@@ -2335,7 +2332,6 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
                 wire: None,
             },
             SessionEvent::ToolResult {
-                created_at_ms: None,
                 ending: None,
                 lines: None,
                 change: None,
@@ -2922,7 +2918,6 @@ fn interrupted_batch_events() -> Vec<SessionEvent> {
             wire: None,
         },
         SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,
@@ -2994,7 +2989,6 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
             wire: None,
         },
         SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,
@@ -3004,7 +2998,6 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
             output: "Wrote a.md (6 bytes)".to_string(),
         },
         SessionEvent::ToolResult {
-            created_at_ms: None,
             ending: None,
             lines: None,
             change: None,

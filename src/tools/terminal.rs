@@ -54,6 +54,16 @@ use super::spec::{
 /// How often a running command notices a timeout or a cancellation.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// How long a command its turn stopped is given to end on the `SIGTERM` it is
+/// sent first, before the group is killed: upstream's
+/// `foreground_target_termination_grace_ms` (`vercel-labs/fx@c1db9191
+/// src/core/execution/command_runner.zig:85`), the supervisor's grace a
+/// captured command runs under (`executeProcessWithDetachedSession`, the
+/// `.foreground_supervisor` protocol, `:1434`) -- the parent's own
+/// escalation, 800 ms (`updateTerminationSignal`, `:3404-3408`), comes after
+/// it. A timeout gets no grace (`:3395-3400`).
+const TERMINATION_GRACE: Duration = Duration::from_millis(700);
+
 /// How long xfx will wait for a killed command's pipes to close.
 ///
 /// A child that spawns a grandchild and exits leaves the grandchild holding the
@@ -245,9 +255,11 @@ enum Ending {
         ms: u64,
         stranded: Option<Stranded>,
     },
-    /// xfx killed it because the turn was cancelled.
+    /// xfx stopped it because the turn was cancelled, and how it ended:
+    /// the signal it died of, when it was one.
     Cancelled {
         stranded: Option<Stranded>,
+        status: Option<std::process::ExitStatus>,
     },
 }
 
@@ -290,20 +302,29 @@ struct Outcome {
 
 impl Outcome {
     fn into_result(self, plan: &CommandPlan) -> ToolResult {
+        let streams = self.streams();
         let mut out = String::new();
         out.push_str(&format!("<command>{}</command>\n", framed(plan.command())));
         out.push_str(&format!("<cwd>{}</cwd>\n", framed(plan.display_cwd())));
         match self.ending {
             Ending::Exited(code) => out.push_str(&format!("<exit_code>{code}</exit_code>\n")),
             Ending::Signalled(signal) => out.push_str(&format!("<signal>{signal}</signal>\n")),
+            // Killed at once, as upstream kills one past its deadline (a
+            // timeout is a force stop, `updateTerminationSignal`,
+            // `vercel-labs/fx@c1db9191 src/core/execution/command_runner.zig:
+            // 3395-3400`), and shown as upstream's full transcript shows it:
+            // what it wrote, then `timed out` (`fx-timeout-40x120-live-ctrl-o`).
             Ending::TimedOut { ms, stranded } => {
+                out.push_str("<timed_out/>\n");
+                out.push_str(&streams);
                 return ToolResult::failure(format!(
                     "terminal timed out: `{}` ran longer than {ms} ms and was killed\n{}{}",
                     framed(plan.command()),
-                    self.streams(),
+                    streams,
                     stranded_notice(stranded)
                 ))
                 .ending(CallOutcome::TimedOut)
+                .presenting(out);
             }
             // Stopped by the user under its turn: upstream's answer for the
             // call, `aborted by user` and nothing of the command's output
@@ -312,14 +333,28 @@ impl Outcome {
             // `fx-interrupt-next-cmd-40x120-bodies/003-completion.json`). The one
             // thing kept is xfx's own: a group that could not be emptied is
             // still said, because something the command started may be running.
-            Ending::Cancelled { stranded } => {
+            //
+            // The person watching is shown what upstream's full transcript
+            // shows of it -- the output it wrote and how it ended, `signal 15`
+            // for one that stopped when asked (`fx-resume-tools-40x120-
+            // live-ctrl-o`) -- in the frame a finished command's result is
+            // in, so the screen reads it as one ([`ToolResult::presented`]).
+            Ending::Cancelled { stranded, status } => {
                 let notice = stranded_notice(stranded);
                 let output = if notice.is_empty() {
                     crate::tools::question::ABORTED_OUTPUT.to_string()
                 } else {
                     format!("{}\n{notice}", crate::tools::question::ABORTED_OUTPUT)
                 };
-                return ToolResult::failure(output).ending(CallOutcome::Cancelled);
+                let result = ToolResult::failure(output).ending(CallOutcome::Cancelled);
+                let status = match status.map(ended) {
+                    Some(Ending::Exited(code)) => format!("<exit_code>{code}</exit_code>\n"),
+                    Some(Ending::Signalled(signal)) => format!("<signal>{signal}</signal>\n"),
+                    _ => return result,
+                };
+                out.push_str(&status);
+                out.push_str(&streams);
+                return result.presenting(out);
             }
         }
         out.push_str(&self.streams());
@@ -489,9 +524,13 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
             Err(_) => return Ending::Exited(-1),
         }
         if cancel.is_cancelled() {
-            return Ending::Cancelled {
-                stranded: stop(child),
-            };
+            // Asked first, as upstream asks (`terminationSignalPlan`,
+            // `command_runner.zig:2473-2493`: `SIGTERM` to the group for a
+            // cooperative stop, `SIGKILL` once its grace is spent), then
+            // killed as a timeout kills it, which collects how it ended.
+            terminate(child);
+            let (stranded, status) = stop_collecting(child);
+            return Ending::Cancelled { stranded, status };
         }
         if started.elapsed() >= timeout {
             return Ending::TimedOut {
@@ -501,6 +540,42 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
         }
         std::thread::sleep(POLL_INTERVAL);
     }
+}
+
+/// Sends the command's group `SIGTERM` and gives its leader
+/// [`TERMINATION_GRACE`] to exit, without collecting it: [`stop`]'s sweep
+/// needs the leader uncollected, and kills whatever is left either way.
+fn terminate(child: &Child) {
+    #[cfg(unix)]
+    {
+        use rustix::process::{waitid, WaitId, WaitIdOptions};
+        let Some(group) = rustix::process::Pid::from_raw(child.id() as i32) else {
+            return;
+        };
+        if rustix::process::kill_process_group(group, rustix::process::Signal::TERM).is_err() {
+            return;
+        }
+        let deadline = Instant::now() + TERMINATION_GRACE;
+        while Instant::now() < deadline {
+            match waitid(
+                WaitId::Pid(group),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            ) {
+                Ok(Some(_)) => return,
+                Err(rustix::io::Errno::INTR) | Ok(None) => std::thread::sleep(POLL_INTERVAL),
+                Err(_) => return,
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = child;
+}
+
+/// [`stop`], answering how the child it reaped ended as well.
+fn stop_collecting(child: &mut Child) -> (Option<Stranded>, Option<std::process::ExitStatus>) {
+    let mut status = None;
+    let stranded = stop_with(child, &mut status);
+    (stranded, status)
 }
 
 /// Kills everything the command started, and reaps the child xfx forked.
@@ -520,6 +595,11 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
 /// everything it can do about it -- and the caller says so in the tool's own
 /// output.
 fn stop(child: &mut Child) -> Option<Stranded> {
+    stop_with(child, &mut None)
+}
+
+/// [`stop`], keeping the reaped child's status in `status`.
+fn stop_with(child: &mut Child, status: &mut Option<std::process::ExitStatus>) -> Option<Stranded> {
     #[cfg(unix)]
     let group = rustix::process::Pid::from_raw(child.id() as i32);
 
@@ -540,7 +620,7 @@ fn stop(child: &mut Child) -> Option<Stranded> {
         None => Killed::new(),
     };
 
-    let _ = child.wait();
+    *status = child.wait().ok();
 
     #[cfg(unix)]
     let stranded = match group {

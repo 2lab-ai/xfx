@@ -688,6 +688,12 @@ fn read_file_refuses_in_upstreams_words() {
             json!({ "path": "missing.txt" }),
             "Path not found: missing.txt".to_string(),
         ),
+        // The argument as the model wrote it, spaces and all
+        // (`fx-read-failures-40x120-bodies/003-completion.json`).
+        (
+            json!({ "path": "  missing.txt  " }),
+            "Path not found:   missing.txt  ".to_string(),
+        ),
         (
             json!({ "path": outside_path }),
             format!("Path is outside the workspace: {outside_path}"),
@@ -723,6 +729,128 @@ fn read_file_refuses_in_upstreams_words() {
     }
 }
 
+/// A read that resolved and then could not be done is upstream's
+/// `tool_execution_failed` envelope, as its model is sent it
+/// (`readFileFailure`, `read_file.zig:184-216`; `toolExecutionFailureJson`,
+/// `tool_result_errors.zig:323-347`; `fx-read-failures-40x120-bodies/
+/// 003-completion.json`), and its row says no more than `Failed src`
+/// (`failureStatusDetail`, `tool_presentation.zig:1253-1301`: an in-call
+/// failure of a built-in tool has no status detail).
+#[test]
+fn a_read_that_resolved_and_failed_is_upstreams_envelope_and_its_row_says_nothing_more() {
+    let tree = Tree::new();
+    fs::create_dir(tree.root().join("src")).expect("a directory");
+    let result = call(&context(&tree), "read_file", json!({ "path": "src" }));
+    assert!(!result.ok);
+    let absolute = fs::canonicalize(tree.root().join("src")).expect("canonical");
+    assert_eq!(
+        result.output,
+        format!(
+            r#"{{"error":{{"type":"tool_execution_failed","tool_name":"read_file","message":"read_file requires a regular file","details":{{"field":"path","path":{},"error":"NotRegularFile"}},"suggestion":"Use glob_files to inspect directory contents, then choose a regular file."}}}}"#,
+            serde_json::to_string(&absolute.display().to_string()).expect("a string")
+        )
+    );
+    assert_eq!(&*result.detail, "", "the row was given a reason");
+}
+
+/// The search tools' and `list_files`'s roots that do not resolve, in the
+/// preflight's words (`tool_admission.zig:2465-2495`;
+/// `fx-read-failures-40x120-live`: `Failed *.rs: Path not found: nope`).
+#[test]
+fn a_search_root_that_does_not_resolve_is_upstreams_preflight_sentence() {
+    let tree = Tree::new();
+    let context = context(&tree);
+    for (tool, input) in [
+        ("glob_files", json!({ "pattern": "*.rs", "path": "nope" })),
+        ("grep_files", json!({ "pattern": "alpha", "path": "nope" })),
+        ("list_files", json!({ "path": "nope" })),
+    ] {
+        let result = call(&context, tool, input);
+        assert!(!result.ok, "{tool}");
+        assert_eq!(result.output, "Path not found: nope", "{tool}");
+        assert_eq!(&*result.detail, "Path not found: nope", "{tool}");
+    }
+}
+
+/// A search pointed at a file searches that file, as upstream's does
+/// (`glob_files.zig:189-198`, `grep_files.zig:278-286`); one pointed at a
+/// FIFO is `grep_files`'s plain refusal (`:287`); and a root the system will
+/// not open is its envelope or sentence, none of them with a reason on the
+/// row.
+#[cfg(unix)]
+#[test]
+fn a_search_over_a_file_searches_it_and_one_the_system_refuses_is_upstreams_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let tree = Tree::new();
+    tree.write("notes.txt", "alpha one\nbeta\nalpha two\n");
+    let context = context(&tree);
+    let globbed = call(
+        &context,
+        "glob_files",
+        json!({ "pattern": "*.txt", "path": "notes.txt" }),
+    );
+    assert!(globbed.ok, "{globbed:?}");
+    assert_eq!(globbed.output, "[glob] 1 matches for *.txt\n - notes.txt\n");
+    let missed = call(
+        &context,
+        "glob_files",
+        json!({ "pattern": "*.rs", "path": "notes.txt" }),
+    );
+    assert_eq!(missed.output, "[glob] no matches for *.rs\n");
+    let grepped = call(
+        &context,
+        "grep_files",
+        json!({ "pattern": "alpha", "path": "notes.txt" }),
+    );
+    assert!(grepped.ok, "{grepped:?}");
+    assert!(
+        grepped.output.contains("notes.txt:1: alpha one"),
+        "{}",
+        grepped.output
+    );
+    assert!(
+        grepped.output.contains("notes.txt:3: alpha two"),
+        "{}",
+        grepped.output
+    );
+
+    tree.mkfifo("pipe");
+    let piped = call(
+        &context,
+        "grep_files",
+        json!({ "pattern": "x", "path": "pipe" }),
+    );
+    let absolute = fs::canonicalize(tree.root().join("pipe")).expect("canonical");
+    assert_eq!(
+        piped.output,
+        format!("Not a regular file or directory: {}", absolute.display())
+    );
+    assert_eq!(&*piped.detail, "");
+
+    // A file the system will not open (not as root, whom nothing refuses).
+    if unsafe { libc::geteuid() } != 0 {
+        let locked = tree.root().join("locked.txt");
+        fs::write(&locked, "alpha\n").expect("write");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+        let refused = call(
+            &context,
+            "grep_files",
+            json!({ "pattern": "alpha", "path": "locked.txt" }),
+        );
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).expect("chmod");
+        let path = fs::canonicalize(&locked).expect("canonical");
+        assert!(
+            refused.output.starts_with(&format!(
+                r#"{{"error":{{"type":"tool_execution_failed","tool_name":"grep_files","message":"Operating system denied filesystem access","details":{{"path":{},"error":"AccessDenied"}}"#,
+                serde_json::to_string(&path.display().to_string()).expect("a string")
+            )),
+            "{}",
+            refused.output
+        );
+        assert_eq!(&*refused.detail, "");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
@@ -736,8 +864,12 @@ fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
 
     assert!(!result.ok, "expected a refusal, got {result:?}");
     assert!(result.output.contains("pipe"), "{result:?}");
+    // Upstream's refusal of anything but a regular file
+    // (`read_file.zig:189-200`).
     assert!(
-        result.output.contains("it is not a regular file"),
+        result
+            .output
+            .contains(r#""message":"read_file requires a regular file""#),
         "{result:?}"
     );
 }
@@ -1857,6 +1989,20 @@ impl TurnJournal for RecordingJournal {
     fn record(&mut self, event: SessionEvent) {
         self.events.push(event);
     }
+
+    fn change_made(&mut self, _call_id: &str, _change: &ApprovalDiff) {}
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[xfx::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[xfx::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&xfx::session::DurableState> {
+        None
+    }
 }
 
 /// The kinds of what a turn recorded, and the changes it handed over between
@@ -1875,6 +2021,18 @@ impl TurnJournal for ChangeJournal {
     fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
         self.kinds.push("change");
         self.changes.push((call_id.to_string(), change.clone()));
+    }
+
+    fn presented(&mut self, _call_id: &str, _tool: &str, _text: &str) {}
+
+    fn attach_images(&mut self, _images: &[xfx::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[xfx::image::ToolImage]) {}
+
+    fn state(&self) -> Option<&xfx::session::DurableState> {
+        None
     }
 }
 
@@ -2199,22 +2357,6 @@ async fn the_journal_keeps_how_each_call_ended_for_the_row_and_the_lines_it_chan
         plain.get("ending").is_none() && plain.get("lines").is_none(),
         "{plain}"
     );
-    // Every result says when it was recorded, which a resumed session's
-    // full transcript stamps its call with (upstream's
-    // `PersistedToolResult.created_at_ms`, `execution_memory.zig:52`).
-    for event in &journal.events {
-        if let SessionEvent::ToolResult {
-            call_id,
-            created_at_ms,
-            ..
-        } = event
-        {
-            assert!(
-                created_at_ms.is_some_and(|at_ms| at_ms > 1_700_000_000_000),
-                "{call_id}: {created_at_ms:?}"
-            );
-        }
-    }
 }
 
 #[tokio::test]
