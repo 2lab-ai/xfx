@@ -61,8 +61,10 @@ fx sends `{"elicitation":{"form":{},"url":{}}}`: xfx answers no elicitation
 request, so it does not claim to (`elicitation.zig:109-130`).
 
 `wire-bodies-compare.txt` and `wire-fixture-bodies-compare.txt` (every
-completion request; the title requests, the same on both sides, and fx's
-classifier request, which xfx does not send, set aside): the `<mcp_servers>` system block is identical in every request
+completion request, set apart from the title requests -- in `mcp-wire` one
+on each side with the same prompt, in `mcp-fixture` one from xfx and none in
+fx's earlier research take (session titles are the plan's, not this unit's)
+-- and from fx's classifier request, which xfx does not send): the `<mcp_servers>` system block is identical in every request
 (including `<server name="proj" state="disabled" />` for the rejected project
 server); the meta-tools are advertised from the first request and
 `mcp_fixture_echo` from the step after `capability_search` selected it, with
