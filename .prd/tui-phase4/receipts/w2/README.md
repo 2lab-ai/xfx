@@ -40,6 +40,9 @@ changed to fx's `↑12`.
 - `sparsepng <name> <bytes>`: a file of `<bytes>` in the workspace that begins
   with the PNG signature and is a hole after it. `image.cap` makes `huge.png`
   at 22020096 bytes (21 MiB) this way, so the repository holds no 21 MiB file.
+- `pnghdr <name> <width> <height>` (the follow-up): a PNG signature and an
+  `IHDR` declaring `<width>` x `<height>`, 24 bytes -- an image over a pixel
+  limit, as fx's own tests make one.
 - `clipimage <file>|off`: the `osascript` shim now copies `<file>` to the path a
   clipboard-image script names (`-e` with `POSIX file "<path>"` and
   `class PNGf`, which is the script both fx and xfx send) and does nothing else
@@ -155,6 +158,65 @@ Wire: one completion request on each side with the same user message --
 `[Image #1][Image #2] what is this?` and two `image/png` file parts decoding to
 `3fd6e6be528c…`; fx's title request besides.
 
+## Follow-up: paths in a prompt, and withholding at send
+
+Two more scenarios, the same harness and binaries' kinds: xfx is
+`target/debug/xfx` at `4774a9e` (banner `v0.1.0-4774a9e`), fx the c1db919
+build. The earlier snaps above were not retaken.
+
+- `image-inline.cap`: a bracketed paste of `shot.png describe this too`,
+  Enter, then `inspect shot.png,` typed and sent, then a paste of
+  `see nope.png and notes.txt`. It waits five seconds before the first paste:
+  a run that pasted at three seconds on a loaded host lost the paste on xfx,
+  which had not yet asked for bracketed paste.
+- `image-withheld.cap`: `wide.png` made at launch by the harness's new
+  `pnghdr wide.png 9000 10` -- a PNG signature and an `IHDR` declaring 9000x10,
+  fx's own `testPngHeader` (`image_data.zig:370-379`) -- attached with
+  `/image`, then ` describe` sent.
+
+### `image-inline`
+
+| snap | fx | xfx | matches |
+|---|---|---|---|
+| `pasted` | composer `┃ [Image 1] describe this too`, no notice | same | `.txt` identical; `.ansi` but the badge's link. |
+| `pasted-sent` (Enter) | card `┃ [Image 1] describe this too`, the answer, `0s (↑7 ↓40)` | same | `.txt` identical; `.ansi` but the link. |
+| `typed` (`inspect shot.png,` typed, not sent) | composer `┃ inspect shot.png,` | same | Identical but the first card's link: a typed path stays words until the prompt is sent. |
+| `typed-sent` (Enter) | card `┃ inspect [Image 2],`, `Still red.`, `0s (↑5 ↓40)` | same | `.txt` identical; `.ansi` but the links. The comma is kept after the badge. |
+| `pasted-missing` (`see nope.png and notes.txt` pasted) | composer `┃ see nope.png and notes.txt`, no notice | same | `.txt` identical; `.ansi` but the earlier cards' links. A path that names no file is the words it is. |
+
+Wire (`*-image-inline-40x120-wire.json`): request 1 `[Image #1] describe this
+too` and one `image/png` file part (100 base64 bytes, sha256 `3fd6e6be528c…`);
+request 2 that message again, then `inspect [Image #2],` and its file part.
+Identical on both; fx sends a title request besides.
+
+### `image-withheld`
+
+| snap | fx | xfx | matches |
+|---|---|---|---|
+| `attached` | `* images: attached image: wide.png`, `┃ [Image 1]` | same | `.txt` identical; `.ansi` but the link. |
+| `sent` | card `┃ [Image 1] describe`, `It is a small red square.`, `0s (↑5 ↓40)` | same | `.txt` and `.ansi` identical but the link. The note is the model's: the screen shows the turn as typed. |
+
+Wire (`*-image-withheld-40x120-wire.json`): one completion request on each
+side, **no file part**, and one text part:
+
+```
+[Image #1 not sent: image/png is 9000x10 pixels. This request permits at most 8000 per side and 5 MiB encoded per image. The original is saved at <scratch>/home/.xfx/sessions/<id>/images/image-1-c27bf7313d5f0cbe.bin. Use an available image tool to save a smaller copy to a new file ending in .png, then read_file the copy. If no image tool is available, ask the user before installing one.]
+[Image #1] describe
+```
+
+The same bytes on both but the saved copy's directory (`.fx` against `.xfx`,
+and each product's session id). Durable (`*-image-withheld-40x120-end.files`):
+both keep the 24-byte copy as `images/image-1-c27bf7313d5f0cbe.bin`, and xfx's
+log holds the turn as typed -- `user_message` `[Image #1] describe` and its
+`images_attached` -- with no note in it. xfx's gateway log ends with the fake
+gateway's `stream closed by client` line, as several earlier xfx receipts' do
+(`e1`, `f1`, `f3`): the harness's, after the reply was read.
+
+**What the note asks for that xfx cannot do.** fx's note tells the model to
+`read_file the copy`, and fx's `read_file` returns an image
+(`read_file.zig:799`); xfx's names a binary file without reading it. The
+sentence is fx's, word for word; `ssot.md` §Tensions records the gap.
+
 ## Differences, and why
 
 - **The badge is not an OSC 8 hyperlink.** fx wraps `[Image N]` in a link to
@@ -169,3 +231,6 @@ Wire: one completion request on each side with the same user message --
   screen, as F1's receipt records; the turn carries no image.
 - **The trailing space in a wrapped notice row** (`image-unknown` `sent`
   `.ansi`): the notice writer's.
+- **The paste wait** (`image-inline`): five seconds, not three, before the
+  first paste, so it lands after both programs have asked for bracketed
+  paste.

@@ -1,0 +1,27 @@
+[
+ {
+  "request": "001-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #1 not sent: image/png is 9000x10 pixels. This request permits at most 8000 per side and 5 MiB encoded per image. The original is saved at <scratch>/home/.xfx/sessions/1791331988430-fbb5573e72c4cfa7/images/image-1-c27bf7313d5f0cbe.bin. Use an available image tool to save a smaller copy to a new file ending in .png, then read_file the copy. If no image tool is available, ask the user before installing one.]\n[Image #1] describe"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "list_files",
+   "glob_files",
+   "grep_files",
+   "read_file",
+   "write_file",
+   "edit_file",
+   "create_folder",
+   "terminal",
+   "ask_user_question"
+  ]
+ }
+]
