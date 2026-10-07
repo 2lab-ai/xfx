@@ -5969,14 +5969,23 @@ mod tests {
                 workspace.path(),
             )
             .expect("the other writer opens it");
-        let started = Instant::now();
-        assert_eq!(
-            state.resume_by_id(saved.as_str(), &CancelToken::new()),
-            Err(ResumeFailure::OpenElsewhere)
-        );
+        // The fastest of a few refusals, so a machine too loaded to schedule
+        // one promptly is not read as a wait: a resume that waited would sleep
+        // out the store's lock budget (250 ms) every time.
+        let fastest = (0..5)
+            .map(|_| {
+                let started = Instant::now();
+                assert_eq!(
+                    state.resume_by_id(saved.as_str(), &CancelToken::new()),
+                    Err(ResumeFailure::OpenElsewhere)
+                );
+                started.elapsed()
+            })
+            .min()
+            .expect("five tries");
         assert!(
-            started.elapsed() < Duration::from_millis(200),
-            "the picker waited on the lock"
+            fastest < Duration::from_millis(200),
+            "the picker waited on the lock: {fastest:?}"
         );
         assert_eq!(state.resumable(), Some(before.clone()));
         drop(held);
