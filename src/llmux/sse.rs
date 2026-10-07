@@ -265,6 +265,7 @@ impl AnthropicReader {
                 // The reader does not know which model was asked for, and a
                 // bill names one: the provider adds it ([`super::bill`]).
                 billing: None,
+                service_tier: None,
             }),
             None => Err(SseError::MissingFinish),
         }

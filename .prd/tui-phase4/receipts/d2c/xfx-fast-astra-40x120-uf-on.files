@@ -1,0 +1,16 @@
+=== ~/.xfx/history.jsonl (134 bytes)
+{"schema_version":1,"timestamp_ms":1791336555863,"workspace_root":"<scratch>/work","text":"/ultrafast on"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (164 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "fast_mode": false,
+  "ultrafast_mode": true,
+  "fast_mode_model_bound": true
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

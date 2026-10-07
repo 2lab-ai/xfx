@@ -34,6 +34,18 @@ pub(crate) struct Hydration {
     /// where the caller already shows the right one -- the launch, whose band
     /// is built from the configuration the session's model was restored into.
     pub(crate) model: Option<String>,
+    /// The effort and speed switches the runtime continues the session in --
+    /// the ones the session recorded, which a resume puts back as upstream's
+    /// does (`restoreRuntimePreferences`) -- for the hint row and for what
+    /// `/fast` and the picker start from. `None` where the caller already
+    /// holds them, as for [`Self::model`].
+    pub(crate) settings: Option<crate::provider::effort::TurnSettings>,
+    /// Whether the Fast mode those settings carry stays **bound** to the
+    /// model (the footer's `⚡︎`): only when the session recorded the selection
+    /// the session was configured with -- the same model and the same Fast
+    /// (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+    /// Read only beside [`Self::settings`].
+    pub(crate) keeps_fast_binding: bool,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
     /// in one conversation (upstream rebases a resumed session's ids the same
@@ -105,6 +117,8 @@ impl Hydration {
             title: state.title(),
             turns: state.turns.iter().map(turn).collect(),
             model,
+            settings: None,
+            keeps_fast_binding: true,
             next_image: state
                 .turns
                 .iter()
@@ -254,6 +268,7 @@ mod tests {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            turn_settings: None,
             usage: crate::session::RecordedUsage::default(),
             checkpoint: None,
         };

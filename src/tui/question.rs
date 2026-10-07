@@ -1409,6 +1409,11 @@ impl QuestionRequester for TuiQuestioner {
                         self.control.defer(change);
                         continue;
                     }
+                    // `/fast` or `/ultrafast` likewise.
+                    Some(TurnControl::Speed(change)) => {
+                        self.control.defer_speed(change);
+                        continue;
+                    }
                     // `/undo` while the model's question is up: done once the
                     // turn is over, and the batch stays up -- it is not the
                     // user cancelling it (`ControlChannel::defer_undo`).
@@ -3001,6 +3006,8 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            speed: None,
+            provider: crate::provider::ProviderId::Gateway,
             effort_only: false,
         };
         let sent = change.clone();

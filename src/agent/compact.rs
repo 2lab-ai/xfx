@@ -1920,8 +1920,12 @@ async fn summarize_with(caller: &Caller<'_>, user: &str) -> Result<String, Failu
 /// One notes request to `model`, with no tools, at its lowest reasoning
 /// (`ask`, `model.zig:134-161`).
 async fn ask(caller: &Caller<'_>, model: &str, user: &str) -> Result<String, Failure> {
+    // No speed: upstream's summarizer asks for a reasoning level and nothing
+    // else (`Summarizer.ask`, `model.zig:134-145`), whatever the session's
+    // Fast or Ultra.
     caller.provider.set_options(RequestOptions {
         reasoning: lowest_effort(&(caller.efforts)(model)),
+        ..RequestOptions::default()
     });
     let request = CompletionRequest {
         model: model.to_string(),
@@ -2121,6 +2125,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         })
     }
 

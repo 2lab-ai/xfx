@@ -1480,6 +1480,7 @@ mod tests {
             context_sources: vec!["/w/AGENTS.md".to_string()],
             turns,
             renamed: None,
+            turn_settings: None,
             usage: crate::session::RecordedUsage::default(),
             checkpoint: None,
         }

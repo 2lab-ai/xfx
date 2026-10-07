@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+
+* fast: This model does not come with a fast mode.
+
+✗ command: Unknown command. Try /help.
+
+┃ /ultrafast
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 1
+
+  /ultrafast   request Ultra mode when supported                                                                  Model
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

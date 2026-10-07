@@ -2232,6 +2232,9 @@ fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
                             .to_string(),
                     ),
                     permission_mode: None,
+                    effort: None,
+                    fast_mode: None,
+                    ultrafast_mode: None,
                 },
             )
             .expect("append");

@@ -211,9 +211,21 @@ pub enum SessionEvent {
         workspace_root: String,
     },
     /// A preference changed for later turns. Absent fields are unchanged.
+    ///
+    /// The last three are the session's effort and speed switches -- what
+    /// upstream's `session.json` carries beside the model (`effort`,
+    /// `fast_mode`, `ultrafast_mode`) and what its resume restores
+    /// (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`).
+    /// Written as a group, and absent from logs written before they existed.
     PreferencesChanged {
         model: Option<String>,
         permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fast_mode: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ultrafast_mode: Option<bool>,
     },
     /// Which project-instruction files were in force for the turn that follows.
     ///
@@ -698,6 +710,9 @@ mod tests {
             SessionEvent::PreferencesChanged {
                 model: Some("m2".to_string()),
                 permission_mode: None,
+                effort: Some("low".to_string()),
+                fast_mode: Some(true),
+                ultrafast_mode: Some(false),
             },
             SessionEvent::ProjectContextRecorded {
                 sources: Vec::new(),

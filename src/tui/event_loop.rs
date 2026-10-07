@@ -3226,6 +3226,8 @@ mod tests {
                 details: Vec::new(),
             }],
             model: None,
+            settings: None,
+            keeps_fast_binding: true,
             next_image: 1,
         }
     }

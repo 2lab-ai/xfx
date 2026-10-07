@@ -1,0 +1,21 @@
+# /fast on a model that offers it, on and off, and /ultrafast on one that
+# does not offer Ultra (account-model research §5-§6).
+models models.json
+seed fast-seed-opus.json
+nomodel
+wait 2.5
+snap start
+type /fast
+key Enter
+wait 1
+snap fast-on
+home fast-on
+type /fast
+key Enter
+wait 1
+snap fast-off
+type /ultrafast on
+key Enter
+wait 1
+snap uf-on-unsup
+home end
