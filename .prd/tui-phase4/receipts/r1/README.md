@@ -118,6 +118,7 @@ Request `tools`, by name:
 - **The refusal's reason on the wire** is xfx's sentence, fx's is a JSON envelope; the same for every refusal xfx makes, not this unit's.
 - **The scope row, the `[you]` amendment row and `xfx` for `fx`** are xfx's on every band.
 - **A saved-session key for a read** is xfx's encoding of the same facts (the tool, its decoded input field by field, the resolved target) where fx keys the raw arguments JSON (`permissionStateKeyForCall`, `tool_admission.zig:2219-2235`); a store is not shared between the products either way (the `/permissions` row).
+- **A call to `ask_user_question` anyway, under a rule that covers it** (`*: deny`): the tool is left out of the request as upstream's is, but xfx has never judged that tool against the table (W8's rules decide reads, changes and commands), where upstream refuses it at admission -- it has a permission contract and its target is its own name (`toolHasPermissionContract`, `tool_admission.zig:101-103`; `.none`, `permissions.zig:227`). Found here, not changed by this unit.
 - **`terminal` is hidden by `shell: deny`, not by `bash: deny`.** That is fx's behaviour for its `shell` (`permissionNameForTool` maps `shell` to no category, `permissions.zig:1455-1464`), ported as it is: the request carries what fx's would for the same settings file. A call to the terminal is still judged as `bash`/`run_command`, so `bash: deny` refuses every command it would run.
 
 ## What the captures do not show
