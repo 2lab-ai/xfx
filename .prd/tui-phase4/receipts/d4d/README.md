@@ -11,15 +11,20 @@ FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> 40x120
 
 for `<scenario>` in `settings`, `settings2`, `settings-perm`, `settings-cats`,
 `settings-collapse`, `settings-history`, `settings-model`, `settings-effort`,
-and -- for the follow-ups -- `settings-model-list`, `settings-scrollback` and
-`recall-edge` (`scripts/fxcap/scenarios/`). `settings` and `settings2` are the research
+and -- for the follow-ups -- `settings-model-list`, `settings-scrollback`,
+`recall-edge` and `settings-collapse-open` (`scripts/fxcap/scenarios/`). `settings` and `settings2` are the research
 scenarios (`appearance-security-ext/scenarios/settings*.cap`) keystroke for
 keystroke, with a `home` dump after each write. Where the two menus list a
 different number of settings, the `Down` count is per binary (`fx:`/`xfx:`
 lines) so both land on the same row. Every scenario starts xfx with
 `XFX_SOUND=off`, as the harness starts fx with `FX_SOUND=0`.
 
-**Round 2 (the follow-ups).** Every xfx snap here was taken again with a debug
+**Round 2 (the follow-ups).** `settings-collapse-open` was captured on both
+binaries with a debug build of `13b59ee`'s tree (the block that shrinks gives its
+rows back; built from the working tree before that commit was made, so its
+banner -- scrolled off in every snap -- would have said `6ea9808`);
+`settings-collapse` was run again on it and differs from the `2c1fe4b` snaps
+only in a session id and the activity marker's blink. Every other xfx snap here was taken again with a debug
 build of `2c1fe4b` -- this branch with `plan/tui-phase4` at `357eb5e` merged and
 the follow-up commits on it (the banner says so); `xfx-toolgroup-40x120-long-*`
 are that build's `toolgroup` run, for the blank-row fix, against
@@ -133,6 +138,8 @@ approved command's group are gone: each is fx's now, snap for snap below.
 | `recall-edge-start` | After `/copy` and `/stats`, `half` and Up, then `X`: `┃ Xhalf` -- the Up took the caret to the draft's start. | -- (identical but for `/stats`' byte count) |
 | `recall-edge-recalled` | Two Ups: the first to the start again, the second recalls `/stats`. | -- (the same) |
 | `recall-edge-recalled-start` | Up, then `Y`: `┃ Y/stats` -- a recalled line's first Up is its start too. | -- (the same) |
+| `settings-collapse-open-running` | The approved command's group open: header, `└ Running sleep 4; echo hi`, a blank, the activity row. | T; xfx's screen is two rows further up (A) |
+| `settings-collapse-open-collapse-on`, `-after-esc` | Collapse switched on mid-turn: the open group is its header and its blank row, and the notice lands right under them, then the activity row; the first group -- its header already above the screen -- loses its call rows too. | T; xfx's rows are fx's one row lower: fx re-renders the whole screen and pulls an older row down into the space, xfx's top rows stay where they are (`../../ssot.md` §Tensions) |
 | `toolgroup-long-ask..-later` (xfx only; fx in `../f1/`) | The approved command's group, a blank row, and the activity row right under it -- no extra blank rows. xfx's screen is two rows further up than fx's (its approval panel is two rows taller, so more went to scrollback). | A, I |
 | `settings-effort-bare`, `-marked` | `zai/glm-5.2`: `Reasoning effort  default  low  high`, `default` bold. | R |
 | `settings-effort-right1..3`, `-left` | Each change says only `* effort: saved to user settings (scope=user)`; the bold walks `low`, `high`, `default`, and Left back to `high`. | R |
