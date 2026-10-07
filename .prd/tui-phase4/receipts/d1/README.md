@@ -46,8 +46,10 @@ Re-checked at the end of the round on `afd5c83` (plan `b887a7f`): xfx's
 every snap is the receipt's but for session ids, wall-clock stamps and
 seconds, and how many tokens had streamed at the snap.
 
-Round 5 (on `13ad255` with the full-transcript wrap that followed it, plan
-`20d1482` merged; banner `v0.1.0-13ad255`): `read-failures` taken on both
+Round 5 (fx side and the comparison below on `13ad255` with the
+full-transcript wrap that followed it, plan `20d1482` merged; xfx's side
+retaken on the head, `2d0432b`, plan `831deed` merged, banner
+`v0.1.0-2d0432b`, and every pair compared again: unchanged): `read-failures` taken on both
 and `resume-tools` retaken on both, at load averages of 40-65 (the batch's
 builds) -- every take checked for its prompts, a failed check retaken. With
 the clock, the run directory and the request times masked, `read-failures`'s
