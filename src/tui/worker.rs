@@ -274,6 +274,8 @@ pub(crate) struct WorkHandle {
     saved_rules: SavedRulesAt,
     /// What `/usage`'s session scope reads, as the runtime last published it.
     spend: SessionSpend,
+    /// What `/credits` asks, as the runtime last published it ([`CreditsBoard`]).
+    credits: CreditsBoard,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -596,6 +598,23 @@ impl WorkHandle {
         self.spend.publish(spent);
     }
 
+    /// What `/credits` would ask now, or the answer it has without asking,
+    /// from the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn credits_question(
+        &self,
+    ) -> Result<crate::credits::Question, crate::credits::Answer> {
+        self.credits.read()
+    }
+
+    /// Stands in for the runtime's publication of what `/credits` asks.
+    #[cfg(test)]
+    pub(crate) fn publish_credits(
+        &self,
+        question: Result<crate::credits::Question, crate::credits::Answer>,
+    ) {
+        self.credits.publish(question);
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -650,6 +669,7 @@ impl WorkHandle {
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             work_rx,
             control_rx,
@@ -724,6 +744,45 @@ impl LastReply {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+}
+
+/// What `/credits` asks: the endpoint and key of the provider in force, or the
+/// answer it has without asking anybody -- published by the runtime, which is
+/// the thread a provider switch changes them on, and read by the UI without
+/// waiting for it ([`super::credits_ask`]).
+///
+/// The key crosses here because the question is asked off the runtime
+/// thread, which may be a minute into a turn. It is the credential's own
+/// type, whose `Debug` is redacted.
+#[derive(Debug, Clone)]
+pub(crate) struct CreditsBoard(
+    Arc<Mutex<Result<crate::credits::Question, crate::credits::Answer>>>,
+);
+
+impl CreditsBoard {
+    fn new(question: Result<crate::credits::Question, crate::credits::Answer>) -> Self {
+        Self(Arc::new(Mutex::new(question)))
+    }
+
+    fn publish(&self, question: Result<crate::credits::Question, crate::credits::Answer>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = question;
+    }
+
+    fn read(&self) -> Result<crate::credits::Question, crate::credits::Answer> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl Default for CreditsBoard {
+    /// A board nothing has published to: a provider with nothing to ask.
+    fn default() -> Self {
+        Self::new(Err(crate::credits::Answer::Failed(
+            crate::credits::UNAVAILABLE.to_string(),
+        )))
     }
 }
 
@@ -961,6 +1020,10 @@ pub(crate) fn spawn(
     let loops_rules = rules.clone();
     let spend = SessionSpend::default();
     let publishes_spend = spend.clone();
+    // Published from the start, so a `/credits` typed before the runtime's
+    // first publication asks what that publication would say.
+    let credits = CreditsBoard::new(crate::credits::question(&config));
+    let publishes_credits = credits.clone();
     let session_cancel = cancel.clone();
     let stop = cancel.mirror();
     let steering = Steering::new();
@@ -990,8 +1053,10 @@ pub(crate) fn spawn(
             state.steering = loops_steering;
             state.rules = loops_rules;
             state.spend = publishes_spend;
+            state.credits = publishes_credits;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
+                state.ask_for_bills();
                 // A resumed conversation's last reply is `/copy`'s from the
                 // start, as fx's hydrated history is (`session.zig:2067-2079`).
                 state.publish_reply();
@@ -1030,6 +1095,7 @@ pub(crate) fn spawn(
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules,
                 spend,
+                credits,
             },
             resumable: None,
         },
@@ -1202,6 +1268,13 @@ struct Runtime {
     /// prompt, so the log's own creation is the first prompt's time, and the
     /// clock is kept here instead.
     began_ms: i64,
+    /// Asks the Gateway for the bills the conversation's streams did not
+    /// carry ([`Runtime::ask_for_bills`]), and hands the answers to
+    /// [`turn_loop`] to write down ([`Runtime::settle_bill`]).
+    bills: super::reconcile::Reconciler,
+    /// Where `/credits` reads what to ask from ([`CreditsBoard`]), written by
+    /// [`Runtime::publish`] beside the others.
+    credits: CreditsBoard,
 }
 
 impl Runtime {
@@ -1256,6 +1329,8 @@ impl Runtime {
             rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
             began_ms: crate::session::event::system_now_ms(),
+            bills: super::reconcile::Reconciler::new(),
+            credits: CreditsBoard::default(),
         }
     }
 
@@ -1307,6 +1382,7 @@ impl Runtime {
                 .unwrap_or_default(),
             started_at_ms: Some(self.began_ms),
         });
+        self.credits.publish(crate::credits::question(&self.config));
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1391,6 +1467,56 @@ impl Runtime {
     /// out of the stream the UI was shown, because that stream has been made
     /// inert on its way over (`bridge::inert`): a tab in a code block reached
     /// the screen as a space, and the clipboard is owed the tab.
+    /// Starts asking the Gateway for the bills of the conversation's pending
+    /// requests, with the Gateway credential that made them
+    /// (`startReconciliationWithCredential`, `session_usage.zig:2008-2100`).
+    ///
+    /// Called after every piece of work, so a turn that recorded one and a
+    /// resume that opened a session holding one are both asked about, and
+    /// asked about once ([`super::reconcile::Reconciler::ask`]). Without a
+    /// Gateway credential nothing is asked and the requests stay pending, as
+    /// upstream withholds its asking without a credential for them
+    /// (`:1924-1945`).
+    fn ask_for_bills(&mut self) {
+        let Some(conversation) = self.conversation.as_ref() else {
+            return;
+        };
+        if self.config.provider != crate::provider::ProviderId::Gateway {
+            return;
+        }
+        let Some(credential) = self.config.credential.as_ref() else {
+            return;
+        };
+        let state = conversation.recorder.state();
+        let pending: Vec<&crate::session::RequestUsage> = state.usage.pending().collect();
+        if pending.is_empty() {
+            return;
+        }
+        self.bills.ask(
+            conversation.recorder.id().as_str(),
+            &pending,
+            credential.secret(),
+        );
+    }
+
+    /// Writes what the Gateway said about a pending request into the log of
+    /// the session it belongs to, and tells `/usage` (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`).
+    ///
+    /// Only into the conversation in front of the user: an answer about one
+    /// that was dropped or replaced is left unwritten, and that session's
+    /// request stays pending for the next time it is opened.
+    fn settle_bill(&mut self, answered: &super::reconcile::Answered) {
+        let Some(conversation) = self.conversation.as_mut() else {
+            return;
+        };
+        if conversation.recorder.id().as_str() != answered.session {
+            return;
+        }
+        conversation.recorder.commit(answered.frame());
+        self.publish();
+    }
+
     fn publish_reply(&self) {
         self.reply.publish(
             self.conversation
@@ -1645,6 +1771,7 @@ impl Runtime {
     /// from a log, and the model is the configuration's, so a later resume
     /// reads what this one really used.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
+        self.bills.forget();
         let mut conversation = bind_conversation(
             &self.store,
             resumed.session,
@@ -1740,6 +1867,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.bills.forget();
         self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
@@ -2043,6 +2171,10 @@ async fn turn_loop(
             // does, as upstream syncs its queued prompts to a new mode
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
+            // A bill the Gateway gave later, written down between pieces of
+            // work by the recorder that owns the log; never during one, which
+            // may be writing that log itself.
+            answered = state.bills.next() => Taken::Bill(answered),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -2074,6 +2206,10 @@ async fn turn_loop(
                 continue;
             }
             Taken::Nothing => continue,
+            Taken::Bill(answered) => {
+                state.settle_bill(&answered);
+                continue;
+            }
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
                 // Not a terminal event -- nothing is waiting on one for a
@@ -2123,9 +2259,6 @@ async fn turn_loop(
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
-            TurnWork::Credits => {
-                run_credits(&mut state, events, &cancel, &control, &mut queue).await
-            }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
             // there is no socket to stop and nothing a Ctrl-C would shorten.
@@ -2156,6 +2289,9 @@ async fn turn_loop(
         // A reset drops it outside these arms and republishes there
         // ([`drop_conversation`]).
         state.publish_reply();
+        // And a request this work recorded without its bill, or a session it
+        // opened holding one, is asked about now.
+        state.ask_for_bills();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
         // given back is the moment the queue really has room -- and by then the
@@ -2204,6 +2340,7 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    state.bills.forget();
     state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
@@ -2250,6 +2387,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
+    /// What the Gateway said about a pending request's bill.
+    Bill(super::reconcile::Answered),
     /// The session is over.
     Shutdown,
 }
@@ -3035,34 +3174,6 @@ async fn run_catalog(
     ended
 }
 
-/// `/credits`: asks the configured provider what its account has left, and
-/// answers with the notice ([`UiEvent::Credits`]).
-///
-/// **Here, never on the thread that holds the terminal**: the Gateway's
-/// answer is a socket, and upstream's blocking wait for it on its UI thread
-/// (`commandShowCredits`, `app_commands.zig:2052-2082`) is the one part of
-/// its behaviour this does not copy. Raced against the control channel like a
-/// catalog load, so a Ctrl-C stops a question nobody wants answered any more;
-/// a cancelled one says nothing.
-async fn run_credits(
-    state: &mut Runtime,
-    events: &Sender<UiEvent>,
-    cancel: &Cancellation,
-    control: &ControlChannel,
-    queue: &mut Queue<'_>,
-) -> Ended {
-    let turn = cancel.turn();
-    let (answer, ended) =
-        raced_against_control(crate::credits::fetch(&state.config), control, |through| {
-            turn.cancel();
-            queue.abandon(through);
-        })
-        .await;
-    let _ = bridge::send_ui(events, &turn.token, UiEvent::Credits(answer)).await;
-    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-    ended
-}
-
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -3615,6 +3726,7 @@ mod tests {
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3680,6 +3792,7 @@ mod tests {
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -3724,6 +3837,7 @@ mod tests {
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
@@ -4086,6 +4200,7 @@ mod tests {
             steers: Arc::new(AtomicU64::new(0)),
             saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
+            credits: CreditsBoard::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -5161,10 +5276,13 @@ mod tests {
                 reasoning_tokens: None,
                 cost: Some(0.01),
                 generation_id: None,
+                origin: None,
             }],
             unaccounted: false,
             lines_added: 4,
             lines_removed: 1,
+            settled: Vec::new(),
+            rejected: Vec::new(),
         });
         state.publish();
         let spent = spend.read();
@@ -5183,6 +5301,116 @@ mod tests {
             spent.started_at_ms.is_some_and(|at| at > 1_000),
             "{spent:?}"
         );
+    }
+
+    /// A request whose stream named its generation and not its bill is asked
+    /// about with the Gateway key, and the answer is written into the log of
+    /// the session it belongs to -- `/usage`'s session scope reads it at once,
+    /// and the log says it on the next read (`applyGeneration`,
+    /// `session_usage.zig:1080-1126`). An answer about another session is not
+    /// written into this one.
+    #[test]
+    fn a_pending_bill_is_asked_for_with_the_gateway_key_and_written_into_its_session() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        let spend = SessionSpend::default();
+        state.spend = spend.clone();
+        const ID: &str = "gen_01JABCDEFGHJKMNPQRSTVWXYZ1";
+        let bill = crate::gateway::protocol::Billing {
+            at_ms: 1_900,
+            model: "fake/model-a".to_string(),
+            generation_id: Some(ID.to_string()),
+            cost: 0.0125,
+            input_tokens: 1340,
+            output_tokens: 250,
+            cache_read_tokens: 300,
+            cache_write_tokens: 40,
+            reasoning_tokens: Some(50),
+        };
+        let answered_bill = bill.clone();
+        state.bills = super::super::reconcile::Reconciler::answering(
+            move |origin, secret, id| {
+                assert_eq!((origin, secret, id), ("http://127.0.0.1:4100", "key", ID));
+                crate::gateway::generation::Lookup::Found(answered_bill.clone())
+            },
+            Duration::from_millis(1),
+        );
+        let recorder = &mut state.conversation.as_mut().expect("opened").recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: None,
+                generation_id: Some(ID.to_string()),
+                origin: Some("http://127.0.0.1:4100".to_string()),
+            }],
+            unaccounted: false,
+            lines_added: 0,
+            lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
+        });
+        let session = recorder.id().clone();
+        state.publish();
+        assert_eq!(spend.read().usage.pending().count(), 1);
+
+        state.ask_for_bills();
+        let answered = on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, state.bills.next())
+                .await
+                .expect("an answer")
+        });
+        assert_eq!(answered.session, session.as_str());
+
+        let elsewhere = super::super::reconcile::Answered {
+            session: "another".to_string(),
+            ..answered.clone()
+        };
+        state.settle_bill(&elsewhere);
+        assert_eq!(spend.read().usage.pending().count(), 1);
+
+        state.settle_bill(&answered);
+        let settled = &spend.read().usage.requests[0];
+        assert_eq!(settled.cost, Some(0.0125));
+        assert_eq!((settled.at_ms, settled.duration_ms), (1_900, 700));
+        assert!(!settled.pending());
+        state.conversation = None;
+        let detail = state
+            .store
+            .detail(&crate::session::Selector::Id(session), workspace.path())
+            .expect("the log reads back");
+        assert_eq!(detail.state.usage.requests[0], *settled);
     }
 
     #[test]
@@ -5648,6 +5876,7 @@ mod tests {
                 steers: Arc::new(AtomicU64::new(0)),
                 saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
+                credits: CreditsBoard::default(),
             },
             resumable: None,
         };
