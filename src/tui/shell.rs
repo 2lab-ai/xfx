@@ -433,20 +433,16 @@ const QUESTION_TOO_SMALL: &str =
 /// (`app_process_runtime.zig:61`, where a request that failed is reported).
 const GONE_NOTICE: &str = "the runtime is gone; that line was not sent";
 
-/// The hint row's refusal for a paste larger than the byte budget.
-///
-/// A **hint-row** refusal rather than a document line, for the reason
-/// [`QUEUE_REJECTED`] is one: it belongs beside the composer it did not change,
-/// and it is a condition that clears the moment anything else happens on that
-/// row. Said at all, unlike the composer's own budget -- which refuses silently
-/// because a keystroke that changes nothing is its own feedback -- because a
-/// paste that vanished without a word looks exactly like a terminal that never
-/// sent it.
-const PASTE_REFUSED: &str = "that paste is larger than 8 MiB; nothing was taken";
+/// What an edit the prompt's byte budget refuses says, under `input`, as an
+/// error in the document: a paste, a typed character, a yank -- any edit of
+/// the composer (`input_limit_feedback.zig:5-42`,
+/// `fx-image-composer-40x120-oversized`). Said once per run of refusals and
+/// again only after an edit has gone through (`input_limit_rejection.zig:12-25`).
+const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and was not applied.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
-/// Its own sentence rather than [`PASTE_REFUSED`]'s, because the two are
+/// Its own sentence rather than [`INPUT_LIMIT`]'s, because the two are
 /// different problems with different answers: a paste past the budget is one a
 /// user can make smaller, and a session four billion pastes deep is one they
 /// have to leave. Reachable only through `Paste::with_next`, which is why the
@@ -1187,6 +1183,10 @@ pub(crate) struct Shell {
     /// The clipboard reads `/paste` and Ctrl-V started, and what each found
     /// ([`super::clipboard_image`]).
     clipboard_reads: ClipboardReads,
+    /// Whether the composer's byte budget has refused an edit since the last
+    /// one it took: the refusal is said once per such run
+    /// ([`Shell::over_budget`]).
+    over_limit: bool,
     /// The number the next attached image takes. Spent only when a badge
     /// lands and never given back, so no two images in one process answer to
     /// one `[Image #N]` (`allocateImageId`, `image_attachments.zig:1366-1370`);
@@ -1826,6 +1826,7 @@ impl Shell {
             fatal: None,
             leaving: None,
             clipboard_reads: ClipboardReads::new(clipboard.clone()),
+            over_limit: false,
             traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
             images_next: 1,
@@ -6886,6 +6887,17 @@ impl Shell {
         true
     }
 
+    /// An edit the prompt's byte budget refused: the composer is exactly as it
+    /// was, and the document says so once per run of refusals, as upstream's
+    /// `input_limit_feedback.report` does (`input_limit_feedback.zig:5-42`).
+    fn over_budget(&mut self) {
+        self.render.request(Reason::Footer);
+        if std::mem::replace(&mut self.over_limit, true) {
+            return;
+        }
+        self.announce(notice::Notice::error("input", INPUT_LIMIT));
+    }
+
     /// A paste that names image files: each one that loads becomes its badge
     /// where its path was, the rest of the paste goes in as it came, and no
     /// notice is written for an image that was attached
@@ -6942,10 +6954,7 @@ impl Shell {
             cut = word.range.end;
         }
         replacement.push_str(&text[cut..]);
-        let refused = |shell: &mut Self| {
-            shell.notice = Some(PASTE_REFUSED);
-            shell.render.request(Reason::Footer);
-        };
+        let refused = |shell: &mut Self| shell.over_budget();
         if spans.is_empty() {
             if !paste::fits(
                 self.editor.text().len(),
@@ -7761,8 +7770,8 @@ impl Shell {
         // shows for a collapsed paste is 25 bytes standing for as much as 8
         // MiB, so a composer that counted only its own text would let a
         // keystroke build a prompt twice the size of the cap
-        // ([`super::paste::fits`]). Refused silently, like every other
-        // keystroke the budget refuses.
+        // ([`super::paste::fits`]). Refused in upstream's words
+        // ([`Self::over_budget`]).
         //
         // One question rather than two. While a block was a *name*, a keystroke
         // could land inside a summary and release the megabytes behind it, so
@@ -7774,6 +7783,7 @@ impl Shell {
             self.editor.retained(),
             typed.len(),
         ) {
+            self.over_budget();
             return;
         }
         if let Some(delta) = self.editor.insert(typed) {
@@ -7806,11 +7816,9 @@ impl Shell {
                 });
         match pasted {
             Pasted::Paths(text) => self.paste_paths(&text),
-            Pasted::Refused(refusal) => {
-                self.notice = Some(match refusal {
-                    Refusal::Oversized => PASTE_REFUSED,
-                    Refusal::Unnumbered => PASTE_UNNUMBERED,
-                });
+            Pasted::Refused(Refusal::Oversized) => self.over_budget(),
+            Pasted::Refused(Refusal::Unnumbered) => {
+                self.notice = Some(PASTE_UNNUMBERED);
                 self.render.request(Reason::Footer);
             }
             Pasted::Inline(text) => {
@@ -8204,10 +8212,11 @@ impl Shell {
             self.editor.retained(),
             text.len().saturating_add(entities.retained()),
         ) {
-            // Refused silently, like every other keystroke the budget refuses
-            // (`Self::type_character`): the slot keeps what it holds, the draft
-            // is exactly the text it was, and `next` is dropped with the
-            // numbers it was going to spend still unspent.
+            // Refused in upstream's words, like every other edit the budget
+            // refuses ([`Self::over_budget`]): the slot keeps what it holds,
+            // the draft is exactly the text it was, and `next` is dropped with
+            // the numbers it was going to spend still unspent.
+            self.over_budget();
             return None;
         }
         let delta = self.editor.insert_with_entities(&text, entities.spans())?;
@@ -10315,6 +10324,8 @@ impl Shell {
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
+        // An edit went through: the next refusal is a new run, and is said.
+        self.over_limit = false;
         self.history.leave();
         self.recalled_slash = false;
         self.edited(delta);
@@ -11843,7 +11854,7 @@ mod tests {
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         let draft = shell.editor.text().len();
-        let notice = shell.notice;
+        let said_it = shell.document();
 
         shell.route_bytes(&[0x0d]);
         let TurnWork::Submit(prompt) = shell.picks_up() else {
@@ -11856,8 +11867,8 @@ mod tests {
         );
         assert_eq!(draft, typed.len(), "the refused paste changed the draft");
         assert_eq!(
-            notice,
-            Some(PASTE_REFUSED),
+            said_it,
+            said(notice::Notice::error("input", INPUT_LIMIT)),
             "the paste was dropped without a word"
         );
     }
@@ -12920,11 +12931,11 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_past_the_budget_says_so_and_leaves_the_draft_alone() {
-        // Refused whole rather than half-taken, and said rather than silent:
-        // the composer's own budget refuses a keystroke silently because a
-        // keystroke that changes nothing is its own feedback, and a paste that
-        // vanished without a word looks like a terminal that never sent it.
+    fn a_paste_past_the_budget_says_so_once_and_leaves_the_draft_alone() {
+        // Refused whole rather than half-taken, and said in upstream's words
+        // (`fx-image-composer-40x120-oversized`: `✗ input: That edit exceeds
+        // the local prompt safety limit and was not applied.`), once per run
+        // of refusals (`input_limit_rejection.zig:12-25`).
         let mut shell = shell(24, 80);
         shell.route_bytes(b"a draft worth keeping");
         shell.route_bytes(b"\x1b[200~");
@@ -12939,10 +12950,31 @@ mod tests {
             "a draft worth keeping",
             "a paste that did not fit took the draft with it"
         );
-        let hint = shell.hint();
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT)),
+            "a paste larger than the budget vanished without a word"
+        );
+        // A second refusal in the same run says nothing more; an edit that
+        // goes through starts a new run.
+        shell.route_bytes(b"\x1b[200~");
+        for _ in 0..=(super::super::paste::MAX_PASTE_BYTES / chunk.len()) {
+            shell.route_bytes(&chunk);
+        }
+        shell.route_bytes(b"\x1b[201~");
         assert!(
-            hint.contains(PASTE_REFUSED),
-            "a paste larger than the budget vanished without a word: {hint:?}"
+            shell.document().is_empty(),
+            "a refusal was said twice in one run"
+        );
+        shell.route_bytes(b"!");
+        shell.route_bytes(b"\x1b[200~");
+        for _ in 0..=(super::super::paste::MAX_PASTE_BYTES / chunk.len()) {
+            shell.route_bytes(&chunk);
+        }
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT))
         );
     }
 

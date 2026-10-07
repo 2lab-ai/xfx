@@ -372,9 +372,11 @@ impl Drafts {
 
     /// One typed character, while a draft has the keys.
     ///
-    /// Refused silently at the budget, exactly as the composer refuses one
-    /// (`super::shell::Shell::type_character`): a keystroke that changed
-    /// nothing says nothing.
+    /// Refused silently at the budget: a keystroke that changed nothing says
+    /// nothing here. Upstream says `That edit exceeds the input limit and was
+    /// not applied.` for an amendment (`input_limit_feedback.zig:37-40`), as
+    /// the composer now does for its own budget; this surface's 4 KiB cap is
+    /// not that one, and keeps its own refusal.
     pub(crate) fn typed(&mut self, character: char) {
         let Some(draft) = self.open() else {
             return;
