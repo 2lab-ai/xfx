@@ -382,29 +382,28 @@ impl Failure {
 }
 
 /// A turn's exchanges, as ranges of its steps: each starts at an assistant
-/// step that called tools and runs to the next one, or to the reply after
-/// the last (`ExecutionMemory.tool_steps`).
+/// step that called tools and runs to the next one -- a steer, and the
+/// answer a steer cut short, go with the exchange they came after, as
+/// upstream's steering goes with its tool step (`after_tool_step_count`,
+/// `window.zig:219-224`) -- and the last runs to the turn's reply: the final
+/// text of a turn that ended, nothing of one still running
+/// (`ExecutionMemory.tool_steps`).
 pub(crate) fn exchanges(turn: &HistoryTurn) -> Vec<std::ops::Range<usize>> {
     let starts: Vec<usize> = (0..turn.steps.len())
         .filter(|index| turn.starts_exchange(*index))
         .collect();
+    let reply = match turn.steps.last() {
+        Some(crate::session::TurnStep::Assistant { tool_calls, .. })
+            if tool_calls.is_empty() && turn.outcome.is_some() =>
+        {
+            turn.steps.len() - 1
+        }
+        _ => turn.steps.len(),
+    };
     starts
         .iter()
         .enumerate()
-        .map(|(at, start)| {
-            let end = starts.get(at + 1).copied().unwrap_or_else(|| {
-                (start + 1..turn.steps.len())
-                    .find(|index| {
-                        matches!(
-                            &turn.steps[*index],
-                            crate::session::TurnStep::Assistant { tool_calls, .. }
-                                if tool_calls.is_empty()
-                        )
-                    })
-                    .unwrap_or(turn.steps.len())
-            });
-            *start..end
-        })
+        .map(|(at, start)| *start..starts.get(at + 1).copied().unwrap_or(reply.max(*start + 1)))
         .collect()
 }
 
@@ -601,7 +600,8 @@ fn exchange_tokens(turn: &HistoryTurn, range: std::ops::Range<usize>) -> usize {
                 .saturating_add(text_tokens(tool))
                 .saturating_add(text_tokens(output))
                 .saturating_add(8),
-            crate::session::TurnStep::ToolFeedback { text, .. } => text_tokens(text),
+            crate::session::TurnStep::ToolFeedback { text, .. }
+            | crate::session::TurnStep::Steered { text } => text_tokens(text),
         });
     }
     total
@@ -615,6 +615,10 @@ fn exchange_tokens(turn: &HistoryTurn, range: std::ops::Range<usize>) -> usize {
 /// (`summarize.Item`, `summarize.zig:62-71`).
 #[derive(Debug, Clone, PartialEq)]
 enum Item {
+    /// A message the person sent while the turn ran -- a steer
+    /// (`crate::agent::steering`): upstream's `user` item, exact
+    /// (`appendItems`, `compactor.zig:286-288`).
+    User(String),
     Assistant(String),
     /// Text xfx itself added -- an approval's feedback, the close of a turn
     /// that did not finish. Never a user message.
@@ -639,6 +643,16 @@ enum Item {
 fn items_of(turn: &HistoryTurn) -> Vec<Item> {
     let mut ignored = Vec::new();
     let messages = turn_messages(turn, &Wire::VercelGateway, &mut ignored);
+    // The person's steers, in the words they typed, as the turn's steps
+    // hold them.
+    let mut steers: Vec<&str> = turn
+        .steps
+        .iter()
+        .filter_map(|step| match step {
+            crate::session::TurnStep::Steered { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
     let mut items = Vec::new();
     for message in messages.into_iter().skip(1) {
         match message.role {
@@ -646,6 +660,11 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
             Role::User => {
                 let text = message.text();
                 if text.is_empty() {
+                    continue;
+                }
+                if let Some(at) = steers.iter().position(|steer| *steer == text) {
+                    steers.remove(at);
+                    items.push(Item::User(text));
                     continue;
                 }
                 // A user message inside a turn is never the user's prompt:
@@ -679,14 +698,15 @@ fn items_of(turn: &HistoryTurn) -> Vec<Item> {
                         call_id,
                         tool,
                         output,
-                        error,
+                        status,
                     } = part
                     {
                         items.push(Item::ToolResult {
                             call_id,
                             name: tool,
                             output,
-                            failed: error,
+                            // A refusal did not succeed either.
+                            failed: status != crate::gateway::protocol::ResultStatus::Success,
                         });
                     }
                 }
@@ -798,11 +818,18 @@ fn prepare(
     if let Some(earlier) = &continued {
         users.extend(earlier.users.iter().cloned());
     }
+    // A steer is the person's, exact, as the first message is
+    // (`summarize.zig:793-800`).
+    users.extend(items.iter().filter_map(|item| match item {
+        Item::User(text) => Some(text.clone()),
+        _ => None,
+    }));
     let has_work = continued
         .as_ref()
         .is_some_and(|earlier| !earlier.work.is_empty() || earlier.first_tool > 0)
         || items.iter().enumerate().any(|(index, item)| match item {
             Item::Assistant(_) => Some(index) != final_index,
+            Item::User(_) => false,
             _ => true,
         });
     let final_reply = match final_index.map(|index| &items[index]) {
@@ -1573,7 +1600,7 @@ fn longest_text(plan: &Plan) -> usize {
         .iter()
         .flat_map(|turn| {
             std::iter::once(turn.user.len()).chain(turn.items.iter().map(|item| match item {
-                Item::Assistant(text) | Item::Note(text) => text.len(),
+                Item::User(text) | Item::Assistant(text) | Item::Note(text) => text.len(),
                 Item::ToolCall { arguments, .. } => arguments.len(),
                 Item::ToolResult { output, .. } => output.len(),
             }))
@@ -1629,6 +1656,12 @@ fn transcript(plan: &Plan, clip: usize, earlier_clip: usize) -> (String, usize) 
         }
         for (item, number) in turn.items.iter().zip(&turn.tool_numbers) {
             match item {
+                Item::User(added) => {
+                    text.push_str(&format!(
+                        "[User, added while the assistant worked]\n{}\n\n",
+                        clipped(added, clip)
+                    ));
+                }
                 Item::Assistant(assistant) => {
                     text.push_str(&format!("[Assistant]\n{}\n\n", clipped(assistant, clip)));
                 }
@@ -2400,6 +2433,7 @@ impl Spent {
             lines_removed: 0,
             settled: Vec::new(),
             rejected: Vec::new(),
+            turn_output_tokens: None,
         })
     }
 }
@@ -2480,8 +2514,12 @@ async fn ask(
     user: &str,
     context: Context,
 ) -> Result<String, Failure> {
+    // No speed: upstream's summarizer asks for a reasoning level and nothing
+    // else (`Summarizer.ask`, `model.zig:134-145`), whatever the session's
+    // Fast or Ultra.
     caller.provider.set_options(RequestOptions {
         reasoning: lowest_effort(&(caller.efforts)(model)),
+        ..RequestOptions::default()
     });
     let request = CompletionRequest {
         model: model.to_string(),
@@ -2870,6 +2908,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         })
     }
 

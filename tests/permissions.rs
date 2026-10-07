@@ -2582,7 +2582,10 @@ fn terminal_stops_when_the_turn_is_cancelled() {
         "terminal",
         json!({ "action": "exec", "command": "sleep 30" }),
     );
-    assert!(refusal.contains("cancelled"), "{refusal}");
+    // Claim changed: a stopped command answers upstream's words for a call its
+    // turn was stopped under (`aborted_tool_output`, `vercel-labs/fx@c1db9191
+    // src/core/session/session.zig:64`), not a sentence about the command.
+    assert_eq!(refusal, "aborted by user", "{refusal}");
     assert!(
         started.elapsed() < Duration::from_secs(10),
         "cancellation was ignored for {:?}",
@@ -2896,7 +2899,9 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
         "the command never reported both children forked, so the cancellation \
          proved nothing about group kills: {refusal}"
     );
-    assert!(refusal.contains("cancelled"), "{refusal}");
+    // Claim changed: upstream's words for a stopped call, and xfx's note
+    // after them only when the group could not be emptied.
+    assert!(refusal.starts_with("aborted by user"), "{refusal}");
     // The group, not the pipe, is what this test is named for -- and since the
     // fix it can be asked directly (see the `sleepers` check below and the
     // `stranded` notice the tool now appends). The phrase below is the one
@@ -3121,6 +3126,7 @@ fn calls_step(calls: Vec<ToolCall>) -> Completion {
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
         billing: None,
+        service_tier: None,
     }
 }
 
@@ -3134,6 +3140,7 @@ fn answer_step(text: &str) -> Completion {
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
         billing: None,
+        service_tier: None,
     }
 }
 

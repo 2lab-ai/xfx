@@ -78,7 +78,7 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
+use super::bridge::{self, ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
 use super::clipboard_image::ClipboardReads;
 use super::compaction::{self, Compaction};
 use super::copy::Copies;
@@ -120,13 +120,14 @@ use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
 use super::workspace_menu::{self, MenuAction as WorkspaceAction};
+use crate::agent::tokens::{Estimator, Progress};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
-use crate::provider::effort::Effort;
+use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
 use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
@@ -480,32 +481,62 @@ const PROVIDER_BUSY: &str =
     "Provider switching is unavailable until active and queued work finishes.";
 
 /// What a `/model` explicit form that does not hold is answered with --
-/// four words or more, an effort the model does not list, a speed xfx cannot
-/// send: upstream's usage line, an error with no topic
+/// four words or more, an effort the model does not list, a speed it does not
+/// offer: upstream's usage line, an error with no topic
 /// (`submitExplicitModelSelection`, `app_input_runtime.zig:2860-2894`;
 /// `fx-model3-40x120-paste-bad-effort`).
 const MODEL_USAGE: &str = "usage: /model <id> <effort> [normal|fast|ultrafast]";
 
+/// `/fast` for a model whose catalog row offers no Fast mode
+/// (`toggleFastForModel`, `session_commands.zig:733-751`): neutral, topic
+/// `fast`, and nothing changed.
+const NO_FAST_MODE: &str = "This model does not come with a fast mode.";
+
+/// `/ultrafast on` for a model whose row offers no Ultra mode
+/// (`applyUltrafastMode`, `session_commands.zig:802-815`): a **warning**, not
+/// an error, topic `ultrafast`, and nothing changed.
+const NO_ULTRA_MODE: &str = "Ultra mode is unavailable for this model and may increase cost.";
+
+/// `/ultrafast` with anything but `on`, `off` or `status`
+/// (`handleUltrafast`, `session_commands.zig:704-723`): an error with no topic.
+const ULTRAFAST_USAGE: &str = "usage: /ultrafast [on|off|status]";
+
+/// `/fast`, or `/ultrafast` with a word it knows: the command as given,
+/// before the catalog row it is judged against is known
+/// ([`Shell::held_speed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpeedCommand {
+    /// `/fast`: a toggle.
+    Fast,
+    /// `/ultrafast on` or `/ultrafast off`.
+    Ultra(bool),
+    /// `/ultrafast` or `/ultrafast status`: what was asked for.
+    Status,
+}
+
 /// Upstream's announcement of a model change (`announceModelSelection`,
 /// `session_commands.zig:1266-1279`): `Switched to`, or `Next turn will use`
 /// while a turn is still to finish, then the id, the effort -- `default` for
-/// none -- and the speed. The speed is `normal` unless the id itself is a fast
-/// one (`intrinsic_fast`, `model_capabilities.zig:117-119`): xfx sends no speed
-/// of its own yet.
-fn switched(next_turn: bool, model: &str, effort: &Effort) -> String {
+/// none -- and the speed: `ultrafast` with Ultra on, `fast` with Fast on or for
+/// an id that is a fast one itself (`intrinsic_fast`,
+/// `model_capabilities.zig:117-119`), and `normal` otherwise.
+fn switched(next_turn: bool, model: &str, settings: &TurnSettings) -> String {
     let lead = if next_turn {
         "Next turn will use "
     } else {
         "Switched to "
     };
-    let speed = if model.ends_with("-fast") {
-        "fast"
+    let speed = if settings.ultrafast {
+        Speed::Ultrafast
+    } else if settings.fast || intrinsic_fast(model) {
+        Speed::Fast
     } else {
-        "normal"
+        Speed::Normal
     };
     format!(
-        "{lead}{model} (effort: {}, speed: {speed})",
-        effort.display()
+        "{lead}{model} (effort: {}, speed: {})",
+        settings.effort.display(),
+        speed.label()
     )
 }
 
@@ -685,14 +716,33 @@ pub(crate) struct Shell {
     /// this side can say at once; a catalog nobody has read cannot be
     /// resolved here at all.
     catalog_known: CatalogKnown,
-    /// The session's reasoning effort, as the band shows and announces it.
+    /// The session's reasoning effort and its two speed switches, as the band
+    /// shows and announces them.
     ///
-    /// The runtime's is the one a request is sent with
-    /// (`super::worker`'s `Runtime::effort`); this one starts from the same
-    /// profile and moves with every change this side asks for -- at once, the
+    /// The runtime's are the ones a request is sent with
+    /// (`super::worker`'s `Runtime::settings`); these start from the same
+    /// profile and move with every change this side asks for -- at once, the
     /// moment it is asked for, because that is when the band says so -- and
     /// with every [`UiEvent::ModelAnswered`], which carries the runtime's.
-    effort: Effort,
+    settings: TurnSettings,
+    /// Whether the Fast mode above was chosen for the model in force
+    /// (`fast_mode_model_bound`, `resolveStartupFastMode`,
+    /// `app_lifecycle.zig:827-844`): what the footer's `⚡︎` asks besides the
+    /// switch. A profile's hand-written `fast_mode` is on and unmarked until
+    /// the first change made here, which binds it, as upstream's every write
+    /// does.
+    fast_bound: bool,
+    /// `/fast` or `/ultrafast` given before this side has read the catalog
+    /// that says whether the model offers the mode: held, with the catalog
+    /// asked for, and decided in the order given the moment the answer
+    /// arrives -- or dropped with the provider they were given under. One
+    /// given while another is held waits behind it, so two `/fast` are still
+    /// a toggle on and a toggle off.
+    held_speed: Vec<SpeedCommand>,
+    /// The colour Ultra's `⚡︎` is said in ([`super::theme::ultra_marker`]):
+    /// upstream's truecolor answer until the launch says otherwise
+    /// ([`Self::set_ultra_marker`]).
+    ultra: &'static str,
     /// `/model`'s inline column picker ([`super::model_column`]): which column
     /// is open over the composer's `/model ` line, which model is pending and
     /// which row is marked. A view of the composer like the completion menu,
@@ -827,13 +877,16 @@ pub(crate) struct Shell {
     /// and so are the cancelled work starting late rather than a new turn
     /// ([`UiEvent::TurnStarted`]).
     cancel_covers: usize,
-    /// The retry the turn is waiting on, while it is ([`super::retry`]).
+    /// What the activity row says about the turn's recovery, while it says
+    /// anything ([`super::retry::Row`]).
     ///
     /// It replaces the activity row rather than sitting beside it, as
-    /// upstream's recovery label does (`worker_status.zig:41-49`), and it goes
-    /// the moment the turn shows any sign of having got through -- an answer,
-    /// a tool, a question -- or of being over.
-    retry: Option<super::retry::Standing>,
+    /// upstream's recovery label does (`worker_status.zig:41-49`): a retry's
+    /// label until the step it retried has got through, then `✓ recovered ·
+    /// attempt N` for a moment -- through whatever the turn does next, a tool
+    /// included (`fx-interrupt-recovered-40x120-rec-1.4`) -- and nothing once
+    /// the turn is over.
+    retry: Option<super::retry::Row>,
     /// The compaction the activity row is about, running or just ended
     /// ([`super::compaction`]).
     ///
@@ -841,9 +894,6 @@ pub(crate) struct Shell {
     /// over the turn's (`frameOwnedActivityProjection`, `render_input.zig:
     /// 699-719`), and it never writes into the document.
     compaction: Option<Compaction>,
-    /// How many submissions are waiting behind the one in flight, as of the
-    /// last settle. Cached for the same reason [`Self::escape_armed`] is.
-    queued: usize,
     /// What the turn is doing, and how long it has been doing it.
     activity: Activity,
     /// Which phase of the activity row's blink the band is on.
@@ -1073,6 +1123,10 @@ pub(crate) struct Shell {
     /// re-solved from exactly this field, so the row's presence and its text
     /// cannot disagree.
     activity_row: Option<String>,
+    /// The rows a recovery's label wraps onto under [`Self::activity_row`],
+    /// up to two (`max_static_status_activity_rows`, `render_input.zig:406`).
+    /// Re-solved into the geometry with the row, as the row is.
+    activity_more: Vec<String>,
     /// Whether the screen owes a reset's scrollback handoff
     /// (`super::frame::Band::hand_off`), and how many blank rows the document
     /// it hands off ends on.
@@ -1146,7 +1200,13 @@ pub(crate) struct Shell {
     /// ([`Self::banner_rows`]) and its card is written when its turn starts,
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
-    prompts: VecDeque<(u64, Option<String>, Option<String>)>,
+    prompts: VecDeque<(u64, Option<String>, Option<WaitingCard>)>,
+    /// The prompts sent into the running turn and not yet taken by it
+    /// ([`crate::agent::steering`]), oldest first: the number the runtime
+    /// knows each by, the prompt as the model is given it, and its card.
+    /// Shown in the band as upstream shows a steer (`┋ <prompt>`), and each
+    /// card written when the turn takes it ([`UiEvent::Steered`]).
+    steers: Vec<(u64, String, String)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -1381,12 +1441,73 @@ pub(crate) fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice)
     owed
 }
 
+/// Each image badge a card names and the link that opens around it, in no
+/// particular order: the badge as the card spells it (`[Image N]`) and
+/// upstream's open for its file (`writeImageBadge`,
+/// `image_attachments.zig:1336-1340`) -- no parameters, the path
+/// percent-encoded ([`super::hyperlink::file_uri`]).
+type BadgeLinks = Vec<(String, String)>;
+
+/// A prompt's card while it waits for its turn: the text and its badges'
+/// links ([`Shell::prompts`]).
+type WaitingCard = (String, BadgeLinks);
+
+/// [`BadgeLinks`] for these images. One whose file has no target a link may
+/// carry -- a relative path, or one too long -- is left out, and its badge
+/// stays text.
+fn badge_links<'a>(images: impl IntoIterator<Item = (u32, &'a std::path::Path)>) -> BadgeLinks {
+    images
+        .into_iter()
+        .filter_map(|(id, path)| {
+            let uri = super::hyperlink::file_uri(path)?;
+            Some((crate::image::badge(id), super::hyperlink::open("", &uri)))
+        })
+        .collect()
+}
+
+/// `line` with every badge [`BadgeLinks`] names wrapped in its link: upstream's
+/// card (`expandPlaceholdersWithLinkedBadges`, `user_message_card.zig:222-230`).
+///
+/// A link changes only where the target does, as upstream's writer emits one
+/// (`emitHyperlinkTransition`, `engine.zig:3245-3260`): two badges side by side
+/// that name one file are one run under one open, and a badge next to another
+/// file's opens that file's link without a close between them. The last one is
+/// closed before the text after it.
+fn linked_badges(line: &str, links: &BadgeLinks) -> String {
+    if links.is_empty() {
+        return line.to_string();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut open: Option<&str> = None;
+    let mut rest = line;
+    while !rest.is_empty() {
+        let found = links
+            .iter()
+            .find(|(badge, _)| rest.starts_with(badge.as_str()));
+        let (taken, link) = match found {
+            Some((badge, link)) => (badge.len(), Some(link.as_str())),
+            None => (rest.chars().next().map_or(1, char::len_utf8), None),
+        };
+        if link != open {
+            out.push_str(link.unwrap_or(super::hyperlink::CLOSE));
+            open = link;
+        }
+        out.push_str(&rest[..taken]);
+        rest = &rest[taken..];
+    }
+    if open.is_some() {
+        out.push_str(super::hyperlink::CLOSE);
+    }
+    out
+}
+
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
     /// The line the user submitted, as upstream's card: the rail, the text in
-    /// bold, and a blank row under it (`user_message_card.zig:319-325`).
-    Card(String),
+    /// bold, and a blank row under it (`user_message_card.zig:319-325`) --
+    /// and each image badge on it a link to its file ([`BadgeLinks`]).
+    Card(String, BadgeLinks),
     /// The turn's summary under its answer, and a blank row under it
     /// (`transcript/runtime.zig:540-547`).
     Summary(String),
@@ -1411,6 +1532,12 @@ enum Mark {
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
+    /// Operational text ([`UiEvent::Operational`]): answer prose written
+    /// beside the presenter, which keeps the line it is holding for after it,
+    /// as upstream's operational push reaches its presentation while the
+    /// markdown presenter still holds the unfinished line
+    /// (`fx-fast-unconfirmed-40x120-turn`).
+    Operational(String),
     /// A tool call started: a row in the open group, or a group of its own.
     ToolStart { id: String, shown: Shown },
     /// A tool call finished: its row settled, and the header recounted.
@@ -1434,47 +1561,20 @@ struct Answer {
     held: usize,
 }
 
-/// Upstream's streaming token estimate (`token_estimate.zig:5-31`): a
-/// whitespace-separated span of `n` bytes is `ceil(n / 4)` tokens, and the
-/// count is the same however the text was cut into chunks.
-#[derive(Debug, Default, Clone, Copy)]
-struct Estimator {
-    settled: u64,
-    span: u64,
-}
-
-impl Estimator {
-    fn consume(&mut self, text: &str) {
-        for byte in text.bytes() {
-            if byte.is_ascii_whitespace() {
-                self.settled = self.settled.saturating_add(span_tokens(self.span));
-                self.span = 0;
-            } else {
-                self.span = self.span.saturating_add(1);
-            }
-        }
-    }
-
-    fn estimate(&self) -> u64 {
-        self.settled.saturating_add(span_tokens(self.span))
-    }
-}
-
-fn span_tokens(span: u64) -> u64 {
-    span / 4 + u64::from(!span.is_multiple_of(4))
-}
-
 /// What the summary under a turn's answer says: how long the turn took and the
-/// tokens it moved (`transcript/runtime.zig:540-547`). In is the prompt's
-/// estimate, as upstream counts it (`telemetry.zig:87-96`); out is what the
-/// provider reported, or the estimate of what streamed when it reported
-/// nothing.
+/// tokens it moved (`transcript/runtime.zig:540-547`), by upstream's rule
+/// ([`crate::agent::tokens`]). In is the prompt's estimate, fixed when the
+/// turn begins; out is the turn's own count over the requests that have ended
+/// ([`Progress::Settled`]), plus the open request's estimate -- its answer
+/// text, counted here as it arrives, and what it is writing that is not shown
+/// ([`Progress::Unshown`]).
 #[derive(Debug, Default)]
 struct Tally {
     started: Option<Instant>,
     input: u64,
-    output: Option<u64>,
+    settled: u64,
     streamed: Estimator,
+    unshown: u64,
 }
 
 impl Tally {
@@ -1486,12 +1586,32 @@ impl Tally {
         };
     }
 
+    /// What the turn has moved so far (`tokenProgress`,
+    /// `telemetry.zig:157-163`).
+    fn output(&self) -> u64 {
+        self.settled
+            .saturating_add(self.streamed.estimate())
+            .saturating_add(self.unshown)
+    }
+
+    fn progressed(&mut self, progress: Progress) {
+        match progress {
+            // A request ended, and the turn's count already holds what it
+            // wrote: the answer counted here belonged to it.
+            Progress::Settled(total) => {
+                self.settled = total;
+                self.streamed = Estimator::default();
+                self.unshown = 0;
+            }
+            Progress::Unshown(estimate) => self.unshown = estimate,
+        }
+    }
+
     fn line(&self, now: Instant) -> String {
         let seconds = self.started.map_or(0, |started| {
             now.saturating_duration_since(started).as_secs()
         });
-        let output = self.output.unwrap_or_else(|| self.streamed.estimate());
-        summary_line(seconds, self.input, output)
+        summary_line(seconds, self.input, self.output())
     }
 }
 
@@ -1714,7 +1834,14 @@ impl Shell {
             provider: config.provider,
             catalog: Vec::new(),
             catalog_known: CatalogKnown::Unasked,
-            effort: config.effort.clone(),
+            settings: TurnSettings {
+                effort: config.effort.clone(),
+                fast: config.fast_mode,
+                ultrafast: config.ultrafast_mode,
+            },
+            fast_bound: config.fast_mode_model_bound,
+            held_speed: Vec::new(),
+            ultra: super::theme::ULTRA_TRUECOLOR,
             column: Column::default(),
             column_seen: String::new(),
             column_edit: ColumnEdit::Other,
@@ -1743,7 +1870,6 @@ impl Shell {
             cancel_covers: 0,
             retry: None,
             compaction: None,
-            queued: 0,
             activity: Activity::new(),
             phase: 0,
             panel: None,
@@ -1805,6 +1931,7 @@ impl Shell {
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
+            activity_more: Vec::new(),
             handoff: None,
             tail_unknown: false,
             draining: None,
@@ -1817,6 +1944,7 @@ impl Shell {
             trailer: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
+            steers: Vec::new(),
             session_title: None,
             turn_title: None,
             title_owed: true,
@@ -1870,19 +1998,33 @@ impl Shell {
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
-            // A waiting prompt's rows, between the turn's blank row and a
-            // blank row of their own -- when the band was solved with them
-            // ([`layout::solve_band_with_banner`]), which is the only way the
-            // padding is that tall.
+            // A recovery's wrapped rows under it, then the turn's blank row,
+            // then a waiting prompt's rows and a blank row of their own --
+            // each only when the band was solved with it
+            // ([`layout::solve_band_tall`]). The padding is how tall the
+            // band was solved, and [`Self::fit`] tries the three shapes in
+            // this order, so the first shape the padding matches is the one
+            // it chose.
             let banner = self.banner_rows(self.geometry.cols);
-            if !banner.is_empty() && padding == banner.len() + 2 {
+            let more = self.activity_more.len();
+            let with_banner =
+                |more: usize| !banner.is_empty() && padding == more + banner.len() + 2;
+            let (more, show_banner) = if more > 0 && with_banner(more) {
+                (more, true)
+            } else if more > 0 && padding == more + 1 {
+                (more, false)
+            } else {
+                (0, with_banner(0))
+            };
+            rows.extend(self.activity_more.iter().take(more).cloned());
+            if show_banner {
                 rows.push(String::new());
                 for row in banner {
                     rows.push(self.painted(self.palette.dim(), row));
                 }
                 rows.push(String::new());
             } else {
-                rows.extend(std::iter::repeat_n(String::new(), padding));
+                rows.extend(std::iter::repeat_n(String::new(), padding - more));
             }
         }
         // The composer's own rows, as many of them as the window shows, each
@@ -2193,14 +2335,14 @@ impl Shell {
         // `red_style` while it has time on the screen left
         // ([`Self::warning_shown`]). An armed cue outranks the warning
         // (`dangerStatusText` is empty while one is, `:580`).
-        let cue_style = format!("{}{}", self.palette.reset(), self.palette.dim());
-        let (model, effort) = self.hinted_model();
+        let cue_style = self.palette.dim().to_string();
+        let (model, effort, speed) = self.hinted_model();
         let mut hint = Hint {
             missing_credential: self.missing_credential,
-            queued: self.queued,
             mode: self.mode,
             model: &model,
             effort: effort.as_ref().map(Effort::display),
+            speed,
             // The three optional segments, each only while it is on
             // (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
             session_title: self
@@ -2234,6 +2376,7 @@ impl Shell {
             } else {
                 self.palette.danger()
             },
+            close: self.palette.reset(),
             accent: (self.palette.activity(), self.palette.statusline()),
         };
         let cols = self.geometry.cols;
@@ -2259,20 +2402,30 @@ impl Shell {
         hint::row(&hint, cols)
     }
 
-    /// The model and the effort the hint row says a turn will use.
+    /// The model, the effort and the speed marker the hint row says a turn
+    /// will use: the marker's colour ([`Hint::speed`]) -- empty for Fast,
+    /// Ultra's yellow for Ultra -- or `None`.
     ///
     /// **While the inline column has a model pending, the pending one**, and
-    /// the level the text spells or the mark is on: upstream's footer previews
-    /// the choice before it is made (`app_render_runtime.zig:653-668`;
-    /// `fx-model-40x120-gpt-enter`, `effort-enter`). Otherwise the model in
-    /// force and the session's effort.
+    /// the level and the speed the text spells or the mark is on: upstream's
+    /// footer previews the choice before it is made
+    /// (`app_render_runtime.zig:653-668`, `:712-714`;
+    /// `fx-model-40x120-gpt-enter`, `effort-enter`). The speed is marked
+    /// before the speed column opens -- `fast` for a model that offers it --
+    /// so the effort column already shows `⚡︎`. Otherwise the model in force,
+    /// the session's effort, and its switches.
     ///
     /// The effort is shown only when it is not the default and the model takes
     /// it (`render.zig:390-393`): its catalog row lists that level -- or no
     /// catalog has been read yet, which upstream treats as a level it has not
     /// been told is unsupported (`active_capabilities_pending`, `:655-658`). A
     /// catalog that could not be read lists nothing, so nothing is shown.
-    fn hinted_model(&self) -> (String, Option<Effort>) {
+    ///
+    /// The marker is Ultra's for Ultra on -- previewed only where the row
+    /// offers it -- and Fast's for a fast id (`intrinsic_fast`), or for Fast
+    /// on: previewed where the row offers it, and in force when it is bound to
+    /// the model ([`Self::fast_bound`]).
+    fn hinted_model(&self) -> (String, Option<Effort>, Option<&'static str>) {
         let catalog = known(self.catalog_known, &self.catalog);
         if let Some(preview) = self
             .column
@@ -2280,20 +2433,42 @@ impl Shell {
             .filter(|_| self.help_menu.is_none() && self.model_menu.is_none())
             .and_then(|query| self.column.preview(&query, catalog))
         {
-            let (model, effort) = preview;
-            return (model, (!effort.is_default()).then_some(effort));
+            let entry = catalog.entry(&preview.model);
+            let offers =
+                |speed: Speed| entry.is_some_and(|entry| Speed::options(entry).contains(&speed));
+            let speed = if preview.speed == Speed::Ultrafast && offers(Speed::Ultrafast) {
+                Some(self.ultra)
+            } else if intrinsic_fast(&preview.model)
+                || (preview.speed == Speed::Fast && offers(Speed::Fast))
+            {
+                Some("")
+            } else {
+                None
+            };
+            let effort = (!preview.effort.is_default()).then_some(preview.effort);
+            return (preview.model, effort, speed);
         }
         let shown = match self.catalog_known {
             CatalogKnown::Loaded => self
                 .catalog
                 .iter()
                 .find(|entry| entry.matches(&self.model))
-                .is_some_and(|entry| self.effort.supported_by(entry) && !entry.efforts.is_empty()),
+                .is_some_and(|entry| {
+                    self.settings.effort.supported_by(entry) && !entry.efforts.is_empty()
+                }),
             CatalogKnown::Unread(_) => false,
             CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted => true,
         };
-        let effort = (shown && !self.effort.is_default()).then(|| self.effort.clone());
-        (self.model.clone(), effort)
+        let effort =
+            (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone());
+        let speed = if self.settings.ultrafast {
+            Some(self.ultra)
+        } else if intrinsic_fast(&self.model) || (self.settings.fast && self.fast_bound) {
+            Some("")
+        } else {
+            None
+        };
+        (self.model.clone(), effort, speed)
     }
 
     /// The context meter's numerator and, when there is one, its denominator.
@@ -2668,6 +2843,13 @@ impl Shell {
         if let Some(model) = replay.model {
             self.model = model;
         }
+        // The session's own, put back with it -- the Fast binding kept only
+        // for the selection this session was configured with
+        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
+        if let Some(settings) = replay.settings {
+            self.settings = settings;
+            self.fast_bound = self.fast_bound && replay.keeps_fast_binding;
+        }
         self.resumed(replay.title);
         for turn in replay.turns {
             self.replay_turn(turn);
@@ -2703,7 +2885,8 @@ impl Shell {
             .iter()
             .rposition(|step| !matches!(step, HydratedStep::Text(_)))
             .map_or(0, |last| last + 1);
-        self.run_mark(Mark::Card(turn.user.clone()));
+        let links = badge_links(turn.images.iter().map(|(id, path)| (*id, path.as_path())));
+        self.run_mark(Mark::Card(turn.user.clone(), links));
         let mut streamed = Estimator::default();
         for (index, step) in turn.steps.into_iter().enumerate() {
             if index == concluding {
@@ -2736,13 +2919,17 @@ impl Shell {
                     ),
                     Role::Notice,
                 )),
+                // A steer carries no images, so its card has no badge links.
+                HydratedStep::Steer(text) => self.run_mark(Mark::Card(text, BadgeLinks::new())),
             }
         }
         self.full.stamp_with(Some(concluded));
         self.run_mark(Mark::TurnOver);
         match turn.ending {
             // In is the prompt's estimate, as a live turn's is; out is what
-            // the provider said, or the estimate of what it wrote.
+            // the live summary said, as the log kept it -- every request's,
+            // which a replay cannot count again -- or, from a log that kept
+            // no count, the estimate of the text replayed here.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
                 input.consume(&turn.sent);
@@ -2868,9 +3055,9 @@ impl Shell {
                 // The waiting prompt is delivered: its card goes into the
                 // document behind whatever the last turn still has to say,
                 // and its rows leave the band.
-                if let Some(card) = card {
+                if let Some((card, links)) = card {
                     if !self.cancelling {
-                        self.echo(&card);
+                        self.echo(&card, links);
                     }
                     self.refit();
                     self.render.request(Reason::Footer);
@@ -2886,9 +3073,18 @@ impl Shell {
             // ([`Self::cancel_turn`]).
             UiEvent::Delta(text) => {
                 if !self.cancelling {
-                    // The attempt got through: the answer is the evidence.
-                    self.retry = None;
+                    // A retried answer arriving leaves the row as it is:
+                    // upstream's says the retry until the step has got
+                    // through (`fx-interrupt-recovered-40x120-slow-2.8`), and
+                    // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
+                }
+            }
+            // In the place the stream has reached, not at once: it is about the
+            // answer that arrived before it.
+            UiEvent::Operational(text) => {
+                if !self.cancelling {
+                    self.mark(Mark::Operational(text));
                 }
             }
             // A request failed and the turn will try it again. Not after a
@@ -2899,10 +3095,41 @@ impl Shell {
                 delay,
             } => {
                 if !self.cancelling {
-                    self.retry = Some(super::retry::Standing {
+                    self.retry = Some(super::retry::Row::Retrying(super::retry::Standing {
                         cause,
                         diagnostic,
                         deadline: Instant::now() + delay,
+                    }));
+                    self.render.request(Reason::Footer);
+                }
+            }
+            // The turn took these steers: each leaves the band and its card is
+            // written now -- behind whatever of the answer the pacer still
+            // holds, and after the line the answer was in the middle of, which
+            // the card closes (`fx-interrupt-steer-40x120-steer-stream`: the
+            // cut answer's words, then `┃ what are you doing`).
+            UiEvent::Steered { ids } => {
+                let mut delivered = Vec::new();
+                self.steers.retain(|(id, _, card)| {
+                    let taken = ids.contains(id);
+                    if taken {
+                        delivered.push(card.clone());
+                    }
+                    !taken
+                });
+                // A steer carries no images, so no badge links.
+                for card in delivered {
+                    self.echo(&card, BadgeLinks::new());
+                }
+                self.refit();
+                self.render.request(Reason::Footer);
+            }
+            // The retried step got through: said for a moment, from now.
+            UiEvent::Recovered { attempt } => {
+                if !self.cancelling {
+                    self.retry = Some(super::retry::Row::Recovered {
+                        attempt,
+                        until: Instant::now() + super::retry::RECOVERED_VISIBLE,
                     });
                     self.render.request(Reason::Footer);
                 }
@@ -2923,7 +3150,6 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Tool { name: tool });
                 }
-                self.retry = None;
                 self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
@@ -3000,6 +3226,14 @@ impl Shell {
                 self.catalog_known = CatalogKnown::Unasked;
                 self.column.reset();
                 self.context_used = None;
+                // The speed switches went off with the model the switch
+                // replaced, on the runtime too (`super::worker`'s `adopt`), and
+                // a `/fast` held for the old provider's catalog is about a
+                // model that is not in force any more. The effort is the
+                // session's, and stays.
+                self.settings.fast = false;
+                self.settings.ultrafast = false;
+                self.held_speed.clear();
                 // The conversation went with the bundle, and the session its
                 // title named with it.
                 self.forget_session_title();
@@ -3036,13 +3270,18 @@ impl Shell {
             // turn was held in the id it resolved to.
             UiEvent::ModelAnswered {
                 model,
-                effort,
+                settings,
                 outcome,
                 next_turn,
                 announced,
             } => {
+                // Upstream writes the binding beside every model change; a
+                // refusal wrote nothing.
+                if !matches!(outcome, ModelAnswer::Refused { .. }) {
+                    self.fast_bound = true;
+                }
                 self.model = model;
-                self.effort = effort;
+                self.settings = settings;
                 match outcome {
                     // Said already, the moment it was asked for
                     // ([`Self::request_change`]); this only moves the band's
@@ -3054,7 +3293,7 @@ impl Shell {
                     // catalog that could not be read, because upstream adds
                     // none.
                     ModelAnswer::Applied { .. } | ModelAnswer::Unchanged => {
-                        let line = switched(next_turn, &self.model, &self.effort);
+                        let line = switched(next_turn, &self.model, &self.settings);
                         self.announce(notice::Notice::neutral("", line));
                     }
                     // xfx's own words, from the selector. Nothing of the id is
@@ -3076,6 +3315,7 @@ impl Shell {
                 self.catalog = entries;
                 self.catalog_known = CatalogKnown::Loaded;
                 self.provider = provider;
+                self.settle_speed();
                 let note = (provider == ProviderId::Gateway)
                     .then_some(self.gateway_note)
                     .flatten();
@@ -3097,6 +3337,9 @@ impl Shell {
             // help, which the next `/model` then does.
             UiEvent::CatalogUnread { retry, .. } => {
                 self.catalog_known = CatalogKnown::Unread(retry);
+                // No row says the model offers a mode, as upstream's generic
+                // capabilities say none (`capabilitiesForModel`).
+                self.settle_speed();
                 if let Some(menu) = self.model_menu.as_mut() {
                     menu.failed(retry);
                     self.refit();
@@ -3106,13 +3349,13 @@ impl Shell {
                 self.render.request(Reason::Footer);
             }
             // The numerator, and only the numerator: see [`Self::context_used`]
-            // for why the output half is deliberately dropped here rather than
-            // added to it.
-            UiEvent::Usage { input, output } => {
+            // for why the output half is deliberately left out of it.
+            UiEvent::Usage { input } => {
                 self.context_used = input;
-                if let Some(output) = output {
-                    self.tally.output = Some(self.tally.output.unwrap_or(0).saturating_add(output));
-                }
+                self.render.request(Reason::Footer);
+            }
+            UiEvent::Output(progress) => {
+                self.tally.progressed(progress);
                 self.render.request(Reason::Footer);
             }
             // The turn has stopped and is waiting for a person. Everything
@@ -3120,7 +3363,6 @@ impl Shell {
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
             UiEvent::Approval(asked) => {
-                self.retry = None;
                 self.ask(asked.id, asked.request);
             }
             // The same three facts for a question the **model** asked: the
@@ -3128,7 +3370,6 @@ impl Shell {
             // not is an approval -- nothing is granted, and refusing it denies
             // nothing ([`super::question`]).
             UiEvent::Question(request) => {
-                self.retry = None;
                 self.ask_question(request);
             }
             UiEvent::TurnEnded { failure } => {
@@ -3209,6 +3450,12 @@ impl Shell {
                 self.retry = None;
                 self.pacer.finish();
                 self.gestures.turn_ended();
+                // A steer the turn never took -- sent after its last answer
+                // had looked for one, or into a turn that failed first -- is
+                // an ordinary prompt now, for the turn after, as upstream
+                // runs a prompt that missed its turn (`handoff`,
+                // `worker_runtime.zig:1196-1206`).
+                self.hand_on_steers();
                 // A column that wanted the catalog while this held the queue
                 // asks for it now, rather than on the next keystroke.
                 if self.catalog_known == CatalogKnown::Wanted
@@ -3589,7 +3836,7 @@ impl Shell {
     /// the document by roads other than a mark as well.
     fn record(&mut self, mark: &Mark) {
         match mark {
-            Mark::Card(text) => self.full.prompt(text),
+            Mark::Card(text, _) => self.full.prompt(text),
             Mark::Summary(line) => self.full.usage(line),
             // The one line said this way is what the user said at an
             // approval, which upstream's screen heads as a prompt.
@@ -3614,7 +3861,7 @@ impl Shell {
                 changes,
             } => self.full.tool_finished(id, *ok, detail, *outcome, *changes),
             Mark::TurnOver => self.full.turn_over(),
-            Mark::Notice(_) | Mark::EndOfLine => {}
+            Mark::Notice(_) | Mark::EndOfLine | Mark::Operational(_) => {}
         }
     }
 
@@ -3859,7 +4106,7 @@ impl Shell {
             slash_menu_categories: self.slash_menu_categories,
             collapse_tool_calls: self.collapse_tool_calls,
             model: &self.model,
-            effort: self.effort.display(),
+            effort: self.settings.effort.display(),
             efforts: self.model_levels(),
             permission_mode: self.mode,
             sound: self.sound.notifications(),
@@ -4119,13 +4366,15 @@ impl Shell {
     /// that keeps the model ([`ModelChange::effort_only`]), so one made while
     /// a turn runs waits for it as `/model`'s does.
     fn set_effort(&mut self, effort: Effort) {
-        self.effort = effort.clone();
+        self.settings.effort = effort.clone();
         self.work.control(TurnControl::Model(ModelChange {
             name: self.model.clone(),
             effort: Some(effort.clone()),
+            speed: None,
             picker: false,
             announced: true,
             next_turn: self.turn_pending(),
+            provider: self.provider,
             effort_only: true,
         }));
         self.save_preference(
@@ -4459,11 +4708,11 @@ impl Shell {
         }
         let entry = self.catalog.iter().find(|entry| entry.id == id).cloned();
         match entry.map(|entry| self.column.choose(&entry)) {
-            Some(Chosen::Efforts(text)) => self.write_column_text(&text),
-            Some(Chosen::Commit(model)) => self.commit_column(model, None),
+            Some(Chosen::Efforts(text) | Chosen::Speeds(text)) => self.write_column_text(&text),
+            Some(Chosen::Commit(model)) => self.commit_column(model, None, None),
             // A row the menu listed is a row of the catalog, so this is not a
             // case the menu can reach; the id is still the user's choice.
-            None => self.commit_column(id, None),
+            None => self.commit_column(id, None, None),
         }
     }
 
@@ -4486,12 +4735,20 @@ impl Shell {
     }
 
     /// The screen column under the composer's byte `offset`: past the prompt,
-    /// the cells to its left on the composer row it is on
-    /// (`projectedAnchorColumn`, `input_presentation.zig:377-380`).
+    /// the cells to its left on the composer row it is on -- **when that is the
+    /// caret's row**, and the start of the caret's row otherwise, so a column
+    /// over a composer the caret has left the argument's row of hangs under the
+    /// row the eye is on (`projectedAnchorColumn`, `visual_layout.zig:704-712`;
+    /// `fx-fast-astra-40x120-model-change-clears`, a `/model` line with a line
+    /// break after it).
     fn column_anchor(&self, offset: usize) -> u16 {
         let text = self.editor.text();
         let rows = super::wrap::wrap(text, self.text_cols());
-        let (_, cells) = super::wrap::cursor_point(text, &rows, offset);
+        let (row, cells) = super::wrap::cursor_point(text, &rows, offset);
+        let (caret_row, _) = super::wrap::cursor_point(text, &rows, self.editor.caret());
+        if row != caret_row {
+            return PROMPT_CELLS;
+        }
         PROMPT_CELLS.saturating_add(cells)
     }
 
@@ -4574,10 +4831,10 @@ impl Shell {
                 true
             }
             Input::Action(Action::Left) => {
-                match self
-                    .column
-                    .step_back(known(self.catalog_known, &self.catalog))
-                {
+                match self.column.step_back(
+                    known(self.catalog_known, &self.catalog),
+                    self.settings.speed(),
+                ) {
                     Some(text) => {
                         self.write_column_text(&text);
                         true
@@ -4606,24 +4863,38 @@ impl Shell {
     /// A space at the column (`advanceModelPickerOnSpace`,
     /// `input_completion_runtime.zig:1123-1147`): from the model column, a
     /// model spelled exactly is taken as Enter would take it -- which for a
-    /// model with no levels **makes the change**, so the rest of a typed
-    /// `/model <id> <more>` arrives in an emptied composer and is sent as a
-    /// prompt, exactly as upstream's is (`fx-model2-40x120-explicit-bad-effort`).
-    /// From the effort column a space would open the speed column, which xfx
-    /// does not have yet, so it does nothing.
+    /// model with no levels and no speed **makes the change**, so the rest of
+    /// a typed `/model <id> <more>` arrives in an emptied composer and is sent
+    /// as a prompt, exactly as upstream's is
+    /// (`fx-model2-40x120-explicit-bad-effort`). From the effort column, a
+    /// level spelled exactly opens the speed column for a model that offers
+    /// either speed ([`Column::advance_effort`]). Otherwise it does nothing.
     fn advance_column(&mut self, query: &model_column::Query<'_>) {
         if !self.editor.caret_at_end() {
             return;
         }
-        if query.stage != model_column::Stage::Model {
-            return;
+        let catalog = known(self.catalog_known, &self.catalog);
+        match query.stage {
+            model_column::Stage::Model => {
+                let Some(entry) = Column::exact_model(query.query, catalog).cloned() else {
+                    return;
+                };
+                self.chose_model(&entry);
+            }
+            model_column::Stage::Effort => {
+                let Some(effort) = self.column.exact_effort(query.query, catalog) else {
+                    return;
+                };
+                let Some(entry) = self.column.pending().and_then(|id| catalog.entry(id)) else {
+                    return;
+                };
+                let entry = entry.clone();
+                if let Some(text) = self.column.advance_effort(&entry, &effort) {
+                    self.write_column_text(&text);
+                }
+            }
+            model_column::Stage::Speed => {}
         }
-        let Some(entry) =
-            Column::exact_model(query.query, known(self.catalog_known, &self.catalog)).cloned()
-        else {
-            return;
-        };
-        self.chose_model(&entry);
     }
 
     /// Enter at the column (`submitModelPicker`,
@@ -4644,38 +4915,75 @@ impl Shell {
                 true
             }
             model_column::Stage::Effort => {
-                let Some(model) = self.column.pending().map(str::to_string) else {
+                let Some(entry) = self
+                    .column
+                    .pending()
+                    .and_then(|id| catalog.entry(id))
+                    .cloned()
+                else {
                     return false;
                 };
                 // Nothing that matches: the Return is spent, the column stays.
-                if let Some(effort) = self.column.chosen_effort(query, catalog) {
-                    self.commit_column(model, Some(effort));
+                let Some(effort) = self.column.chosen_effort(query, catalog) else {
+                    return true;
+                };
+                // On to the speeds for a model that offers Fast; the change,
+                // with this level and the session's Fast as far as the model
+                // offers it, for one that does not.
+                match self.column.chose_effort(&entry, &effort) {
+                    Some(text) => self.write_column_text(&text),
+                    None => self.commit_column(entry.id, Some(effort), None),
                 }
+                true
+            }
+            model_column::Stage::Speed => {
+                let Some(entry) = self
+                    .column
+                    .pending()
+                    .and_then(|id| catalog.entry(id))
+                    .cloned()
+                else {
+                    return false;
+                };
+                // Nothing that matches: the Return is spent, the column stays.
+                let Some(speed) = self.column.chosen_speed(query, catalog) else {
+                    return true;
+                };
+                // The level goes with a model that has levels; one with none
+                // leaves the session's as it is (`selectModelFromPicker`,
+                // `session_commands.zig:899-902`).
+                let effort = (!Effort::options(&entry).is_empty())
+                    .then(|| self.column.speed_effort(catalog));
+                self.commit_column(entry.id, effort, Some(speed));
                 true
             }
         }
     }
 
-    /// What taking `entry` in the model column leads to: the effort column,
-    /// or the change.
+    /// What taking `entry` in the model column leads to: a later column, or
+    /// the change.
     fn chose_model(&mut self, entry: &CatalogEntry) {
         match self.column.choose(entry) {
-            Chosen::Efforts(text) => self.write_column_text(&text),
-            Chosen::Commit(model) => self.commit_column(model, None),
+            Chosen::Efforts(text) | Chosen::Speeds(text) => self.write_column_text(&text),
+            Chosen::Commit(model) => self.commit_column(model, None, None),
         }
     }
 
     /// Makes the change the column settled on, and empties the composer
-    /// (`selectModelFromPicker` and `clearCurrent`).
-    fn commit_column(&mut self, model: String, effort: Option<Effort>) {
+    /// (`selectModelFromPicker` and `clearCurrent`). `speed` is `None` where
+    /// no speed was chosen: the session's Fast stands as far as the model
+    /// offers it, and Ultra goes off.
+    fn commit_column(&mut self, model: String, effort: Option<Effort>, speed: Option<Speed>) {
         self.column.reset();
         self.clear_composer();
         self.request_change(ModelChange {
             name: model,
             effort,
+            speed,
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            provider: self.provider,
             effort_only: false,
         });
     }
@@ -6277,8 +6585,10 @@ impl Shell {
     fn run_mark(&mut self, mark: Mark) {
         // Anything that is not the answer ends the answer's block. A notice
         // ends only the rows already written: the line the presenter is still
-        // holding goes on under it ([`Self::write_notice`]).
-        if !matches!(mark, Mark::Notice(_)) {
+        // holding goes on under it ([`Self::write_notice`]). Operational text
+        // ends nothing: it is the answer's prose, and the held line follows it
+        // in the same block.
+        if !matches!(mark, Mark::Notice(_) | Mark::Operational(_)) {
             self.close_answer();
         }
         // After the answer's close, which is the document's order: what the
@@ -6286,7 +6596,7 @@ impl Shell {
         // ([`Self::present`]) -- before the mark's own write.
         self.record(&mark);
         match mark {
-            Mark::Card(text) => self.write_card(&text),
+            Mark::Card(text, links) => self.write_card(&text, &links),
             Mark::Summary(line) => {
                 self.write_document_line(&line, Role::Dim);
                 self.end_transcript_line();
@@ -6297,6 +6607,10 @@ impl Shell {
                 self.trail_group(Trailed::Line(line, role));
             }
             Mark::Line(line, role) => self.write_document_line(&line, role),
+            Mark::Operational(text) => {
+                self.full.presented(&markdown::Event::Text(text.clone()));
+                self.write_prose(&text);
+            }
             Mark::Notice(notice) => self.write_notice(&notice),
             Mark::Block(rows) => self.write_block(&rows),
             Mark::EndOfLine => self.finish_document_line(),
@@ -6682,11 +6996,6 @@ impl Shell {
         self.settle_usage();
         // And what the Gateway said to a `/credits`.
         self.settle_credits();
-        let queued = self.work.queued();
-        if queued != self.queued {
-            self.queued = queued;
-            self.render.request(Reason::Footer);
-        }
         // **Nothing in hand is nothing that can still answer a cancel.** The
         // runtime reads a cancellation at the top of its loop before it takes
         // the next item (`super::worker`'s `turn_loop`, `biased`), so a prompt
@@ -6947,10 +7256,7 @@ impl Shell {
         {
             self.phase = (self.phase + 1) % PHASES;
         }
-        let output = self
-            .tally
-            .output
-            .unwrap_or_else(|| self.tally.streamed.estimate());
+        let output = self.tally.output();
         let colours = super::activity::Colours {
             label: self.palette.activity(),
             dim: self.palette.dim(),
@@ -6966,11 +7272,20 @@ impl Shell {
         // A retry the turn is waiting on is the row, whole, in the warning
         // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
         // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
-        // counting down on this clock.
+        // counting down on this clock; a recovery is `✓ recovered · attempt
+        // N` in `green_style`, which is the same grey in both palettes
+        // (`theme.zig:87`, `:130`). Either one too wide for the screen goes on
+        // up to two rows more, as upstream's does (`fx-interrupt-retry-24x80-
+        // r0.15`: `  request in 1s` under the label), each row painted and
+        // closed on its own.
         //
         // A compaction takes the row from the turn's own label while it shows
         // anything (`frameOwnedActivityProjection`, `render_input.zig:699-719`):
         // its phase and clock while it runs, its sentence once it has ended.
+        let said = self
+            .retry
+            .as_ref()
+            .and_then(|row| row.label(now).map(|label| (label, row.keeps_tail())));
         let compaction = self.compaction.as_ref().and_then(|compaction| {
             compaction.row(
                 now,
@@ -6980,29 +7295,39 @@ impl Shell {
                 colours,
             )
         });
-        let row = match (self.retry.as_ref(), compaction) {
-            _ if self.modal() => None,
-            (Some(standing), _) if self.activity.working() => {
-                Some(self.painted(self.palette.warning(), standing.label(now)))
+        let (row, more) = match (said, compaction) {
+            _ if self.modal() => (None, Vec::new()),
+            (Some((label, keep_tail)), _) if self.activity.working() => {
+                let mut rows = super::retry::wrapped(&label, self.geometry.cols, keep_tail)
+                    .into_iter()
+                    .map(|row| self.painted(self.palette.warning(), row));
+                let first = rows.next();
+                (first, rows.collect())
             }
-            (_, Some(compaction::Row::Running(row))) => Some(row),
+            (_, Some(compaction::Row::Running(row))) => (Some(row), Vec::new()),
             (_, Some(compaction::Row::Feedback(feedback))) => {
                 let colour = match feedback.tone() {
                     compaction::Tone::Neutral => self.palette.dim(),
                     compaction::Tone::Warning => self.palette.warning(),
                     compaction::Tone::Danger => self.palette.danger(),
                 };
-                Some(self.painted(colour, feedback.label().to_string()))
+                (
+                    Some(self.painted(colour, feedback.label().to_string())),
+                    Vec::new(),
+                )
             }
-            _ => self.activity.row(
-                now,
-                self.phase,
-                self.geometry.cols,
-                (self.tally.input, output),
-                colours,
+            _ => (
+                self.activity.row(
+                    now,
+                    self.phase,
+                    self.geometry.cols,
+                    (self.tally.input, output),
+                    colours,
+                ),
+                Vec::new(),
             ),
         };
-        if row == self.activity_row {
+        if row == self.activity_row && more == self.activity_more {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
             // row that says the same thing is a cost paid on every link.
@@ -7011,8 +7336,10 @@ impl Shell {
         // A row that appeared or went away is a row the band gained or gave
         // back, so the geometry is re-solved before the frame is asked for --
         // `refit` is what moves the divider, and the caret with it.
-        let appeared = row.is_some() != self.activity_row.is_some();
+        let appeared =
+            row.is_some() != self.activity_row.is_some() || more.len() != self.activity_more.len();
         self.activity_row = row;
+        self.activity_more = more;
         if appeared {
             self.refit();
         }
@@ -7632,6 +7959,14 @@ impl Shell {
                     self.moved();
                     return;
                 }
+                // Up at an empty composer, outside a walk, takes back the
+                // newest steer that still waits for a tool's results, into the
+                // composer to be edited -- before the history is walked
+                // (`restoreQueuedSteerToComposer`, `input_completion_runtime.
+                // zig:290-310`; e2e `tui-interrupt-recovery.test.ts:393`).
+                if matches!(action, Action::Up) && self.retract_steer() {
+                    return;
+                }
                 let step = if matches!(action, Action::Up) {
                     HistoryStep::Previous
                 } else {
@@ -7941,10 +8276,12 @@ impl Shell {
     /// The cancellation goes out on the **control** channel, which is unbounded
     /// and read by the runtime *inside* the turn (`super::worker`'s `run_turn`),
     /// so it cannot queue behind the backlog of deltas it is trying to stop.
-    /// The UI deliberately does not cancel anything itself: what it holds is the
-    /// **session's** cancellation, and cancelling that would make every later
-    /// turn be born cancelled (`super::bridge`'s `Cancellation::turn`) -- one
-    /// Ctrl-C would end the conversation rather than the answer.
+    /// The UI does not cancel the **session's** cancellation, which would make
+    /// every later turn be born cancelled (`super::bridge`'s
+    /// `Cancellation::turn`) -- one Ctrl-C would end the conversation rather
+    /// than the answer. What the message raises on its way out is the running
+    /// turn's own flag (`super::worker`'s `WorkHandle::control`), which is how
+    /// a command that holds the runtime's thread is stopped at the keystroke.
     ///
     /// **What the screen shows is decided here, at the keystroke, and not at
     /// the conclusion**: upstream publishes the cancellation the moment it is
@@ -7965,18 +8302,22 @@ impl Shell {
     /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
     /// 5378-5383`).
     ///
-    /// **A call that is still running is not settled by this keystroke**, and
-    /// that is the difference from upstream's `fx-interrupt-40x120-cmd-cc`,
-    /// where the command is killed at once. Here a running executor holds the
-    /// runtime's thread until it returns, so the stop is read only after the
-    /// command has finished (`super::worker`'s `raced_against_control` polls
-    /// the control channel beside the turn, not inside a tool). A `Cancelled`
-    /// row now would be the screen claiming a stop the command never had, and
-    /// so would the turn's line: both wait for the turn to end. The call's
-    /// real result settles its row, one the turn ends without is settled as
-    /// stopped with its own line ([`Mark::TurnOver`]), and the turn's line is
-    /// written then only when no call's line was ([`Self::cancel_owed`]). The
-    /// activity row stays while the command runs, because it does.
+    /// **A running command is settled by this keystroke**, as upstream's is
+    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
+    /// sleep 6 · …` at once): the turn's flag is raised before the message goes
+    /// ([`super::worker::WorkHandle::control`]), and the command's supervisor
+    /// kills it and its group within a poll (`crate::tools::terminal`). Its
+    /// line is the turn's, so no second one is written; the result the runtime
+    /// reports for it next is the same stop in the tool's words, and is dropped
+    /// ([`Self::abandoned`]).
+    ///
+    /// **Any other running call is not**: a file tool does not poll the flag,
+    /// and runs to its end before the turn reads the stop. A `Cancelled` row
+    /// for it now would be the screen claiming a stop the call never had --
+    /// a write that landed shown as one that did not. Its real result settles
+    /// its row, one the turn ends without is settled as stopped with its own
+    /// line ([`Mark::TurnOver`]), and the turn's line is written then only when
+    /// no call's line was ([`Self::cancel_owed`]).
     fn cancel_turn_with(&mut self, written: bool) {
         if self.compacting() {
             self.stop_compaction();
@@ -7986,7 +8327,13 @@ impl Shell {
         // is dropping exactly these and the count is on its way to zero: what
         // the user is owed a sentence about is what was waiting when they
         // pressed the key.
-        let waiting = self.work.queued() > 0;
+        let waiting = self.work.queued() > 0 || !self.steers.is_empty();
+        // The steers go with the turn they were sent into, as the queue goes
+        // with it: before the stop is sent, so the turn cannot take one on
+        // its way out.
+        self.work.drop_steers();
+        let steered = !self.steers.is_empty();
+        self.steers.clear();
         // Quoting what has been submitted **so far** is what keeps the drop
         // from reaching past this keystroke: a prompt typed while this message
         // is still in flight is a new intention, and the runtime is told
@@ -8005,10 +8352,13 @@ impl Shell {
             self.prompts.clear();
             // The waiting prompt's rows go with it.
             self.refit();
+        } else if steered {
+            self.refit();
         }
         // A prompt the runtime took before it read this is still to say it
         // started; with nothing waiting behind it, it is the only entry left.
         self.cancel_covers = self.prompts.len();
+        let written = written || (self.group.running_command() && self.settle_group());
         if !written && self.group.running() {
             self.cancel_owed = Some(waiting);
             return;
@@ -8290,6 +8640,29 @@ impl Shell {
         // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
         // #3][Image #4] what is in this image?`). Read before the draft goes.
         let counted = self.editor.entities().with_image_tokens(text);
+        // **Into the turn that is running**, as upstream's steer
+        // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
+        // takes it at its next boundary -- at once over an answer, after a
+        // tool's results, after the model's answer -- and its card is written
+        // then ([`UiEvent::Steered`]). Not into a turn the person has stopped,
+        // and not into one that has taken its last steer: then it is an
+        // ordinary prompt, for the turn after. Nor a prompt with images, which
+        // upstream hands to the next turn rather than steering
+        // (`sameTurnSteeringEligible`, `worker_runtime.zig:1109-1113`).
+        if images.is_empty() && self.activity.working() && !self.cancelling {
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.take_draft();
+                self.edited(None);
+                self.steers.push((id, prompt, text.to_string()));
+                self.refit();
+                self.render.request(Reason::Footer);
+                self.gestures.submitted();
+                return;
+            }
+        }
+        // What the card's badges link to: the files these images were read
+        // from, as the composer's badges did.
+        let links = badge_links(images.iter().map(|image| (image.id, image.path.as_path())));
         let work = if images.is_empty() {
             TurnWork::Submit(prompt)
         } else {
@@ -8314,18 +8687,80 @@ impl Shell {
                 let mut estimate = Estimator::default();
                 estimate.consume(&counted);
                 if waits {
-                    self.prompts
-                        .push_back((estimate.estimate(), title, Some(text.to_string())));
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title,
+                        Some((text.to_string(), links)),
+                    ));
                     self.refit();
                     self.render.request(Reason::Footer);
                 } else {
                     self.prompts.push_back((estimate.estimate(), title, None));
-                    self.echo(text);
+                    self.echo(text, links);
                 }
                 self.gestures.submitted();
             }
             Err(rejected) => self.refused(rejected),
         }
+    }
+
+    /// Takes the newest steer back into an empty composer, while the turn has
+    /// not taken it (`popQueuedSteerForEdit`, `worker_runtime.zig:1340-1386`):
+    /// only one waiting on a tool's results, and only from an empty composer
+    /// outside a history walk. `true` when one came back.
+    fn retract_steer(&mut self) -> bool {
+        if !self.editor.is_empty() || self.history.walking() {
+            return false;
+        }
+        let Some(steer) = self.work.retract_steer() else {
+            return false;
+        };
+        let Some(at) = self.steers.iter().position(|(id, _, _)| *id == steer.id) else {
+            return false;
+        };
+        let (_, prompt, card) = self.steers.remove(at);
+        if !self.editor.set_text(&prompt, Entities::new()) {
+            // Past what a composer holds: sent back into the turn rather than
+            // lost (the paste it came from was summarized in the band).
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.steers.insert(at, (id, prompt, card));
+            }
+            return false;
+        }
+        self.edit_history.boundary();
+        self.edited(None);
+        self.refit();
+        self.render.request(Reason::Footer);
+        true
+    }
+
+    /// Sends on, as ordinary prompts, the steers the turn ended without taking
+    /// ([`Self::steers`]), each waiting in the band for its own turn as a
+    /// prompt submitted behind a running one does. One the queue has no room
+    /// for goes back into an empty composer rather than nowhere.
+    fn hand_on_steers(&mut self) {
+        for (_, prompt, card) in std::mem::take(&mut self.steers) {
+            match self.work.submit(TurnWork::Submit(prompt.clone())) {
+                Ok(()) => {
+                    let mut estimate = Estimator::default();
+                    estimate.consume(&card);
+                    self.prompts.push_back((
+                        estimate.estimate(),
+                        title_of(&prompt),
+                        Some((card, BadgeLinks::new())),
+                    ));
+                }
+                Err(rejected) => {
+                    if self.editor.is_empty() {
+                        let _ = self.editor.set_text(&prompt, Entities::new());
+                        self.edited(None);
+                    }
+                    self.refused(rejected);
+                }
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Footer);
     }
 
     /// What a submission the runtime would not take costs.
@@ -8351,14 +8786,14 @@ impl Shell {
     /// The line ends whether or not the last thing typed was a newline: what
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
-    fn echo(&mut self, text: &str) {
+    fn echo(&mut self, text: &str, links: BadgeLinks) {
         // The user's own line, so xfx paints no colour onto it: what is written
         // here is what they typed, in bold behind the rail, as upstream's card.
-        self.mark(Mark::Card(text.to_string()));
+        self.mark(Mark::Card(text.to_string(), links));
     }
 
     /// The card [`Mark::Card`] asks for.
-    fn write_card(&mut self, text: &str) {
+    fn write_card(&mut self, text: &str, links: &BadgeLinks) {
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::Rail) {
             self.owed();
@@ -8368,7 +8803,7 @@ impl Shell {
         // its style per row (`user_message_card.zig:365,374`).
         let card = text
             .split('\n')
-            .map(|line| format!("{BOLD}{line}{RESET}"))
+            .map(|line| format!("{BOLD}{}{RESET}", linked_badges(line, links)))
             .collect::<Vec<_>>()
             .join("\n");
         self.write_transcript_as(&card, Role::Plain);
@@ -8905,6 +9340,30 @@ impl CommandHandlers for Shell {
         self.set_statusline(item, !self.statusline.get(item), true);
     }
 
+    /// `/fast` (`toggleFastForModel`, `session_commands.zig:733-751`): Fast
+    /// off when it is on; on -- and Ultra off -- for a model that offers it;
+    /// `* fast: This model does not come with a fast mode.` otherwise.
+    fn fast(&mut self) {
+        self.speed_command(SpeedCommand::Fast);
+    }
+
+    /// `/ultrafast [on|off|status]` (`handleUltrafast`,
+    /// `session_commands.zig:704-731`): bare or `status` says what was asked
+    /// for -- `requested: on` -- `on` and `off` ask, and anything else is the
+    /// usage line, an error with no topic.
+    fn ultrafast(&mut self, argument: &str) {
+        let command = match argument.to_ascii_lowercase().as_str() {
+            "" | "status" => SpeedCommand::Status,
+            "on" => SpeedCommand::Ultra(true),
+            "off" => SpeedCommand::Ultra(false),
+            _ => {
+                self.write_notice(&notice::Notice::error("", ULTRAFAST_USAGE));
+                return;
+            }
+        };
+        self.speed_command(command);
+    }
+
     /// Upstream's `commandHandleWorkspace` and `handleWorkspaceCommand`
     /// (`app_commands.zig:2119-2152`, `:245-328`).
     ///
@@ -9097,7 +9556,7 @@ impl CommandHandlers for Shell {
         let job = Job {
             status,
             facts,
-            effort: self.effort.label().to_string(),
+            effort: self.settings.effort.label().to_string(),
             cols: self.screen.1,
             rows: self.screen.0,
             metrics: self.metrics.body(),
@@ -9436,9 +9895,11 @@ impl Shell {
         self.request_change(ModelChange {
             name: resolved.unwrap_or_else(|| query.to_string()),
             effort: None,
+            speed: None,
             picker: false,
             announced,
             next_turn: self.turn_pending(),
+            provider: self.provider,
             effort_only: false,
         });
     }
@@ -9455,20 +9916,141 @@ impl Shell {
     /// **A control message, never refused** ([`TurnControl::Model`]): a change
     /// typed while a turn runs and a prompt waits is put aside by the runtime
     /// and applied between the two, rather than refused as a full queue. The
-    /// band's own record of the model and the effort moves with the
+    /// band's own record of the model, the effort and the speed moves with the
     /// announcement, and is moved again -- to the same values -- by the
     /// runtime's answer.
+    ///
+    /// **By the runtime's rule, against the same rows**: a picker's choice is
+    /// held to what the model's row offers
+    /// ([`TurnSettings::after_pick`], `selectModelFromPicker`), and a query
+    /// that changed the model turns both switches off
+    /// ([`TurnSettings::after_query`], `setResolvedModel`). The rows are the
+    /// ones the runtime sent, every one of them
+    /// (`super::worker`'s `in_menu_order`), so the two sides cannot decide
+    /// differently over a row only one of them holds.
     fn request_change(&mut self, change: ModelChange) {
         if change.announced {
+            let settings = if change.picker {
+                let entry = self.catalog_row(&change.name);
+                self.settings
+                    .after_pick(change.effort.as_ref(), change.speed, entry)
+            } else {
+                self.settings.after_query(change.name != self.model)
+            };
             self.model = change.name.clone();
-            if let Some(effort) = &change.effort {
-                self.effort = effort.clone();
-            }
-            let line = switched(change.next_turn, &self.model, &self.effort);
+            self.settings = settings;
+            self.fast_bound = true;
+            let line = switched(change.next_turn, &self.model, &self.settings);
             self.announce(notice::Notice::neutral("", line));
             self.render.request(Reason::Footer);
         }
         self.work.control(TurnControl::Model(change));
+    }
+
+    /// Decides one speed command now, or holds it until the catalog that
+    /// decides it has been read ([`Self::held_speed`]).
+    ///
+    /// **Decided here, on the band**, where the catalog rows and the
+    /// announcement are, so it is said the moment it is given, as upstream's
+    /// is -- a turn streaming or not; the runtime is handed the switches as
+    /// they are to be ([`TurnControl::Speed`]) and applies them before the
+    /// next turn. Only the commands a row decides wait for one: Fast on and
+    /// Ultra on. Off needs no row, and neither does what was asked for -- but
+    /// they wait behind one that is held, so the order given is the order said.
+    fn speed_command(&mut self, command: SpeedCommand) {
+        let needs_row = match command {
+            SpeedCommand::Fast => !self.settings.fast,
+            SpeedCommand::Ultra(on) => on,
+            SpeedCommand::Status => false,
+        };
+        let unknown = matches!(
+            self.catalog_known,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted
+        );
+        if !self.held_speed.is_empty() || (needs_row && unknown) {
+            self.held_speed.push(command);
+            self.want_catalog();
+            return;
+        }
+        self.decide_speed(command);
+    }
+
+    /// Decides the speed commands held for the catalog, now that this side
+    /// has its answer -- rows, or the news that there are none to read.
+    fn settle_speed(&mut self) {
+        for command in std::mem::take(&mut self.held_speed) {
+            self.decide_speed(command);
+        }
+    }
+
+    /// One speed command against the model in force's row, said and handed
+    /// to the runtime (`applyFastMode`, `applyUltrafastMode`,
+    /// `session_commands.zig:753-859`).
+    fn decide_speed(&mut self, command: SpeedCommand) {
+        let entry = self.catalog_row(&self.model).cloned();
+        let after = match command {
+            SpeedCommand::Fast => self.settings.after_fast(entry.as_ref()),
+            SpeedCommand::Ultra(on) => self.settings.after_ultrafast(on, entry.as_ref()),
+            SpeedCommand::Status => {
+                let asked = if self.settings.ultrafast {
+                    "requested: on"
+                } else {
+                    "requested: off"
+                };
+                self.announce(notice::Notice::neutral("ultrafast", asked));
+                return;
+            }
+        };
+        let Some(after) = after else {
+            self.announce(match command {
+                SpeedCommand::Fast => notice::Notice::neutral("fast", NO_FAST_MODE),
+                SpeedCommand::Ultra(_) | SpeedCommand::Status => {
+                    notice::Notice::warning("ultrafast", NO_ULTRA_MODE)
+                }
+            });
+            return;
+        };
+        self.settings = after;
+        // Upstream writes the binding beside every speed change.
+        self.fast_bound = true;
+        let (topic, said) = match command {
+            SpeedCommand::Fast => ("fast", if self.settings.fast { "on" } else { "off" }),
+            SpeedCommand::Ultra(_) | SpeedCommand::Status => (
+                "ultrafast",
+                if self.settings.ultrafast {
+                    "requested on"
+                } else {
+                    "requested off"
+                },
+            ),
+        };
+        self.announce(notice::Notice::neutral(topic, said));
+        self.render.request(Reason::Footer);
+        self.work.control(TurnControl::Speed(SpeedChange {
+            fast: self.settings.fast,
+            ultrafast: self.settings.ultrafast,
+            topic,
+            provider: self.provider,
+        }));
+    }
+
+    /// The colour Ultra's `⚡︎` is said in, as the launch read the terminal
+    /// ([`super::theme::ultra_marker`]).
+    pub(crate) fn set_ultra_marker(&mut self, colour: &'static str) {
+        self.ultra = colour;
+    }
+
+    /// The catalog's row for `model` -- its id or one of its aliases, as the
+    /// runtime's selector matches it -- when this side holds the catalog's
+    /// answer.
+    fn catalog_row(&self, model: &str) -> Option<&CatalogEntry> {
+        match self.catalog_known {
+            CatalogKnown::Loaded => self.catalog.iter().find(|entry| entry.matches(model)),
+            CatalogKnown::Unasked
+            | CatalogKnown::Asked
+            | CatalogKnown::Wanted
+            | CatalogKnown::Unread(_) => None,
+        }
     }
 
     /// Upstream's explicit form, `/model <id> <effort> [normal|fast|ultrafast]`
@@ -9479,12 +10061,14 @@ impl Shell {
     ///
     /// **The id is literal** -- never fuzzy-resolved (`paste-short-id`) -- and
     /// is judged against the catalog's row for it: the effort has to be one
-    /// the row lists or the default, and a third word may only be `normal`,
-    /// for a model that offers a speed to decline -- `fast` and `ultrafast`
-    /// are refused, because xfx sends no speed yet (`docs/parity.md`). A model
-    /// with no row in hand has no levels to choose from, as upstream's generic
-    /// capabilities have none (`capabilitiesForModel`). What is refused is
-    /// refused with upstream's usage line and the composer kept.
+    /// the row lists or the default; a third word `fast` or `ultrafast` has to
+    /// be a speed the row offers, and `normal` is refused for a model that
+    /// offers neither, there being nothing to decline
+    /// (`validateExplicitModelSelection`). With no third word the speed is
+    /// `normal`: both switches off. A model with no row in hand has no levels
+    /// and no speeds to choose from, as upstream's generic capabilities have
+    /// none (`capabilitiesForModel`). What is refused is refused with
+    /// upstream's usage line and the composer kept.
     fn explicit_model(&self, argument: &str) -> Option<Result<ModelChange, ()>> {
         let tokens: Vec<&str> = argument.split_whitespace().collect();
         // `parseExplicitModelSelection`'s order: a fifth word is refused
@@ -9512,18 +10096,24 @@ impl Shell {
         if !supported {
             return Some(Err(()));
         }
-        // The third word (`validateExplicitModelSelection`): `normal` -- no
-        // speed, which is what xfx sends -- for a model that offers one to
-        // turn down, as upstream refuses it for a model with neither; `fast`
-        // and `ultrafast` are refused, because xfx cannot send them yet.
-        if let Some(speed) = tokens.get(2) {
-            let offers_speed = entry
-                .as_ref()
-                .is_some_and(|entry| entry.facts.fast || entry.facts.ultrafast);
-            if !(speed.eq_ignore_ascii_case("normal") && offers_speed) {
-                return Some(Err(()));
+        // The third word (`parseExplicitModelSelection`,
+        // `validateExplicitModelSelection`): one of the three, and one the row
+        // offers -- `normal` being on offer wherever a speed is.
+        let speed = match tokens.get(2) {
+            None => Speed::Normal,
+            Some(word) => {
+                let Some(speed) = Speed::parse(word) else {
+                    return Some(Err(()));
+                };
+                let offered = entry.as_ref().is_some_and(|entry| {
+                    Speed::chosen_for(entry) && Speed::options(entry).contains(&speed)
+                });
+                if !offered {
+                    return Some(Err(()));
+                }
+                speed
             }
-        }
+        };
         // `selectModelFromPicker`: the effort goes with a model that lists
         // levels, and a model with none leaves the session's as it is.
         let effort = entry
@@ -9532,9 +10122,11 @@ impl Shell {
         Some(Ok(ModelChange {
             name: model.to_string(),
             effort,
+            speed: Some(speed),
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            provider: self.provider,
             effort_only: false,
         }))
     }
@@ -9624,7 +10216,10 @@ impl Shell {
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
+        // Nor will a steer sent into that turn.
         self.prompts.clear();
+        self.work.drop_steers();
+        self.steers.clear();
         self.forget_session_title();
         self.tally = Tally::default();
         self.activity.end();
@@ -9694,6 +10289,7 @@ impl Shell {
             // longer about it.
             UiEvent::TurnStarted
             | UiEvent::Delta(_)
+            | UiEvent::Operational(_)
             | UiEvent::ToolStart { .. }
             | UiEvent::ToolResult { .. }
             | UiEvent::ToolDetail { .. }
@@ -9701,7 +10297,10 @@ impl Shell {
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Retrying { .. }
-            | UiEvent::Usage { .. } => true,
+            | UiEvent::Recovered { .. }
+            | UiEvent::Steered { .. }
+            | UiEvent::Usage { .. }
+            | UiEvent::Output(_) => true,
             // A question the cancelled turn asked before it heard about the
             // cancellation. **Refused on the user's behalf rather than
             // dropped**: the prompter parks on the session's root and the
@@ -10119,20 +10718,33 @@ impl Shell {
         } else {
             0
         };
+        // **And a recovery's rows under the turn's**, when its label wraps: the
+        // band grows by them, as upstream's activity block does
+        // (`activityProjectionRows`, `render_input.zig:689-697`). Given up
+        // before the waiting prompt's when the screen cannot hold both, and
+        // the first row is then the label cut at the screen's edge.
+        let more = if activity {
+            u16::try_from(self.activity_more.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let tries: &[(u16, u16)] = &[(more, banner), (more, 0), (0, banner)];
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
-                (banner > 0)
-                    .then(|| {
-                        layout::solve_band_with_banner(
+                tries
+                    .iter()
+                    .filter(|(more, banner)| *more > 0 || *banner > 0)
+                    .find_map(|&(more, banner)| {
+                        layout::solve_band_tall(
                             rows,
                             cols,
                             input_rows,
                             panel(input_rows),
+                            more,
                             banner,
                         )
                     })
-                    .flatten()
                     .or_else(|| {
                         layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
                     })
@@ -10149,7 +10761,13 @@ impl Shell {
     fn banner_rows(&self, cols: u16) -> Vec<String> {
         let width = usize::from(cols.saturating_sub(2)).max(1);
         let mut rows = Vec::new();
-        for (_, _, card) in &self.prompts {
+        // A steer carries no images, so its card has no badge to link.
+        let steers = self.steers.iter().map(|(_, _, card)| Some(card.as_str()));
+        let waiting = self
+            .prompts
+            .iter()
+            .map(|(_, _, card)| card.as_ref().map(|(card, _)| card.as_str()));
+        for card in steers.chain(waiting) {
             let Some(card) = card else {
                 continue;
             };
@@ -10596,9 +11214,13 @@ mod tests {
     /// the row is there to say.
     const IDLE_HINT: &str = "run `xfx setup` · auto · glm-5.2";
 
-    /// The same row with `queued N` in its place in the order.
-    fn queued_hint(depth: usize) -> String {
-        format!("run `xfx setup` · queued {depth} · auto · glm-5.2")
+    /// The same row with a prompt waiting: unchanged, because upstream's hint
+    /// row has no queue segment (`buildStatuslineItems`,
+    /// `app_render_runtime.zig:875-899`; `fx-interrupt-steer-40x120-steer-tool`)
+    /// -- the waiting prompt is its `┋` row in the band. Kept as a name so
+    /// each case still says it was asked with a prompt waiting.
+    fn queued_hint(_depth: usize) -> String {
+        IDLE_HINT.to_string()
     }
 
     /// The same row with the double-Escape warning flush against the last
@@ -10607,10 +11229,12 @@ mod tests {
         let padding = usize::from(cols)
             - usize::from(super::super::wrap::width(IDLE_HINT))
             - usize::from(super::super::wrap::width(ESCAPE_ARMED));
+        // The row's run closed before the padding, as upstream's is before
+        // the slot's column (`input_presentation.zig:551-567`).
         format!(
             "{IDLE_HINT}{}{}{}{ESCAPE_ARMED}",
-            " ".repeat(padding),
             PALETTE.reset(),
+            " ".repeat(padding),
             PALETTE.dim()
         )
     }
@@ -15352,6 +15976,122 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_sent_while_a_turn_runs_goes_into_it_and_its_card_waits_for_delivery() {
+        // Upstream's steer (`fx-interrupt-steer-40x120-steer-tool`): the prompt
+        // is the band's `┋` row while the turn holds it, holds no place in the
+        // queue, and its card is written when the turn takes it
+        // (`-steer-done`: `┃ change tone` under the command's row).
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        shell.route_bytes(b"change tone\r");
+        assert!(steering.pending(), "the prompt never reached the turn");
+        assert!(
+            shell.work.outstanding() <= 1,
+            "the steer took a place in the queue"
+        );
+        assert_eq!(shell.editor.text(), "", "the draft stayed");
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .band_rows()
+                .iter()
+                .any(|row| uncoloured(row) == "\u{250b} change tone"),
+            "{:#?}",
+            shell.band_rows()
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the card was written at the keystroke"
+        );
+
+        let taken = steering.take();
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let document = shell.released();
+        assert!(
+            document
+                .iter()
+                .any(|row| uncoloured(row) == "\u{2503} change tone"),
+            "{document:#?}"
+        );
+        assert!(
+            !shell
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the steer stayed in the band after delivery"
+        );
+    }
+
+    #[test]
+    fn up_takes_back_a_steer_waiting_on_a_tool_and_not_one_that_cut_an_answer() {
+        // `tui-interrupt-recovery.test.ts:393` and `popQueuedSteerForEdit`
+        // (`worker_runtime.zig:1340-1386`): only while a tool runs, only at an
+        // empty composer.
+        let mut answering = running("run it");
+        let steering = answering.work.steering();
+        steering.open();
+        answering.route_bytes(b"change tone\r");
+        // Up walks the history instead, as upstream's does when nothing can
+        // be taken back.
+        answering.route_bytes(b"\x1b[A");
+        assert!(steering.pending(), "a steer that cut an answer came back");
+        assert_eq!(answering.steers.len(), 1);
+
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the steer was taken back and still sent"
+        );
+        assert!(shell.steers.is_empty());
+        // Edited and sent again: a steer once more.
+        shell.route_bytes(b" and keep it short\r");
+        assert_eq!(
+            steering.take().first().map(|steer| steer.text.clone()),
+            Some("change tone and keep it short".to_string())
+        );
+    }
+
+    #[test]
+    fn a_steer_the_turn_never_took_is_the_next_prompt_and_a_stop_drops_it() {
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"later\r");
+        // The turn ended without taking it (the runtime closes the box first).
+        steering.close();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.picks_up(), TurnWork::Submit("later".to_string()));
+        assert!(shell.steers.is_empty());
+
+        let mut stopped = running("run it");
+        let steering = stopped.work.steering();
+        steering.open();
+        stopped.route_bytes(b"never\r");
+        stopped.route_bytes(&[0x03]);
+        assert!(!steering.pending(), "a stopped turn kept the steer");
+        assert!(stopped.steers.is_empty());
+        assert!(
+            stopped.document().iter().any(|row| row.contains("queue")),
+            "the drop was not said: {:#?}",
+            stopped.document()
+        );
+    }
+
+    #[test]
     fn a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between() {
         // `fx-interrupt2-40x120-esc1`: `esc again to interrupt` flush with the
         // last column; `-esc2`: the cancelled line, and the row the session's
@@ -15390,10 +16130,13 @@ mod tests {
     #[test]
     fn the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed() {
         // `fx-interrupt-40x120-esc1.ansi`: `…model-aESC[39m<spaces>ESC[38;5;245m
-        // esc again to interrupt` -- the row's run closed, the cue in
-        // `dim_style`. The same number as the row's grey in the dark palette,
-        // so the light one is where the role shows (`theme.zig:123,128`: 241
-        // for the row, 247 for the cue).
+        // esc again to interrupt` -- the row's run closed **before** the
+        // padding, the padding in no colour, the cue in `dim_style`. Claim
+        // changed: the reset was after the padding, so tmux read the padding
+        // as the row's grey (the byte difference the F4 receipt recorded). The
+        // same number as the row's grey in the dark palette, so the light one
+        // is where the role shows (`theme.zig:123,128`: 241 for the row, 247
+        // for the cue).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
             depth: super::super::theme::Depth::Ansi256,
@@ -15401,19 +16144,24 @@ mod tests {
         let mut shell = shell_with(24, 80, light, false);
         shell.escape_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to clear"),
-            "{row:?}"
-        );
+        let closed = |row: &str, cue: &str| {
+            let at = row.find(cue).expect("the cue");
+            let before = &row[..at];
+            let reset = before.rfind("\u{1b}[0m").expect("the run closed");
+            before[reset..]
+                == format!(
+                    "\u{1b}[0m{}\u{1b}[38;5;247m",
+                    " ".repeat(before.len() - reset - 4 - 11)
+                )
+                && before[..reset].ends_with("glm-5.2")
+        };
+        assert!(closed(&row, "esc again to clear"), "{row:?}");
         assert!(row.starts_with("\u{1b}[38;5;241m"), "{row:?}");
 
         shell.escape_armed = false;
         shell.interrupt_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to interrupt"),
-            "{row:?}"
-        );
+        assert!(closed(&row, "esc again to interrupt"), "{row:?}");
     }
 
     #[test]
@@ -15575,6 +16323,48 @@ mod tests {
     }
 
     #[test]
+    fn operational_text_is_answer_prose_ahead_of_the_line_the_presenter_holds() {
+        // `fx-fast-unconfirmed-40x120-turn`: the sentence about the tier, in
+        // the answer's gutter, then the answer's unfinished line, in one block.
+        let mut shell = running("say something");
+        shell.apply(UiEvent::Delta("MARKER-HELD".to_string()));
+        shell.apply(UiEvent::Operational(
+            "Ultrafast was requested, but Gateway did not confirm it was served.\n".to_string(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        // The document as it ends up: each append rewrites the rows at the
+        // bottom it does not scroll in ([`Shell::trailer_rows`]'s rule).
+        let mut shown: Vec<String> = Vec::new();
+        for append in shell.take_pending() {
+            let settled = append.rows.len() - append.scroll.min(append.rows.len());
+            shown.truncate(shown.len().saturating_sub(settled));
+            shown.extend(append.rows.iter().map(|row| unpainted(row)));
+        }
+        let at = |needle: &str| {
+            shown
+                .iter()
+                .position(|row| row.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not shown: {shown:?}"))
+        };
+        let (said, held) = (at("Ultrafast"), at("MARKER-HELD"));
+        assert_eq!(said + 1, held, "{shown:?}");
+        assert!(shown[said].starts_with("  Ultrafast"), "{shown:?}");
+        assert!(shown[held].starts_with("  MARKER-HELD"), "{shown:?}");
+        // Nothing of it is the model's: a turn that was cancelled says none of it.
+        let mut stopped = running("again");
+        stopped.route_bytes(&[0x03]);
+        stopped.apply(UiEvent::Operational("MARKER-AFTER-CANCEL\n".to_string()));
+        assert!(
+            !stopped
+                .released()
+                .join("\n")
+                .contains("MARKER-AFTER-CANCEL"),
+            "a cancelled turn's operational text was written"
+        );
+    }
+
+    #[test]
     fn what_a_cancelled_turn_was_still_saying_never_reaches_the_screen() {
         // Upstream paints nothing of an answer after the cancel
         // (`fx-interrupt-40x120-cc-0.3`, `fx-interrupt2-40x120-esc2`): not the
@@ -15639,10 +16429,14 @@ mod tests {
     #[test]
     fn a_retry_the_turn_waits_on_is_the_activity_row_counting_down() {
         // `fx-retry-40x120-r0.6`: the row, whole, in the warning grey, no
-        // marker; `-r1.3`: the count gone once the attempt is under way;
-        // `-r2.0`: the answer, and the row the turn's own again.
+        // marker; `-r1.3`: the count gone once the attempt is under way. Claim
+        // changed: the retried answer arriving leaves the row as it is
+        // (`fx-interrupt-recovered-40x120-slow-2.8`), and the row is
+        // `✓ recovered · attempt 2` once the step has got through, for 1.5 s
+        // (`worker_status.zig:5`, `fx-interrupt-recovered-40x120-rec-1.4`),
+        // then the turn's own again.
         let mut shell = running("try it");
-        // The capture's width: at 80 columns the label is cut, as upstream's is.
+        // The capture's width: at 80 columns the label wraps, as upstream's does.
         shell.resize(40, 120);
         let now = Instant::now();
         shell.apply(UiEvent::Retrying {
@@ -15658,18 +16452,90 @@ mod tests {
         );
         assert_eq!(PALETTE.warning(), "\u{1b}[38;5;252m");
         shell.settle_band(now + Duration::from_secs(1));
-        assert_eq!(
-            shell.activity_row.as_deref(),
-            Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()).as_str())
-        );
+        let waiting = Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()));
+        assert_eq!(shell.activity_row, waiting);
 
         shell.apply(UiEvent::Delta("Recovered answer.".to_string()));
         shell.settle_band(now + Duration::from_secs(1));
+        assert_eq!(
+            shell.activity_row, waiting,
+            "the answer arriving took the row"
+        );
+
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        // Read after the event, whose moment begins when it is applied.
+        let recovered = Instant::now();
+        shell.settle_band(recovered);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{}\u{2713} recovered \u{b7} attempt 2{}",
+                    PALETTE.warning(),
+                    PALETTE.reset()
+                )
+                .as_str()
+            )
+        );
+        shell.settle_band(recovered + super::super::retry::RECOVERED_VISIBLE);
         let row = shell.activity_row.clone().expect("the turn's row");
         assert!(
             uncoloured(&row).contains("Generating"),
-            "the retry outlived the answer that ended it: {row:?}"
+            "the recovery outlived its moment: {row:?}"
         );
+    }
+
+    #[test]
+    fn escape_at_a_retry_arms_the_interrupt_as_upstreams_does_for_a_retry() {
+        // Upstream's Escape pauses a recovery only while it is waiting for
+        // connectivity (`pauseActiveRecovery`, `input_interrupt_runtime.zig`:
+        // `isConnectivityWaitActive`, set only for `waiting_for_connectivity`,
+        // `worker_runtime.zig:884-888`), the unbudgeted wait a lost connection
+        // gets (`model_response_recovery.zig:166-180`). Every retry this turn
+        // makes is a budgeted one, and over those upstream's Escape goes on to
+        // the interrupt gesture (`app_input_runtime.zig:3163-3176`): armed by
+        // the first, the turn stopped by the second.
+        let mut shell = running("try it");
+        shell.apply(UiEvent::Retrying {
+            cause: "Connection lost",
+            diagnostic: "connection refused".to_string(),
+            delay: Duration::from_secs(2),
+        });
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Escape)], now);
+        shell.settle_band(now);
+        assert!(shell.controlled().is_none(), "one Escape stopped the turn");
+        assert!(shell.interrupt_armed, "the first Escape armed nothing");
+        shell.consume(
+            vec![Input::Action(Action::Escape)],
+            now + Duration::from_millis(300),
+        );
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.retry.is_none());
+    }
+
+    #[test]
+    fn a_recovery_stays_through_the_tool_it_led_to_and_goes_with_the_turn() {
+        // `fx-interrupt-recovered-40x120-rec-1.4`: `✓ recovered · attempt 2`
+        // over the running command's row; the turn's end clears it
+        // (`clear_recovered_route`, `runtime.zig:6471`).
+        let mut shell = running("run it");
+        shell.resize(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        shell.settle_band(now);
+        let row = shell.activity_row.clone().expect("a row");
+        assert_eq!(uncoloured(&row), "\u{2713} recovered \u{b7} attempt 2");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert!(shell.retry.is_none(), "the recovery outlived its turn");
     }
 
     #[test]
@@ -15717,18 +16583,44 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_row_is_cut_to_the_screen_with_its_colour_closed() {
+    fn a_retry_row_too_wide_wraps_onto_the_band_as_upstreams_does() {
+        // Renamed, claim changed (was `a_retry_row_is_cut_to_the_screen_with_
+        // its_colour_closed`): `fx-interrupt-retry-24x80-r0.15` -- the label
+        // broken at the last space that fits, `  request in 1s` under it, each
+        // row painted and closed on its own, and the band a row taller.
         let mut shell = running("try it");
-        shell.resize(24, 40);
+        shell.resize(24, 80);
+        let before = shell.geometry;
         shell.apply(UiEvent::Retrying {
             cause: "Provider unavailable",
-            diagnostic: "HTTP 500: unexpected request".to_string(),
-            delay: Duration::from_secs(2),
+            diagnostic: "HTTP 500 \u{b7} server_error: upstream exploded".to_string(),
+            delay: Duration::from_millis(900),
         });
         shell.settle_band(Instant::now());
-        let row = shell.activity_row.clone().expect("a row");
-        assert!(row.ends_with(PALETTE.reset()), "{row:?}");
-        assert_eq!(super::super::wrap::width(&row), 40, "{row:?}");
+        let warning = PALETTE.warning();
+        let reset = PALETTE.reset();
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{warning}\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream \
+                     exploded \u{b7} retrying{reset}"
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(
+            shell.activity_more,
+            [format!("{warning}  request in 1s{reset}")]
+        );
+        assert_eq!(shell.geometry.activity_padding, before.activity_padding + 1);
+        let band = shell.band_rows();
+        let at = band
+            .iter()
+            .position(|row| row.contains("retrying"))
+            .expect("the row");
+        assert_eq!(band[at + 1], format!("{warning}  request in 1s{reset}"));
+        assert_eq!(band[at + 2], "", "{band:#?}");
     }
 
     #[test]
@@ -15812,27 +16704,29 @@ mod tests {
 
     #[test]
     fn a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile() {
-        // The command holds the turn until it returns, so the turn's line
+        // A file call holds the turn until it returns, so the turn's line
         // waits for the turn's end -- and a prompt typed while it waits is
-        // queued behind it, not a reason to forget the line.
-        let mut shell = running("run it");
+        // queued behind it, not a reason to forget the line. (A command no
+        // longer waits: it is stopped at the keystroke, and this case is now
+        // about the calls that are not.)
+        let mut shell = running("read it");
         shell.apply(tool_start(
             "1",
-            "terminal",
-            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
         ));
         shell.route_bytes(&[0x03]);
         assert!(
             shell.activity_row.is_some(),
-            "the row went while the command still runs"
+            "the row went while the call still runs"
         );
         shell.route_bytes(b"second\r");
         shell.apply(tool_ended(
             "1",
-            "terminal",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::Delta("MARKER-STOPPED\n".to_string()));
         shell.apply(UiEvent::TurnEnded {
@@ -16278,6 +17172,23 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/statusline wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/fast" {
+                // Decided against the model's catalog row, which this fixture
+                // has not read: asked for, and answered when it arrives.
+                assert!(
+                    document.is_empty(),
+                    "/fast answered before its row: {document:?}"
+                );
+                assert_eq!(shell.picks_up(), TurnWork::Catalog);
+                shell.apply(UiEvent::CatalogLoaded {
+                    provider: ProviderId::Gateway,
+                    entries: Vec::new(),
+                });
+                assert_eq!(
+                    shell.document().first().map(String::as_str),
+                    Some("* fast: This model does not come with a fast mode."),
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/workspace" {
@@ -18486,6 +19397,8 @@ mod tests {
             title: title.map(str::to_string),
             turns,
             model: None,
+            settings: None,
+            keeps_fast_binding: true,
             next_image: 1,
         }
     }
@@ -18505,6 +19418,7 @@ mod tests {
             started_at_ms: 0,
             concluded_at_ms: None,
             details: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -18524,6 +19438,126 @@ mod tests {
         }
     }
 
+    /// An answer carrying each kind of link upstream's presenter makes, and a
+    /// target this crate does not link.
+    const LINKED_ANSWER: &str = "See [the docs](https://example.com/docs) and \
+        https://example.org/path, <someone@example.com>, `https://example.com/code` \
+        and [script](javascript:alert(1)).";
+
+    /// The links an answer's rows open, in order.
+    fn opened(rows: &[String]) -> Vec<String> {
+        rows.iter()
+            .flat_map(|row| {
+                row.match_indices("\u{1b}]8;id=")
+                    .map(move |(at, _)| &row[at..])
+            })
+            .map(|tail| {
+                let end = tail.find("\u{1b}\\").expect("a terminated link");
+                tail[..end + 2].to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_answers_links_reach_the_document_as_upstreams_and_the_full_transcript_and_a_replay_agree()
+    {
+        // `fx-links-40x120-answered`: every link is `ESC ] 8 ; id=fx-N ; URI
+        // ST` around the styled text, numbered from 1 in a fresh process
+        // (upstream's counter is process-wide, `assistant_presentation.zig:13`).
+        let mut live = shell(40, 120);
+        live.route_bytes(b"show me the links\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted);
+        live.apply(UiEvent::Delta(LINKED_ANSWER.to_string()));
+        live.apply(UiEvent::Usage { input: Some(6) });
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let live_rows = live.painted_document();
+        let links = opened(&live_rows);
+        // The presenter numbers the `javascript:` link fx-5, as upstream's
+        // does (`isValidLinkUrl` has no scheme rule, `inline_render.zig:917-921`).
+        assert_eq!(
+            links,
+            [
+                "\u{1b}]8;id=fx-1;https://example.com/docs\u{1b}\\",
+                "\u{1b}]8;id=fx-2;https://example.org/path\u{1b}\\",
+                "\u{1b}]8;id=fx-3;mailto:someone@example.com\u{1b}\\",
+                "\u{1b}]8;id=fx-4;https://example.com/code\u{1b}\\",
+                "\u{1b}]8;id=fx-5;javascript:alert(1)\u{1b}\\",
+            ],
+            "{live_rows:?}"
+        );
+        // The painter is what refuses it: the link goes and its text stays.
+        let wire: Vec<String> = live_rows
+            .iter()
+            .map(|row| super::super::frame::row_text(row, 120).into_owned())
+            .collect();
+        assert!(!wire.concat().contains("javascript:"), "{wire:?}");
+        assert!(
+            wire.concat().contains("\u{1b}[4mscript\u{1b}[24m"),
+            "{wire:?}"
+        );
+        assert_eq!(
+            opened(&wire),
+            links[..4],
+            "the painter dropped an admitted link"
+        );
+
+        // The full transcript shows the answer the presenter gave, ids and
+        // all, as upstream's does (`fx-links-40x120-second`).
+        live.route_bytes(b"\x0f");
+        let screen = live.shell.screen_rows();
+        assert_eq!(opened(&screen), links, "{screen:?}");
+
+        // A relaunch replays it as a fresh process writes it.
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            replay(
+                Some("show me the links"),
+                vec![saved(
+                    "show me the links",
+                    vec![HydratedStep::Text(LINKED_ANSWER.to_string())],
+                    0,
+                    Some(40),
+                )],
+            ),
+            true,
+        );
+        let rows = resumed.painted_document();
+        assert_eq!(
+            rows[2..],
+            live_rows[..],
+            "the replay is not the live document"
+        );
+    }
+
+    #[test]
+    fn a_replayed_card_links_its_badges_to_the_files_the_log_names() {
+        // `fx-image-40x120-resumed.ansi`: the replayed card's badges are one
+        // link to the file the images were read from.
+        let mut resumed = shell(40, 120);
+        let mut turn = saved(
+            "[Image 3][Image 4] what is in this image?",
+            vec![HydratedStep::Text("Red.".to_string())],
+            0,
+            Some(40),
+        );
+        turn.images = vec![
+            (3, std::path::PathBuf::from("/w/shot.png")),
+            (4, std::path::PathBuf::from("/w/shot.png")),
+        ];
+        resumed.hydrate(replay(Some("x"), vec![turn]), true);
+        let rows = resumed.painted_document();
+        let open = "\u{1b}]8;;file:///w/shot.png\u{1b}\\";
+        assert_eq!(
+            rows[2],
+            card_row(&format!(
+                "{open}[Image 3][Image 4]\u{1b}]8;;\u{1b}\\ what is in this image?"
+            )),
+            "{rows:?}"
+        );
+    }
+
     #[test]
     fn a_resumed_session_replays_its_turns_as_the_live_ones_were_written() {
         // `fx-sessions-40x120-resumed.txt`: the notice, then each turn as it
@@ -18541,10 +19575,8 @@ mod tests {
             let _ = live.picks_up();
             live.apply(UiEvent::TurnStarted);
             live.apply(UiEvent::Delta(answer.to_string()));
-            live.apply(UiEvent::Usage {
-                input: Some(6),
-                output: Some(40),
-            });
+            live.apply(UiEvent::Output(Progress::Settled(40)));
+            live.apply(UiEvent::Usage { input: Some(6) });
             live.apply(UiEvent::TurnEnded { failure: None });
             live.shell.flush_paced();
         }
@@ -18814,6 +19846,7 @@ mod tests {
                         started_at_ms: 0,
                         concluded_at_ms: None,
                         details: Vec::new(),
+                        images: Vec::new(),
                     },
                 ],
             ),
@@ -19175,6 +20208,36 @@ mod tests {
         shell
     }
 
+    /// The capture harness's catalog with its speeds
+    /// (`scripts/fxcap/scenarios/models.json` and `models-effort.json`): astra
+    /// offers Fast and Ultra, opus Fast, and glm levels and no speed.
+    fn speed_rows() -> Vec<CatalogEntry> {
+        let mut rows = harness_rows();
+        rows[0].facts.fast = true;
+        rows[0].facts.ultrafast = true;
+        rows[1].facts.fast = true;
+        rows.push(CatalogEntry {
+            id: "zai/glm-5.2".to_string(),
+            aliases: Vec::new(),
+            name: None,
+            efforts: vec!["low".to_string(), "high".to_string()],
+            max_context: None,
+            facts: Default::default(),
+        });
+        rows
+    }
+
+    /// A 40x120 shell holding [`speed_rows`].
+    fn speed_shell() -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: speed_rows(),
+        });
+        let _ = shell.document();
+        shell
+    }
+
     /// The next model change the shell put on the control channel.
     fn change(shell: &mut Fixture) -> ModelChange {
         match shell.controlled() {
@@ -19206,6 +20269,8 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
                 effort_only: false,
             },
             "the model change never reached the thread that owns the session log"
@@ -19222,7 +20287,10 @@ mod tests {
         // submission -- is what the band's own model becomes.
         shell.apply(UiEvent::ModelAnswered {
             model: "second-model".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: false,
             announced: false,
@@ -19284,7 +20352,10 @@ mod tests {
         // the model the session is really in.
         shell.apply(UiEvent::ModelAnswered {
             model: in_force.clone(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Refused {
                 reason: "a model id cannot contain control characters".to_string(),
             },
@@ -19306,7 +20377,10 @@ mod tests {
         // without a word (`fx-model-fuzzy-40x120-unknown`).
         shell.apply(UiEvent::ModelAnswered {
             model: "anthropic/claude-opus-5".to_string(),
-            effort: Effort::Named("low".to_string()),
+            settings: TurnSettings {
+                effort: Effort::Named("low".to_string()),
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied {
                 unverified: Some("nothing answered".to_string()),
             },
@@ -19331,7 +20405,10 @@ mod tests {
         // An unchanged model is announced the same way, as upstream's is.
         shell.apply(UiEvent::ModelAnswered {
             model: "anthropic/claude-opus-5".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Unchanged,
             next_turn: false,
             announced: false,
@@ -19346,7 +20423,10 @@ mod tests {
         // A `-fast` id is fast by its name (`intrinsic_fast`).
         shell.apply(UiEvent::ModelAnswered {
             model: "zai/glm-5-fast".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: false,
             announced: false,
@@ -19377,6 +20457,8 @@ mod tests {
                 picker: false,
                 announced: true,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
                 effort_only: false,
             }
         );
@@ -19392,7 +20474,10 @@ mod tests {
         // not already moved, and says nothing again.
         shell.apply(UiEvent::ModelAnswered {
             model: "anthropic/claude-opus-5".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: false,
             announced: true,
@@ -19457,7 +20542,10 @@ mod tests {
         let _ = unknown.document();
         unknown.apply(UiEvent::ModelAnswered {
             model: "second-model".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: true,
             announced: false,
@@ -19482,8 +20570,8 @@ mod tests {
             "/model anthropic/claude-opus-5 high ultrafast",
             "/model openai/gpt-6-astra xhigh fast extra",
             "/model claude-opus-5 low",
-            // xfx sends no speed yet, so a third word cannot be honoured
-            // (`docs/parity.md`, the speed column).
+            // These rows offer no speed, so `fast` asks for one the row does
+            // not offer ([`speed_shell`] is where astra offers it).
             "/model openai/gpt-6-astra xhigh fast",
         ] {
             let mut shell = harness_shell();
@@ -19507,31 +20595,46 @@ mod tests {
     }
 
     #[test]
-    fn a_third_word_is_normal_for_a_model_with_a_speed_to_decline_and_nothing_else_yet() {
-        // `validateExplicitModelSelection`: `normal` declines a speed, so it
-        // needs a model that has one; `fast` and `ultrafast` need the speed
-        // column xfx does not have yet.
-        let mut rows = harness_rows();
-        rows[1].facts.fast = true;
-        let mut shell = shell(40, 120);
-        shell.apply(UiEvent::CatalogLoaded {
-            provider: ProviderId::Gateway,
-            entries: rows,
-        });
-        let _ = shell.document();
-        pasted(&mut shell, "/model anthropic/claude-opus-5 high NORMAL");
-        shell.route_bytes(b"\r");
-        let made = change(&mut shell);
-        assert_eq!(
-            (made.name.as_str(), made.effort),
+    fn a_third_word_is_a_speed_the_model_offers_and_normal_needs_one_to_decline() {
+        // `parseExplicitModelSelection` and `validateExplicitModelSelection`
+        // (`app_input_runtime.zig:133-187`): `fast` and `ultrafast` need the
+        // matching offer, `normal` needs a model with a speed to decline, and
+        // anything else is no speed. `fx-model3-40x120-paste-ok`:
+        // `* Switched to openai/gpt-6-astra (effort: xhigh, speed: fast)`.
+        let mut shell = speed_shell();
+        for (line, speed, said_as) in [
             (
-                "anthropic/claude-opus-5",
-                Some(Effort::Named("high".to_string()))
-            )
-        );
+                "/model anthropic/claude-opus-5 high NORMAL",
+                Speed::Normal,
+                "Switched to anthropic/claude-opus-5 (effort: high, speed: normal)",
+            ),
+            (
+                "/model openai/gpt-6-astra xhigh fast",
+                Speed::Fast,
+                "Switched to openai/gpt-6-astra (effort: xhigh, speed: fast)",
+            ),
+            (
+                "/model openai/gpt-6-astra low ultrafast",
+                Speed::Ultrafast,
+                "Switched to openai/gpt-6-astra (effort: low, speed: ultrafast)",
+            ),
+        ] {
+            pasted(&mut shell, line);
+            shell.route_bytes(b"\r");
+            let made = change(&mut shell);
+            assert_eq!(made.speed, Some(speed), "{line}");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("", said_as)),
+                "{line}"
+            );
+        }
         for refused in [
-            "/model anthropic/claude-opus-5 high fast",
-            "/model openai/gpt-6-astra low normal",
+            // Opus offers Fast and not Ultra (`fx-model3 paste-bad-effort`).
+            "/model anthropic/claude-opus-5 high ultrafast",
+            // glm offers neither, so not even `normal`.
+            "/model zai/glm-5.2 low normal",
+            "/model zai/glm-5.2 low fast",
             "/model anthropic/claude-opus-5 high slow",
         ] {
             let _ = shell.document();
@@ -19541,6 +20644,12 @@ mod tests {
             assert_eq!(shell.editor.text(), refused);
             shell.shell.clear_composer();
         }
+        // Two words are `normal`: both switches off, on a model that had one.
+        let _ = shell.document();
+        pasted(&mut shell, "/model openai/gpt-6-astra high");
+        shell.route_bytes(b"\r");
+        assert_eq!(change(&mut shell).speed, Some(Speed::Normal));
+        assert!(!shell.settings.ultrafast && !shell.settings.fast);
         // A second word that is no effort is not this form at all: it is the
         // router form's, and its own refusal (`.none`).
         let _ = shell.document();
@@ -19557,7 +20666,7 @@ mod tests {
 
     #[test]
     fn an_explicit_form_that_holds_is_applied_with_its_effort_and_announced() {
-        // `fx-model3-40x120-paste-ok`, less the speed xfx cannot send yet.
+        // `fx-model3-40x120-paste-ok`'s two-word half: the speed is `normal`.
         let mut shell = harness_shell();
         pasted(&mut shell, "/model openai/gpt-6-astra xhigh");
         shell.route_bytes(b"\r");
@@ -19569,6 +20678,8 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                speed: Some(Speed::Normal),
+                provider: ProviderId::Gateway,
                 effort_only: false,
             }
         );
@@ -19962,8 +21073,8 @@ mod tests {
             "{}",
             shell.hint()
         );
-        // Enter makes the change with it -- no speed column yet, so this is
-        // where it commits -- and empties the composer.
+        // Enter makes the change with it -- these rows offer no Fast, so this
+        // is where it commits -- and empties the composer.
         shell.route_bytes(b"\r");
         assert_eq!(
             change(&mut shell),
@@ -19973,6 +21084,8 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
                 effort_only: false,
             }
         );
@@ -20030,6 +21143,366 @@ mod tests {
         shell.route_bytes(b"\x1b[D");
         assert_eq!(shell.editor.text(), "/model anthropic/claude-opus-5");
         assert_eq!(shell.cursor().1, PROMPT_CELLS + 29);
+    }
+
+    /// The next speed change the shell put on the control channel.
+    fn speed_change(shell: &mut Fixture) -> SpeedChange {
+        match shell.controlled() {
+            Some(TurnControl::Speed(change)) => change,
+            other => panic!("expected a speed change, got {other:?}"),
+        }
+    }
+
+    /// The hint row's `⚡︎` in Ultra's yellow, the row's grey resumed after it.
+    fn ultra_marker() -> String {
+        format!(
+            "{}{}{}",
+            super::super::theme::ULTRA_TRUECOLOR,
+            hint::SPEED_MARKER,
+            PALETTE.statusline()
+        )
+    }
+
+    #[test]
+    fn a_level_on_a_model_with_fast_opens_the_speeds_and_the_footer_previews_the_mark() {
+        // `fx-model-column-40x120-gpt-enter`, `effort-down`: Fast is marked
+        // for a model that offers it the moment its levels open, and the
+        // footer says so before anything is chosen.
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/model gpt\r");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra ");
+        assert!(
+            shell
+                .hint()
+                .ends_with("auto \u{b7} gpt-6-astra \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            shell
+                .hint()
+                .ends_with("auto \u{b7} gpt-6-astra \u{b7} low \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        // Enter on the level opens the speeds under the next token, `fast`
+        // marked (`submitModelPicker`, `:1183`), and changes nothing yet.
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra low ");
+        assert!(shell.controlled().is_none(), "the level made the change");
+        assert_eq!(
+            column(&shell),
+            [
+                format!("{}normal", " ".repeat(32)),
+                format!("{}fast", " ".repeat(32)),
+                format!("{}ultrafast", " ".repeat(32)),
+                String::new(),
+                String::new(),
+                String::new()
+            ]
+        );
+        // Down to `ultrafast`: previewed in Ultra's yellow.
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            shell.hint().ends_with(&format!(
+                "auto \u{b7} gpt-6-astra \u{b7} low \u{b7} {}",
+                ultra_marker()
+            )),
+            "{:?}",
+            shell.hint()
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("low".to_string())),
+                speed: Some(Speed::Ultrafast),
+                picker: true,
+                announced: true,
+                next_turn: false,
+                provider: ProviderId::Gateway,
+                effort_only: false,
+            }
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to openai/gpt-6-astra (effort: low, speed: ultrafast)"
+            ))
+        );
+        assert!(shell.editor.is_empty());
+        assert_eq!(
+            shell.settings,
+            TurnSettings {
+                effort: Effort::Named("low".to_string()),
+                fast: false,
+                ultrafast: true
+            }
+        );
+        // In force now, and said in the same yellow.
+        assert!(
+            shell.hint().ends_with(&format!(
+                "auto \u{b7} gpt-6-astra \u{b7} low \u{b7} {}",
+                ultra_marker()
+            )),
+            "{:?}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn the_speeds_step_back_complete_and_open_on_a_space_as_upstreams_do() {
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/model gpt\r\r");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra auto ");
+        // Tab writes all three tokens and keeps the column.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra auto fast");
+        assert_eq!(shell.column.pending(), Some("openai/gpt-6-astra"));
+        // Left goes back to the levels, the session's speed -- Normal --
+        // marked now, so the footer previews none.
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra ");
+        assert!(
+            shell.hint().ends_with("auto \u{b7} gpt-6-astra"),
+            "{}",
+            shell.hint()
+        );
+        // A level spelled out and a space: the speeds, for a model with any.
+        shell.route_bytes(b"high ");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra high ");
+        assert_eq!(column(&shell)[2], format!("{}ultrafast", " ".repeat(33)));
+        // `normal`, typed and taken: both switches off.
+        shell.route_bytes(b"normal\r");
+        let made = change(&mut shell);
+        assert_eq!(
+            (made.effort, made.speed),
+            (Some(Effort::Named("high".to_string())), Some(Speed::Normal))
+        );
+        // A model with levels and no speed: the space after its level does
+        // nothing, and Enter on it commits (`zai/glm-5.2`, `models-effort.json`).
+        let _ = shell.document();
+        shell.route_bytes(b"/model glm\rlow ");
+        assert_eq!(shell.editor.text(), "/model zai/glm-5.2 low");
+        shell.route_bytes(b"\r");
+        let made = change(&mut shell);
+        assert_eq!((made.name.as_str(), made.speed), ("zai/glm-5.2", None));
+    }
+
+    #[test]
+    fn fast_and_ultrafast_say_upstreams_words_and_hand_the_switches_over() {
+        // `fx-fast-opus-*`, `fx-fast-unsup-*`, `fx-fast-astra-*`
+        // (account-model research §5-§6).
+        let mut shell = speed_shell();
+        shell.shell.use_model("fake/model-a");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "fast",
+                "This model does not come with a fast mode."
+            ))
+        );
+        assert!(shell.controlled().is_none(), "nothing changed");
+        shell.route_bytes(b"/fast on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        for (line, answer) in [
+            (
+                "/ultrafast\r",
+                notice::Notice::neutral("ultrafast", "requested: off"),
+            ),
+            (
+                "/ultrafast status\r",
+                notice::Notice::neutral("ultrafast", "requested: off"),
+            ),
+            (
+                "/ultrafast on\r",
+                notice::Notice::warning(
+                    "ultrafast",
+                    "Ultra mode is unavailable for this model and may increase cost.",
+                ),
+            ),
+            (
+                "/ultrafast bogus\r",
+                notice::Notice::error("", "usage: /ultrafast [on|off|status]"),
+            ),
+        ] {
+            shell.route_bytes(line.as_bytes());
+            assert_eq!(shell.document(), said(answer), "{line:?}");
+            assert!(shell.controlled().is_none(), "{line:?}");
+        }
+        shell.route_bytes(b"/ultrafast off\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("ultrafast", "requested off"))
+        );
+        assert!(!speed_change(&mut shell).ultrafast);
+
+        // Opus offers Fast: on in the row's grey, then off.
+        shell.shell.use_model("anthropic/claude-opus-5");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("fast", "on"))
+        );
+        assert_eq!(
+            speed_change(&mut shell),
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway
+            }
+        );
+        assert!(
+            shell.hint().ends_with("opus 5 \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("fast", "off"))
+        );
+        assert!(!speed_change(&mut shell).fast);
+        assert!(shell.hint().ends_with("opus 5"), "{}", shell.hint());
+
+        // Astra offers Ultra: on in yellow; `/fast` turns it off and Fast on.
+        shell.shell.use_model("openai/gpt-6-astra");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/ultrafast on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("ultrafast", "requested on"))
+        );
+        assert!(speed_change(&mut shell).ultrafast);
+        assert!(
+            shell.hint().ends_with(&ultra_marker()),
+            "{:?}",
+            shell.hint()
+        );
+        shell.route_bytes(b"/ultrafast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("ultrafast", "requested: on"))
+        );
+        shell.route_bytes(b"/fast\r");
+        let made = speed_change(&mut shell);
+        assert!(made.fast && !made.ultrafast, "Fast turns Ultra off");
+        assert!(
+            shell
+                .hint()
+                .ends_with("gpt-6-astra \u{b7} \u{26a1}\u{fe0e}"),
+            "{:?}",
+            shell.hint()
+        );
+        // And a model change turns both off (`fx-fast-astra-40x120-model-change-clears`).
+        let _ = shell.document();
+        shell.shell.use_model("grok");
+        let _ = change(&mut shell);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to xai/grok-4.7 (effort: default, speed: normal)"
+            ))
+        );
+        assert!(!shell.settings.fast && !shell.settings.ultrafast);
+        assert!(shell.hint().ends_with("grok-4.7"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn a_speed_command_before_the_catalog_waits_for_it_in_order_and_dies_with_the_provider() {
+        let mut shell = shell(40, 120);
+        let model = shell.shell.model.clone();
+        shell.route_bytes(b"/fast\r");
+        shell.route_bytes(b"/fast\r");
+        assert!(shell.document().is_empty(), "said before the row was read");
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        let mut row = harness_rows().remove(3);
+        row.id = model;
+        row.facts.fast = true;
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![row],
+        });
+        let mut both = said(notice::Notice::neutral("fast", "on"));
+        both.extend(said(notice::Notice::neutral("fast", "off")));
+        assert_eq!(shell.document(), both, "a toggle twice is on, then off");
+        assert!(speed_change(&mut shell).fast);
+        assert!(!speed_change(&mut shell).fast);
+        // One held when the provider changes is about a model that is gone.
+        let mut other = self::shell(40, 120);
+        other.route_bytes(b"/ultrafast on\r");
+        other.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        let _ = other.document();
+        other.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Llmux,
+            retry: None,
+        });
+        assert!(other.document().is_empty(), "{:?}", other.document());
+        assert!(other.controlled().is_none());
+    }
+
+    #[test]
+    fn a_resume_puts_the_sessions_effort_and_speed_on_the_hint_row() {
+        // `restoredFastModeModelBound` (`app_session_runtime.zig:6318-6328`):
+        // the effort and the switches come back; the `⚡︎` only while Fast was
+        // bound and the session recorded the configured selection.
+        let resumed = |keeps: bool| {
+            let mut shell = speed_shell();
+            shell.shell.model = "anthropic/claude-opus-5".to_string();
+            shell.shell.settings.fast = true;
+            shell.shell.fast_bound = true;
+            let mut replay = replay(None, Vec::new());
+            replay.model = Some("anthropic/claude-opus-5".to_string());
+            replay.settings = Some(TurnSettings {
+                effort: Effort::Named("max".to_string()),
+                fast: true,
+                ultrafast: false,
+            });
+            replay.keeps_fast_binding = keeps;
+            shell.apply(UiEvent::Resumed(replay));
+            shell.hint()
+        };
+        let kept = resumed(true);
+        assert!(
+            kept.ends_with("opus 5 \u{b7} max \u{b7} \u{26a1}\u{fe0e}"),
+            "{kept}"
+        );
+        let lost = resumed(false);
+        assert!(lost.ends_with("opus 5 \u{b7} max"), "{lost}");
+    }
+
+    #[test]
+    fn a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start() {
+        // `fx-fast-astra-40x120-model-change-clears`: an Alt-Enter after
+        // `/model xai/grok-4.7` leaves the caret on a second row, and fx draws
+        // the column from that row's start (`projectedAnchorColumn`).
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/model xai/grok-4.7");
+        assert_eq!(column(&shell)[0], format!("{}xai/grok-4.7", " ".repeat(9)));
+        shell.route_bytes(b"\x1b\r");
+        assert_eq!(shell.editor.text(), "/model xai/grok-4.7\n");
+        assert_eq!(column(&shell)[0], "  no matching models");
     }
 
     #[test]
@@ -20388,10 +21861,8 @@ mod tests {
             serde_json::json!({"path": "notes.txt"}),
         ));
         shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
-        shell.apply(UiEvent::Usage {
-            input: Some(9_000),
-            output: Some(40),
-        });
+        shell.apply(UiEvent::Output(Progress::Settled(40)));
+        shell.apply(UiEvent::Usage { input: Some(9_000) });
         shell.apply(UiEvent::TurnEnded {
             failure: Some("xfx: interrupted".to_string()),
         });
@@ -20437,10 +21908,7 @@ mod tests {
             let _ = shell.take_title();
             turn_running(&mut shell, b"ask something\r");
             let _turn = shell.picks_up();
-            shell.apply(UiEvent::Usage {
-                input: Some(1_234),
-                output: None,
-            });
+            shell.apply(UiEvent::Usage { input: Some(1_234) });
             shell.apply(UiEvent::Delta("half an answer".to_string()));
             shell.route_bytes(command);
             let controls: Vec<_> = std::iter::from_fn(|| shell.controlled()).collect();
@@ -20815,6 +22283,42 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_out_is_every_settled_request_and_the_open_one_as_it_streams() {
+        // Upstream's live count is the settled sum plus the open request's
+        // estimate (`tokenProgress`, `telemetry.zig:157-163`), and the summary
+        // is the same count once the last request has settled: fx's
+        // `allowlist-turn`, two requests of 40, is `↓80`. Red before: the
+        // band kept the provider's answering count alone, `↓40`.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"run the command\r");
+        let out = |shell: &mut Fixture, at: u64| {
+            shell.settle_band(started + Duration::from_millis(at));
+            let row = shell.activity_row.clone().expect("a running turn");
+            let row = colourless(&row);
+            row[row.find('\u{2193}').expect("an out count")..].to_string()
+        };
+        // The call's request, reporting 40 for what it wrote.
+        shell.apply(UiEvent::Output(Progress::Settled(40)));
+        assert_eq!(out(&mut shell, 10), "\u{2193}40)");
+        // The answer's request, streaming: its text is counted here as it
+        // arrives, what it is writing unseen as the turn says.
+        shell.apply(UiEvent::Delta("Ran it. ".to_string()));
+        assert_eq!(out(&mut shell, 20), "\u{2193}42)");
+        shell.apply(UiEvent::Output(Progress::Unshown(3)));
+        assert_eq!(out(&mut shell, 30), "\u{2193}45)");
+        // It settles at what the provider said: the estimate gives way.
+        shell.apply(UiEvent::Output(Progress::Settled(80)));
+        assert_eq!(out(&mut shell, 40), "\u{2193}80)");
+        shell.apply(UiEvent::Usage { input: Some(1_300) });
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let summary = shell.released();
+        assert!(
+            summary.contains(&"  0s (\u{2191}4 \u{2193}80)".to_string()),
+            "{summary:?}"
+        );
+    }
+
+    #[test]
     fn work_that_started_no_turn_ends_without_a_summary() {
         // `/model`, `/setup` and a catalog listing conclude with the same event
         // a turn does, and fx writes no summary under a local command.
@@ -20833,7 +22337,7 @@ mod tests {
     #[test]
     fn every_line_of_a_multi_line_card_is_bold() {
         let mut fixture = shell(24, 80);
-        fixture.echo("first\nsecond");
+        fixture.echo("first\nsecond", Vec::new());
         let document = fixture.released();
         let bold: Vec<&String> = document.iter().filter(|row| row.contains(BOLD)).collect();
         assert_eq!(bold.len(), 2, "{document:?}");
@@ -21210,15 +22714,16 @@ mod tests {
     }
 
     #[test]
-    fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
-        // A running executor holds the runtime's thread until it returns, so
-        // the stop is read after the command has finished: a `Cancelled` row at
-        // the keystroke would claim a stop the command never had. The sentence
-        // that answers the key goes under the group, and the command's real
-        // result settles its row above it when it comes. Claim changed: the
-        // answer to the key is the turn's `■ Cancelled` line, written once the
-        // turn has ended -- after the command's real row -- rather than an
-        // interrupt notice at the keystroke.
+    fn stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke() {
+        // Renamed, claim changed (was `stopping_the_turn_while_a_command_runs_
+        // leaves_its_row_to_its_result`): the stop now reaches the command at
+        // once -- the turn's flag is raised with the message and the command's
+        // supervisor kills it within a poll -- so the screen says so at the
+        // keystroke, as upstream's does (`fx-interrupt-40x120-cmd-cc`): the
+        // group's `· 1 cancelled`, `└ Cancelled sleep 30`, and the call's own
+        // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+        // runtime's result for the call, the same stop in the tool's words,
+        // changes nothing, and neither does the turn's conclusion.
         let mut shell = shell(24, 80);
         let _ = turn_running(&mut shell, b"run it\r");
         shell.apply(tool_start(
@@ -21229,32 +22734,87 @@ mod tests {
         let _ = shell.written();
 
         shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.activity_row.is_none(), "the row outlived the stop");
+        let at_the_key = shell.written();
+        assert_eq!(
+            at_the_key,
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
+                "\u{2514} Cancelled sleep 30",
+                "",
+                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "",
+            ],
+            "{at_the_key:#?}"
+        );
+
         shell.apply(tool_ended(
             "1",
             "terminal",
+            false,
+            "aborted by user",
+            CallOutcome::Cancelled,
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let after = shell.written();
+        assert!(
+            !after
+                .iter()
+                .any(|row| row.contains("Cancelled") || row.contains("system")),
+            "the stop was answered twice: {after:#?}"
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result() {
+        // A file tool does not poll the turn's flag and runs to its end before
+        // the turn reads the stop, so a `Cancelled` row at the keystroke would
+        // claim a stop the call never had. Its real result settles its row,
+        // and the turn's line follows once the turn has ended.
+        let mut shell = shell(24, 80);
+        let _ = turn_running(&mut shell, b"read it\r");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
+        ));
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        assert!(
+            !shell.written().iter().any(|row| row.contains("Cancelled")),
+            "a stop the call never had was drawn"
+        );
+        shell.apply(tool_ended(
+            "1",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the turn was cancelled".to_string()),
         });
         let written = shell.written();
         assert!(
-            !written
-                .iter()
-                .any(|row| row.contains("Cancelled sleep") || row.contains("cancelled")),
-            "a stop the command never had was drawn: {written:#?}"
+            !written.iter().any(|row| row.contains("Cancelled big")),
+            "{written:#?}"
         );
-        let notice = written
+        let line = written
             .iter()
             .position(|row| row.starts_with(INTERRUPTED_ROW))
-            .expect("the interrupt notice");
+            .expect("the turn's line");
         assert_eq!(
-            written[notice - 3..notice],
+            written[line - 3..line],
             [
-                "\u{25cf} 1 tool call \u{b7} 1 command",
-                "\u{2514} Ran sleep 30",
+                "\u{25cf} 1 tool call \u{b7} 1 read",
+                "\u{2514} Read big.txt",
                 ""
             ],
             "{written:#?}"
@@ -23898,7 +25458,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(50_000),
-            output: Some(10),
         });
         assert!(shell.shell.context_meter().is_some(), "the meter was armed");
 
@@ -23996,7 +25555,6 @@ mod tests {
         bare.shell.model = "fable".to_string();
         bare.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(bare.shell.context_meter(), Some((12_345, None)));
         let row = bare.hint();
@@ -24006,7 +25564,6 @@ mod tests {
         // Both, and exactly one segment.
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         let row = shell.hint();
@@ -24014,10 +25571,7 @@ mod tests {
         assert_eq!(row.matches('%').count(), 1, "{row}");
 
         // A measurement of nought is no meter either (`render.zig:441`).
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(0),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(0) });
         assert_eq!(shell.shell.context_meter(), None);
     }
 
@@ -24038,7 +25592,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(30_000),
-            output: Some(20_000),
         });
         assert_eq!(
             shell.shell.context_meter(),
@@ -24056,10 +25609,7 @@ mod tests {
             provider: ProviderId::Llmux,
             entries: vec![entry("fable", Some(100_000), &[])],
         });
-        shell.shell.apply(UiEvent::Usage {
-            input: None,
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: None });
         assert_eq!(shell.shell.context_meter(), None);
         assert!(!shell.hint().contains('%'), "{}", shell.hint());
     }
@@ -24077,10 +25627,7 @@ mod tests {
                 entry("large", Some(900_000), &[]),
             ],
         });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(4_000),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(4_000) });
         shell.shell.model = "small".to_string();
         assert_eq!(shell.shell.context_meter(), Some((4_000, Some(8_000))));
         shell.shell.model = "vendor/large".to_string();
@@ -24117,7 +25664,6 @@ mod tests {
         });
         shell.shell.apply(UiEvent::Usage {
             input: Some(12_345),
-            output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, Some(200_000))));
         assert!(shell.hint().contains("12k/200k"), "{}", shell.hint());
@@ -24145,10 +25691,7 @@ mod tests {
         // After the runtime has said the conversation is gone: a measurement
         // arriving before that is the old conversation's.
         shell.shell.apply(UiEvent::Fresh { through: 0 });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(7),
-            output: None,
-        });
+        shell.shell.apply(UiEvent::Usage { input: Some(7) });
         assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
     }
 
@@ -24634,10 +26177,7 @@ mod tests {
         assert_eq!(shell.hint(), IDLE_HINT, "a meter before a measurement");
         // The Gateway publishes no window, so the numerator stands alone
         // (`fx-statusline-turn-40x120-after-turn`: `· 1k ·`).
-        shell.apply(UiEvent::Usage {
-            input: Some(1_200),
-            output: None,
-        });
+        shell.apply(UiEvent::Usage { input: Some(1_200) });
         assert_eq!(shell.hint(), format!("{IDLE_HINT} \u{b7} 1k"));
 
         // Again, and it is off, kept off, and gone from the row.
@@ -24682,10 +26222,7 @@ mod tests {
         let root = tempfile::tempdir().expect("a root");
         let mut shell = shell_at_home(root.path(), 40, 160);
         shell.session_title = Some("say the marker".to_string());
-        shell.apply(UiEvent::Usage {
-            input: Some(1_200),
-            output: None,
-        });
+        shell.apply(UiEvent::Usage { input: Some(1_200) });
         assert_eq!(shell.hint(), IDLE_HINT, "a segment was on by default");
 
         let workspace = shell.workspace.to_string_lossy().into_owned();
@@ -27182,9 +28719,17 @@ mod tests {
         assert!(images
             .iter()
             .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
+        // Both badges are one run under one link to the file they name, and
+        // the text after them is outside it: `fx-image-40x120-sent.ansi`'s
+        // card is `\x1b[1m\x1b]8;;file://<scratch>/work/shot.png\x1b\\[Image
+        // 3][Image 4]\x1b]8;;\x1b\\ what is in this image?`.
+        let uri = crate::tui::hyperlink::file_uri(&images[0].path).expect("a resolved path");
+        assert!(uri.ends_with("/shot.png"), "{uri}");
         assert_eq!(
             shell.document(),
-            card("[Image 1][Image 2] what is in this image?")
+            card(&format!(
+                "\x1b]8;;{uri}\x1b\\[Image 1][Image 2]\x1b]8;;\x1b\\ what is in this image?"
+            ))
         );
         assert!(shell.editor.is_empty());
         // The bytes are the ones attached: the file changing afterwards is
@@ -28068,7 +29613,7 @@ mod tests {
         );
         shell.route_bytes(RIGHT);
         assert_eq!(shell.document(), settings_saved("effort"));
-        assert_eq!(shell.effort, Effort::Named("low".to_string()));
+        assert_eq!(shell.settings.effort, Effort::Named("low".to_string()));
         assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"low\"\n}\n");
         // The runtime is told the effort and nothing else: the model kept.
         assert_eq!(
@@ -28076,9 +29621,11 @@ mod tests {
             ModelChange {
                 name: "openai/gpt-6-astra".to_string(),
                 effort: Some(Effort::Named("low".to_string())),
+                speed: None,
                 picker: false,
                 announced: true,
                 next_turn: false,
+                provider: ProviderId::Gateway,
                 effort_only: true,
             }
         );
@@ -28086,18 +29633,18 @@ mod tests {
         // Left from low is the default again, written as upstream writes it.
         shell.route_bytes(LEFT);
         assert_eq!(shell.document(), settings_saved("effort"));
-        assert_eq!(shell.effort, Effort::Auto);
+        assert_eq!(shell.settings.effort, Effort::Auto);
         assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"auto\"\n}\n");
         // And the footer says the level in force once it is not the default.
         shell.route_bytes(LEFT);
-        assert_eq!(shell.effort, Effort::Named("xhigh".to_string()));
+        assert_eq!(shell.settings.effort, Effort::Named("xhigh".to_string()));
         escape(&mut shell);
         assert!(shell.hint().ends_with("xhigh"), "{}", shell.hint());
 
         // A model with no levels and the default in force: the value alone,
         // and Right changes nothing.
         shell.model = "fake/model-a".to_string();
-        shell.effort = Effort::Auto;
+        shell.settings.effort = Effort::Auto;
         let _ = shell.document();
         while shell.controlled().is_some() {}
         shell.route_bytes(b"/settings\r");
@@ -28767,7 +30314,6 @@ mod tests {
         let mut shell = with_a_turn();
         shell.apply(UiEvent::Usage {
             input: Some(90_000),
-            output: Some(10),
         });
         assert_eq!(shell.shell.context_used, Some(90_000));
         shell.route_bytes(b"/compact\r");
@@ -28784,10 +30330,7 @@ mod tests {
             Some(90_000),
             "upstream's meter moves only on a turn's usage"
         );
-        shell.apply(UiEvent::Usage {
-            input: Some(4_000),
-            output: Some(10),
-        });
+        shell.apply(UiEvent::Usage { input: Some(4_000) });
         assert_eq!(shell.shell.context_used, Some(4_000));
     }
 

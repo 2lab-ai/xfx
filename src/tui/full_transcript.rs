@@ -437,7 +437,7 @@ pub(crate) fn details_of(steps: &[TurnStep]) -> Vec<(String, Detail)> {
                 output,
                 ..
             } => found.push((call_id.clone(), result(tool, output))),
-            TurnStep::ToolFeedback { .. } => {}
+            TurnStep::ToolFeedback { .. } | TurnStep::Steered { .. } => {}
         }
     }
     found
@@ -2305,6 +2305,7 @@ mod tests {
             raw_content: Vec::new(),
             wire: crate::provider::Wire::VercelGateway,
             billing: None,
+            service_tier: None,
         }
     }
 

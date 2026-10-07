@@ -1,14 +1,14 @@
-x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+x𝒇x v0.1.0-1578121 [debug] · Run /help for commands
 
 ┃ try it
 
-  Recovered answer.
-
-  1s (↑2 ↓40)
+⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying
+  request in 1s
 
 ┃
 
 auto · model-a
+
 
 
 

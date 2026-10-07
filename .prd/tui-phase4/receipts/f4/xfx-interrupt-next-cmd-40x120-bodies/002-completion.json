@@ -32,18 +32,9 @@
      "toolCallId": "call_1_0",
      "toolName": "terminal",
      "output": {
-      "type": "text",
-      "value": "<command>sleep 6</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\n</stdout>\n<stderr>\n</stderr>\n"
+      "type": "error-text",
+      "value": "aborted by user"
      }
-    }
-   ]
-  },
-  {
-   "role": "assistant",
-   "content": [
-    {
-     "type": "text",
-     "text": "Interrupted by user after completing 1 tool call: terminal."
     }
    ]
   },

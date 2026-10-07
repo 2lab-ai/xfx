@@ -2,7 +2,7 @@
 // Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_CREDITS=<credits.json>] bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
-//    status?: number, body?: string, hangMs?: number,
+//    status?: number, body?: string, hangMs?: number, serviceTier?: string,
 //    billing?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?},
 //    deferred?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?, notYet?}}
 // `billing` is what the Gateway sends for a turn it billed, and what both binaries need before
@@ -20,7 +20,9 @@
 // answers 404 `not found`, which is the answer a capture of the error notice needs.
 // `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
 // step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
-// the stream open that long before its last event (for interrupt captures).
+// the stream open that long before its last event (for interrupt captures). `serviceTier` is the
+// tier the finish event confirms in `providerMetadata.gateway.serviceTier` (fx's
+// `parseSseServiceTier`, gateway/client.zig:3451-3463); absent, nothing is confirmed.
 // Every POST to a language-model path consumes the next turn; title calls get a finish-only stream,
 // and fx's permission classifier gets a `permission_decision` tool call that clears the action
 // (the shape fx's own e2e harness answers with, tests/e2e/tmux-helpers.ts:173-183).
@@ -155,7 +157,11 @@ const server = Bun.serve({
     const tools = turn.tools ?? (turn.tool ? [turn.tool] : []);
     tools.forEach((t: any, i: number) => events.push({ type: "tool-call", toolCallId: t.id ?? `call_${seq}_${i}`, toolName: t.name, input: t.input }));
     const reason = tools.length ? "tool-calls" : "stop";
-    events.push(turn.billing ? billedFinish(reason, turn.billing) : turn.deferred ? deferredFinish(reason, turn.deferred) : finish(reason));
+    const done: any = turn.billing ? billedFinish(reason, turn.billing) : turn.deferred ? deferredFinish(reason, turn.deferred) : finish(reason);
+    if (turn.serviceTier) {
+      done.providerMetadata = { ...(done.providerMetadata ?? {}), gateway: { ...(done.providerMetadata?.gateway ?? {}), serviceTier: turn.serviceTier } };
+    }
+    events.push(done);
     return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
   },
 });

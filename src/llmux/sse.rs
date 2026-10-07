@@ -265,6 +265,7 @@ impl AnthropicReader {
                 // The reader does not know which model was asked for, and a
                 // bill names one: the provider adds it ([`super::bill`]).
                 billing: None,
+                service_tier: None,
             }),
             None => Err(SseError::MissingFinish),
         }
@@ -495,9 +496,12 @@ impl AnthropicReader {
                 };
                 self.charge(fragment.len())?;
                 // A fragment for an unopened block is dropped: correlating it
-                // would invent a call the daemon never opened.
+                // would invent a call the daemon never opened. What is kept is
+                // counted toward the turn's summary, as the Gateway's is
+                // (`crate::gateway::DeltaSink::tool_input_delta`).
                 if let Some(Block::ToolUse { arguments, .. }) = self.open_at(index) {
                     arguments.push_str(fragment);
+                    deltas.tool_input_delta(fragment);
                 }
                 Ok(())
             }
@@ -510,6 +514,7 @@ impl AnthropicReader {
                 self.charge(fragment.len())?;
                 if let Some(Block::Thinking { thinking, .. }) = self.open_at(index) {
                     thinking.push_str(fragment);
+                    deltas.reasoning_delta(fragment);
                 }
                 Ok(())
             }
@@ -909,6 +914,73 @@ mod tests {
             reader.push(frames.as_bytes(), &mut Broken),
             Err(SseError::Sink(_))
         ));
+    }
+
+    #[test]
+    fn thinking_and_an_opened_calls_arguments_are_told_to_be_counted_and_nothing_else() {
+        // What the turn's summary estimates when nobody reports usage
+        // (`crate::agent::tokens`): the thinking text -- not its signature --
+        // and the arguments of a block that was opened as a call. A fragment
+        // naming no open block is dropped here as it is from the call.
+        #[derive(Default)]
+        struct Streams {
+            reasoning: Vec<String>,
+            tool_input: Vec<String>,
+        }
+        impl DeltaSink for Streams {
+            fn text_delta(&mut self, _text: &str) -> std::io::Result<()> {
+                Ok(())
+            }
+            fn reasoning_delta(&mut self, text: &str) {
+                self.reasoning.push(text.to_string());
+            }
+            fn tool_input_delta(&mut self, text: &str) {
+                self.tool_input.push(text.to_string());
+            }
+        }
+        let delta = |index: u64, delta: serde_json::Value| json!({ "type": "content_block_delta", "index": index, "delta": delta });
+        let body = [
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "thinking", "thinking": "" },
+            }),
+            delta(
+                0,
+                json!({ "type": "thinking_delta", "thinking": "let me look" }),
+            ),
+            delta(0, json!({ "type": "signature_delta", "signature": "c2ln" })),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            delta(
+                9,
+                json!({ "type": "input_json_delta", "partial_json": "{\"a\":1}" }),
+            ),
+            json!({
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": { "type": "tool_use", "id": "c1", "name": "read_file" },
+            }),
+            delta(
+                1,
+                json!({ "type": "input_json_delta", "partial_json": "{\"path\":" }),
+            ),
+            delta(
+                1,
+                json!({ "type": "input_json_delta", "partial_json": "\"a.md\"}" }),
+            ),
+            json!({ "type": "content_block_stop", "index": 1 }),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" } }),
+        ]
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect::<String>();
+        let mut streams = Streams::default();
+        let mut reader = AnthropicReader::new();
+        reader.push(body.as_bytes(), &mut streams).expect("decodes");
+        let completion = reader.finish().expect("finish");
+        assert_eq!(completion.tool_calls[0].input, json!({ "path": "a.md" }));
+        assert_eq!(streams.reasoning, ["let me look"]);
+        assert_eq!(streams.tool_input, ["{\"path\":", "\"a.md\"}"]);
     }
 
     #[test]
