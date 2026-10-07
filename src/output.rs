@@ -1510,6 +1510,7 @@ mod tests {
             origin_workspace_root: "/w".to_string(),
             workspace_root: "/w".to_string(),
             model: "m".to_string(),
+            provider: None,
             permission_mode: crate::config::PermissionMode::Auto,
             last_event_seq: 1,
             total_input_tokens: 3,

@@ -139,6 +139,7 @@ fn new_session(workspace: &Path) -> NewSession {
         workspace_root: workspace.to_path_buf(),
         model: "test/model".to_string(),
         permission_mode: PermissionMode::Auto,
+        provider: None,
     }
 }
 
@@ -2247,6 +2248,7 @@ fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
                             .to_string(),
                     ),
                     permission_mode: None,
+                    provider: None,
                     effort: None,
                     fast_mode: None,
                     ultrafast_mode: None,

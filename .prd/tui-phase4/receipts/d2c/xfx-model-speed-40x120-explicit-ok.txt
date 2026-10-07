@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+x𝒇x v0.1.0-06def9e [debug] · Run /help for commands
 
 * Switched to openai/gpt-6-astra (effort: high, speed: ultrafast)
 
@@ -14,7 +14,7 @@ x𝒇x v0.1.0-901471d [debug] · Run /help for commands
 
   MARKER-FAST-TURN
 
-  1s (↑2 ↓40)
+  0s (↑2 ↓40)
 
 ✗ usage: /model <id> <effort> [normal|fast|ultrafast]
 

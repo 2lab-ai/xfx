@@ -510,6 +510,7 @@ mod tests {
                         workspace_root: home.path().to_path_buf(),
                         model: "fake/model-a".to_string(),
                         permission_mode: PermissionMode::Ask,
+                        provider: None,
                     },
                 )
                 .expect("a session");
