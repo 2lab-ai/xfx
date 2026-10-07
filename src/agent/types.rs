@@ -62,10 +62,10 @@ pub trait TurnJournal {
     /// The change a call made, for a surface that shows it beside the log --
     /// the TUI's full transcript (`crate::tui`'s `full_transcript::Teed`).
     ///
-    /// **Not recorded**, and that is why it is a method of its own rather than
-    /// an event: the log keeps what the model was told, and a diff is what
-    /// the person watching is shown. Every journal that only keeps the log
-    /// keeps nothing of it.
+    /// Handed over after the result's record, which carries the same change
+    /// for a resumed session (`SessionEvent::ToolResult`'s `change`); this is
+    /// how a surface watching the turn gets it as it happens. A journal that
+    /// only keeps the log needs nothing from it.
     fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
 
     /// The images the user message just recorded carries.
@@ -74,7 +74,18 @@ pub trait TurnJournal {
     /// things in one order: their bytes saved beside the log, then the record
     /// that names them ([`crate::session::SessionRecorder::attach_images`]). A
     /// journal that keeps no log keeps no images either.
-    fn attach_images(&mut self, _images: &[crate::image::Image]) {}
+    ///
+    /// Answers the directory their copies were saved in -- each under
+    /// [`crate::image::Image::snapshot_name`] -- or `None` when none was.
+    fn attach_images(&mut self, _images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    /// The images the result of `call_id` carried, recorded with it so later
+    /// requests send them again ([`crate::session::SessionRecorder::attach_tool_images`]).
+    /// Called right after that result's [`SessionEvent::ToolResult`], and only
+    /// for a result that carried any.
+    fn attach_tool_images(&mut self, _call_id: &str, _images: &[crate::image::ToolImage]) {}
 
     /// The session as the log now holds it, this turn's steps so far
     /// included, for a journal that keeps one: what a compaction in the
@@ -110,6 +121,15 @@ pub trait StepCompactor {
     /// `request` and then sent, which later measurements are scaled by
     /// (`storeRequestTokenCalibration`, `orchestrator.zig:8873-8885`).
     fn answered(&mut self, _request: &crate::agent::compact::RequestCost, _input_tokens: u64) {}
+
+    /// When a compaction it ran was stopped and stopped the turn with it, the
+    /// sentence the person was shown for it: the turn's conclusion records it
+    /// as a stop the compaction took (`persistCompactionInterruptedTurnOnce`,
+    /// `orchestrator.zig:7413-7423`; `cancellation_origin`,
+    /// `runtime/interruption.zig:51-77`).
+    fn stopped(&self) -> Option<String> {
+        None
+    }
 }
 
 /// What a compaction before a step did to the request.

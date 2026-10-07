@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-b36b41a [debug] · Run /help for commands
+x𝒇x v0.1.0-2c1fe4b [debug] · Run /help for commands
 
 ┃ public prompt
 

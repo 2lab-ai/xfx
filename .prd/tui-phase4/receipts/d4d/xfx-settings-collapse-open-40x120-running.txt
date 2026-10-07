@@ -1,0 +1,40 @@
+┃ look
+
+● 2 tool calls · 2 read
+├ Read a.txt
+└ Read b.txt
+
+  Read both.
+
+  0s (↑1 ↓40)
+
+┃ again
+
+● 1 tool call · 1 read
+└ Read a.txt
+
+  Again.
+
+  0s (↑2 ↓40)
+
+┃ run it
+
+● 1 tool call · 1 command
+└ Running sleep 4; echo hi
+
+• Running (0s) (↑2 ↓0)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+
+  Read both.
+
+  0s (↑1 ↓40)
+
+┃ again
+
+● 1 tool call · 1 read
+
+  Again.
+
+  0s (↑2 ↓40)
+
+┃ run it
+
+● 1 tool call · 1 command
+
+* collapse tool calls: saved to user settings (scope=user)
+
+• Running (3s) (↑2 ↓0)
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 11  [All]  Interface  Agent  Notifications  Advanced
+
+  Status line context      off  on
+  Status line session      off  on
+  Status line workspace    off  on
+  Slash menu categories    off  on
+  Collapse tool calls      off  on
+  Model                    fake/model-a
+  Reasoning effort         default
+  Permission mode          ask  auto  full access
+  Sound level              off  on
+  Startup scrollback       off  on
+  Prompt history           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+

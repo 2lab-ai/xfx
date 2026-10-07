@@ -88,7 +88,7 @@ use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::compact::{self, Caller, Failure, Size};
 use crate::agent::compaction_trace::{self, Context, Kind as TraceKind, Origin};
-use crate::agent::{Steer, Steering, TurnMachine, TurnRequest};
+use crate::agent::{Steer, Steering, TurnJournal, TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
@@ -1195,11 +1195,41 @@ impl Resumption {
         self.session.state().turn_settings.as_ref()
     }
 
+    /// Whether a Fast binding held for the selection `provider`, `model` and
+    /// `fast` survives continuing this session: only when the session last ran
+    /// under that very selection (`restoredFastModeModelBound`,
+    /// `app_session_runtime.zig:6318-6328` -- the provider's authority, the
+    /// model and `fast_mode`, all three).
+    ///
+    /// The provider is compared by label: upstream's `same_authority` is
+    /// `eql` plus the binding identity of a configured provider
+    /// (`model_provider.zig:65-71`), and xfx has none -- its providers are
+    /// [`ProviderId::ALL`]. A log written before the provider was recorded
+    /// says nothing about it, and the binding is then decided by the other
+    /// two, as it was before; one that recorded no switches leaves `fast` out
+    /// the same way.
+    pub(crate) fn keeps_fast_binding(&self, provider: ProviderId, model: &str, fast: bool) -> bool {
+        let state = self.session.state();
+        state
+            .provider
+            .as_deref()
+            .is_none_or(|recorded| recorded == provider.label())
+            && state.model == model
+            && state
+                .turn_settings
+                .as_ref()
+                .is_none_or(|settings| settings.fast == fast)
+    }
+
     /// What the session replays as on the screen it continues on
     /// ([`super::hydration`]): read off the state this value already holds, so
     /// the launch builds it with no read of its own.
+    ///
+    /// Made inert here, by the step the picker's replay takes at the channel
+    /// ([`bridge::inert_hydration`]): the launch hands this to the shell
+    /// directly, so no channel does it on the way.
     pub(crate) fn hydration(&self) -> super::hydration::Hydration {
-        super::hydration::Hydration::of(self.session.state(), None)
+        bridge::inert_hydration(super::hydration::Hydration::of(self.session.state(), None))
     }
 }
 
@@ -1305,6 +1335,11 @@ struct Runtime {
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// Titles `/rename` gave after a reset the work they waited for ended
+    /// with: written into the session that reset starts, once it has dropped
+    /// the one it left ([`write_renamed_after_reset`]). Each with whether the
+    /// shell has said it already ([`TurnControl::Rename`]'s `announced`).
+    renamed_after_reset: Vec<(String, bool)>,
     /// Where the prompts the person sends into a running turn wait for it
     /// ([`crate::agent::steering`]): opened for each turn, handed to its
     /// machine, closed when it ends. The band holds the same one
@@ -1405,6 +1440,7 @@ impl Runtime {
             grants: Grants::default(),
             saved_rules: SavedRulesAt::default(),
             live: LiveAuthority::new(config_mode),
+            renamed_after_reset: Vec::new(),
             steering: Steering::new(),
             rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
@@ -1818,8 +1854,9 @@ impl Runtime {
         };
         // The selection this session was configured with, before the resume
         // moves it: what a restored Fast binding is judged against
-        // (`restoredFastModeModelBound`, `app_session_runtime.zig:6318-6328`).
-        let configured = (self.model().to_string(), self.settings.fast);
+        // ([`Resumption::keeps_fast_binding`]).
+        let keeps_fast_binding =
+            resumption.keeps_fast_binding(self.config.provider, self.model(), self.settings.fast);
         if self.config.sources.model == crate::config::SettingSource::CompiledDefault
             && self.model() != resumption.model()
         {
@@ -1833,9 +1870,7 @@ impl Runtime {
         // resume restores them (`restoreRuntimePreferences`,
         // `app_session_runtime.zig:6126-6175`); a session that never recorded
         // them keeps the ones in force.
-        let mut keeps_fast_binding = configured.0 == resumption.model();
         if let Some(settings) = resumption.session.state().turn_settings.clone() {
-            keeps_fast_binding = keeps_fast_binding && configured.1 == settings.fast;
             self.settings = settings;
         }
         let mut replay = super::hydration::Hydration::of(
@@ -1966,15 +2001,21 @@ impl Runtime {
         );
         let model = self.model().to_string();
         let mode = self.config.permission_mode;
+        let provider = self.config.provider.label();
         let recorded = conversation.recorder.state();
         let model_changed = recorded.model != model;
         let mode_changed = recorded.permission_mode != mode;
-        if model_changed || mode_changed {
+        // And the provider, as upstream's resume records the selection it
+        // goes on with: a session opened under the other one, or written
+        // before the provider was recorded, now says which.
+        let provider_changed = recorded.provider.as_deref() != Some(provider);
+        if model_changed || mode_changed || provider_changed {
             conversation
                 .recorder
                 .commit(SessionEvent::PreferencesChanged {
                     model: model_changed.then_some(model),
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
+                    provider: provider_changed.then(|| provider.to_string()),
                     effort: None,
                     fast_mode: None,
                     ultrafast_mode: None,
@@ -2122,20 +2163,7 @@ impl Runtime {
     /// in the menu's order; no rows, for a provider with none; or that it
     /// could not be read, and whether asking again could help.
     fn catalog_event(&self) -> UiEvent {
-        let provider = self.config.provider;
-        match from_state(self.selector.catalog()) {
-            CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
-            // The provider has no catalog; nothing went wrong, and the menu
-            // says there is nothing in it.
-            CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
-                provider,
-                entries: Vec::new(),
-            },
-            CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
-                provider,
-                retry: self.selector.failure_retry(),
-            },
-        }
+        catalog_event_of(self.config.provider, &self.selector)
     }
 
     /// What every request of the next turn asks for beside its prompt: the
@@ -2183,6 +2211,7 @@ impl Runtime {
             .commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: None,
+                provider: None,
                 effort: Some(settings.effort.label().to_string()),
                 fast_mode: Some(settings.fast),
                 ultrafast_mode: Some(settings.ultrafast),
@@ -2228,6 +2257,7 @@ impl Runtime {
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        provider: None,
                         effort: None,
                         fast_mode: None,
                         ultrafast_mode: None,
@@ -2239,75 +2269,26 @@ impl Runtime {
 
     /// The three speed keys as the session stands, as upstream writes them:
     /// the binding always `true`, because an interactive change is always made
-    /// for the model in force.
+    /// for the model in force ([`super::speed_save::switches`]).
     fn speed_preferences(&self) -> [(&'static [&'static str], serde_json::Value); 3] {
-        [
-            (
-                &[crate::config::FAST_MODE_KEY],
-                serde_json::Value::Bool(self.settings.fast),
-            ),
-            (
-                &[crate::config::ULTRAFAST_MODE_KEY],
-                serde_json::Value::Bool(self.settings.ultrafast),
-            ),
-            (
-                &[crate::config::FAST_MODE_MODEL_BOUND_KEY],
-                serde_json::Value::Bool(true),
-            ),
-        ]
+        super::speed_save::switches(self.settings.fast, self.settings.ultrafast)
     }
 
-    /// Saves the speed switches (`/fast`, `/ultrafast`) with what upstream
-    /// writes beside them (`applyFastMode`, `applyUltrafastMode`,
-    /// `session_commands.zig:781-790`, `:839-848`): the provider and the model
-    /// in force -- under an `XFX_MODEL`, that model, as upstream writes
-    /// `provider_runtime.model(app)` -- and the binding. Says what upstream's
-    /// commit report keeps when the caller has announced the change
-    /// (`reportUserSettingsCommit`, `:27-85`): that a layer above the profile
-    /// will still choose a fresh session's model, or that the write failed.
+    /// Saves the speed switches with what upstream writes beside them, for
+    /// the provider and the model in force -- under an `XFX_MODEL`, that model
+    /// -- and says what upstream's report keeps ([`super::speed_save::save`]).
     /// `topic` is upstream's label for the write.
-    /// What a write of the model and the speed switches beside it -- and the
-    /// effort, when `effort` says one was written -- says when a layer above
-    /// the profile will still decide any of them for a fresh session: each,
-    /// in upstream's order (`appendShadowedUserSources`,
-    /// `session_commands.zig:170-186` -- `model`, `effort`, `fast_mode`,
-    /// `ultrafast_mode`).
-    fn saved_model_and_speed(&self, effort: bool) -> Option<String> {
-        let sources = &self.config.sources;
-        let mut fields = vec![("model", sources.model)];
-        if effort {
-            fields.push(("effort", sources.effort));
-        }
-        fields.push(("fast_mode", sources.fast_mode));
-        fields.push(("ultrafast_mode", sources.ultrafast_mode));
-        crate::provider::profile::saved_but_any_shadowed(&fields)
-    }
-
     fn save_speed(&self, topic: &'static str) -> Option<super::notice::Notice> {
         let path = self.config.user_settings_path.as_ref()?;
-        let provider = self.config.provider;
-        let model_key = [crate::config::MODELS_KEY, provider.label()];
-        let provider_key = [crate::config::PROVIDER_KEY];
-        let mut preferences: Vec<(&[&str], serde_json::Value)> = vec![
-            (
-                &model_key,
-                serde_json::Value::String(self.model().to_string()),
-            ),
-            (
-                &provider_key,
-                serde_json::Value::String(provider.label().to_string()),
-            ),
-        ];
-        preferences.extend(self.speed_preferences());
-        match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => self
-                .saved_model_and_speed(false)
-                .map(|said| super::notice::Notice::neutral(topic, said)),
-            Err(err) => Some(super::notice::Notice::error(
-                topic,
-                format!("active for this process but not saved to user settings ({err})"),
-            )),
-        }
+        super::speed_save::save(
+            path,
+            self.config.provider,
+            self.model(),
+            self.settings.fast,
+            self.settings.ultrafast,
+            &self.config.sources,
+            topic,
+        )
     }
 
     /// Records `model` as the configured provider's in the profile
@@ -2366,8 +2347,7 @@ impl Runtime {
         // `"fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true`).
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
-            Ok(()) => self
-                .saved_model_and_speed(effort.is_some())
+            Ok(()) => super::speed_save::shadowed(&self.config.sources, effort.is_some())
                 .map(|said| super::notice::Notice::neutral(topic, said)),
             Err(err) => Some(super::notice::Notice::error(
                 topic,
@@ -2413,6 +2393,24 @@ enum CatalogAnswer {
 /// socket. `Unavailable` and `NotLoaded` answer the same way because they are
 /// the same fact from the UI's side -- there is nothing to browse -- and
 /// answering rather than panicking keeps a report from taking the session down.
+/// What the UI is told about `selector`'s catalog for `provider`
+/// ([`Runtime::catalog_event`]).
+fn catalog_event_of(provider: ProviderId, selector: &ModelSelector) -> UiEvent {
+    match from_state(selector.catalog()) {
+        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+        // The provider has no catalog; nothing went wrong, and the menu
+        // says there is nothing in it.
+        CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+            provider,
+            entries: Vec::new(),
+        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
+            provider,
+            retry: selector.failure_retry(),
+        },
+    }
+}
+
 fn from_state(state: &CatalogState) -> CatalogAnswer {
     match state {
         CatalogState::Loaded(entries) => CatalogAnswer::Rows(in_menu_order(entries)),
@@ -2498,6 +2496,11 @@ async fn turn_loop(
                 // Nothing is running, so nothing is changing the files: the
                 // undo is done now, as upstream's always is.
                 Some(TurnControl::Undo { through }) => Taken::Undo(through),
+                // Nothing is writing the conversation's log: the title is
+                // written now.
+                Some(TurnControl::Rename { title, announced }) => {
+                    Taken::Rename { title, announced }
+                }
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -2547,14 +2550,20 @@ async fn turn_loop(
                 // aside like one read during a turn.
                 match apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await
                 {
-                    Ended::Session => return settled(state, changes),
-                    Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+                    Ended::Session => {
+                        write_renamed_before_leaving(&mut state, events, &cancel).await;
+                        return settled(state, changes);
+                    }
+                    Ended::Reset(through) => {
+                        drop_conversation(&mut state, events, through).await;
+                        write_renamed_after_reset(&mut state, events, &cancel).await;
+                    }
                     Ended::Turn => {}
                 }
                 continue;
             }
             Taken::Speed(change) => {
-                change_speed(&mut state, change, events).await;
+                change_speed(&mut state, change);
                 continue;
             }
             Taken::Undo(through) => {
@@ -2582,6 +2591,10 @@ async fn turn_loop(
             }
             Taken::Change(None) => {
                 changes_open = false;
+                continue;
+            }
+            Taken::Rename { title, announced } => {
+                write_rename(&mut state, &title, announced, events, &cancel).await;
                 continue;
             }
             // The UI dropped its side of the work channel without saying
@@ -2635,10 +2648,6 @@ async fn turn_loop(
                 bridge::send_terminal(events, answer).await;
                 Ended::Turn
             }
-            TurnWork::Rename(title) => {
-                run_rename(&mut state, &title, events, &cancel.mirror()).await;
-                Ended::Turn
-            }
             TurnWork::Workspace(action) => {
                 let answer = state.change_workspace(&action);
                 bridge::send_terminal(events, answer).await;
@@ -2671,11 +2680,19 @@ async fn turn_loop(
         // would ([`TurnControl::Model`]).
         let ended = apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await;
         match ended {
-            Ended::Session => return settled(state, changes),
+            Ended::Session => {
+                write_renamed_before_leaving(&mut state, events, &cancel).await;
+                return settled(state, changes);
+            }
             // A reset reached this work while it ran: the work has said its
             // last word, and the conversation goes before anything else is
-            // taken.
-            Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+            // taken -- the titles typed for it already written
+            // ([`apply_deferred`]), and the ones typed after the reset written
+            // into the session it starts.
+            Ended::Reset(through) => {
+                drop_conversation(&mut state, events, through).await;
+                write_renamed_after_reset(&mut state, events, &cancel).await;
+            }
             Ended::Turn => {}
         }
     }
@@ -2754,6 +2771,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
+    /// `/rename`'s title, to write now, and whether the shell has said so.
+    Rename { title: String, announced: bool },
     /// What the Gateway said about a pending request's bill.
     Bill(super::reconcile::Answered),
     /// The catalog read in the background has answered.
@@ -2890,7 +2909,7 @@ async fn run_turn(
     steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, images, events, &turn,
+        state, prompt, images, events, &turn, control,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -3560,6 +3579,11 @@ impl crate::agent::StepCompactor for TurnCompactor {
         self.spent.take()
     }
 
+    fn stopped(&self) -> Option<String> {
+        (self.ended.get() == Some(Feedback::Cancelled))
+            .then(|| Feedback::Cancelled.label().to_string())
+    }
+
     fn answered(&mut self, request: &compact::RequestCost, input_tokens: u64) {
         *self
             .calibration
@@ -3817,6 +3841,29 @@ async fn change_model(
     state.settings = after;
     state.record_settings();
     state.publish();
+    // The effort a pick writes beside the model: the one it chose, or -- for
+    // a pick that kept the session's, as `/settings`' model list does -- the
+    // session's, for a model whose row lists levels (`selectModelFromPicker`
+    // sets `patch.effort` whenever `reasoning_efforts` is not empty, with the
+    // effort it was given or `app.effort`, `session_commands.zig:892-901`;
+    // `applyInlineSettingsModelSelection`, `app_input_runtime.zig:2517-2529`).
+    // A query writes none (`setResolvedModel`, `:1172-1188`).
+    let effort = match effort {
+        Some(chosen) => Some(chosen),
+        None if change.picker
+            && matches!(
+                outcome,
+                ModelOutcome::Selected { .. } | ModelOutcome::Unchanged { .. }
+            )
+            && state
+                .selector
+                .entry(state.selector.model())
+                .is_some_and(|entry| !entry.efforts.is_empty()) =>
+        {
+            Some(state.settings.effort.clone())
+        }
+        None => None,
+    };
     let (answered, chosen) = match outcome {
         ModelOutcome::Selected {
             unverified, model, ..
@@ -3861,6 +3908,53 @@ async fn change_model(
     ended
 }
 
+/// The turn's journal, with a call the stop refused at its approval recorded
+/// as stopped rather than as refused.
+///
+/// A prompter parked at an approval answers a stop -- Escape at the panel, a
+/// Ctrl-C, a reset -- with a refusal, and hands the stop back for the loop
+/// (`super::approval::ControlChannel::give_back`): the call ends `Denied`
+/// before the loop has read the stop. The screen shows it `Cancelled`, and
+/// upstream keeps no result for it at all (`buildNormalExecutionMemory`,
+/// `execution_memory.zig:449-452`), so a resumed session must not replay the
+/// user's own refusal of a call they never decided. What the model was told
+/// is unchanged: only the row's half of the result is rewritten.
+struct StoppedAtApproval<'a> {
+    inner: &'a mut dyn TurnJournal,
+    control: &'a ControlChannel,
+}
+
+impl TurnJournal for StoppedAtApproval<'_> {
+    fn record(&mut self, mut event: SessionEvent) {
+        if let SessionEvent::ToolResult { ending, .. } = &mut event {
+            if *ending == Some(crate::session::ToolEnding::Denied) && self.control.stopping() {
+                *ending = Some(crate::session::ToolEnding::Cancelled);
+            }
+        }
+        self.inner.record(event);
+    }
+
+    fn change_made(&mut self, call_id: &str, change: &crate::permission::ApprovalDiff) {
+        self.inner.change_made(call_id, change);
+    }
+
+    // Every method the trait has, forwarded: a default left in place here
+    // would be the wrapped journal's work silently not done.
+    fn attach_images(&mut self, images: &[crate::image::Image]) -> Option<std::path::PathBuf> {
+        self.inner.attach_images(images)
+    }
+
+    fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+        self.inner.attach_tool_images(call_id, images);
+    }
+
+    // The log as it stands, which a compaction between the turn's steps plans
+    // from.
+    fn state(&self) -> Option<&crate::session::DurableState> {
+        self.inner.state()
+    }
+}
+
 /// Applies the model changes put aside while a piece of work ran
 /// ([`ControlChannel::defer`]), oldest first, and says what ended.
 ///
@@ -3893,10 +3987,29 @@ async fn apply_deferred(
                     run_undo(state, events, through, after_reset).await;
                     continue;
                 }
+                // Written whatever ended, as an undo is done: the shell
+                // titled the window at once. One typed after the reset waits
+                // for the drop ([`write_renamed_after_reset`]).
+                Deferred::Rename {
+                    title,
+                    after_reset: false,
+                    announced,
+                } => {
+                    write_rename(state, &title, announced, events, cancel).await;
+                    continue;
+                }
+                Deferred::Rename {
+                    title,
+                    after_reset: true,
+                    announced,
+                } => {
+                    state.renamed_after_reset.push((title, announced));
+                    continue;
+                }
                 // The same for a speed: it needs no socket, and the band has
                 // said it already.
                 Deferred::Speed(change) => {
-                    change_speed(state, change, events).await;
+                    change_speed(state, change);
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -3918,14 +4031,22 @@ async fn apply_deferred(
 }
 
 /// Applies one `/fast` or `/ultrafast on|off` ([`TurnControl::Speed`]): the
-/// switches as the band decided them, recorded in the session log and saved,
-/// with nothing said unless the save failed -- the band has said `fast: on`
-/// already, as upstream says it the moment the command is given.
+/// switches as the band decided them, recorded in the session log and saved
+/// again, saying nothing.
+///
+/// **The band has saved it and said how that went** already, above its
+/// `* fast: on`, as upstream persists before it announces
+/// ([`super::speed_save`]). The write here is the file's order rather than a
+/// second report: this thread writes the model changes, and one put aside
+/// behind a turn is saved when the turn ends, with the switches as they then
+/// stand -- so a `/fast` typed after it has to be written after it too, or
+/// the profile would end on the switches the model change turned off. Its
+/// outcome is the band's write's, said once.
 ///
 /// A change the band decided under another provider is dropped: a
 /// `/provider` switch took the switches off with the model it replaced, and
 /// the band's own record of them went off with the same switch.
-async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<UiEvent>) {
+fn change_speed(state: &mut Runtime, change: SpeedChange) {
     if change.provider != state.config.provider {
         return;
     }
@@ -3933,9 +4054,7 @@ async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<
     state.settings.ultrafast = change.ultrafast;
     state.record_settings();
     state.publish();
-    if let Some(notice) = state.save_speed(change.topic) {
-        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
-    }
+    let _ = state.save_speed(change.topic);
 }
 
 /// `/undo`, and what became of it (`commandUndoLast`,
@@ -3975,27 +4094,63 @@ async fn run_undo(
     .await;
 }
 
-/// `/rename`, and whether it was written down (`handleRenameCommand`,
-/// `app_commands.zig:3815-3858`). The session is called `title` either way --
-/// upstream sets its cached title before it writes the manifest
-/// (`renameActiveSession`, `app_session_runtime.zig:3802-3822`) -- and the
-/// shell says which ([`UiEvent::Renamed`]).
-async fn run_rename(
+/// Writes `/rename`'s title into the conversation's session
+/// (`handleRenameCommand`, `app_commands.zig:3815-3858`). The shell has
+/// already called the session that, as upstream caches the title before it
+/// writes (`renameActiveSession`, `app_session_runtime.zig:3807`), and the
+/// rename is said once, as what became of the write: a log that would not
+/// take it in upstream's words ([`UiEvent::RenameUnsaved`]), and one that
+/// did as `renamed to "…"` ([`UiEvent::Renamed`]) -- unless the shell has
+/// said that already (`announced`), as it does while work runs.
+async fn write_rename(
     state: &mut Runtime,
     title: &str,
+    announced: bool,
     events: &Sender<UiEvent>,
-    mirror: &CancelToken,
+    cancel: &Cancellation,
 ) {
-    let unsaved = state.rename(title, mirror).err();
+    let written = state.rename(title, &cancel.mirror());
     state.publish();
-    bridge::send_terminal(
-        events,
-        UiEvent::Renamed {
-            title: title.to_string(),
-            unsaved,
-        },
-    )
-    .await;
+    match written {
+        Err(problem) => {
+            bridge::send_terminal(events, UiEvent::RenameUnsaved(problem)).await;
+        }
+        Ok(()) if !announced => {
+            bridge::send_terminal(events, UiEvent::Renamed(title.to_string())).await;
+        }
+        Ok(()) => {}
+    }
+}
+
+/// The session is ending under a reset a shutdown outranked
+/// ([`raced_against_control`]): a title typed after that reset still names
+/// the session it would have started, and the shell has already said so.
+/// That session is opened for it and titled, as a `/rename` before any
+/// prompt opens one -- upstream's `/new` had created it, and keeps a titled
+/// one on disk. Nothing to do when no such title is waiting.
+async fn write_renamed_before_leaving(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+) {
+    if state.renamed_after_reset.is_empty() {
+        return;
+    }
+    state.conversation = None;
+    write_renamed_after_reset(state, events, cancel).await;
+}
+
+/// Writes the titles typed after a reset the work they waited for ended
+/// with, now that the reset has dropped the conversation it left
+/// ([`Deferred::Rename`]'s `after_reset`): they name the session it starts.
+async fn write_renamed_after_reset(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+) {
+    for (title, announced) in std::mem::take(&mut state.renamed_after_reset) {
+        write_rename(state, &title, announced, events, cancel).await;
+    }
 }
 
 /// Loads the catalog once and sends **exactly one** terminal event for it.
@@ -4114,6 +4269,12 @@ async fn raced_against_control<F: Future>(
                 Some(TurnControl::Undo { through }) => {
                     control.defer_undo(through, matches!(ended, Ended::Reset(_)));
                 }
+                // `/rename` while this work runs: its log is this work's to
+                // write until it is over, so the title is put aside the same
+                // way, and marked when it was typed after a reset.
+                Some(TurnControl::Rename { title, announced }) => {
+                    control.defer_rename(title, matches!(ended, Ended::Reset(_)), announced);
+                }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -4190,12 +4351,93 @@ async fn image_refusal(
     }
 }
 
+/// Whether a request's tool images go to the model, decided the way a
+/// prompt's are and asked only when a request carries one.
+///
+/// **On the Gateway, the catalog decides** ([`image_refusal`]): a model it
+/// tags `vision` and `file-input` is sent them; any other request goes with
+/// the images taken out and upstream's sentence in front of each result that
+/// had any -- [`crate::image::TOOL_IMAGES_NOT_NATIVE`] for a listed model
+/// without the tags, [`crate::image::TOOL_IMAGES_UNKNOWN`] for one the catalog
+/// does not list or could not be read (`projectToolImageMessages`,
+/// `gateway_step.zig:256-283`). Upstream resolves the catalog the first time a
+/// tool image appears (`orchestrator.zig:7206-7214`); so does this, raced
+/// against the turn's cancellation and told to the UI when it is fresh.
+///
+/// **On llmux the daemon decides**, as it does a prompt's image: it is sent,
+/// and a model that cannot read it is the daemon's 400.
+struct ToolImageGate<'a> {
+    inner: &'a dyn crate::gateway::Provider,
+    provider: ProviderId,
+    /// Lent out while the catalog is read, so no borrow is held across that
+    /// wait.
+    selector: std::cell::RefCell<Option<&'a mut ModelSelector>>,
+    events: Sender<UiEvent>,
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl ToolImageGate<'_> {
+    /// The note a request's tool images are replaced by, or `None` when the
+    /// model is sent them.
+    async fn refusal(&self) -> Option<&'static str> {
+        if self.provider != ProviderId::Gateway {
+            return None;
+        }
+        let selector = self.selector.borrow_mut().take()?;
+        if matches!(selector.catalog(), CatalogState::NotLoaded) {
+            tokio::select! {
+                biased;
+                () = self.token.cancelled() => {}
+                _ = selector.ensure_catalog() => {
+                    let event = catalog_event_of(self.provider, selector);
+                    let _ = bridge::send_ui(&self.events, &self.token, event).await;
+                }
+            }
+        }
+        let note = match selector.entry(selector.model()) {
+            Some(entry) if entry.facts.image_input => None,
+            Some(_) => Some(crate::image::TOOL_IMAGES_NOT_NATIVE),
+            None => Some(crate::image::TOOL_IMAGES_UNKNOWN),
+        };
+        *self.selector.borrow_mut() = Some(selector);
+        note
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl crate::gateway::Provider for ToolImageGate<'_> {
+    async fn stream(
+        &self,
+        request: &crate::gateway::protocol::CompletionRequest,
+        deltas: &mut dyn crate::gateway::DeltaSink,
+    ) -> Result<crate::gateway::protocol::Completion, crate::gateway::ProviderError> {
+        let carries = request.messages.iter().any(|message| {
+            message.content.iter().any(|part| {
+                matches!(part, crate::gateway::protocol::ContentPart::ToolResult { images, .. } if !images.is_empty())
+            })
+        });
+        if carries {
+            if let Some(note) = self.refusal().await {
+                if let Some(stripped) = crate::image::strip_tool_images(request, note) {
+                    return self.inner.stream(&stripped, deltas).await;
+                }
+            }
+        }
+        self.inner.stream(request, deltas).await
+    }
+
+    fn set_options(&self, options: crate::gateway::protocol::RequestOptions) {
+        self.inner.set_options(options);
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
     images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
+    control: &ControlChannel,
 ) -> Option<String> {
     // The matrix row for a panic on the thread that owns nothing. It is taken
     // here, inside the caught body, because what is being measured is that a
@@ -4285,15 +4527,18 @@ async fn one_turn(
     // owns it: the model this turn is sent under is the model `/model` last
     // applied, whatever the configuration said at launch.
     let model = state.model().to_string();
+    let provider_id = state.config.provider;
     // Two fields of one struct rather than one method returning both: the
     // provider is read and the conversation is written, and the borrow checker
-    // is what keeps that honest.
+    // is what keeps that honest. The selector is a third: the tool-image gate
+    // below reads the catalog through it.
     let provider = state
         .provider
         .as_ref()
         .expect("the bundle was just built")
         .stream
         .as_ref();
+    let selector = &mut state.selector;
     let conversation = state
         .conversation
         .as_mut()
@@ -4343,19 +4588,32 @@ async fn one_turn(
     // arguments, its whole result -- handed to the UI as it is written down
     // (`super::full_transcript::Teed`). The log is written first and either
     // way: the view is best effort and the record is not.
-    let mut journal = super::full_transcript::Teed::new(
+    let mut teed = super::full_transcript::Teed::new(
         &mut conversation.recorder,
         events.clone(),
         turn.token.clone(),
     );
+    // And a refusal the stop answered is recorded as the stop
+    // ([`StoppedAtApproval`]).
+    let mut journal = StoppedAtApproval {
+        inner: &mut teed,
+        control,
+    };
     // And each request the turn settles, as the full transcript's `* network:`
     // record (`super::full_transcript::Networked`).
     let provider = super::full_transcript::Networked::new(
         provider,
-        state.config.provider.label(),
+        provider_id.label(),
         events.clone(),
         turn.token.clone(),
     );
+    let provider = ToolImageGate {
+        inner: &provider,
+        provider: provider_id,
+        selector: std::cell::RefCell::new(Some(selector)),
+        events: events.clone(),
+        token: turn.token.clone(),
+    };
     // And, in Ultra, whether each response was served at it
     // ([`ServedUltra`]).
     let served = ServedUltra::new(&provider, ultrafast, events.clone(), turn.token.clone());
@@ -5661,10 +5919,11 @@ mod tests {
         // Upstream syncs a new mode into the prompts already queued
         // (`syncQueuedPermissionSnapshot`); here the loop takes changes before
         // work, so whatever was waiting starts under the mode the user chose
-        // after it was typed. Observed through a queued `/rename`, which writes
-        // its own line into the same log: the change's line has to come first.
-        // (A queued `/model` used to be the witness; a model change is a
-        // control message now, and takes no place in the queue.)
+        // after it was typed. Observed through a queued `/resume` of another
+        // session, which replaces the conversation: the change reaches the
+        // log of the conversation it replaces only if it was applied first.
+        // (A queued `/model`, then a queued `/rename`, used to be the
+        // witness; both are said off the work queue now.)
         let (_home, _workspace, state) = recording();
         let log = state
             .store
@@ -5679,9 +5938,10 @@ mod tests {
                     .as_str(),
             )
             .join(crate::session::store::EVENTS_FILE);
+        let other = a_saved_session(&state.config, &Grant::new("edit_file", "x".to_string()));
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
         work_tx
-            .try_send(TurnWork::Rename("queued-witness-title".into()))
+            .try_send(TurnWork::Resume(other.to_string()))
             .expect("room");
         let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         changes_tx
@@ -5691,7 +5951,7 @@ mod tests {
         let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let outstanding = AtomicUsize::new(1);
-        on_a_runtime(turn_loop(
+        let left = on_a_runtime(turn_loop(
             state,
             &events,
             &mut work_rx,
@@ -5700,14 +5960,12 @@ mod tests {
             Cancellation::new(CancelToken::new()),
             &outstanding,
         ));
+        assert_eq!(left, Some(other), "the queued work never ran");
         let log = std::fs::read_to_string(log).expect("the log");
-        let mode = log
-            .find(r#""permission_mode":"ask""#)
-            .unwrap_or_else(|| panic!("the change never reached the log: {log}"));
-        let work = log
-            .find("queued-witness-title")
-            .unwrap_or_else(|| panic!("the work never ran: {log}"));
-        assert!(mode < work, "the queued work ran before the change: {log}");
+        assert!(
+            log.contains(r#""permission_mode":"ask""#),
+            "the queued work ran before the change: {log}"
+        );
     }
 
     #[test]
@@ -6562,6 +6820,149 @@ mod tests {
         // Dropped here, which closes the log and releases its lock.
     }
 
+    /// Bytes a terminal would obey rather than draw: an OSC title, a clear,
+    /// a bell, a C1 CSI.
+    const HOSTILE: &str = "x\u{1b}]0;pwned\u{7}y\u{1b}[2Jz\u{9b}31m";
+
+    /// A saved session whose prompt, answers, call and result all carry
+    /// [`HOSTILE`] -- a log is file input, and anyone who can write the file
+    /// can put them there.
+    fn a_hostile_session(config: &RuntimeConfig) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        for event in [
+            SessionEvent::UserMessage {
+                text: format!("prompt {HOSTILE}"),
+            },
+            SessionEvent::AssistantMessage {
+                text: format!("looking {HOSTILE}"),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "r".to_string(),
+                    name: "read_file".to_string(),
+                    input: serde_json::json!({ "path": format!("p{HOSTILE}") }),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::ToolResult {
+                created_at_ms: None,
+                call_id: "r".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: format!("read {HOSTILE}"),
+                ending: None,
+                lines: None,
+                change: None,
+            },
+            SessionEvent::AssistantMessage {
+                text: format!("done {HOSTILE}"),
+                tool_calls: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            SessionEvent::TurnConcluded {
+                outcome: crate::session::TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 2,
+                },
+            },
+        ] {
+            conversation.recorder.commit(event);
+        }
+        conversation.recorder.id().clone()
+    }
+
+    /// Every piece of text a replay carries to the screen or to the full
+    /// transcript, whichever way it was built.
+    fn replayed_text(replay: &super::super::hydration::Hydration) -> String {
+        use super::super::hydration::HydratedStep;
+        let mut all = format!("{:?}", replay.title);
+        for turn in &replay.turns {
+            all.push_str(&turn.sent);
+            for step in &turn.steps {
+                match step {
+                    HydratedStep::Text(text)
+                    | HydratedStep::Feedback(text)
+                    | HydratedStep::Steer(text) => all.push_str(text),
+                    HydratedStep::ToolStart { id, shown, .. } => {
+                        all.push_str(id);
+                        all.push_str(shown.target.as_deref().unwrap_or(""));
+                    }
+                    HydratedStep::ToolResult { id, .. } => all.push_str(id),
+                }
+            }
+            for (id, detail) in &turn.details {
+                all.push_str(id);
+                all.push_str(&format!("{detail:?}"));
+            }
+        }
+        all
+    }
+
+    /// A resumed session is file input on both of its ways in: the picker's,
+    /// whose replay crosses the channel, and the launch's, which is built
+    /// before the terminal is taken and never crosses it. Both reach the UI
+    /// through the same inert step ([`bridge::inert_hydration`]).
+    #[test]
+    fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let id = a_hostile_session(&config);
+        let obeyed = |text: &str| {
+            text.chars()
+                .filter(|c| c.is_control() && *c != '\n' && *c != '\r')
+                .collect::<Vec<_>>()
+        };
+
+        // The launch's (`super::super::hold`).
+        let launch = Resumption::open(&config, &crate::session::Selector::Id(id.clone()))
+            .expect("the saved session opens")
+            .hydration();
+        let text = replayed_text(&launch);
+        assert!(text.contains("prompt x ]0;pwned y [2Jz 31m"), "{text:?}");
+        assert_eq!(obeyed(&text), Vec::<char>::new(), "{text:?}");
+
+        // The picker's, across the channel as the runtime sends it.
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // The picker's resume does not wait on a writer lock, and a sibling
+        // test that forks a command in the instant this one closed the log
+        // can hold the lock's descriptor until its child execs: a held lock
+        // here is that, not this test's subject, so it is asked again.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let replay = loop {
+            match state.resume_by_id(id.as_str(), &CancelToken::new()) {
+                Ok(replay) => break replay,
+                Err(super::super::session_picker::ResumeFailure::OpenElsewhere)
+                    if Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(failure) => panic!("not resumed: {failure:?}"),
+            }
+        };
+        let picked = on_a_runtime(async {
+            let (events, mut received) = mpsc::channel(1);
+            bridge::send_terminal(&events, UiEvent::Resumed(replay)).await;
+            match received.recv().await {
+                Some(UiEvent::Resumed(replay)) => replay,
+                other => panic!("{other:?}"),
+            }
+        });
+        assert_eq!(replayed_text(&picked), text, "the two ways in differ");
+    }
+
     #[test]
     fn a_resumed_session_is_the_conversation_from_the_start_with_its_grants() {
         let home = tempfile::tempdir().expect("a home");
@@ -6750,13 +7151,20 @@ mod tests {
                 workspace.path(),
             )
             .expect("the other writer opens it");
-        let started = Instant::now();
+        // "At once" is one try at the lock: a resume that waited would try it
+        // again until its grace period ran out (the store's own clock-free
+        // cases: `a_budget_of_nothing_is_one_attempt_and_no_pause` against
+        // `a_lock_that_frees_during_the_grace_is_acquired_after_the_documented_backoff`).
+        // Counted, not timed, so a loaded machine can neither pass a wait nor
+        // fail a refusal.
+        let before_tries = crate::session::store::lock_attempts_on_this_thread();
         assert_eq!(
             state.resume_by_id(saved.as_str(), &CancelToken::new()),
             Err(ResumeFailure::OpenElsewhere)
         );
-        assert!(
-            started.elapsed() < Duration::from_millis(200),
+        assert_eq!(
+            crate::session::store::lock_attempts_on_this_thread() - before_tries,
+            1,
             "the picker waited on the lock"
         );
         assert_eq!(state.resumable(), Some(before.clone()));
@@ -7011,6 +7419,405 @@ mod tests {
             events_rx.try_recv().is_err(),
             "the reset sent more than its fence"
         );
+    }
+
+    /// A refusal recorded while a parked prompter's stop waits for the loop
+    /// is the stop's: the row's half says `Cancelled`, the model's half is
+    /// what the model was told. Any other refusal is the user's.
+    #[test]
+    fn a_call_refused_by_a_stop_at_its_approval_is_recorded_as_stopped() {
+        #[derive(Default)]
+        struct Kept(Vec<SessionEvent>, Vec<String>);
+        impl TurnJournal for Kept {
+            fn record(&mut self, event: SessionEvent) {
+                self.0.push(event);
+            }
+            fn change_made(&mut self, call_id: &str, _change: &crate::permission::ApprovalDiff) {
+                self.1.push(format!("change {call_id}"));
+            }
+            fn attach_images(
+                &mut self,
+                images: &[crate::image::Image],
+            ) -> Option<std::path::PathBuf> {
+                self.1.push(format!("images {}", images.len()));
+                Some(std::path::PathBuf::from("kept-images"))
+            }
+            fn attach_tool_images(&mut self, call_id: &str, images: &[crate::image::ToolImage]) {
+                self.1
+                    .push(format!("tool images {call_id} {}", images.len()));
+            }
+            fn state(&self) -> Option<&crate::session::DurableState> {
+                Some(&KEPT_STATE)
+            }
+        }
+        static KEPT_STATE: std::sync::LazyLock<crate::session::DurableState> =
+            std::sync::LazyLock::new(crate::session::DurableState::empty_for_tests);
+        let refused = || SessionEvent::ToolResult {
+            created_at_ms: None,
+            call_id: "w".to_string(),
+            tool: "write_file".to_string(),
+            ok: false,
+            output: "write_file was not permitted: you declined".to_string(),
+            ending: Some(crate::session::ToolEnding::Denied),
+            lines: None,
+            change: None,
+        };
+        let (_tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        let mut kept = Kept::default();
+        StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        }
+        .record(refused());
+        control.give_back(TurnControl::Cancel { through: 1 });
+        StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        }
+        .record(refused());
+        let endings: Vec<_> = kept
+            .0
+            .iter()
+            .map(|event| match event {
+                SessionEvent::ToolResult { ending, output, .. } => (*ending, output.as_str()),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            endings,
+            [
+                (
+                    Some(crate::session::ToolEnding::Denied),
+                    "write_file was not permitted: you declined"
+                ),
+                (
+                    Some(crate::session::ToolEnding::Cancelled),
+                    "write_file was not permitted: you declined"
+                ),
+            ]
+        );
+        // Everything else the turn hands its journal goes through unchanged:
+        // a default left in the wrapper would be the recorder's work undone.
+        let mut wrapper = StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        };
+        wrapper.change_made("w", &crate::permission::ApprovalDiff::of("a\n", "b\n"));
+        // The directory the images were copied into is the recorder's
+        // answer, which the card's badges link to.
+        assert_eq!(
+            wrapper.attach_images(&[crate::image::Image::new(
+                1,
+                std::path::PathBuf::from("shot.png"),
+                crate::image::MediaType::Png,
+                std::sync::Arc::from(&b"png"[..]),
+            )]),
+            Some(std::path::PathBuf::from("kept-images"))
+        );
+        wrapper.attach_tool_images(
+            "r",
+            &[crate::image::ToolImage {
+                media_type: crate::image::MediaType::Png,
+                data: std::sync::Arc::from(&b"png"[..]),
+                path: "shot.png".to_string(),
+            }],
+        );
+        // The log as it stands, which a compaction between the turn's steps
+        // plans from.
+        assert!(std::ptr::eq(
+            wrapper.state().expect("forwarded"),
+            &*KEPT_STATE
+        ));
+        assert_eq!(kept.1, ["change w", "images 1", "tool images r 1"]);
+        // And the loop reads its stop as before.
+        assert!(control.stopping());
+        assert_eq!(
+            on_a_runtime(control.recv()),
+            Some(TurnControl::Cancel { through: 1 })
+        );
+        assert!(!control.stopping());
+    }
+
+    /// The log of the session `id` names, under `home`.
+    fn session_log(home: &std::path::Path, id: &str) -> String {
+        std::fs::read_to_string(
+            home.join(".xfx")
+                .join("sessions")
+                .join(id)
+                .join(crate::session::store::EVENTS_FILE),
+        )
+        .expect("the log")
+    }
+
+    /// Between turns a `/rename` is written when it is read, in the order the
+    /// control channel carries it with a reset: one typed before `/new` goes
+    /// into the session `/new` drops, one typed after it into the session
+    /// `/new` starts (opened for it, as a rename before any prompt opens one).
+    #[test]
+    fn between_turns_a_rename_is_written_into_the_session_it_was_typed_in() {
+        let (home, _workspace, state) = recording();
+        let before = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        for message in [
+            TurnControl::Rename {
+                title: "Before New".to_string(),
+                announced: false,
+            },
+            TurnControl::Reset { through: 0 },
+            TurnControl::Rename {
+                title: "After New".to_string(),
+                announced: false,
+            },
+            TurnControl::Shutdown,
+        ] {
+            control_tx.send(message).expect("alive");
+        }
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let outstanding = AtomicUsize::new(0);
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut changes,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(work_tx);
+        // Titled and asked nothing, so no resume names it: it is the other
+        // session on disk.
+        let after = sessions_in(home.path())
+            .into_iter()
+            .find(|id| id.as_str() != before.as_str())
+            .expect("the session the reset started");
+        let dropped = session_log(home.path(), before.as_str());
+        assert!(
+            dropped.contains(r#""kind":"session_renamed","title":"Before New""#)
+                && !dropped.contains("After New"),
+            "{dropped}"
+        );
+        let started = session_log(home.path(), after.as_str());
+        assert!(
+            started.contains(r#""title":"After New""#) && !started.contains("Before New"),
+            "{started}"
+        );
+        // Between turns the shell said nothing, so each written title is
+        // said now, in the order the writes happened.
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("Before New".to_string()))
+        );
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("After New".to_string()))
+        );
+    }
+
+    /// One answer per rename, what became of its write: `Renamed` for one the
+    /// shell has not said yet, nothing for one it has, and the refusal for
+    /// either (`handleRenameCommand`, `app_commands.zig:3815-3858`).
+    #[test]
+    fn a_rename_is_answered_once_by_what_became_of_its_write() {
+        use std::os::unix::fs::PermissionsExt;
+        let (home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let cancel = Cancellation::new(CancelToken::new());
+        on_a_runtime(write_rename(
+            &mut state, "Quiet", false, &events_tx, &cancel,
+        ));
+        assert_eq!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Renamed("Quiet".to_string()))
+        );
+        on_a_runtime(write_rename(&mut state, "Said", true, &events_tx, &cancel));
+        assert!(events_rx.try_recv().is_err(), "a rename was said twice");
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .id
+            .clone();
+        let dir = home.path().join(".xfx").join("sessions").join(id);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+        on_a_runtime(write_rename(
+            &mut state, "Refused", false, &events_tx, &cancel,
+        ));
+        on_a_runtime(write_rename(
+            &mut state,
+            "Refused too",
+            true,
+            &events_tx,
+            &cancel,
+        ));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        for _ in 0..2 {
+            assert!(
+                matches!(events_rx.try_recv(), Ok(UiEvent::RenameUnsaved(_))),
+                "a refused write was not said"
+            );
+        }
+        assert!(events_rx.try_recv().is_err());
+    }
+
+    /// While work runs a `/rename` is put aside, never a stop, and marked
+    /// when it came behind a reset -- as an `/undo` is.
+    #[test]
+    fn a_rename_while_work_runs_waits_for_it_and_one_after_a_reset_is_the_fresh_ones() {
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        for message in [
+            TurnControl::Rename {
+                title: "a".to_string(),
+                announced: true,
+            },
+            TurnControl::Reset { through: 0 },
+            TurnControl::Rename {
+                title: "b".to_string(),
+                announced: false,
+            },
+        ] {
+            control_tx.send(message).expect("alive");
+        }
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |through| stops.push(through),
+        ));
+        assert_eq!(stops.len(), 1, "a rename stopped the work");
+        assert_eq!(ended, Ended::Reset(0));
+        assert_eq!(
+            control.take_deferred(),
+            vec![
+                Deferred::Rename {
+                    title: "a".to_string(),
+                    after_reset: false,
+                    announced: true,
+                },
+                Deferred::Rename {
+                    title: "b".to_string(),
+                    after_reset: true,
+                    announced: false,
+                },
+            ]
+        );
+    }
+
+    /// Once the work is over: a title typed before the reset is written into
+    /// the session the reset drops, before the drop; one typed after it into
+    /// the session the reset starts, after the drop -- and both even when the
+    /// session is ending, because the shell has already said them.
+    #[test]
+    fn renames_put_aside_land_on_either_side_of_the_reset_they_were_typed_around() {
+        let (home, _workspace, mut state) = recording();
+        let before = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        // Said by the shell already, as one typed while work runs is.
+        control.defer_rename("Typed Before".to_string(), false, true);
+        control.defer_rename("Typed After".to_string(), true, true);
+        let ended = on_a_runtime(async {
+            let ended = apply_deferred(
+                &mut state,
+                Ended::Reset(0),
+                &events_tx,
+                &cancel,
+                &control,
+                &mut queue,
+            )
+            .await;
+            if let Ended::Reset(through) = ended {
+                drop_conversation(&mut state, &events_tx, through).await;
+                write_renamed_after_reset(&mut state, &events_tx, &cancel).await;
+            }
+            ended
+        });
+        assert_eq!(ended, Ended::Reset(0));
+        let dropped = session_log(home.path(), before.as_str());
+        assert!(
+            dropped.contains("Typed Before") && !dropped.contains("Typed After"),
+            "{dropped}"
+        );
+        let after = state
+            .conversation
+            .as_ref()
+            .expect("opened for the title")
+            .recorder
+            .id()
+            .clone();
+        assert_ne!(after, before);
+        assert!(session_log(home.path(), after.as_str()).contains("Typed After"));
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+
+        // A `/quit` after the work: still written.
+        control.defer_rename("Then Quit".to_string(), false, true);
+        let ended = on_a_runtime(apply_deferred(
+            &mut state,
+            Ended::Session,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Session);
+        assert!(session_log(home.path(), after.as_str()).contains("Then Quit"));
+
+        // A `/new`, a `/rename` and a `/quit` in one turn: the shutdown
+        // outranks the reset, and the title still names the session the
+        // reset would have started -- opened for it, not the one it left.
+        control.defer_rename("New Then Quit".to_string(), true, true);
+        on_a_runtime(async {
+            let ended = apply_deferred(
+                &mut state,
+                Ended::Session,
+                &events_tx,
+                &cancel,
+                &control,
+                &mut queue,
+            )
+            .await;
+            assert_eq!(ended, Ended::Session);
+            write_renamed_before_leaving(&mut state, &events_tx, &cancel).await;
+        });
+        assert!(!session_log(home.path(), after.as_str()).contains("New Then Quit"));
+        let last = state
+            .conversation
+            .as_ref()
+            .expect("opened for the title")
+            .recorder
+            .id()
+            .clone();
+        assert!(last != after && last != before);
+        assert!(session_log(home.path(), last.as_str()).contains("New Then Quit"));
     }
 
     #[test]
@@ -7545,6 +8352,59 @@ mod tests {
     }
 
     #[test]
+    fn every_pick_writes_upstreams_fields_and_a_row_with_levels_takes_the_sessions_effort() {
+        // `selectModelFromPicker` (`session_commands.zig:886-915`), the one
+        // path a menu row, the column, `/model <id> <effort>`, a `C-p` row and
+        // `/settings`' model list (`applyInlineSettingsModelSelection`,
+        // `app_input_runtime.zig:2517-2529`) all reach: the provider, the
+        // model, the switches and the binding -- and the effort whenever the
+        // model's row lists levels, the session's when the pick chose none.
+        let (home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        state.settings.effort = crate::provider::effort::Effort::Named("max".to_string());
+        let kept = |name: &str| ModelChange {
+            name: name.to_string(),
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: false,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        };
+        let said = ran_change(&mut state, kept("anthropic/claude-opus-5"));
+        assert!(
+            said.iter()
+                .all(|event| !matches!(event, UiEvent::Notice(_))),
+            "{said:?}"
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "anthropic/claude-opus-5"},
+                               "provider": "gateway", "effort": "max",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        // A row with no levels takes no effort, so none is written; the one
+        // already there stays.
+        std::fs::remove_file(home.path().join(".xfx").join("settings.json")).expect("emptied");
+        ran_change(&mut state, kept("fake/model-a"));
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "fake/model-a"},
+                               "provider": "gateway",
+                               "fast_mode": false, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
+        // And a query writes none either (`setResolvedModel`).
+        std::fs::remove_file(home.path().join(".xfx").join("settings.json")).expect("emptied");
+        ran_model(&mut state, "openai/gpt-6-astra", false);
+        assert_eq!(settings(home.path()).get("effort"), None);
+    }
+
+    #[test]
     fn a_pick_keeps_the_speed_its_row_offers_and_a_query_turns_both_off() {
         // `selectModelFromPicker` and `setResolvedModel`
         // (`session_commands.zig:886-915`, `:1168-1190`), recorded in the
@@ -7623,8 +8483,7 @@ mod tests {
     #[test]
     fn a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not() {
         let (home, _workspace, mut state) = recording();
-        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -7632,18 +8491,13 @@ mod tests {
                 topic: "fast",
                 provider: ProviderId::Gateway,
             },
-            &events_tx,
-        ));
+        );
         assert!(state.settings.fast && !state.settings.ultrafast);
         assert_eq!(recorded(&state).map(|settings| settings.fast), Some(true));
         assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(true));
-        assert!(
-            events_rx.try_recv().is_err(),
-            "a save that landed says nothing"
-        );
         // Decided under the provider a switch replaced: dropped, because the
         // switches went off with the model the switch replaced.
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: false,
@@ -7651,9 +8505,48 @@ mod tests {
                 topic: "ultrafast",
                 provider: ProviderId::Llmux,
             },
-            &events_tx,
-        ));
+        );
         assert!(state.settings.fast && !state.settings.ultrafast);
+    }
+
+    #[test]
+    fn a_speed_the_band_saved_before_a_model_change_this_thread_saves_later_is_still_the_files() {
+        // A `/model` put aside behind a turn, then `/fast`: the band writes
+        // the speed at once (`super::speed_save`), the model change is saved
+        // when the turn ends with the switches it turned off -- and the
+        // speed, applied after it, is written again so the file ends where
+        // the commands did.
+        let (home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        assert_eq!(
+            super::super::speed_save::save(
+                &path,
+                ProviderId::Gateway,
+                "acme/two",
+                true,
+                false,
+                &state.config.sources,
+                "fast",
+            ),
+            None
+        );
+        ran_model(&mut state, "acme/two", false);
+        assert_eq!(settings(home.path())["fast_mode"], serde_json::json!(false));
+        change_speed(
+            &mut state,
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway,
+            },
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "acme/two"}, "provider": "gateway",
+                               "fast_mode": true, "ultrafast_mode": false,
+                               "fast_mode_model_bound": true})
+        );
     }
 
     #[test]
@@ -7788,6 +8681,7 @@ mod tests {
                 .commit(SessionEvent::PreferencesChanged {
                     model: None,
                     permission_mode: None,
+                    provider: None,
                     effort: Some("max".to_string()),
                     fast_mode: Some(true),
                     ultrafast_mode: Some(false),
@@ -7811,6 +8705,93 @@ mod tests {
         // The runtime was in Normal: the session's Fast is not the configured
         // selection, so it comes back unbound (`restoredFastModeModelBound`).
         assert!(!replay.keeps_fast_binding);
+    }
+
+    #[test]
+    fn a_restored_fast_binding_needs_the_provider_the_model_and_fast_the_session_ran_under() {
+        // `restoredFastModeModelBound` (`app_session_runtime.zig:6318-6328`):
+        // the provider's authority, the model and `fast_mode`.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let recorded_fast = |provider: Option<ProviderId>| {
+            let session = store
+                .create(
+                    SessionId::generate(),
+                    crate::session::NewSession {
+                        origin_workspace_root: config.workspace_root.clone(),
+                        workspace_root: config.workspace_root.clone(),
+                        model: config.model.clone(),
+                        permission_mode: config.permission_mode,
+                        provider,
+                    },
+                )
+                .expect("a session");
+            let mut recorder = crate::session::SessionRecorder::new(store.clone(), session);
+            recorder.commit(SessionEvent::PreferencesChanged {
+                model: None,
+                permission_mode: None,
+                provider: None,
+                effort: Some("auto".to_string()),
+                fast_mode: Some(true),
+                ultrafast_mode: Some(false),
+            });
+            recorder.id().clone()
+        };
+        let opened = |id: &SessionId| {
+            Resumption::open(&config, &crate::session::Selector::Id(id.clone())).expect("opens")
+        };
+        let model = config.model.as_str();
+
+        let gateway = opened(&recorded_fast(Some(ProviderId::Gateway)));
+        assert!(gateway.keeps_fast_binding(ProviderId::Gateway, model, true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Llmux, model, true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Gateway, "other/model", true));
+        assert!(!gateway.keeps_fast_binding(ProviderId::Gateway, model, false));
+        drop(gateway);
+
+        // A session opened through the runtime's own path names its provider.
+        let through_open = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        assert_eq!(
+            through_open.recorder.state().provider.as_deref(),
+            Some(config.provider.label())
+        );
+        drop(through_open);
+
+        // A log written before the provider was recorded: decided by the
+        // model and Fast, as before -- and a resume writes down which
+        // provider it goes on under.
+        let older = recorded_fast(None);
+        let resumed = opened(&older);
+        assert!(resumed.keeps_fast_binding(ProviderId::Llmux, model, true));
+        assert!(!resumed.keeps_fast_binding(ProviderId::Llmux, model, false));
+        let mut state = Runtime::new(
+            config.clone(),
+            open_store(&config).expect("a store"),
+            a_prompter(),
+            a_questioner(),
+        );
+        state.resume(resumed, &CancelToken::new());
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("bound")
+                .recorder
+                .state()
+                .provider
+                .as_deref(),
+            Some(config.provider.label())
+        );
     }
 
     /// Runs one tool call through the conversation's own tools, as a turn's
@@ -8174,8 +9155,7 @@ mod tests {
         let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
-        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(change_speed(
+        change_speed(
             &mut state,
             SpeedChange {
                 fast: true,
@@ -8183,21 +9163,22 @@ mod tests {
                 topic: "fast",
                 provider: ProviderId::Gateway,
             },
-            &events_tx,
-        ));
+        );
         assert_eq!(
             settings(home.path()),
             serde_json::json!({"models": {"gateway": "pinned/model"}, "provider": "gateway",
                                "fast_mode": true, "ultrafast_mode": false,
                                "fast_mode_model_bound": true})
         );
+        // What the band's write of the same change says, above its `* fast:
+        // on` (`super::speed_save`).
         assert_eq!(
-            events_rx.try_recv().ok(),
-            Some(UiEvent::Notice(super::super::notice::Notice::neutral(
+            state.save_speed("fast"),
+            Some(super::super::notice::Notice::neutral(
                 "fast",
                 "saved to user settings (scope=user); fresh sessions here use \
                  higher-precedence model=process_override"
-            )))
+            ))
         );
     }
 

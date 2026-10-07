@@ -1,0 +1,12 @@
+=== ~/.xfx/history.jsonl (432 bytes)
+{"schema_version":1,"timestamp_ms":1791331895927,"workspace_root":"<scratch>/work","text":"/settings"}
+{"schema_version":1,"timestamp_ms":1791331898956,"workspace_root":"<scratch>/work","text":"/settings startup-scrollback"}
+{"schema_version":1,"timestamp_ms":1791331899816,"workspace_root":"<scratch>/work","text":"/settings STARTUP-SCROLLBACK off"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (34 bytes)
+{
+  "startup_scrollback": false
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

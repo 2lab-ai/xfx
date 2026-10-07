@@ -1,0 +1,20 @@
+# An image wider than a request may carry (9000 pixels; the limit is 8000) is
+# attached, and withheld at send: no file part, and fx's note in front of the
+# prompt's text naming the session's saved copy. The note is the model's, not
+# the screen's: the receipt is the request body. `wide.png` is a PNG signature
+# and an IHDR declaring 9000x10, made at launch.
+models models-image.json
+gateway image-turns.json
+work image-ws
+pnghdr wide.png 9000 10
+wait 3
+type /image wide.png
+key Enter
+wait 1.5
+snap attached
+type  describe
+key Enter
+wait 4
+snap sent
+gwlog
+home end

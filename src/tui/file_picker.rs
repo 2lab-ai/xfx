@@ -88,8 +88,9 @@ fn is_sentence_punctuation(byte: u8) -> bool {
 }
 
 /// Where a word that may hold quotes ends (`token_end`,
-/// `file_picker_path.zig:36-52`).
-fn token_end(text: &[u8], start: usize) -> usize {
+/// `file_picker_path.zig:36-52`): the image path words of a prompt are cut by
+/// it too ([`super::image_paths`]).
+pub(crate) fn token_end(text: &[u8], start: usize) -> usize {
     let mut index = start;
     let mut quote: Option<u8> = None;
     while index < text.len() {
@@ -111,7 +112,7 @@ fn token_end(text: &[u8], start: usize) -> usize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Status {
+pub(crate) enum Status {
     Complete,
     Incomplete,
     Invalid,
@@ -119,19 +120,24 @@ enum Status {
 
 /// One `@` word (`Token`, `file_picker_path.zig:58-67`).
 #[derive(Debug, Clone, Copy)]
-struct Token {
-    start: usize,
-    end: usize,
-    path_start: usize,
-    path_end: usize,
-    quote_end: Option<usize>,
-    status: Status,
-    quoted: bool,
+pub(crate) struct Token {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) path_start: usize,
+    pub(crate) path_end: usize,
+    pub(crate) quote_end: Option<usize>,
+    pub(crate) status: Status,
+    pub(crate) quoted: bool,
+    /// Whether every escape in a quoted path is `\\` or `\"`, the two the
+    /// picker writes ([`encode`]): such a payload is decoded once and is the
+    /// file's name, where any other spelling keeps the older rules of an
+    /// image path ([`super::image_paths`]).
+    pub(crate) canonical_escapes: bool,
 }
 
 /// The `@` word at `start`, if one starts there (`parse_at`,
 /// `file_picker_path.zig:69-115`).
-fn parse_at(text: &[u8], start: usize) -> Option<Token> {
+pub(crate) fn parse_at(text: &[u8], start: usize) -> Option<Token> {
     if start >= text.len() || text[start] != b'@' {
         return None;
     }
@@ -166,9 +172,11 @@ fn parse_at(text: &[u8], start: usize) -> Option<Token> {
                 Status::Complete
             },
             quoted: false,
+            canonical_escapes: true,
         });
     }
     let mut index = path_start;
+    let mut canonical_escapes = true;
     while index < text.len() {
         let byte = text[index];
         if matches!(byte, b'\n' | b'\r' | b'\t') {
@@ -182,6 +190,7 @@ fn parse_at(text: &[u8], start: usize) -> Option<Token> {
             if matches!(text[index + 1], b'\n' | b'\r' | b'\t') {
                 break;
             }
+            canonical_escapes &= matches!(text[index + 1], b'\\' | b'"');
             index += 2;
             continue;
         }
@@ -205,6 +214,7 @@ fn parse_at(text: &[u8], start: usize) -> Option<Token> {
                     Status::Invalid
                 },
                 quoted: true,
+                canonical_escapes,
             });
         }
         index += 1;
@@ -217,6 +227,7 @@ fn parse_at(text: &[u8], start: usize) -> Option<Token> {
         quote_end: None,
         status: Status::Incomplete,
         quoted: true,
+        canonical_escapes,
     })
 }
 

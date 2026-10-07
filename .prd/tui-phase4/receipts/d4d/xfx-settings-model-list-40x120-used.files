@@ -1,0 +1,12 @@
+=== ~/.xfx/history.jsonl (130 bytes)
+{"schema_version":1,"timestamp_ms":1791331879617,"workspace_root":"<scratch>/work","text":"/settings"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (63 bytes)
+{
+  "models": {
+    "gateway": "anthropic/claude-opus-5"
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

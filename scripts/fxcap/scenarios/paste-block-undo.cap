@@ -1,0 +1,35 @@
+# An undo around a pasted-text block: `look` and a space typed, 1001 `x`s
+# pasted (a block), Backspace takes the block and Ctrl-_ (undo) twice finds
+# nothing to take back. Then 1001 `x`s pasted again, Ctrl-U kills the line
+# with its block, Ctrl-Y yanks it back, and Ctrl-_ twice: the first takes the
+# yank back, the second finds nothing. Ten seconds to start: on a loaded
+# host a keystroke sent sooner reaches the shell instead.
+wait 10
+type look
+key Space
+pastex 1001
+wait 3
+snap pasted
+key BSpace
+wait 0.5
+snap deleted
+key C-_
+wait 0.5
+key C-_
+wait 0.5
+snap undone
+pastex 1001
+wait 3
+snap pasted-again
+key C-u
+wait 0.5
+snap killed
+key C-y
+wait 1
+snap yanked
+key C-_
+wait 0.5
+snap yank-undone
+key C-_
+wait 0.5
+snap undone-again

@@ -1176,13 +1176,9 @@ fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
     // discards a stop sent there.
     let session = in_its_own_process_group(&sandbox, &pty);
 
-    session.signal(Signal::TSTP);
     assert!(
         matches!(
-            session.wait_state("the child to stop", |state| matches!(
-                state,
-                Wait::Stopped(_)
-            )),
+            session.stop_with(Signal::TSTP, "the child to stop"),
             Wait::Stopped(_)
         ),
         "a stop aimed at a starting session was swallowed"
@@ -1222,12 +1218,8 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     let before = modes(&pty);
     let session = started(&sandbox, &pty);
 
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw()),
         "only raise(SIGSTOP) after SIG_DFL produces a genuine stop"
     );
@@ -1288,12 +1280,8 @@ fn a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced() {
     let session = started(&sandbox, &pty);
     session.wait_for(TITLE);
 
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     session.wait_for(ABNORMAL_RESTORE);
@@ -1347,12 +1335,8 @@ fn a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back() 
     let session = in_its_own_process_group(&sandbox, &pty);
 
     session.wait_for(PROBE);
-    session.signal(Signal::TSTP);
     assert_eq!(
-        session.wait_state("the child to stop", |state| matches!(
-            state,
-            Wait::Stopped(_)
-        )),
+        session.stop_with(Signal::TSTP, "the child to stop"),
         Wait::Stopped(Signal::STOP.as_raw())
     );
     assert_eq!(before, modes(&pty), "a stopped job left the terminal raw");
@@ -1541,6 +1525,109 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
         launch.matches('\n').count(),
         1,
         "the push was not the row the terminal reported: {text:?}"
+    );
+}
+
+#[test]
+fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
+    // `app_lifecycle.zig:944-948`: a cursor past the first column is on a
+    // line the shell left unfinished, so the launch starts on the row under
+    // it -- and with `startup_scrollback` on, that line goes into scrollback
+    // with the rest instead of being written over by the welcome line.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(format!(
+        "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
+        env!("CARGO_BIN_EXE_xfx")
+    ));
+    sandbox.apply_env(&mut command);
+    command.env("XFX_TUI", "1");
+
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    // Row 1, column 20: just past the marker the shell printed.
+    session.type_bytes(b"\x1b[1;20R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let announced = text.find(READY).expect("the session's announce");
+    let after = &text[announced..];
+    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
+    let push_end = launch
+        .match_indices("\u{1b}[24;1H")
+        .nth(1)
+        .map_or(launch.len(), |(at, _)| at);
+    let push = &launch[..push_end];
+    let to_bottom = push
+        .find("\u{1b}[24;1H")
+        .unwrap_or_else(|| panic!("the unfinished line was not pushed away: {text:?}"));
+    let newline = push
+        .find('\n')
+        .unwrap_or_else(|| panic!("nothing scrolled: {text:?}"));
+    assert!(to_bottom < newline, "{text:?}");
+    assert_eq!(
+        push.matches('\n').count(),
+        1,
+        "the push was not the one row the line is on: {text:?}"
+    );
+}
+
+#[test]
+fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
+    // `prepareStartupViewport` with `startup_scrollback` off
+    // (`app_lifecycle.zig:966-988`): nothing is pushed while eleven rows are
+    // left under the cursor, and the session's first row is the cursor's own
+    // -- row 2, under the line the shell printed -- rather than row 1.
+    let sandbox = Sandbox::new();
+    let profile = sandbox.settings_path();
+    std::fs::create_dir_all(profile.parent().expect("a profile dir")).expect("the profile dir");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            profile.parent().expect("a profile dir"),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .expect("tighten the profile dir");
+    }
+    std::fs::write(&profile, "{\"startup_scrollback\":false}").expect("the profile");
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(format!(
+        "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
+        env!("CARGO_BIN_EXE_xfx")
+    ));
+    sandbox.apply_env(&mut command);
+    command.env("XFX_TUI", "1");
+
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let announced = text.find(READY).expect("the session's announce");
+    let after = &text[announced..];
+    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
+    assert!(
+        !launch.contains('\n'),
+        "the launch pushed the shell's output away: {text:?}"
+    );
+    // The welcome line is the document's first row, and it is row 2.
+    assert!(
+        launch.contains("\u{1b}[2;1H"),
+        "the welcome line is not on the cursor's row: {launch:?}"
+    );
+    assert!(
+        !launch.contains("\u{1b}[1;1H"),
+        "the session wrote on the shell's row: {launch:?}"
     );
 }
 
@@ -2747,13 +2834,16 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
         |text| composer(text) == "\u{2503} half typed",
     );
 
-    // Up, from the only row a one-row draft has.
-    session.type_bytes(b"\x1b[A");
+    // Up, from the only row a one-row draft has: the first takes the caret
+    // to the draft's start, and the second recalls
+    // (`input_completion_runtime.zig:265-284`).
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the newest submitted line to come back", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
-    // Up again, which walks on.
-    session.type_bytes(b"\x1b[A");
+    // Up again, twice -- the recalled line's caret is at its end -- which
+    // walks on.
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the line before it to come back", |text| {
         composer(text) == "\u{2503} alpha prompt"
     });
@@ -2770,7 +2860,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
 
     // An edit ends the walk: the next step back is the newest line again, and
     // what it comes back to is the text the edit left behind.
-    session.type_bytes(b"\x1b[A");
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("a second walk to reach the newest line", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
@@ -2778,7 +2868,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the recalled line to take the keystroke", |text| {
         composer(text) == "\u{2503} bravo prompt!"
     });
-    session.type_bytes(b"\x1b[A");
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the walk to start from the newest line again", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
@@ -4161,15 +4251,24 @@ fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
         .rfind("Run /help for commands")
         .expect("the fresh welcome");
     session.type_bytes(b"second\r");
-    let text = session.wait_for("MARKER-AFTER-THE-RESET");
-    // No cancelled notice and no summary of the cancelled turn reached the
-    // fresh screen: upstream's reset says nothing.
-    let after = &text[reset_at..];
-    assert!(!after.contains("interrupted"), "{after:?}");
-    assert!(!after.contains("FIRST-TURN-RUNNING"), "{after:?}");
+    session.wait_for("MARKER-AFTER-THE-RESET");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+    // No cancelled notice -- neither the line a stop writes nor the failure
+    // the cancelled turn concluded with -- and nothing of the cancelled turn
+    // reached the fresh screen: upstream's reset says nothing. Absences, so
+    // asked of everything the terminal will ever receive
+    // ([`Session::settled_text`]) rather than of a snapshot taken while the
+    // runtime was still draining the turn the reset cancelled.
+    let settled = session.settled_text();
+    let after = &settled[reset_at..];
+    for stray in [CANCELLED, "interrupted", "FIRST-TURN-RUNNING"] {
+        assert!(
+            !after.contains(stray),
+            "{stray:?} after the reset: {after:?}"
+        );
+    }
     assert_eq!(
         user_messages(&gateway.requests()[1].json()),
         vec!["second".to_string()],
@@ -5906,10 +6005,7 @@ fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() 
         "the plane was not taken once before the stop: {before_stop:?}"
     );
 
-    session.signal(Signal::TSTP);
-    session.wait_state("the child to really stop", |state| {
-        matches!(state, Wait::Stopped(_))
-    });
+    session.stop_with(Signal::TSTP, "the child to really stop");
     // The handler gave the plane back on its way down: that is what makes the
     // retake below necessary rather than decorative.
     assert_eq!(
@@ -5976,10 +6072,7 @@ fn a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on() 
         "the plane was not taken once before the stop"
     );
 
-    session.signal(Signal::STOP);
-    session.wait_state("the child to really stop", |state| {
-        matches!(state, Wait::Stopped(_))
-    });
+    session.stop_with(Signal::STOP, "the child to really stop");
     // The discriminating fact: no handler ran, so nothing gave the plane back.
     assert!(
         !session.text().contains(LEAVES_ALTERNATE),
@@ -8719,6 +8812,302 @@ fn an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_ev
 }
 
 #[test]
+fn an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood() {
+    // `fx-image-40x120-inline-typed.ansi`: a pasted path is a badge before
+    // Enter, with no notice (`input_paste_runtime.zig:370-377`); a typed one
+    // is attached as the prompt is sent, its punctuation kept
+    // (`tui-composer-edit-contracts.test.ts:1018-1030`).
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-PASTED"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-TYPED"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"\x1b[200~shot.png describe this too\x1b[201~");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] describe this too"],
+        &["images:", "shot.png"],
+    );
+    assert_eq!(gateway.request_count(), 0, "the paste was sent");
+    session.type_bytes(b"\r");
+    session.wait_for("MARKER-PASTED");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"inspect shot.png,\r");
+    session.wait_for("MARKER-TYPED");
+    wait_for_conclusions(&sandbox, 2);
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} [Image 1] describe this too",
+            "\u{2503} inspect [Image 2],",
+        ],
+        &["shot.png,"],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(
+        user_messages(&requests[0].json()),
+        ["[Image #1] describe this too"]
+    );
+    assert_eq!(
+        file_parts(&requests[0].json()),
+        [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+    );
+    assert_eq!(
+        user_messages(&requests[1].json()),
+        ["[Image #1] describe this too", "inspect [Image #2],"]
+    );
+    assert_eq!(file_parts(&requests[1].json()).len(), 2);
+}
+
+#[test]
+fn a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number() {
+    // `tui-composer-edit-contracts.test.ts:1033-1047`: the words stay, the
+    // badge is renumbered, and the log names the image by its new number.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-SEEN"]),
+    )])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"\x1b[200~shot.png\x1b[201~ duplicate [Image #1]\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 2] duplicate [Image #1]"],
+        &[],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let body = gateway.requests()[0].json();
+    assert_eq!(user_messages(&body), ["[Image #2] duplicate [Image #1]"]);
+    assert_eq!(file_parts(&body).len(), 1);
+    let ids = sandbox.session_ids();
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    assert!(
+        log.contains("\"text\":\"[Image #2] duplicate [Image #1]\""),
+        "{log}"
+    );
+    assert!(log.contains("\"images\":[{\"id\":2,"), "{log}");
+}
+
+/// A turn that reads `shot.png` and answers, then a second turn's answer.
+fn reads_the_picture(answers: &[&str]) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let mut replies = vec![Reply::Sse(sse_body(&[
+        tool_call("r1", "read_file", serde_json::json!({"path": "shot.png"})),
+        finish("tool-calls"),
+    ]))];
+    replies.extend(
+        answers
+            .iter()
+            .map(|answer| Reply::Sse(content_only(&[answer]))),
+    );
+    replies
+}
+
+/// The user message after the tool results that carries their images, and
+/// the output the result kept, from a Gateway request.
+fn tool_image_parts(body: &Value) -> (Option<Value>, Vec<(String, String)>) {
+    let prompt = body["prompt"].as_array().expect("a prompt");
+    let output = prompt
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["toolCallId"] == "r1")
+        .map(|part| part["output"].clone());
+    (output, file_parts(body))
+}
+
+#[test]
+fn read_file_of_an_image_shows_it_to_the_model_on_every_later_request() {
+    // `imageToolResult` (`read_file.zig:228-278`) and the Gateway's place for
+    // it (`write_tool_image_user_message`, `vercel_protocol.zig:679-713`): the
+    // result says `image attached`, the image follows the results in a user
+    // message, and the next turn sends it again with the history.
+    let gateway = FakeGateway::start(reads_the_picture(&["MARKER-SEEN", "MARKER-AGAIN"]))
+        .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"what is in the picture?\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-AGAIN");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 3);
+    for request in &requests[1..] {
+        let (output, files) = tool_image_parts(&request.json());
+        assert_eq!(
+            output,
+            Some(
+                serde_json::json!({"type": "content", "value": [{"type": "text",
+                "text": "<path>shot.png</path>\n<content>image attached (image/png, 73 bytes)</content>"}]})
+            )
+        );
+        assert_eq!(
+            files,
+            [("image/png".to_string(), SHOT_PNG_BASE64.to_string())]
+        );
+        assert!(
+            request
+                .body
+                .contains("Attached image(s) from the tool result."),
+            "{}",
+            request.body
+        );
+    }
+    let ids = sandbox.session_ids();
+    let log = std::fs::read_to_string(sandbox.sessions_dir().join(&ids[0]).join("events.jsonl"))
+        .expect("the log");
+    assert!(log.contains("\"kind\":\"tool_images_attached\""), "{log}");
+}
+
+#[test]
+fn a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there() {
+    // `projectToolImageMessages` (`gateway_step.zig:256-283`): the image is
+    // taken out and the result says why, in upstream's sentence for a model
+    // with no image input and no `vision` tool to fall back on.
+    let gateway = FakeGateway::start(reads_the_picture(&["MARKER-SEEN"]))
+        .with_catalog(catalog_tagging(&["tool-use"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"what is in the picture?\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let requests = gateway.requests();
+    let (output, files) = tool_image_parts(&requests[1].json());
+    assert!(files.is_empty(), "the image was sent: {}", requests[1].body);
+    let text = output.expect("the result")["value"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        text.starts_with("[Tool images were retained but not sent: this model does not accept inline images and no vision fallback is available."),
+        "{text}"
+    );
+    assert_eq!(gateway.catalog_requests().len(), 1);
+}
+
+/// A PNG signature and an `IHDR` declaring `width` x `height`: upstream's
+/// `testPngHeader` (`image_data.zig:370-379`).
+fn png_header(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
+    bytes.extend_from_slice(&width.to_be_bytes());
+    bytes.extend_from_slice(&height.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request() {
+    // `withholdOversizedAttachments` (`image_attachments.zig:882-920`): the
+    // image stays out of the request, the text says why in front of it, and
+    // the history keeps it -- so the next request withholds it again, where
+    // the Gateway used to be sent it and refuse the whole turn.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SEEN"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-AGAIN"])),
+    ])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("wide.png"), png_header(9000, 10)).expect("wide.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image wide.png\r");
+    session.wait_for("attached image: wide.png");
+    session.type_bytes(b" describe\r");
+    session.wait_for("MARKER-SEEN");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-AGAIN");
+    wait_for_conclusions(&sandbox, 2);
+    // The transcript is the history: the badge and the words, no note.
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} [Image 1] describe"],
+        &["not sent"],
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1);
+    let dir = sandbox.sessions_dir().join(&ids[0]);
+    let copies: Vec<_> = std::fs::read_dir(dir.join("images"))
+        .expect("an images directory")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    let note = format!(
+        "[Image #1 not sent: image/png is 9000x10 pixels. This request permits at most 8000 per \
+         side and 5 MiB encoded per image. The original is saved at {}. Use an available image \
+         tool to save a smaller copy to a new file ending in .png, then read_file the copy. If no \
+         image tool is available, ask the user before installing one.]\n",
+        copies[0].display()
+    );
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        let body = request.json();
+        assert_eq!(file_parts(&body), [], "an image was sent");
+        assert_eq!(
+            user_messages(&body)[0],
+            format!("{note}[Image #1] describe")
+        );
+    }
+    assert_eq!(user_messages(&requests[1].json())[1], "and now?");
+    // The log keeps the turn as it was typed.
+    let log = std::fs::read_to_string(dir.join("events.jsonl")).expect("the log");
+    assert!(log.contains("\"text\":\"[Image #1] describe\""), "{log}");
+    assert!(!log.contains("not sent"), "{log}");
+}
+
+#[test]
 fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
     // `fx-image-unknown-40x120-sent.ansi`: a model the catalog does not list
     // is refused with upstream's sentence and **no completion request**; one
@@ -10411,11 +10800,40 @@ fn ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_s
     let concluded = &frames[asked + 2]["event"];
     assert_eq!(concluded["kind"], "turn_concluded", "{concluded}");
     assert_eq!(concluded["outcome"]["kind"], "interrupted");
-    assert_eq!(concluded["outcome"]["reason"], "the turn was cancelled");
+    // The sentence the user was shown, and whose stop it was in a field of
+    // its own, as upstream's (`event.interrupted.cancellation_origin ===
+    // "compaction"`, `tui-compaction-activity.test.ts:471`): that field,
+    // not the sentence, is how a resume tells it from the turn's own stop.
+    assert_eq!(
+        concluded["outcome"]["reason"],
+        "Compaction cancelled. Try /compact again when ready."
+    );
+    assert_eq!(concluded["outcome"]["cancellation_origin"], "compaction");
+    // And stopped, as upstream's compaction stop is (`terminal_reason`'s
+    // default, `persistCompactionInterruptedTurnOnce`).
+    assert_eq!(concluded["outcome"]["terminal_reason"], "cancelled");
     // Nothing about it in the document.
     on_screen(&session, (40, 120), &[], &["Cancelled", "\u{2717} system"]);
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Nor on a resume of it: the stopped turn replays as its card alone, as
+    // upstream's does (`tui-compaction-activity.test.ts:481-488`) -- no
+    // `■ Cancelled`, no `✗ system`.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &gateway);
+    resumed.arg("--resume").arg(&id);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    on_screen(
+        &second,
+        (40, 120),
+        &["second question", "MARKER-ONE"],
+        &["Cancelled", "\u{2717} system"],
+    );
+    second.type_bytes(b"/quit\r");
+    assert_eq!(second.wait_exit().code(), Some(0));
 }
 
 #[test]

@@ -1,0 +1,24 @@
+x𝒇x v0.1.0-cbf8bea [debug] · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────
+Sessions 17  Current workspace  [All workspaces]
+
+  question eighteen     work · now · 1 turn
+  question seventeen    work · now · 1 turn
+  question sixteen      work · now · 1 turn
+  question fifteen      work · now · 1 turn
+  question fourteen     work · now · 1 turn
+  question thirteen     work · now · 1 turn
+  question twelve       work · now · 1 turn
+  question eleven       work · now · 1 turn
+  question ten          work · now · 1 turn
+  question nine         work · now · 1 turn
+  question eight        work · now · 1 turn
+  ↓ Load more
+────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab scope     enter resume     esc close
+
+
+
+
