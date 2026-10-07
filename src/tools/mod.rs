@@ -99,11 +99,13 @@ pub struct RuleAction {
 /// src/core/tooling/tool_admission.zig:2257-2302`).
 ///
 /// The tools a rule can be about are the ones a decision is made for: the
-/// three changes and the command. A change is refused when a configured rule
-/// denies it (upstream's `PermissionStatePreparationDenied`) -- which the
-/// caller's session must be in `ask` to see, as upstream's preflight is, since
-/// full access consults no table -- and a change
-/// that would do nothing -- a folder already there -- has nothing to prepare.
+/// three changes, the command and the four reads. A change is refused when a
+/// configured rule denies it (upstream's `PermissionStatePreparationDenied`)
+/// -- which the caller's session must be in `ask` to see, as upstream's
+/// preflight is, since full access consults no table -- and a change that
+/// would do nothing -- a folder already there -- has nothing to prepare. A
+/// read is prepared as upstream prepares a structured call: its key and its
+/// label, with no rule consulted (`:2261-2267`).
 /// Every refusal is a sentence for the log; the person is told upstream's one
 /// line ([`crate::permission::slash::NOT_PREPARED`]).
 pub fn prepare_rule_action(
@@ -135,6 +137,20 @@ pub fn prepare_rule_action(
             let key = action
                 .state_key()
                 .ok_or_else(|| "the command has no key".to_string())?;
+            return Ok(RuleAction {
+                key,
+                display: action.state_display(),
+            });
+        }
+        ToolInput::ReadFile(_)
+        | ToolInput::ListFiles(_)
+        | ToolInput::GlobFiles(_)
+        | ToolInput::GrepFiles(_) => {
+            let plan = read::prepare_read(&input, context)?;
+            let action = ProposedAction::Read(&plan);
+            let key = action
+                .state_key()
+                .ok_or_else(|| "the read has no key".to_string())?;
             return Ok(RuleAction {
                 key,
                 display: action.state_display(),
@@ -192,6 +208,42 @@ impl Registry {
         self.specs.iter().map(ToolSpec::advertisement).collect()
     }
 
+    /// The specs a request made in `mode` under the configured `rules`
+    /// offers the model, in registry order: every one but those the table
+    /// refuses at every target -- and every one in full access, which
+    /// consults no table (`appendBuiltinTool`, `vercel-labs/fx@c1db9191
+    /// src/core/tooling/tool_projection.zig:563-566`).
+    ///
+    /// Leaving a tool out is not what keeps it from running -- a call to it
+    /// anyway is still judged, and the same table refuses it -- it is what
+    /// keeps the model from spending a step on a call that can only be
+    /// refused.
+    pub fn offered(
+        &self,
+        mode: crate::permission::PermissionMode,
+        rules: &crate::permission::RuleSet,
+    ) -> Vec<&'static ToolSpec> {
+        self.specs
+            .iter()
+            .filter(|spec| {
+                mode == crate::permission::PermissionMode::Yolo
+                    || !rules.denies_every_target_of_tool(upstream_name(spec.name()))
+            })
+            .collect()
+    }
+
+    /// [`Self::offered`]'s schemas, as a request's `tools` array.
+    pub fn advertisement_under(
+        &self,
+        mode: crate::permission::PermissionMode,
+        rules: &crate::permission::RuleSet,
+    ) -> Vec<Value> {
+        self.offered(mode, rules)
+            .into_iter()
+            .map(ToolSpec::advertisement)
+            .collect()
+    }
+
     /// Runs one model tool call.
     ///
     /// Ok(result) covers both "it worked" and "it refused": a refusal is
@@ -231,6 +283,24 @@ impl Registry {
             );
         }
         Ok(result)
+    }
+}
+
+/// The name upstream's projection judges a spec by.
+///
+/// `terminal` is upstream's `shell` -- the one tool the two products ship
+/// under different names -- and is judged as upstream judges `shell`: under
+/// that name alone, which `permissionNameForTool` maps to no category
+/// (`vercel-labs/fx@c1db9191 src/core/permissions/permissions.zig:1455-1464`).
+/// So `shell: deny` or `*: deny` leaves it out of the request and `bash:
+/// deny`, which refuses every command it would run, does not -- what the same
+/// settings file does upstream. Every other spec is judged by its own name,
+/// under the category a call to it is judged under
+/// ([`crate::permission::rules::permission_name_for_tool`]).
+fn upstream_name(name: &'static str) -> &'static str {
+    match name {
+        "terminal" => "shell",
+        other => other,
     }
 }
 
@@ -303,6 +373,92 @@ mod tests {
         // The textual inventory `scripts/check-no-stubs.sh` reads and the table
         // the product actually runs cannot drift apart.
         assert_eq!(Registry::builtin().names(), ADVERTISED_TOOLS);
+    }
+
+    fn offered(
+        mode: crate::permission::PermissionMode,
+        rows: &[(&str, &str, crate::permission::RuleAction)],
+    ) -> Vec<&'static str> {
+        let rules = crate::permission::RuleSet::new(
+            rows.iter()
+                .map(|(permission, pattern, action)| {
+                    crate::permission::ConfiguredRule::new(*permission, *pattern, *action)
+                })
+                .collect(),
+        );
+        Registry::builtin()
+            .offered(mode, &rules)
+            .into_iter()
+            .map(ToolSpec::name)
+            .collect()
+    }
+
+    #[test]
+    fn a_tool_a_global_deny_covers_is_left_out_of_the_request_and_full_access_offers_everything() {
+        use crate::permission::{PermissionMode, RuleAction::*};
+        // Upstream's category-wide deny takes both edit tools out
+        // (`tool_projection.zig:719-743`); xfx's `create_folder` is an `edit`
+        // too.
+        assert_eq!(
+            offered(PermissionMode::Ask, &[("edit", "*", Deny)]),
+            [
+                "list_files",
+                "glob_files",
+                "grep_files",
+                "read_file",
+                "terminal",
+                "ask_user_question"
+            ]
+        );
+        assert_eq!(
+            offered(PermissionMode::Auto, &[("read", "*", Deny)]),
+            [
+                "list_files",
+                "glob_files",
+                "grep_files",
+                "write_file",
+                "edit_file",
+                "create_folder",
+                "terminal",
+                "ask_user_question"
+            ]
+        );
+        // `list_files` is judged as `glob`, as its calls are.
+        assert!(!offered(PermissionMode::Ask, &[("glob", "*", Deny)]).contains(&"list_files"));
+        // Not a global deny: a narrower one, an ask, a later way through.
+        assert_eq!(
+            offered(PermissionMode::Ask, &[("edit", "src/*", Deny)]),
+            ADVERTISED_TOOLS
+        );
+        assert_eq!(
+            offered(PermissionMode::Ask, &[("edit", "*", Ask)]),
+            ADVERTISED_TOOLS
+        );
+        assert_eq!(
+            offered(
+                PermissionMode::Ask,
+                &[("edit", "*", Deny), ("edit", "src/*", Ask)]
+            ),
+            ADVERTISED_TOOLS
+        );
+        // Everything denied: nothing offered, and full access offers it all
+        // (`yolo advertisement ignores permission filtering`, `:705-717`).
+        assert!(offered(PermissionMode::Ask, &[("*", "*", Deny)]).is_empty());
+        assert_eq!(
+            offered(PermissionMode::Yolo, &[("*", "*", Deny)]),
+            ADVERTISED_TOOLS
+        );
+    }
+
+    #[test]
+    fn the_terminal_is_left_out_as_upstreams_shell_is_and_not_by_a_rule_about_commands() {
+        use crate::permission::{PermissionMode, RuleAction::*};
+        assert!(!offered(PermissionMode::Ask, &[("shell", "*", Deny)]).contains(&"terminal"));
+        // `bash` refuses every command the terminal would run, and upstream
+        // still advertises `shell` under it; so does xfx, and the call is
+        // refused when it comes.
+        assert!(offered(PermissionMode::Ask, &[("bash", "*", Deny)]).contains(&"terminal"));
+        assert!(offered(PermissionMode::Ask, &[("terminal", "*", Deny)]).contains(&"terminal"));
     }
 
     #[test]

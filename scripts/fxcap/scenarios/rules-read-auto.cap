@@ -1,0 +1,52 @@
+# R1: the read band in `auto`, every other way out of it, and a remembered
+# read. `grep: {"*": "ask"}` asks about a search in auto too (upstream's
+# `configured_ask` comes before the mode, `tool_admission.zig:1430-1444`):
+# `3` amended with a sentence refuses it and the sentence reaches the model
+# after the result; Escape on a read's band stops the turn; then
+# `/permissions remember allow read_file {"path":"secret.txt"}` is confirmed
+# and the same read runs without a question.
+gateway rules-read-auto-turns.json
+work rules-ws
+seed rules-read-settings.json
+fx: env FX_PERMISSION_MODE=auto
+xfx: env XFX_PERMISSION_MODE=auto
+wait 3
+type search for it
+key Enter
+wait 5
+snap grep-ask
+key Down
+wait 0.4
+key Down
+wait 0.4
+key Tab
+wait 0.4
+type look in notes.txt instead
+wait 0.6
+snap grep-amend
+key Enter
+wait 4
+snap grep-no
+type read it
+key Enter
+wait 5
+snap read-ask
+key Escape
+wait 4
+snap read-esc
+type /permissions remember allow read_file {"path":"secret.txt"}
+key Enter
+wait 2
+snap remember-prompt
+key Enter
+wait 2
+snap remember-done
+type read it now
+key Enter
+wait 5
+snap remembered
+type /permissions
+key Enter
+wait 2
+snap listed
+gwlog

@@ -5019,6 +5019,156 @@ fn ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
+/// Writes `profile` as the sandbox's settings, in an owner-only profile
+/// directory, as xfx requires of one.
+fn with_profile(sandbox: &Sandbox, profile: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let path = sandbox.settings_path();
+    let dir = path.parent().expect("a profile dir");
+    std::fs::create_dir_all(dir).expect("the profile dir");
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        .expect("tighten the profile dir");
+    std::fs::write(&path, profile).expect("write the profile");
+}
+
+#[test]
+fn a_rule_that_asks_before_a_read_puts_the_read_band_up_in_auto_and_a_no_is_denied_to_the_model() {
+    // Upstream asks before a read a configured rule asks about, in `auto` as
+    // in `ask` (`tool_admission.zig:1430-1444`), in its generic band: the
+    // question, the reason, the tool and its argument, and the three
+    // generic choices (`approval_ui.zig:1842-1913`, `:1966-1972`;
+    // `fx-rules-read-40x120-ask`). A No is `execution-denied` on the wire
+    // (`vercel_protocol.zig:742-744`) and the file is never opened.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::sse_body(&[
+            support::fake_gateway::tool_call(
+                "read-0",
+                "read_file",
+                serde_json::json!({ "path": "secret.txt" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-AFTER-NO",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("secret.txt"), "hunter2\n").expect("the secret");
+    with_profile(&sandbox, r#"{"permission":{"read":{"secret*":"ask"}}}"#);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "auto");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"read the secret\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "Permission needed · Choose one",
+            "Would you like to allow this action?",
+            "Reason: This action needs approval before xfx can continue.",
+            "  read_file secret.txt",
+            "❯ 1. Yes",
+            "2. Yes, and don't ask again for this request",
+            "3. No",
+            "2 = allow every future read_file of `secret.txt` for the rest of this session",
+            "Reading secret.txt",
+        ],
+        &[],
+    );
+    assert_eq!(
+        gateway.requests().len(),
+        1,
+        "the turn went on before the read was answered"
+    );
+
+    session.type_bytes(b"3");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Denied secret.txt", "1 denied", "MARKER-AFTER-NO"],
+        &["Would you like to allow this action?"],
+    );
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2);
+    let body: Value = serde_json::from_str(&requests[1].body).expect("a JSON body");
+    let result = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["toolCallId"] == "read-0")
+        .expect("the read's result went back");
+    assert_eq!(result["output"]["type"], "execution-denied", "{result}");
+    let reason = result["output"]["reason"].as_str().expect("a reason");
+    assert!(
+        reason.starts_with("read_file was not permitted: you declined `read_file`"),
+        "{reason}"
+    );
+    assert!(!requests[1].body.contains("hunter2"), "the file was read");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// The tool names a captured request offered the model.
+fn offered_tools(body: &str) -> Vec<String> {
+    let body: Value = serde_json::from_str(body).expect("a JSON body");
+    body["tools"]
+        .as_array()
+        .expect("a tools array")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a name").to_string())
+        .collect()
+}
+
+#[test]
+fn a_tool_a_global_deny_covers_is_left_out_of_the_request_until_allowlist_lets_it_back() {
+    // Upstream leaves a tool the table refuses everywhere out of the request
+    // (`rulesDenyAllTargetsForTool`, `tool_projection.zig:563-566`) and
+    // projects the tools afresh when each prompt's job starts
+    // (`app_agent_runtime.zig:1048-1052`): a rule changed between two turns
+    // changes what the next one offers (`fx-rules-hidden-40x120-bodies`).
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-FIRST"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SECOND"])),
+    ]);
+    let sandbox = Sandbox::new();
+    with_profile(&sandbox, r#"{"permission":{"edit":{"*":"deny"}}}"#);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"hello\r");
+    session.wait_for("MARKER-FIRST");
+    let first = offered_tools(&gateway.requests()[0].body);
+    for hidden in ["write_file", "edit_file", "create_folder"] {
+        assert!(!first.contains(&hidden.to_string()), "{first:?}");
+    }
+    assert!(first.contains(&"read_file".to_string()), "{first:?}");
+
+    // A local table shadows the profile's whole, and has no deny in it.
+    session.type_bytes(b"/allowlist add tool write_file\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["added tool edit: \"*\" (scope=local)"],
+        &[],
+    );
+    session.type_bytes(b"again\r");
+    session.wait_for("MARKER-SECOND");
+    let second = offered_tools(&gateway.requests()[1].body);
+    for back in ["write_file", "edit_file", "create_folder"] {
+        assert!(second.contains(&back.to_string()), "{second:?}");
+    }
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
 /// Every frame of every session log in the sandbox, oldest first.
 ///
 /// Read after the process has exited, so nothing here polls: the log is

@@ -1423,6 +1423,52 @@ fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {
 }
 
 #[test]
+fn a_rule_that_asks_before_a_read_asks_on_the_terminal_and_a_no_reads_nothing() {
+    // The line shell's prompt for a read a configured rule asks about: the
+    // same question the band puts (`tool_admission.zig:1430-1444`), in the
+    // shell's `y/a/n` words, and a `n` is a refusal the model is told of.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "read-0",
+                "read_file",
+                serde_json::json!({ "path": "secret.txt" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    fs::write(sandbox.workspace.join("secret.txt"), "hunter2\n").expect("the secret");
+    let profile = sandbox.settings_path();
+    let dir = profile.parent().expect("a profile dir");
+    fs::create_dir_all(dir).expect("the profile dir");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).expect("tighten");
+    }
+    fs::write(&profile, r#"{"permission":{"read":{"secret*":"ask"}}}"#).expect("the profile");
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "auto");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("read the secret");
+    let asked = session.wait_for("[n] no");
+    assert!(asked.contains("xfx wants to read `secret.txt`"), "{asked}");
+    assert!(
+        asked.contains("[a] always -- allow every future read_file of `secret.txt`"),
+        "{asked}"
+    );
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    let body = request_body(&gateway, 1);
+    assert!(body.to_string().contains("execution-denied"), "{body}");
+    assert!(!body.to_string().contains("hunter2"), "the file was read");
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn an_always_answered_on_the_terminal_is_written_where_a_resume_will_read_it() {
     // The durable half of `[a] always`. The prompt promises the approval lasts
     // beyond this process -- it names the session id a later `--resume-id` would

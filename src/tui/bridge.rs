@@ -636,6 +636,9 @@ impl UiEvent {
                     // policy.
                     subject: match asked.request.subject {
                         ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
+                        ApprovalSubject::Call(argument) => {
+                            ApprovalSubject::Call(inert_owned(argument))
+                        }
                         ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
                             command: inert_owned(command),
                             cwd: inert_owned(cwd),

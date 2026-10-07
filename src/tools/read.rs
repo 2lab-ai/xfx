@@ -32,8 +32,8 @@ use crate::workspace::{is_ignored_directory, PathError};
 use super::spec::{
     access_denied, clip, error_name, execution_failure, nonblank, object, optional_bool,
     optional_enum, optional_integer, optional_string, required_string, Activity, InputSchema,
-    Outcome, PermissionKind, Presentation, Property, PropertyKind, ToolContext, ToolInput,
-    ToolLimits, ToolResult, ToolSpec,
+    PermissionKind, Presentation, Property, PropertyKind, ToolContext, ToolInput, ToolLimits,
+    ToolResult, ToolSpec,
 };
 
 /// Appended to a line that was clipped by `read_file`
@@ -257,6 +257,12 @@ fn validate_list_files(input: &ToolInput) -> Result<(), String> {
 }
 
 fn execute_list_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    list_files(input, context, &mut said).with_feedback(said)
+}
+
+fn list_files(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::ListFiles(input) = input else {
         return ToolResult::failure(mismatched("list_files"));
     };
@@ -265,7 +271,12 @@ fn execute_list_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(resolved) => resolved,
         Err(err) => return unresolved("list_files", requested, err),
     };
-    if let Err(refused) = admitted("list_files", context, resolved.absolute()) {
+    let asked = Asked {
+        tool: "list_files",
+        argument: requested,
+        binding,
+    };
+    if let Err(refused) = admitted(&asked, context, resolved.absolute(), said) {
         return refused;
     }
     let display = context.scope().display_path(resolved.absolute());
@@ -352,6 +363,12 @@ fn validate_glob_files(input: &ToolInput) -> Result<(), String> {
 }
 
 fn execute_glob_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    glob_files(input, context, &mut said).with_feedback(said)
+}
+
+fn glob_files(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::GlobFiles(input) = input else {
         return ToolResult::failure(mismatched("glob_files"));
     };
@@ -359,7 +376,12 @@ fn execute_glob_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(matcher) => matcher,
         Err(reason) => return ToolResult::failure(reason),
     };
-    let root = match search_root("glob_files", context, input.path.as_deref()) {
+    let asked = Asked {
+        tool: "glob_files",
+        argument: &input.pattern,
+        binding,
+    };
+    let root = match search_root(&asked, context, input.path.as_deref(), said) {
         Ok(root) => root,
         Err(result) => return result,
     };
@@ -472,6 +494,12 @@ struct GrepMatch {
 }
 
 fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    grep_files(input, context, &mut said).with_feedback(said)
+}
+
+fn grep_files(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::GrepFiles(input) = input else {
         return ToolResult::failure(mismatched("grep_files"));
     };
@@ -482,7 +510,12 @@ fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         },
         None => None,
     };
-    let root = match search_root("grep_files", context, input.path.as_deref()) {
+    let asked = Asked {
+        tool: "grep_files",
+        argument: &input.pattern,
+        binding,
+    };
+    let root = match search_root(&asked, context, input.path.as_deref(), said) {
         Ok(root) => root,
         Err(result) => return result,
     };
@@ -870,6 +903,12 @@ fn validate_read_file(input: &ToolInput) -> Result<(), String> {
 }
 
 fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
+    let mut said = None;
+    read_file(input, context, &mut said).with_feedback(said)
+}
+
+fn read_file(input: &ToolInput, context: &ToolContext, said: &mut Option<String>) -> ToolResult {
+    let binding = binding(input);
     let ToolInput::ReadFile(input) = input else {
         return ToolResult::failure(mismatched("read_file"));
     };
@@ -878,7 +917,12 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(resolved) => resolved,
         Err(err) => return unresolved("read_file", &input.path, err),
     };
-    if let Err(refused) = admitted("read_file", context, resolved.absolute()) {
+    let asked = Asked {
+        tool: "read_file",
+        argument: &input.path,
+        binding,
+    };
+    if let Err(refused) = admitted(&asked, context, resolved.absolute(), said) {
         return refused;
     }
     let display = context.scope().display_path(resolved.absolute());
@@ -1232,16 +1276,18 @@ fn walk_files(root: &Path, limits: &ToolLimits, hidden: bool) -> WalkResult {
 
 /// Resolves the directory a search runs below.
 fn search_root(
-    tool: &str,
+    asked: &Asked<'_>,
     context: &ToolContext,
     requested: Option<&str>,
+    said: &mut Option<String>,
 ) -> Result<PathBuf, ToolResult> {
+    let tool = asked.tool;
     let requested = requested.unwrap_or(".");
     let resolved = context
         .scope()
         .resolve_existing(requested)
         .map_err(|err| unresolved(tool, requested, err))?;
-    admitted(tool, context, resolved.absolute())?;
+    admitted(asked, context, resolved.absolute(), said)?;
     let metadata = fs::metadata(resolved.absolute()).map_err(|err| {
         ToolResult::failure(format!(
             "{tool} cannot stat `{}`: {err}",
@@ -1257,7 +1303,73 @@ fn search_root(
     Ok(resolved.absolute().to_path_buf())
 }
 
-/// Whether the configured table lets `tool` read `canonical`, the path
+/// A read call as policy is asked about it, before its path is resolved.
+struct Asked<'a> {
+    tool: &'static str,
+    /// The call's label argument as the model wrote it: a path, or a
+    /// search's pattern ([`crate::permission::ApprovalSubject::Call`]).
+    argument: &'a str,
+    /// The call's typed input, field by field ([`binding`]).
+    binding: Vec<u8>,
+}
+
+impl Asked<'_> {
+    /// The read this call is, at `canonical`. One construction for the call
+    /// and for `/permissions remember` ([`prepare_read`]), so the two cannot
+    /// key one read two ways.
+    fn plan(&self, context: &ToolContext, canonical: &Path) -> crate::permission::ReadPlan {
+        crate::permission::ReadPlan::new(
+            self.tool,
+            canonical.to_path_buf(),
+            context.scope().display_path(canonical),
+            crate::permission::rules::rule_path(context.scope().primary(), canonical),
+            self.argument.to_string(),
+            self.binding.clone(),
+        )
+    }
+}
+
+/// The read `input` asks for, resolved as its tool resolves it and not run:
+/// what `/permissions remember` keys a rule about a read on. Upstream
+/// prepares a structured call's key and label and nothing else -- no
+/// configured rule is consulted (`preparePermissionStateAction`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:2261-2267`)
+/// -- and a path that does not resolve cannot be prepared.
+pub(crate) fn prepare_read(
+    input: &ToolInput,
+    context: &ToolContext,
+) -> Result<crate::permission::ReadPlan, String> {
+    let (tool, requested, argument) = match input {
+        ToolInput::ReadFile(read) => ("read_file", read.path.as_str(), read.path.as_str()),
+        ToolInput::ListFiles(list) => {
+            let path = list.path.as_deref().unwrap_or(".");
+            ("list_files", path, path)
+        }
+        ToolInput::GlobFiles(glob) => (
+            "glob_files",
+            glob.path.as_deref().unwrap_or("."),
+            glob.pattern.as_str(),
+        ),
+        ToolInput::GrepFiles(grep) => (
+            "grep_files",
+            grep.path.as_deref().unwrap_or("."),
+            grep.pattern.as_str(),
+        ),
+        _ => return Err("not a read".to_string()),
+    };
+    let resolved = context
+        .scope()
+        .resolve_existing(requested)
+        .map_err(|err| unresolved(tool, requested, err).output)?;
+    let asked = Asked {
+        tool,
+        argument,
+        binding: binding(input),
+    };
+    Ok(asked.plan(context, resolved.absolute()))
+}
+
+/// Whether the read `asked` may go ahead at `canonical`, the path
 /// [`crate::workspace::AccessScope::resolve_existing`] resolved -- symlinks
 /// followed and case as stored, so a rule cannot be walked around through a
 /// link or a capital letter, as upstream's `realpath`ed targets cannot
@@ -1267,15 +1379,98 @@ fn search_root(
 /// Asked before anything is opened. A search tool is judged at the
 /// directory it searches below and not at each file it walks, which is
 /// upstream's single target for it (`path_optional_existing`, `:205-211`).
-fn admitted(tool: &str, context: &ToolContext, canonical: &Path) -> Result<(), ToolResult> {
-    let candidate = crate::permission::rules::rule_path(context.scope().primary(), canonical);
-    context
+/// The decision is the session's, in upstream's order
+/// (`requestPermissionOutcomeResolved`, `tool_admission.zig:1311-1500`):
+/// full access reads; a configured deny refuses; a saved-session rule for
+/// exactly this call decides; a rule that asks is put to the person, in
+/// `auto` as in `ask`, unless an exact grant already answered it; otherwise
+/// reading is free. What the person said beside their answer is left in
+/// `said` for the result, whichever way they answered.
+fn admitted(
+    asked: &Asked<'_>,
+    context: &ToolContext,
+    canonical: &Path,
+    said: &mut Option<String>,
+) -> Result<(), ToolResult> {
+    use crate::permission::{Decided, PolicyDecision, ProposedAction};
+    let plan = asked.plan(context, canonical);
+    let Decided { decision, feedback } = context
         .permissions()
-        .judge_read(tool, &candidate)
-        .map_err(|reason| {
-            ToolResult::failure(format!("{tool} was not permitted: {reason}"))
-                .ending(Outcome::Denied)
-        })
+        .decide_with_feedback(ProposedAction::Read(&plan));
+    *said = feedback;
+    match decision {
+        PolicyDecision::Allow { .. } => Ok(()),
+        PolicyDecision::Deny { reason, .. } => Err(ToolResult::refused(asked.tool, &reason)),
+        // `decide_with_feedback` resolves every question; this arm keeps a
+        // future decision from being read as a yes.
+        PolicyDecision::Prompt => Err(ToolResult::refused(
+            asked.tool,
+            "the approval was never resolved",
+        )),
+    }
+}
+
+/// A read call's typed input, field by field, for the key a saved-session
+/// rule about exactly this call is kept under
+/// ([`crate::permission::ProposedAction::state_key`]): upstream keys the call's
+/// arguments (`permissionStateKeyForCall`, `tool_admission.zig:2219-2235`),
+/// and xfx keys what they decoded to, so `/permissions remember` and the
+/// model's call agree on a key whenever they agree on what to read. An absent
+/// field and a present one are told apart.
+pub(crate) fn binding(input: &ToolInput) -> Vec<u8> {
+    use crate::permission::session_rules::field;
+    let mut out = Vec::new();
+    let mut put = |name: &str, value: Option<String>| {
+        field(&mut out, name.as_bytes());
+        match value {
+            Some(value) => field(&mut out, format!("={value}").as_bytes()),
+            None => field(&mut out, b""),
+        }
+    };
+    match input {
+        ToolInput::ListFiles(input) => put("path", input.path.clone()),
+        ToolInput::GlobFiles(input) => {
+            put("pattern", Some(input.pattern.clone()));
+            put("path", input.path.clone());
+            put("count", Some(input.count_only.to_string()));
+        }
+        ToolInput::GrepFiles(input) => {
+            put("pattern", Some(input.pattern.clone()));
+            put("path", input.path.clone());
+            put("include", input.include.clone());
+            put("case_insensitive", Some(input.case_insensitive.to_string()));
+            // The schema's own words, not a `Debug` spelling: this is a
+            // key on disk, and renaming a variant must not move it.
+            put(
+                "mode",
+                Some(
+                    match input.mode {
+                        GrepMode::Matches => "matches",
+                        GrepMode::FilesWithMatches => "files_with_matches",
+                        GrepMode::Count => "count",
+                    }
+                    .to_string(),
+                ),
+            );
+            put(
+                "head_limit",
+                input.head_limit.map(|limit| limit.to_string()),
+            );
+            put("offset", Some(input.offset.to_string()));
+            put("context_lines", Some(input.context_lines.to_string()));
+        }
+        ToolInput::ReadFile(input) => {
+            put("path", Some(input.path.clone()));
+            put("start_line", Some(input.start_line.to_string()));
+            put(
+                "line_count",
+                input.line_count.map(|count| count.to_string()),
+            );
+        }
+        // Not a read: nothing of it is a read's key.
+        _ => {}
+    }
+    out
 }
 
 fn compile_glob(tool: &str, field: &str, pattern: &str) -> Result<GlobMatcher, String> {
