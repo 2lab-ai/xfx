@@ -14,10 +14,13 @@ so one read, with an Enter behind the paste's end marker.
 
 The fx binary is the restored c1db919 build (sha256 `7b76319a…`, `--version`
 0.0.13), run with `FX_AUTO_UPGRADE=0` as every fx run of this driver is. The
-xfx binary is `target/debug/xfx` built at `ad5bf82` (the unit's fix commit,
-which is what its banner says), taken on 2026-11-03. No scenario fixtures: the
-fake gateway is given no turns, so a submitted prompt would show up as a
-request body.
+xfx binary is `target/debug/xfx` built at `bb78139` -- the unit with
+`plan/tui-phase4` `49f32a9` merged, which is what its banner says -- and the
+xfx files here were retaken with it on 2026-11-03. Against the take before it
+(at the fix commit `ad5bf82`, before the merge) the screens are the same
+bytes but for the banner's hash; what moved is the gateway log's port. No
+scenario fixtures: the fake gateway is given no turns, so a submitted prompt
+would show up as a request body.
 
 ## Result
 
