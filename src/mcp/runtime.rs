@@ -135,6 +135,18 @@ pub struct ServerView {
     /// What its feature lists held when last read.
     pub listed: Listed,
     pub failure: Option<String>,
+    /// For a project server not approved as it stands -- pending or
+    /// rejected, so never expanded -- what approving it would let run or
+    /// reach, and the digest an approval of what was drawn is for.
+    pub entry: Option<ShownEntry>,
+}
+
+/// A project entry as a person is shown it: the rows of [`what_it_runs`],
+/// each whole, and the [`config::entry_digest`] of the entry they came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownEntry {
+    pub rows: Vec<String>,
+    pub digest: String,
 }
 
 impl ServerView {
@@ -402,6 +414,7 @@ impl Server {
             tools_held: live.tools.len(),
             listed: live.listed,
             failure: live.failure.clone(),
+            entry: None,
         }
     }
 
@@ -571,7 +584,11 @@ impl McpRuntime {
         state
             .servers
             .iter()
-            .map(|server| server.view(state.reloading && server.should_connect()))
+            .map(|server| {
+                let mut view = server.view(state.reloading && server.should_connect());
+                view.entry = shown_entry(&server.config, &state.digests);
+                view
+            })
             .collect()
     }
 
@@ -1225,7 +1242,21 @@ impl McpRuntime {
             self.present_prompt();
             return;
         };
-        let loaded = self.state().digests.clone();
+        let loaded = {
+            let state = self.state();
+            config::Loaded {
+                entries: state.digests.clone(),
+                pending: state
+                    .servers
+                    .iter()
+                    .filter_map(|server| {
+                        let entry = shown_entry(&server.config, &state.digests)?;
+                        (server.config.admission == Some(Admission::Pending))
+                            .then(|| (server.config.name.clone(), entry.digest))
+                    })
+                    .collect(),
+            }
+        };
         match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
                 self.notice(false, body);
@@ -1622,6 +1653,65 @@ impl Drop for McpRuntime {
 /// ([`config::entry_digest`]), and these rows are how its prompt differs from
 /// the one already answered.
 fn what_it_runs(config: &ServerConfig) -> String {
+    entry_rows(config)
+        .iter()
+        .map(|row| fitted(row, &config.name))
+        .collect::<Vec<_>>()
+        .join("\n  ")
+}
+
+/// A prompt row longer than this is shown by its two ends: written whole it
+/// would scroll its own beginning off a terminal of ordinary height before
+/// the choices under it are drawn.
+const PROMPT_ROW_MAX_BYTES: usize = 1024;
+
+/// `row` whole, or -- past [`PROMPT_ROW_MAX_BYTES`] -- its head and tail with
+/// how long it is and where it is shown whole, so a long command is never cut
+/// without saying so. Cut on a character boundary; `row` is already spelled,
+/// so no escape it carries is split from the code point it names.
+fn fitted(row: &str, name: &str) -> String {
+    if row.len() <= PROMPT_ROW_MAX_BYTES {
+        return row.to_string();
+    }
+    let floor = |at: usize| {
+        (0..=at)
+            .rev()
+            .find(|&at| row.is_char_boundary(at))
+            .unwrap_or(0)
+    };
+    let ceil = |at: usize| {
+        (at..=row.len())
+            .find(|&at| row.is_char_boundary(at))
+            .unwrap_or(row.len())
+    };
+    let head = &row[..floor(PROMPT_ROW_MAX_BYTES / 2)];
+    let tail = &row[ceil(row.len() - PROMPT_ROW_MAX_BYTES / 4)..];
+    format!(
+        "{head} \u{2026} [{} bytes in all; in /mcp, Enter on '{name}' then v writes every byte] \u{2026} {tail}",
+        row.len()
+    )
+}
+
+/// A project server's [`ShownEntry`], when it is one a person is asked
+/// about: a workspace entry not approved as it stands, which is never
+/// expanded, so its rows are the entry as written.
+fn shown_entry(config: &ServerConfig, digests: &[(String, String)]) -> Option<ShownEntry> {
+    if config.source != Source::Workspace || config.admission == Some(Admission::Approved) {
+        return None;
+    }
+    let digest = digests
+        .iter()
+        .find(|(name, _)| *name == config.name)?
+        .1
+        .clone();
+    Some(ShownEntry {
+        rows: entry_rows(config),
+        digest,
+    })
+}
+
+/// [`what_it_runs`]' rows, each whole and spelled by [`prompt_value`].
+pub(crate) fn entry_rows(config: &ServerConfig) -> Vec<String> {
     let mut rows = match config.transport {
         Kind::Stdio => {
             let words: Vec<String> = std::iter::once(&config.command)
@@ -1660,10 +1750,7 @@ fn what_it_runs(config: &ServerConfig) -> String {
     if !headers.is_empty() {
         rows.push(format!("headers: {}", headers.join(", ")));
     }
-    rows.iter()
-        .map(|row| prompt_value(row))
-        .collect::<Vec<_>>()
-        .join("\n  ")
+    rows.iter().map(|row| prompt_value(row)).collect()
 }
 
 /// `name`, and the variables its `value` is made of -- `X-Team from ${TEAM}`,
@@ -1846,6 +1933,36 @@ mod tests {
         let shown = what_it_runs(&config);
         assert!(!shown.contains('\u{ad}'), "{shown:?}");
         assert!(shown.contains(r"\u{00ad}"), "{shown:?}");
+    }
+
+    #[test]
+    fn a_row_too_long_for_the_screen_shows_both_ends_its_size_and_where_it_is_whole() {
+        let middle = "m".repeat(3000);
+        let config = ServerConfig::local(
+            "p",
+            "/bin/sh",
+            &["-c".into(), format!("HEAD-MARK {middle} TAIL-MARK")],
+        );
+        let whole = &entry_rows(&config)[0];
+        assert!(whole.len() > PROMPT_ROW_MAX_BYTES);
+        assert!(whole.ends_with("TAIL-MARK'"), "{whole}");
+        let shown = what_it_runs(&config);
+        assert!(shown.len() < PROMPT_ROW_MAX_BYTES, "{}", shown.len());
+        assert!(
+            shown.starts_with("command: /bin/sh -c 'HEAD-MARK mmm"),
+            "{shown}"
+        );
+        assert!(shown.ends_with("mmm TAIL-MARK'"), "{shown}");
+        assert!(
+            shown.contains(&format!(
+                "\u{2026} [{} bytes in all; in /mcp, Enter on 'p' then v writes every byte] \u{2026}",
+                whole.len()
+            )),
+            "{shown}"
+        );
+        // A row that fits is whole.
+        let short = ServerConfig::local("p", "/bin/true", &[]);
+        assert_eq!(what_it_runs(&short), "command: /bin/true");
     }
 
     #[test]

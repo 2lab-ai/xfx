@@ -6430,6 +6430,8 @@ impl Shell {
             }),
             Effect::Reload => runtime.submit(Job::MenuReload),
             Effect::Command(line) => runtime.submit(Job::Command(line)),
+            Effect::Trust { action, body } => runtime.submit(Job::Trust { action, body }),
+            Effect::Show(text) => self.write_raw_rows(&text),
             Effect::Compose(line) => {
                 if !self.editor.set_text(&line, Entities::new()) {
                     return;
@@ -6488,6 +6490,21 @@ impl Shell {
         true
     }
 
+    /// Rows the MCP runtime or its menu wrote as they are, with no glyph --
+    /// the trust prompt, a project entry shown whole -- made inert first, on
+    /// a block of their own.
+    fn write_raw_rows(&mut self, text: &str) {
+        let text = super::bridge::inert(text).into_owned();
+        self.close_answer();
+        self.finish_document_line();
+        if !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        for line in text.trim_end_matches('\n').split('\n') {
+            self.write_document_line(line, Role::Plain);
+        }
+    }
+
     /// Writes what the MCP runtime has said since the last tick: its notices
     /// -- a usage line under no topic, as upstream files one
     /// (`noticeTopicForBody`, `app_commands.zig:1851-1853`) -- the trust
@@ -6516,17 +6533,7 @@ impl Shell {
                     };
                     self.write_notice(&notice);
                 }
-                Event::Raw(text) => {
-                    let text = super::bridge::inert(&text).into_owned();
-                    self.close_answer();
-                    self.finish_document_line();
-                    if !self.transcript.ends_blank() {
-                        self.end_transcript_line();
-                    }
-                    for line in text.trim_end_matches('\n').split('\n') {
-                        self.write_document_line(line, Role::Plain);
-                    }
-                }
+                Event::Raw(text) => self.write_raw_rows(&text),
                 Event::TrustPrompt { name, digest } => self.mcp_prompt = Some((name, digest)),
                 Event::MenuFeedback(text) => {
                     if let Some(menu) = self.mcp_menu.as_mut() {
@@ -13172,6 +13179,7 @@ impl Shell {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Mcp(menu)) => menu.height(
                 &self.work.mcp().views(),
+                cols,
                 help_menu::row_budget(rows, input_rows.saturating_sub(1)),
             ),
             Some(Slot::Settings(menu)) => {
