@@ -272,6 +272,7 @@ fn switched_session() -> DurableState {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         result("functions.read:0", "read_file", true, "NOTES"),
         SessionEvent::Steered {
@@ -283,6 +284,7 @@ fn switched_session() -> DurableState {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         concluded(),
         SessionEvent::PreferencesChanged {
@@ -309,6 +311,7 @@ fn switched_session() -> DurableState {
             ],
             responses_state: Vec::new(),
             wire: Some(Wire::AnthropicMessages),
+            model: Some("fable".to_string()),
         },
         result("toolu_1", "read_file", true, "NOTES"),
         SessionEvent::AssistantMessage {
@@ -317,6 +320,7 @@ fn switched_session() -> DurableState {
             raw_content: vec![json!({"type": "text", "text": "LLMUX-ANSWER"})],
             responses_state: Vec::new(),
             wire: Some(Wire::AnthropicMessages),
+            model: None,
         },
         concluded(),
     ])
@@ -328,11 +332,24 @@ fn the_log_says_which_provider_the_conversation_went_on_with() {
     assert_eq!(state.provider.as_deref(), Some("llmux"));
     assert_eq!(state.model, "fable");
     assert_eq!(state.turns.len(), 2);
+    // Each sealed step knows the model that sealed it: the one its record
+    // names, or -- for an older record that names none -- the model the log
+    // had in force when it was written. A step with no state names none.
+    let sealed: Vec<Option<&str>> = state
+        .turns
+        .iter()
+        .flat_map(|turn| turn.steps.iter())
+        .filter_map(|step| match step {
+            super::TurnStep::Assistant { model, .. } => Some(model.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sealed, [None, None, Some("fable"), Some("fable")]);
 }
 
 #[test]
 fn a_switched_session_goes_to_llmux_with_its_own_blocks_and_the_gateways_turn_as_text_and_calls() {
-    let replay = switched_session().history_messages(Wire::AnthropicMessages);
+    let replay = switched_session().history_messages(Wire::AnthropicMessages, "fable");
     assert!(replay.notices.is_empty(), "{:?}", replay.notices);
     let mut messages = replay.messages;
     messages.push(Message::user("third"));
@@ -373,7 +390,7 @@ fn a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed() {
     // `types.zig:1548-1563`). xfx drops it the same way and, by its own rule,
     // says so (`.prd/04-providers.md` §Provenance): one line per step whose
     // state stayed behind.
-    let replay = switched_session().history_messages(Wire::VercelGateway);
+    let replay = switched_session().history_messages(Wire::VercelGateway, "zai/glm-5.2");
     assert_eq!(replay.notices.len(), 2, "{:?}", replay.notices);
     let mut messages = replay.messages;
     messages.push(Message::user("third"));
@@ -415,6 +432,41 @@ fn a_switched_session_goes_to_the_gateway_without_the_thinking_llmux_sealed() {
 }
 
 #[test]
+fn a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls() {
+    // Upstream's replay goes back only to the provider **and the model** that
+    // sealed it (`ProviderReplay.matches`, `types.zig:1512-1515`); a step
+    // whose state does not match is sent as its text and its calls
+    // (`projectProviderReplay`, `:1548-1563`). The same session on the same
+    // wire, asked by another model: no block `fable` signed reaches `opus`,
+    // and what `fable` said and called still does.
+    let replay = switched_session().history_messages(Wire::AnthropicMessages, "opus");
+    assert_eq!(
+        replay.notices,
+        ["xfx: this session recorded reasoning from fable and is continuing with opus, so \
+             that reasoning was not carried over"; 2]
+    );
+    let mut messages = replay.messages;
+    messages.push(Message::user("third"));
+    let body = llmux_body(messages);
+    let sent = body.to_string();
+    assert!(
+        !sent.contains("SEALED") && !sent.contains("sig-1"),
+        "{sent}"
+    );
+    let messages = body["messages"].as_array().expect("messages");
+    assert_eq!(
+        messages[5],
+        json!({"role": "assistant", "content": [
+            {"type": "tool_use", "id": "toolu_1", "name": "read_file", "input": {"path": "notes.txt"}},
+        ]})
+    );
+    assert_eq!(
+        messages[7],
+        json!({"role": "assistant", "content": [{"type": "text", "text": "LLMUX-ANSWER"}]})
+    );
+}
+
+#[test]
 fn a_compacted_conversation_carries_its_checkpoint_to_either_wire_as_a_user_message() {
     // Upstream's compaction summary is a user message of text (`window.zig`),
     // which both wires take as they take any prompt.
@@ -436,6 +488,7 @@ fn a_compacted_conversation_carries_its_checkpoint_to_either_wire_as_a_user_mess
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         },
         concluded(),
     ];
@@ -461,7 +514,7 @@ fn a_compacted_conversation_carries_its_checkpoint_to_either_wire_as_a_user_mess
     let state = reduce(events);
     let summary = super::super::checkpoint::render(&compacted);
     for wire in [Wire::VercelGateway, Wire::AnthropicMessages] {
-        let mut messages = state.history_messages(wire.clone()).messages;
+        let mut messages = state.history_messages(wire.clone(), "m").messages;
         messages.push(Message::user("two"));
         let text = |body: &Value, at: &str| body[at][0]["content"][0]["text"].clone();
         assert_eq!(

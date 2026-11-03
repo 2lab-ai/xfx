@@ -1,0 +1,33 @@
+=== ~/.xfx/.skill-install-locks/foo (0 bytes)
+
+=== ~/.xfx/history.jsonl (1099 bytes)
+{"schema_version":1,"timestamp_ms":1791358265114,"workspace_root":"<scratch>/work","text":"/skills"}
+{"schema_version":1,"timestamp_ms":1791358267888,"workspace_root":"<scratch>/work","text":"/skills list"}
+{"schema_version":1,"timestamp_ms":1791358269892,"workspace_root":"<scratch>/work","text":"/skills show demo"}
+{"schema_version":1,"timestamp_ms":1791358271773,"workspace_root":"<scratch>/work","text":"/skills show nope"}
+{"schema_version":1,"timestamp_ms":1791358273336,"workspace_root":"<scratch>/work","text":"/skills path"}
+{"schema_version":1,"timestamp_ms":1791358274411,"workspace_root":"<scratch>/work","text":"/skills create made"}
+{"schema_version":1,"timestamp_ms":1791358276038,"workspace_root":"<scratch>/work","text":"/skills create ../escape"}
+{"schema_version":1,"timestamp_ms":1791358277305,"workspace_root":"<scratch>/work","text":"/skills add ./skill-src"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/skills/foo/SKILL.md (90 bytes)
+---
+name: foo
+description: A skill installed from a local directory
+---
+
+# foo
+
+Foo body.
+
+=== ~/.xfx/skills/made/SKILL.md (113 bytes)
+---
+name: made
+description: Describe when this skill should activate
+---
+
+# made
+
+Instructions for this skill...
+

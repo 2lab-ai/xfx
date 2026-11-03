@@ -53,6 +53,19 @@ pub(crate) struct Hydration {
     /// [`super::worker::Resumption::keeps_fast_binding`]). Read only beside
     /// [`Self::settings`].
     pub(crate) keeps_fast_binding: bool,
+    /// The provider the runtime continues the session on, and whether it has
+    /// nothing to authenticate with, when the resume moved it there -- to the
+    /// provider the session recorded, as upstream's resume puts it back
+    /// (`restoreRuntimePreferences`, `app_session_runtime.zig:6147`) -- for
+    /// the hint row, `/provider`'s ` · current` and the catalog the band
+    /// holds. `None` when it did not move, and for the launch, whose band is
+    /// built from the configuration the provider was restored into.
+    pub(crate) provider: Option<(crate::provider::ProviderId, bool)>,
+    /// The provider the session continues on, when it has nothing to
+    /// authenticate with: said once, under the replay, as upstream's resume
+    /// says it (`restoreSessionCredential`'s `.missing`,
+    /// `app_auth_runtime.zig:151-180`; [`super::worker::unauthenticated`]).
+    pub(crate) unauthenticated: Option<crate::provider::ProviderId>,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
     /// in one conversation (upstream rebases a resumed session's ids the same
@@ -150,6 +163,8 @@ impl Hydration {
             model,
             settings: None,
             keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
             next_image: state
                 .turns
                 .iter()
@@ -407,6 +422,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
                 TurnStep::ToolResult {
                     ending: None,
@@ -428,6 +444,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
             ],
             TurnTiming {
@@ -504,6 +521,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         }
     }
 

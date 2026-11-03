@@ -8471,17 +8471,154 @@ fn after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_w
 }
 
 #[test]
-fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resumes_on() {
-    // A log that holds a Gateway turn, the switch, and a llmux turn that
-    // thought before it called a tool. Resumed on llmux -- the provider the
-    // switch wrote into the profile -- the next request carries both turns:
-    // the Gateway's as text, llmux's own blocks verbatim with their
-    // signature, since this wire produced them (`ProviderReplay.matches`,
-    // `types.zig:1512-1515`).
-    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_gateway::content_only(&["MARKER-GATEWAY-FIRST"]),
-    )]);
+fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
+    // fx's replay goes back only to the provider **and the model** that
+    // sealed it (`ProviderReplay.matches`, `vercel-labs/fx@c1db9191
+    // src/core/shared/types.zig:1512-1515`); a step it does not match is sent
+    // as its text and calls (`projectProviderReplay`, `:1548-1563`). A daemon
+    // asked by one model to verify a signature another made can refuse the
+    // request, so the request after `/model claude-fable-5[1m]` carries the
+    // first turn's call and answer and none of `m-1`'s thinking -- and says
+    // so, once.
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
+            "SIGNED-BY-M1",
+            "sig-m1",
+            "toolu_m1",
+            "read_file",
+            "{\"path\":\"notes.txt\"}",
+        )),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-M1-READ-IT",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-M2-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-M2-AGAIN",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut command = sandbox.command_with_llmux(&daemon);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("MARKER-M1-READ-IT");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"/model claude-fable-5[1m]\r");
+    session.wait_for("Switched to claude-fable-5[1m]");
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-M2-ANSWERED");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(b"once more\r");
+    session.wait_for("MARKER-M2-AGAIN");
+    wait_for_conclusions(&sandbox, 3);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = daemon.message_requests();
+    assert_eq!(requests.len(), 4);
+    // The first turn's second step, to the model that sealed the first: the
+    // blocks go back, signature and all.
+    let continued: Value = serde_json::from_str(&requests[1].body).expect("json");
+    assert_eq!(continued["model"], "m-1");
+    assert_eq!(
+        continued["messages"][1]["content"][0]["signature"],
+        "sig-m1"
+    );
+    // The next turns, to the other model: the call and the answer, no
+    // thinking.
+    for request in &requests[2..] {
+        let body: Value = serde_json::from_str(&request.body).expect("json");
+        assert_eq!(body["model"], "claude-fable-5[1m]");
+        let sent = body.to_string();
+        assert!(
+            !sent.contains("SIGNED-BY-M1") && !sent.contains("sig-m1"),
+            "a block m-1 signed went to another model: {sent}"
+        );
+        assert_eq!(
+            body["messages"][1],
+            serde_json::json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_m1", "name": "read_file",
+                 "input": {"path": "notes.txt"}},
+            ]})
+        );
+        assert_eq!(
+            body["messages"][3]["content"][0]["text"],
+            "MARKER-M1-READ-IT"
+        );
+    }
+    let text = session.settled_text();
+    assert_eq!(
+        text.matches("recorded reasoning from m-1 and is continuing with claude-fable-5[1m]")
+            .count(),
+        1,
+        "{text:?}"
+    );
+    // The model is recorded beside the blocks it sealed, as fx records it
+    // with its replay (`ProviderReplay.source`).
+    let sealed: Vec<Value> = session_frames(&sandbox)
+        .into_iter()
+        .filter(|frame| {
+            frame["event"]["kind"] == "assistant_message"
+                && frame["event"]["raw_content"].is_array()
+        })
+        .map(|frame| frame["event"]["model"].clone())
+        .collect();
+    assert_eq!(
+        sealed,
+        [
+            Value::from("m-1"),
+            Value::from("m-1"),
+            Value::from("claude-fable-5[1m]"),
+            Value::from("claude-fable-5[1m]")
+        ]
+    );
+}
+
+/// A Gateway turn, `/setup llmux`, and a llmux turn that thought before it
+/// called a tool, then an exit: the session the resume tests continue, and
+/// the model llmux was asked in.
+fn a_session_switched_to_llmux(
+    sandbox: &Sandbox,
+    gateway: &FakeGateway,
+    daemon: &support::fake_llmux::FakeLlmux,
+) -> (String, Value) {
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with_both(sandbox, gateway, daemon));
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-GATEWAY-FIRST");
+    wait_for_conclusions(sandbox, 1);
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-DAEMON-SECOND");
+    wait_for_conclusions(sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "the switch opened a session");
+    let asked = daemon.message_requests();
+    assert_eq!(asked.len(), 2);
+    let body: Value = serde_json::from_str(&asked[1].body).expect("a json body");
+    (ids[0].clone(), body["model"].clone())
+}
+
+/// The replies [`a_session_switched_to_llmux`] takes from the daemon, then
+/// `more`.
+fn llmux_replies_for_the_switched_session(
+    more: Vec<support::fake_gateway::Reply>,
+) -> support::fake_llmux::FakeLlmux {
+    let mut replies = vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
             "SIGNED-THOUGHT",
             "sig-resume-1",
@@ -8492,46 +8629,47 @@ fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resum
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
             "MARKER-DAEMON-SECOND",
         ])),
-        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
-            "MARKER-DAEMON-RESUMED",
-        ])),
-    ]);
+    ];
+    replies.extend(more);
+    support::fake_llmux::FakeLlmux::start(replies)
+}
+
+#[test]
+fn a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says()
+{
+    // fx's resume puts back the provider and the model the session last
+    // recorded (`restoreRuntimePreferences`, `vercel-labs/fx@c1db9191
+    // src/core/app/app_session_runtime.zig:6147`), whatever the profile says
+    // now. Here the profile is back on the Gateway, in the Gateway's own
+    // model, and the session's last record is the switch to llmux: the
+    // resumed turn goes to llmux, in the model llmux was asked in, carrying
+    // both turns -- the Gateway's as text, llmux's own blocks verbatim with
+    // their signature, since this provider and model sealed them
+    // (`ProviderReplay.matches`, `types.zig:1512-1515`). Red before: it went
+    // to the Gateway, in `zai/glm-5.2`.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-GATEWAY-FIRST"]),
+    )]);
+    let daemon = llmux_replies_for_the_switched_session(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-DAEMON-RESUMED"]),
+    )]);
     let sandbox = Sandbox::new();
-    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
-    let pty = Pty::open();
-    pty.resize(24, 120);
-    let mut session = Session::spawn_without_taking_the_terminal(
-        &pty,
-        tui_with_both(&sandbox, &gateway, &daemon),
-    );
-    session.wait_for(READY);
-    session.type_bytes(b"first question\r");
-    session.wait_for("MARKER-GATEWAY-FIRST");
-    wait_for_conclusions(&sandbox, 1);
-    session.type_bytes(b"/setup llmux\r");
-    session.wait_for("Switched to llmux with");
-    session.type_bytes(b"second question\r");
-    session.wait_for("MARKER-DAEMON-SECOND");
-    wait_for_conclusions(&sandbox, 2);
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
-    let ids = sandbox.session_ids();
-    assert_eq!(ids.len(), 1, "the switch opened a session");
+    let (id, llmux_model) = a_session_switched_to_llmux(&sandbox, &gateway, &daemon);
     assert_eq!(
         sandbox.settings().expect("a profile")["provider"],
         "llmux",
-        "the switch was not saved for the resume to read"
+        "the switch was not saved"
     );
 
-    // The profile the switch wrote is the one the resume reads: llmux, the
-    // daemon's url. `command` rather than `command_with_both`, which would
-    // seed the Gateway over it.
+    // `command_with_both` writes the profile back to the Gateway.
     let pty = Pty::open();
     pty.resize(24, 120);
-    let mut resumed = tui(&sandbox);
-    resumed.env("AI_GATEWAY_API_KEY", support::sandbox::TEST_KEY);
-    resumed.env("XFX_GATEWAY_URL", gateway.chat_url());
-    resumed.arg("--resume").arg(&ids[0]);
+    let mut resumed = tui_with_both(&sandbox, &gateway, &daemon);
+    resumed.arg("--resume").arg(&id);
+    assert_eq!(
+        sandbox.settings().expect("a profile")["provider"],
+        "gateway"
+    );
     let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
     second.wait_for(READY);
     second.wait_for("session resumed:");
@@ -8543,7 +8681,12 @@ fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resum
 
     let requests = daemon.message_requests();
     assert_eq!(requests.len(), 3);
+    assert_eq!(gateway.request_count(), 1, "the Gateway was asked after it");
     let body: Value = serde_json::from_str(&requests[2].body).expect("a json body");
+    assert_eq!(
+        body["model"], llmux_model,
+        "not the model llmux was asked in"
+    );
     let messages = body["messages"].as_array().expect("messages");
     let roles: Vec<&str> = messages
         .iter()
@@ -8573,7 +8716,67 @@ fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resum
     assert_eq!(messages[4]["content"][0]["type"], "tool_result");
     assert_eq!(messages[5]["content"][0]["text"], "MARKER-DAEMON-SECOND");
     assert_eq!(messages[6]["content"][0]["text"], "third question");
-    assert_eq!(gateway.request_count(), 1, "the Gateway was asked after it");
+    // The resume wrote no provider change: the log already said llmux.
+    let switches: Vec<Value> = session_frames(&sandbox)
+        .into_iter()
+        .filter(|frame| frame["event"]["kind"] == "preferences_changed")
+        .map(|frame| frame["event"]["provider"].clone())
+        .filter(|provider| !provider.is_null())
+        .collect();
+    assert_eq!(switches, [Value::from("llmux")], "{switches:?}");
+}
+
+#[test]
+fn a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_and_stays_there() {
+    // When the provider the session recorded has nothing to authenticate
+    // with, fx's resume stays on it and says so once, under the replay
+    // (`restoreSessionCredential`'s `.missing`, `vercel-labs/fx@c1db9191
+    // src/core/app/app_auth_runtime.zig:172-182`), and the next prompt is
+    // refused rather than sent elsewhere (`missingPromptCredential`,
+    // `:198-214`). Here the profile is back on the Gateway with no daemon url
+    // at all: the resume says what llmux lacks, the prompt is refused with
+    // the same words, and neither fake is asked anything. Red before: the
+    // resume went on with the Gateway and sent the prompt there.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-GATEWAY-FIRST",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-GATEWAY-WRONGLY-ASKED",
+        ])),
+    ]);
+    let daemon = llmux_replies_for_the_switched_session(Vec::new());
+    let sandbox = Sandbox::new();
+    let (id, _) = a_session_switched_to_llmux(&sandbox, &gateway, &daemon);
+    std::fs::write(
+        sandbox.settings_path(),
+        "{\"provider\":\"gateway\",\"models\":{\"gateway\":\"zai/glm-5.2\"}}",
+    )
+    .expect("a profile with no daemon url");
+
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut resumed = tui(&sandbox);
+    resumed.env("AI_GATEWAY_API_KEY", support::sandbox::TEST_KEY);
+    resumed.env("XFX_GATEWAY_URL", gateway.chat_url());
+    resumed.arg("--resume").arg(&id);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    let missing = "xfx is configured to use the llmux backend but no valid";
+    second.wait_for(missing);
+    second.type_bytes(b"third question\r");
+    second.wait_for_count(missing, 2);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+    // The warning's topic, and the hint row's lead for a session with
+    // nothing to authenticate with.
+    let text = second.settled_text();
+    assert!(text.contains("auth:"), "{text:?}");
+    assert!(text.contains("run `xfx setup` \u{b7} "), "{text:?}");
+    assert!(!text.contains("MARKER-GATEWAY-WRONGLY-ASKED"), "{text:?}");
+    assert_eq!(daemon.message_requests().len(), 2, "llmux was asked");
+    assert_eq!(gateway.request_count(), 1, "the Gateway was asked instead");
 }
 
 #[test]
@@ -11163,8 +11366,11 @@ F1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
          "context_window": 17_000, "max_tokens": 4_000},
     ]}));
     let sandbox = Sandbox::new();
+    // 49 lines each: the third read takes the request past the point and
+    // still leaves the notes room after it, with every advertised tool's
+    // schema -- `skill`'s included -- in the request it measures.
     for name in ["a.txt", "b.txt", "c.txt"] {
-        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(49)).expect("a fixture");
     }
     let pty = Pty::open();
     pty.resize(40, 120);
@@ -11967,6 +12173,235 @@ fn a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn() {
     assert_eq!(gateway.title_requests().len(), 1, "no title was asked for");
     release.store(true, std::sync::atomic::Ordering::SeqCst);
     session.wait_for("\u{1b}]2;Held Then Given\u{7}");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+// -- /skills and `$` -----------------------------------------------------------
+
+/// The capture's workspace (`research/media-ext/scenarios/skills-ws`) on xfx's
+/// roots: `demo` in `.xfx/skills`, `release-notes` in `skills/`, and a local
+/// source directory holding `foo`.
+fn skills_workspace(sandbox: &Sandbox) {
+    for (dir, name, description, body) in [
+        (
+            ".xfx/skills",
+            "demo",
+            "Demo workspace skill for the capture",
+            "Say DEMO.",
+        ),
+        (
+            "skills",
+            "release-notes",
+            "Write release notes from the git log",
+            "Summarize.",
+        ),
+        (
+            "skill-src",
+            "foo",
+            "A skill installed from a local directory",
+            "Foo body.",
+        ),
+    ] {
+        let at = sandbox.workspace.join(dir).join(name);
+        std::fs::create_dir_all(&at).expect("a skill directory");
+        std::fs::write(
+            at.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\n{body}\n"),
+        )
+        .expect("SKILL.md");
+    }
+}
+
+/// The system messages of a captured Gateway request, in order.
+fn system_messages(body: &Value) -> Vec<String> {
+    body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "system")
+        .filter_map(|message| message["content"].as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions() {
+    // `cap/fx-skills-40x120-dollar` .. `-sent`, and the request body upstream
+    // sent for it (`cap/fx-skills-40x120-bodies/001-completion.json`).
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["Used ", "the skill."]),
+    )]);
+    let sandbox = Sandbox::new();
+    skills_workspace(&sandbox);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"$");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "Skills 2  [All]  xfx  Workspace",
+            "  demo             xfx \u{b7} Workspace",
+            "  release-notes    xfx \u{b7} Workspace",
+            "\u{2191}\u{2193} navigate     tab source     enter use     esc close",
+        ],
+        &[],
+    );
+    session.type_bytes(b"dem");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Skills 1  [All]"],
+        &["release-notes"],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} demo"],
+        &["Skills 1", "$dem"],
+    );
+    session.type_bytes(b" run it\r");
+    session.wait_for("the skill.");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} demo run it",
+            "* 1 requested skill loaded",
+            "\u{2514} Loaded skill demo",
+            "Used the skill.",
+        ],
+        &[],
+    );
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[0].json();
+    assert_eq!(user_messages(&body), ["$demo run it"]);
+    let work = sandbox.workspace.display().to_string();
+    let systems = system_messages(&body);
+    let catalog = systems
+        .iter()
+        .find(|text| text.contains("<available_skills>"))
+        .expect("the catalog block");
+    // Upstream's block, byte for byte but for the paths and the namespace
+    // they hash to.
+    let namespace = catalog
+        .split("(location: skill:")
+        .nth(1)
+        .and_then(|rest| rest.get(..16))
+        .expect("a namespace")
+        .to_string();
+    assert_eq!(
+        catalog,
+        &format!(
+            "Skills provide task instructions. Use named skills and clearly matching skills before substantive work.\n\
+Read selected skills completely, including required references. Descriptions may be shortened; metadata is not loaded instructions.\n\
+<available_skills>\n\
+Root 0: {work}/.xfx/skills\n\
+Root 1: {work}/skills\n\
+- demo: Demo workspace skill for the capture (location: skill:{namespace}:0/demo)\n\
+- release-notes: Write release notes from the git log (location: skill:{namespace}:1/release-notes)\n\
+</available_skills>\n"
+        )
+    );
+    let explicit = systems
+        .iter()
+        .position(|text| text.starts_with("Explicitly invoked skill content for this query:\n"))
+        .expect("the explicit block");
+    assert_eq!(
+        systems[explicit],
+        format!(
+            "Explicitly invoked skill content for this query:\n\
+Use every successfully loaded skill for this query. Report blocked or ambiguous requests.\n\
+Follow each skill's complete instructions and required resources before substantive work.\n\
+If a skill cannot be followed, state the blocker instead of silently substituting another workflow.\n\
+<skill_content name=\"demo\" location=\"{work}/.xfx/skills/demo\" resource=\"SKILL.md\" complete=\"true\">\n\
+---\nname: demo\ndescription: Demo workspace skill for the capture\n---\n\n# demo\n\nSay DEMO.\n\n</skill_content>\n"
+        )
+    );
+    // The catalog comes before the explicit block, as upstream's stable
+    // prefix precedes its per-request overlay.
+    let catalog_at = systems
+        .iter()
+        .position(|text| text == catalog)
+        .expect("found");
+    assert!(catalog_at < explicit, "{systems:#?}");
+    // And the tool the catalog's locations are for.
+    let tools: Vec<&str> = body["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(tools.contains(&"skill"), "{tools:?}");
+    assert!(!tools.contains(&"install_skill"), "{tools:?}");
+}
+
+#[test]
+fn slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network() {
+    // `cap/fx-skills-40x120-menu`, `-add-local`, `-path`; a source that is not
+    // a directory is the failed install upstream says for a clone that failed.
+    let sandbox = Sandbox::new();
+    skills_workspace(&sandbox);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.type_bytes(b"/skills\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "Skills 2  [All]  xfx  Workspace",
+            "  demo             xfx \u{b7} Workspace",
+        ],
+        &[],
+    );
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &[], &["Skills 2"]);
+    session.type_bytes(b"/skills add ./skill-src\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "* skills: Installing from ./skill-src...",
+            "* skills: Installed: foo",
+        ],
+        &[],
+    );
+    assert_eq!(
+        std::fs::read_to_string(sandbox.home.join(".xfx/skills/foo/SKILL.md")).expect("installed"),
+        "---\nname: foo\ndescription: A skill installed from a local directory\n---\n\n# foo\n\nFoo body.\n"
+    );
+    session.type_bytes(b"/skills add vercel-labs/agent-skills\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["* skills: Failed to install. Check the source path or URL and try again."],
+        &[],
+    );
+    // The installed skill is in the next search. By its whole name: a search
+    // also reads each skill's path (`skillMatchRank`,
+    // `skill_runtime.zig:1378-1395`), and a sandbox under `/var/folders`
+    // would answer a shorter one with every skill -- the ranking itself is
+    // `skills_menu`'s own case.
+    session.type_bytes(b"$foo");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Skills 1", "  foo    xfx \u{b7} Global"],
+        &["  demo "],
+    );
+    session.type_bytes(&[0x1b, 0x7f, 0x7f, 0x7f, 0x7f]);
+    on_screen(&session, (40, 120), &[], &["Skills 1", "$foo"]);
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 }

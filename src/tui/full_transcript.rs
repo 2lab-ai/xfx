@@ -1990,6 +1990,49 @@ mod tests {
         FullTranscript::with_clock(fixed)
     }
 
+    /// Upstream's own cases (`transcript_blocks.zig:3220-3247`): a body row
+    /// that opens with a tree branch stands under the notice's glyph, where
+    /// every other row is two columns in, and the branch's own wrapped rows
+    /// are two in again (`noticeContinuationIndent`, `:1718-1725`) -- the
+    /// shape of a skill load notice (`fx-skills-40x120-sent`).
+    #[test]
+    fn a_notice_rows_tree_branch_stands_under_its_glyph() {
+        for (body, cols, expected) in [
+            (
+                "2 skills loaded\n\u{251c} Loaded alpha\n\u{2514} Loaded beta",
+                40,
+                &[
+                    "* 2 skills loaded",
+                    "\u{251c} Loaded alpha",
+                    "\u{2514} Loaded beta",
+                ][..],
+            ),
+            (
+                "Ready\n\u{2514} alpha beta gamma",
+                12,
+                &["* Ready", "\u{2514} alpha beta", "  gamma"][..],
+            ),
+            (
+                "alpha \u{2514} beta",
+                8,
+                &["* alpha", "  \u{2514} beta"][..],
+            ),
+            (
+                "Ready\nordinary prose",
+                40,
+                &["* Ready", "  ordinary prose"][..],
+            ),
+            (
+                "Ready\n\n\u{2514} after a blank\nthen prose",
+                40,
+                &["* Ready", "", "\u{2514} after a blank", "  then prose"][..],
+            ),
+        ] {
+            let rows = notice_rows(&Notice::neutral("", body), cols, DARK);
+            assert_eq!(plain(&rows), expected, "{body:?} at {cols}");
+        }
+    }
+
     fn plain(rows: &[String]) -> Vec<String> {
         rows.iter().map(|row| unpainted(row)).collect()
     }
@@ -2830,6 +2873,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 images: Vec::new(),
@@ -2922,6 +2966,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 call_id: "c".into(),
@@ -3279,6 +3324,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             });
             teed.record(SessionEvent::ToolResult {
                 ending: None,

@@ -231,6 +231,32 @@ pub(crate) fn parse_at(text: &[u8], start: usize) -> Option<Token> {
     })
 }
 
+/// Whether `cursor` is inside the path of an `@` word of `text`
+/// (`contains_position`, `file_picker_path.zig:204-212`): a `$` typed there is
+/// a character of the path, not a skill search.
+pub(crate) fn contains_position(text: &[u8], cursor: usize) -> bool {
+    let mut offset = 0usize;
+    while offset < text.len() {
+        let Some(token) = parse_at(text, offset) else {
+            offset += 1;
+            continue;
+        };
+        if cursor < token.path_start {
+            return false;
+        }
+        let end = if token.quoted && token.status == Status::Complete {
+            token.path_end
+        } else {
+            token.end
+        };
+        if cursor <= end {
+            return true;
+        }
+        offset = token.end.max(offset + 1);
+    }
+    false
+}
+
 /// The `@` word the caret is in, and what has been typed of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Query {

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{run_turn_with_skills, TurnRequest};
 use crate::cli::{Cli, Command};
 use crate::config::{ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
@@ -481,9 +481,27 @@ async fn run_ask(
     // and this context builds with no requester. `ask_user_question` answers
     // such a call with `NOT_AVAILABLE_SENTINEL` rather than reaching for a UI
     // that isn't there.
+    // The skills this workspace has, and those the prompt names, read now as
+    // the project instructions are (`crate::skills`). `ask` reads no catalog,
+    // so the catalog's budget is sized by the window the Gateway is known to
+    // give the model, and by none elsewhere.
+    let window = (config.provider == ProviderId::Gateway)
+        .then(|| crate::provider::model::gateway_context_window(&model))
+        .flatten();
+    let skills = crate::skills::TurnSkills::prepare(
+        scope.primary(),
+        config.home(),
+        &request.prompt,
+        &[],
+        window,
+    );
     let tools = ToolContext::new(scope)
         .with_permissions(permissions)
-        .with_cancel(cancel.clone());
+        .with_cancel(cancel.clone())
+        .with_skills(
+            Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+            config.home().map(Path::to_path_buf),
+        );
 
     let turn = TurnRequest {
         images: Vec::new(),
@@ -502,9 +520,10 @@ async fn run_ask(
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
         Some(recorder) => {
-            run_turn_saved(
+            run_turn_with_skills(
                 turn,
                 context,
+                &skills,
                 bundle.stream.as_ref(),
                 sink.as_mut(),
                 recorder,
@@ -513,9 +532,10 @@ async fn run_ask(
         }
         None => {
             let mut journal = crate::agent::NoJournal;
-            run_turn_saved(
+            run_turn_with_skills(
                 turn,
                 context,
+                &skills,
                 bundle.stream.as_ref(),
                 sink.as_mut(),
                 &mut journal,
@@ -591,7 +611,13 @@ fn open_session(
         Some(selector) => {
             let resumed = store.resume(selector, &config.workspace_root)?;
             let state = resumed.session.state();
-            let replay = state.history_messages(config.provider.wire());
+            // The model the turn will be sent to, by `run_ask`'s rule.
+            let model = if config.sources.model == SettingSource::CompiledDefault {
+                state.model.as_str()
+            } else {
+                config.model.as_str()
+            };
+            let replay = state.history_messages(config.provider.wire(), model);
             let restored_grants = state.grants.clone();
             let restored_model = Some(state.model.clone());
             Ok(OpenedSession {
@@ -775,6 +801,13 @@ fn load_config_with_env() -> Result<(Environment, RuntimeConfig), AppError> {
     let workspace = std::env::current_dir().map_err(ConfigError::Workspace)?;
     let env = Environment::from_process();
     let config = RuntimeConfig::load_with(&env, &workspace)?;
+    // Where a link in a workspace skill root may resolve, for every discovery
+    // this process makes from now on, as upstream configures it once at
+    // launch (`setConfiguredSymlinkAuthorities`, `app_lifecycle.zig:709`).
+    crate::skills::discovery::set_authorities(crate::skills::discovery::Authorities::new(
+        &config.skill_symlink_authorities,
+        &config.skill_symlink_authorities_env,
+    ));
     Ok((env, config))
 }
 

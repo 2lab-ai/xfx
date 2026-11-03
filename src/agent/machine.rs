@@ -103,7 +103,7 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// merged into one.
 ///
 /// Nothing at all is still not evidence, and is still not recorded.
-fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
+fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion, model: &str) {
     if completion.text.is_empty()
         && completion.tool_calls.is_empty()
         && completion.raw_content.is_empty()
@@ -130,6 +130,10 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         // recording path to discover.
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
+        // And the model the request named, beside the state as the wire is:
+        // a state replays only to the model that sealed it
+        // (`ProviderReplay.matches`, `types.zig:1512-1515`).
+        model: (!completion.raw_content.is_empty()).then(|| model.to_string()),
     });
 }
 
@@ -332,8 +336,31 @@ pub async fn run_turn_saved(
     events: &mut dyn EventSink,
     journal: &mut dyn TurnJournal,
 ) -> Result<TurnOutcome, TurnError> {
+    run_turn_with_skills(
+        request,
+        context,
+        &crate::skills::TurnSkills::default(),
+        provider,
+        events,
+        journal,
+    )
+    .await
+}
+
+/// [`run_turn_saved`], telling the model about the workspace's skills and
+/// the ones its prompt named ([`crate::skills::TurnSkills`]): what `ask` and
+/// the line shell run.
+pub async fn run_turn_with_skills(
+    request: TurnRequest,
+    context: ProjectContext,
+    skills: &crate::skills::TurnSkills,
+    provider: &dyn Provider,
+    events: &mut dyn EventSink,
+    journal: &mut dyn TurnJournal,
+) -> Result<TurnOutcome, TurnError> {
     TurnMachine::new(request)
         .with_context(context)
+        .with_skills(skills)
         .run_journaled(provider, events, journal)
         .await
 }
@@ -371,6 +398,15 @@ pub struct TurnMachine {
     /// Instructions admitted mid-turn, in the order they were admitted. Each is
     /// its own message, so nothing already delivered is rewritten.
     overlay: Vec<String>,
+    /// The skills catalog (`<available_skills>`), when there are skills: a
+    /// system message ahead of the project context, as upstream puts it in its
+    /// stable prefix ahead of the project rules (`crate::skills::catalog`).
+    skills_catalog: String,
+    /// The instructions of the skills this query named, whole: a system
+    /// message after the project context and before anything admitted mid-turn,
+    /// on every request of this turn and none after it -- upstream's
+    /// per-request overlay (`crate::skills::invocation`).
+    skills_explicit: String,
     /// Earlier turns, restored from a session. Never changes within a turn.
     history: Vec<Message>,
     /// What was asked now.
@@ -576,6 +612,8 @@ impl TurnMachine {
             static_context: String::new(),
             mcp_servers,
             overlay: Vec::new(),
+            skills_catalog: String::new(),
+            skills_explicit: String::new(),
             history,
             user,
             suffix: Vec::new(),
@@ -622,14 +660,29 @@ impl TurnMachine {
         self
     }
 
+    /// The same machine, telling the model about skills: the catalog every
+    /// request carries and the instructions this query named
+    /// ([`crate::skills::TurnSkills`]). Both empty is no message at all.
+    pub fn with_skills(mut self, skills: &crate::skills::TurnSkills) -> Self {
+        self.skills_catalog = skills.catalog_block().unwrap_or_default().to_string();
+        self.skills_explicit = skills.explicit_block().unwrap_or_default().to_string();
+        self
+    }
+
     /// The prompt as it currently stands, in wire order.
     pub fn messages(&self) -> Vec<Message> {
-        let mut messages = Vec::with_capacity(self.history.len() + self.suffix.len() + 3);
+        let mut messages = Vec::with_capacity(self.history.len() + self.suffix.len() + 5);
+        if !self.skills_catalog.is_empty() {
+            messages.push(Message::system(self.skills_catalog.clone()));
+        }
         if !self.static_context.is_empty() {
             messages.push(Message::system(self.static_context.clone()));
         }
         if !self.mcp_servers.is_empty() {
             messages.push(Message::system(self.mcp_servers.clone()));
+        }
+        if !self.skills_explicit.is_empty() {
+            messages.push(Message::system(self.skills_explicit.clone()));
         }
         for overlay in &self.overlay {
             messages.push(Message::system(overlay.clone()));
@@ -744,6 +797,7 @@ impl TurnMachine {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 });
             }
         }
@@ -933,6 +987,7 @@ impl TurnMachine {
                             raw_content: Vec::new(),
                             responses_state: Vec::new(),
                             wire: None,
+                            model: None,
                         });
                         self.suffix
                             .push(Message::assistant(Some(&partial), Vec::new()));
@@ -978,7 +1033,7 @@ impl TurnMachine {
             if completion.tool_calls.is_empty() {
                 // The answering step's own evidence, recorded through the same
                 // guard the tool-calling step uses.
-                record_assistant(journal, &completion);
+                record_assistant(journal, &completion, &self.request.model);
                 // **The last boundary a steer can reach the turn at**: one sent
                 // while this answer arrived is told now, after it, and the turn
                 // goes on (`append_pending_steering_after_assistant`,
@@ -1154,7 +1209,7 @@ impl TurnMachine {
                 completion.tool_calls.clone(),
             )
         });
-        record_assistant(journal, completion);
+        record_assistant(journal, completion, &self.request.model);
 
         // What the user said while answering this step's approvals, in call
         // order. **Function-local, never a field**: a buffer on `self` would

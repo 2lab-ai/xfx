@@ -1,0 +1,54 @@
+# P1 round 2: a resume continues on the provider the session recorded,
+# whatever the profile says by then. fx goes vercel -> codex and xfx gateway
+# -> llmux, as provider-carry does; after the exit the profile is written back
+# as it was at launch, on the Gateway (`reseed`), so the resume has the
+# session's record against the profile's. fx's resume puts back the
+# recorded provider and model (restoreRuntimePreferences,
+# app_session_runtime.zig:6147); the turn after it goes to codex / llmux,
+# carrying both turns.
+fx: seed provider-carry-fx.json
+xfx: seed provider-carry-xfx.json
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses
+nomodel
+gateway provider-carry-turns.json
+work provider-carry-ws
+wait 6
+snap start
+type read the notes and tell me what they say
+key Enter
+wait 15
+snap turn1
+type /provider
+key Enter
+wait 4
+key Down
+wait 1
+key Enter
+wait 10
+snap switched
+type what day was it again?
+key Enter
+wait 15
+snap turn2
+keep
+type /quit
+key Enter
+wait 4
+home quit
+fx: reseed provider-carry-fx.json
+xfx: reseed provider-carry-xfx.json
+home reseeded
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 10
+snap resumed
+type and after the resume?
+key Enter
+wait 15
+snap turn3
+home end
+gwlog
+type /quit
+key Enter
+wait 3

@@ -250,9 +250,11 @@ impl EditHistory {
         // rather than record. So an undo never brings an entity back, and
         // upstream's refusal of an undo over one
         // (`composer_undo.zig:35-40,252-268`) has nothing left to refuse.
-        // A skill token (`$name`, the /skills unit's) is the third such
-        // entity upstream has; it joins here as an `EntityKind` of its own,
-        // and this test takes it with no change.
+        // A skill token is the third (`entityOverlapping` counts
+        // `skill_tokens`, `registered_entities.zig:296-300`, and binding one
+        // resets the history, `composer_skill_binding.zig:36`): an undo never
+        // brings a token back as the bare name, nor takes the name back out of
+        // a token the menu bound.
         if weight > MAX_RETAINED_BYTES
             || !delta.removed_entities().is_empty()
             || !delta.inserted_entities().is_empty()

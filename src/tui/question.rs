@@ -1437,11 +1437,15 @@ impl QuestionRequester for TuiQuestioner {
                         self.control.defer_rename(title, false, announced);
                         continue;
                     }
-                    // `/model`'s menu asking for the catalog: handed back to the
-                    // work's own loop, as the approval prompter does
-                    // (`super::approval`), and the batch stays up.
+                    // `/model`'s menu asking for the catalog: the read starts
+                    // now, on a thread of its own this wait does not hold, as
+                    // the approval prompter's does
+                    // (`super::approval::ControlChannel::ask_catalog`), and the
+                    // batch stays up.
                     Some(TurnControl::Catalog) => {
-                        self.control.give_back(TurnControl::Catalog);
+                        if let Some(answer) = self.control.ask_catalog() {
+                            let _ = send_ui(&self.events, &token, answer).await;
+                        }
                         continue;
                     }
                     // The interrupt and the shutdown belong to the loop that can
