@@ -371,7 +371,7 @@ impl Input {
         let mut line = frame.to_string();
         line.push('\n');
         let mut pipe = self.take(deadline, cancel)?;
-        let sent = self.push(&mut pipe, line.as_bytes(), deadline, cancel);
+        let sent = self.push(&mut pipe, line.as_bytes(), deadline, cancel, Instant::now);
         let intact = matches!(sent, Ok(()) | Err(Unsent::Held(_)));
         self.put_back(intact.then_some(pipe));
         sent
@@ -385,7 +385,7 @@ impl Input {
             if self.closed.load(Ordering::Acquire) {
                 return Err(Unsent::Closed);
             }
-            if let Some(err) = stopped(deadline, cancel) {
+            if let Some(err) = stopped(Instant::now(), deadline, cancel) {
                 return Err(Unsent::Held(err));
             }
             if !slot.taken {
@@ -410,12 +410,16 @@ impl Input {
     /// stopped after is [`Unsent::Cut`]. fx looks at the cancellation before a
     /// request's first byte (`stdio_dispatcher.zig:549-551`) and at both once
     /// its write has ended (`:814-826`), racing the deadline in between.
+    ///
+    /// `now` is the clock the deadline is read against: `Instant::now`, or a
+    /// test's, which can pass the deadline exactly between two pieces.
     fn push(
         &self,
         pipe: &mut impl Sink,
         line: &[u8],
         deadline: Instant,
         cancel: Option<&CancelToken>,
+        now: impl Fn() -> Instant,
     ) -> Result<(), Unsent> {
         let mut written = 0;
         // Whether the server has refused any of it: the write is under way,
@@ -425,7 +429,7 @@ impl Input {
             if self.closed.load(Ordering::Acquire) {
                 return Err(Unsent::Closed);
             }
-            if let Some(err) = stopped(deadline, cancel) {
+            if let Some(err) = stopped(now(), deadline, cancel) {
                 return Err(if written == 0 && !refused {
                     Unsent::Held(err)
                 } else {
@@ -488,11 +492,12 @@ impl Sink for ChildStdin {
     }
 }
 
-/// Why a write stops waiting for room: its cancellation, then its deadline.
-fn stopped(deadline: Instant, cancel: Option<&CancelToken>) -> Option<McpError> {
+/// Why a write stops waiting for room at `now`: its cancellation, then its
+/// deadline.
+fn stopped(now: Instant, deadline: Instant, cancel: Option<&CancelToken>) -> Option<McpError> {
     if cancel.is_some_and(CancelToken::is_cancelled) {
         Some(McpError::Named("Cancelled"))
-    } else if Instant::now() >= deadline {
+    } else if now >= deadline {
         Some(McpError::Named("McpRequestTimedOut"))
     } else {
         None
@@ -2041,6 +2046,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             b"0123456789abcdef\n",
             Instant::now() + Duration::from_secs(60),
             Some(&cancel),
+            Instant::now,
         );
         assert!(
             matches!(sent, Err(Unsent::Cut(McpError::Named("Cancelled")))),
@@ -2066,6 +2072,7 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
             b"0123456789abcdef\n",
             Instant::now() + Duration::from_secs(60),
             Some(&cancel),
+            Instant::now,
         );
         assert!(
             matches!(sent, Err(Unsent::Held(McpError::Named("Cancelled")))),
@@ -2078,14 +2085,26 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
     #[test]
     fn a_deadline_that_passes_between_two_pieces_ends_the_frame_there() {
         let input = Input::new(None);
-        let deadline = Instant::now() + Duration::from_millis(30);
+        // A clock held before the deadline until the first piece has been
+        // taken, and past it from then on: no scheduler can move the deadline
+        // to before the first attempt.
+        let deadline = Instant::now() + Duration::from_secs(3600);
+        let passed = Arc::new(AtomicBool::new(false));
+        let mark = Arc::clone(&passed);
         let mut sink = pieces(move |attempt| {
             if attempt == 1 {
-                std::thread::sleep(Duration::from_millis(60));
+                mark.store(true, Ordering::SeqCst);
             }
             None
         });
-        let sent = input.push(&mut sink, b"0123456789abcdef\n", deadline, None);
+        let clock = move || {
+            if passed.load(Ordering::SeqCst) {
+                deadline + Duration::from_millis(1)
+            } else {
+                deadline - Duration::from_secs(1)
+            }
+        };
+        let sent = input.push(&mut sink, b"0123456789abcdef\n", deadline, None, clock);
         assert!(
             matches!(
                 sent,
