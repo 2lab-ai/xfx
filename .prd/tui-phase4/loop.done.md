@@ -314,3 +314,16 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 
 - 2026-11-04: batch 41 (`2f0759be`: SEC-C4h+C4i) lib 3648 / FI 3655, tui 163 / FI 177, 0 failed, clippy 0 both. SEC-A4d closed in review round 6.
 - 2026-11-04: preliminary receipt at `62146228`: SM1 37 scenarios + oracle 1091/1091; sweep vs `c1db919` 679/917 (74.0%), 0 failed/timeout; 0 snap regressions against the round-2 floor (861 snaps), 22 improvements.
+
+## R44–R45 — closed 2026-11-04
+
+- result: batch 44 (`27216b5c`: SEC-C5j — a module git dir's other children are still searched; bound 16,384) and batch 45 (`570737ea`: SEC-C4m — env and header values shown as written, one row each; no trust-prompt keys over Ctrl-O): lib 3654→3658 / FI 3661→3665, permissions 158, tui 163 / FI 177, 0 failed, clippy 0 both. Both came from the final seam review at `9c799969` (zbrain `p2-sec/final/`), where all ten reviews returned MUST none.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+
+### Round section (as it was in loop.md)
+
+- Receipt at `9c799969` (before C5j/C4m): SM1 1091/1091; sweep 676/917, 0 failed/timeout; three snaps flipped against the preliminary run (`workspace-index/at-plan` attribute-only, `h1-models2/before`/`after` catalog timing) and re-ran 3× at the same SHA at 4/4 → capture nondeterminism.

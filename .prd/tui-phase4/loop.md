@@ -20,7 +20,7 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 | ID | Status | Scope | Branch | Next |
 |---|---|---|---|---|
 | SWEEP | 🟡 | sweep tooling landed (batch 25); r2 at `1a94cdff`: 624/861; preliminary at `62146228`: 679/917 (74.0%), 0 failed/timeout, 0 snap regressions vs r2, 22 improvements; 23 snaps on rows no cause covers (h1-* recovery/MCP-HTTP/signal rows, `approvals/after-esc` row 15, `rules-read/ask` row 19) | `feat/fxcap-sweep` @ `194b97a1` | final-SHA run; SWEEP-CAUSES classifies the 23 uncaused snaps in the ledger (`--rescore`), else the PR states them as uncaused |
-| P2-RECEIPT | 🟡 | final-SHA gates ✓ (batch 43 `cdad7609`), CI, SM1, sweep vs `c1db9191` (run and reported), seam review of the eleven units at the final SHA (split by flow; names the post-closure commits C5i `76776c21`, A4i `59304742`, C4l `02480285`), frames read, public-suitability scan, COMPAT ✓ (batch 25), RED/GREEN (X1 paste-suffix receipt; fx upgrade guard `d91a9968`) | — | running at the final SHA |
+| P2-RECEIPT | 🟡 | gates ✓ (batch 45 `570737ea`); final seam review ✓ — 10 reviews (5 seams × 2 engines) MUST none at `9c799969`, two findings taken before the PR (SEC-C5j `cfb95732`, SEC-C4m `c4d252f5`) and confirmed by gpt-6 (opus pending); frames read ✓ (zbrain `p2-sec/final/frames.md`); COMPAT ✓; RED/GREEN ✓ (X1, `d91a9968`); SM1 + sweep at the final head, then public scan, CI | — | final receipt run |
 | SHIP | 🚪 | PR → `main` → preview + tap → real-profile run (sessions backed up; MCP servers checked for inherited variables they lose under SEC-C1), label "Phase 4 integration preview — fx c1db919 baseline, before the 0.0.16 transition" | — | after P2-RECEIPT |
 
 ### After P2 (own PRs to `main`)
