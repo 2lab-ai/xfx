@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-f9c5d3a [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m /
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mResults 33 · type to filter                                                                                       28–33[39m
+
+[38;5;245m  /sound          toggle sounds and terminal bells                                                    Appearance[39m
+[38;5;245m  /workspace      manage additional workspace directories                                             Workspace[39m
+[38;5;245m  /version        show the xfx version                                                                General[39m
+[38;5;245m  /quit           exit the interactive shell                                                          General[39m
+[38;5;245m  demo            Demo workspace skill for the capture                                                workspace .xfx[39m
+[1m[38;5;255m  release-notes   [38;5;245mWrite release notes from the git log                                                workspace skills/[0m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

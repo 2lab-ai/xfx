@@ -26,6 +26,7 @@ use super::mcp::{CapabilitySearchInput, McpFeaturesInput, McpSelectToolInput};
 use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
 use super::question::{AskUserQuestionInput, QuestionRequester};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
+use super::skill::SkillInput;
 use super::terminal::TerminalInput;
 use super::undo::ChangeJournal;
 
@@ -191,6 +192,7 @@ pub enum ToolInput {
     CreateFolder(CreateFolderInput),
     Terminal(TerminalInput),
     AskUserQuestion(AskUserQuestionInput),
+    Skill(SkillInput),
     CapabilitySearch(CapabilitySearchInput),
     McpSelectTool(McpSelectToolInput),
     McpFeatures(McpFeaturesInput),
@@ -216,11 +218,23 @@ impl ToolInput {
             Self::CreateFolder(input) => Some(&input.path),
             Self::Terminal(input) => Some(&input.command),
             Self::AskUserQuestion(_) => None,
+            Self::Skill(input) => Some(input.target()),
             // Upstream's `label_arg_kind`s: the query, or the server it is
             // scoped to (`capability_search.zig:91-101`); the name; the action.
             Self::CapabilitySearch(input) => Some(input.server.as_deref().unwrap_or(&input.query)),
             Self::McpSelectTool(input) => Some(&input.name),
             Self::McpFeatures(input) => Some(&input.action),
+        }
+    }
+
+    /// The verbs this call's row is shown with, when they are not its tool's:
+    /// a `skill` call that reads a resource other than `SKILL.md` is
+    /// `Reading skill resource`, as upstream's per-call presentation says
+    /// (`vercel-labs/fx@c1db9191 src/tools/skills/skill.zig:110-127`).
+    pub fn presentation(&self) -> Option<Presentation> {
+        match self {
+            Self::Skill(input) => input.presentation(),
+            _ => None,
         }
     }
 }
@@ -924,6 +938,14 @@ pub struct ToolContext {
     /// built the context, and a context nobody set it on answers with the
     /// availability sentinel rather than reaching for a UI that isn't there.
     questioner: Option<Arc<dyn QuestionRequester>>,
+    /// The skills the turn's `<available_skills>` block advertised, which a
+    /// `skill` call's location is resolved against (`crate::skills::Locations`),
+    /// and the home directory the managed root is under. Set per turn by the
+    /// front end that built the block; a context with none resolves a location
+    /// by discovering the skills afresh, as upstream's tool does when the
+    /// turn's catalog does not hold it.
+    skills: Option<Arc<crate::skills::Locations>>,
+    home: Option<std::path::PathBuf>,
     /// The session's MCP servers, and what this turn has selected of them.
     /// Absent on a surface that runs no MCP client: the meta-tools are not
     /// advertised there at all ([`super::Registry::advertisement_for`]).
@@ -953,6 +975,7 @@ impl std::fmt::Debug for ToolContext {
             .field("cancelled", &self.cancel.is_cancelled())
             .field("has_race_interlude", &self.interlude.is_some())
             .field("has_questioner", &self.questioner.is_some())
+            .field("has_skills", &self.skills.is_some())
             .field("has_mcp", &self.mcp.is_some())
             .finish()
     }
@@ -978,6 +1001,8 @@ impl ToolContext {
             cancel: CancelToken::new(),
             interlude: None,
             questioner: None,
+            skills: None,
+            home: None,
             mcp: None,
         }
     }
@@ -1008,6 +1033,37 @@ impl ToolContext {
     pub fn with_questioner(mut self, questioner: Arc<dyn QuestionRequester>) -> Self {
         self.questioner = Some(questioner);
         self
+    }
+
+    /// The same context, resolving `skill` locations against `skills` and
+    /// finding the managed root under `home`.
+    pub fn with_skills(
+        mut self,
+        skills: Option<Arc<crate::skills::Locations>>,
+        home: Option<std::path::PathBuf>,
+    ) -> Self {
+        self.set_skills(skills, home);
+        self
+    }
+
+    /// Puts this turn's catalog in force for its `skill` calls.
+    pub fn set_skills(
+        &mut self,
+        skills: Option<Arc<crate::skills::Locations>>,
+        home: Option<std::path::PathBuf>,
+    ) {
+        self.skills = skills;
+        self.home = home;
+    }
+
+    /// The turn's advertised skills, when a front end set them.
+    pub fn skills(&self) -> Option<&crate::skills::Locations> {
+        self.skills.as_deref()
+    }
+
+    /// The home directory the managed skill root is under.
+    pub fn home(&self) -> Option<&std::path::Path> {
+        self.home.as_deref()
     }
 
     /// The same context, with the session's MCP servers.
@@ -1206,11 +1262,13 @@ impl ToolSpec {
     /// input that does not decode is shown by the tool's default, and its
     /// refusal follows in the result.
     pub fn shown(&self, input: &Value) -> Shown {
+        let decoded = (self.decode)(input).ok();
         Shown {
-            presentation: self.presentation,
-            target: (self.decode)(input)
-                .ok()
-                .and_then(|decoded| decoded.target().map(str::to_string)),
+            presentation: decoded
+                .as_ref()
+                .and_then(ToolInput::presentation)
+                .unwrap_or(self.presentation),
+            target: decoded.and_then(|decoded| decoded.target().map(str::to_string)),
         }
     }
 

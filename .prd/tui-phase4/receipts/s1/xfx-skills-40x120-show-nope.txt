@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-0e78888 [debug] · Run /help for commands
+
+* skills: Skill 'nope' not found.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

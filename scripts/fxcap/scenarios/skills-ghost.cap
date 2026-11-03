@@ -1,0 +1,80 @@
+# The rest of a name painted after the caret: a `$word` with no menu up (the
+# space that ends the `$` menu, taken back) and a slash word after other
+# words (visibleInlineCompletion, input_completion_runtime.zig:598-640).
+# Right and Tab take it, Escape dismisses it, Enter sends the draft as typed.
+gateway skills-turn.json
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+wait 3
+type explain $dem
+wait 0.8
+snap dollar-menu
+key Space
+wait 0.3
+key BSpace
+wait 0.8
+snap dollar-ghost
+key Right
+wait 0.5
+snap dollar-right
+key C-u
+wait 0.3
+type explain $de
+wait 0.5
+key Space
+wait 0.3
+key BSpace
+wait 0.8
+snap dollar-ghost-de
+key Escape
+wait 0.8
+snap dollar-esc
+type m
+wait 0.5
+snap dollar-esc-m
+key C-u
+wait 0.3
+type use $rel
+wait 0.5
+key Space
+wait 0.3
+key BSpace
+wait 0.8
+snap dollar-ghost-rel
+key Tab
+wait 0.5
+snap dollar-tab
+key C-u
+wait 0.3
+type explain /he
+wait 0.8
+snap slash-ghost
+key Tab
+wait 0.5
+snap slash-tab
+key C-u
+wait 0.3
+type explain /mo
+wait 0.8
+snap slash-ghost-mo
+key Right
+wait 0.5
+snap slash-right
+key C-u
+wait 0.3
+type explain /he
+wait 0.5
+key Escape
+wait 0.8
+snap slash-esc
+type l
+wait 0.5
+snap slash-esc-l
+key C-u
+wait 0.3
+type explain /he
+wait 0.5
+key Enter
+wait 3
+snap slash-enter
+gwlog

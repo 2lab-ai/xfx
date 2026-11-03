@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f9c5d3a [debug] · Run /help for commands
+
+┃ explain /he
+
+  Used the skill.
+
+  0s (↑3 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
