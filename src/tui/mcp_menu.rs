@@ -755,12 +755,12 @@ impl McpMenu {
                     }
                     return Effect::Repaint;
                 }
-                self.browse_key(character, servers)
+                self.browse_key(character)
             }
         }
     }
 
-    fn browse_key(&mut self, character: char, servers: &[ServerView]) -> Effect {
+    fn browse_key(&mut self, character: char) -> Effect {
         match (self.section, character) {
             (Section::Servers, 's') => {
                 self.feedback = Some(crate::mcp::command::AUTH_UNAVAILABLE.to_string());
@@ -777,14 +777,13 @@ impl McpMenu {
                 Effect::Repaint
             }
             // The list the servers tab last drew -- what the person pressing
-            // `p` was looking at -- or, before any frame, the servers now.
+            // `p` was looking at. Before it has drawn one there is no such
+            // list: the key only asks for the frame.
             (Section::Servers, 'p') => {
-                self.listed = Some(
-                    self.browsed
-                        .borrow()
-                        .clone()
-                        .unwrap_or_else(|| pending_of(servers)),
-                );
+                let Some(browsed) = self.browsed.borrow().clone() else {
+                    return Effect::Repaint;
+                };
+                self.listed = Some(browsed);
                 self.listed_changed.set(false);
                 self.screen = Screen::Confirm(Confirm::ApproveAll);
                 Effect::Repaint
@@ -1808,6 +1807,7 @@ mod tests {
             workspace.write(serde_json::json!({"a": quiet("a1")}));
             let mut menu = McpMenu::open();
             let drawn = workspace.runtime.views();
+            menu.rows(&drawn, &[], 120, 12, PALETTE);
             assert_eq!(menu.key(KeyAction::Char('p'), &drawn, 5), Effect::Repaint);
             let rows: Vec<String> = menu
                 .rows(&drawn, &[], 120, 12, PALETTE)
@@ -1858,6 +1858,7 @@ mod tests {
             );
             // Drawn as it is now, it approves what it drew.
             let drawn = workspace.runtime.views();
+            menu.rows(&drawn, &[], 120, 12, PALETTE);
             menu.key(KeyAction::Char('p'), &drawn, 5);
             menu.rows(&drawn, &[], 120, 12, PALETTE);
             let effect = menu.key(KeyAction::Enter, &drawn, 5);
@@ -1944,6 +1945,7 @@ mod tests {
         workspace.write(serde_json::json!({"a": quiet("a1")}));
         let mut menu = McpMenu::open();
         let opened = workspace.runtime.views();
+        menu.rows(&opened, &[], 120, 12, PALETTE);
         assert_eq!(menu.key(KeyAction::Char('p'), &opened, 5), Effect::Repaint);
         menu.rows(&opened, &[], 120, 12, PALETTE);
         workspace.write(serde_json::json!({"a": quiet("a2")}));
@@ -1993,6 +1995,28 @@ mod tests {
             "{rows:#?}"
         );
         assert_eq!(menu.key(KeyAction::Enter, &now, 5), Effect::Repaint);
+        assert_eq!(workspace.approved(), serde_json::Value::Null);
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
+    fn p_before_the_servers_tab_has_been_drawn_approves_nothing() {
+        // `p` binds the list the servers tab drew; before it has drawn one
+        // there is no list a person saw, so `p` only asks for a frame and
+        // Enter after it approves nothing.
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"a": quiet("a1")}));
+        let views = workspace.runtime.views();
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Char('p'), &views, 5), Effect::Repaint);
+        let effect = menu.key(KeyAction::Enter, &views, 5);
+        assert!(
+            !matches!(effect, Effect::Trust { .. } | Effect::Command(_)),
+            "{effect:?}"
+        );
+        if matches!(effect, Effect::Trust { .. } | Effect::Command(_)) {
+            workspace.apply(effect);
+        }
         assert_eq!(workspace.approved(), serde_json::Value::Null);
         workspace.runtime.shutdown();
     }
