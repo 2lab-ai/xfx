@@ -208,6 +208,30 @@ impl Paste {
         self.refused = None;
     }
 
+    /// Whether the paste that is arriving has already outgrown what a draft
+    /// of `draft` bytes holding `retained` behind its summaries may take.
+    ///
+    /// fx's `confirmedOverflowBytes` (`paste_framing.zig:187-190`): its capture
+    /// is bounded by the room the composer has left
+    /// (`availableBytesForSelectionOrInsertion`, `input_paste_runtime.zig:117`)
+    /// and counts what does not fit, and a capture that overflowed is settled
+    /// as the input-limit refusal even when input followed its end marker
+    /// (`paste_framing.zig:165`). Here that is the buffer's own cap or the
+    /// prompt's budget ([`fits`]), on the bytes gathered so far. A paste with
+    /// nothing gathered -- none arriving, or one that went to another surface
+    /// -- has not.
+    pub(crate) fn overflowed(&self, draft: usize, retained: usize) -> bool {
+        !self.buffer.is_empty()
+            && (self.refused.is_some() || !fits(draft, retained, self.buffer.len()))
+    }
+
+    /// Drops the paste that is arriving: a paste refused for the input behind
+    /// its end marker leaves nothing behind it, and spends no number.
+    pub(crate) fn discard(&mut self) {
+        self.buffer.clear();
+        self.refused = None;
+    }
+
     /// One byte from between the markers.
     pub(crate) fn byte(&mut self, byte: u8) {
         if !accepted(byte) {

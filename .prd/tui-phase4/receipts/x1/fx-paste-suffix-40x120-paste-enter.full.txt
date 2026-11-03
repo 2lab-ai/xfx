@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+✗ input: Paste was not applied because extra input followed its end marker.
+
+┃ prior
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
