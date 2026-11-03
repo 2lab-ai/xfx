@@ -29,8 +29,8 @@
 //!
 //! A **title** is frame metadata rather than a cell. Nothing on the grid moves
 //! when the window title changes, so a skip that consulted the cells alone
-//! would drop it; it travels inside the same synchronized frame as everything
-//! else.
+//! would drop it; it travels in the frame's own vector, ahead of the
+//! synchronized update, where upstream writes it ([`Band::retitle`]).
 
 use std::borrow::Cow;
 use std::io::{self, Write};
@@ -280,7 +280,7 @@ pub(crate) struct Band {
 
 /// The band's record of the screen as [`Band::save_document`] found it: exactly
 /// the fields a document writer adopts when its bytes land
-/// ([`Band::retint_document`], [`Band::collapse_groups`],
+/// ([`Band::wipe`], [`Band::retint_document`], [`Band::collapse_groups`],
 /// [`Band::carry_document`], [`Band::append_floating`],
 /// [`Band::document_released`]).
 struct SavedDocument {
@@ -289,6 +289,9 @@ struct SavedDocument {
     painted_on: Option<(u16, u16)>,
     document_bottom: Option<u16>,
     caret: Option<(u16, u16)>,
+    /// A resume's reset ([`Band::wipe`]) is the one writer staged into an
+    /// update that answers a damaged screen.
+    damaged: bool,
 }
 
 /// What [`Band::build_frame`] left in the band's buffer.
@@ -701,11 +704,12 @@ impl Band {
         self.plan(rows, geometry);
         self.buffer.clear();
         self.buffer.extend_from_slice(LEAVE_ALTERNATE.as_bytes());
-        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         // The window title, which the terminal may have given back with the
-        // plane. Asked for again on the frame that is a whole repaint anyway.
+        // plane. Asked for again on the frame that is a whole repaint anyway,
+        // and ahead of the update, as every title is ([`Self::retitle`]).
         self.shown_title = None;
         self.retitle();
+        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         // The rows a band that shrank while the question was up no longer owns,
         // then its own rows and everything below them.
         self.release(geometry);
@@ -1024,9 +1028,9 @@ impl Band {
     ) {
         self.buffer.clear();
         if !opened {
+            self.retitle();
             self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         }
-        self.retitle();
         self.release(geometry);
         // The top of what this frame is about to write, which on a band that
         // shrank is still the *old* top: the erasures for the rows between the
@@ -1148,7 +1152,7 @@ impl Band {
                         grid: &self.target,
                         caret: Some((cursor.0, cursor.1.saturating_add(1))),
                         cursor_visible: Some(true),
-                        title: self.title.as_deref().or(self.shown_title.as_deref()),
+                        title: self.declared_title(opened),
                     },
                     self.band_footprint(released, geometry),
                 ),
@@ -1166,10 +1170,17 @@ impl Band {
         let moved = self.caret != Some(cursor);
 
         self.buffer.clear();
+        // The title ahead of the update rather than inside it, where upstream
+        // writes it: its title provider is a write of its own, made when the
+        // title changes, between one frame and the next
+        // (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`;
+        // `fx-stream-wire-24x80-end.wire` @1963). An update that has already
+        // begun has had its title written in front of it by the caller
+        // ([`Self::write_title_lead`]).
         if !opened {
+            self.retitle();
             self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
         }
-        self.retitle();
         if self.damaged {
             // Exactly the erase the Phase-1 painter opened every frame with,
             // and only on the frame that needs it: the rows a shrinking band
@@ -1236,7 +1247,7 @@ impl Band {
                         // compared, which is the whole of what "the screen
                         // already holds this" claims.
                         cursor_visible: None,
-                        title: self.title.as_deref().or(self.shown_title.as_deref()),
+                        title: self.declared_title(opened),
                     },
                     check::Footprint::none(check::PlaneKind::Primary),
                 ),
@@ -1272,7 +1283,7 @@ impl Band {
                     grid: &self.target,
                     caret: Some((cursor.0, cursor.1.saturating_add(1))),
                     cursor_visible: Some(true),
-                    title: self.title.as_deref().or(self.shown_title.as_deref()),
+                    title: self.declared_title(opened),
                 },
                 self.band_footprint(released, geometry),
             ),
@@ -1312,6 +1323,7 @@ impl Band {
             painted_on: self.painted_on,
             document_bottom: self.document_bottom,
             caret: self.caret,
+            damaged: self.damaged,
         });
     }
 
@@ -1333,6 +1345,7 @@ impl Band {
         self.painted_on = saved.painted_on;
         self.document_bottom = saved.document_bottom;
         self.caret = saved.caret;
+        self.damaged = saved.damaged;
     }
 
     /// Builds [`target`](Self::target): what the screen will hold once this
@@ -1364,26 +1377,61 @@ impl Band {
         self.caret = Some(cursor);
     }
 
-    /// Puts the window title in the frame, when it is not the one the terminal
-    /// was last told.
+    /// Puts the window title in the frame's buffer, when it is not the one
+    /// the terminal was last told.
     ///
-    /// `OSC 2 ; <title> BEL`. It moves no cell, so it is written at the head of
-    /// the frame where it cannot land between a `CUP` and the text that `CUP`
-    /// was for.
+    /// `OSC 2 ; <title> BEL`, **ahead of the frame's `?2026h`**: upstream sets
+    /// the title by a write of its own, outside any update, the moment it
+    /// changes and before the next frame (`syncTerminalTitleWith`,
+    /// `app_session_runtime.zig:3608-3629`). It moves no cell, so ahead of the
+    /// update it also cannot land between a `CUP` and the text that `CUP` was
+    /// for; and it rides in the frame's own vector, so a title still costs no
+    /// write of its own.
     fn retitle(&mut self) {
+        let mut buffer = std::mem::take(&mut self.buffer);
+        self.write_title_lead(&mut buffer);
+        self.buffer = buffer;
+    }
+
+    /// The title the next frame owes the window, if it owes one: the one this
+    /// session wants, when the terminal was last told another
+    /// ([`Self::retitle`]).
+    ///
+    /// A session that has stopped wanting a title does not take the terminal's
+    /// old one away: the pop of the title stack in every restore sequence
+    /// (`super::term::RESTORE`) is what gives that back, and it is the only
+    /// thing that honestly can.
+    pub(crate) fn title_owed(&self) -> Option<&str> {
         if self.title == self.shown_title {
-            return;
+            return None;
         }
-        let Some(title) = &self.title else {
-            // A session that has stopped wanting a title does not take the
-            // terminal's old one away: the pop of the title stack in every
-            // restore sequence (`super::term::RESTORE`) is what gives that
-            // back, and it is the only thing that honestly can.
+        self.title.as_deref()
+    }
+
+    /// Writes [`Self::title_owed`] as `OSC 2` into `buffer`: the lead of an
+    /// update the caller assembles itself (`super::event_loop`'s
+    /// `commit_primary`), whose band frame was built `opened` and so carries
+    /// none -- recorded as told by the same landing as the rest of the frame
+    /// ([`Self::frame_landed_primary`]).
+    pub(crate) fn write_title_lead(&self, buffer: &mut Vec<u8>) {
+        let Some(title) = self.title_owed() else {
             return;
         };
-        self.buffer.extend_from_slice(b"\x1b]2;");
-        self.buffer.extend_from_slice(title.as_bytes());
-        self.buffer.push(0x07);
+        buffer.extend_from_slice(b"\x1b]2;");
+        buffer.extend_from_slice(title.as_bytes());
+        buffer.push(0x07);
+    }
+
+    /// The window title a band frame declares it leaves: the one it writes,
+    /// or -- for a frame built `opened`, whose title is the caller's to write
+    /// ahead of the update ([`Self::write_title_lead`]) -- the one the
+    /// terminal already has.
+    fn declared_title(&self, opened: bool) -> Option<&str> {
+        if opened {
+            self.shown_title.as_deref()
+        } else {
+            self.title.as_deref().or(self.shown_title.as_deref())
+        }
     }
 
     /// Builds the bytes that put completed rows into the terminal's own
@@ -1675,7 +1723,8 @@ impl Band {
     /// There is exactly one such writer, and it is the reason this is not
     /// [`Self::frame_landed`]: the stop handler. A `SIGTSTP` at a question runs
     /// `super::signals`'s `stop_for_job_control`, which writes
-    /// [`super::term::abnormal_restore`] -- `1049l` first, unconditionally,
+    /// [`super::term::abnormal_restore`] -- `1049l` unconditionally, right
+    /// after the `?2026l` that closes any update a torn write left open,
     /// because an exit that does not know what is on the screen may not ask --
     /// and stops the process with the user's own buffer back. The `SIGCONT`
     /// that follows re-announces the mode set (`super::resume`), and the mode
@@ -5460,9 +5509,10 @@ mod tests {
     fn a_title_only_change_is_still_one_synchronized_frame() {
         // A first turn's end changes the title and no cell, so a skip that
         // consulted the grid alone would leave the window naming a session
-        // that has a title of its own by now. It travels inside the frame
-        // rather than beside one, because this module is the terminal's only
-        // writer.
+        // that has a title of its own by now. It travels in the frame's own
+        // vector rather than in a write beside one, because this module is the
+        // terminal's only writer -- ahead of the update, where upstream writes
+        // a title (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`).
         let mut band = Band::new();
         let mut screen = Vec::new();
         band.set_title(titled(None));
@@ -5480,7 +5530,7 @@ mod tests {
         );
         assert_eq!(
             String::from_utf8(screen).expect("utf-8"),
-            format!("{BEGIN_FRAME}\u{1b}]2;second title\u{7}\u{1b}[23;3H{END_FRAME}"),
+            format!("\u{1b}]2;second title\u{7}{BEGIN_FRAME}\u{1b}[23;3H{END_FRAME}"),
             "a title-only change cost more than the title and the caret"
         );
     }
@@ -6127,7 +6177,7 @@ mod tests {
     fn a_plane_the_terminal_gave_back_behind_the_bands_back_is_taken_again() {
         // The stop handler is the one writer that is not a frame. `SIGTSTP`
         // lands, `super::super::signals`'s `stop_for_job_control` writes the
-        // abnormal restore -- which leads with `1049l` -- and the process stops
+        // abnormal restore -- which writes `1049l` -- and the process stops
         // with the user's own screen back. `super::super::resume` re-announces
         // the mode set and it carries no `1049h`, so the terminal is on the
         // normal buffer while this band still believes it is on the other one.

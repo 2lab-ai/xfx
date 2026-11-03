@@ -585,7 +585,7 @@ extern "C" fn restore_and_reraise(signal: libc::c_int) {
 
 extern "C" fn stop_for_job_control(_signal: libc::c_int) {
     term::restore_pair();
-    // Those bytes led with `1049l` ([`term::abnormal_restore`]), so a session
+    // Those bytes carry `1049l` ([`term::abnormal_restore`]), so a session
     // that was reviewing a change on the alternate screen is on the normal
     // buffer now. Recorded **here**, where the restore is really written,
     // rather than inferred from the resume that follows: an uncatchable
@@ -879,7 +879,7 @@ mod tests {
         );
 
         // And the stop this session handles, which writes `term::restore_pair`
-        // -- `1049l` first -- before it raises `SIGSTOP`.
+        // -- `1049l` unconditionally -- before it raises `SIGSTOP`.
         flag_plane_restored();
         flag_resumed(libc::SIGCONT);
         assert!(take_resumed());

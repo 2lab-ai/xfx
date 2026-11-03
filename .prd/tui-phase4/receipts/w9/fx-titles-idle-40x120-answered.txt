@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ fix the renderer loop, it redraws every row twice
+
+  The renderer answer.
+
+  0s (↑14 ↓40)
+
+┃
+
+auto · model-a · fix the renderer loop, it redraw
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
