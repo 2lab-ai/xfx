@@ -264,3 +264,23 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - Measured on this Mac during the follow-ups: `std::env::var("HOME=")` returns HOME's value (C2c, a real credential read through `${AI_GATEWAY_API_KEY=}`); tmux and herdr draw U+FF9E/U+A8FA/U+0D4E one cell where xfx counted zero (A4c); `ps -E` lets a same-user child read xfx's launch environment (C2c docs); the TUI file index ran a repo's fsmonitor hook (C5c).
+
+## R30–R40 — closed 2026-11-04
+
+- result: batches 30–40 (`d4275500` … `ceae9b35`): SEC-C3d, C4d–C4h, C5d–C5i, A4d–A4h landed, every batch gated green (lib 3615→3646 / FI 3622→3653, permissions 149→158, tui 163 / FI 177, 0 failed, clippy 0 both; one load flake in batch 36's default run, alone 3× green). SEC-C5 closed in review round 6.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| SEC-C5 | ✅ | identity through links; auto git selects no driver, writes no trace/index, runs no hook; `.git` at any depth and every git dir by contents; include graph from git's own origins + byte-exact walk (C5f); the write that completes a git dir asks (C5g); per-seed include bound and pins (C5h); `commondir` arm pinned, dangling git-dir links count (C5i) — batches 34–40 | `fix/p2sec-exec-config-writes-d` @ `76776c21` | **closed round 6**: gpt-6 and opus MUST none on `e8d6da61` (C5i adds tests and asks only) |
+
+### Round section (as it was in loop.md)
+
+- 2026-11-04: batch 30 (`d4275500`: SEC-C3d, C4d, C5d). Gates on `d4275500`: lib 3615 / FI 3622, tui 163 / FI 177, 0 failed, clippy 0 both, fmt, identity, stubs, secrets ok. Round 3: A1, B1, C2, C3, D2 closed by both engines; A4 → A4d, C4 → C4e, C5 → C5e.
+- 2026-11-04: batch 31 (`a414b8b2`: SEC-C4e, C5e) lib 3618 / FI 3625, tui 163 / FI 177; batch 32 (`76a0160b`: SEC-A4d) lib 3620 / FI 3627, tui 163 / FI 177; 0 failed, clippy 0 both, checks ok. Public-suitability pre-scan at `9aede930`: one personal path (already public on `main`) removed; unpushed history adds no personal path or credential (the `sk-` hits are fixtures); capture scratch paths `/private/tmp/claude-501/fxcap.*` only.
+- 2026-11-04: batch 33 (`1abcf082`: SEC-A4e) lib 3623 / FI 3630, tui 163 / FI 177, 0 failed, clippy 0 both. (the review termination rule adopted this round is in `07-fx-parity-program.md` § Review rounds).
+- 2026-11-04: batch 34 (`1f8310d6`: SEC-C5f), batch 35 (`6174a55e`: SEC-C4f), batch 36 (`d7cf0fcb`: SEC-A4f): lib 3629→3633 / FI 3636→3640, permissions 154, tui 163 / FI 177, clippy 0. Batch 36 default run: `tests/mcp.rs` `a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_again` failed once at load 18 (binary 20.6 s); it passed in the same gate's fault-injection run and alone 3× (1.6–2.2 s) → counted as a load flake (G-copy-flake class).
+- 2026-11-04: batch 37 (`4517d22e`: SEC-C5g, C5h, A4g) lib 3637 / FI 3644, permissions 158; batch 38 (`c4d8fd63`: SEC-C4g) lib 3642 / FI 3649; tui 163 / FI 177, 0 failed, clippy 0 both. C5g reproduced the staged bare-repo bootstrap (every step auto-admitted) before fixing it.
+- 2026-11-04: batch 39 (`4423df8e`: SEC-C4h, A4h) lib 3646 / FI 3653, permissions 158; batch 40 (`ceae9b35`: SEC-C5i); tui 163 / FI 177, 0 failed, clippy 0 both. SEC-C5 closed in round 6.
+- 2026-11-04: rounds 3–6 of the P2 security review. Reports and per-round status: zbrain `workflow/2lab-ai/repos/xfx-tui-phase4/p2-sec/round{3,4,5,6}/`. SEC-C5 closed in round 6 (gpt-6 and opus MUST none on `e8d6da61`); SEC-A4d and SEC-C4 continue.
