@@ -4278,6 +4278,74 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 }
 
 #[test]
+fn alias_is_offered_under_extensions_and_answers_every_form_with_upstreams_notice() {
+    // fx c1db919's `/alias` (`commands.zig:489`, `commandHandleAlias`,
+    // `app_commands.zig:2043-2050`): the popup files it under Extensions after
+    // `/allowlist` and before `/balance`, which `al` finds inside its name as
+    // fx's popup does, and bare, with a name, and with a name and a command it
+    // is one neutral notice -- never a prompt, so the scripted marker is a
+    // reply nobody may see. Every row below is fx's own at 40x120
+    // (`.prd/tui-phase4/receipts/c7`, `fx-alias-40x120-popup-al.txt`).
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-AN-ALIAS-WAS-ASKED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/al");
+    let opened = session.wait_until("the menu to offer /alias", |text| {
+        Screen::painted(text, 40, 120)
+            .is_some_and(|screen| screen.find("show alias availability").is_some())
+    });
+    let screen = Screen::painted(&opened, 40, 120).expect("a painted frame");
+    let rule = screen
+        .divider()
+        .expect("the band has a rule under the menu");
+    assert_eq!(screen.row_text(rule + 1), "Commands 3");
+    assert_eq!(screen.row_text(rule + 2), "");
+    // One category column for the rows in view, as wide as its widest label
+    // (`Extensions`) and against the right edge.
+    assert_eq!(
+        (1..=3)
+            .map(|offset| screen.row_text(rule + 2 + offset))
+            .collect::<Vec<_>>(),
+        [
+            "  /allowlist   manage trusted commands, tools, and URLs                                                      Security",
+            "  /alias       show alias availability                                                                       Extensions",
+            "  /balance     show gateway credits balance                                                                  Account",
+        ]
+    );
+    session.type_bytes(b"\x15");
+
+    let said = "* aliases: Aliases are not yet configurable.";
+    for (line, times) in [
+        (b"/alias\r".as_slice(), 1),
+        (b"/alias build\r", 2),
+        (b"/alias build zig build\r", 3),
+    ] {
+        session.type_bytes(line);
+        session.wait_until(&format!("the notice {times} time(s)"), |text| {
+            Screen::painted(text, 40, 120).is_some_and(|screen| {
+                (1..=40).filter(|row| screen.row_text(*row) == said).count() == times
+            })
+        });
+    }
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "an /alias line was sent to the provider as a prompt"
+    );
+    assert!(!session.settled_text().contains("MARKER-AN-ALIAS-WAS-ASKED"));
+}
+
+#[test]
 fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     // plan:224 -- the menu is a view of the composer, not a second focus. Three
     // claims, and the last two are what make it a menu rather than a panel: it

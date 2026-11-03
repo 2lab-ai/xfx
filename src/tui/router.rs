@@ -127,6 +127,11 @@ pub(crate) trait CommandHandlers {
     /// `/mcp`, with the rest of the line: empty or `list` opens the menu,
     /// anything else is a subcommand for `crate::mcp::command`.
     fn mcp(&mut self, argument: &str);
+    /// `/alias`, with the rest of the line -- already trimmed, and empty when
+    /// there was none. Upstream's handler takes it and reads none of it
+    /// (`commandHandleAlias`, `app_commands.zig:2043-2050`), so every form is
+    /// one answer; the argument is passed so the trait says what was typed.
+    fn alias(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -225,6 +230,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Status => handlers.status(),
         Slash::Statusline => handlers.statusline(argument),
         Slash::Settings => handlers.settings(argument),
+        Slash::Alias => handlers.alias(argument),
         Slash::Workspace => handlers.workspace(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
@@ -353,6 +359,9 @@ mod tests {
         fn mcp(&mut self, argument: &str) {
             self.calls.push(format!("mcp {argument}"));
         }
+        fn alias(&mut self, argument: &str) {
+            self.calls.push(format!("alias {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -394,6 +403,7 @@ mod tests {
             ("/undo", "undo"),
             ("/workspace", "workspace "),
             ("/mcp", "mcp "),
+            ("/alias", "alias "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -411,6 +421,22 @@ mod tests {
             ("/mcp list", "mcp list"),
             ("/mcp resource list fixture", "mcp resource list fixture"),
             ("/mcp add fixture /bin/x a b", "mcp add fixture /bin/x a b"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(matches!(super::classify(line), Submitted::Command { .. }));
+        }
+    }
+
+    #[test]
+    fn an_alias_line_is_a_command_in_every_form_and_never_reaches_the_model() {
+        // Upstream's row takes the rest of the line (`commands.zig:489`), so a
+        // name, and a name with a command after it, reach the handler too
+        // (`command_router.zig:131-137`, `:174`). Before this surface had the
+        // command, `/alias build zig build` went to the model as a prompt.
+        for (line, call) in [
+            ("/alias", "alias "),
+            ("/alias build", "alias build"),
+            ("/alias build zig build", "alias build zig build"),
         ] {
             assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
             assert!(matches!(super::classify(line), Submitted::Command { .. }));
