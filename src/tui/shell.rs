@@ -14129,6 +14129,25 @@ mod tests {
 
         write(serde_json::json!(["-c", ": > \"$0\"", ran]));
         runtime.run(Job::Command("reload".into()));
+        // A reload asked for while the startup one still runs is queued
+        // behind it, so `run` can return first: the case is only the case
+        // once the runtime holds the new entry.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            let read = runtime
+                .views()
+                .into_iter()
+                .find(|view| view.name == "proj")
+                .and_then(|view| view.entry.map(|entry| entry.digest.clone()));
+            if read.as_ref().is_some_and(|digest| *digest != shown) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the runtime never read the rewritten entry: {read:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let _ = runtime.take_events();
         assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
 

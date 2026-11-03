@@ -260,6 +260,31 @@ fn an_approval_an_older_xfx_saved_by_name_alone_asks_once_more() {
 }
 
 #[test]
+fn a_pending_entry_is_spelled_once_per_read_and_shared_by_every_view() {
+    // Views are taken every frame, every turn and every key; the entry is
+    // spelled when the read that found it builds the server, not per view.
+    let home = Home::new();
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "proj");
+    let entry = |runtime: &McpRuntime| {
+        runtime
+            .views()
+            .into_iter()
+            .find(|view| view.name == "proj")
+            .and_then(|view| view.entry)
+            .expect("a pending entry is shown")
+    };
+    assert!(Arc::ptr_eq(&entry(&runtime), &entry(&runtime)));
+    runtime.shutdown();
+}
+
+#[test]
 fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_error() {
     // `"type": "${T:-stdio}"` does not parse as written, so the person sees a
     // configuration error, not a server; after expansion it is a stdio
