@@ -24,7 +24,11 @@ and directory: path, size, SHA-256, `mtime` in ns, mode -- and diffed.
    cut on a writable open (`file.set_len(manifest.event_log_bytes)`, new `src/session/store.rs:2180`,
    the same as old `store.rs:1321`): it removes only bytes past the published boundary, which no
    reader ever shows -- measured, a 33-byte torn tail removed and the published 4 467 bytes kept.
-2. **LOUD -- opening an old session in the new TUI writes to it, before any prompt.** Picking a
+2. **LOUD -- opening an old session in the new TUI writes to it, before any prompt.** *Fixed on
+   `fix/p2-resume-prefs` (G-resume-prefs): the open writes nothing -- no frame, no republish, not even
+   the log's `mtime` -- and the TUI and `ask --resume` keep the session's model on the provider it
+   recorded, as fx does (`app_session_runtime.zig:6147-6151`, `cli_ask.zig:1035-1042@c1db9191`); the
+   delta below is written ahead of the first turn instead. What follows is `de6618de` as measured.* Picking a
    session in `/resume`, or launching `xfx --resume <id>`, and then quitting without typing anything,
    **appends one `preferences_changed` frame and republishes the manifest**
    (`src/tui/worker.rs:2376-2399`). It always carries `provider`, because no log the preview wrote
@@ -193,8 +197,10 @@ recomputed after the paths are put in):
 - `continuing_a_session_the_preview_wrote_appends_only_frames_the_preview_reads` -- `ask --resume-id`
   on all five: old bytes the head of the log, every appended kind one of the preview's eleven, the
   boundary moved, the saved history sent first.
-- `opening_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_preview_reads` -- `xfx
-  --resume` then `/quit`, on a real pty: the same two properties, no turn, no request, no title.
+- `opening_a_session_the_preview_wrote_in_the_tui_and_leaving_it_writes_nothing` -- `xfx --resume`
+  then `/quit`, on a real pty: every file of the session identical, `mtime`s included; no request, no
+  title. (At `de6618de` it asserted the append-only property of the open's frame; G-resume-prefs
+  tightened it to no write at all.)
 
 Red, by mutation: with `preferences_changed` taken out of the test's list of the preview's kinds,
 the guard, the continuation and the TUI-open tests fail -- ``appended a `preferences_changed`, which

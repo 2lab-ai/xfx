@@ -560,16 +560,21 @@ fn continuing_a_session_the_preview_wrote_appends_only_frames_the_preview_reads(
 }
 
 #[test]
-fn opening_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_preview_reads() {
-    // `--resume` writes before any prompt: the provider a session goes on
-    // under, which no log the preview wrote names, and the mode and model
-    // when they differ from the session's -- measured in the receipt as one
-    // `preferences_changed`. Whatever it writes must keep the session one the
-    // preview can still open.
+fn opening_a_session_the_preview_wrote_in_the_tui_and_leaving_it_writes_nothing() {
+    // `--resume` and then `/quit`, with nothing typed, leaves the session as
+    // the preview left it -- every file of it, byte for byte and down to its
+    // modification time -- as fx's resume
+    // appends nothing (`hydrateResumedSession`, `vercel-labs/fx@c1db9191
+    // src/core/app/app_session_runtime.zig:2368-2420`). What the open changed
+    // -- the provider no log the preview wrote names, the launch's mode -- is
+    // written ahead of the first turn instead, which the continuation test
+    // above holds to the preview's kinds. Red before (`de6618de`): one
+    // `preferences_changed` on every open, measured in the COMPAT receipt.
     let preview = Preview::seed();
     let gateway = FakeGateway::start(Vec::new());
     for id in [BAND, LLMUX] {
-        let before = preview.log(id);
+        let dir = preview.sandbox.sessions_dir().join(id);
+        let before = tree(&dir);
         let pty = Pty::open();
         pty.resize(24, 100);
         let mut command = preview.sandbox.command_with(&gateway);
@@ -581,14 +586,12 @@ fn opening_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_previe
         session.wait_for("session resumed:");
         assert_eq!(session.quit().code(), Some(0), "{id}");
 
-        let gained = appended(&preview, id, &before);
-        assert!(
-            !gained.contains(&"user_message".to_string()),
-            "{id}: opening asked nothing, so no turn was written: {gained:?}"
-        );
+        // Bytes, modes and modification times: the store cuts a crash tail
+        // on a writable open, and only a tail.
         assert_eq!(
-            preview.manifest(id)["event_log_bytes"],
-            preview.log(id).len()
+            tree(&dir),
+            before,
+            "{id}: opening and leaving the session changed it"
         );
         ok(
             &preview.xfx(&["session", "--id", id]),

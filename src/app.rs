@@ -20,6 +20,7 @@ use crate::output::{
 };
 use crate::permission::{Grant, LiveRules, PermissionSession, TtyPrompter, YOLO_WARNING};
 use crate::provider::{Bundle, ProviderId};
+use crate::session::store::DurableState;
 use crate::session::{
     ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
     SessionRecorder, SessionStore,
@@ -414,12 +415,12 @@ async fn run_ask(
         Box::new(TextSink::new(stdout, stderr))
     };
 
-    // A restored model preference applies only when nothing this run chose one:
-    // an explicit setting or override outranks what a past turn happened to use.
-    let model = match &opened.restored_model {
-        Some(model) if config.sources.model == SettingSource::CompiledDefault => model.clone(),
-        _ => config.model.clone(),
-    };
+    // A resumed session's model, by [`resumed_model`]'s rule; a fresh one's is
+    // the configuration's.
+    let model = opened
+        .restored_model
+        .clone()
+        .unwrap_or_else(|| config.model.clone());
     if let Some(recorder) = opened.recorder.as_mut() {
         let model_changed = recorder.state().model != model;
         let mode_changed = recorder.state().permission_mode != mode;
@@ -569,6 +570,35 @@ async fn run_ask(
     ))
 }
 
+/// The model a resumed `ask` is sent in.
+///
+/// **The session's**, as upstream's `ask --resume` goes on in the model the
+/// session recorded (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1035-1042`),
+/// which only a process override outranks (`XFX_MODEL`, upstream's
+/// `model_source == .process_override`, `:1810-1811`) -- never the profile's,
+/// which is the model a fresh session starts in. The TUI's resume has the same
+/// rule (`crate::tui::worker::Resumption::selection`).
+///
+/// Only on the provider the session recorded, which is the one this `ask`
+/// goes to: upstream restores the provider with the model (`:1037`), and this
+/// `ask` cannot -- its provider was built before the session was opened -- so
+/// a session recorded on another provider, or on none, keeps the launch's
+/// rule: its model only when no setting chose one.
+fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a str {
+    let recorded = state.provider.as_deref().and_then(ProviderId::parse);
+    if recorded == Some(config.provider) {
+        if config.sources.model == SettingSource::ProcessOverride {
+            &config.model
+        } else {
+            &state.model
+        }
+    } else if config.sources.model == SettingSource::CompiledDefault {
+        &state.model
+    } else {
+        &config.model
+    }
+}
+
 /// What opening a session produced for the turn that follows.
 struct OpenedSession {
     recorder: Option<SessionRecorder>,
@@ -611,15 +641,11 @@ fn open_session(
         Some(selector) => {
             let resumed = store.resume(selector, &config.workspace_root)?;
             let state = resumed.session.state();
-            // The model the turn will be sent to, by `run_ask`'s rule.
-            let model = if config.sources.model == SettingSource::CompiledDefault {
-                state.model.as_str()
-            } else {
-                config.model.as_str()
-            };
+            // The model the turn will be sent to.
+            let model = resumed_model(config, state);
             let replay = state.history_messages(config.provider.wire(), model);
             let restored_grants = state.grants.clone();
-            let restored_model = Some(state.model.clone());
+            let restored_model = Some(model.to_string());
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
                 history: replay.messages,

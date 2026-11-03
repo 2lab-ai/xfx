@@ -8998,6 +8998,104 @@ fn a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_a
 }
 
 #[test]
+fn a_resumed_session_keeps_its_model_and_opening_it_writes_nothing() {
+    // fx's resume puts back the model the session recorded on its provider,
+    // and only a process override outranks it -- a profile's model does not
+    // (`restoreRuntimePreferences`, `vercel-labs/fx@c1db9191
+    // src/core/app/app_session_runtime.zig:6147-6151`). And it appends
+    // nothing to the log on the way in: its preferences reach the log only
+    // through a command or a turn (`commitRuntimePreferences`, `:3469-3554`).
+    // Red before: the resume showed the profile's `model-a`, and `/quit` with
+    // nothing typed had appended a `preferences_changed` naming it and the
+    // launch's mode over the session's.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-SAVED"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-CONTINUED",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    // A session held in `fake/model-b`, under `yolo`.
+    let output = sandbox
+        .command_with(&gateway)
+        .env("XFX_MODEL", "fake/model-b")
+        .args(["ask", "--yolo", "first question"])
+        .output()
+        .expect("run xfx ask");
+    assert!(output.status.success(), "{output:?}");
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    let id = &ids[0];
+    // Then the profile chose another model, as `/model` or `setup` would.
+    std::fs::write(
+        sandbox.settings_path(),
+        r#"{"provider":"gateway","models":{"gateway":"fake/model-a"}}"#,
+    )
+    .expect("write the profile");
+    let dir = sandbox.sessions_dir().join(id);
+    let read = |name: &str| std::fs::read(dir.join(name)).expect("read the session");
+    let (log, manifest) = (read("events.jsonl"), read("session.json"));
+
+    let resumed = || {
+        let mut command = tui_with(&sandbox, &gateway);
+        command.arg("--resume").arg(id);
+        command
+    };
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut opened = Session::spawn_without_taking_the_terminal(&pty, resumed());
+    opened.wait_for("session resumed:");
+    on_screen(&opened, (24, 80), &["auto \u{b7} model-b"], &[]);
+    assert_eq!(opened.quit().code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&read("events.jsonl")),
+        String::from_utf8_lossy(&log),
+        "opening the session and leaving it wrote to its log"
+    );
+    assert_eq!(read("session.json"), manifest, "and republished it");
+
+    // The first turn after a resume writes down what it runs under, ahead of
+    // its prompt: the launch's mode -- fx records none, and runs in the
+    // launch's -- and no model, which is the session's still.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut continued = Session::spawn_without_taking_the_terminal(&pty, resumed());
+    continued.wait_for("session resumed:");
+    continued.type_bytes(b"second question\r");
+    continued.wait_for("MARKER-CONTINUED");
+    wait_for_conclusions(&sandbox, 2);
+    assert_eq!(continued.quit().code(), Some(0));
+    assert_eq!(
+        gateway.requests()[1].header("ai-language-model-id"),
+        Some("fake/model-b"),
+        "the resumed turn was not sent in the session's model"
+    );
+    let after = read("events.jsonl");
+    assert!(after.starts_with(&log), "the saved log was rewritten");
+    let appended: Vec<Value> = String::from_utf8_lossy(&after[log.len()..])
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("a frame"))
+        .map(|frame| frame["event"].clone())
+        .collect();
+    let kinds: Vec<&str> = appended
+        .iter()
+        .filter_map(|event| event["kind"].as_str())
+        .collect();
+    assert_eq!(
+        kinds[..3],
+        [
+            "preferences_changed",
+            "project_context_recorded",
+            "user_message"
+        ],
+        "{kinds:?}"
+    );
+    assert_eq!(appended[0]["permission_mode"], "auto", "{}", appended[0]);
+    assert!(appended[0]["model"].is_null(), "{}", appended[0]);
+    assert!(appended[0].get("provider").is_none(), "{}", appended[0]);
+}
+
+#[test]
 fn a_prompt_typed_behind_a_provider_switch_is_titled_by_the_provider_switched_to() {
     // Upstream holds a prompt while its provider is being prepared and asks
     // for the session's title only when it finalizes the prompt, of the

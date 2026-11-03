@@ -1324,19 +1324,24 @@ impl Resumption {
     /// it and says what is missing (`restoreSessionCredential`,
     /// `app_auth_runtime.zig:151-180`; [`unauthenticated`]).
     ///
-    /// On a provider other than the configured one the model is the
-    /// session's, which only a process override outranks (`XFX_MODEL`, as
-    /// upstream's `process_model_override` does, `:6148-6150`): the profile's
-    /// model is the configured provider's, and asking another provider for it
-    /// would be asking for a model it was never chosen for. On the configured
-    /// provider -- or for a session that recorded none, written before the
-    /// provider was recorded, which goes on with the configured one -- the
-    /// launch's rule holds: the session's model when no setting chose one
-    /// (`app::run_ask`).
+    /// **The model with it is the session's**, on the configured provider as
+    /// on any other, and only a process override outranks it (`XFX_MODEL`, as
+    /// upstream's `process_model_override` does, `:6150-6151`) -- never the
+    /// profile's: that is the model a fresh session starts in, and on another
+    /// provider a model it was never chosen for.
+    ///
+    /// **A session that recorded no provider** -- written before the provider
+    /// was recorded, every log of the 2026-10-06 preview -- goes on with the
+    /// configured one under the launch's rule: the session's model only when
+    /// no setting chose one (`app::run_ask`). Its model is one whose provider
+    /// the log does not say, and upstream's answer for a session that predates
+    /// its recorded preferences is the configured selection
+    /// (`loadMigrationPreferences`, `session_migration.zig:343-345`, seeded
+    /// from the workspace's at `app_session_runtime.zig:2297`).
     pub(crate) fn selection(&self, config: &RuntimeConfig, current: &str) -> (ProviderId, String) {
         use crate::config::SettingSource;
         match self.provider() {
-            Some(recorded) if recorded != config.provider => {
+            Some(recorded) => {
                 let model = if config.sources.model == SettingSource::ProcessOverride {
                     current
                 } else {
@@ -1563,6 +1568,10 @@ struct Runtime {
     /// A generated title of the lineage in force whose conversation is not
     /// open yet: written the moment it is ([`Runtime::install_pending_title`]).
     pending_title: Option<super::titles::Titled>,
+    /// The resumed session whose provider, model and mode are still to be
+    /// written down -- at its next turn, not at the open
+    /// ([`record_resumed_selection`]).
+    unrecorded_resume: Option<crate::session::SessionId>,
     /// The directories `/workspace` saved for this workspace, each as the real
     /// path it was when it was read: at launch, from the profile, and after
     /// each change, from what the change read back.
@@ -1648,6 +1657,7 @@ impl Runtime {
             title_answers: Some(title_answers),
             conversation_lineage: None,
             pending_title: None,
+            unrecorded_resume: None,
             workspace,
             fixed_tokens: Arc::new(AtomicUsize::new(0)),
         }
@@ -2353,11 +2363,16 @@ impl Runtime {
     /// already holds: its history, which every turn replays from the log
     /// (`one_turn`), and its grants ([`bind_conversation`]).
     ///
-    /// The model and the permission mode this session runs under are written
-    /// down when they differ from the ones the log last recorded, which is
-    /// `xfx ask --resume`'s step (`app::run_ask`): the mode is never restored
-    /// from a log, and the model is the configuration's, so a later resume
-    /// reads what this one really used.
+    /// **Nothing is written to the log here.** The provider, the model and the
+    /// permission mode it goes on under are written down where they differ
+    /// from what the log last recorded -- but at its next turn, ahead of that
+    /// turn's prompt ([`record_resumed_selection`]), as `xfx ask --resume`
+    /// writes them ahead of its one (`app::run_ask`). Upstream's resume
+    /// appends nothing: its preferences reach the log only through a command
+    /// that changes them (`commitRuntimePreferences`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_session_runtime.zig:3469-3554`), never through
+    /// `hydrateResumedSession` (`:2368-2420`). A session opened to be read and
+    /// left is a session its owner did not change.
     fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
         self.bills.forget();
         // Another conversation: a question about the one it replaces runs on
@@ -2365,7 +2380,7 @@ impl Runtime {
         // that conversation to open is dropped now.
         self.titles.next_lineage();
         self.drop_pending_title();
-        let mut conversation = bind_conversation(
+        let conversation = bind_conversation(
             &self.store,
             resumed.session,
             resumed.scope,
@@ -2373,30 +2388,7 @@ impl Runtime {
             Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
             mirror,
         );
-        let model = self.model().to_string();
-        let mode = self.config.permission_mode;
-        let provider = self.config.provider.label();
-        let recorded = conversation.recorder.state();
-        let model_changed = recorded.model != model;
-        let mode_changed = recorded.permission_mode != mode;
-        // And the provider, as upstream's resume records the selection it
-        // goes on with. A session that recorded one continues on it
-        // ([`Resumption::selection`]), so this is a session written before
-        // the provider was recorded -- or naming one this build does not
-        // have -- that now says which.
-        let provider_changed = recorded.provider.as_deref() != Some(provider);
-        if model_changed || mode_changed || provider_changed {
-            conversation
-                .recorder
-                .commit(SessionEvent::PreferencesChanged {
-                    model: model_changed.then_some(model),
-                    permission_mode: mode_changed.then(|| mode.label().to_string()),
-                    provider: provider_changed.then(|| provider.to_string()),
-                    effort: None,
-                    fast_mode: None,
-                    ultrafast_mode: None,
-                });
-        }
+        self.unrecorded_resume = Some(conversation.recorder.id().clone());
         // A resumed session's clock is its own: from when it was created.
         self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
@@ -5299,6 +5291,50 @@ async fn say_skills(
     }
 }
 
+/// Writes down, once, the provider, the model and the permission mode a
+/// resumed conversation goes on under, where they differ from what its log
+/// last recorded -- ahead of the first turn after the resume
+/// ([`Runtime::resume`]), as `app::run_ask` writes them ahead of its turn.
+///
+/// Worked out now rather than at the open, from what is in force for this
+/// turn: a `/model`, `/provider` or `/permissions` made since the open has
+/// already written its own frame, and the log agrees with it, so only what
+/// the open itself changed is left to say -- the launch's mode, which is
+/// never restored from a log, and for a session written before the provider
+/// was recorded, the provider it went on with. A crash before this turn loses
+/// nothing: no turn ran under the selection, and the next open works it out
+/// again from its own launch.
+fn record_resumed_selection(
+    conversation: &mut Conversation,
+    unrecorded: &mut Option<crate::session::SessionId>,
+    model: &str,
+    mode: PermissionMode,
+    provider: ProviderId,
+) {
+    // Only for the conversation that was resumed: a `/new` since gives the
+    // next one a log that starts with the selection in force.
+    if unrecorded.take().as_ref() != Some(conversation.recorder.id()) {
+        return;
+    }
+    let provider = provider.label();
+    let recorded = conversation.recorder.state();
+    let model_changed = recorded.model != model;
+    let mode_changed = recorded.permission_mode != mode;
+    let provider_changed = recorded.provider.as_deref() != Some(provider);
+    if model_changed || mode_changed || provider_changed {
+        conversation
+            .recorder
+            .commit(SessionEvent::PreferencesChanged {
+                model: model_changed.then(|| model.to_string()),
+                permission_mode: mode_changed.then(|| mode.label().to_string()),
+                provider: provider_changed.then(|| provider.to_string()),
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
+            });
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
@@ -5432,6 +5468,13 @@ async fn one_turn(
         .as_mut()
         .expect("the conversation was just opened");
 
+    record_resumed_selection(
+        conversation,
+        &mut state.unrecorded_resume,
+        &model,
+        state.config.permission_mode,
+        provider_id,
+    );
     conversation
         .recorder
         .commit(SessionEvent::ProjectContextRecorded {
@@ -8125,8 +8168,12 @@ mod tests {
     }
 
     #[test]
-    fn a_resume_under_another_model_writes_down_the_one_it_runs_under() {
-        // `app::run_ask`'s step: a later resume reads what this one used.
+    fn a_resume_writes_nothing_and_its_first_turn_writes_down_what_it_runs_under() {
+        // `app::run_ask`'s step, at the turn: a later resume reads what this
+        // one used. Never at the open itself, which upstream's resume does
+        // not write either (`hydrateResumedSession`,
+        // `app_session_runtime.zig:2368-2420`). Red before: the resume
+        // appended the model and the mode before anything was asked.
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let saved_under = config(home.path(), workspace.path());
@@ -8135,22 +8182,94 @@ mod tests {
 
         let mut config = saved_under.clone();
         config.model = "another-model".to_string();
+        config.permission_mode = PermissionMode::Yolo;
         let resumed = Resumption::open(&config, &crate::session::Selector::Id(id))
             .expect("the saved session opens");
         assert_eq!(resumed.model(), saved_under.model);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
-        state.resume(resumed, &CancelToken::new());
+        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let before = log_text(state_with_log(&mut state, resumed));
+        let recorded = |state: &Runtime| {
+            let recorded = state.conversation.as_ref().expect("bound").recorder.state();
+            (recorded.model.clone(), recorded.permission_mode)
+        };
         assert_eq!(
-            state
-                .conversation
-                .as_ref()
-                .expect("bound")
-                .recorder
-                .state()
-                .model,
-            "another-model"
+            recorded(&state),
+            (saved_under.model.clone(), saved_under.permission_mode)
         );
+        assert_eq!(log_text(&state), before, "the resume wrote to the log");
+
+        // The turn's step writes down both, once.
+        let turn = |state: &mut Runtime, model: &str| {
+            let mode = state.config.permission_mode;
+            let provider = state.config.provider;
+            record_resumed_selection(
+                state.conversation.as_mut().expect("bound"),
+                &mut state.unrecorded_resume,
+                model,
+                mode,
+                provider,
+            );
+        };
+        turn(&mut state, "another-model");
+        assert_eq!(
+            recorded(&state),
+            ("another-model".to_string(), PermissionMode::Yolo)
+        );
+        let once = log_text(&state);
+        assert_ne!(once, before);
+        turn(&mut state, "a-later-model");
+        assert_eq!(log_text(&state), once, "written twice");
+    }
+
+    #[test]
+    fn a_choice_made_after_a_resume_is_written_at_once_and_not_over_by_its_first_turn() {
+        // `/model` and `/permissions` after the open write their own frames,
+        // as they do in any session; the first turn then has only what the
+        // open changed left to say, and says nothing over them.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let saved_under = config(home.path(), workspace.path());
+        let grant = Grant::new("edit_file", "notes.txt".to_string());
+        let id = a_saved_session(&saved_under, &grant);
+        let resumed = Resumption::open(&saved_under, &crate::session::Selector::Id(id))
+            .expect("the saved session opens");
+        let store = open_store(&saved_under).expect("a store");
+        let mut state = Runtime::new(saved_under.clone(), store, a_prompter(), a_questioner());
+        let before = log_text(state_with_log(&mut state, resumed));
+
+        assert!(matches!(
+            state.use_exact_model("chosen/model"),
+            ModelOutcome::Selected { .. }
+        ));
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Ask)),
+            None
+        );
+        let chosen = log_text(&state);
+        assert!(chosen.len() > before.len(), "the choices were not written");
+        assert!(chosen.contains(r#""model":"chosen/model""#), "{chosen}");
+        assert!(chosen.contains(r#""permission_mode":"ask""#), "{chosen}");
+
+        let model = state.model().to_string();
+        let (mode, provider) = (state.config.permission_mode, state.config.provider);
+        record_resumed_selection(
+            state.conversation.as_mut().expect("bound"),
+            &mut state.unrecorded_resume,
+            &model,
+            mode,
+            provider,
+        );
+        assert_eq!(log_text(&state), chosen, "the turn wrote over them");
+        let recorded = state.conversation.as_ref().expect("bound").recorder.state();
+        assert_eq!(recorded.model, "chosen/model");
+        assert_eq!(recorded.permission_mode, PermissionMode::Ask);
+    }
+
+    /// `state` with `resumed` bound, for a test that reads its log.
+    fn state_with_log(state: &mut Runtime, resumed: Resumption) -> &Runtime {
+        state.resume(resumed, &CancelToken::new());
+        state
     }
 
     #[test]
@@ -10106,8 +10225,9 @@ mod tests {
         drop(through_open);
 
         // A log written before the provider was recorded: decided by the
-        // model and Fast, as before -- and a resume writes down which
-        // provider it goes on under.
+        // model and Fast, as before -- and its first turn after a resume
+        // writes down which provider it goes on under (the resume itself
+        // writes nothing, [`record_resumed_selection`]).
         let older = recorded_fast(None);
         let resumed = opened(&older);
         assert!(resumed.keeps_fast_binding(ProviderId::Llmux, model, true));
@@ -10119,7 +10239,7 @@ mod tests {
             a_questioner(),
         );
         state.resume(resumed, &CancelToken::new());
-        assert_eq!(
+        let recorded = |state: &Runtime| {
             state
                 .conversation
                 .as_ref()
@@ -10127,9 +10247,17 @@ mod tests {
                 .recorder
                 .state()
                 .provider
-                .as_deref(),
-            Some(config.provider.label())
+                .clone()
+        };
+        assert_eq!(recorded(&state), None);
+        record_resumed_selection(
+            state.conversation.as_mut().expect("bound"),
+            &mut state.unrecorded_resume,
+            &config.model,
+            config.permission_mode,
+            config.provider,
         );
+        assert_eq!(recorded(&state).as_deref(), Some(config.provider.label()));
     }
 
     /// A session saved in `home`, last on `provider` (a label, as the log
@@ -10198,18 +10326,26 @@ mod tests {
             (ProviderId::Llmux, "pinned/model".to_string())
         );
 
-        // On the configured provider the launch's rule is unchanged: the
-        // session's model only when no setting chose one.
+        // On the configured provider the same rule: the session's model,
+        // whatever the profile chose, and the process's over it. Red before:
+        // the profile's `zai/glm-5.2` outranked the session's model.
         let on_gateway = saved_on(&config, Some("gateway"), "anthropic/claude-opus-5");
         assert_eq!(
             opened(&config, on_gateway.clone()).selection(&config, &config.model),
-            (ProviderId::Gateway, "zai/glm-5.2".to_string())
+            (ProviderId::Gateway, "anthropic/claude-opus-5".to_string())
         );
         let mut unchosen = config.clone();
         unchosen.sources.model = crate::config::SettingSource::CompiledDefault;
         assert_eq!(
-            opened(&unchosen, on_gateway).selection(&unchosen, &unchosen.model),
+            opened(&unchosen, on_gateway.clone()).selection(&unchosen, &unchosen.model),
             (ProviderId::Gateway, "anthropic/claude-opus-5".to_string())
+        );
+        let mut pinned = config.clone();
+        pinned.model = "pinned/model".to_string();
+        pinned.sources.model = crate::config::SettingSource::ProcessOverride;
+        assert_eq!(
+            opened(&pinned, on_gateway).selection(&pinned, &pinned.model),
+            (ProviderId::Gateway, "pinned/model".to_string())
         );
 
         // A log that recorded no provider, or one this build does not have
