@@ -11736,6 +11736,17 @@ impl CommandHandlers for Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Upstream's `commandHandleAlias` (`app_commands.zig:2043-2050`):
+    /// `* aliases: Aliases are not yet configurable.`, said the way
+    /// `/version` is (`writeDomainNotice(…, true)` for both), whatever came
+    /// after the name -- upstream's handler does not read it.
+    fn alias(&mut self, _argument: &str) {
+        self.announce(notice::Notice::neutral(
+            interactive::ALIAS_TOPIC,
+            interactive::ALIASES_NOT_CONFIGURABLE,
+        ));
+    }
+
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
     /// conversation's last reply onto the clipboard, raw.
     ///

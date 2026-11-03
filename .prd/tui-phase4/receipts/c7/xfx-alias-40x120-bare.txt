@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-c06d656 [debug] · Run /help for commands
+
+* aliases: Aliases are not yet configurable.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

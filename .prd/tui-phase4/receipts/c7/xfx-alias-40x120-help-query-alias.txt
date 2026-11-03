@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-c06d656 [debug] · Run /help for commands
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+┃ alias
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 1  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /alias    show alias availability
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

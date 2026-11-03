@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+┃ command
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 4  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /help         show available slash commands
+  /allowlist    manage trusted commands, tools, and URLs
+  /shell        reload shell startup files for commands
+  /alias        show alias availability
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+┃ /al
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 3
+
+  /allowlist   manage trusted commands, tools, and URLs                                                      Security
+  /alias       show alias availability                                                                       Extensions
+  /balance     show gateway credits balance                                                                  Account
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
