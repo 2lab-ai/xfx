@@ -822,7 +822,7 @@ mod transcript;
 mod usage_menu;
 mod worker;
 mod workspace_menu;
-mod wrap;
+pub(crate) mod wrap;
 
 #[cfg(test)]
 mod tests {

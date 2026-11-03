@@ -311,7 +311,9 @@ fn a_long_command_or_address_reaches_a_narrow_screen_whole_before_the_choices() 
     // The prompt is the only place the person sees what they are approving,
     // so a 300-character command line and a long address must not be clipped
     // on an 80-column terminal: each is wrapped onto as many rows as it needs,
-    // and all of it is written before the row of choices that `1` answers.
+    // every row after the first led by `↳ ` so none reads as a row of the
+    // entry's own, and all of it is written before the row of choices that
+    // `1` answers.
     let gateway = FakeGateway::start(Vec::new());
     let sandbox = Sandbox::new();
     profile(&sandbox, &json!({"mcp": {}}), &json!({}));
@@ -336,6 +338,12 @@ fn a_long_command_or_address_reaches_a_narrow_screen_whole_before_the_choices() 
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
     let whole_before_choices = |text: &str, value: &str| {
         let text = unescaped(text);
+        assert!(
+            text.contains("\u{21b3} "),
+            "no row of {value:?} is led as a continuation:\n{text}"
+        );
+        // The value as written, the leads it wrapped behind taken out.
+        let text = text.replace("\u{21b3} ", "");
         let at = text
             .find(value)
             .unwrap_or_else(|| panic!("{value:?} is not on the screen whole:\n{text}"));

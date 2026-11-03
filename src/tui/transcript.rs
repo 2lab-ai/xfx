@@ -401,6 +401,17 @@ pub(crate) enum Gutter {
     /// One-shot, as [`Gutter::Head`] is: the line after it is
     /// [`Gutter::NoticeIndent`]'s.
     Branch(char),
+    /// A row of an MCP entry as a person is shown it -- the trust prompt's,
+    /// `v`'s ([`super::shell::Shell::write_raw_rows`]): two blank columns in
+    /// front of its first row, and `↳ ` in front of every row it wraps onto
+    /// ([`Gutter::Wrapped`]), so the rest of a long value never reads as a row
+    /// of the entry's own. xfx's addition; upstream shows no entry.
+    ///
+    /// One-shot, as [`Gutter::Head`] is: the line after it is
+    /// [`Gutter::Wrapped`]'s until the next one is queued.
+    Shown,
+    /// The rows a [`Gutter::Shown`] line wraps onto: `↳ ` in front of each.
+    Wrapped,
 }
 
 impl Gutter {
@@ -413,7 +424,9 @@ impl Gutter {
             | Gutter::Carried(_)
             | Gutter::Head(_)
             | Gutter::NoticeIndent
-            | Gutter::Branch(_) => 2,
+            | Gutter::Branch(_)
+            | Gutter::Shown
+            | Gutter::Wrapped => 2,
         }
     }
 
@@ -423,7 +436,10 @@ impl Gutter {
         match self {
             Gutter::None => String::new(),
             Gutter::Rail => format!("{}\u{2503}{} ", palette.hint(), palette.reset()),
-            Gutter::Indent | Gutter::Carried(_) | Gutter::NoticeIndent => "  ".to_string(),
+            Gutter::Indent | Gutter::Carried(_) | Gutter::NoticeIndent | Gutter::Shown => {
+                "  ".to_string()
+            }
+            Gutter::Wrapped => "\u{21b3} ".to_string(),
             // The space inside the run, as upstream's label is: one run of one
             // colour from the glyph to the colon, so a capture reads the label
             // as the single span upstream's does.
@@ -451,6 +467,7 @@ impl Gutter {
         match self {
             Gutter::Head(_) | Gutter::Branch(_) => Gutter::NoticeIndent,
             Gutter::Carried(_) => Gutter::Indent,
+            Gutter::Shown => Gutter::Wrapped,
             other => other,
         }
     }
@@ -489,7 +506,7 @@ impl Gutter {
             Gutter::Head(_) | Gutter::NoticeIndent | Gutter::Branch(_) => {
                 bare(wrap::wrap_notice(text, cols))
             }
-            Gutter::None => bare(wrap::wrap(text, cols)),
+            Gutter::None | Gutter::Shown | Gutter::Wrapped => bare(wrap::wrap(text, cols)),
             Gutter::Rail => bare(wrap::wrap_card(text, cols)),
             Gutter::Indent => prose::prose(text, cols, self.width(), Opening::Line),
             Gutter::Carried(carried) => {

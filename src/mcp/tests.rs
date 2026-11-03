@@ -735,6 +735,40 @@ fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it(
     runtime.shutdown();
 }
 
+#[test]
+fn an_entry_that_would_push_its_command_row_off_the_screen_is_not_shown_whole() {
+    // Each variable is a row of its own: none is too long, but enough of them
+    // push the command row above an 80x24 screen before the choices are
+    // drawn. `1` approves only an entry shown whole, so such a prompt sends
+    // the person to the details and `v`.
+    let whole = |count: usize| -> bool {
+        let home = Home::new();
+        let env: serde_json::Map<String, Value> = (0..count)
+            .map(|at| (format!("V{at}"), json!("x")))
+            .collect();
+        std::fs::write(
+            home.workspace().join(".mcp.json"),
+            json!({"mcpServers": {"proj": {"command": "node", "env": env}}}).to_string(),
+        )
+        .unwrap();
+        let runtime = home.runtime();
+        runtime.start();
+        let events = runtime.take_events();
+        runtime.shutdown();
+        events
+            .iter()
+            .find_map(|event| match event {
+                Event::TrustPrompt { whole, .. } => Some(*whole),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no prompt: {events:?}"))
+    };
+    // The name row, the command row, 18 variables and the choices: the 21
+    // rows the screen's 24 leave over the band's three.
+    assert!(whole(18));
+    assert!(!whole(19));
+}
+
 /// Every entry of the workspace file in `root` approved as it is written --
 /// what pressing `2` at its prompt saves.
 fn approving_every_entry(root: &Path) -> config::Choices {

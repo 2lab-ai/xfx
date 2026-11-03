@@ -1254,14 +1254,15 @@ impl McpRuntime {
             return;
         }
         state.prompting = Some(prompted);
+        let name_row = format!(
+            "Project MCP server '{}' is defined in .mcp.json.",
+            prompt_value(&super::terminal_safe(&config.name))
+        );
         let text = format!(
-            "Project MCP server '{}' is defined in .mcp.json.\n  {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-            prompt_value(&super::terminal_safe(&config.name)),
+            "{name_row}\n  {}\n  {PROMPT_CHOICES}\n",
             what_it_runs(&config)
         );
-        let whole = entry_rows(&config)
-            .iter()
-            .all(|row| row.len() <= PROMPT_ROW_MAX_BYTES);
+        let whole = shown_whole(&name_row, &entry_rows(&config));
         // The state lock, then the event queue's: no path takes them the
         // other way round.
         self.say(Event::TrustPrompt {
@@ -1795,6 +1796,53 @@ fn what_it_runs(config: &ServerConfig) -> String {
 /// would scroll its own beginning off a terminal of ordinary height before
 /// the choices under it are drawn.
 const PROMPT_ROW_MAX_BYTES: usize = 1024;
+
+/// The trust prompt's last row, upstream's choices (`main.zig:1824`).
+const PROMPT_CHOICES: &str =
+    "[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts";
+
+/// The screen a prompt is measured against, rows and columns: 80x24, the
+/// size a terminal opens at unless told otherwise, and the one xfx's own
+/// screen cases are drawn at.
+const PROMPT_SCREEN: (usize, u16) = (24, 80);
+
+/// The band's rows on [`PROMPT_SCREEN`] with nothing running: the composer,
+/// the rule under it and the hint row.
+const PROMPT_SCREEN_BAND_ROWS: usize = 3;
+
+/// Whether the prompt shows the entry whole, which is what `1` approves: no
+/// row of it was cut ([`fitted`]), and on [`PROMPT_SCREEN`] with nothing
+/// running the name row, every row of the entry and the choices are all on
+/// the screen once the choices are drawn -- 21 rows, its 24 less the band's
+/// three, the entry's rows two columns in. Each variable and header is a row
+/// of its own, so a long list of short ones would otherwise push the command
+/// row above the top unseen; such a prompt sends the person to the details
+/// and `v`, as one with a row cut does.
+fn shown_whole(name_row: &str, rows: &[String]) -> bool {
+    let (height, cols) = PROMPT_SCREEN;
+    let indented = cols - 2;
+    let drawn = screen_rows(name_row, cols)
+        + rows
+            .iter()
+            .map(|row| screen_rows(row, indented))
+            .sum::<usize>()
+        + screen_rows(PROMPT_CHOICES, indented);
+    rows.iter().all(|row| row.len() <= PROMPT_ROW_MAX_BYTES)
+        && drawn <= height - PROMPT_SCREEN_BAND_ROWS
+}
+
+/// The screen rows `row` takes `cols` wide, wrapped as the transcript wraps
+/// it (the transcript's `Gutter::Shown`).
+#[cfg(unix)]
+fn screen_rows(row: &str, cols: u16) -> usize {
+    crate::tui::wrap::wrap(row, cols).len()
+}
+
+/// Where there is no TUI, a row's characters over the width.
+#[cfg(not(unix))]
+fn screen_rows(row: &str, cols: u16) -> usize {
+    row.chars().count().div_ceil(usize::from(cols)).max(1)
+}
 
 /// `row` whole, or -- past [`PROMPT_ROW_MAX_BYTES`] -- its head and tail with
 /// how long it is and where it is shown whole, so a long command is never cut

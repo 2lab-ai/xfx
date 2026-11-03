@@ -1224,7 +1224,10 @@ fn pending_of(servers: &[ServerView]) -> Vec<(String, String)> {
 
 /// A project server's entry ([`crate::mcp::runtime::ShownEntry`]) as the
 /// details screen lays it out: each row whole, wrapped onto as many screen
-/// rows as it needs, two columns in. Each row is already terminal-safe.
+/// rows as it needs, two columns in, and every row it wraps onto led by `↳ `
+/// instead, as the transcript leads them ([`super::transcript::Gutter::Wrapped`]):
+/// the rest of a long value never reads as a row of the entry's own. Each row
+/// is already terminal-safe.
 fn entry_rows(server: &ServerView, width: usize) -> Vec<String> {
     let Some(entry) = &server.entry else {
         return Vec::new();
@@ -1236,7 +1239,11 @@ fn entry_rows(server: &ServerView, width: usize) -> Vec<String> {
         .flat_map(|row| {
             super::wrap::wrap(row, cols)
                 .into_iter()
-                .map(|cut| format!("  {}", row[cut.start..cut.end].trim_end()))
+                .enumerate()
+                .map(|(at, cut)| {
+                    let lead = if at == 0 { "  " } else { "\u{21b3} " };
+                    format!("{lead}{}", row[cut.start..cut.end].trim_end())
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -1826,6 +1833,45 @@ mod tests {
                     .to_string()
             )
         );
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
+    fn a_wrapped_value_draws_no_row_that_reads_as_an_entry_of_its_own() {
+        // A value is one row however long, but the details wrap it to the
+        // panel: a continuation drawn like a row would let `v`, a run of
+        // spaces, and `env: PATH=/usr/bin` pass for a second variable.
+        let workspace = Workspace::new();
+        let forged = format!("v{}env: PATH=/usr/bin", " ".repeat(300));
+        workspace.write(serde_json::json!({"proj": {
+            "command": "node",
+            "env": {"K": forged},
+        }}));
+        let views = workspace.runtime.views();
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Enter, &views, 5), Effect::Repaint);
+        for width in [40, 80, 120] {
+            let rows: Vec<String> = menu
+                .rows(&views, &[], width, 40, PALETTE)
+                .iter()
+                .map(|row| plain(row))
+                .collect();
+            // A row of the entry's own is two columns in; a row it wraps onto
+            // opens with `↳ `.
+            let entries: Vec<&String> = rows
+                .iter()
+                .filter(|row| row.starts_with("  env: ") || row.starts_with("  command: "))
+                .collect();
+            assert_eq!(
+                entries,
+                ["  command: node", "  env: K=v"],
+                "{width}: {rows:#?}"
+            );
+            assert!(
+                rows.iter().any(|row| row == "\u{21b3} env: PATH=/usr/bin"),
+                "{width}: {rows:#?}"
+            );
+        }
         workspace.runtime.shutdown();
     }
 
