@@ -1191,8 +1191,7 @@ impl McpRuntime {
     /// The workspace server the trust prompt should ask about next -- the
     /// first one still pending, unless the person dismissed the prompts --
     /// with the digest of its entry as read.
-    fn pending_prompt(&self) -> Option<(ServerConfig, String)> {
-        let state = self.state();
+    fn pending_prompt(state: &State) -> Option<(ServerConfig, String)> {
         if state.prompts_suppressed {
             return None;
         }
@@ -1206,8 +1205,8 @@ impl McpRuntime {
 
     /// Every pending project server the last read found, with the digest of
     /// its entry: what an approve-all binds.
-    fn pending_entries(&self) -> Vec<(String, String)> {
-        self.state()
+    fn pending_entries(state: &State) -> Vec<(String, String)> {
+        state
             .servers
             .iter()
             .filter(|server| server.config.admission == Some(Admission::Pending))
@@ -1223,24 +1222,28 @@ impl McpRuntime {
     /// the entry runs or reaches between them ([`what_it_runs`]): the name is
     /// the repository's to choose, so it says nothing about what would run.
     fn present_prompt(&self) {
-        let Some((config, digest)) = self.pending_prompt() else {
-            self.state().prompting = None;
-            return;
-        };
-        let name = config.name.clone();
-        {
+        // The server asked about and the set `2` approves, from one read of
+        // the state: a reload publishing between two reads would leave the
+        // prompt showing one entry while `2` held another.
+        let (config, digest, listed) = {
             let mut state = self.state();
-            if state.prompting.as_ref() == Some(&(name.clone(), digest.clone())) {
+            let Some((config, digest)) = Self::pending_prompt(&state) else {
+                state.prompting = None;
+                return;
+            };
+            if state.prompting.as_ref() == Some(&(config.name.clone(), digest.clone())) {
                 return;
             }
-            state.prompting = Some((name.clone(), digest.clone()));
-        }
+            state.prompting = Some((config.name.clone(), digest.clone()));
+            let listed = Self::pending_entries(&state);
+            (config, digest, listed)
+        };
+        let name = config.name.clone();
         self.say(Event::Raw(format!(
             "Project MCP server '{}' is defined in .mcp.json.\n  {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
             prompt_value(&super::terminal_safe(&name)),
             what_it_runs(&config)
         )));
-        let listed = self.pending_entries();
         let whole = entry_rows(&config)
             .iter()
             .all(|row| row.len() <= PROMPT_ROW_MAX_BYTES);
@@ -1277,32 +1280,67 @@ impl McpRuntime {
             self.present_prompt();
             return;
         };
-        // Two reads, one lock each: a guard held across both would be taken
-        // twice, and the state lock is not reentrant.
-        let entries = self.state().digests.clone();
-        let loaded = config::Loaded {
-            entries,
-            pending: self.pending_entries(),
+        // What the runtime holds now, from one read of the state.
+        let (loaded, held) = {
+            let state = self.state();
+            let held: HashMap<String, Option<Admission>> = state
+                .servers
+                .iter()
+                .filter(|server| server.config.source == Source::Workspace)
+                .map(|server| (server.config.name.clone(), server.config.admission))
+                .collect();
+            (
+                config::Loaded {
+                    entries: state.digests.clone(),
+                    pending: Self::pending_entries(&state),
+                },
+                held,
+            )
         };
-        // An approve-all of what was drawn: the entries no longer pending as
-        // drawn are left waiting, and said so.
-        let changed: Vec<String> = match &action {
+        // An approve-all of what was drawn leaves alone each listed entry no
+        // longer pending as listed, and each pending one it did not list; and
+        // says which, and why, of each.
+        let mut left: Vec<String> = Vec::new();
+        if let TrustAction::ApproveListed(listed) = &action {
+            for (name, digest) in listed {
+                if loaded.pending.contains(&(name.clone(), digest.clone())) {
+                    continue;
+                }
+                let shown = super::terminal_safe(name);
+                left.push(match held.get(name) {
+                    Some(Some(Admission::Pending)) => format!(
+                        "Project MCP server '{shown}' changed since it was listed; it is still waiting for approval."
+                    ),
+                    Some(Some(Admission::Approved)) => {
+                        format!("Project MCP server '{shown}' was approved in the meantime.")
+                    }
+                    Some(Some(Admission::Rejected)) => format!(
+                        "Project MCP server '{shown}' was rejected in the meantime; it was not approved."
+                    ),
+                    _ => format!(
+                        "Project MCP server '{shown}' is no longer a server in .mcp.json; there was nothing to approve."
+                    ),
+                });
+            }
+            for (name, _) in &loaded.pending {
+                if !listed.iter().any(|(listed, _)| listed == name) {
+                    left.push(format!(
+                        "Project MCP server '{}' was added since the list was drawn; it is still waiting for approval.",
+                        super::terminal_safe(name)
+                    ));
+                }
+            }
+        }
+        let approving = match &action {
             TrustAction::ApproveListed(listed) => listed
                 .iter()
-                .filter(|entry| !loaded.pending.contains(entry))
-                .map(|(name, _)| name.clone())
-                .collect(),
-            _ => Vec::new(),
+                .filter(|entry| loaded.pending.contains(entry))
+                .count(),
+            _ => 1,
         };
-        let say_changed = |runtime: &Self| {
-            for name in &changed {
-                runtime.notice(
-                    true,
-                    format!(
-                        "Project MCP server '{}' changed since it was listed; it is still waiting for approval.",
-                        super::terminal_safe(name)
-                    ),
-                );
+        let say_left = |runtime: &Self| {
+            for sentence in &left {
+                runtime.notice(true, sentence.clone());
             }
         };
         if let TrustAction::ApproveListed(listed) = &action {
@@ -1312,8 +1350,8 @@ impl McpRuntime {
                 self.present_prompt();
                 return;
             }
-            if changed.len() == listed.len() {
-                say_changed(self);
+            if approving == 0 {
+                say_left(self);
                 self.present_prompt();
                 return;
             }
@@ -1321,7 +1359,7 @@ impl McpRuntime {
         match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
                 self.notice(false, body);
-                say_changed(self);
+                say_left(self);
                 self.reload(Origin::Transcript);
             }
             Err(err) => {

@@ -311,6 +311,95 @@ fn a_pending_entry_is_spelled_once_per_read_and_shared_by_every_view() {
 }
 
 #[test]
+fn approving_a_listed_set_saves_only_the_entries_still_pending_as_listed() {
+    // What persistence does with a list some of which no longer stands: of
+    // what was listed one entry is unchanged, one rewritten, one removed, one
+    // rejected and one approved in the meantime, and one entry was added --
+    // only the unchanged one is approved, and each other is named with what
+    // became of it.
+    let home = Home::new();
+    let quiet = |mark: &str| json!({"command": "/bin/sh", "args": ["-c", "exit 0", mark]});
+    let write = |servers: Value| {
+        std::fs::write(
+            home.workspace().join(".mcp.json"),
+            json!({"mcpServers": servers}).to_string(),
+        )
+        .unwrap()
+    };
+    write(json!({
+        "same": quiet("s"), "rewritten": quiet("r1"), "gone": quiet("g"),
+        "refused": quiet("f"), "taken": quiet("t"),
+    }));
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "same");
+    let listed: Vec<(String, String)> = [
+        ("same", "s"),
+        ("rewritten", "r1"),
+        ("gone", "g"),
+        ("refused", "f"),
+        ("taken", "t"),
+    ]
+    .into_iter()
+    .map(|(name, mark)| (name.to_string(), config::entry_digest(&quiet(mark))))
+    .collect();
+    write(json!({
+        "same": quiet("s"), "rewritten": quiet("r2"), "refused": quiet("f"),
+        "taken": quiet("t"), "added": quiet("a"),
+    }));
+    bounded_run(&runtime, Job::Command("reload".into()));
+    let deadline = Instant::now() + WAIT;
+    while !runtime.views().iter().any(|view| view.name == "added") {
+        assert!(
+            Instant::now() < deadline,
+            "the reload never read the new file"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    for action in [
+        TrustAction::Reject("refused".into()),
+        TrustAction::Approve("taken".into()),
+    ] {
+        bounded_run(
+            &runtime,
+            Job::Trust {
+                action,
+                body: "In the meantime.".into(),
+            },
+        );
+    }
+    let _ = runtime.take_events();
+    bounded_run(
+        &runtime,
+        Job::Trust {
+            action: TrustAction::ApproveListed(listed),
+            body: "Approving all project MCP servers for this workspace.".into(),
+        },
+    );
+    let document: Value =
+        serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
+    assert_eq!(
+        document["workspaces"][home.workspace().to_str().unwrap()]["enabledMcpjsonServerDigests"],
+        json!({
+            "taken": config::entry_digest(&quiet("t")),
+            "same": config::entry_digest(&quiet("s")),
+        })
+    );
+    let said = notices(&runtime);
+    for expected in [
+        "Approving all project MCP servers for this workspace.",
+        "Project MCP server 'rewritten' changed since it was listed; it is still waiting for approval.",
+        "Project MCP server 'gone' is no longer a server in .mcp.json; there was nothing to approve.",
+        "Project MCP server 'refused' was rejected in the meantime; it was not approved.",
+        "Project MCP server 'taken' was approved in the meantime.",
+        "Project MCP server 'added' was added since the list was drawn; it is still waiting for approval.",
+    ] {
+        assert!(said.iter().any(|body| body == expected), "{expected}: {said:?}");
+    }
+    runtime.shutdown();
+}
+
+#[test]
 fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_error() {
     // `"type": "${T:-stdio}"` does not parse as written, so the person sees a
     // configuration error, not a server; after expansion it is a stdio
