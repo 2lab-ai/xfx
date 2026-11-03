@@ -1,0 +1,711 @@
+{
+ "count": 36,
+ "commands": [
+  {
+   "id": "/help",
+   "kind": "command",
+   "description": "show available slash commands",
+   "category": "General"
+  },
+  {
+   "id": "/clear",
+   "kind": "command",
+   "description": "start a fresh conversation while keeping managed processes",
+   "category": "General"
+  },
+  {
+   "id": "/status",
+   "kind": "command",
+   "description": "show runtime configuration",
+   "category": "General"
+  },
+  {
+   "id": "/version",
+   "kind": "command",
+   "description": "show the fx version",
+   "category": "General"
+  },
+  {
+   "id": "/quit",
+   "kind": "command",
+   "description": "exit the interactive shell",
+   "category": "General"
+  },
+  {
+   "id": "/new",
+   "kind": "command",
+   "description": "start a fresh session",
+   "category": "Session"
+  },
+  {
+   "id": "/reset",
+   "kind": "command",
+   "description": "reset the current session context",
+   "category": "Session"
+  },
+  {
+   "id": "/resume",
+   "kind": "command",
+   "description": "resume a saved session",
+   "category": "Session"
+  },
+  {
+   "id": "/rename",
+   "kind": "command",
+   "description": "rename the current session",
+   "category": "Session"
+  },
+  {
+   "id": "/undo",
+   "kind": "command",
+   "description": "undo the latest tracked file operation",
+   "category": "Session"
+  },
+  {
+   "id": "/copy",
+   "kind": "command",
+   "description": "copy the last assistant response",
+   "category": "Session"
+  },
+  {
+   "id": "/compact",
+   "kind": "command",
+   "description": "summarize context into a fresh window",
+   "category": "Session"
+  },
+  {
+   "id": "/login",
+   "kind": "command",
+   "description": "choose the model provider and how it signs in",
+   "category": "Account"
+  },
+  {
+   "id": "/logout",
+   "kind": "command",
+   "description": "sign out of a provider session",
+   "category": "Account"
+  },
+  {
+   "id": "/provider",
+   "kind": "command",
+   "description": "choose the model provider and how it signs in",
+   "category": "Account"
+  },
+  {
+   "id": "/stats",
+   "kind": "command",
+   "description": "show token and turn statistics",
+   "category": "Account"
+  },
+  {
+   "id": "/usage",
+   "kind": "command",
+   "description": "show local fx tokens, models, and spend",
+   "category": "Account"
+  },
+  {
+   "id": "/credits",
+   "kind": "command",
+   "description": "show gateway credits balance",
+   "category": "Account"
+  },
+  {
+   "id": "/model",
+   "kind": "command",
+   "description": "choose what model and reasoning effort to use",
+   "category": "Model"
+  },
+  {
+   "id": "/fast",
+   "kind": "command",
+   "description": "toggle Fast mode when supported",
+   "category": "Model"
+  },
+  {
+   "id": "/ultrafast",
+   "kind": "command",
+   "description": "request Ultra mode when supported",
+   "category": "Model"
+  },
+  {
+   "id": "/settings",
+   "kind": "command",
+   "description": "browse and update settings",
+   "category": "Appearance"
+  },
+  {
+   "id": "/statusline",
+   "kind": "command",
+   "description": "toggle status line segments",
+   "category": "Appearance"
+  },
+  {
+   "id": "/sound",
+   "kind": "command",
+   "description": "toggle sounds and terminal bells",
+   "category": "Appearance"
+  },
+  {
+   "id": "/permissions",
+   "kind": "command",
+   "description": "choose what fx is allowed to do",
+   "category": "Security"
+  },
+  {
+   "id": "/allowlist",
+   "kind": "command",
+   "description": "manage trusted commands, tools, and URLs",
+   "category": "Security"
+  },
+  {
+   "id": "/workspace",
+   "kind": "command",
+   "description": "manage additional workspace directories",
+   "category": "Workspace"
+  },
+  {
+   "id": "/shell",
+   "kind": "command",
+   "description": "reload shell startup files for commands",
+   "category": "Workspace"
+  },
+  {
+   "id": "/image",
+   "kind": "command",
+   "description": "attach an image by path",
+   "category": "Media"
+  },
+  {
+   "id": "/images",
+   "kind": "command",
+   "description": "manage pending image attachments",
+   "category": "Media"
+  },
+  {
+   "id": "/paste",
+   "kind": "command",
+   "description": "attach an image from the clipboard when supported",
+   "category": "Media"
+  },
+  {
+   "id": "/mcp",
+   "kind": "command",
+   "description": "manage local and remote MCP servers, resources, prompts, and project trust",
+   "category": "Extensions"
+  },
+  {
+   "id": "/skills",
+   "kind": "command",
+   "description": "browse and manage skills",
+   "category": "Extensions"
+  },
+  {
+   "id": "/alias",
+   "kind": "command",
+   "description": "show alias availability",
+   "category": "Extensions"
+  },
+  {
+   "id": "/feedback",
+   "kind": "command",
+   "description": "open the fx feedback form",
+   "category": "Product"
+  },
+  {
+   "id": "/trace",
+   "kind": "command",
+   "description": "copy a private diagnostic trace",
+   "category": "Product"
+  }
+ ],
+ "keys": [
+  {
+   "id": "help: ↑↓ navigate",
+   "kind": "key",
+   "menu": "help",
+   "keys": [
+    "Up",
+    "Down"
+   ]
+  },
+  {
+   "id": "help: tab category",
+   "kind": "key",
+   "menu": "help",
+   "keys": [
+    "Tab",
+    "BTab"
+   ]
+  },
+  {
+   "id": "help: enter open",
+   "kind": "key",
+   "menu": "help",
+   "keys": [
+    "Enter"
+   ]
+  },
+  {
+   "id": "help: esc close",
+   "kind": "key",
+   "menu": "help",
+   "keys": [
+    "Escape"
+   ]
+  },
+  {
+   "id": "slash: ↑↓ navigate",
+   "kind": "key",
+   "menu": "slash",
+   "keys": [
+    "Up",
+    "Down"
+   ]
+  },
+  {
+   "id": "slash: enter use",
+   "kind": "key",
+   "menu": "slash",
+   "keys": [
+    "Enter"
+   ]
+  },
+  {
+   "id": "slash: esc close",
+   "kind": "key",
+   "menu": "slash",
+   "keys": [
+    "Escape"
+   ]
+  }
+ ],
+ "pin": "c1db919",
+ "fx_sha256": "7b76319a871163ada64d74539ebee592e0e216041cd28465127457500a9be969",
+ "covered_by": {
+  "/help": [
+   "alias",
+   "composer-keys",
+   "help",
+   "interrupt-help",
+   "slash"
+  ],
+  "/clear": [
+   "reset",
+   "reset-wire"
+  ],
+  "/status": [
+   "status-version-stats"
+  ],
+  "/version": [
+   "fulltranscript-notice",
+   "help",
+   "notice-midstream",
+   "notice-wire",
+   "notices",
+   "popup-full",
+   "status-version-stats"
+  ],
+  "/quit": [
+   "compact",
+   "image",
+   "links",
+   "links-image",
+   "notices",
+   "paste-card",
+   "provider-carry",
+   "provider-carry-back",
+   "provider-resume",
+   "provider-resume-missing",
+   "quit",
+   "rename",
+   "rename-midturn",
+   "resume",
+   "resume-empty",
+   "resume-launch",
+   "undo-resume"
+  ],
+  "/new": [
+   "read-failures",
+   "reset",
+   "resume",
+   "resume-paging",
+   "resume-tools",
+   "resume-wire",
+   "titles",
+   "titles-off"
+  ],
+  "/reset": [
+   "reset"
+  ],
+  "/resume": [
+   "read-failures",
+   "resume",
+   "resume-empty",
+   "resume-paging",
+   "resume-tools",
+   "resume-wire",
+   "titles",
+   "titles-off"
+  ],
+  "/rename": [
+   "rename",
+   "rename-midturn",
+   "resume",
+   "titles-rename"
+  ],
+  "/undo": [
+   "undo",
+   "undo-empty",
+   "undo-resume"
+  ],
+  "/copy": [
+   "copy",
+   "recall-edge"
+  ],
+  "/compact": [
+   "compact",
+   "compact-cancel",
+   "compact-fail",
+   "compact-text"
+  ],
+  "/login": [],
+  "/logout": [],
+  "/provider": [
+   "provider",
+   "provider-carry",
+   "provider-carry-back",
+   "provider-resume",
+   "provider-resume-missing",
+   "provider-switch"
+  ],
+  "/stats": [
+   "recall-edge",
+   "status-version-stats"
+  ],
+  "/usage": [
+   "usage",
+   "usage-billed",
+   "usage-deferred",
+   "usage-session"
+  ],
+  "/credits": [
+   "credits-404",
+   "credits-busy",
+   "credits-empty",
+   "credits-ok",
+   "credits-partial"
+  ],
+  "/model": [
+   "fast-astra",
+   "model",
+   "model-anchor",
+   "model-busy",
+   "model-busy-known",
+   "model-column",
+   "model-column-idle",
+   "model-column-reask",
+   "model-effort",
+   "model-empty",
+   "model-floor",
+   "model-parked",
+   "model-reask",
+   "model-router",
+   "model-speed",
+   "settings-effort"
+  ],
+  "/fast": [
+   "fast-astra",
+   "fast-opus",
+   "fast-override",
+   "fast-unsup",
+   "model-speed"
+  ],
+  "/ultrafast": [
+   "fast-astra",
+   "fast-opus",
+   "fast-unconfirmed",
+   "fast-unsup"
+  ],
+  "/settings": [
+   "settings",
+   "settings-cats",
+   "settings-collapse",
+   "settings-collapse-open",
+   "settings-effort",
+   "settings-history",
+   "settings-model",
+   "settings-model-list",
+   "settings-perm",
+   "settings-scrollback",
+   "settings-speed",
+   "settings2",
+   "titles-settings"
+  ],
+  "/statusline": [
+   "statusline",
+   "statusline-turn"
+  ],
+  "/sound": [
+   "sound",
+   "sound-default"
+  ],
+  "/permissions": [
+   "allowlist-remember",
+   "allowlist-turn",
+   "permissions",
+   "permissions-btab"
+  ],
+  "/allowlist": [
+   "allowlist",
+   "allowlist-turn",
+   "allowlist2",
+   "allowlist3"
+  ],
+  "/workspace": [
+   "workspace",
+   "workspace-index"
+  ],
+  "/shell": [],
+  "/image": [
+   "image",
+   "image-nonnative",
+   "image-unknown",
+   "image-withheld",
+   "links-image"
+  ],
+  "/images": [
+   "image"
+  ],
+  "/paste": [
+   "image-paste"
+  ],
+  "/mcp": [],
+  "/skills": [
+   "skills"
+  ],
+  "/alias": [
+   "alias"
+  ],
+  "/feedback": [],
+  "/trace": [
+   "titles-idle",
+   "titles-rename",
+   "titles-steer",
+   "trace",
+   "trace-nowhere"
+  ],
+  "help: ↑↓ navigate": [
+   "help",
+   "slash"
+  ],
+  "help: tab category": [
+   "alias",
+   "help"
+  ],
+  "help: enter open": [
+   "alias",
+   "composer-keys",
+   "help",
+   "interrupt-help",
+   "slash"
+  ],
+  "help: esc close": [
+   "alias",
+   "composer-keys",
+   "help",
+   "slash"
+  ],
+  "slash: ↑↓ navigate": [
+   "alias",
+   "help",
+   "model",
+   "model-column",
+   "model-effort",
+   "model-speed",
+   "permissions",
+   "provider",
+   "provider-carry",
+   "provider-carry-back",
+   "provider-resume",
+   "provider-resume-missing",
+   "recall-edge",
+   "resume",
+   "resume-paging",
+   "settings",
+   "settings-cats",
+   "settings-collapse",
+   "settings-collapse-open",
+   "settings-effort",
+   "settings-history",
+   "settings-model",
+   "settings-model-list",
+   "settings-perm",
+   "settings-speed",
+   "settings2",
+   "skills",
+   "skills-slash",
+   "slash",
+   "statusline",
+   "usage",
+   "usage-billed",
+   "usage-session",
+   "workspace"
+  ],
+  "slash: enter use": [
+   "alias",
+   "allowlist",
+   "allowlist-remember",
+   "allowlist-turn",
+   "allowlist2",
+   "allowlist3",
+   "compact",
+   "compact-cancel",
+   "compact-fail",
+   "compact-text",
+   "composer-keys",
+   "copy",
+   "credits-404",
+   "credits-busy",
+   "credits-empty",
+   "credits-ok",
+   "credits-partial",
+   "fast-astra",
+   "fast-opus",
+   "fast-override",
+   "fast-unconfirmed",
+   "fast-unsup",
+   "fulltranscript-notice",
+   "help",
+   "image",
+   "image-nonnative",
+   "image-paste",
+   "image-unknown",
+   "image-withheld",
+   "interrupt-help",
+   "links",
+   "links-image",
+   "model",
+   "model-busy",
+   "model-busy-known",
+   "model-column",
+   "model-effort",
+   "model-empty",
+   "model-floor",
+   "model-parked",
+   "model-reask",
+   "model-router",
+   "model-speed",
+   "notice-midstream",
+   "notice-wire",
+   "notice-wrap",
+   "notices",
+   "paste-card",
+   "permissions",
+   "permissions-btab",
+   "popup-full",
+   "provider",
+   "provider-carry",
+   "provider-carry-back",
+   "provider-resume",
+   "provider-resume-missing",
+   "provider-switch",
+   "quit",
+   "quit-pristine",
+   "read-failures",
+   "recall-edge",
+   "rename",
+   "rename-midturn",
+   "reset",
+   "reset-wire",
+   "resume",
+   "resume-empty",
+   "resume-launch",
+   "resume-paging",
+   "resume-tools",
+   "resume-wire",
+   "settings",
+   "settings-cats",
+   "settings-collapse",
+   "settings-collapse-open",
+   "settings-effort",
+   "settings-history",
+   "settings-model",
+   "settings-model-list",
+   "settings-perm",
+   "settings-scrollback",
+   "settings-speed",
+   "settings2",
+   "skills",
+   "skills-slash",
+   "slash",
+   "sound",
+   "sound-default",
+   "status-version-stats",
+   "statusline",
+   "statusline-turn",
+   "titles",
+   "titles-idle",
+   "titles-off",
+   "titles-rename",
+   "titles-settings",
+   "titles-steer",
+   "trace",
+   "trace-nowhere",
+   "undo",
+   "undo-empty",
+   "undo-resume",
+   "usage",
+   "usage-billed",
+   "usage-deferred",
+   "usage-session",
+   "workspace",
+   "workspace-index"
+  ],
+  "slash: esc close": [
+   "alias",
+   "allowlist-remember",
+   "compact-cancel",
+   "composer-keys",
+   "fast-astra",
+   "help",
+   "model",
+   "model-busy",
+   "model-busy-known",
+   "model-column",
+   "model-empty",
+   "model-floor",
+   "model-reask",
+   "model-router",
+   "permissions",
+   "popup-full",
+   "provider",
+   "read-failures",
+   "resume",
+   "resume-empty",
+   "resume-paging",
+   "resume-tools",
+   "settings",
+   "settings-cats",
+   "settings-collapse",
+   "settings-collapse-open",
+   "settings-effort",
+   "settings-history",
+   "settings-model",
+   "settings-model-list",
+   "settings-perm",
+   "settings-scrollback",
+   "settings-speed",
+   "settings2",
+   "skills",
+   "slash",
+   "slash-filter",
+   "statusline",
+   "usage",
+   "usage-billed",
+   "usage-deferred",
+   "usage-session",
+   "workspace",
+   "workspace-index"
+  ]
+ }
+}
