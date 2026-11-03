@@ -1,0 +1,20 @@
+=== ~/.xfx/history.jsonl (933 bytes)
+{"schema_version":1,"timestamp_ms":1793748846706,"workspace_root":"<scratch>/work","text":"/effort"}
+{"schema_version":1,"timestamp_ms":1793748853944,"workspace_root":"<scratch>/work","text":"/effort high"}
+{"schema_version":1,"timestamp_ms":1793748855475,"workspace_root":"<scratch>/work","text":"/effort bogus"}
+{"schema_version":1,"timestamp_ms":1793748856913,"workspace_root":"<scratch>/work","text":"/effort max"}
+{"schema_version":1,"timestamp_ms":1793748858348,"workspace_root":"<scratch>/work","text":"/effort two words"}
+{"schema_version":1,"timestamp_ms":1793748859825,"workspace_root":"<scratch>/work","text":"/effort default"}
+{"schema_version":1,"timestamp_ms":1793748861279,"workspace_root":"<scratch>/work","text":"/effort low"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (102 bytes)
+{
+  "models": {
+    "gateway": "openai/gpt-6-astra"
+  },
+  "provider": "gateway",
+  "effort": "low"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

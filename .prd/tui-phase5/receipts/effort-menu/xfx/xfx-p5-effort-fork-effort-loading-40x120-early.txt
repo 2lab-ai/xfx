@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e0d97bd [debug] · Run /help for commands
+
+* effort: levels for openai/gpt-6-astra are still loading; try /effort again in a moment
+
+┃
+
+auto · gpt-6-astra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

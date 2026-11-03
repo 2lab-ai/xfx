@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e0d97bd [debug] · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+✗ command: Unknown command. Try /help.
+
+┃
+
+auto · gpt-6-astra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -592,6 +592,29 @@ fn slash_compact_says_where_compaction_runs_and_asks_nobody() {
 }
 
 #[test]
+fn slash_effort_says_where_the_effort_is_chosen_and_saves_nothing() {
+    // fx v0.0.16's `/effort` is a menu in its footer and a level the next
+    // request carries; this shell has no footer and sends no effort, so it
+    // says where the effort is chosen, bare or with a level, and keeps
+    // nothing -- no session, no setting.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/effort high");
+    let text = session.wait_for("asks for none");
+    assert!(
+        text.contains("xfx: /effort chooses the reasoning effort the full-screen shell asks for"),
+        "{text}"
+    );
+    session.type_line("/effort");
+    session.wait_for("asks for none");
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
     // The same switch, saved to the same file the full-screen shell reads; and
     // the line that says so, because this shell's question is the shared stdin

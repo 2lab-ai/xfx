@@ -1043,14 +1043,17 @@ mod tests {
         );
 
         // The live alias, through the same function: `/e` names no command, so
-        // `/quit` is on the screen **as** `/exit` because `/exit` reaches it --
-        // above every command that merely has an `e` after its slash.
+        // the prefix tier is `/effort` and `/quit` -- on the screen **as**
+        // `/exit` because `/exit` reaches it -- in registry order, above every
+        // command that merely has an `e` after its slash.
         let live = Picker::open("/e", &[]).expect("the alias and the substrings");
-        assert_eq!(command(&live.matches[0]).spec.name, "/quit");
-        assert_eq!(command(&live.matches[0]).label, "/exit");
+        assert_eq!(command(&live.matches[0]).spec.name, "/effort");
         assert_eq!(command(&live.matches[0]).rank, Rank::Prefix);
+        assert_eq!(command(&live.matches[1]).spec.name, "/quit");
+        assert_eq!(command(&live.matches[1]).label, "/exit");
+        assert_eq!(command(&live.matches[1]).rank, Rank::Prefix);
         assert!(
-            live.matches[1..]
+            live.matches[2..]
                 .iter()
                 .all(|found| command(found).rank == Rank::Substring),
             "{:?}",
@@ -1062,9 +1065,9 @@ mod tests {
         let substrings: Vec<&str> = crate::interactive::SLASH_REGISTRY
             .iter()
             .map(|spec| spec.name)
-            .filter(|name| name != &"/quit" && name[1..].contains('e'))
+            .filter(|name| !["/quit", "/effort"].contains(name) && name[1..].contains('e'))
             .collect();
-        assert_eq!(labels(&live)[1..], substrings[..]);
+        assert_eq!(labels(&live)[2..], substrings[..]);
         assert!(substrings.contains(&"/help") && substrings.contains(&"/version"));
         // The slash is not a letter of any name: a second one finds nothing.
         assert!(Picker::open("//", &[]).is_none());

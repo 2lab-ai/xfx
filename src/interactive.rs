@@ -74,6 +74,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/image",
     "/images",
     "/model",
+    "/effort",
     "/permissions",
     "/allowlist",
     "/undo",
@@ -275,6 +276,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         name: "/model",
         aliases: &[],
         summary: "show the model, or `/model <id>` to use another one from now on",
+        category: "Model",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Effort,
+        name: "/effort",
+        aliases: &[],
+        // Upstream's row, after `/model` (`vercel-labs/fx@481104fd
+        // src/builtins/commands.zig:459`): bare, the menu of the current
+        // model's levels; with a word, that level.
+        summary: "choose the reasoning effort for the current model",
         category: "Model",
         has_args: true,
     },
@@ -619,6 +631,18 @@ pub const SPEED_ON_THE_LINE_SHELL: &str = "xfx: /fast and /ultrafast set the spe
      full-screen shell asks for, and this line-oriented shell asks for none; without \
      XFX_TUI=0, xfx opens the full-screen one";
 
+/// What `/effort` says on this surface, bare or with a level.
+///
+/// The level is the reasoning effort the full-screen shell asks the provider
+/// for, and this shell asks for none (see [`SPEED_ON_THE_LINE_SHELL`]); nor has
+/// it a footer for upstream's menu (`commandHandleEffort`,
+/// `vercel-labs/fx@481104fd src/core/app/app_commands.zig:570-586`). It says
+/// where the effort is chosen rather than saving one this shell would never
+/// send.
+pub const EFFORT_ON_THE_LINE_SHELL: &str = "xfx: /effort chooses the reasoning effort the \
+     full-screen shell asks for, and this line-oriented shell asks for none; without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
 /// What `/image`, `/images` and `/paste` say on this surface.
 ///
 /// An attachment is a badge in the prompt being written, and this shell reads
@@ -781,6 +805,10 @@ pub enum Slash {
     /// `app_commands.zig:3815-3858`).
     Rename,
     Model,
+    /// The reasoning effort for the current model: bare, a menu of the levels
+    /// the catalog lists for it; with a word, that level (`handleEffort`,
+    /// `vercel-labs/fx@481104fd src/core/session/session_commands.zig:1000-1037`).
+    Effort,
     /// Switch the provider a turn talks to, and record the choice.
     ///
     /// The only command in the palette that writes to `~/.xfx/settings.json`
@@ -1483,6 +1511,9 @@ pub async fn run(
                     }
                     Slash::Fast | Slash::Ultrafast => {
                         writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Effort => {
+                        writeln!(io::stderr(), "{EFFORT_ON_THE_LINE_SHELL}")?;
                     }
                     Slash::Image | Slash::Images | Slash::Paste => {
                         writeln!(io::stderr(), "{IMAGES_ON_THE_LINE_SHELL}")?;
@@ -2724,9 +2755,10 @@ mod tests {
         // `/paste`, twenty-five since `/allowlist`, twenty-six since
         // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
         // `/fast` and `/ultrafast`, thirty since `/mcp`, thirty-one since
-        // `/skills`, and thirty-two since `/alias`; `/provider` took `/setup`'s
-        // place rather than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 32);
+        // `/skills`, thirty-two since `/alias`, and thirty-three since
+        // `/effort` (fx 0.0.16); `/provider` took `/setup`'s place rather than
+        // adding one, and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 33);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -3019,12 +3051,15 @@ mod tests {
         // space; every argument it is given is its usage line, since
         // upstream's only form names a setting xfx does not have. `/alias` is
         // declared to take one as upstream's row is (`commands.zig:489`), and
-        // answers every form with the same sentence. Every other name is the
-        // whole command -- `/fast` among them, a toggle (`commands.zig:492`).
+        // answers every form with the same sentence. `/effort [level]` takes
+        // a level or opens the menu bare (`vercel-labs/fx@481104fd
+        // commands.zig:459`). Every other name is the whole command -- `/fast`
+        // among them, a toggle (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
                 "/model"
+                    | "/effort"
                     | "/provider"
                     | "/permissions"
                     | "/allowlist"

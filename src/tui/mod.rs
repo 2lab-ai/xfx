@@ -764,6 +764,7 @@ mod diagnostic;
 mod drawn_wider;
 mod edit_history;
 mod editor;
+mod effort_menu;
 mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]

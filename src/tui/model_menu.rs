@@ -784,7 +784,7 @@ fn item_row(
 /// `text` in at most `budget` cells, its middle swapped for an ellipsis when
 /// it does not fit: the first half rounded up, then the last
 /// (`appendSingleLineMiddleEllipsized`, `row_text.zig:64-107`).
-fn middle_ellipsized(text: &str, budget: usize) -> String {
+pub(super) fn middle_ellipsized(text: &str, budget: usize) -> String {
     if cells(text) <= budget {
         return text.to_string();
     }

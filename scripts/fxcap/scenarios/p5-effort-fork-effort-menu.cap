@@ -1,0 +1,111 @@
+fx: env FX_AUTO_UPGRADE=0
+# /effort (fx 04a5e3af): the bare menu, its keys, Enter and Escape, an edit
+# closing it, the announcement; /effort <level> applied, unavailable,
+# malformed, default; a change mid-turn; and which request carried which
+# reasoning. The settings file after each change.
+#
+# The `/effort ` column (Space and Tab after `/effort`, E6) is P5-EF2's and
+# is not driven here; nor is `/effort HIGH`, which fx applies through that
+# column's Enter (`app_input_runtime.zig:1421@481104fd` ->
+# `submitEffortPicker`, whose filter ignores case,
+# `input_completion_runtime.zig:1476`), not through the command. `/effort
+# low` takes the column's place, so the slow turn runs on `low` as in the
+# research run. `slash-ef` also finds fx's `/fork` (its "before"), which is
+# P5-FK2's row; `slash-eff` finds `/effort` alone.
+models p5-effort-fork-models.json
+gateway p5-effort-fork-slow-turns.json
+seed p5-effort-fork-seed-astra.json
+nomodel
+wait 3
+snap launch
+type /ef
+wait 0.6
+snap slash-ef
+key C-u
+wait 0.3
+type /eff
+wait 0.6
+snap slash-eff
+key C-u
+wait 0.3
+type /effort
+wait 0.3
+key Enter
+wait 1
+snap menu
+key Down
+wait 0.3
+snap menu-down
+key Up Up
+wait 0.3
+snap menu-wrap
+key Escape
+wait 0.5
+snap menu-esc
+type /effort
+key Enter
+wait 1
+key Down Down
+wait 0.3
+key Enter
+wait 1
+snap menu-enter
+home after-menu-enter
+type /effort
+key Enter
+wait 1
+type x
+wait 0.4
+snap menu-edit
+key C-u
+wait 0.3
+paste /effort high
+wait 0.4
+key Enter
+wait 1
+snap level-high
+home after-high
+paste /effort bogus
+wait 0.4
+key Enter
+wait 1
+snap level-bogus
+paste /effort max
+wait 0.4
+key Enter
+wait 1
+snap level-max
+paste /effort two words
+wait 0.4
+key Enter
+wait 1
+snap level-malformed
+paste /effort default
+wait 0.4
+key Enter
+wait 1
+snap level-default
+home after-default
+paste /effort low
+wait 0.4
+key Enter
+wait 1
+snap level-low
+home after-low
+type slow turn please
+key Enter
+wait 1.5
+paste /effort high
+wait 0.4
+key Enter
+wait 1
+snap midturn
+home after-midturn
+wait 8
+snap midturn-done
+type after the change
+key Enter
+wait 3
+snap after-turn
+home end
+gwlog

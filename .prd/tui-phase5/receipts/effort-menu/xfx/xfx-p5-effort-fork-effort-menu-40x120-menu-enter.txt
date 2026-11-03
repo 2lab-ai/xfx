@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e0d97bd [debug] · Run /help for commands
+
+* Reasoning effort set to medium for openai/gpt-6-astra
+
+┃
+
+auto · gpt-6-astra · medium
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -86,6 +86,7 @@ use super::compaction::{self, Compaction};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
+use super::effort_menu::{self, EffortAction, EffortMenu};
 use super::entity::{Entities, EntityKind, Span};
 use super::file_index::Files;
 use super::file_picker::{self, FilePicker};
@@ -1109,6 +1110,13 @@ pub(crate) struct Shell {
     /// `/model` reached from the catalog closes the catalog on the way -- and
     /// no completion menu opens while it is ([`Self::reconcile_picker`]).
     model_menu: Option<ModelMenu>,
+    /// `/effort`'s menu, while it is up ([`super::effort_menu`]).
+    ///
+    /// The slot's occupant upstream ranks after `/model`'s menu
+    /// (`show_effort_menu`, `surface_frame.zig:408@481104fd`), opened by a
+    /// bare `/effort` with the composer emptied. Not a view of the composer:
+    /// any edit to it closes the menu ([`Self::amended`]).
+    effort_menu: Option<EffortMenu>,
     /// What `/model`'s menu says about a Gateway catalog under its rows
     /// ([`crate::provider::model::gateway_catalog_note`]), asked once of the
     /// credential this session launched with: a provider switch re-reads the
@@ -2004,6 +2012,9 @@ enum Slot<'a> {
     /// `/model`'s menu, the catalog's kind: rows, and the composer as its
     /// search.
     Models(&'a ModelMenu),
+    /// `/effort`'s menu: rows only. The composer is not its search, and an
+    /// edit to it closes the menu.
+    Effort(&'a EffortMenu),
     /// `/model`'s inline column, under the argument of a `/model ` line. Like
     /// the completion menu it owns nothing but rows: the typing goes on into
     /// the composer, whose text is what it is a view of.
@@ -2223,6 +2234,7 @@ impl Shell {
             sessions: None,
             wipe: false,
             model_menu: None,
+            effort_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
@@ -2473,6 +2485,11 @@ impl Shell {
                 Some(Slot::Models(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same (`composeEffortMenuRow` is handed `menuRowCount`'s
+                // answer, `paint_plan.zig:800-811@481104fd`).
+                Some(Slot::Effort(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // In the rows the geometry gave it, with the values in force.
                 Some(Slot::Statusline(menu)) => menu.rows(
                     self.geometry.cols,
@@ -2606,6 +2623,16 @@ impl Shell {
             Some(Slot::Models(_)) => self.painted(
                 self.palette.dim(),
                 model_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // `/effort`'s, in the same grey -- or, while a Ctrl-C would leave,
+            // that in the statusline grey instead (`composeEffortMenuHintRow`,
+            // `input_presentation.zig:671-702@481104fd`).
+            Some(Slot::Effort(_)) if self.exit_armed => {
+                self.painted(self.palette.statusline(), EXIT_ARMED.to_string())
+            }
+            Some(Slot::Effort(_)) => self.painted(
+                self.palette.dim(),
+                effort_menu::key_help(self.geometry.cols).to_string(),
             ),
             // And the `/statusline` picker's, in the same grey
             // (`composeCompactCommandMenuHintRow`, `input_presentation.zig:766-790`).
@@ -2950,6 +2977,12 @@ impl Shell {
         }
         if let Some(menu) = self.model_menu.as_ref() {
             return Some(Slot::Models(menu));
+        }
+        // After `/model`'s menu, as upstream ranks it (`show_effort_menu`,
+        // `surface_frame.zig:408@481104fd`) -- though, as with the menus above
+        // it, the ranking decides nothing: opening it closes them.
+        if let Some(menu) = self.effort_menu.as_ref() {
+            return Some(Slot::Effort(menu));
         }
         // After `/model`'s menu and before the inline pickers, as upstream
         // ranks it (`show_skills_query`, `surface_frame.zig:631-634`) -- and
@@ -4792,6 +4825,7 @@ impl Shell {
         self.file_picker = None;
         self.help_menu = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.sessions = None;
         self.provider_picker = None;
         self.skills_menu = Some(menu);
@@ -5369,12 +5403,37 @@ impl Shell {
     }
 
     /// `/settings`' effort row: the band's effort and the runtime's move to
-    /// `effort`, and the profile's `effort` is written here and announced
-    /// (`applyEffort(app, effort, announce=false, persist=true)`,
-    /// `session_commands.zig:863-880`). The runtime is told as a model change
-    /// that keeps the model ([`ModelChange::effort_only`]), so one made while
-    /// a turn runs waits for it as `/model`'s does.
+    /// `effort`, and the profile's `effort` is written here and the write is
+    /// what is said (`selectEffortFromSettings` -> `applyEffort(app, effort,
+    /// announce=false, persist=true)`, `session_commands.zig:980-982@481104fd`).
     fn set_effort(&mut self, effort: Effort) {
+        self.apply_effort(effort, false);
+    }
+
+    /// `/effort`'s level, from its menu or its argument: the same move and
+    /// write as [`Self::set_effort`], said the other way round -- the level
+    /// and the model are named, and the write only when it did not simply
+    /// succeed (`selectEffort` -> `applyEffort(app, effort, announce=true,
+    /// persist=true)`, `session_commands.zig:985-987@481104fd`).
+    fn select_effort(&mut self, effort: Effort) {
+        self.apply_effort(effort, true);
+    }
+
+    /// Upstream's `applyEffort` (`session_commands.zig:952-967@481104fd`): the
+    /// effort is the band's at once -- the hint row shows it -- and the
+    /// runtime's as a model change that keeps the model
+    /// ([`ModelChange::effort_only`]), so one made while a turn runs waits
+    /// for it as `/model`'s does: the running turn keeps the level it started
+    /// with and the next one is sent the new one. Then the profile's `effort`
+    /// is written; with `announce`, its benign `saved to user settings` is
+    /// left unsaid (`persistPreferenceTargets(..., !announce)` ->
+    /// `reportUserSettingsCommit`, `:29-80`) and the level is named instead
+    /// (`announceEffortSelection`, `:971-978`): `Reasoning effort set to
+    /// <level> for <model>`, or `Next turn will use reasoning effort <level>
+    /// for <model>` while a turn is still to finish, as `/model`'s own
+    /// announcement reads it.
+    fn apply_effort(&mut self, effort: Effort, announce: bool) {
+        let next_turn = self.turn_pending();
         self.settings.effort = effort.clone();
         self.work.control(TurnControl::Model(ModelChange {
             name: self.model.clone(),
@@ -5382,16 +5441,33 @@ impl Shell {
             speed: None,
             picker: false,
             announced: true,
-            next_turn: self.turn_pending(),
+            next_turn,
             provider: self.provider,
             effort_only: true,
         }));
-        self.save_preference(
+        self.save_preference_saying(
             settings::EFFORT_TOPIC,
             &[crate::config::EFFORT_KEY],
             serde_json::Value::String(effort.label().to_string()),
             true,
+            !announce,
         );
+        if announce {
+            let lead = if next_turn {
+                "Next turn will use reasoning effort "
+            } else {
+                "Reasoning effort set to "
+            };
+            self.announce(notice::Notice::neutral(
+                "",
+                format!(
+                    "{lead}{} for {}",
+                    effort.display(),
+                    effort_menu::one_line(&self.model)
+                ),
+            ));
+        }
+        self.render.request(Reason::Footer);
     }
 
     /// Upstream's `handleHistory(app, "on"|"off")` (`session_commands.zig:443-509`):
@@ -5474,6 +5550,22 @@ impl Shell {
         value: serde_json::Value,
         changed: bool,
     ) -> bool {
+        self.save_preference_saying(topic, key, value, changed, true)
+    }
+
+    /// [`Self::save_preference`], with the success said only when `commit`
+    /// asks for it: a caller that names the state it changed leaves the
+    /// benign line out, and a failure is said either way
+    /// (`reportUserSettingsCommit`'s `announce_commit`,
+    /// `session_commands.zig:29-80@481104fd`).
+    fn save_preference_saying(
+        &mut self,
+        topic: &str,
+        key: &[&str],
+        value: serde_json::Value,
+        changed: bool,
+        commit: bool,
+    ) -> bool {
         let written = match self.settings_path.as_deref() {
             Some(path) => crate::provider::profile::write_preference(path, key, value)
                 .map_err(|err| err.to_string()),
@@ -5481,10 +5573,12 @@ impl Shell {
         };
         match written {
             Ok(()) => {
-                self.announce(notice::Notice::neutral(
-                    topic,
-                    interactive::STATUSLINE_SAVED,
-                ));
+                if commit {
+                    self.announce(notice::Notice::neutral(
+                        topic,
+                        interactive::STATUSLINE_SAVED,
+                    ));
+                }
                 true
             }
             Err(reason) => {
@@ -5649,6 +5743,53 @@ impl Shell {
             }
             ModelAction::Close => self.close_models(),
             ModelAction::Use => self.use_marked_model(),
+        }
+        true
+    }
+
+    /// Offers one keystroke to `/effort`'s menu, and says whether it was
+    /// taken.
+    ///
+    /// The keys [`EffortAction::of`] names, and nothing else: Up and Down
+    /// wrap, a page moves by the composer's row cap and wraps the same way,
+    /// Enter applies the marked level -- the menu closed first
+    /// (`submitEffortMenuSelection`, `app_input_runtime.zig:2876-2884@481104fd`)
+    /// -- and Escape closes it. Anything else goes on to the composer, where
+    /// an edit closes it too ([`Self::amended`]).
+    fn offer_to_effort(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = EffortAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.effort_menu.as_mut() else {
+            return false;
+        };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match request {
+            EffortAction::Up => -1,
+            EffortAction::Down => 1,
+            EffortAction::Page(true) => page,
+            EffortAction::Page(false) => -page,
+            EffortAction::Close => {
+                self.effort_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+                return true;
+            }
+            EffortAction::Use => {
+                let effort = menu.selected().clone();
+                self.effort_menu = None;
+                self.refit();
+                self.select_effort(effort);
+                self.render.request(Reason::Modal);
+                return true;
+            }
+        };
+        let visible = menu.visible_items(self.geometry.panel);
+        if menu.step_by(delta, visible) {
+            self.render.request(Reason::Modal);
         }
         true
     }
@@ -9669,6 +9810,7 @@ impl Shell {
                         || self.asking()
                         || self.help_menu.is_some()
                         || self.settings_menu.is_some()
+                        || self.effort_menu.is_some()
                         || self.picker.is_some()
                         || self.full.is_open()
                         || self.ghost_dismissible()
@@ -9752,6 +9894,7 @@ impl Shell {
                 && self.sessions.is_none()
                 && self.help_menu.is_none()
                 && self.model_menu.is_none()
+                && self.effort_menu.is_none()
                 && self.offer_to_trust_prompt(&event)
             {
                 continue;
@@ -9771,6 +9914,9 @@ impl Shell {
                 continue;
             }
             if self.offer_to_models(&event) {
+                continue;
+            }
+            if self.offer_to_effort(&event) {
                 continue;
             }
             if self.offer_to_skills(&event) {
@@ -11340,6 +11486,7 @@ impl CommandHandlers for Shell {
         self.picker = None;
         self.file_picker = None;
         self.sessions = None;
+        self.effort_menu = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
         // a band with no catalog in it.
@@ -11386,6 +11533,7 @@ impl CommandHandlers for Shell {
         self.picker = None;
         self.help_menu = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.provider_picker = None;
         self.file_picker = None;
         self.sessions = Some(SessionPicker::open(
@@ -11450,6 +11598,10 @@ impl CommandHandlers for Shell {
         self.use_model(argument);
     }
 
+    fn effort(&mut self, argument: &str) {
+        self.effort_command(argument);
+    }
+
     /// Upstream's `* stats: ansi_bytes=…, redraws=…, debounced_resizes=…,
     /// footer_updates=0, stream_chunks=0` (`app_commands.zig:1009-1022`): the
     /// counters as they stand **before** this notice is written, as upstream's
@@ -11468,6 +11620,7 @@ impl CommandHandlers for Shell {
         self.help_menu = None;
         self.sessions = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.provider_picker = None;
         self.statusline_menu = None;
         self.workspace_menu = None;
@@ -11591,6 +11744,7 @@ impl CommandHandlers for Shell {
                     self.statusline_menu = None;
                     self.settings_menu = None;
                     self.usage_menu = None;
+                    self.effort_menu = None;
                     self.rule_confirm = Some(RuleConfirm::new(confirmation));
                     self.refit();
                     self.render.request(Reason::Modal);
@@ -11662,6 +11816,7 @@ impl CommandHandlers for Shell {
             self.file_picker = None;
             self.help_menu = None;
             self.workspace_menu = None;
+            self.effort_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -11736,6 +11891,7 @@ impl CommandHandlers for Shell {
                 self.help_menu = None;
                 self.sessions = None;
                 self.model_menu = None;
+                self.effort_menu = None;
                 self.provider_picker = None;
                 self.statusline_menu = None;
                 self.usage_menu = None;
@@ -11776,6 +11932,7 @@ impl CommandHandlers for Shell {
             self.help_menu = None;
             self.sessions = None;
             self.model_menu = None;
+            self.effort_menu = None;
             self.provider_picker = None;
             self.statusline_menu = None;
             self.usage_menu = None;
@@ -11858,6 +12015,7 @@ impl CommandHandlers for Shell {
         self.help_menu = None;
         self.sessions = None;
         self.model_menu = None;
+        self.effort_menu = None;
         self.statusline_menu = None;
         self.usage_menu = None;
         self.provider_picker = None;
@@ -12225,6 +12383,74 @@ impl Shell {
         self.request_model(argument);
     }
 
+    /// `/effort` (`commandHandleEffort` -> `handleEffort`,
+    /// `app_commands.zig:570-586@481104fd`, `session_commands.zig:1000-1037`).
+    ///
+    /// **The current model's levels first, whatever the argument**: a model
+    /// whose catalog row lists none -- or a catalog this side does not hold --
+    /// is said so and nothing else happens: `levels for <m> are still
+    /// loading; try /effort again in a moment` while a read is on its way,
+    /// `<m> has no levels to choose from` otherwise. Nothing is asked of the
+    /// runtime here, as upstream's command starts no load.
+    ///
+    /// Then, bare, the menu, with what shares its slot closed; with a word,
+    /// that level when it is one ([`Effort::parse`]) the menu would list
+    /// ([`EffortMenu::offers`], spelled as the row spells it), and otherwise
+    /// the levels it does list -- naming the word only when it is a
+    /// well-formed level, so nothing typed that is not a level is repeated
+    /// back.
+    fn effort_command(&mut self, argument: &str) {
+        let model = effort_menu::one_line(&self.model);
+        let menu = self
+            .catalog_row(&self.model)
+            .and_then(|entry| EffortMenu::open(&self.model, entry, &self.settings.effort));
+        let Some(menu) = menu else {
+            let body = if matches!(
+                self.catalog_known,
+                CatalogKnown::Unasked | CatalogKnown::Asked
+            ) {
+                format!("levels for {model} are still loading; try /effort again in a moment")
+            } else {
+                format!("{model} has no levels to choose from")
+            };
+            self.write_notice(&notice::Notice::neutral(settings::EFFORT_TOPIC, body));
+            return;
+        };
+        if argument.is_empty() {
+            self.picker = None;
+            self.file_picker = None;
+            self.help_menu = None;
+            self.sessions = None;
+            self.model_menu = None;
+            self.skills_menu = None;
+            self.settings_menu = None;
+            self.provider_picker = None;
+            self.statusline_menu = None;
+            self.usage_menu = None;
+            self.workspace_menu = None;
+            self.effort_menu = Some(menu);
+            // [`Self::run_command`] re-solved the band before routing here,
+            // for a band with no menu in it.
+            self.refit();
+            self.render.request(Reason::Modal);
+            return;
+        }
+        let parsed = Effort::parse(argument);
+        if let Some(effort) = parsed.as_ref().filter(|effort| menu.offers(effort)) {
+            self.select_effort(effort.clone());
+            return;
+        }
+        let levels = menu.levels().join(", ");
+        let body = match parsed {
+            Some(effort) => format!(
+                "{} is not available for {model}; levels: {levels}",
+                effort.label()
+            ),
+            None => format!("levels for {model}: {levels}"),
+        };
+        self.write_notice(&notice::Notice::neutral(settings::EFFORT_TOPIC, body));
+    }
+
     /// Opens `/model`'s menu over the rows in hand, or asks for them.
     fn open_models(&mut self) {
         let query = self.editor.text().to_string();
@@ -12237,6 +12463,7 @@ impl Shell {
         // asked for.
         self.picker = None;
         self.file_picker = None;
+        self.effort_menu = None;
         let note = (self.provider == ProviderId::Gateway)
             .then_some(self.gateway_note)
             .flatten();
@@ -13177,6 +13404,14 @@ impl Shell {
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
+        // `/effort`'s menu reads nothing from the composer, so an edit to it
+        // closes the menu, and the edit stands
+        // (`dismissActiveMenusForComposerEdit`,
+        // `app_input_runtime.zig:1984-1990@481104fd`). The band is re-solved
+        // below, for the rows the menu gave back.
+        if self.effort_menu.take().is_some() {
+            self.render.request(Reason::Modal);
+        }
         // An edit went through: the next refusal is a new run, and is said.
         self.over_limit = false;
         self.history.leave();
@@ -13295,6 +13530,7 @@ impl Shell {
             | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
+            | Some(Slot::Effort(_))
             | Some(Slot::Skills(_))
             | Some(Slot::Provider(_))
             | Some(Slot::Files(_))
@@ -13313,6 +13549,7 @@ impl Shell {
             }
             Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Effort(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Skills(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
                 ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
@@ -35823,6 +36060,323 @@ mod tests {
         assert_eq!(
             profile_at(root.path()),
             "{\n  \"session_titles\": true\n}\n"
+        );
+    }
+
+    /// A 40x120 shell at a home of its own, holding the harness's catalog,
+    /// on `openai/gpt-6-astra` (`p5-effort-fork-seed-astra.json`).
+    fn effort_shell(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.model = "openai/gpt-6-astra".to_string();
+        let _ = shell.document();
+        shell
+    }
+
+    /// `/effort`'s rows as the band paints them, as text.
+    fn effort_text(shell: &Shell) -> Vec<String> {
+        menu(shell).iter().map(|row| visible_text(row)).collect()
+    }
+
+    fn effort_said(body: &str) -> Vec<String> {
+        said(notice::Notice::neutral(settings::EFFORT_TOPIC, body))
+    }
+
+    #[test]
+    fn a_bare_effort_opens_the_menu_whose_keys_wrap_and_whose_enter_names_the_level() {
+        // `fx-p5-effort-fork-effort-menu-40x120-menu`, `-menu-down`,
+        // `-menu-wrap`, `-menu-esc`, `-menu-enter`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        assert!(matches!(shell.slot(), Some(Slot::Effort(_))));
+        assert_eq!(
+            effort_text(&shell),
+            [
+                "Effort 5  openai/gpt-6-astra",
+                "",
+                "  default  current",
+                "  low",
+                "  medium",
+                "  high",
+                "  xhigh",
+            ]
+        );
+        assert_eq!(
+            visible_text(&shell.band_rows()[shell.band_rows().len() - 1]),
+            "\u{2191}\u{2193} navigate     enter use     esc close"
+        );
+        // Nothing is written for opening it.
+        assert!(shell.document().is_empty());
+        down(&mut shell, 1);
+        assert_eq!(
+            shell.effort_menu.as_ref().map(EffortMenu::selected),
+            Some(&Effort::Named("low".to_string()))
+        );
+        shell.route_bytes(b"\x1b[A\x1b[A");
+        assert_eq!(
+            shell.effort_menu.as_ref().map(EffortMenu::selected),
+            Some(&Effort::Named("xhigh".to_string()))
+        );
+        escape(&mut shell);
+        assert!(shell.effort_menu.is_none());
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None, "Escape applied a level");
+
+        shell.route_bytes(b"/effort\r");
+        down(&mut shell, 2);
+        shell.route_bytes(b"\r");
+        assert!(shell.effort_menu.is_none());
+        // The level and the model, and no `saved to user settings`.
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to medium for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(shell.settings.effort, Effort::Named("medium".to_string()));
+        assert!(shell.hint().ends_with("medium"), "{}", shell.hint());
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"medium\"\n}\n");
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("medium".to_string())),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: false,
+                provider: ProviderId::Gateway,
+                effort_only: true,
+            }
+        );
+        // It opens on the level in use.
+        shell.route_bytes(b"/effort\r");
+        assert_eq!(effort_text(&shell)[4], "  medium   current");
+    }
+
+    #[test]
+    fn an_edit_closes_the_effort_menu_and_the_edit_stands() {
+        // `fx-p5-effort-fork-effort-menu-40x120-menu-edit`: `x` typed over
+        // the menu is in the composer, and the menu is gone.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort\r");
+        shell.route_bytes(b"x");
+        assert!(shell.effort_menu.is_none());
+        assert_eq!(shell.editor.text(), "x");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        // A paste is an edit too.
+        shell.route_bytes(b"\x15/effort\r");
+        pasted(&mut shell, "y");
+        assert!(shell.effort_menu.is_none());
+        assert_eq!(shell.editor.text(), "y");
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn effort_with_a_word_applies_it_or_says_which_levels_there_are() {
+        // `fx-p5-effort-fork-effort-menu-40x120-level-*`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.route_bytes(b"/effort high\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to high for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"high\"\n}\n");
+        assert!(change(&mut shell).effort_only);
+        for (line, body) in [
+            (
+                "/effort bogus",
+                "bogus is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh",
+            ),
+            (
+                "/effort max",
+                "max is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh",
+            ),
+            // Not a level at all: nothing typed is repeated back.
+            (
+                "/effort two words",
+                "levels for openai/gpt-6-astra: default, low, medium, high, xhigh",
+            ),
+            (
+                "/effort \u{1b}[2J",
+                "levels for openai/gpt-6-astra: default, low, medium, high, xhigh",
+            ),
+            // Names are compared as the row spells them; the `/effort `
+            // column's filter is P5-EF2's.
+            (
+                "/effort HIGH",
+                "HIGH is not available for openai/gpt-6-astra; levels: default, low, medium, high, xhigh",
+            ),
+        ] {
+            pasted(&mut shell, line);
+            shell.route_bytes(b"\r");
+            assert_eq!(shell.document(), effort_said(body), "{line:?}");
+            assert_eq!(shell.controlled(), None, "{line:?} changed something");
+            assert_eq!(shell.settings.effort, Effort::Named("high".to_string()));
+        }
+        // The default's three spellings, any case.
+        shell.route_bytes(b"/effort Default\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Reasoning effort set to default for openai/gpt-6-astra"
+            ))
+        );
+        assert_eq!(shell.settings.effort, Effort::Auto);
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"auto\"\n}\n");
+        assert!(!shell.hint().contains("high"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn effort_without_levels_says_why_and_opens_nothing() {
+        // `fx-p5-effort-fork-effort-nolevels-40x120-bare`, `-level`; the
+        // catalog that failed, `effort-down`; the one still on its way,
+        // `effort-loading-early`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.model = "fake/model-a".to_string();
+        for line in [&b"/effort\r"[..], b"/effort high\r"] {
+            shell.route_bytes(line);
+            assert_eq!(
+                shell.document(),
+                effort_said("fake/model-a has no levels to choose from")
+            );
+            assert!(shell.effort_menu.is_none());
+        }
+        // A model the catalog does not list has none either.
+        shell.model = "acme/unlisted".to_string();
+        shell.route_bytes(b"/effort\r");
+        assert_eq!(
+            shell.document(),
+            effort_said("acme/unlisted has no levels to choose from")
+        );
+
+        let mut loading = shell_at_home(root.path(), 40, 120);
+        loading.model = "openai/gpt-6-astra".to_string();
+        let _ = loading.document();
+        loading.route_bytes(b"/effort\r");
+        assert_eq!(
+            loading.document(),
+            effort_said(
+                "levels for openai/gpt-6-astra are still loading; try /effort again in a moment"
+            )
+        );
+        // It asks the runtime for nothing: the launch's read answers.
+        assert_eq!(loading.controlled(), None);
+        loading.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: None,
+            attempted: Instant::now(),
+        });
+        let _ = loading.document();
+        loading.route_bytes(b"/effort\r");
+        assert_eq!(
+            loading.document(),
+            effort_said("openai/gpt-6-astra has no levels to choose from")
+        );
+        assert!(profile_at(root.path()).is_empty());
+    }
+
+    #[test]
+    fn an_effort_given_while_a_turn_runs_is_for_the_next_turn() {
+        // `fx-p5-effort-fork-effort-menu-40x120-midturn`: said at once, in
+        // the next turn's words, and handed to the runtime as a change that
+        // waits for the running turn -- which keeps its own level.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        let _started = turn_running(&mut shell, b"slow turn please\r");
+        let _turn = shell.picks_up();
+        pasted(&mut shell, "/effort high");
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Next turn will use reasoning effort high for openai/gpt-6-astra"
+            ))
+        );
+        let asked = change(&mut shell);
+        assert!(asked.next_turn && asked.effort_only, "{asked:?}");
+        assert!(shell.hint().ends_with("high"), "{}", shell.hint());
+        // The menu's Enter, the same: it opens on `high`, the level in use.
+        shell.route_bytes(b"/effort\r");
+        down(&mut shell, 1);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Next turn will use reasoning effort xhigh for openai/gpt-6-astra"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_failed_effort_write_is_said_and_the_level_is_still_named() {
+        // `reportUserSettingsCommit` drops only the benign line: a write that
+        // failed is said, then the announcement.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = effort_shell(root.path());
+        shell.settings_path = None;
+        shell.route_bytes(b"/effort low\r");
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row.starts_with("\u{2717} effort:")),
+            "{document:?}"
+        );
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "* Reasoning effort set to low for openai/gpt-6-astra"),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_effort_menu_and_its_notices_never_show_what_a_terminal_would_obey() {
+        // An llmux row's levels and a model id are not held to the Gateway's
+        // rule on their way in; the menu offers only parsable names and shows
+        // the id on one line with nothing a terminal obeys in it.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        let forged = "odd\u{1b}]0;x\u{7}\nmodel";
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![CatalogEntry {
+                id: forged.to_string(),
+                aliases: Vec::new(),
+                name: None,
+                efforts: vec!["low".to_string(), "x\u{1b}[2J".to_string()],
+                max_context: None,
+                facts: Default::default(),
+            }],
+        });
+        shell.model = forged.to_string();
+        let _ = shell.document();
+        shell.route_bytes(b"/effort\r");
+        let rows = menu(&shell);
+        assert!(!rows.concat().contains("\u{1b}]"), "{rows:?}");
+        assert!(!rows.concat().contains("\u{1b}[2J"), "{rows:?}");
+        assert_eq!(effort_text(&shell)[0], "Effort 2  odd ]0;x  model");
+        escape(&mut shell);
+        shell.route_bytes(b"/effort nope\r");
+        let document = shell.document();
+        assert_eq!(
+            document,
+            effort_said("nope is not available for odd ]0;x  model; levels: default, low")
         );
     }
 
