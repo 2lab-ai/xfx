@@ -186,15 +186,42 @@ pub enum ProposedAction<'a> {
     /// A read, which mints nothing: an allowed read reads, at once, the file
     /// its tool resolved.
     Read(&'a ReadPlan),
+    /// A call of an MCP server's tool ([`McpCallPlan`]).
+    Mcp(&'a McpCallPlan),
 }
 
-impl ProposedAction<'_> {
+/// One MCP tool call, as policy judges it: the tool by the name the model
+/// called it, the server it is on, and the exact arguments.
+///
+/// Upstream judges a dynamic tool under its own name, with that name as its
+/// one target (`permissionNameForCall` and `permissionTargetsForCall`,
+/// `vercel-labs/fx@c1db9191 src/core/tooling/tool_admission.zig:161-165`,
+/// `:2520-2525`), so a rule keyed `mcp_github_*` or `mcp_github_create_issue`
+/// is about exactly those tools.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpCallPlan {
+    /// `mcp_<server>_<tool>`.
+    pub alias: String,
+    pub server: String,
+    /// The arguments as compact JSON, bounded for a person to read.
+    pub arguments: String,
+    /// The arguments as compact JSON, whole: what a saved-session rule about
+    /// exactly this call is keyed by. Never the bounded line above, which two
+    /// calls that differ past its bound would share.
+    pub key: String,
+}
+
+impl<'a> ProposedAction<'a> {
     /// The advertised tool name, which is what a rule or a grant names.
+    ///
+    /// An MCP call is `mcp`: its own name is dynamic, and it is the target
+    /// a grant is keyed by instead ([`Self::target`]).
     pub fn tool(&self) -> &'static str {
         match self {
             Self::Mutation(plan) => plan.kind().tool(),
             Self::Command(_) => "terminal",
             Self::Read(plan) => plan.tool,
+            Self::Mcp(_) => "mcp",
         }
     }
 
@@ -212,8 +239,13 @@ impl ProposedAction<'_> {
     /// The first candidate is the action's own target, the one an exact
     /// session grant is about. `None` for a change whose executor did not
     /// resolve its targets ([`MutationPlan::rule_targets`]).
-    fn rule_subject(&self) -> (&'static str, &'static str, Option<Vec<Vec<u8>>>) {
-        match self {
+    fn rule_subject(&self) -> (&'a str, &'a str, Option<Vec<Vec<u8>>>) {
+        match *self {
+            Self::Mcp(plan) => (
+                plan.alias.as_str(),
+                plan.alias.as_str(),
+                Some(vec![plan.alias.as_bytes().to_vec()]),
+            ),
             Self::Mutation(plan) => (
                 super::rules::EDIT,
                 plan.kind().tool(),
@@ -263,6 +295,15 @@ impl ProposedAction<'_> {
                 field(&mut canonical, &os_bytes(plan.target.as_os_str()));
                 RuleKey::new(KeyKind::StructuredTool, canonical)
             }
+            Self::Mcp(plan) => {
+                let mut canonical = Vec::new();
+                field(&mut canonical, b"xfx-permission-state-mcp-v1");
+                field(&mut canonical, plan.server.as_bytes());
+                field(&mut canonical, plan.alias.as_bytes());
+                field(&mut canonical, plan.key.as_bytes());
+                RuleKey::new(KeyKind::StructuredTool, canonical)
+            }
+
             Self::Mutation(plan) => {
                 let binding = plan.state_binding()?;
                 let targets = plan.rule_targets()?;
@@ -302,6 +343,7 @@ impl ProposedAction<'_> {
             // Upstream's display for a structured call is its question's
             // label (`preparePermissionStateAction`, `:2261-2267`).
             Self::Read(plan) => format!("{} {}", plan.tool, plan.argument),
+            Self::Mcp(plan) => format!("{} {}", plan.alias, plan.arguments),
             Self::Mutation(plan) => {
                 let after = &plan.after_hash().hex()[..16];
                 match plan.preimage() {
@@ -349,6 +391,7 @@ impl ProposedAction<'_> {
             Self::Command(plan) => format!("{} in {}", plan.command(), plan.cwd().display()),
             // The file it resolved, for the reason a mutation's is.
             Self::Read(plan) => plan.target.to_string_lossy().into_owned(),
+            Self::Mcp(plan) => plan.alias.clone(),
         }
     }
 
@@ -409,6 +452,10 @@ impl ProposedAction<'_> {
                 ),
                 _ => format!("read `{}`", plan.display),
             },
+            Self::Mcp(plan) => format!(
+                "call the MCP tool `{}` on server `{}` with {}",
+                plan.alias, plan.server, plan.arguments
+            ),
         }
     }
 
@@ -423,8 +470,8 @@ impl ProposedAction<'_> {
             Self::Mutation(plan) => plan.diff().cloned(),
             // A command has no before and after. What it would do is the command
             // itself, and [`Self::summary`] quotes that whole. A read changes
-            // nothing.
-            Self::Command(_) | Self::Read(_) => None,
+            // nothing, and an MCP call's effect is the server's, not a file's.
+            Self::Command(_) | Self::Read(_) | Self::Mcp(_) => None,
         }
     }
 
@@ -457,6 +504,10 @@ impl ProposedAction<'_> {
                 "allow every future {} of `{}` for the rest of this session",
                 plan.tool, plan.display
             ),
+            Self::Mcp(plan) => format!(
+                "allow every future call of the MCP tool `{}` for the rest of this session, whatever its arguments",
+                plan.alias
+            ),
         }
     }
 
@@ -471,6 +522,9 @@ impl ProposedAction<'_> {
                 cwd: plan.display_cwd().to_string(),
             },
             Self::Read(plan) => ApprovalSubject::Call(plan.argument.clone()),
+            // The generic review (`Would you like to allow this action?`,
+            // then `mcp <tool> <arguments>`): what is asked is the call.
+            Self::Mcp(plan) => ApprovalSubject::Path(format!("{} {}", plan.alias, plan.arguments)),
         }
     }
 
@@ -502,6 +556,15 @@ impl ProposedAction<'_> {
             // Never consulted: a read no rule decides is admitted before the
             // mode is ([`PermissionSession::evaluate_with`]).
             Self::Read(_) => Ok(()),
+            // Upstream sends an unresolved MCP call in auto mode to its
+            // safety reviewer, and an unavailable reviewer holds the action
+            // (`resolveOrdinaryPermissionOutcome`, `tool_admission.zig:
+            // 1116-1157`). xfx has no reviewer, so the call is held: nothing
+            // about a server's tool bounds what it does.
+            Self::Mcp(plan) => Err(format!(
+                "the MCP tool `{}` is not admitted in auto mode because xfx cannot bound what a server's tool does; ask the user to allow it with a rule, or approve it in ask mode",
+                plan.alias
+            )),
         }
     }
 }
@@ -2030,6 +2093,31 @@ mod tests {
                 source: AllowSource::Yolo
             }
         );
+    }
+
+    #[test]
+    fn a_saved_rule_about_an_mcp_call_is_keyed_by_its_whole_arguments() {
+        // A saved-session rule is about exactly one call (`permissionStateKeyForCall`
+        // keys its arguments whole, `tool_admission.zig:2219-2231`): two calls
+        // of a server's tool that differ only past the bound its question
+        // shows are two keys.
+        // Past the shown bound, inside the bound a key may have
+        // (`session_rules::MAX_IDENTITY_BYTES`).
+        let long = "x".repeat(3000);
+        let mcp = |tail: &str| McpCallPlan {
+            alias: "mcp_s_t".to_string(),
+            server: "s".to_string(),
+            arguments: crate::output::safe_one_line(&format!(r#"{{"a":"{long}{tail}"}}"#), 2048),
+            key: format!(r#"{{"a":"{long}{tail}"}}"#),
+        };
+        let (first, second) = (mcp("1"), mcp("2"));
+        assert_eq!(first.arguments, second.arguments, "the shown line is the same");
+        let (first, second) = (
+            ProposedAction::Mcp(&first).state_key(),
+            ProposedAction::Mcp(&second).state_key(),
+        );
+        assert!(first.is_some() && second.is_some());
+        assert_ne!(first, second);
     }
 
     #[test]

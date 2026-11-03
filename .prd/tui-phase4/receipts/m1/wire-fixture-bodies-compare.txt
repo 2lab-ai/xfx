@@ -1,0 +1,8 @@
+pairs: [('001-completion.json', '002-completion.json')]
+001-completion.json vs 002-completion.json: mcp tools fx=['capability_search', 'mcp_select_tool', 'mcp_features'] xfx=['capability_search', 'mcp_select_tool', 'mcp_features']
+   mcp_select_tool differs in ['inputSchema']
+     fx : {"type": "object", "properties": {"name": {"type": "string", "description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool."}}, "required": ["name"]}
+     xfx: {"additionalProperties": false, "properties": {"name": {"description": "Exact dynamic MCP tool name discovered in configured metadata, such as mcp_server_tool.", "type": "string"}}, "required": ["name"], "type": "object"}
+   capability_search differs in ['description']
+   mcp block same: True 1 1
+   tool results same: True 0 0

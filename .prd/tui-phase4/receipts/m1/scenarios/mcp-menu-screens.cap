@@ -1,0 +1,57 @@
+# The menu's own screens -- each server's details, the help screen, the two
+# project-trust confirmations, each left with Esc -- with a project server
+# whose prompt was dismissed and an HTTP server added by command at a
+# loopback port nothing listens on.
+work mcp-ws
+wait 3
+snap prompt
+key Escape
+wait 1
+snap dismissed
+type /mcp add --transport http remote http://127.0.0.1:9/mcp
+key Enter
+wait 4
+snap http-added
+type /mcp
+key Enter
+wait 1.5
+snap menu
+key Enter
+wait 1
+snap details-1
+key Escape
+wait 0.5
+key Down
+wait 0.5
+key Enter
+wait 1
+snap details-2
+key Escape
+wait 0.5
+snap details-esc
+type c
+wait 0.7
+snap info
+key Escape
+wait 0.5
+type p
+wait 0.7
+snap confirm-approve
+key Escape
+wait 0.5
+snap confirm-approve-esc
+type z
+wait 0.7
+snap confirm-reset
+key Escape
+wait 0.5
+snap confirm-reset-esc
+key Escape
+wait 0.5
+type /mcp list
+key Enter
+wait 1.5
+snap list
+key Escape
+wait 0.5
+home end

@@ -3127,6 +3127,11 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_inter
             "edit_file",
             "create_folder",
             "terminal",
+            // Read-only, but where upstream puts them: after its shell
+            // (`vercel-labs/fx@c1db9191 src/builtins/tools.zig:868-883`).
+            "capability_search",
+            "mcp_select_tool",
+            "mcp_features",
             "ask_user_question",
         ]
     );
@@ -3351,7 +3356,13 @@ async fn full_access_offers_every_tool_whatever_the_table_says() {
     run_turn(turn("hello", context), &provider, &mut sink)
         .await
         .expect("a turn");
-    assert_eq!(offered(&provider.requests()[0]), ADVERTISED_TOOLS);
+    // Everything but the MCP meta-tools, which no MCP client here offers.
+    let everything: Vec<&str> = ADVERTISED_TOOLS
+        .iter()
+        .copied()
+        .filter(|name| !xfx::tools::mcp::META_TOOLS.contains(name))
+        .collect();
+    assert_eq!(offered(&provider.requests()[0]), everything);
 }
 
 #[tokio::test]

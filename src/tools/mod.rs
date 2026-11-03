@@ -15,6 +15,7 @@
 //!   [`UnadvertisedTool`] rather than inventing a result, and the turn ends
 //!   rather than continuing on a false premise.
 
+pub mod mcp;
 pub mod mutate;
 pub mod question;
 pub mod read;
@@ -49,11 +50,16 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
     "edit_file",
     "create_folder",
     "terminal",
+    "capability_search",
+    "mcp_select_tool",
+    "mcp_features",
     "ask_user_question",
 ];
 
 /// The specs themselves, in upstream's order (`tools.zig:1352-1367`): the read
-/// group, then the mutation group, then the terminal.
+/// group, then the mutation group, then the terminal -- and, where upstream
+/// puts them, between its shell and `ask_user_question`, the three MCP
+/// meta-tools (`vercel-labs/fx@c1db9191 src/builtins/tools.zig:868-883`).
 static BUILTIN_TOOLS: &[ToolSpec] = &[
     read::LIST_FILES,
     read::GLOB_FILES,
@@ -63,6 +69,9 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     mutate::EDIT_FILE,
     mutate::CREATE_FOLDER,
     terminal::TERMINAL,
+    mcp::CAPABILITY_SEARCH,
+    mcp::MCP_SELECT_TOOL,
+    mcp::MCP_FEATURES,
     question::ASK_USER_QUESTION,
 ];
 
@@ -212,7 +221,8 @@ impl Registry {
     /// offers the model, in registry order: every one but those the table
     /// refuses at every target -- and every one in full access, which
     /// consults no table (`appendBuiltinTool`, `vercel-labs/fx@c1db9191
-    /// src/core/tooling/tool_projection.zig:563-566`).
+    /// src/core/tooling/tool_projection.zig:563-566`) -- and, where no MCP
+    /// client runs (`mcp` false), none of the three MCP meta-tools.
     ///
     /// Leaving a tool out is not what keeps it from running -- a call to it
     /// anyway is still judged, and the same table refuses it -- it is what
@@ -222,9 +232,11 @@ impl Registry {
         &self,
         mode: crate::permission::PermissionMode,
         rules: &crate::permission::RuleSet,
+        mcp: bool,
     ) -> Vec<&'static ToolSpec> {
         self.specs
             .iter()
+            .filter(|spec| mcp || !mcp::META_TOOLS.contains(&spec.name()))
             .filter(|spec| {
                 mode == crate::permission::PermissionMode::Yolo
                     || !rules.denies_every_target_of_tool(upstream_name(spec.name()))
@@ -237,11 +249,31 @@ impl Registry {
         &self,
         mode: crate::permission::PermissionMode,
         rules: &crate::permission::RuleSet,
+        mcp: bool,
     ) -> Vec<Value> {
-        self.offered(mode, rules)
+        self.offered(mode, rules, mcp)
             .into_iter()
             .map(ToolSpec::advertisement)
             .collect()
+    }
+
+    /// What a step running under `context` advertises, decided now: the
+    /// registry as [`Self::offered`] leaves it, then every MCP tool this
+    /// turn has selected that the table in force does not refuse
+    /// ([`mcp::offered_selected`]), in the order it was selected
+    /// (`cap/fx-mcp-wire-40x120-bodies/003-completion.json`). A turn takes
+    /// the registry's part once, when it begins, and this second part at
+    /// every step (`crate::agent::machine`).
+    pub fn advertisement_for(&self, context: &ToolContext) -> Vec<Value> {
+        // The session is let go before the selected tools are read: that
+        // reading takes it again, and it is not reentrant.
+        let (mode, rules) = {
+            let permissions = context.permissions();
+            (permissions.mode(), permissions.rules())
+        };
+        let mut tools = self.advertisement_under(mode, &rules, context.mcp().is_some());
+        tools.extend(mcp::offered_selected(context));
+        tools
     }
 
     /// Runs one model tool call.
@@ -375,9 +407,18 @@ mod tests {
         assert_eq!(Registry::builtin().names(), ADVERTISED_TOOLS);
     }
 
+    /// What a request offers under `rows`, with an MCP client running.
     fn offered(
         mode: crate::permission::PermissionMode,
         rows: &[(&str, &str, crate::permission::RuleAction)],
+    ) -> Vec<&'static str> {
+        offered_with(mode, rows, true)
+    }
+
+    fn offered_with(
+        mode: crate::permission::PermissionMode,
+        rows: &[(&str, &str, crate::permission::RuleAction)],
+        mcp: bool,
     ) -> Vec<&'static str> {
         let rules = crate::permission::RuleSet::new(
             rows.iter()
@@ -387,7 +428,7 @@ mod tests {
                 .collect(),
         );
         Registry::builtin()
-            .offered(mode, &rules)
+            .offered(mode, &rules, mcp)
             .into_iter()
             .map(ToolSpec::name)
             .collect()
@@ -407,6 +448,9 @@ mod tests {
                 "grep_files",
                 "read_file",
                 "terminal",
+                "capability_search",
+                "mcp_select_tool",
+                "mcp_features",
                 "ask_user_question"
             ]
         );
@@ -420,6 +464,9 @@ mod tests {
                 "edit_file",
                 "create_folder",
                 "terminal",
+                "capability_search",
+                "mcp_select_tool",
+                "mcp_features",
                 "ask_user_question"
             ]
         );
@@ -451,6 +498,31 @@ mod tests {
     }
 
     #[test]
+    fn an_mcp_meta_tool_is_left_out_by_a_deny_on_its_name_and_where_no_mcp_client_runs() {
+        use crate::permission::{PermissionMode, RuleAction::*};
+        // Upstream projects its three MCP meta-tools as it projects every
+        // builtin, so a deny on a meta-tool's own name -- a category of its
+        // own (`permissionNameForTool`, `permissions.zig:1455-1464`) -- takes
+        // it out (`tool_projection.zig:563-566`), and full access puts it back.
+        for name in mcp::META_TOOLS {
+            let denied = offered(PermissionMode::Auto, &[(name, "*", Deny)]);
+            assert!(!denied.contains(name), "{name}: {denied:?}");
+            assert_eq!(denied.len(), ADVERTISED_TOOLS.len() - 1, "{name}");
+            assert!(offered(PermissionMode::Yolo, &[(name, "*", Deny)]).contains(name));
+            // An ask is not a refusal.
+            assert!(offered(PermissionMode::Ask, &[(name, "*", Ask)]).contains(name));
+        }
+        // `mcp_*` covers the two named so and nothing else.
+        let globbed = offered(PermissionMode::Ask, &[("mcp_*", "*", Deny)]);
+        assert!(!globbed.contains(&"mcp_select_tool") && !globbed.contains(&"mcp_features"));
+        assert!(globbed.contains(&"capability_search"));
+        // No MCP client: none of the three, whatever the table says.
+        let none = offered_with(PermissionMode::Yolo, &[], false);
+        assert!(mcp::META_TOOLS.iter().all(|name| !none.contains(name)));
+        assert_eq!(none.len(), ADVERTISED_TOOLS.len() - mcp::META_TOOLS.len());
+    }
+
+    #[test]
     fn the_terminal_is_left_out_as_upstreams_shell_is_and_not_by_a_rule_about_commands() {
         use crate::permission::{PermissionMode, RuleAction::*};
         assert!(!offered(PermissionMode::Ask, &[("shell", "*", Deny)]).contains(&"terminal"));
@@ -475,6 +547,9 @@ mod tests {
             ("edit_file", PermissionKind::MutateFile),
             ("create_folder", PermissionKind::MutateFile),
             ("terminal", PermissionKind::RunCommand),
+            ("capability_search", PermissionKind::ReadOnly),
+            ("mcp_select_tool", PermissionKind::ReadOnly),
+            ("mcp_features", PermissionKind::ReadOnly),
             ("ask_user_question", PermissionKind::Interaction),
         ];
         let actual: Vec<(&str, PermissionKind)> = Registry::builtin()

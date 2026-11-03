@@ -1,0 +1,32 @@
+=== ~/.fx/history.jsonl (1602 bytes)
+{"schema_version":1,"timestamp_ms":1791318930369,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1791318932229,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <session>/research/media-ext/scenarios/mcp-legacy-stdio.mjs"}
+{"schema_version":1,"timestamp_ms":1791318936260,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1791318943011,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1791318944876,"workspace_root":"<scratch>/work","text":"/mcp resource list fixture"}
+{"schema_version":1,"timestamp_ms":1791318946907,"workspace_root":"<scratch>/work","text":"/mcp resource read fixture legacy://alpha"}
+{"schema_version":1,"timestamp_ms":1791318948937,"workspace_root":"<scratch>/work","text":"/mcp prompt list fixture"}
+{"schema_version":1,"timestamp_ms":1791318950958,"workspace_root":"<scratch>/work","text":"/mcp prompt get fixture review {\"tone\":\"brief\"}"}
+{"schema_version":1,"timestamp_ms":1791318953069,"workspace_root":"<scratch>/work","text":"/mcp auth fixture"}
+{"schema_version":1,"timestamp_ms":1791318954164,"workspace_root":"<scratch>/work","text":"/mcp logout fixture"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp.json (317 bytes)
+{"mcp":{"fixture":{"type":"local","command":["/opt/homebrew/bin/bun","<session>/research/media-ext/scenarios/mcp-legacy-stdio.mjs"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}}}
+=== ~/.fx/mcp.lock (0 bytes)
+=== ~/.fx/sessions/Xso0B_0DKBjK/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/Xso0B_0DKBjK/owner.live (43 bytes)
+{"pid":57468,"opened_at_ms":1791318926296}
+
+=== ~/.fx/sessions/Xso0B_0DKBjK/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/Xso0B_0DKBjK/session.json (365 bytes)
+{"schema_version":4,"id":"Xso0B_0DKBjK","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791318926296,"updated_at_ms":1791318926296,"conversation_language":"und","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/Xso0B_0DKBjK/session.lock (0 bytes)
+=== ~/.fx/sessions/Xso0B_0DKBjK/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"Xso0B_0DKBjK","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (97 bytes)
+{"workspaces":{"<scratch>/work":{"disabledMcpjsonServers":["proj"]}}}
+
+=== ~/.fx/settings.lock (0 bytes)

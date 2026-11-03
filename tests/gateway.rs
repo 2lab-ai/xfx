@@ -1670,9 +1670,18 @@ fn ask_sends_exactly_the_documented_request_body() {
     // `tests/tool_loop.rs`; here the point is that `tools` is what the registry
     // produced and that the model is allowed to use it.
     assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
+    // `ask` runs no MCP client, so the three MCP meta-tools are not offered
+    // (`xfx::tools::Registry::advertisement_for`).
     assert_eq!(
         body["tools"],
-        Value::Array(xfx::tools::Registry::builtin().advertisement())
+        Value::Array(
+            xfx::tools::Registry::builtin()
+                .advertisement()
+                .into_iter()
+                .filter(|tool| !xfx::tools::mcp::META_TOOLS
+                    .contains(&tool["name"].as_str().unwrap_or_default()))
+                .collect()
+        )
     );
     assert_eq!(
         body.as_object().expect("an object").keys().len(),

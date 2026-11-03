@@ -22,6 +22,7 @@ use crate::gateway::CancelToken;
 use crate::permission::{ApprovalDiff, PermissionSession, ReadTracker};
 use crate::workspace::AccessScope;
 
+use super::mcp::{CapabilitySearchInput, McpFeaturesInput, McpSelectToolInput};
 use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
 use super::question::{AskUserQuestionInput, QuestionRequester};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
@@ -73,18 +74,29 @@ impl PermissionKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKind {
     String,
+    /// A string with a length bound, as upstream's `bounds` write it
+    /// (`min_length`/`max_length`, `vercel-labs/fx@c1db9191
+    /// src/builtins/tools.zig:519-520`).
+    BoundedString {
+        min: usize,
+        max: Option<usize>,
+    },
     Integer,
     Boolean,
     Array,
+    /// A free-form object: `mcp_features`' string-valued `arguments` and
+    /// `context`, whose keys are the server's to name.
+    Object,
 }
 
 impl PropertyKind {
     fn label(self) -> &'static str {
         match self {
-            Self::String => "string",
+            Self::String | Self::BoundedString { .. } => "string",
             Self::Integer => "integer",
             Self::Boolean => "boolean",
             Self::Array => "array",
+            Self::Object => "object",
         }
     }
 }
@@ -134,6 +146,12 @@ impl InputSchema {
         for property in self.properties {
             let mut rendered = Map::new();
             rendered.insert("type".to_string(), Value::from(property.kind.label()));
+            if let PropertyKind::BoundedString { min, max } = property.kind {
+                rendered.insert("minLength".to_string(), Value::from(min));
+                if let Some(max) = max {
+                    rendered.insert("maxLength".to_string(), Value::from(max));
+                }
+            }
             rendered.insert("description".to_string(), Value::from(property.description));
             if !property.allowed.is_empty() {
                 rendered.insert("enum".to_string(), Value::from(property.allowed.to_vec()));
@@ -173,6 +191,9 @@ pub enum ToolInput {
     CreateFolder(CreateFolderInput),
     Terminal(TerminalInput),
     AskUserQuestion(AskUserQuestionInput),
+    CapabilitySearch(CapabilitySearchInput),
+    McpSelectTool(McpSelectToolInput),
+    McpFeatures(McpFeaturesInput),
 }
 
 impl ToolInput {
@@ -195,6 +216,11 @@ impl ToolInput {
             Self::CreateFolder(input) => Some(&input.path),
             Self::Terminal(input) => Some(&input.command),
             Self::AskUserQuestion(_) => None,
+            // Upstream's `label_arg_kind`s: the query, or the server it is
+            // scoped to (`capability_search.zig:91-101`); the name; the action.
+            Self::CapabilitySearch(input) => Some(input.server.as_deref().unwrap_or(&input.query)),
+            Self::McpSelectTool(input) => Some(&input.name),
+            Self::McpFeatures(input) => Some(&input.action),
         }
     }
 }
@@ -562,6 +588,16 @@ impl ToolResult {
     ///
     /// A draft of spaces is not a sentence, and an empty user message on the
     /// wire is worse than none: it would spend a turn saying nothing.
+    /// The same result with its output cut at `limit` bytes, saying so --
+    /// the registry's backstop ([`super::Registry::execute`]) for a result
+    /// that did not come through the registry.
+    pub fn clipped(mut self, limit: usize) -> Self {
+        if let Some(kept) = clip(&self.output, limit) {
+            self.output = format!("{kept}\n... [tool output truncated at {limit} bytes]");
+        }
+        self
+    }
+
     pub fn with_feedback(mut self, feedback: Option<String>) -> Self {
         self.feedback = feedback
             .filter(|text| !text.trim().is_empty())
@@ -888,6 +924,21 @@ pub struct ToolContext {
     /// built the context, and a context nobody set it on answers with the
     /// availability sentinel rather than reaching for a UI that isn't there.
     questioner: Option<Arc<dyn QuestionRequester>>,
+    /// The session's MCP servers, and what this turn has selected of them.
+    /// Absent on a surface that runs no MCP client: the meta-tools are not
+    /// advertised there at all ([`super::Registry::advertisement_for`]).
+    mcp: Option<McpLink>,
+}
+
+/// A context's view of the session's MCP servers.
+#[derive(Clone)]
+pub struct McpLink {
+    pub runtime: Arc<crate::mcp::McpRuntime>,
+    /// The tools whose schemas this turn advertises from its next step on,
+    /// in the order they were selected. Replaced at the start of each turn
+    /// ([`ToolContext::begin_mcp_turn`]), as upstream's list belongs to one
+    /// turn (`orchestrator.zig:6785-6788`).
+    pub selected: Arc<Mutex<Vec<crate::mcp::catalog::Selected>>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -902,6 +953,7 @@ impl std::fmt::Debug for ToolContext {
             .field("cancelled", &self.cancel.is_cancelled())
             .field("has_race_interlude", &self.interlude.is_some())
             .field("has_questioner", &self.questioner.is_some())
+            .field("has_mcp", &self.mcp.is_some())
             .finish()
     }
 }
@@ -926,6 +978,7 @@ impl ToolContext {
             cancel: CancelToken::new(),
             interlude: None,
             questioner: None,
+            mcp: None,
         }
     }
 
@@ -955,6 +1008,60 @@ impl ToolContext {
     pub fn with_questioner(mut self, questioner: Arc<dyn QuestionRequester>) -> Self {
         self.questioner = Some(questioner);
         self
+    }
+
+    /// The same context, with the session's MCP servers.
+    pub fn with_mcp(mut self, runtime: Arc<crate::mcp::McpRuntime>) -> Self {
+        self.mcp = Some(McpLink {
+            runtime,
+            selected: Arc::new(Mutex::new(Vec::new())),
+        });
+        self
+    }
+
+    /// The session's MCP servers, when this surface runs an MCP client.
+    pub fn mcp(&self) -> Option<&McpLink> {
+        self.mcp.as_ref()
+    }
+
+    /// A turn starts with nothing selected.
+    pub fn begin_mcp_turn(&mut self) {
+        if let Some(link) = &mut self.mcp {
+            link.selected = Arc::new(Mutex::new(Vec::new()));
+        }
+    }
+
+    /// The tools this turn has selected, in order.
+    pub fn mcp_selected(&self) -> Vec<crate::mcp::catalog::Selected> {
+        self.mcp
+            .as_ref()
+            .map(|link| {
+                link.selected
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Adds `tools` to what this turn advertises, each once.
+    pub fn select_mcp(&self, tools: Vec<crate::mcp::catalog::Selected>) {
+        let Some(link) = &self.mcp else {
+            return;
+        };
+        let mut selected = link
+            .selected
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for tool in tools {
+            match selected
+                .iter_mut()
+                .find(|existing| existing.alias == tool.alias)
+            {
+                Some(existing) => *existing = tool,
+                None => selected.push(tool),
+            }
+        }
     }
 
     /// The requester `ask_user_question` may hand a batch to, if this context
