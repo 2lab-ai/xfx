@@ -714,34 +714,93 @@ impl Drop for StdioTransport {
 }
 
 /// Stops `child` and its process group: `SIGTERM`, a short grace, `SIGKILL`,
-/// and the child reaped. Only this child's own group is signalled.
+/// and the child reaped. Only this child's own group is signalled, and only
+/// while its leader is uncollected: the group's id is the leader's, and it is
+/// not handed out again until the leader is collected -- `terminal.rs`'s rule
+/// (`exited_uncollected`), and fx v0.0.16's (`src/mcp/io/process.zig:9-11`,
+/// `:557-559`). c1db9191 means the same when it signals only a child its
+/// reader has not reaped (`childMayBeRunning`, `stdio_dispatcher.zig:1178-1182`).
 fn stop_child(child: &mut Child) {
-    #[cfg(unix)]
-    let group = rustix::process::Pid::from_raw(child.id() as i32);
+    stop(&mut Server(child), STOP_GRACE);
+}
+
+/// A signal stopping a server sends its group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stop {
+    Term,
+    Kill,
+}
+
+/// The steps of stopping a server, apart from their order so that the order
+/// can be tested: a group id is only free of reuse while its leader is not yet
+/// collected, which no test of a real process can catch going wrong.
+trait Stopping {
+    /// Signals the server's group.
+    fn signal(&mut self, signal: Stop);
+    /// Whether the leader has exited, without collecting it.
+    fn exited(&mut self) -> bool;
+    /// Collects the leader.
+    fn collect(&mut self);
+}
+
+/// `SIGTERM`, up to `grace` for the leader to exit, `SIGKILL`, and only then
+/// the leader collected.
+fn stop(server: &mut impl Stopping, grace: Duration) {
     let started = Instant::now();
-    if let Ok(Some(_)) = child.try_wait() {
-        #[cfg(unix)]
-        if let Some(group) = group {
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-        }
-        return;
-    }
-    #[cfg(unix)]
-    if let Some(group) = group {
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::TERM);
-    }
-    while started.elapsed() < STOP_GRACE {
-        if let Ok(Some(_)) = child.try_wait() {
-            break;
-        }
+    server.signal(Stop::Term);
+    while started.elapsed() < grace && !server.exited() {
         std::thread::sleep(Duration::from_millis(10));
     }
-    #[cfg(unix)]
-    if let Some(group) = group {
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    server.signal(Stop::Kill);
+    server.collect();
+}
+
+/// A real server, by its leader.
+struct Server<'a>(&'a mut Child);
+
+impl Stopping for Server<'_> {
+    fn signal(&mut self, signal: Stop) {
+        #[cfg(unix)]
+        if let Some(group) = rustix::process::Pid::from_raw(self.0.id() as i32) {
+            let signal = match signal {
+                Stop::Term => rustix::process::Signal::TERM,
+                Stop::Kill => rustix::process::Signal::KILL,
+            };
+            let _ = rustix::process::kill_process_group(group, signal);
+        }
+        #[cfg(not(unix))]
+        if signal == Stop::Kill {
+            let _ = self.0.kill();
+        }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+
+    #[cfg(unix)]
+    fn exited(&mut self) -> bool {
+        use rustix::process::{waitid, WaitId, WaitIdOptions};
+        let Some(leader) = rustix::process::Pid::from_raw(self.0.id() as i32) else {
+            return true;
+        };
+        // `NOWAIT` reports the exit and leaves the leader to be collected.
+        !matches!(
+            waitid(
+                WaitId::Pid(leader),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            ),
+            Ok(None) | Err(rustix::io::Errno::INTR)
+        )
+    }
+
+    /// No group is signalled here, so collecting early costs nothing.
+    #[cfg(not(unix))]
+    fn exited(&mut self) -> bool {
+        matches!(self.0.try_wait(), Ok(Some(_)) | Err(_))
+    }
+
+    fn collect(&mut self) {
+        // The leader alone, should it have left its group; still uncollected.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// `tools/call` carries a progress token, the request's own id, first in its
@@ -1449,6 +1508,94 @@ data: \"id\":4,\"result\":{\"ok\":true}}\n\n";
         assert!(took < STOP_GRACE + Duration::from_secs(5), "took {took:?}");
         assert_gone(leader, "the server");
         assert_gone(grandchild, "the server's grandchild");
+    }
+
+    /// A server whose leader exits at its `exits_at`-th look, and every step
+    /// taken on it, in order.
+    struct Scripted {
+        exits_at: usize,
+        looks: usize,
+        exited: bool,
+        steps: Vec<&'static str>,
+    }
+
+    impl Stopping for Scripted {
+        fn signal(&mut self, signal: Stop) {
+            self.steps.push(match signal {
+                Stop::Term => "TERM",
+                Stop::Kill => "KILL",
+            });
+        }
+        fn exited(&mut self) -> bool {
+            self.looks += 1;
+            self.exited |= self.looks >= self.exits_at;
+            self.exited
+        }
+        fn collect(&mut self) {
+            self.steps.push("collect");
+        }
+    }
+
+    #[test]
+    fn every_signal_reaches_the_group_before_its_leader_is_collected() {
+        // Gone before the stop, gone during the grace, and never gone.
+        for (exits_at, grace) in [
+            (1, Duration::from_secs(60)),
+            (3, Duration::from_secs(60)),
+            (usize::MAX, Duration::from_millis(50)),
+        ] {
+            let mut server = Scripted {
+                exits_at,
+                looks: 0,
+                exited: false,
+                steps: Vec::new(),
+            };
+            stop(&mut server, grace);
+            let collected = server
+                .steps
+                .iter()
+                .position(|step| *step == "collect")
+                .expect("the leader was never collected");
+            assert_eq!(
+                &server.steps[collected..],
+                ["collect"],
+                "a signal after the leader was collected, whose id is then free \
+                 for another group (leader exits at look {exits_at}): {:?}",
+                server.steps
+            );
+            assert_eq!(
+                server.steps[..collected].last(),
+                Some(&"KILL"),
+                "{:?}",
+                server.steps
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_whose_leader_has_gone_has_the_rest_of_its_group_stopped() {
+        let (transport, (leader, grandchild), _dir) =
+            deaf_server(r#"sleep 30 & echo "$$ $!" > "$1"; exit 0"#);
+        let pid = rustix::process::Pid::from_raw(leader).expect("pid");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        // Exited, and not collected until the close.
+        while rustix::process::waitid(
+            rustix::process::WaitId::Pid(pid),
+            rustix::process::WaitIdOptions::EXITED
+                | rustix::process::WaitIdOptions::NOWAIT
+                | rustix::process::WaitIdOptions::NOHANG,
+        )
+        .ok()
+        .flatten()
+        .is_none()
+        {
+            assert!(Instant::now() < deadline, "the leader never exited");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        transport.close();
+        assert_gone(leader, "the leader");
+        assert_gone(grandchild, "the leader's grandchild");
     }
 
     #[cfg(unix)]
