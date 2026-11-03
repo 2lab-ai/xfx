@@ -1,19 +1,19 @@
-x𝒇x v0.1.0-dc093e4 [debug] · Run /help for commands
+x𝒇x v0.1.0-494f9a8 [debug] · Run /help for commands
 
 ┃ search for it
 
 ● 1 tool call · 1 read · 1 denied
 └ Denied secret
 
-[you] look in notes.txt instead
+┃ look in notes.txt instead
+
   Told.
 
-  6s (↑4 ↓80)
+  7s (↑4 ↓80)
 
 ┃
 
 auto · model-a
-
 
 
 

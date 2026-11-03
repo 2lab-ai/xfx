@@ -1,9 +1,9 @@
-└ Denied secret
 
-[you] look in notes.txt instead
+┃ look in notes.txt instead
+
   Told.
 
-  6s (↑4 ↓80)
+  7s (↑4 ↓80)
 
 ┃ read it
 

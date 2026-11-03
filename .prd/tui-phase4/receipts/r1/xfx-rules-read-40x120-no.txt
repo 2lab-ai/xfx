@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-dc093e4 [debug] · Run /help for commands
+x𝒇x v0.1.0-494f9a8 [debug] · Run /help for commands
 
 ┃ read the secret
 
