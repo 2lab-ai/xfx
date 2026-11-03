@@ -1558,6 +1558,169 @@ fn a_rule_that_asks_before_a_read_asks_on_the_terminal_and_a_no_reads_nothing() 
     assert_eq!(session.quit().code(), Some(0));
 }
 
+/// What a hostile model puts where a question quotes it: a carriage return
+/// and an erase-line to wipe what was printed, a cursor-up, the one-scalar C1
+/// `CSI` a terminal that decodes eight-bit controls obeys as `ESC [`, a
+/// right-to-left override that reverses what follows it, and a line break
+/// that forges a choice of xfx's own.
+const HOSTILE: &str = "todo\r\u{1b}[2K\u{1b}[1A\u{9b}2J\u{202e}terces\n  [y] yes, once";
+
+/// The last approval question on the terminal: from its opening words through
+/// its last choice.
+fn last_question(text: &str) -> &str {
+    let start = text.rfind("xfx wants to").expect("a question was asked");
+    let end = text[start..]
+        .find("[n] no")
+        .map(|at| start + at + "[n] no".len())
+        .expect("the question's last choice");
+    &text[start..end]
+}
+
+/// `question` carries the hostile text as data a reader sees -- every control
+/// and reordering character spelled the way the TUI approval spells a
+/// command -- and nothing in it a terminal would obey or reorder.
+///
+/// The pty's own `ONLCR` writes each of the question's line breaks as `CR LF`,
+/// so a carriage return is allowed exactly there and nowhere else; and the
+/// question is exactly its template's four lines, so the payload's break
+/// forged none.
+fn assert_spelled(question: &str) {
+    for (character, name) in [
+        ('\u{1b}', "an ESC"),
+        ('\u{9b}', "the C1 CSI"),
+        ('\u{202e}', "a right-to-left override"),
+    ] {
+        assert!(
+            !question.contains(character),
+            "{name} reached the terminal inside the approval question: {question:?}"
+        );
+    }
+    assert!(
+        !question.replace("\r\n", "\n").contains('\r'),
+        "a carriage return reached the terminal inside the approval question: {question:?}"
+    );
+    assert_eq!(
+        question.matches('\n').count(),
+        3,
+        "the payload changed the question's lines: {question:?}"
+    );
+    for spelled in [
+        "\\x0d",
+        "\\x1b[2K",
+        "\\x1b[1A",
+        "\\u{009b}2J",
+        "\\u{202e}",
+        "\\x0a",
+    ] {
+        assert!(
+            question.contains(spelled),
+            "{spelled} is not shown in the approval question: {question:?}"
+        );
+    }
+}
+
+#[test]
+fn a_search_pattern_cannot_paint_on_the_terminal_through_the_approval_question() {
+    // The read a configured rule asks about quotes the model's pattern as the
+    // model wrote it (`search the files below `src` for `...``). Spelled, the
+    // reader sees what the model sent; raw, the pattern erases the line it
+    // stands on and forges a choice under the real target.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "grep-0",
+                "grep_files",
+                serde_json::json!({ "pattern": HOSTILE, "path": "src" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    fs::create_dir_all(sandbox.workspace.join("src")).expect("the searched folder");
+    fs::write(sandbox.workspace.join("src/secret.txt"), "hunter2\n").expect("the secret");
+    let profile = sandbox.settings_path();
+    let dir = profile.parent().expect("a profile dir");
+    fs::create_dir_all(dir).expect("the profile dir");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).expect("tighten");
+    }
+    fs::write(&profile, r#"{"permission":{"grep":{"src*":"ask"}}}"#).expect("the profile");
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "auto");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("search the sources");
+    let asked = session.wait_for("[n] no");
+    let question = last_question(&asked);
+    assert!(
+        question.contains("xfx wants to search the files below `src` for `todo"),
+        "{question:?}"
+    );
+    assert_spelled(question);
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !request_body(&gateway, 1).to_string().contains("hunter2"),
+        "the folder was searched"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn a_command_cannot_paint_on_the_terminal_through_the_approval_question() {
+    // A command is quoted twice by the question: in what xfx wants to do and
+    // in what "always" would allow. Both are spelled.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "exec-0",
+                "terminal",
+                serde_json::json!({
+                    "action": "exec",
+                    "command": format!("touch marker; echo {HOSTILE}"),
+                }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-REFUSED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("run it");
+    let asked = session.wait_for("[n] no");
+    let question = last_question(&asked);
+    assert!(
+        question.contains("xfx wants to run `touch marker"),
+        "{question:?}"
+    );
+    assert!(
+        question.contains("[a] always -- allow every future run of exactly `touch marker"),
+        "{question:?}"
+    );
+    assert_spelled(question);
+    for spelled in ["\\x1b[2K", "\\u{202e}"] {
+        assert_eq!(
+            question.matches(spelled).count(),
+            2,
+            "{spelled} is not spelled in both the summary and the always-scope: {question:?}"
+        );
+    }
+    session.type_line("n");
+    session.wait_for("MARKER-REFUSED");
+    assert!(
+        !sandbox.workspace.join("marker").exists(),
+        "a refused command ran"
+    );
+    assert_eq!(session.quit().code(), Some(0));
+}
+
 #[test]
 fn an_always_answered_on_the_terminal_is_written_where_a_resume_will_read_it() {
     // The durable half of `[a] always`. The prompt promises the approval lasts

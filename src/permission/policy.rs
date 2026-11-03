@@ -849,6 +849,11 @@ pub trait ApprovalPrompter: Send {
 ///
 /// stderr rather than stdout, because `ask --json` puts a machine-readable
 /// stream on stdout and a prompt written there would corrupt it.
+///
+/// **Nothing the question quotes reaches the terminal as it was written**
+/// (`TtyPrompter::question`): the summary and the always-scope carry a
+/// command, a search's pattern, a tool's label and paths a repository named,
+/// and every one of them is the model's or the repository's text, not xfx's.
 #[derive(Debug)]
 pub struct TtyPrompter {
     _private: (),
@@ -867,17 +872,64 @@ impl TtyPrompter {
             None
         }
     }
+
+    /// The question exactly as it is written to the terminal.
+    ///
+    /// Both fields it quotes are spelled ([`spelled_for_the_terminal`]): a
+    /// control, an escape sequence, a C1 scalar or a bidirectional override in
+    /// them is shown as its name, so it can neither command the terminal --
+    /// erase the line it stands on, move the cursor, conceal what follows --
+    /// nor reorder the glyphs around it. A line break is spelled too: the
+    /// choices are lines of xfx's own, and a break in the payload would let it
+    /// forge one.
+    fn question(request: &ApprovalRequest) -> String {
+        format!(
+            "\nxfx wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
+            spelled_for_the_terminal(&request.summary),
+            spelled_for_the_terminal(&request.always_scope)
+        )
+    }
+}
+
+/// `text` with nothing left in it a terminal would obey or reorder, and no
+/// line break: the TUI approval's spelling of a command
+/// (`crate::tui::approval_view`'s `command_text`, upstream's
+/// `projectCommandText`), so one payload reads the same on both surfaces --
+/// an `ESC` is `\x1b`, a carriage return `\x0d`, a C1 control or a
+/// bidirectional, zero-width or invisible code point its `\u{…}`.
+///
+/// That spelling keeps a line break, because the TUI lays one out as a row
+/// break under the command. Here the text is quoted inside a sentence whose
+/// following lines are the choices, so the break is spelled as its fellow C0
+/// controls are, `\x0a`. Every other byte the spelling leaves is printable, so
+/// replacing the breaks it kept leaves nothing a terminal acts on.
+#[cfg(unix)]
+fn spelled_for_the_terminal(text: &str) -> String {
+    crate::tui::approval_view::command_text(text).replace('\n', "\\x0a")
+}
+
+/// Where there is no TUI to share a spelling with (`crate::tui` is
+/// unix-only), the strictest one: everything but printable ASCII is named by
+/// its code point.
+#[cfg(not(unix))]
+fn spelled_for_the_terminal(text: &str) -> String {
+    let mut safe = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character == ' ' || character.is_ascii_graphic() {
+            safe.push(character);
+        } else {
+            safe.push_str(&format!("\\u{{{:04x}}}", u32::from(character)));
+        }
+    }
+    safe
 }
 
 impl ApprovalPrompter for TtyPrompter {
     fn request(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalAnswer> {
         let mut stderr = io::stderr();
+        let question = Self::question(request);
         loop {
-            write!(
-                stderr,
-                "\nxfx wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
-                request.summary, request.always_scope
-            )?;
+            stderr.write_all(question.as_bytes())?;
             stderr.flush()?;
 
             let mut answer = String::new();
@@ -2613,5 +2665,36 @@ mod tests {
                 feedback: None,
             }
         ));
+    }
+
+    /// The line-mode question quotes the model's and the repository's text,
+    /// and writes it straight to a terminal. Every byte of it is pinned here:
+    /// each control (`CR`, `ESC`, `BEL`, `DEL`, `TAB`, the line break), the C1
+    /// `CSI`, a bidirectional override and isolate, a zero-width space and the
+    /// Arabic letter mark are spelled as the TUI approval spells a command,
+    /// in both fields -- and printable text, a non-ASCII path included, is
+    /// left as it is.
+    #[cfg(unix)]
+    #[test]
+    fn the_terminal_question_spells_every_field_it_quotes() {
+        let request = ApprovalRequest {
+            tool: "grep_files",
+            target: "/w/소스".to_string(),
+            summary: "search the files below `소스` for \
+                      `a\r\u{1b}[2K\u{9b}2J\u{202e}b\n  [y] yes, once\u{7f}\t\u{2066}\u{200b}\u{61c}`"
+                .to_string(),
+            always_scope: "allow every future run of exactly `x\u{1b}]0;t\u{7}` in .".to_string(),
+            diff: None,
+            subject: ApprovalSubject::Call("a".to_string()),
+        };
+        assert_eq!(
+            TtyPrompter::question(&request),
+            "\nxfx wants to search the files below `소스` for \
+             `a\\x0d\\x1b[2K\\u{009b}2J\\u{202e}b\\x0a  [y] yes, once\\x7f\\x09\\u{2066}\\u{200b}\\u{061c}`\
+             \n  [y] yes, once\
+             \n  [a] always -- allow every future run of exactly `x\\x1b]0;t\\x07` in .\
+             \n  [n] no\
+             \n> "
+        );
     }
 }
