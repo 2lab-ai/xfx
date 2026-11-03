@@ -2181,10 +2181,19 @@ impl SessionStore {
         let replay = self.replay(&id, &manifest)?;
 
         // The tail past the boundary is not part of this session and never will
-        // be: the next append has to own the offset it starts at.
-        file.set_len(manifest.event_log_bytes)
-            .map_err(|err| io_error(&log_path, err))?;
-        file.sync_data().map_err(|err| io_error(&log_path, err))?;
+        // be: the next append has to own the offset it starts at. Only when
+        // there is one: a same-length truncate still moves the log's
+        // modification time on some filesystems (APFS does), and a session
+        // opened and left is one nobody changed.
+        let length = file
+            .metadata()
+            .map_err(|err| io_error(&log_path, err))?
+            .len();
+        if length != manifest.event_log_bytes {
+            file.set_len(manifest.event_log_bytes)
+                .map_err(|err| io_error(&log_path, err))?;
+            file.sync_data().map_err(|err| io_error(&log_path, err))?;
+        }
 
         let mut hasher = Sha256::new();
         hasher.update(&replay.bytes);
