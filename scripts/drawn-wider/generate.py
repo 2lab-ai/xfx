@@ -1,16 +1,19 @@
 """Write src/tui/drawn_wider.rs from a sweep's three measurements.
 
-usage: python3 -I scripts/drawn-wider/generate.py <work> <date> <tmux> <ghostty>
+usage: python3 -I scripts/drawn-wider/generate.py <work> <date> <tmux> <ghostty> <lock>
 
 <work> holds `xfx.txt`, `tmux.txt` and `ghostty.txt`, each `hex cells` per
-line for the same scalars (scripts/drawn-wider/sweep.sh writes them); <date>,
-<tmux> and <ghostty> name when and on what they were measured, for the header.
+line for the same scalars, and `xfx.txt.versions`, the two crates' Unicode
+versions (scripts/drawn-wider/sweep.sh writes them); <date>, <tmux> and
+<ghostty> name when and on what they were measured, for the header; <lock> is
+the Cargo.lock xfx was built with, whose width and segmentation crates the
+module then pins.
 The table is every scalar either terminal advanced past xfx's own count. The
 module is written to stdout.
 """
 import sys
 
-work, date, tmux_name, ghostty_name = sys.argv[1:5]
+work, date, tmux_name, ghostty_name, cargo_lock = sys.argv[1:6]
 
 
 def load(name):
@@ -23,6 +26,21 @@ def load(name):
 
 
 xfx, tmux, ghostty = load("xfx"), load("tmux"), load("ghostty")
+width_unicode, segmentation_unicode = open(f"{work}/xfx.txt.versions").read().strip().split(";")
+
+
+def dotted(version):
+    return ".".join(part.strip() for part in version.strip("()").split(","))
+lock = open(cargo_lock).read()
+
+
+def locked(name):
+    head = f'name = "{name}"\nversion = "'
+    start = lock.index(head) + len(head)
+    return lock[start : lock.index('"', start)]
+
+
+width_crate, segmentation_crate = locked("unicode-width"), locked("unicode-segmentation")
 assert xfx.keys() == tmux.keys() == ghostty.keys(), "the three sweeps cover different scalars"
 wider = sorted(c for c in xfx if tmux[c] > xfx[c] or ghostty[c] > xfx[c])
 
@@ -58,7 +76,10 @@ sys.stdout.write(f'''//! The characters a terminal was measured to draw wider th
 //! read back with a cursor-position report) and on {ghostty_name} (grapheme
 //! clustering on, the cursor column read through its C API), and set against
 //! xfx's own count of the same three characters (`super::wrap::width`, less
-//! the two markers).
+//! the two markers), with unicode-width {width_crate} and unicode-segmentation
+//! {segmentation_crate} (Unicode {dotted(width_unicode)} and {dotted(segmentation_unicode)}).
+//! A table measured against one count is wrong against another, so the tests
+//! below fail when either crate moves; run the sweep again then.
 //!
 //! Every scalar was measured, so this is an allowlist read the other way: a
 //! scalar not here was drawn by both terminals at xfx's count or narrower, and
@@ -104,6 +125,19 @@ mod tests {{
         assert_eq!(scalars, {len(wider)});
     }}
 
+    #[test]
+    fn the_count_is_the_one_the_sweep_measured_against() {{
+        assert_eq!(unicode_width::UNICODE_VERSION, {width_unicode});
+        assert_eq!(unicode_segmentation::UNICODE_VERSION, {segmentation_unicode});
+        let lock = include_str!("../../Cargo.lock");
+        for pinned in [
+            "name = \\"unicode-width\\"\\nversion = \\"{width_crate}\\"",
+            "name = \\"unicode-segmentation\\"\\nversion = \\"{segmentation_crate}\\"",
+        ] {{
+            assert!(lock.contains(pinned), "re-run scripts/drawn-wider/sweep.sh: {{pinned}}");
+        }}
+    }}
+
     /// xfx's count of every scalar the sweep measures, for
     /// `scripts/drawn-wider/sweep.sh`: one hexadecimal code point per line of
     /// `XFX_DRAWN_WIDER_LIST` in, `hex cells` per line of
@@ -120,7 +154,13 @@ mod tests {{
             let cells = i32::from(super::super::wrap::width(&format!("[{{character}}]"))) - 2;
             counts.push_str(&format!("{{code}} {{cells}}\\n"));
         }}
-        std::fs::write(out, counts).expect("the counts");
+        std::fs::write(&out, counts).expect("the counts");
+        let versions = format!(
+            "{{:?}};{{:?}}\\n",
+            unicode_width::UNICODE_VERSION,
+            unicode_segmentation::UNICODE_VERSION
+        );
+        std::fs::write(format!("{{out}}.versions"), versions).expect("the versions");
     }}
 }}
 ''')

@@ -7,7 +7,10 @@
 //! read back with a cursor-position report) and on libghostty-vt 1.3.2-HEAD-+0f7cd84b8 (grapheme
 //! clustering on, the cursor column read through its C API), and set against
 //! xfx's own count of the same three characters (`super::wrap::width`, less
-//! the two markers).
+//! the two markers), with unicode-width 0.2.2 and unicode-segmentation
+//! 1.13.3 (Unicode 17.0.0 and 17.0.0).
+//! A table measured against one count is wrong against another, so the tests
+//! below fail when either crate moves; run the sweep again then.
 //!
 //! Every scalar was measured, so this is an allowlist read the other way: a
 //! scalar not here was drawn by both terminals at xfx's count or narrower, and
@@ -78,6 +81,22 @@ mod tests {
         assert_eq!(scalars, 3892);
     }
 
+    #[test]
+    fn the_count_is_the_one_the_sweep_measured_against() {
+        assert_eq!(unicode_width::UNICODE_VERSION, (17, 0, 0));
+        assert_eq!(unicode_segmentation::UNICODE_VERSION, (17, 0, 0));
+        let lock = include_str!("../../Cargo.lock");
+        for pinned in [
+            "name = \"unicode-width\"\nversion = \"0.2.2\"",
+            "name = \"unicode-segmentation\"\nversion = \"1.13.3\"",
+        ] {
+            assert!(
+                lock.contains(pinned),
+                "re-run scripts/drawn-wider/sweep.sh: {pinned}"
+            );
+        }
+    }
+
     /// xfx's count of every scalar the sweep measures, for
     /// `scripts/drawn-wider/sweep.sh`: one hexadecimal code point per line of
     /// `XFX_DRAWN_WIDER_LIST` in, `hex cells` per line of
@@ -94,6 +113,12 @@ mod tests {
             let cells = i32::from(super::super::wrap::width(&format!("[{character}]"))) - 2;
             counts.push_str(&format!("{code} {cells}\n"));
         }
-        std::fs::write(out, counts).expect("the counts");
+        std::fs::write(&out, counts).expect("the counts");
+        let versions = format!(
+            "{:?};{:?}\n",
+            unicode_width::UNICODE_VERSION,
+            unicode_segmentation::UNICODE_VERSION
+        );
+        std::fs::write(format!("{out}.versions"), versions).expect("the versions");
     }
 }
