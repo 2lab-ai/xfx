@@ -105,6 +105,13 @@
 #                          after `keep` and an exit, so a second launch sees
 #                          what the first one saved (`fx: relaunch
 #                          --resume-last`, `xfx: relaunch --resume last`)
+#   reseed <settings.json> writes scenarios/<settings.json> over the binary's
+#                          own profile now, `@PORT@` written in, owner-only --
+#                          between an exit and a `relaunch`, so the second
+#                          launch reads a profile the first one did not leave
+#   rmhome <path>          deletes HOME/<path> now (a relative path, no `..`)
+#                          -- a saved sign-in, between an exit and a
+#                          `relaunch`
 #   bells <label>          writes how many terminal bells the pane has rung so
 #                          far (tmux's alert-bell hook, one line per bell; an
 #                          OSC's BEL terminator is not one) and the clients
@@ -434,6 +441,14 @@ $xfx_model $extra_env $bin"
         ;;
       relaunch)
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
+        ;;
+      reseed)
+        (umask 077 && mkdir -p "$run/home/.$which" && sed "s/@PORT@/$port/g" "$scenarios/$rest" > "$run/home/.$which/settings.json")
+        chmod 600 "$run/home/.$which/settings.json"
+        ;;
+      rmhome)
+        case $rest in ''|/*|..|../*|*/..|*/../*) echo "rmhome takes a relative path inside HOME, not $rest" >&2; exit 2 ;; esac
+        rm -f "$run/home/$rest"
         ;;
       clipimage)
         case $rest in

@@ -90,3 +90,74 @@ What each message kind of xfx's history is on each wire, and fx's rule for it (u
 | compaction checkpoint | `user` text, the rendered summary | the same | a user message of text (`formatCompactedContinuationMessage` → `Message.userOwned`, `session.zig:2679-2683`) |
 | llmux's signed `thinking` (RawBlocks) | **dropped**; the step's text and calls go | replayed verbatim, signature and all | `projectProviderReplay`: kept only for the provider and model that produced it (`types.zig:1512-1515`, `:1548-1563`) |
 | a call inside replayed blocks | -- (blocks reduced to text) | never renamed; a rename that would reach one is refused | `ProtectedToolCallId` (`tool_call_ids.zig:54-56`) |
+
+# Round 2: a resume after the profile moved, and replay keyed by model
+
+Captured on 2026-11-03, one run per binary and scenario, as round 1:
+
+```
+scripts/fxcap/capture.sh {fx,xfx} provider-resume 40x120 <dir>
+scripts/fxcap/capture.sh {fx,xfx} provider-resume-missing 40x120 <dir>
+```
+
+`fx` is a fresh `zig 0.16.0 -Doptimize=ReleaseSafe` build of c1db9191 (`--version` 0.0.13, sha256 `7b76319a871163ad…`), launched with `FX_AUTO_UPGRADE=0` by the harness (d91a9968), which checks the binary's bytes did not change under the run. `xfx` is `target/debug/xfx` built from `644e2c61` (this branch after `plan/tui-phase4` d91a9968 was merged). Harness additions in this round: `reseed <settings.json>` (the binary's own profile written over between an exit and a `relaunch`, `@PORT@` written in, owner-only) and `rmhome <path>`.
+
+**Scenarios.** The first half is round 1's `provider-carry` (the same profiles, the same turns): a Gateway turn that reads a file under `functions.read:0`, `/provider` to fx's `codex` / xfx's `llmux`, a turn there, `/quit`. Then the profile the first launch left (`"provider":"codex"` / `"provider":"llmux"`, `*-quit.files`) is written back as it was at launch, on the Gateway (`reseed`, `*-reseeded.files`), and the session is resumed (fx `--resume-last`, xfx `--resume last`): the resume has the session's record against the profile's.
+
+- `provider-resume`: then `and after the resume?`.
+- `provider-resume-missing`: the provider the session recorded cannot sign in by then -- fx's Codex sign-in is deleted (`rmhome .fx/chatgpt-auth.json`), xfx's profile names no `llmux_url` -- then the same prompt.
+
+**Sanitized** as round 1: every file scanned for the run directory, `/private/tmp`, `/private/var`, `/Users/` and the fake key; the run directory inside fx's system prompt (the seven fx `*-completion.json`/`*-codex.json` under `*-bodies/`) is written `<scratch>`. Nothing else was edited.
+
+## Screens
+
+`python3 compare.py .` and `python3 compare.py . --drop`, as round 1 (the provider map, `\e[39m` ignored in the third column).
+
+| Snap | Identical as captured | After the provider map | `\e[39m` ignored | Rows that still differ, and why |
+|---|---|---|---|---|
+| resume `start`, `turn1` | 4/4, 13/13 | 4/4, 13/13 | 4/4, 13/13 | -- |
+| resume `switched` | 14/17 | 16/17 | **17/17** | -- `Switched to <name> with <model>.` (round 1's `\e[39m`) |
+| resume `turn2` | 20/23 | 22/23 | **23/23** | -- |
+| resume `resumed` | 19/20 | 20/20 | **20/20** | -- one session, both turns replayed, the hint row on the **recorded** provider's model with the profile on the Gateway: fx `auto · gpt-5.6-sol · read the notes and tell me what`, xfx `auto · model-a · …` |
+| resume `turn3` | 25/26 | 26/26 | **26/26** | -- the turn after the resume, answered by the recorded provider; the meter against its window, fx `· 1k/272k 0%`, xfx `· 1k/200k 0%` |
+| missing `turn2` | 20/23 | 22/23 | **23/23** | -- |
+| missing `resumed` | 17/23 | 17/23 | 17/23 | 18-19: the warning under the replay, each provider's own sentence -- fx `! auth: Codex needs a subscription login. Run /login, open Connections, then choose Codex subscription.` (one row), xfx `! auth: xfx is configured to use the llmux backend but no valid `llmux_url` is set; run `xfx setup llmux` to point xfx` / `  at the local llmux daemon` (two); the rows under it move down one. 23: the hint row -- xfx leads with `run `xfx setup``, fx with nothing (below) |
+| missing `refused` | 20/28 | 20/28 | 20/28 | 18-19 as above; 22-24: the refusal -- fx `! auth: Codex needs …` again, xfx `✗ system: xfx is configured …` (below); 28: the hint row |
+
+## The next request after the resume
+
+**fx** (`fx-provider-resume-40x120-bodies/005-codex.json`, Responses `input`, `model` `gpt-5.6-sol`) and **xfx** (`xfx-provider-resume-40x120-bodies/005-llmux.json`, Anthropic `messages`, `model` `fake/model-a`) -- each to the provider the session recorded, with the profile on the Gateway (`*-reseeded.files`, `*-end.files`), and the Gateway asked nothing after the resume (`*-gateway.log`):
+
+| # | fx (Codex) | xfx (llmux) |
+|---|---|---|
+| 1 | `user` `input_text` `read the notes and tell me what they say` | `user` `text` the same |
+| 2 | `function_call` `call_id` `fx_c216cab2de2e56d547b4e6340edfc11a16bd7a07_0` `read_file` | `assistant` `tool_use` `id` the same |
+| 3 | `function_call_output` the same id, the file | `user` `tool_result` the same id, the file |
+| 4 | `user` `Session file evidence …` | -- (fx's feature, as round 1) |
+| 5 | `message` `assistant` `The notes say the meeting moved to Thursday.` | `assistant` `text` the same |
+| 6 | `user` `what day was it again?` | `user` `text` the same |
+| 7 | `message` `assistant` `MARKER-AFTER-SWITCH: still Thursday.` | `assistant` `text` the same |
+| 8 | `user` `and after the resume?` | `user` `text` the same |
+
+**missing**: neither sends anything after the resume -- fx's last request is `004-codex.json`, xfx's `004-llmux.json`, both the turn before the exit -- and neither falls back to the Gateway (`*-gateway.log`).
+
+## The session log
+
+fx's `session.json` still says `"provider":"codex","model":"gpt-5.6-sol"` after the resume (`fx-provider-resume-40x120-end.files`). xfx's log holds the one switch, `{"kind":"preferences_changed","model":"fake/model-a","permission_mode":null,"provider":"llmux"}`, and the resume adds no provider change: the session already said llmux (`xfx-provider-resume-40x120-end.files`).
+
+## What does not match, and why
+
+- **The warning's sentence** (missing `resumed`): each provider's own -- fx's `missing_chatgpt_interactive_credential_message` (`credentials.zig:256`, chosen by `restoreSessionCredential`, `app_auth_runtime.zig:172-182`); xfx's is the sentence its turn is refused with on llmux (`llmux::MISSING_URL_HELP`, through `provider::missing_credential_help`).
+- **The refusal of the next prompt** (missing `refused`): fx says the same warning again under `auth` (`missingPromptCredential`, `app_auth_runtime.zig:200-213`); xfx's turn fails as any refused turn does, `✗ system: <the sentence>` (`shell.rs`, after `app_process_runtime.zig:58-63`). The same on a launch with no credential, resume or not; not this unit's to change.
+- **The hint row's lead** (missing `resumed`, `refused`): fx's `run /login` reads whether **any** credential is present (`has_api_key = app.auth.credentialSource() != null`, `app_render_runtime.zig:726-728`; `render.zig:458-459`) and the harness's Gateway key is; xfx's `run `xfx setup`` reads the provider in force (`provider::credential_ready`, D3's rule). Not this unit's either.
+
+## Replay keyed by provider and model
+
+A step's sealed reasoning goes back only to the provider **and the model** that sealed it, as fx's (`ProviderReplay.matches`, `types.zig:1512-1515`); one it does not match is sent as its text and its calls (`projectProviderReplay`, `:1548-1563`; on Codex no `reasoning` item, `openai_codex.zig:61-63`, `responses_protocol.zig:101-155`). Unit and e2e: `carry_tests.rs` `a_model_change_on_llmux_sends_the_steps_another_model_sealed_as_text_and_calls`, `tests/tui.rs` `after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent` (the request after `/model claude-fable-5[1m]` carries `m-1`'s call and answer and no `sig-m1`).
+
+| Change since the step was sealed | fx replays | xfx replays |
+|---|---|---|
+| none | the replay state (`reasoning` items / `encrypted_content`) | the signed `thinking` blocks, verbatim |
+| provider only | nothing sealed: text and calls | nothing sealed: text and calls; `! session: … on the anthropic_messages wire and is continuing on vercel_gateway …` once |
+| model only | nothing sealed: text and calls | nothing sealed: text and calls; `! session: … recorded reasoning from <a> and is continuing with <b> …` once (round 1 replayed the blocks) |
+| provider and model | nothing sealed: text and calls | nothing sealed: text and calls; the wire notice once |
