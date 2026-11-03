@@ -1051,9 +1051,10 @@ fn default_ignorable(code: u32) -> bool {
 /// of properties: a character a later width table counts as none is named
 /// until it is shown to be a mark. What xfx counts inside a cluster, where a
 /// character can count as none only beside its neighbours, is [`squeezed`]'s
-/// question. The cost is Indic text: the vowel signs xfx's table counts as
-/// none (`U+09BE`, `U+0BBE`, `U+0D3E`, `U+0B3E`, `U+0CC2`, `U+0DCF`, spacing
-/// marks that extend the cluster) are named. Measured where xfx counts none
+/// question. The cost is Indic and Khmer text: the vowel signs xfx's table
+/// counts as none (`U+09BE`, `U+0BBE`, `U+0D3E`, `U+0B3E`, `U+0CC2`, `U+0DCF`,
+/// spacing marks that extend the cluster) are named, and so, by [`squeezed`],
+/// is every Khmer coeng and the consonant it subjoins. Measured where xfx counts none
 /// (cursor column between two
 /// markers, 2026-11-03): the halfwidth voiced sound mark `U+FF9E` is one cell
 /// in tmux 3.7b and in herdr's libghostty-vt; the Hangul tone mark `U+302E` two
@@ -1100,9 +1101,8 @@ fn squeezed(cluster: &str) -> bool {
 
 /// `safe` with every squeezed cluster ([`squeezed`]) and every cluster wider
 /// than [`CLUSTER_CAP`] kept to its first character and the rest of it named,
-/// and a lone regional indicator named whole, so the row is laid out at the
-/// cells a terminal draws its characters at one by one, or more, and no
-/// cluster is wider than a row. The first character alone is a cluster xfx
+/// so the row is laid out at the cells a terminal draws its characters at one
+/// by one, or more, and no cluster is wider than a row. The first character alone is a cluster xfx
 /// counts as it is drawn, and the names are ASCII.
 fn declustered(safe: String) -> String {
     if safe.is_ascii() {
@@ -1113,11 +1113,7 @@ fn declustered(safe: String) -> String {
     while let Some(cluster) = super::wrap::first_cluster(rest) {
         rest = &rest[cluster.len()..];
         let mut characters = cluster.chars();
-        if lone_regional_indicator(cluster) {
-            // One cell to xfx, two to libghostty-vt, which boxes an unpaired
-            // indicator as a letter.
-            out.extend(characters.map(crate::permission::scalar_token));
-        } else if squeezed(cluster) || super::wrap::cluster_width(cluster) > CLUSTER_CAP {
+        if squeezed(cluster) || super::wrap::cluster_width(cluster) > CLUSTER_CAP {
             out.extend(characters.next());
             for character in characters {
                 out.push_str(&crate::permission::scalar_token(character));
@@ -1129,15 +1125,9 @@ fn declustered(safe: String) -> String {
     out
 }
 
-/// Whether `cluster` is a regional indicator with no partner: xfx counts it as
-/// one cell, tmux 3.7b draws one and libghostty-vt two (measured `[U+1F1E6]`,
-/// 2026-11-04). A pair, a flag or not, is two cells to all three.
-fn lone_regional_indicator(cluster: &str) -> bool {
-    let mut characters = cluster.chars();
-    matches!(
-        (characters.next(), characters.next()),
-        (Some('\u{1f1e6}'..='\u{1f1ff}'), None)
-    )
+/// Whether `character` is a regional indicator, half of a flag.
+fn regional_indicator(character: char) -> bool {
+    matches!(character, '\u{1f1e6}'..='\u{1f1ff}')
 }
 
 /// How far a conjoining Hangul syllable has come, as its jamo cross as
@@ -1219,8 +1209,10 @@ fn agreed_presentation(base: char) -> bool {
 /// [`tamed`] or [`named`]: `line` with nothing left in it a terminal would
 /// obey or reorder; no default-ignorable code point and nothing else xfx counts
 /// as none on its own but a combining mark, past the exceptions [`tamed`] and
-/// [`Syllable`] make; and no cluster xfx counts as fewer cells than its
-/// characters take one by one ([`squeezed`]).
+/// [`Syllable`] make; no character a terminal was measured drawing alone wider
+/// than xfx counts it ([`super::drawn_wider`]), but a pair of regional
+/// indicators; and no cluster xfx counts as fewer cells than its characters
+/// take one by one ([`squeezed`]).
 fn spelled(line: &str, emoji: Emoji) -> String {
     if line.bytes().all(|byte| (0x20..0x7f).contains(&byte)) {
         return line.to_string();
@@ -1242,8 +1234,40 @@ fn spelled(line: &str, emoji: Emoji) -> String {
             }
         }
         index += character.len_utf8();
+        if regional_indicator(character) {
+            // A pair of indicators, a flag or not, is two cells to xfx, tmux
+            // and libghostty-vt alike; one alone is two to libghostty-vt and
+            // one to xfx, so it is named below (`super::drawn_wider`).
+            if let Some(partner) = line[index..]
+                .chars()
+                .next()
+                .filter(|c| regional_indicator(*c))
+            {
+                safe.push(character);
+                safe.push(partner);
+                index += partner.len_utf8();
+                base = Some(partner);
+                syllable = Syllable::Open;
+                continue;
+            }
+        }
         if let Some(replacement) = escaped(character) {
             safe.push_str(&replacement);
+            base = None;
+            syllable = Syllable::Open;
+        } else if super::drawn_wider::drawn_wider(character)
+            && !default_ignorable(u32::from(character))
+            && !(emoji == Emoji::Kept
+                && line[index..].starts_with('\u{fe0f}')
+                && agreed_presentation(character))
+        {
+            // The default-ignorable ones the sweep found are the next
+            // branch's: named, but for `U+FE0F` after a character that takes
+            // an emoji presentation, which was measured as xfx counts it --
+            // and so is such a character with its `U+FE0F` after it: the
+            // nine emoji bases tmux draws as two cells alone are two cells
+            // with the selector to tmux, libghostty-vt and xfx alike.
+            safe.push_str(&crate::permission::scalar_token(character));
             base = None;
             syllable = Syllable::Open;
         } else if (default_ignorable(u32::from(character))
@@ -1376,7 +1400,9 @@ pub(crate) fn command_text(command: &str) -> String {
         } else if code < 0x20 || code == 0x7f {
             safe.push_str(&format!("\\x{code:02x}"));
             syllable = Syllable::Open;
-        } else if names_code_point(code) || (uncounted(character) && !syllable.completes(character))
+        } else if names_code_point(code)
+            || super::drawn_wider::drawn_wider(character)
+            || (uncounted(character) && !syllable.completes(character))
         {
             safe.push_str(&format!("\\u{{{code:04x}}}"));
             syllable = Syllable::Open;
@@ -2077,83 +2103,115 @@ mod tests {
     fn the_measured_corpus_is_laid_out_at_least_as_wide_as_both_terminals_draw_it() {
         // Each case as measured between two markers (2026-11-03 and -04):
         // the cells tmux 3.7b and herdr's libghostty-vt (grapheme clustering
-        // on) advanced, and what `tamed` makes of it. Whatever it makes is
-        // counted by xfx at no fewer cells than either terminal draws the
-        // original: over-counting only wraps a row early.
-        let corpus: [(&str, u16, u16, &str); 22] = [
-            // Emoji 15.1 and 16/17 RGI sequences, and the older family.
+        // on) advanced for the input, what `tamed` emits, and the cells the
+        // two advanced for that. xfx lays the emitted string out at no fewer
+        // cells than either terminal draws it, so a row can only wrap early;
+        // and where the input crosses as it is, at no fewer than they draw
+        // the input. The cases: Emoji 15.1 and 16/17 RGI sequences, the older
+        // family and a subdivision flag; skin tones, RGI and on a base that
+        // takes none; regional indicators as a flag, a pair, one alone and
+        // one with a mark; a joining with no RGI sequence; clusters xfx counts
+        // as less than their parts; marks on their letter; what xfx counts
+        // as no cells; and the sweep's emoji base and dash (`super::drawn_wider`).
+        let corpus: [(&str, u16, u16, &str, u16, u16); 27] = [
             (
                 "\u{1f642}\u{200d}\u{2194}\u{fe0f}",
                 2,
                 2,
                 "\u{1f642}\u{200d}\u{2194}\u{fe0f}",
+                2,
+                2,
             ),
             (
                 "\u{1f6b6}\u{200d}\u{27a1}\u{fe0f}",
                 2,
                 2,
                 "\u{1f6b6}\u{200d}\u{27a1}\u{fe0f}",
+                2,
+                2,
             ),
-            ("\u{1f1e8}\u{1f1f6}", 2, 2, "\u{1f1e8}\u{1f1f6}"),
+            ("\u{1f1e8}\u{1f1f6}", 2, 2, "\u{1f1e8}\u{1f1f6}", 2, 2),
             (
                 "\u{1f9d1}\u{200d}\u{1fa70}",
                 2,
                 2,
                 "\u{1f9d1}\u{200d}\u{1fa70}",
+                2,
+                2,
             ),
             (
                 "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
                 2,
                 2,
                 "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+                2,
+                2,
             ),
-            // Skin tones: RGI, and on a base that takes none.
-            ("\u{1f46f}\u{1f3fb}", 4, 2, "\u{1f46f}\\u{1F3FB}"),
-            ("\u{1f93c}\u{1f3fb}", 4, 2, "\u{1f93c}\\u{1F3FB}"),
-            ("a\u{1f3fd}", 3, 3, "a\u{1f3fd}"),
-            // Regional indicators: a flag, a pair that is none, one alone.
-            ("\u{1f1f0}\u{1f1f7}", 2, 2, "\u{1f1f0}\u{1f1f7}"),
-            ("\u{1f1e6}\u{1f1e6}", 2, 2, "\u{1f1e6}\u{1f1e6}"),
-            ("\u{1f1e6}", 1, 2, "\\u{1F1E6}"),
-            // A joining with no RGI sequence to complete.
+            ("\u{1f46f}\u{1f3fb}", 4, 2, "\u{1f46f}\\u{1F3FB}", 11, 11),
+            ("\u{1f93c}\u{1f3fb}", 4, 2, "\u{1f93c}\\u{1F3FB}", 11, 11),
+            ("a\u{1f3fd}", 3, 3, "a\u{1f3fd}", 3, 3),
+            ("\u{1f1f0}\u{1f1f7}", 2, 2, "\u{1f1f0}\u{1f1f7}", 2, 2),
+            ("\u{1f1e6}\u{1f1e6}", 2, 2, "\u{1f1e6}\u{1f1e6}", 2, 2),
+            ("\u{1f1e6}", 1, 2, "\\u{1F1E6}", 9, 9),
             (
                 "\u{1f642}\u{200d}\u{2194}",
                 2,
                 2,
                 "\u{1f642}\\u{200D}\u{2194}",
+                11,
+                11,
             ),
-            // Clusters xfx counts as less than their parts.
             (
                 "\u{1780}\u{17d2}\u{1780}\u{17d2}\u{1780}",
                 3,
                 2,
                 "\u{1780}\\u{17D2}\\u{1780}\\u{17D2}\\u{1780}",
+                33,
+                33,
             ),
             (
                 "\u{16d67}\u{16d67}\u{16d67}",
                 3,
                 0,
                 "\u{16d67}\\u{16D67}\\u{16D67}",
+                19,
+                18,
             ),
-            // Marks on their letter, Unicode 16/17 and East Asian Wide.
-            ("a\u{897}", 1, 1, "a\u{897}"),
-            ("a\u{1e6e3}", 1, 1, "a\u{1e6e3}"),
-            ("a\u{302a}", 1, 1, "a\u{302a}"),
-            // What xfx counts as no cells on its own.
-            ("\u{ad}", 1, 1, "\\u{00AD}"),
-            ("\u{ffa0}", 1, 0, "\\u{FFA0}"),
-            ("\u{ff9e}", 1, 1, "\\u{FF9E}"),
-            ("\u{302e}", 2, 1, "\\u{302E}"),
-            ("\u{a8fa}", 1, 1, "\\u{A8FA}"),
+            ("a\u{897}", 1, 1, "a\u{897}", 1, 1),
+            ("a\u{1e6e3}", 1, 1, "a\u{1e6e3}", 1, 1),
+            ("a\u{302a}", 1, 1, "a\u{302a}", 1, 1),
+            ("\u{ad}", 1, 1, "\\u{00AD}", 8, 8),
+            ("\u{ffa0}", 1, 0, "\\u{FFA0}", 8, 8),
+            ("\u{ff9e}", 1, 1, "\\u{FF9E}", 8, 8),
+            ("\u{302e}", 2, 1, "\\u{302E}", 8, 8),
+            ("\u{a8fa}", 1, 1, "\\u{A8FA}", 8, 8),
+            ("a\u{1f1e6}\u{301}", 2, 3, "a\\u{1F1E6}\u{301}", 10, 10),
+            ("\u{261d}", 2, 1, "\\u{261D}", 8, 8),
+            ("\u{261d}\u{fe0f}", 2, 2, "\u{261d}\u{fe0f}", 2, 2),
+            ("\u{2e3a}", 1, 2, "\\u{2E3A}", 8, 8),
+            (
+                "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+                2,
+                2,
+                "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+                2,
+                2,
+            ),
         ];
-        for (input, tmux, ghostty, expected) in corpus {
+        for (input, tmux_in, ghostty_in, emitted, tmux_out, ghostty_out) in corpus {
             let shown = tamed(input);
-            assert_eq!(shown, expected, "{input:?}");
+            assert_eq!(shown, emitted, "{input:?}");
+            let cells = super::super::wrap::width(&shown);
             assert!(
-                super::super::wrap::width(&shown) >= tmux.max(ghostty),
-                "{input:?}: laid out at {} cells, drawn at {tmux} and {ghostty}",
-                super::super::wrap::width(&shown)
+                cells >= tmux_out.max(ghostty_out),
+                "{input:?}: {shown:?} laid out at {cells} cells, drawn at {tmux_out} and {ghostty_out}"
             );
+            if shown == input {
+                assert!(
+                    cells >= tmux_in.max(ghostty_in),
+                    "{input:?}: kept at {cells} cells, drawn at {tmux_in} and {ghostty_in}"
+                );
+            }
         }
     }
 
@@ -2580,6 +2638,13 @@ pub(crate) mod wider_terminal {
             // cell to xfx and two to libghostty-vt.
             ("\u{1f46f}\u{1f3fb}".repeat(60), '\u{1f3fb}', 2),
             ("a\u{1f1e6}".repeat(60), '\u{1f1e6}', 2),
+            // SEC-A4f, from the singleton sweep (`super::drawn_wider`): an
+            // indicator with a mark after it, a text-presentation emoji base
+            // tmux draws as two cells, and the two-em dash libghostty-vt
+            // draws as two.
+            ("a\u{1f1e6}\u{301}".repeat(60), '\u{1f1e6}', 2),
+            ("\u{261d}".repeat(120), '\u{261d}', 2),
+            ("\u{2e3a}".repeat(120), '\u{2e3a}', 2),
         ]
     }
 
