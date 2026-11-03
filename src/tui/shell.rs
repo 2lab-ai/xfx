@@ -33534,6 +33534,39 @@ mod tests {
     }
 
     #[test]
+    fn a_pasted_fifo_named_like_an_image_is_words_and_the_terminal_never_waits() {
+        // A FIFO named `x.png`: the paste reads it as the words it is, at
+        // once, on the thread that holds the terminal. The shell is built on
+        // a thread of its own so a wait is a failed assertion, not a hung run.
+        let (path_tx, path_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut shell = attaching();
+            let fifo = shell.workspace.join("x.png");
+            let status = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .expect("run mkfifo");
+            assert!(status.success(), "mkfifo failed: {status:?}");
+            path_tx.send(fifo).expect("the path");
+            pasted(&mut shell, "see x.png");
+            let _ = done_tx.send((
+                shell.editor.text().to_string(),
+                attached_ids(&shell),
+                shell.document(),
+            ));
+        });
+        let fifo = path_rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the shell was built");
+        let Ok(outcome) = done_rx.recv_timeout(std::time::Duration::from_secs(10)) else {
+            drop(std::fs::OpenOptions::new().write(true).open(&fifo));
+            panic!("a paste naming a FIFO waited for a writer");
+        };
+        assert_eq!(outcome, ("see x.png".to_string(), Vec::new(), Vec::new()));
+    }
+
+    #[test]
     fn a_pasted_path_the_read_table_asks_about_attaches_without_a_question() {
         // The paste is the person's own act: there is nobody else to ask.
         let mut shell = attaching();

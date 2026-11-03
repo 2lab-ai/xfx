@@ -421,5 +421,10 @@ mod tests {
         )));
         assert!(!passed_over_at_submit(&AttachError::Other("AccessDenied")));
         assert!(!passed_over_at_submit(&AttachError::Denied("a.png".into())));
+        assert_ne!(
+            AttachError::Denied("a.png".into()).name(),
+            AttachError::Other("AccessDenied").name(),
+            "a rule's refusal is named as the system's"
+        );
     }
 }
