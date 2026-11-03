@@ -327,3 +327,16 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - Receipt at `9c799969` (before C5j/C4m): SM1 1091/1091; sweep 676/917, 0 failed/timeout; three snaps flipped against the preliminary run (`workspace-index/at-plan` attribute-only, `h1-models2/before`/`after` catalog timing) and re-ran 3× at the same SHA at 4/4 → capture nondeterminism.
+
+## R46 — closed 2026-11-04
+
+- result: batch 46 (`d19cda3c`: SEC-C4n — the prompt counts as whole only when it fits 21 rows at 80x24; wrapped entry rows lead with `↳ `) lib 3661 / FI 3668, permissions 158, tui 163 / FI 177, 0 failed, clippy 0 both. C4n came from opus's confirmation of C4m (C4m's per-variable rows had loosened `whole`; a padded value forged an `env:` row — reproduced). Both engines confirmed C4n MUST none; their shared SHOULD (check `1` against the real screen size, not a fixed 80x24) is on SEC-SHOULD.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+
+### Round section (as it was in loop.md)
+
+- Receipt at `b8ab40e4` (before C4n): SM1 1091/1091; sweep 676/917, 0 failed/timeout. Three snaps unresolved that the r2 floor had identical (`notice-midstream/version`, `streaming/mid` mid-stream token counts; `workspace-index/at-plan` attribute-only) — re-run 3× on the preliminary binary `62146228` (where the full run had them identical): 5/8, 8/8, 7/8 with the same snaps → capture nondeterminism (cause `stream-position`, kind c), not a regression.
