@@ -6615,12 +6615,16 @@ impl Shell {
                     self.write_notice(&notice);
                 }
                 Event::Raw(text) => self.write_raw_rows(&text),
+                // Written and armed in one step: the prompt `1` and `2` answer
+                // is always the one written last.
                 Event::TrustPrompt {
                     name,
                     digest,
                     listed,
                     whole,
+                    text,
                 } => {
+                    self.write_raw_rows(&text);
                     self.mcp_prompt = Some(TrustPromptUp {
                         name,
                         digest,
@@ -14693,54 +14697,65 @@ mod tests {
     }
 
     #[test]
-    fn whatever_order_two_prompts_arrive_in_the_one_armed_was_printed() {
-        // Two prompts published at once -- a reload's and a refused `2`'s --
-        // can interleave as A's text, B's text, B armed, A armed: B is shown
-        // last and A is armed. Reproduced here straight into the consumer.
-        // What `1` then approves is A's digest, whose text was printed (each
-        // armed event is queued after its own text, by the same call), and
-        // approvals are keyed by digest, so nothing never printed can be
-        // approved; `2` re-checks the set at the key and in the job.
+    fn whatever_order_prompts_arrive_in_the_one_armed_is_the_last_printed() {
+        // Two prompts put up at once -- a reload's and a refused `2`'s -- and
+        // other rows the runtime writes can reach the shell in any order. On
+        // f4674457 a prompt's text and its authority were two events, and
+        // A's text, B's text, B armed, A armed left B the last prompt printed
+        // with A armed: the person would approve something other than what
+        // they just read. Each prompt is one event now, so in every order the
+        // prompt armed is the last one printed.
         use crate::mcp::runtime::Event;
-        let text = |name: &str| {
-            format!(
-                "Project MCP server '{name}' is defined in .mcp.json.\n  command: /bin/{name}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n"
-            )
-        };
-        let armed = |name: &str| Event::TrustPrompt {
+        let prompt = |name: &str| {
+            Event::TrustPrompt {
             name: name.into(),
             digest: format!("sha256:{name}"),
             listed: Vec::new(),
             whole: true,
-        };
-        let mut fixture = shell(24, 80);
-        let runtime = Arc::clone(fixture.shell.work.mcp());
-        for event in [
-            Event::Raw(text("a")),
-            Event::Raw(text("b")),
-            armed("b"),
-            armed("a"),
-        ] {
-            runtime.say(event);
+            text: format!(
+                "Project MCP server '{name}' is defined in .mcp.json.\n  command: /bin/{name}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n"
+            ),
         }
-        fixture.shell.settle_mcp();
-        let printed: Vec<String> = fixture
-            .written()
-            .into_iter()
-            .filter_map(|row| {
-                row.strip_prefix("Project MCP server '")
-                    .and_then(|rest| rest.split('\'').next())
-                    .map(str::to_string)
-            })
-            .collect();
-        assert_eq!(printed, ["a", "b"]);
-        let armed = fixture.shell.mcp_prompt.clone().expect("a prompt is armed");
-        assert_eq!(armed.name, "a");
-        assert!(
-            printed.contains(&armed.name),
-            "armed {armed:?} was never printed"
-        );
-        assert_eq!(armed.digest, "sha256:a");
+        };
+        let other =
+            || Event::Raw("Project MCP server 'v' in .mcp.json:\n  command: /bin/v\n".into());
+        let orders: [[usize; 3]; 6] = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        for order in orders {
+            let mut fixture = shell(24, 80);
+            let runtime = Arc::clone(fixture.shell.work.mcp());
+            for index in order {
+                runtime.say(match index {
+                    0 => prompt("a"),
+                    1 => prompt("b"),
+                    _ => other(),
+                });
+            }
+            fixture.shell.settle_mcp();
+            let printed: Vec<String> = fixture
+                .written()
+                .into_iter()
+                .filter(|row| row.contains("is defined in .mcp.json."))
+                .filter_map(|row| {
+                    row.strip_prefix("Project MCP server '")
+                        .and_then(|rest| rest.split('\'').next())
+                        .map(str::to_string)
+                })
+                .collect();
+            let armed = fixture.shell.mcp_prompt.clone().expect("a prompt is armed");
+            assert_eq!(
+                Some(&armed.name),
+                printed.last(),
+                "{order:?}: armed {armed:?}, printed {printed:?}"
+            );
+            assert_eq!(armed.digest, format!("sha256:{}", armed.name));
+        }
     }
 
     #[test]
