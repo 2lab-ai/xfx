@@ -886,6 +886,35 @@ fn slash_clear_and_slash_reset_are_slash_new_and_erase_nothing() {
 }
 
 #[test]
+fn slash_setup_passes_over_a_catalog_model_with_a_control_character() {
+    // `/setup llmux` adopts a model from the daemon's catalog when the
+    // configured one is not in it, writes it into the profile, and says it on
+    // this terminal: a first entry whose id carries an OSC title and a C1 CSI
+    // is passed over for the next one. Red before: it was adopted, said and
+    // written as the daemon sent it.
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "e\u{1b}]0;pwned\u{7}v\u{9b}31mil"},
+        {"id": "m-2"}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    session.type_line("/setup llmux");
+    session.wait_for("[shell] provider=llmux");
+    let text = session.wait_for_count(PROMPT, 2);
+    let obeyed: Vec<char> = text
+        .chars()
+        .filter(|c| c.is_control() && !matches!(c, '\n' | '\r'))
+        .collect();
+    assert_eq!(obeyed, Vec::<char>::new(), "{text:?}");
+    assert!(!text.contains("pwned"), "{text:?}");
+    assert_eq!(session.quit().code(), Some(0));
+    let settings = sandbox.settings().expect("a profile");
+    assert_eq!(settings["models"]["llmux"], "m-2", "{settings}");
+}
+
+#[test]
 fn slash_setup_switches_provider_and_the_next_prompt_carries_the_conversation() {
     // The line shell's `/setup llmux` keeps the conversation as the TUI's
     // switch does, as upstream's `/provider` keeps its session

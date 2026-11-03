@@ -833,6 +833,7 @@ pub(crate) fn inert_hydration(
         // Enums this crate wrote, and a yes or a no.
         provider: hydration.provider,
         unauthenticated: hydration.unauthenticated,
+        model_replaced: hydration.model_replaced,
     }
 }
 

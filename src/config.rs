@@ -1576,6 +1576,12 @@ enum LayerKind {
     Project,
 }
 
+/// Whether a settings file's model can be used: one xfx would have written
+/// ([`crate::provider::model::model_id_problem`]).
+fn usable_model(model: &str) -> bool {
+    crate::provider::model::model_id_problem(model).is_none()
+}
+
 fn parse_layer(
     object: &serde_json::Map<String, Value>,
     kind: LayerKind,
@@ -1599,9 +1605,14 @@ fn parse_layer(
             }
             settings.skill_symlink_authorities = Some(parsed);
         }
+        // A model is held to the rule a typed one is
+        // (`provider::model::model_id_problem`): the profile's is painted at
+        // every launch, and a provider's catalog id has been written into it.
+        // Upstream refuses such a value here too (`config_runtime.zig:1645`,
+        // `:1674`).
         if let Some(value) = object.get("model") {
             match value.as_str().map(str::trim) {
-                Some(model) if !model.is_empty() => settings.model = Some(model.to_string()),
+                Some(model) if usable_model(model) => settings.model = Some(model.to_string()),
                 _ => diagnostics.push(Diagnostic::with_key(
                     layer,
                     DiagnosticCause::InvalidValue,
@@ -1737,7 +1748,7 @@ fn parse_layer(
                         // binary selects, and deleting other people's settings is
                         // not this reader's job. It is simply never selected.
                         match model.as_str().map(str::trim) {
-                            Some(model) if !model.is_empty() => {
+                            Some(model) if usable_model(model) => {
                                 settings.models.insert(tag.clone(), model.to_string());
                             }
                             _ => diagnostics.push(Diagnostic::with_key(
@@ -3103,6 +3114,51 @@ mod tests {
             RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
                 .expect("load");
         (root, config)
+    }
+
+    #[test]
+    fn a_profile_model_xfx_would_not_have_written_is_refused_with_a_diagnostic() {
+        // The profile's model is painted in the footer and the line shell at
+        // every launch, and a pre-fix `/model` or `xfx setup llmux` wrote a
+        // provider's catalog id into it unchecked. Upstream refuses such a
+        // value when it reads settings (`config_runtime.zig:1645,1674`,
+        // `vercel-labs/fx@c1db9191`); so does this reader, by the rule a
+        // typed id is held to (`provider::model::model_id_problem`). Red
+        // before: both were taken as written.
+        let hostile = "m\u{1b}]0;pwned\u{7}\u{1b}[2J\u{9b}31m";
+        let profile = serde_json::json!({
+            "provider": "llmux",
+            "model": hostile,
+            "models": {"llmux": hostile, "gateway": "zai/glm-5.2"},
+        })
+        .to_string();
+        let (_root, config) = loaded_with_profile(&profile);
+        assert!(
+            !config.model.chars().any(char::is_control),
+            "{:?}",
+            config.model
+        );
+        assert_eq!(config.model, DEFAULT_MODEL);
+        assert!(!config.models.contains_key("llmux"), "{:?}", config.models);
+        assert_eq!(
+            config.models.get("gateway").map(String::as_str),
+            Some("zai/glm-5.2")
+        );
+        let refused: Vec<(&str, &str)> = config
+            .diagnostics
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic.cause.label(),
+                    diagnostic.setting_key.as_deref().unwrap_or(""),
+                )
+            })
+            .collect();
+        assert!(
+            refused.contains(&("invalid_value", "model"))
+                && refused.contains(&("invalid_value", MODELS_KEY)),
+            "{refused:?}"
+        );
     }
 
     #[test]
