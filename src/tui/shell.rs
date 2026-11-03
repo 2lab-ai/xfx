@@ -6614,7 +6614,6 @@ impl Shell {
                     };
                     self.write_notice(&notice);
                 }
-                Event::Raw(text) => self.write_raw_rows(&text),
                 // Written and armed in one step: the prompt `1` and `2` answer
                 // is always the one written last.
                 Event::TrustPrompt {
@@ -14123,15 +14122,53 @@ mod tests {
         runtime.shutdown();
     }
 
+    /// Takes the runtime's events until a reload asked for from the transcript
+    /// has answered and the prompt over `listed` has gone up, and returns
+    /// everything taken, oldest first.
+    ///
+    /// Not a poll of the views: a reload asked for while the startup reload
+    /// runs is folded into it, and the views hold the rewrite before that
+    /// reload answers and puts the prompt up (`McpRuntime::reload`). A case
+    /// that went on as soon as the views changed could drain the queue before
+    /// the prompt or the answer were in it.
+    fn until_prompted(
+        runtime: &crate::mcp::McpRuntime,
+        listed: &[(String, String)],
+    ) -> Vec<crate::mcp::runtime::Event> {
+        use crate::mcp::runtime::Event;
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut taken = Vec::new();
+        loop {
+            taken.extend(runtime.take_events());
+            let prompted = taken.iter().any(|event| {
+                matches!(event, Event::TrustPrompt { listed: up, .. } if up.as_slice() == listed)
+            });
+            let answered = taken.iter().any(|event| {
+                matches!(event, Event::Notice { body, .. } if body.starts_with("MCP configuration reloaded"))
+            });
+            if prompted && answered {
+                return taken;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the reload never answered with the prompt over {listed:?} up: {taken:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// Two pending project servers, `a` and `b`; the shell with the prompt
-    /// for `a` up; then `b` rewritten and the runtime holding the rewrite.
-    /// What the runtime said since the prompt went up is left queued.
+    /// for `a` up; then `b` rewritten, reloaded, and the prompt over the
+    /// rewrite put up. What the runtime said since the first prompt is taken
+    /// off its queue into `said`: a case says it again for the shell to see
+    /// it, or drops it.
     struct TwoPending {
         _home: tempfile::TempDir,
         workspace: std::path::PathBuf,
         settings: std::path::PathBuf,
         runtime: Arc<crate::mcp::McpRuntime>,
         shell: Shell,
+        said: Vec<crate::mcp::runtime::Event>,
     }
 
     fn quiet_entry(mark: &str) -> serde_json::Value {
@@ -14140,7 +14177,6 @@ mod tests {
 
     impl TwoPending {
         fn new() -> Self {
-            use crate::mcp::config::entry_digest;
             use crate::mcp::runtime::Job;
             let home = tempfile::tempdir().expect("a home");
             let workspace = home.path().join("work");
@@ -14187,33 +14223,41 @@ mod tests {
                     .recv_timeout(Duration::from_secs(60))
                     .expect("the reload did not finish within a minute");
             }
-            let b2 = entry_digest(&quiet_entry("b2"));
-            let deadline = std::time::Instant::now() + Duration::from_secs(60);
-            while !runtime.views().iter().any(|view| {
-                view.name == "b"
-                    && view.entry.as_ref().map(|entry| entry.digest.clone()) == Some(b2.clone())
-            }) {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "the runtime never read b2"
-                );
-                std::thread::sleep(Duration::from_millis(10));
-            }
+            let said = until_prompted(&runtime, &Self::now());
             Self {
                 _home: home,
                 workspace,
                 settings,
                 runtime,
                 shell,
+                said,
             }
         }
 
-        fn now(&self) -> Vec<(String, String)> {
+        /// The servers pending once `b` is rewritten, each with its digest.
+        fn now() -> Vec<(String, String)> {
             use crate::mcp::config::entry_digest;
             vec![
                 ("a".to_string(), entry_digest(&quiet_entry("a1"))),
                 ("b".to_string(), entry_digest(&quiet_entry("b2"))),
             ]
+        }
+
+        /// The text of every row the shell has written since the last call.
+        fn written(&mut self) -> String {
+            let mut rows = Vec::new();
+            while self
+                .shell
+                .emit_document_front(|append| {
+                    rows.extend(append.rows.iter().map(|row| unpainted(row)));
+                    Landed::<std::convert::Infallible>::All
+                })
+                .is_some()
+            {}
+            rows.iter()
+                .map(|row| row.trim())
+                .collect::<Vec<_>>()
+                .join(" ")
         }
 
         /// Waits until the settings hold exactly `want`.
@@ -14243,11 +14287,14 @@ mod tests {
         // the prompt armed -- before anything is pressed -- is over the set
         // as it is now.
         let mut case = TwoPending::new();
+        for event in std::mem::take(&mut case.said) {
+            case.runtime.say(event);
+        }
         case.shell.settle_mcp();
         let prompt = case.shell.mcp_prompt.clone().expect("the prompt is up");
-        assert_eq!(prompt.listed, case.now());
+        assert_eq!(prompt.listed, TwoPending::now());
         assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
-        let now = case.now();
+        let now = TwoPending::now();
         case.saved(serde_json::json!({"a": now[0].1, "b": now[1].1}));
         case.runtime.shutdown();
     }
@@ -14256,21 +14303,29 @@ mod tests {
     fn a_refused_two_puts_the_prompt_up_again_when_no_refreshed_prompt_is_queued() {
         // What the reload said is dropped, as if the shell never saw it: the
         // prompt armed is the old one. `2` over it refuses, and puts the
-        // prompt up again itself -- it does not wait for a reload to.
+        // prompt up again itself -- it does not wait for a reload to -- and
+        // says so.
         let mut case = TwoPending::new();
-        let _ = case.runtime.take_events();
         let stale = case.shell.mcp_prompt.clone().expect("the prompt is up");
-        assert_ne!(stale.listed, case.now());
+        assert_ne!(stale.listed, TwoPending::now());
+        let _ = case.written();
         assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
         case.shell.settle_mcp();
+        let written = case.written();
+        assert!(
+            written.contains(
+                "The pending servers changed since this prompt; it is shown again as they are now."
+            ) && !written.contains("Open /mcp"),
+            "{written}"
+        );
         let prompt = case
             .shell
             .mcp_prompt
             .clone()
             .expect("the prompt is up again");
-        assert_eq!(prompt.listed, case.now());
+        assert_eq!(prompt.listed, TwoPending::now());
         assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
-        let now = case.now();
+        let now = TwoPending::now();
         case.saved(serde_json::json!({"a": now[0].1, "b": now[1].1}));
         case.runtime.shutdown();
     }
@@ -14281,10 +14336,17 @@ mod tests {
         // has nothing to put up again, so none is armed (and it says to open
         // /mcp rather than that the prompt is shown again).
         let mut case = TwoPending::new();
-        let _ = case.runtime.take_events();
         case.runtime.suppress_prompts();
+        let _ = case.written();
         assert!(case.shell.offer_to_trust_prompt(&Input::Text('2')));
         case.shell.settle_mcp();
+        let written = case.written();
+        assert!(
+            written.contains(
+                "The pending servers changed since this prompt. Open /mcp to review them."
+            ) && !written.contains("shown again"),
+            "{written}"
+        );
         assert!(
             case.shell.mcp_prompt.is_none(),
             "{:?}",
@@ -14328,7 +14390,7 @@ mod tests {
         )
         .anchored();
         shell.settle_mcp();
-        let shown = shell.mcp_prompt.clone().expect("the prompt is up").digest;
+        assert!(shell.mcp_prompt.is_some(), "the prompt is up");
         write("second");
         {
             let (done, finished) = std::sync::mpsc::channel();
@@ -14341,23 +14403,12 @@ mod tests {
                 .recv_timeout(Duration::from_secs(60))
                 .expect("the reload did not finish within a minute");
         }
-        let deadline = std::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            let read = runtime
-                .views()
-                .into_iter()
-                .find(|view| view.name == "proj")
-                .and_then(|view| view.entry.map(|entry| entry.digest.clone()));
-            if read.as_ref().is_some_and(|digest| *digest != shown) {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "never reread: {read:?}"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = runtime.take_events();
+        // The reload's answer and the prompt over the rewrite are taken off
+        // the queue and dropped: the shell never saw them.
+        let second = crate::mcp::config::entry_digest(
+            &serde_json::json!({"command": "/bin/sh", "args": ["-c", "exit 0", "second"]}),
+        );
+        let _ = until_prompted(&runtime, &[("proj".to_string(), second)]);
         assert!(shell.offer_to_trust_prompt(&Input::Text('2')));
         // Nothing was handed to the runtime: a job behind it answers alone.
         runtime.submit(Job::Command("path".into()));
@@ -14699,7 +14750,7 @@ mod tests {
     #[test]
     fn whatever_order_prompts_arrive_in_the_one_armed_is_the_last_printed() {
         // Two prompts put up at once -- a reload's and a refused `2`'s -- and
-        // other rows the runtime writes can reach the shell in any order. On
+        // a notice the runtime writes can reach the shell in any order. On
         // f4674457 a prompt's text and its authority were two events, and
         // A's text, B's text, B armed, A armed left B the last prompt printed
         // with A armed: the person would approve something other than what
@@ -14717,8 +14768,10 @@ mod tests {
             ),
         }
         };
-        let other =
-            || Event::Raw("Project MCP server 'v' in .mcp.json:\n  command: /bin/v\n".into());
+        let other = || Event::Notice {
+            warning: false,
+            body: "MCP configuration reloaded successfully.".into(),
+        };
         let orders: [[usize; 3]; 6] = [
             [0, 1, 2],
             [0, 2, 1],

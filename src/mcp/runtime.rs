@@ -259,17 +259,16 @@ pub enum Event {
     /// A notice: neutral or a warning, under `mcp` or, for a usage line, no
     /// topic at all (`noticeTopicForBody`, `app_commands.zig:1851-1853`).
     Notice { warning: bool, body: String },
-    /// Rows written into the transcript as they are, with no glyph: the
-    /// project trust prompt (`presentProjectMcpPrompt`, `main.zig:1818-1832`).
-    Raw(String),
     /// The trust prompt is up for this server, showing the entry whose
     /// [`config::entry_digest`] this is: what `1` approves. `listed` is every
     /// pending server as the prompt went up, each with its digest: what `2`
     /// approves. `whole` is whether every row of the entry fit the prompt
     /// ([`PROMPT_ROW_MAX_BYTES`]); `1` approves only an entry shown whole.
     /// `text` is the prompt's rows, upstream's two with what the entry runs
-    /// between them: one event, so the text written last is always the
-    /// prompt armed.
+    /// between them (`presentProjectMcpPrompt`, `main.zig:1818-1832`),
+    /// written into the transcript as they are, with no glyph: one event, so
+    /// the text written last is always the prompt armed. No other event
+    /// writes rows as they are, so none can print a prompt it does not arm.
     TrustPrompt {
         name: String,
         digest: String,
