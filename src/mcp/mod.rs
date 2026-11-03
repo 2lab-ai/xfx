@@ -23,9 +23,12 @@
 //! # What a server can reach
 //!
 //! A stdio server is a program the person configured, started as the person
-//! with their environment, in a process group of its own and stopped by that
-//! group. An HTTP server is reached only at an `https` URL or a loopback
-//! `http` one with a port ([`config::validate_endpoint`]). Neither is
+//! with six variables of their environment -- `HOME`, `LOGNAME`, `PATH`,
+//! `SHELL`, `TERM`, `USER` -- and the server's own `env`, never xfx's
+//! credential or anything else it inherited
+//! ([`transport::server_environment`]), in a process group of its own and
+//! stopped by that group. An HTTP server is reached only at an `https` URL or
+//! a loopback `http` one with a port ([`config::validate_endpoint`]). Neither is
 //! confined: a server does what its program does. A workspace's servers start
 //! only once the person approves them, and every call of a server's tool is
 //! admitted by the session's permission policy first

@@ -113,7 +113,8 @@ pub struct ServerConfig {
     /// The program, for a stdio server.
     pub command: String,
     pub args: Vec<String>,
-    /// Added to the inherited environment (`server_transport.zig:107-124`).
+    /// A stdio server's own variables, set over the few of xfx's it is given
+    /// ([`super::transport::server_environment`]).
     pub env: Vec<(String, String)>,
     /// The endpoint, for an HTTP or SSE server.
     pub url: String,
