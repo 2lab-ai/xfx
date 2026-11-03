@@ -20,7 +20,7 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 | ID | Status | Scope | Branch | Next |
 |---|---|---|---|---|
 | SEC-A1 | 🟡 | TTY approval prompt escapes every field | `fix/p2sec-tty-escape` | unit running |
-| SEC-A2 | 🟡 | a failed `/allowlist` view or invalid startup table never weakens the table in force | `fix/p2sec-malformed-table` | unit running |
+| SEC-A2 | 🟡 | a failed `/allowlist` view keeps the table in force; an unreadable table at launch refuses every tool (fail closed) and config diagnostics are said at launch, as fx | `fix/p2sec-malformed-table` @ `1754afde` | batch 25 |
 | SEC-A4 | 🟡 | default-ignorable code points spelled out in approval commands | `fix/p2sec-ignorable-cp` | unit running |
 | SEC-B1 | 🟡 | the resumed log's model id passes `model_id_problem` before it is painted | `fix/p2sec-resume-model-inert` | unit running |
 | SEC-C1 | 🟡 | MCP stdio env = fx 0.0.15 allowlist + the server's `env`; Docker cleanup the same; other children lose xfx's credentials | `fix/p2sec-mcp-env` | unit running |
@@ -28,11 +28,9 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 | SEC-C3 | 🟡 | a stdio server that stops reading cannot block request timeout or close | `fix/p2sec-mcp-stdin` | unit running |
 | SEC-C4 | 🟡 | MCP trust bound to the entry's content; the prompt shows the command or URL | `fix/p2sec-mcp-approval-bind` | unit running (repro first) |
 | SEC-C5 | 🟡 | writes to execution-config paths always ask | `fix/p2sec-exec-config-writes` | unit running (repro first) |
-| SEC-D1 | 🟡 | Gateway completion and title never follow a redirect; no proxy for http loopback | `fix/p2sec-gw-redirect` | unit running |
-| SEC-D2 | 🟡 | pasted image paths obey the read table; no open before stat | `fix/p2sec-paste-image-read` | unit running (repro first) |
+| SEC-D2 | 🟡 | pasted/typed paths and `/image` obey the read table's denies (every mode); stat before open, non-regular files refused | `fix/p2sec-paste-image-read` @ `96e8b7b1` | batch 25 |
 | SWEEP | 🟡 | local sweep + ledger + scoreboard + closed denominator; first run at `1a94cdff`: pass 624/861 (72.5%), 169 unresolved | `feat/fxcap-sweep` @ `ccaa62b8` | ledger conformance + cascade column + root-cause table → merge |
 | COMPAT | 🟡 | session-log back-compat vs the installed preview: nothing rewritten in place; opening an old session appends one `preferences_changed` | `test/session-compat` @ `9956e7a8` | merge with the next batch |
-| SM1 | 🟡 | smoke on release and fault-injection builds with the behaviour list | `fix/smoke-tui` | unit running |
 | P2-RECEIPT | 🔴 | final-SHA gates, CI, SM1, sweep vs `c1db9191` (run and reported), security fixes re-reviewed, frames read, public-suitability scan, COMPAT, RED/GREEN | — | after the SEC units, SWEEP, SM1 |
 | SHIP | 🚪 | PR → `main` → preview + tap → real-profile run (sessions backed up; MCP servers checked for inherited variables they lose under SEC-C1), label "Phase 4 integration preview — fx c1db919 baseline, before the 0.0.16 transition" | — | after P2-RECEIPT |
 
@@ -46,7 +44,7 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 | P1-r3r4 | 🟡 | `! auth:`/`✗ auth:`; held prompt resent once a credential arrives (never without the user's confirmation, or exactly as fx) | `feat/tui-phase4-provider-session` | report → PR after SHIP |
 | S1-vis | 🟡 | the `skill` tool's context notices; the `/skills` usage line still names `url` | `feat/tui-phase4-skills` | after S1-sec |
 | C8 | 🟡 | `/shell reload` — new execution surface, own security review | `feat/tui-phase4-shell-reload` | report → PR after SHIP |
-| K-resize | 🟡 | resize leaves a stale cut-off row (H1 `xfx/…-small.txt`) | `fix/tui-resize-stale-row` | unit running |
+| K-resize | 🟡 | a settled resize resets and replays the kept document at the new width as fx (1 MiB log); 13 capture screens identical | `fix/tui-resize-stale-row` @ `cba68785` | external review → PR after SHIP; conflicts with D4e (`Op::Block`, collapse) — whichever lands second rebases; flip `ssot.md:127` with it |
 | K-jobctl | 🟡 | Ctrl-Z ignored (fx suspends); external SIGTSTP restores before stopping (fx writes nothing) | `fix/tui-job-control` | unit running |
 | K-recover | 🟡 | a cut stream or refused connection recovers as fx (`decide` port; wait-for-connection in the TUI, Esc pauses; restart notice) — 3 capture pairs match but the elapsed seconds; tool call never re-run (test) | `fix/tui-stream-recovery` @ `0723d4af` | external review (re-sends a possibly-sent request in `ask`/line shell as fx; paused turn logged `Cancelled` where fx keeps a checkpoint; recovered spend marked unaccounted) → PR after SHIP; rebase over SEC-D1 (`gateway/mod.rs`) |
 | K-mcpwords | 🟡 | a connecting server shows `Reloading` (fx `Connecting`); startup failure `* mcp:` (fx `! mcp:`); details `Error` sentences and `?` counts — 13/13 captures match | `fix/mcp-status-words` @ `4ec576f1` | PR after SHIP |

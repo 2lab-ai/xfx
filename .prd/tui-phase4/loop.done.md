@@ -200,3 +200,18 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - S1 round 3 item 1: the skill directory held as `O_DIRECTORY|O_NOFOLLOW`; `SKILL.md` and every resource component opened `openat` + NOFOLLOW from it; a resource read is bracketed by length+mtime and, for anything but `SKILL.md`, by re-reading the held `SKILL.md` from offset 0 and re-parsing its name (fx `revalidatePrimaryIdentity`, `skill_invocation.zig:1316-1329`; `readSkillResourceFile`, `:1371-1409`), in the whole and the named/chunked forms. Gap shared with fx: a `SKILL.md` renamed over the held one after the check (no inode comparison on either side).
+
+## R24 — closed 2026-11-03
+
+- result: batch 24 (merge commits are labelled "batch 23" by mistake: `37b53989` SEC-D1, `eefd3c18` SIGINT + SM1) landed; gates on `eefd3c18`: lib 3517, tui 161; fault-injection lib 3524, tui 175; 0 failed; clippy 0 both. First two of the P2 security fixes in.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| SEC-D1 | ✅ | Gateway completion and title never follow a redirect; no proxy over plain http | `fix/p2sec-gw-redirect` @ `3383cbe0` | landed batch 23 (`eefd3c18`) |
+| SM1 | ✅ | smoke on release + fault-injection with the behaviour list: 37 scenarios + oracle, 1091/1091 (3f job control, 3g inherited ignores, 17b quit-and-resume new); SIGINT inherited as ignored stays ignored, as fx (`878186b5`) | `fix/smoke-tui` → `fix/p2-sigint-inherit` | landed batch 23 (`eefd3c18`) |
+
+### Round section (as it was in loop.md)
+
+- P2 security review (four groups × gpt-6-astra and opus at `de6618de`): union of MUST-FIX = 11 SEC units; SM1-final found the launcher's SIGINT ignore replaced by xfx's handler (fx keeps it) and fixed it as its own unit; COMPAT found the resume write-on-open (G-resume-prefs).
