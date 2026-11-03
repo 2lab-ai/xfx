@@ -19,9 +19,11 @@ and `name`. It snaps after each and clears the search between them with
 Ctrl-U. It presses Tab ten times to reach the Extensions tab, snaps, presses
 Escape and snaps the end.
 
-The xfx binary is `target/debug/xfx`, built from `b65cb6a`. That commit merges
-`plan/tui-phase4` at `49f32a9e`, which already has S1's `/skills`, into
-`95c87a4`, this unit's change. Its banner shows `b65cb6a`.
+The xfx binary is `target/debug/xfx`, built without features from `c06d656`.
+That commit merges `plan/tui-phase4` at `bcda7a5d` (S1's `/skills` and X1's
+paste framing) into this unit's change (`95c87a4`). Its banner shows
+`c06d656`. The first take, at `b65cb6a` (plan `49f32a9e`), gave the same
+verdict on every snap. The fx files of the two takes are byte-identical.
 
 Sanitized: no scratch path and no host name appears in any capture.
 
@@ -42,7 +44,7 @@ sides, row 1 is the product's own banner.
 | `popup-al` | `Commands 3`: `/allowlist` Security, `/alias` Extensions, `/balance` Account | same | Byte for byte. `/balance` is `/credits`'s alias, and `al` is inside its name. |
 | `popup-al-down` | the mark on `/alias` | same | Byte for byte. |
 | `help-query-alias` | `Commands 1`, `/alias` | same | Byte for byte. |
-| `help-tab-extensions` | `Commands 3`: `/mcp`, `/skills`, `/alias` | same | Byte for byte. This needs S1, which `b65cb6a` has. |
+| `help-tab-extensions` | `Commands 3`: `/mcp`, `/skills`, `/alias` | same | Byte for byte. This needs S1, which `c06d656` has. |
 | `end` | the catalog closed | same | Byte for byte. |
 | `help-query-command` | `Commands 4`: `/help`, `/allowlist`, `/shell`, `/alias` | `Commands 2`: `/help`, `/allowlist` | **Differs.** See below. |
 | `help-query-name` | `Commands 3`: `/rename`, `/skills`, `/alias` | `Commands 1`: `/rename` | **Differs.** See below. |
