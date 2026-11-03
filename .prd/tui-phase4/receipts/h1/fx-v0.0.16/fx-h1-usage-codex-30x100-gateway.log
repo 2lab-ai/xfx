@@ -1,0 +1,9 @@
+[fakegw] listening 65432
+[fakegw] GET /codex/models bearer=yes
+[fakegw] request GET /codex/models?client_version=0.166.0 at=1040ms -> 200 at=1041ms headers=authorization,chatgpt-account-id
+[fakegw] usage /backend-api/wham/usage -> 200
+[fakegw] request GET /backend-api/wham/usage at=5807ms -> 200 at=5807ms headers=authorization,chatgpt-account-id
+[fakegw] usage /backend-api/wham/profiles/me -> 200
+[fakegw] request GET /backend-api/wham/profiles/me at=5808ms -> 200 at=5808ms headers=authorization,chatgpt-account-id
+[fakegw] usage /backend-api/wham/usage/daily-token-usage-breakdown -> 200
+[fakegw] request GET /backend-api/wham/usage/daily-token-usage-breakdown?start_date=2026-10-01 at=5808ms -> 200 at=5808ms headers=authorization,chatgpt-account-id

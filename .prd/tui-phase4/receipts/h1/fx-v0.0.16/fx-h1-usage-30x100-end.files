@@ -1,0 +1,10 @@
+=== ~/.fx/history.jsonl (127 bytes)
+{"schema_version":1,"timestamp_ms":1793707172404,"workspace_root":"<scratch>/work","text":"/usage"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.json (1121 bytes)
+{"schema_version":2,"identity":"c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e","today":{"day":20738,"at_ms":1791819000000,"models":[{"model":"provider/today","totals":{"request_count":2,"input_tokens":10,"output_tokens":5,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":0.5,"cache_hit_requests":0,"failed_requests":0,"ttft_weighted":0,"ttft_requests":0,"tps_weighted":0,"tps_requests":0}}]},"finished":{"day":20738,"at_ms":1791819000000,"days_7":[{"model":"provider/week","totals":{"request_count":1,"input_tokens":4,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":0.25,"cache_hit_requests":0,"failed_requests":0,"ttft_weighted":0,"ttft_requests":0,"tps_weighted":0,"tps_requests":0}}],"month":[{"model":"provider/month","totals":{"request_count":4,"input_tokens":40,"output_tokens":8,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"total_cost":2,"cache_hit_requests":0,"failed_requests":0,"ttft_weighted":0,"ttft_requests":0,"tps_weighted":0,"tps_requests":0}}]},"budget":null,"codex":null,"grok":null}
+=== ~/.fx/usage-cache/c5482018bc3612f715c33c5a278e44485d3bc741118d70cfeff2c0aa3f94fc4e.lock (0 bytes)
+=== ~/.fxcap-usage-clock (14 bytes)
+1791819000000
+

@@ -1,0 +1,30 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ say something
+
+  back after the refusal
+
+  14s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

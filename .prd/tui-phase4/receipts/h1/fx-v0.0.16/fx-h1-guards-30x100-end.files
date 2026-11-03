@@ -1,0 +1,26 @@
+=== ~/.fx/history.jsonl (141 bytes)
+{"schema_version":1,"timestamp_ms":1793707416793,"workspace_root":"<scratch>/work","text":"say something slowly"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/v2/Ae3TuclHTVlv/lock (0 bytes)
+
+=== ~/.fx/sessions/v2/Ae3TuclHTVlv/log.jsonl (3278 bytes)
+{"v":1,"seq":1,"ts":1793707416795,"kind":"session_created","id":"Ae3TuclHTVlv","workspace":"<scratch>/work","role":"root","host":"app","crc":"c17cf83b"}
+{"v":1,"seq":2,"ts":1793707414650,"kind":"set","key":"prefs","value":{"provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false},"crc":"c0b0ea58"}
+{"v":1,"seq":3,"ts":1793707414650,"kind":"set","key":"permissions","value":{"schema_version":2,"next_generation":1,"rules":[]},"crc":"97b01d19"}
+{"v":1,"seq":4,"ts":1793707414650,"kind":"set","key":"language","value":"und","crc":"d2058dcd"}
+{"v":1,"seq":5,"ts":1793707416795,"kind":"turn_started","turn":1,"crc":"041209c2"}
+{"v":1,"seq":6,"ts":1793707416795,"kind":"item","turn":1,"type":"user","data":{"text":"say something slowly","images":[],"work_id":null},"crc":"66ddf753"}
+{"v":1,"seq":7,"ts":1793707416795,"kind":"item","turn":1,"type":"runtime_context","data":{"messages":["<fx-turn-context>\nworkspace_root: <scratch>/work\ncurrent_directory: <scratch>/work\noperating_system: Darwin 25.6.0\nshell_path: /bin/zsh\ndate_utc: 2026-11-03\nhome_directory: <scratch>/home\ngit_worktree: unknown\n</fx-turn-context>","Runtime context: permission mode is auto. After configured rules, session grants, and deterministic safe-tool authority, fx sends each unresolved action to a narrow safety reviewer. A clear result authorizes only that exact action. A caution or unavailable result holds only that action and returns advice without opening a permission screen, disabling tools, or ending the turn. Exact cautions are reused for this turn; choose a materially different safe action or explain why no safe path remains. Tool admission and exact live revalidation remain authoritative.","Runtime context: if this turn changes files, choose focused verification from the touched areas first. Use changed paths in tool calls and results to select checks; avoid generic or expensive verification unless those paths justify it or the user requested it. Tests under tests/evals can be deterministic; do not assume they require live models. Preserve exact verification evidence in the final summary."]},"crc":"4912ba21"}
+{"v":1,"seq":8,"ts":1793707419232,"kind":"set","key":"usage","value":{"input_tokens":1200,"output_tokens":40,"cache_read_tokens":null,"cache_write_tokens":null,"reasoning_tokens":null},"crc":"5f16c32f"}
+{"v":1,"seq":9,"ts":1793707419242,"kind":"item","turn":1,"type":"assistant","data":{"text":"a slow answer, word by word","provider_replay":null,"standalone_response":false},"crc":"d4e177ca"}
+{"v":1,"seq":10,"ts":1793707419242,"kind":"item","turn":1,"type":"turn_end","data":{"files":[],"turn_summary":{"started_at_ms":1793707416794,"completed_at_ms":1793707419232,"thinking_duration_ms":1,"turn_duration_ms":2438,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}},"crc":"0139683f"}
+{"v":1,"seq":11,"ts":1793707419242,"kind":"turn_committed","turn":1,"crc":"6cf2a756"}
+{"v":1,"seq":12,"ts":1793707419242,"kind":"set","key":"language","value":"und-Latn","crc":"8029a771"}
+{"v":1,"seq":13,"ts":1793707419242,"kind":"set","key":"title","value":"say something slowly","crc":"e5ad1dee"}
+
+=== ~/.fx/sessions/v2/index.jsonl (506 bytes)
+{"op":"put","id":"Ae3TuclHTVlv","role":"root","host":"app","workspace":"<scratch>/work","language":"und","created":1793707416795,"updated":1793707416795,"turns":0,"opened":[1793707416795,0,0,0,0],"crc":"e0eeed63"}
+{"op":"put","id":"Ae3TuclHTVlv","role":"root","host":"app","workspace":"<scratch>/work","title":"say something slowly","language":"und-Latn","created":1793707416795,"updated":1793707419242,"turns":1,"opened":[0,0,0,0,0],"crc":"1e29097b"}
+
+=== ~/.fx/sessions/v2/index.lock (0 bytes)

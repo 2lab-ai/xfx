@@ -1,0 +1,30 @@
+x𝒇x v0.1.0-72bf024 [debug] · Run /help for commands
+
+* mcp: MCP startup: 1 server needs attention, 1 failed. Use /mcp list for details.
+
+* mcp: MCP reconnection started. Your existing MCP servers will stay active while the new
+  configuration is checked.
+
+! mcp: MCP configuration reloaded, but server 'remote' is unavailable. Run /mcp list for details.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 1  [Servers]  Tools  Resources  Prompts
+
+  remote                Failed                HTTP · Profile
+────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ move  tab section  enter inspect  s add Slack  a add  r reload  c help  esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+

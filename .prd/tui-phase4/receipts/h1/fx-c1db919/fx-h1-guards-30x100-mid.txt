@@ -1,0 +1,30 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ say something slowly
+
+  a slow answer, word by word
+
+  2s (↑6 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

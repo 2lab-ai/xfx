@@ -1,0 +1,5 @@
+[mcphttp] listening 49829
+[mcphttp] +4485ms POST /mcp rpc=initialize id=1 session=no version=- mode=ready -> 200 +10748ms
+[mcphttp] +10761ms POST /mcp rpc=notifications/initialized id=- session=yes version=2025-11-25 mode=ready -> 202 +10761ms
+[mcphttp] +10779ms POST /mcp rpc=tools/list id=2 session=yes version=2025-11-25 mode=ready -> 200 +10779ms
+[mcphttp] +10784ms GET /mcp rpc=- session=yes version=2025-11-25 mode=ready -> 405 +10784ms

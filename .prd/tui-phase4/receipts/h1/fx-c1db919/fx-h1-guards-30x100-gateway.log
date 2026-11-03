@@ -1,0 +1,7 @@
+[fakegw] listening 51993
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] request GET /coding-agent/v1/models at=3993ms -> 200 at=3994ms headers=authorization
+[fakegw] title /v4/ai/language-model model=openai/gpt-5.6-luna -> no text
+[fakegw] request POST /v4/ai/language-model at=6161ms -> 200 at=6162ms headers=authorization
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] request POST /v4/ai/language-model at=6163ms -> 200 at=6163ms headers=authorization

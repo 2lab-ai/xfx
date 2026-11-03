@@ -1,0 +1,5 @@
+[fakegw] listening 49215
+[fakegw] usage /billing -> 200
+[fakegw] request GET /billing?format=credits at=5874ms -> 200 at=5905ms headers=authorization,x-userid
+[fakegw] usage /settings -> 200
+[fakegw] request GET /settings at=5913ms -> 200 at=5921ms headers=authorization,x-userid

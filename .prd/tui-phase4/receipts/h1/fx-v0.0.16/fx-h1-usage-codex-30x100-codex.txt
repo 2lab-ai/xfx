@@ -1,0 +1,30 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────
+usage: codex (ChatGPT), samdoe                                                      updated just now
+
+period        tokens
+today          40.0K
+7d            100.0K
+month         100.0K
+lifetime        9.0M
+
+model (month)  speed     share
+gpt-e2e-large  fast      70.0%
+gpt-e2e-small  standard  30.0%
+
+where (month)        cli   desktop app
+                   60.0%         40.0%
+
+record         peak day   longest chat   streak   best streak     chats
+                 700.0K         1h 30m       4d            9d       120
+
+habits         fast mode   reasoning
+                     25%    high 60%
+
+plan          credits   spend limit
+pro             12.40   not reached
+
+limit  window   used  resets
+codex      5h    42%  in 2h 0m
+codex      7d    18%  in 3d 0h
+────────────────────────────────────────────────────────────────────────────────────────────────────
+tab period     r refresh     esc close
