@@ -2947,6 +2947,55 @@ fn auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook() {
 }
 
 #[test]
+fn a_superproject_with_a_hundred_submodules_does_not_make_every_write_ask() {
+    // Each module's `config` is a seed of its own; the include bound is per
+    // seed, so a hundred of them is not "too many includes".
+    let home = Tree::new();
+    let tree = Tree::new();
+    real_git(tree.root(), home.root(), &["init", "-q"]);
+    let modules = tree.root().join(".git/modules");
+    real_git(
+        tree.root(),
+        home.root(),
+        &["init", "-q", "--bare", ".git/modules/m0"],
+    );
+    for index in 1..100 {
+        let status = Command::new("cp")
+            .arg("-R")
+            .arg(modules.join("m0"))
+            .arg(modules.join(format!("m{index}")))
+            .status()
+            .expect("cp");
+        assert!(status.success());
+    }
+    let context = home_context(&tree, &home);
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": tree.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+#[test]
+fn a_configuration_only_gits_own_answer_names_is_protected() {
+    // `XDG_CONFIG_HOME` told to git but not named to xfx as a base: no static
+    // seed reaches `xdg/git/config`, only git's `file:` origin does -- and
+    // the static walk then follows that file's include.
+    let home = Tree::new();
+    let repo = Tree::new();
+    repo.write(
+        "xdg/git/config",
+        "[user]\n\tname = u\n[include]\n\tpath = ../../inc.gitconfig\n",
+    );
+    repo.write("inc.gitconfig", "[alias]\n\tst = status\n");
+    let context = home_context(&repo, &home).with_git_environment(
+        GitEnvironment::default().with("XDG_CONFIG_HOME", repo.root().join("xdg")),
+    );
+    every_mutation_refused(&context, &repo, "xdg/git/config");
+    every_mutation_refused(&context, &repo, "inc.gitconfig");
+}
+
+#[test]
 fn a_hard_linked_configuration_is_read_from_each_directory_that_names_it() {
     // One file, two names in two directories; its relative include is a
     // different file from each. Git reads both.

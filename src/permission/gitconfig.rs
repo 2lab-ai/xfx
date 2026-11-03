@@ -32,8 +32,9 @@
 //! (a `safe.directory` refusal included -- a repository owned by another
 //! user makes auto ask for every write in it), output it cannot parse, an
 //! origin it does not recognize, a configuration xfx cannot read or cannot
-//! parse byte for byte as git does, more than [`MAX_GIT_CONFIG_VISITS`]
-//! visits.
+//! parse byte for byte as git does, an include chain deeper than
+//! [`MAX_INCLUDE_DEPTH`] or wider than [`MAX_INCLUDES_PER_SEED`] below one
+//! seed, more than [`MAX_GIT_CONFIG_VISITS`] visits in all.
 //!
 //! **The bar.** Writing an include, or the file it names, is something auto
 //! could do; that is a blocker. Some cases here are preconditions only the
@@ -47,8 +48,18 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// The most configuration visits one check makes.
-pub(crate) const MAX_GIT_CONFIG_VISITS: usize = 64;
+/// The deepest include chain followed below one seed: git's own limit
+/// (`MAX_INCLUDE_DEPTH` in `config.c`), past which git itself refuses the
+/// configuration.
+pub(crate) const MAX_INCLUDE_DEPTH: usize = 10;
+
+/// The most files one seed's includes reach. Per seed, so that a
+/// superproject with many submodules -- each module's `config` a seed of its
+/// own -- does not exhaust a bound meant for one configuration's includes.
+pub(crate) const MAX_INCLUDES_PER_SEED: usize = 64;
+
+/// The most configuration visits one check makes in all, seeds included.
+pub(crate) const MAX_GIT_CONFIG_VISITS: usize = 4096;
 
 /// The most bytes of one configuration file read for its includes.
 const MAX_GIT_CONFIG_BYTES: u64 = 1024 * 1024;
@@ -112,6 +123,9 @@ pub(crate) fn configuration_files(
 ) -> Result<Vec<PathBuf>, String> {
     let mut seeds: Vec<PathBuf> = Vec::new();
     for root in roots {
+        // The only seed for what git alone knows of: the system file, and an
+        // environment-selected `XDG_CONFIG_HOME` the front end did not also
+        // name as a base.
         seeds.extend(git_answer(root, home, environment)?);
     }
     if let Some(home) = home {
@@ -138,7 +152,8 @@ pub(crate) fn configuration_files(
         found: Vec::new(),
     };
     for seed in seeds {
-        walk.visit(&seed)?;
+        let mut includes = MAX_INCLUDES_PER_SEED;
+        walk.visit(&seed, 0, &mut includes)?;
     }
     Ok(walk.found)
 }
@@ -337,12 +352,24 @@ struct StaticWalk<'a> {
 }
 
 impl StaticWalk<'_> {
-    /// `config` is configuration; so is everything it includes.
-    fn visit(&mut self, config: &Path) -> Result<(), String> {
+    /// `config` is configuration; so is everything it includes. `depth` is
+    /// how many includes led here from the seed, and `includes` how many more
+    /// files that seed's includes may reach.
+    fn visit(&mut self, config: &Path, depth: usize, includes: &mut usize) -> Result<(), String> {
         if !self.found.iter().any(|found| found == config) {
             self.found.push(config.to_path_buf());
         }
         let name = config.display();
+        if depth > MAX_INCLUDE_DEPTH {
+            return Err(format!(
+                "`{name}` is more than {MAX_INCLUDE_DEPTH} includes deep"
+            ));
+        }
+        if depth > 0 {
+            *includes = includes.checked_sub(1).ok_or_else(|| {
+                format!("one configuration includes more than {MAX_INCLUDES_PER_SEED} files")
+            })?;
+        }
         let metadata = match std::fs::metadata(config) {
             Ok(metadata) => metadata,
             Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
@@ -399,7 +426,7 @@ impl StaticWalk<'_> {
             }
             for raw in &paths {
                 for path in expand(raw, &directory, self.home)? {
-                    self.visit(&path)?;
+                    self.visit(&path, depth + 1, includes)?;
                 }
             }
         }
@@ -790,6 +817,34 @@ tinued
             answered += 1;
         }
         assert!(answered >= 8, "only {answered} cases were answered");
+    }
+
+    #[test]
+    fn includes_are_bounded_by_depth_and_by_width_per_seed() {
+        let home = tempfile::tempdir().expect("a home");
+        let home = home.path().canonicalize().expect("canonical");
+        let files = || configuration_files(&[], Some(&home), None, &GitEnvironment::default());
+        // Eleven deep: one past git's own limit.
+        std::fs::write(home.join(".gitconfig"), "[include]\n\tpath = d1\n").expect("a");
+        for depth in 1..=11 {
+            std::fs::write(
+                home.join(format!("d{depth}")),
+                format!("[include]\n\tpath = d{}\n", depth + 1),
+            )
+            .expect("a link in the chain");
+        }
+        let deep = files().expect_err("too deep");
+        assert!(deep.contains("includes deep"), "{deep}");
+        // Ten deep is git's own limit, and fine.
+        std::fs::write(home.join("d10"), "[user]\n\tname = u\n").expect("the end");
+        assert!(files().is_ok());
+        // Seventy files from one configuration is past the width bound.
+        let wide: String = (0..70)
+            .map(|index| format!("[include]\n\tpath = w{index}\n"))
+            .collect();
+        std::fs::write(home.join(".gitconfig"), wide).expect("wide");
+        let wide = files().expect_err("too wide");
+        assert!(wide.contains("more than 64 files"), "{wide}");
     }
 
     #[test]
