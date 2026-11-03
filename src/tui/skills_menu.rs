@@ -189,6 +189,16 @@ fn listed(items: &[Skill], filter: Filter, query: &str) -> Vec<usize> {
     out
 }
 
+/// Every skill a search finds on `All`, in the menu's order: what the slash
+/// popup lists after its commands (`fillSkillMenuRangeAtQuery` with `.all`,
+/// `picker_presentation.zig:1123-1131`).
+pub(crate) fn matching(items: &[Skill], query: &str) -> Vec<Skill> {
+    listed(items, Filter::All, query)
+        .into_iter()
+        .map(|index| items[index].clone())
+        .collect()
+}
+
 /// The menu's shape in one row budget (`SkillsMenuLayout.buildInline`,
 /// `skills_menu_presentation.zig:84-117`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -301,6 +311,20 @@ impl SkillsMenu {
 
     pub(crate) fn origin(&self) -> Origin {
         self.origin
+    }
+
+    /// Reads a list that landed after it opened, keeping its tab, search and
+    /// mark -- the mark held to what is listed -- as upstream's menu reads the
+    /// runtime's list each frame (`SkillMenuView`, over `app.skills.items`).
+    pub(crate) fn replace_items(&mut self, items: Vec<Skill>) {
+        self.items = items;
+        let count = self.count();
+        if count == 0 {
+            self.selected = 0;
+            self.window_start = 0;
+        } else if self.selected >= count {
+            self.selected = count - 1;
+        }
     }
 
     /// The `$` word a choice replaces, for a mention menu.

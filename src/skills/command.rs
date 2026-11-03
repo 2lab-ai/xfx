@@ -112,17 +112,12 @@ pub enum Outcome {
     /// line under none. Several when a command says what it is about to do
     /// before it does it (`Installing from …`).
     Said(Vec<String>),
-}
-
-impl Outcome {
-    /// Whether this answer changed what is installed, so the next listing or
-    /// turn must discover again (upstream's `reload`).
-    pub fn reloads(command: &Command) -> bool {
-        matches!(
-            command,
-            Command::Install { .. } | Command::Create(_) | Command::Remove(_)
-        )
-    }
+    /// The managed root changed: `said` at once, then `after` once the list
+    /// read again holds the change (upstream's `reload` notices and its
+    /// `.installed` result, `queueSkillsNoticeAfterRefresh`,
+    /// `app_commands.zig:1903-1951`). A surface with no list to read again
+    /// says both in order.
+    Changed { said: Vec<String>, after: String },
 }
 
 /// The topic one of the answers is said under: none for the usage line,
@@ -156,52 +151,68 @@ pub fn execute(command: &Command, found: &Discovery, managed: &Path, cwd: &Path)
             managed.display()
         )]),
         Command::Usage => Outcome::Said(vec![USAGE.to_string()]),
-        Command::Create(name) => Outcome::Said(vec![create(managed, name)]),
-        Command::Remove(name) => Outcome::Said(vec![remove(found, managed, name)]),
+        Command::Create(name) => changed(Vec::new(), create(managed, name)),
+        Command::Remove(name) => changed(Vec::new(), remove(found, managed, name)),
         Command::Install { source, filter } => {
-            let mut said = vec![format!("Installing from {source}...")];
-            said.push(install::install(managed, source, filter.as_deref(), cwd));
+            let said = vec![format!("Installing from {source}...")];
+            changed(
+                said,
+                install::installed(managed, source, filter.as_deref(), cwd),
+            )
+        }
+    }
+}
+
+/// `said`, then a sentence that is said after the reload when the command
+/// changed something and with the rest when it did not.
+fn changed(mut said: Vec<String>, result: Result<String, String>) -> Outcome {
+    match result {
+        Ok(after) => Outcome::Changed { said, after },
+        Err(refusal) => {
+            said.push(refusal);
             Outcome::Said(said)
         }
     }
 }
 
 /// `create <name>` (`createCommandResult`, `skills.zig:173-180`).
-fn create(managed: &Path, name: &str) -> String {
+fn create(managed: &Path, name: &str) -> Result<String, String> {
     if !super::contract::is_managed_name(name) {
-        return "Invalid skill name. Use a single directory name without '/' or '\\'.".to_string();
+        return Err(
+            "Invalid skill name. Use a single directory name without '/' or '\\'.".to_string(),
+        );
     }
     let dir = managed.join(name);
     let file = dir.join("SKILL.md");
     let written =
         std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, template(name)));
     match written {
-        Ok(()) => format!("Created {}", file.display()),
+        Ok(()) => Ok(format!("Created {}", file.display())),
         // Upstream's `create` has no sentence of its own for a write that
         // failed -- the error ends the command -- so the failure is said in
         // the shape of its other refusals.
-        Err(error) => format!("Failed to create skill '{name}': {error}."),
+        Err(error) => Err(format!("Failed to create skill '{name}': {error}.")),
     }
 }
 
 /// `remove <name>`: only what the managed root holds (`removeCommandResult`,
 /// `skills.zig:182-196`).
-fn remove(found: &Discovery, managed: &Path, name: &str) -> String {
+fn remove(found: &Discovery, managed: &Path, name: &str) -> Result<String, String> {
     let Some(skill) = found.named(name) else {
-        return format!("Skill '{name}' not found.");
+        return Err(format!("Skill '{name}' not found."));
     };
     if !skill.source.is_managed() {
-        return format!(
+        return Err(format!(
             "Skill '{name}' comes from {}, not the xfx managed install root. Remove it from {}.",
             skill.source.label(),
             skill.path.display()
-        );
+        ));
     }
     let Some(leaf) = skill.path.file_name().and_then(|leaf| leaf.to_str()) else {
-        return format!("Failed to remove skill '{name}'.");
+        return Err(format!("Failed to remove skill '{name}'."));
     };
     if !super::contract::is_managed_name(leaf) {
-        return format!("Failed to remove skill '{name}'.");
+        return Err(format!("Failed to remove skill '{name}'."));
     }
     let target: PathBuf = managed.join(leaf);
     // Never through a link: `deleteTree` on the managed root removes the
@@ -212,8 +223,8 @@ fn remove(found: &Discovery, managed: &Path, name: &str) -> String {
         Err(error) => Err(error),
     };
     match removed {
-        Ok(()) => format!("Removed skill '{name}'."),
-        Err(_) => format!("Failed to remove skill '{name}'."),
+        Ok(()) => Ok(format!("Removed skill '{name}'.")),
+        Err(_) => Err(format!("Failed to remove skill '{name}'.")),
     }
 }
 
@@ -278,7 +289,10 @@ mod tests {
         let file = managed.join("made/SKILL.md");
         assert_eq!(
             said,
-            Outcome::Said(vec![format!("Created {}", file.display())])
+            Outcome::Changed {
+                said: Vec::new(),
+                after: format!("Created {}", file.display())
+            }
         );
         assert_eq!(
             fs::read_to_string(&file).unwrap(),
@@ -308,7 +322,10 @@ mod tests {
         assert!(work.join(".xfx/skills/demo/SKILL.md").exists());
         assert_eq!(
             execute(&parse("remove made"), &found, &managed, &work),
-            Outcome::Said(vec!["Removed skill 'made'.".to_string()])
+            Outcome::Changed {
+                said: Vec::new(),
+                after: "Removed skill 'made'.".to_string()
+            }
         );
         assert!(!managed.join("made").exists());
         assert_eq!(

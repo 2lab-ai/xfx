@@ -2300,6 +2300,14 @@ fn skills_on_the_line(
             }
             Ok(())
         }
+        // No list held between lines here: the next command discovers again,
+        // so what changed is said with the rest.
+        Outcome::Changed { said: lines, after } => {
+            for body in lines.iter().chain(std::iter::once(&after)) {
+                said(out, body)?;
+            }
+            Ok(())
+        }
     }
 }
 

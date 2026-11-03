@@ -90,11 +90,13 @@ use super::file_picker::{self, FilePicker};
 use super::frame::Caret;
 use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
+use super::held_skills::{HeldSkills, Waiting};
 use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
 use super::image_paths;
+use super::inline_completion;
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
@@ -1120,6 +1122,11 @@ pub(crate) struct Shell {
     /// like the catalog -- in the slot only while it has something to show
     /// ([`SkillsMenu::visible`]).
     skills_menu: Option<SkillsMenu>,
+    /// The skills the band offers, discovered on a worker thread and held
+    /// between refreshes ([`super::held_skills`]): what the `$` menu, a pasted
+    /// `$word` and `/skills` list. The turn discovers its own on the runtime
+    /// thread.
+    skills: HeldSkills,
     /// A `/permissions remember` or `revoke` waiting to be confirmed
     /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
     /// as a question does, and outranks everything but a question.
@@ -1580,6 +1587,31 @@ fn push_notice_text(
 /// the path percent-encoded ([`super::hyperlink::file_uri`]) -- or none for a
 /// file no link may name, whose badge is text.
 type BadgeLinks = Vec<(u32, Option<String>)>;
+
+/// What the composer would complete after its caret (`InlineCompletion`,
+/// `input_completion_runtime.zig:46-64`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Ghost {
+    /// A `$word` a skill's name begins: the skill, the rest of its name, and
+    /// the word -- `$` included -- a token would replace.
+    Skill {
+        skill: crate::skills::Skill,
+        suffix: String,
+        word: std::ops::Range<usize>,
+    },
+    /// A slash word a command's name begins: the rest of the name.
+    Slash { suffix: &'static str },
+}
+
+impl Ghost {
+    /// What is painted after the caret.
+    fn suffix(&self) -> &str {
+        match self {
+            Self::Skill { suffix, .. } => suffix,
+            Self::Slash { suffix } => suffix,
+        }
+    }
+}
 
 /// Whether a skill token put in front of `end` takes a space after it: at the
 /// end of the draft, or before a character that would join it to a word -- a
@@ -2144,6 +2176,13 @@ impl Shell {
             ),
             workspace_menu: None,
             skills_menu: None,
+            skills: HeldSkills::new(
+                &config.workspace_root,
+                config
+                    .profile_dir
+                    .as_deref()
+                    .and_then(std::path::Path::parent),
+            ),
             rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
@@ -2291,6 +2330,11 @@ impl Shell {
         } else {
             self.window(composer.len())
         };
+        // The rest of a name after the caret, on the caret's row, in the dim
+        // grey and closed by a reset, cut to the cells the row has left
+        // (`appendInlineCompletionSuffix`, `input_presentation.zig:955-973`).
+        let ghost = self.ghost();
+        let caret_row = self.editor.point(self.text_cols()).0;
         let first_shown = window.start;
         let mut shown = 0;
         for index in window {
@@ -2300,12 +2344,24 @@ impl Shell {
                 RAIL
             };
             let gap = if marker == RAIL { " " } else { "" };
-            rows.push(format!(
+            let mut row = format!(
                 "{}{marker}{}{gap}{}",
                 self.palette.hint(),
                 self.palette.reset(),
                 composer[index]
-            ));
+            );
+            if let Some(ghost) = ghost.as_ref().filter(|_| index == caret_row) {
+                let room = self
+                    .text_cols()
+                    .saturating_sub(super::wrap::width(&composer[index]));
+                let suffix = inline_completion::clipped(ghost.suffix(), room);
+                if !suffix.is_empty() {
+                    row.push_str(self.palette.dim());
+                    row.push_str(suffix);
+                    row.push_str(self.palette.reset());
+                }
+            }
+            rows.push(row);
             shown += 1;
         }
         // A composer shorter than the rows the geometry gave it. Those rows are
@@ -4434,20 +4490,162 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
-    /// The skills the session can see from its workspace now
-    /// ([`crate::skills::discovery`]): read again each time a menu opens, as
-    /// upstream refreshes its catalog for `/skills` (`commandHandleSkills`,
-    /// `app_commands.zig:1751-1770`), so a skill added in another window is
-    /// in the next menu.
+    /// Takes in a list of skills that has landed, as the loop's next tick
+    /// would, for a case with no loop to tick.
+    #[cfg(test)]
+    fn skills_settled(&mut self) {
+        self.settle_skills();
+    }
+
+    /// Takes in a list of skills that has landed -- the menus, the slash
+    /// popup and the inline completion read it from now on -- and answers what
+    /// waited for it (`pollRefresh`, `skill_runtime.zig:2249-2310`, then
+    /// `collectSkillsRefreshFacts`, `app_commands.zig:1774-1807`).
+    fn settle_skills(&mut self) {
+        if self.skills.poll() {
+            self.skills_landed();
+        }
+        let Some((waiting, succeeded)) = self.skills.take_ready() else {
+            return;
+        };
+        if !succeeded {
+            self.announce(notice::Notice::error(
+                crate::skills::command::TOPIC,
+                if waiting == Waiting::Startup {
+                    "Skills could not be loaded. Run /skills to try again."
+                } else {
+                    "Skills could not be refreshed. The previous catalog was not shown as current."
+                },
+            ));
+            return;
+        }
+        use crate::skills::command::{self as skill_command, Command};
+        match waiting {
+            // What the launch's discovery skipped, once
+            // (`writeSkillDiagnosticsNotice`, `app_bootstrap_runtime.zig:292-310`).
+            Waiting::Startup => {
+                let found = self.skills.found();
+                if !found.diagnostics.is_empty() {
+                    let body = crate::skills::diagnostic_summary(&found.diagnostics);
+                    self.announce(notice::Notice::warning(skill_command::TOPIC, body));
+                }
+            }
+            Waiting::List => self.answer_skills(&Command::List),
+            Waiting::Show(name) => self.answer_skills(&Command::Show(name)),
+            Waiting::Notice(body) => {
+                self.announce(notice::Notice::neutral(
+                    skill_command::topic_for(&body),
+                    body,
+                ));
+            }
+        }
+    }
+
+    /// A list landed: an open menu reads it with its tab, search and mark
+    /// kept, as upstream's reads the runtime's list each frame (`SkillMenuView`
+    /// over `app.skills.items`), and so does the slash popup -- one that had
+    /// no row for a query before may have one now.
     ///
-    /// From the workspace's canonical path, as the runtime's turn discovers
-    /// from the scope's (`crate::workspace::AccessScope::primary`): a token's
-    /// binding is a skill's path, and the turn finds it only if both read the
-    /// same directory by the same name.
-    fn discover_skills(&self) -> crate::skills::Discovery {
-        let workspace =
-            std::fs::canonicalize(&self.workspace).unwrap_or_else(|_| self.workspace.clone());
-        crate::skills::discovery::discover(&workspace, self.home.as_deref())
+    /// A frame only when one of them is up or could be: a list landing under
+    /// an empty composer is not a change on the screen.
+    fn skills_landed(&mut self) {
+        let mut shown = false;
+        if let Some(menu) = self.skills_menu.as_mut() {
+            menu.replace_items(self.skills.skills().to_vec());
+            shown = true;
+        }
+        if let Some(picker) = self.picker.as_mut() {
+            if !picker.replace_skills(self.skills.skills()) {
+                self.picker = None;
+            }
+            shown = true;
+        } else if Trigger::of(self.editor.text()) == Some(Trigger::Slash) {
+            self.reconcile_picker();
+            shown |= self.picker.is_some();
+        }
+        // The ghost after the caret reads it too.
+        shown |= matches!(
+            self.completion_kind(),
+            Some(Trigger::Skill | Trigger::Slash)
+        );
+        if shown {
+            self.refit();
+            self.render.request(Reason::Modal);
+            self.render.request(Reason::Footer);
+        }
+    }
+
+    /// Answers one `/skills` form over the list held: what discovery skipped
+    /// first, as a warning (`writeSkillDiagnosticNotice`), then the menu or
+    /// the form's own words (`executeSkillsCommand`, `app_commands.zig:1809-1849`).
+    /// A form that changed the managed root says its last sentence once the
+    /// list read again holds the change (`queueSkillsNoticeAfterRefresh`).
+    fn answer_skills(&mut self, parsed: &crate::skills::command::Command) {
+        use crate::skills::command::{self as skill_command, Outcome};
+        let found = self.skills.found().clone();
+        if !found.diagnostics.is_empty() {
+            self.announce(notice::Notice::warning(
+                skill_command::TOPIC,
+                crate::skills::diagnostic_summary(&found.diagnostics),
+            ));
+        }
+        let Some(home) = self.home.clone() else {
+            self.announce(notice::Notice::error(
+                skill_command::TOPIC,
+                "no home directory is set, so there is no managed skill root",
+            ));
+            return;
+        };
+        let managed = crate::skills::discovery::managed_root(&home);
+        // A relative `add` source is read against the process's directory, as
+        // upstream's `realpathAlloc` reads it (`resolveInstallDirectory`).
+        let cwd = std::env::current_dir().unwrap_or_else(|_| self.workspace.clone());
+        match skill_command::execute(parsed, &found, &managed, &cwd) {
+            Outcome::OpenMenu => {
+                let query = self.editor.text().to_string();
+                self.open_skills(SkillsMenu::open(
+                    found.skills,
+                    SkillsOrigin::Command,
+                    None,
+                    &query,
+                ));
+            }
+            Outcome::Focus(name) => {
+                if let Some(menu) = SkillsMenu::focused(found.skills, &name) {
+                    self.open_skills(menu);
+                }
+            }
+            Outcome::Search(name) => {
+                self.take_draft();
+                let _ = self.editor.insert(&name);
+                self.amended(None);
+                self.open_skills(SkillsMenu::open(
+                    found.skills,
+                    SkillsOrigin::Command,
+                    None,
+                    &name,
+                ));
+            }
+            Outcome::Said(lines) => {
+                for body in lines {
+                    self.announce(notice::Notice::neutral(
+                        skill_command::topic_for(&body),
+                        body,
+                    ));
+                }
+            }
+            Outcome::Changed { said, after } => {
+                for body in said {
+                    self.announce(notice::Notice::neutral(
+                        skill_command::topic_for(&body),
+                        body,
+                    ));
+                }
+                let generation = self.skills.request();
+                self.skills.wait(generation, Waiting::Notice(after));
+                self.settle_skills();
+            }
+        }
     }
 
     /// Puts `menu` up, and takes down what shares its slot.
@@ -4501,7 +4699,12 @@ impl Shell {
                 return true;
             }
             Action::Submit => return self.use_skill(),
+            // A `$` menu closed by Escape takes the ghost of its word with it
+            // (`cancelSkillsMenu`'s `dismissInlinePicker(.skill)`).
             Action::Escape => {
+                if menu.origin().is_mention() {
+                    self.dismissed.dismiss(Trigger::Skill);
+                }
                 self.close_skills(true);
                 return true;
             }
@@ -4542,6 +4745,17 @@ impl Shell {
             0..self.editor.text().len()
         };
         self.skills_menu = None;
+        self.bind_skill_token(target, &skill);
+        true
+    }
+
+    /// Makes `target` of the draft a token for `skill` (`bindSkillToken`,
+    /// `composer_skill_binding.zig`): the name in place of the range, a space
+    /// after it when the next character would join it to a word, and the
+    /// caret after both. The skills menu, the slash popup's skill rows and the
+    /// inline completion all bind this way. A token past the composer's budget
+    /// is refused in upstream's words.
+    fn bind_skill_token(&mut self, target: std::ops::Range<usize>, skill: &crate::skills::Skill) {
         let separator = token_separator(self.editor.text(), target.end);
         let grows = skill.name.len() + usize::from(separator);
         if !paste::fits(
@@ -4551,7 +4765,7 @@ impl Shell {
         ) {
             self.refit();
             self.over_budget();
-            return true;
+            return;
         }
         let kind = EntityKind::Skill {
             name: std::sync::Arc::from(skill.name.as_str()),
@@ -4573,7 +4787,6 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
         }
-        true
     }
 
     /// Takes the menu down (`cancelSkillsMenu`, `app_input_runtime.zig:3230-3242`):
@@ -4618,7 +4831,7 @@ impl Shell {
                 index += 1;
                 continue;
             }
-            let found = items.get_or_insert_with(|| self.discover_skills().skills);
+            let found = items.get_or_insert_with(|| self.skills.skills().to_vec());
             let menu = SkillsMenu::open(
                 found.clone(),
                 SkillsOrigin::Paste,
@@ -6410,6 +6623,15 @@ impl Shell {
                 self.replace_word(name);
                 false
             }
+            PickerOutcome::Bind(skill) => {
+                // The whole draft is the slash word ([`Trigger::of`]); it
+                // becomes the token, and the keystroke -- Tab or Enter -- is
+                // spent on that (`bindSelectedSlashSkill`).
+                self.picker = None;
+                let end = self.editor.text().len();
+                self.bind_skill_token(0..end, &skill);
+                true
+            }
             PickerOutcome::Dismiss => {
                 self.dismiss_picker();
                 true
@@ -6474,6 +6696,130 @@ impl Shell {
         // The band just gave the menu's rows back to the document.
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// The kind of completion the draft asks for, as upstream reads it ahead
+    /// of any menu (`inlinePickerTriggerKind`, `picker_state.zig:233-242`):
+    /// the `/model` and `/provider` columns' lines are theirs, then an `@`
+    /// word, a `$word`, a draft that is one slash word, and a slash word that
+    /// ends a draft ([`inline_completion`]).
+    fn completion_kind(&self) -> Option<Trigger> {
+        let text = self.editor.text();
+        if model_column::shaped_line(text) || provider_picker::is_query(text) {
+            return None;
+        }
+        let caret = self.editor.caret();
+        if file_picker::query_at(text, caret).is_some() {
+            return Some(Trigger::File);
+        }
+        if inline_completion::skill_word(text, caret).is_some() {
+            return Some(Trigger::Skill);
+        }
+        Trigger::of(text)
+            .or_else(|| inline_completion::slash_word(text, caret).map(|_| Trigger::Slash))
+    }
+
+    /// The rest of a name painted after the caret, when there is one to show
+    /// (`visibleInlineCompletion`, `input_completion_runtime.zig:598-627`).
+    ///
+    /// None under a question, or while a catalog -- `/help`, `/settings`,
+    /// `/model`'s list, the session picker, a skills menu that shows -- owns
+    /// the band (`inlineCompletionSurfaceAvailable`, `catalogMenuOwnsSurface`,
+    /// `:703-727`); none for a kind the user dismissed, nor for a slash word
+    /// the history put back until it is edited; and none when the first
+    /// character of what is left would not fit after the caret
+    /// (`inlineSuffixCanRender`).
+    fn ghost(&self) -> Option<Ghost> {
+        if self.ask.is_some() || self.asking() || self.rule_confirm.is_some() {
+            return None;
+        }
+        if self.help_menu.is_some()
+            || self.settings_menu.is_some()
+            || self.model_menu.is_some()
+            || self.sessions.is_some()
+            || self.skills_menu.as_ref().is_some_and(SkillsMenu::visible)
+        {
+            return None;
+        }
+        let kind = self.completion_kind()?;
+        if self.dismissed.holds(kind) {
+            return None;
+        }
+        let text = self.editor.text();
+        let caret = self.editor.caret();
+        let ghost = match kind {
+            Trigger::Skill => {
+                let dollar = inline_completion::skill_word(text, caret)?;
+                let (skill, suffix) =
+                    inline_completion::first_skill(self.skills.skills(), &text[dollar + 1..])?;
+                Ghost::Skill {
+                    skill: skill.clone(),
+                    suffix: suffix.to_string(),
+                    word: dollar..caret,
+                }
+            }
+            Trigger::Slash if !self.recalled_slash => {
+                let word = inline_completion::slash_word(text, caret)?;
+                let name =
+                    inline_completion::first_command(crate::interactive::SLASH_REGISTRY, word)?;
+                Ghost::Slash {
+                    suffix: &name[word.len()..],
+                }
+            }
+            Trigger::Slash | Trigger::File => return None,
+        };
+        let cols = self.text_cols();
+        let (_, column) = self.editor.point(cols);
+        inline_completion::can_render(ghost.suffix(), cols.saturating_sub(column)).then_some(ghost)
+    }
+
+    /// Takes the ghost, for Right or Tab, and says whether there was one
+    /// (`autocompleteInlineCompletion`, `input_completion_runtime.zig:629-640`):
+    /// a skill's becomes its token in place of the `$word`, as the menu's
+    /// choice does (`bindInlineSkillCompletion`); a command's rest is typed
+    /// after the caret, with no space. One past the budget is refused in
+    /// upstream's words, and the keystroke is spent on that.
+    fn take_ghost(&mut self) -> bool {
+        let Some(ghost) = self.ghost() else {
+            return false;
+        };
+        match ghost {
+            Ghost::Skill { skill, word, .. } => self.bind_skill_token(word, &skill),
+            Ghost::Slash { suffix } => {
+                if !paste::fits(
+                    self.editor.text().len(),
+                    self.editor.retained(),
+                    suffix.len(),
+                ) {
+                    self.over_budget();
+                    return true;
+                }
+                if let Some(delta) = self.editor.insert(suffix) {
+                    self.amended(Some(delta));
+                }
+            }
+        }
+        true
+    }
+
+    /// Whether an Escape now would dismiss the ghost (`visibleInlinePickerKind`,
+    /// `input_completion_runtime.zig:135-162`): with a turn running only a
+    /// command's is, and Escape goes on to arm the interrupt over a skill's.
+    fn ghost_dismissible(&self) -> bool {
+        match self.ghost() {
+            Some(Ghost::Skill { .. }) => !self.activity.working(),
+            Some(Ghost::Slash { .. }) => true,
+            None => false,
+        }
+    }
+
+    /// Escape over the ghost: its kind is dismissed until the draft stops
+    /// being that kind (`dismissVisibleInlinePicker`).
+    fn dismiss_ghost(&mut self) {
+        if let Some(kind) = self.completion_kind() {
+            self.dismissed.dismiss(kind);
+        }
+        self.render.request(Reason::Footer);
     }
 
     /// Settles what menu the draft is asking for, if any.
@@ -6564,12 +6910,22 @@ impl Shell {
         } else {
             file_picker::query_at(self.editor.text(), self.editor.caret())
         };
+        // Then a `$word` and a slash word, whose kinds a dismissal also lasts
+        // while (`suppressionAfterEdit`, `picker_state.zig:456-467`).
         let trigger = if file.is_some() {
             Some(Trigger::File)
         } else {
-            Trigger::of(self.editor.text())
+            self.completion_kind()
         };
         if !self.dismissed.admits(trigger) {
+            self.picker = None;
+            self.file_picker = None;
+            return;
+        }
+        // A `$word` is the skill ghost's and the `$` menu's, never the slash
+        // popup's -- `/he$x` included (`slashCompletionQueryActive` asks for the
+        // `.slash` kind).
+        if trigger == Some(Trigger::Skill) {
             self.picker = None;
             self.file_picker = None;
             return;
@@ -6614,7 +6970,7 @@ impl Shell {
             return;
         }
         let query = self.editor.text().to_string();
-        self.picker = Picker::open(&query);
+        self.picker = Picker::open(&query, self.skills.skills());
     }
 
     /// Settles the `/provider` column for the draft, and says whether the
@@ -7884,6 +8240,8 @@ impl Shell {
         self.settle_clipboard_reads();
         // So is a file index or a directory listing.
         self.settle_files();
+        // And the skills the band offers.
+        self.settle_skills();
         // And a report.
         self.settle_traces();
         // And so is a `/sound` save, and a line the history kept.
@@ -8904,6 +9262,7 @@ impl Shell {
                         || self.settings_menu.is_some()
                         || self.picker.is_some()
                         || self.full.is_open()
+                        || self.ghost_dismissible()
                 }
                 _ => true,
             };
@@ -9087,7 +9446,10 @@ impl Shell {
             self.column_edit = ColumnEdit::Typed;
             // Opened once the `$` is in, so the edit's own reconcile reads it.
             if mention {
-                let items = self.discover_skills().skills;
+                // A new episode: a dismissed ghost is forgotten
+                // (`resetInlinePickerEpisode`, `app_input_runtime.zig:1634`).
+                self.dismissed.forget();
+                let items = self.skills.skills().to_vec();
                 self.skills_menu = Some(SkillsMenu::open(
                     items,
                     SkillsOrigin::Dollar,
@@ -9188,6 +9550,9 @@ impl Shell {
             // else and the text does not change, so a recalled line is still
             // the line on the screen and the walk stays open. Reading a
             // recalled prompt before stepping further back is exactly this.
+            // Right takes the ghost after the caret first, with nothing
+            // selected (`.character_right`, `app_input_runtime.zig:282-312`).
+            Action::Right if self.editor.selection().is_none() && self.take_ghost() => {}
             Action::Left
             | Action::Right
             | Action::Home
@@ -9333,6 +9698,9 @@ impl Shell {
             // A compaction's sentence goes first, and that is all this Escape
             // does (`dismissCompactionFeedback`, `app_input_runtime.zig:3158`,
             // `:3208`).
+            // The ghost after the caret goes before a compaction's sentence
+            // (`dismissVisibleInlinePicker`, `app_input_runtime.zig:3152-3157`).
+            Action::Escape if self.ghost_dismissible() => self.dismiss_ghost(),
             Action::Escape if self.compaction_dismissible(now) => {
                 self.compaction = None;
                 self.settle_band(now);
@@ -9496,7 +9864,12 @@ impl Shell {
                     self.pending_cut = Some((self.cuts, self.editor.text().to_string(), range));
                 }
             }
-            Action::Tab | Action::Ignore => {}
+            // Tab with nothing else to complete takes the ghost after the
+            // caret (`handleComposerByte`'s `'\t'`, `app_input_runtime.zig:1505-1510`).
+            Action::Tab => {
+                self.take_ghost();
+            }
+            Action::Ignore => {}
         }
     }
 
@@ -10448,61 +10821,22 @@ impl CommandHandlers for Shell {
     /// neutral notices under `skills`, the usage line under no topic. What
     /// discovery skipped is said first, as a warning (`writeSkillDiagnosticNotice`).
     fn skills(&mut self, argument: &str) {
-        use crate::skills::command::{self as skill_command, Outcome};
-        let found = self.discover_skills();
-        if !found.diagnostics.is_empty() {
-            self.announce(notice::Notice::warning(
-                skill_command::TOPIC,
-                crate::skills::diagnostic_summary(&found.diagnostics),
-            ));
-        }
-        let Some(home) = self.home.clone() else {
-            self.announce(notice::Notice::error(
-                skill_command::TOPIC,
-                "no home directory is set, so there is no managed skill root",
-            ));
-            return;
-        };
-        let managed = crate::skills::discovery::managed_root(&home);
-        // A relative `add` source is read against the process's directory, as
-        // upstream's `realpathAlloc` reads it (`resolveInstallDirectory`).
-        let cwd = std::env::current_dir().unwrap_or_else(|_| self.workspace.clone());
+        use crate::skills::command::{self as skill_command, Command};
         let parsed = skill_command::parse(argument);
-        match skill_command::execute(&parsed, &found, &managed, &cwd) {
-            Outcome::OpenMenu => {
-                let query = self.editor.text().to_string();
-                self.open_skills(SkillsMenu::open(
-                    found.skills,
-                    SkillsOrigin::Command,
-                    None,
-                    &query,
-                ));
+        // The menu's forms wait for a fresh list and act when it lands
+        // (`queueRefreshAction`, `app_commands.zig:1752-1768`): a skill added
+        // in another window is in it. The rest act on the list held now.
+        let waiting = match &parsed {
+            Command::List => Waiting::List,
+            Command::Show(name) => Waiting::Show(name.clone()),
+            _ => {
+                self.answer_skills(&parsed);
+                return;
             }
-            Outcome::Focus(name) => {
-                if let Some(menu) = SkillsMenu::focused(found.skills, &name) {
-                    self.open_skills(menu);
-                }
-            }
-            Outcome::Search(name) => {
-                self.take_draft();
-                let _ = self.editor.insert(&name);
-                self.amended(None);
-                self.open_skills(SkillsMenu::open(
-                    found.skills,
-                    SkillsOrigin::Command,
-                    None,
-                    &name,
-                ));
-            }
-            Outcome::Said(lines) => {
-                for body in lines {
-                    self.announce(notice::Notice::neutral(
-                        skill_command::topic_for(&body),
-                        body,
-                    ));
-                }
-            }
-        }
+        };
+        let generation = self.skills.request();
+        self.skills.wait(generation, waiting);
+        self.settle_skills();
     }
 
     /// Opens the catalog (`commandShowHelp`, `app_commands.zig:700-706`):
@@ -12212,7 +12546,15 @@ impl Shell {
         // [`Self::take_draft`], which is why the boundary is named here.
         self.edit_history.boundary();
         self.images_next = images;
-        self.recalled_slash = Trigger::of(self.editor.text()) == Some(Trigger::Slash);
+        // A recall is a new episode (`resetInlinePickerForHistoryRecall`,
+        // `picker_state.zig:149-154`): what was dismissed is forgotten -- an
+        // `@` word's aside, which this session keeps closed across a recall --
+        // and a slash line, the popup's or the ghost's, stays closed until it
+        // is edited.
+        if !self.dismissed.holds(Trigger::File) {
+            self.dismissed.forget();
+        }
+        self.recalled_slash = self.completion_kind() == Some(Trigger::Slash);
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited(None);
         true
@@ -19103,7 +19445,9 @@ mod tests {
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/skills" {
                 // A bare `/skills` is upstream's menu (`cap/fx-skills-40x120-menu`),
-                // in the band, writing nothing -- here over no skills at all.
+                // in the band once the refresh it asked for lands, writing
+                // nothing -- here over no skills at all.
+                skills_landed(&mut shell);
                 assert!(shell.skills_menu.is_some(), "/skills opened no menu");
                 assert!(
                     document.is_empty(),
@@ -34137,6 +34481,10 @@ mod tests {
     }
 
     fn skilled() -> Skilled {
+        skilled_at(40, 120)
+    }
+
+    fn skilled_at(rows: u16, cols: u16) -> Skilled {
         let root = tempfile::tempdir().expect("a root");
         let base = root.path().canonicalize().expect("canonical");
         let work = base.join("work");
@@ -34161,15 +34509,25 @@ mod tests {
             .expect("SKILL.md");
         }
         std::fs::create_dir_all(&home).expect("a home");
-        let mut shell = shell(40, 120);
+        let mut shell = shell(rows, cols);
         shell.workspace = work.clone();
         shell.home = Some(home.clone());
+        // The list the band reads, from these directories, landed.
+        shell.skills = HeldSkills::new(&work, Some(&home));
+        shell.skills.settle_now();
         Skilled {
             shell,
             _root: root,
             work,
             home,
         }
+    }
+
+    /// Lets every skills refresh asked for so far land, and the band take it
+    /// in, as the loop's next tick would.
+    fn skills_landed(shell: &mut Fixture) {
+        shell.skills.settle_now();
+        shell.skills_settled();
     }
 
     /// The band's rows between the composer's rule and the hint row, and the
@@ -34291,6 +34649,8 @@ mod tests {
         // `fx-skills-40x120-menu`, `-menu-down`, `-menu-esc`.
         let mut shell = skilled();
         shell.route_bytes(b"/skills\r");
+        // The menu waits for the refresh `/skills` asked for.
+        skills_landed(&mut shell);
         assert!(shell.document().is_empty(), "/skills wrote to the document");
         let band = skills_band(&shell);
         assert!(
@@ -34325,6 +34685,7 @@ mod tests {
         // `-create-bad`, `-remove-made`, `-remove-workspace`, `-bogus`.
         let mut shell = skilled();
         shell.route_bytes(b"/skills show demo\r");
+        skills_landed(&mut shell);
         assert!(skills_band(&shell).contains(&"Skills 1  All  [xfx]  Workspace".to_string()));
         escape(&mut shell);
         let home = shell.home.clone();
@@ -34350,6 +34711,7 @@ mod tests {
             ),
         ] {
             shell.route_bytes(format!("{line}\r").as_bytes());
+            skills_landed(&mut shell);
             let document = shell.document();
             // Rejoined where it wrapped: the paths here break after a `/`,
             // which leaves no space behind (`wrap::wrap_notice`).
@@ -34419,5 +34781,299 @@ mod tests {
         shell.clear_composer();
         pasted(&mut shell, "see $no-such-skill-here");
         assert!(shell.skills_menu.is_none());
+    }
+
+    /// The composer's first row with `ghost` after the text, in upstream's
+    /// dim grey closed by a reset (`appendInlineCompletionSuffix`).
+    fn ghosted(text: &str, ghost: &str) -> String {
+        format!(
+            "{}{}{ghost}{}",
+            composer_row(text),
+            PALETTE.dim(),
+            PALETTE.reset()
+        )
+    }
+
+    /// `explain $dem` with no menu up: the space that ends the `$` menu
+    /// (`dismissMentionSkillsMenuForSpace`), taken back.
+    fn dollar_word_without_a_menu(shell: &mut Fixture, word: &str) {
+        shell.route_bytes(format!("explain ${word} ").as_bytes());
+        assert!(shell.skills_menu.is_none(), "the space ended the menu");
+        shell.route_bytes(b"\x7f");
+        assert_eq!(shell.editor.text(), format!("explain ${word}"));
+    }
+
+    #[test]
+    fn a_dollar_word_with_no_menu_shows_the_rest_of_a_name_and_right_or_tab_takes_it() {
+        // `app_input_runtime Tab and Right Arrow accept visible inline skill
+        // completions` (`app_input_runtime.zig:5736-5770`).
+        for key in [&b"\x1b[C"[..], b"\t"] {
+            let mut shell = skilled();
+            dollar_word_without_a_menu(&mut shell, "dem");
+            assert_eq!(shell.band_rows()[0], ghosted("explain $dem", "o"));
+            shell.route_bytes(key);
+            assert_eq!(shell.editor.text(), "explain demo ", "{key:?}");
+            assert_eq!(shell.editor.entities().skills().len(), 1);
+            assert!(shell.ghost().is_none(), "the ghost outlived its word");
+            // The token is the turn's: the prompt says `$demo` and binds it.
+            shell.route_bytes(b"\r");
+            match shell.picks_up() {
+                TurnWork::Attached { prompt, skills, .. } => {
+                    assert_eq!(prompt, "explain $demo");
+                    assert_eq!(skills.len(), 1);
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn the_skill_ghost_hides_while_a_menu_shows_and_when_it_would_not_fit() {
+        let mut shell = skilled();
+        // The `$` menu that shows owns the band (`catalogMenuOwnsSurface`).
+        shell.route_bytes(b"explain $dem");
+        assert!(shell.skills_menu.as_ref().is_some_and(SkillsMenu::visible));
+        assert!(shell.ghost().is_none());
+        assert_eq!(shell.band_rows()[0], composer_row("explain $dem"));
+        shell.clear_composer();
+        // A first name the word does not begin: no ghost.
+        dollar_word_without_a_menu(&mut shell, "emo");
+        assert!(shell.ghost().is_none());
+        shell.clear_composer();
+        // `/help`'s catalog over a `$word`.
+        dollar_word_without_a_menu(&mut shell, "dem");
+        assert!(shell.ghost().is_some());
+        shell.help_menu = Some(HelpMenu::open(""));
+        assert!(shell.ghost().is_none());
+        shell.help_menu = None;
+        // No cell left after the caret (`inline skill completion stays
+        // inactive when its suffix cannot render`): 20 columns hold `┃ ` and
+        // the 18 cells of `explain thing $dem`, and not one more.
+        let mut narrow = skilled_at(40, 20);
+        narrow.route_bytes(b"explain thing $dem \x7f");
+        assert_eq!(narrow.editor.text(), "explain thing $dem");
+        assert!(narrow.ghost().is_none());
+        narrow.route_bytes(b"\x1b[C");
+        assert_eq!(
+            narrow.editor.text(),
+            "explain thing $dem",
+            "Right took a ghost not shown"
+        );
+        // One column more and it shows, cut to the cell it has.
+        let mut room = skilled_at(40, 21);
+        room.route_bytes(b"explain things $de \x7f");
+        assert_eq!(room.band_rows()[0], ghosted("explain things $de", "m"));
+    }
+
+    #[test]
+    fn escape_dismisses_the_skill_ghost_until_the_word_stops_being_one() {
+        // `app_input_runtime Escape dismisses an idle inline skill completion`.
+        let mut shell = skilled();
+        dollar_word_without_a_menu(&mut shell, "de");
+        assert_eq!(shell.band_rows()[0], ghosted("explain $de", "mo"));
+        escape(&mut shell);
+        assert_eq!(shell.editor.text(), "explain $de", "Escape took the draft");
+        assert!(shell.ghost().is_none());
+        assert!(
+            !shell.gestures.escape_armed(Instant::now()),
+            "Escape armed the clear"
+        );
+        // The same word, grown: still dismissed.
+        shell.route_bytes(b"m");
+        assert!(shell.ghost().is_none());
+        // A word that stopped being one forgets it.
+        shell.route_bytes(b" \x7f");
+        assert_eq!(shell.band_rows()[0], ghosted("explain $dem", "o"));
+        // Escape on the `$` menu takes its word's ghost with it
+        // (`cancelSkillsMenu`), and a `$` typed again forgets that.
+        shell.clear_composer();
+        shell.route_bytes(b"go $de");
+        assert!(shell.skills_menu.is_some());
+        escape(&mut shell);
+        assert!(shell.skills_menu.is_none());
+        assert_eq!(shell.editor.text(), "go $de");
+        assert!(shell.ghost().is_none(), "the menu's Escape left the ghost");
+        shell.route_bytes(b" $");
+        assert!(shell.skills_menu.is_some());
+        assert!(!shell.dismissed.holds(Trigger::Skill));
+    }
+
+    #[test]
+    fn with_a_turn_running_escape_arms_the_interrupt_over_a_skill_ghost() {
+        // `active operation Escape keeps precedence over inline skill dismissal`.
+        let mut shell = skilled();
+        shell.route_bytes(b"first\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        assert!(shell.activity.working());
+        dollar_word_without_a_menu(&mut shell, "dem");
+        assert!(shell.ghost().is_some());
+        assert!(!shell.ghost_dismissible());
+        escape(&mut shell);
+        assert!(
+            shell.ghost().is_some(),
+            "Escape dismissed the ghost mid-turn"
+        );
+    }
+
+    #[test]
+    fn a_slash_word_after_other_words_shows_the_rest_of_a_command() {
+        // `inline slash completion uses the shared visible suffix and
+        // acceptance path` and `Tab and Right Arrow accept visible inline
+        // slash completions` (`app_input_runtime.zig:5772-5800`).
+        for key in [&b"\x1b[C"[..], b"\t"] {
+            let mut shell = skilled();
+            shell.route_bytes(b"explain /he");
+            assert!(
+                shell.picker.is_none(),
+                "a slash word mid-draft is not the popup's"
+            );
+            assert_eq!(shell.band_rows()[0], ghosted("explain /he", "lp"));
+            shell.route_bytes(key);
+            assert_eq!(shell.editor.text(), "explain /help", "no space after it");
+            assert!(shell.ghost().is_none());
+        }
+        // Enter sends the draft as it is, the ghost not in it.
+        let mut shell = skilled();
+        shell.route_bytes(b"explain /he\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("explain /he".to_string())
+        );
+        // Escape dismisses it, the draft kept; the next letter keeps it so.
+        shell.route_bytes(b"explain /he");
+        escape(&mut shell);
+        assert_eq!(shell.editor.text(), "explain /he");
+        assert!(shell.ghost().is_none());
+        shell.route_bytes(b"l");
+        assert!(shell.ghost().is_none());
+        // A draft that is one slash word is the popup's and has no ghost.
+        shell.clear_composer();
+        shell.route_bytes(b"/he");
+        assert!(shell.picker.is_some());
+        assert!(shell.ghost().is_none());
+        // Nothing after the slash, or a name no command begins: no ghost.
+        shell.clear_composer();
+        shell.route_bytes(b"explain /");
+        assert!(shell.ghost().is_none());
+        shell.route_bytes(b"zz");
+        assert!(shell.ghost().is_none());
+    }
+
+    #[test]
+    fn a_recalled_slash_word_shows_no_ghost_until_it_is_edited() {
+        // `history_slash_recall_until_edit` (`picker_state.zig:149-154`).
+        let mut shell = skilled();
+        shell.route_bytes(b"explain /he\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "explain /he");
+        assert!(
+            shell.ghost().is_none(),
+            "a recalled slash word showed a ghost"
+        );
+        shell.route_bytes(b"l");
+        assert_eq!(shell.band_rows()[0], ghosted("explain /hel", "p"));
+    }
+
+    #[test]
+    fn what_a_change_to_the_managed_root_says_waits_for_the_list_that_holds_it() {
+        // `queueSkillsNoticeAfterRefresh` (`app_commands.zig:1943-1951`): the
+        // sentence is said once the refresh it asked for lands, and the list
+        // it lands holds the change.
+        let mut shell = skilled();
+        let home = shell.home.clone();
+        shell.route_bytes(b"/skills create made\r");
+        skills_landed(&mut shell);
+        let file = home.join(".xfx/skills/made/SKILL.md");
+        assert!(
+            joined(&shell.document()).contains(&format!("skills: Created {}", file.display())),
+            "{:#?}",
+            shell.document()
+        );
+        assert!(shell
+            .skills
+            .skills()
+            .iter()
+            .any(|skill| skill.name == "made"));
+        // An install says it is starting at once and what it installed after.
+        let source = shell.work.join("skill-src/foo");
+        std::fs::create_dir_all(&source).expect("a source");
+        std::fs::write(source.join("SKILL.md"), "---\nname: foo\n---\n").expect("SKILL.md");
+        let line = format!("/skills add {}\r", shell.work.join("skill-src").display());
+        shell.route_bytes(line.as_bytes());
+        skills_landed(&mut shell);
+        let document = joined(&shell.document());
+        let starting = document.find("skills: Installing from").expect("the start");
+        let installed = document.find("skills: Installed: foo").expect("the result");
+        assert!(starting < installed, "{document}");
+        assert!(shell
+            .skills
+            .skills()
+            .iter()
+            .any(|skill| skill.name == "foo"));
+        // A refusal is said at once.
+        shell.route_bytes(b"/skills create ../escape\r");
+        assert!(joined(&shell.document()).contains("Invalid skill name."));
+    }
+
+    #[test]
+    fn the_launch_list_says_what_discovery_skipped_once_it_lands() {
+        // `beginStartupSkillsLoad`'s `startup_notice`
+        // (`app_bootstrap_runtime.zig:278-289`, `app_commands.zig:1790`).
+        let mut shell = skilled();
+        let bad = shell.work.join(".xfx/skills/bad");
+        std::fs::create_dir_all(&bad).expect("a candidate");
+        std::fs::write(bad.join("SKILL.md"), "---\ndescription: no name\n---\n").expect("SKILL.md");
+        let (work, home) = (shell.work.clone(), shell.home.clone());
+        shell.skills = HeldSkills::new(&work, Some(&home));
+        skills_landed(&mut shell);
+        let document = joined(&shell.document());
+        assert!(
+            document.contains("skills: skill discovery warning: candidate"),
+            "{document}"
+        );
+        // Once: a later landing says nothing more on its own.
+        let before = shell.document().len();
+        shell.skills.request();
+        skills_landed(&mut shell);
+        assert_eq!(shell.document().len(), before);
+    }
+
+    #[test]
+    fn a_list_that_lands_after_the_slash_popup_opened_keeps_its_mark() {
+        // The popup reads the runtime's list each frame (`prepareSlashMenu`
+        // over `app.skills.items`), and its index stays where it was.
+        let mut shell = skilled();
+        shell.route_bytes(b"/");
+        let commands = crate::interactive::SLASH_REGISTRY.len();
+        for _ in 0..3 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        assert_eq!(
+            shell.picker.as_ref().expect("the popup").marked(),
+            (3, commands + 2)
+        );
+        shell.skills.request();
+        skills_landed(&mut shell);
+        assert_eq!(
+            shell.picker.as_ref().expect("the popup").marked(),
+            (3, commands + 2)
+        );
+        // A query no command answers opens once a skill does.
+        let mut late = skilled();
+        let empty = tempfile::tempdir().expect("an empty workspace");
+        late.skills = HeldSkills::new(empty.path(), Some(empty.path()));
+        late.skills.settle_now();
+        late.skills_settled();
+        late.route_bytes(b"/dem");
+        assert!(late.picker.is_none());
+        let (work, home) = (late.work.clone(), late.home.clone());
+        late.skills = HeldSkills::new(&work, Some(&home));
+        skills_landed(&mut late);
+        assert!(
+            late.picker.is_some(),
+            "the popup did not open for the skill that landed"
+        );
     }
 }

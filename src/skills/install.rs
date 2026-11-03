@@ -41,29 +41,44 @@ const TRANSACTION_ATTEMPTS: usize = 8;
 /// (`installCommandResult` and the `.installed` arm of
 /// `applySkillsCommandResult`, `app_commands.zig:1919-1940`).
 pub fn install(managed: &Path, source: &str, filter: Option<&str>, cwd: &Path) -> String {
+    match installed(managed, source, filter, cwd) {
+        Ok(said) | Err(said) => said,
+    }
+}
+
+/// [`install`], split by whether anything was installed: `Ok` is the
+/// `Installed: <name>` lines upstream says once the list it reloads lands
+/// (`queueSkillsNoticeAfterRefresh`, `app_commands.zig:1928-1951`), `Err` the
+/// refusal it says at once.
+pub fn installed(
+    managed: &Path,
+    source: &str,
+    filter: Option<&str>,
+    cwd: &Path,
+) -> Result<String, String> {
     let Ok((source, filter)) = normalize(source, filter) else {
-        return FAILED.to_string();
+        return Err(FAILED.to_string());
     };
     let Some(directory) = local_directory(&source, cwd) else {
         // Upstream would clone `https://github.com/<source>.git` here; xfx
         // answers as a clone that failed would be answered.
-        return FAILED.to_string();
+        return Err(FAILED.to_string());
     };
     let fallback = directory
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
     match install_directory(managed, &directory, &fallback, filter.as_deref()) {
-        Err(_) => FAILED.to_string(),
-        Ok(installed) if installed.is_empty() => match filter {
+        Err(_) => Err(FAILED.to_string()),
+        Ok(installed) if installed.is_empty() => Err(match filter {
             Some(filter) => format!("Skill '{filter}' not found in the repository."),
             None => "No skills found (no SKILL.md files).".to_string(),
-        },
-        Ok(installed) => installed
+        }),
+        Ok(installed) => Ok(installed
             .iter()
             .map(|name| format!("Installed: {name}"))
             .collect::<Vec<_>>()
-            .join("\n"),
+            .join("\n")),
     }
 }
 
