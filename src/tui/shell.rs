@@ -951,6 +951,13 @@ pub(crate) struct Shell {
     /// what makes the blink a multiple of that tick rather than a second clock
     /// beside it.
     phase: u8,
+    /// Whether the animation tick has turned over since the column last
+    /// looked ([`Self::settle_column`]): a frame upstream draws every 50 ms
+    /// while a stream runs whether or not a row changed
+    /// (`requestAnimationDue`, `ui/render_request.zig:236-248`), and this band
+    /// skips painting when nothing did -- but the column asks at it all the
+    /// same, as upstream's frame does.
+    animation_turned: bool,
     /// The question the turn is waiting on an answer to, while it is waiting.
     ///
     /// `Some` is the whole of "the panel has the focus": the band paints it,
@@ -2012,6 +2019,7 @@ impl Shell {
             compaction: None,
             activity: Activity::new(),
             phase: 0,
+            animation_turned: false,
             panel: None,
             alternate: None,
             asked_id: None,
@@ -8346,6 +8354,7 @@ impl Shell {
             .animate(self.activity.working() || self.compacting(), now)
         {
             self.phase = (self.phase + 1) % PHASES;
+            self.animation_turned = true;
         }
         let output = self.tally.output();
         let colours = super::activity::Colours {
@@ -11222,13 +11231,16 @@ impl Shell {
     /// ([`super::render_request::ANIMATION_TICK`]) -- upstream's are its 50 ms
     /// animation frames while a stream runs (`advanceVisibleAnimation`,
     /// `app_worker_runtime.zig:840-875`; `animation_interval_ms`,
-    /// `ui/render_request.zig:68`). With none of those an idle tick owes no
-    /// frame, paints nothing and asks nothing, here and upstream
-    /// (`flushRequestedFrame` begins no attempt without a request,
-    /// `app_render_runtime.zig:928-929`): the column says `unable to load
-    /// models` until the next keystroke.
+    /// `ui/render_request.zig:68`). That tick counts whether or not this band
+    /// paints it ([`Self::animation_turned`]): upstream draws every one, and
+    /// a band that waited for the row to change would ask up to half a second
+    /// late. With none of those an idle tick owes no frame, paints nothing and
+    /// asks nothing, here and upstream (`flushRequestedFrame` begins no
+    /// attempt without a request, `app_render_runtime.zig:928-929`): the
+    /// column says `unable to load models` until the next keystroke.
     pub(crate) fn settle_column(&mut self, now: Instant) {
-        if !self.render.owed() || !matches!(self.slot(), Some(Slot::Column)) {
+        let ticked = std::mem::take(&mut self.animation_turned);
+        if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
             return;
         }
         let Some(query) = self.column.active(self.editor.text()) else {
@@ -11245,6 +11257,8 @@ impl Shell {
         }
         self.work.control(TurnControl::Catalog);
         self.catalog_known = CatalogKnown::Asked;
+        // The column says `loading models...` now, in this frame.
+        self.render.request(Reason::Modal);
     }
 
     /// Asks for `query`, typed after `/model`, with the router form's meaning
@@ -23632,11 +23646,17 @@ mod tests {
         assert!(!shell.render.owed());
         shell.settle_column(Instant::now());
         assert!(shell.controlled().is_none(), "an idle tick asked");
-        // The next frame -- the activity row's tick, say -- asks, once, and
-        // that frame says so.
-        shell.shell.render.request(Reason::Animation);
+        // The activity row's tick turning over while a turn works -- a frame
+        // upstream draws every 50 ms, though no row of this band changed and
+        // none is owed -- asks, once, and asks for the frame that says so.
+        shell.shell.animation_turned = true;
+        assert!(!shell.render.owed());
         shell.settle_column(Instant::now());
         assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert!(
+            shell.render.owed(),
+            "the frame that says so was not asked for"
+        );
         assert_eq!(column(&shell)[0], "         loading models...");
         shell.settle_column(Instant::now());
         assert!(shell.controlled().is_none(), "asked twice for one read");
