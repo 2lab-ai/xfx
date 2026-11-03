@@ -284,3 +284,17 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 - 2026-11-04: batch 37 (`4517d22e`: SEC-C5g, C5h, A4g) lib 3637 / FI 3644, permissions 158; batch 38 (`c4d8fd63`: SEC-C4g) lib 3642 / FI 3649; tui 163 / FI 177, 0 failed, clippy 0 both. C5g reproduced the staged bare-repo bootstrap (every step auto-admitted) before fixing it.
 - 2026-11-04: batch 39 (`4423df8e`: SEC-C4h, A4h) lib 3646 / FI 3653, permissions 158; batch 40 (`ceae9b35`: SEC-C5i); tui 163 / FI 177, 0 failed, clippy 0 both. SEC-C5 closed in round 6.
 - 2026-11-04: rounds 3–6 of the P2 security review. Reports and per-round status: zbrain `workflow/2lab-ai/repos/xfx-tui-phase4/p2-sec/round{3,4,5,6}/`. SEC-C5 closed in round 6 (gpt-6 and opus MUST none on `e8d6da61`); SEC-A4d and SEC-C4 continue.
+
+## R41 — closed 2026-11-04
+
+- result: SEC-A4d closed in review round 6 (both engines MUST none); its last product commit `92593b85` landed in batch 37, A4h (tests and docs) in batch 39.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| SEC-A4d | ✅ | follow-ups to SEC-A4: cluster pass (A4d), modifier/oversized/lone-indicator (A4e), full two-terminal sweep table — 1,111,999 scalars, 3,892 drawn wider (A4f), the invariant as the final pass + seeded property test (A4g), pins and version tie (A4h) — batches 32–39 | `fix/p2sec-ignorable-cp-d` @ `84c5be13` | **closed round 6**: gpt-6 MUST none on `92593b85`, opus MUST none on `84c5be13` (A4h tests and docs only) |
+
+### Round section (as it was in loop.md)
+
+- A4's review ran four more rounds after round 3 (A4d–A4h); the fixes moved from naming instances to a measured allowlist (every scalar on both terminals) enforced as a postcondition with a property test. Reports: zbrain `p2-sec/round{4,5,6}/reviews/A4*`.
