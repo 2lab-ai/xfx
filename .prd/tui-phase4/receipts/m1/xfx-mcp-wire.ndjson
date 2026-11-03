@@ -1,4 +1,4 @@
-{"pid":1979,"sequence":1,"message":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"xfx","version":"0.1.0"}}}}
-{"pid":1979,"sequence":2,"message":{"jsonrpc":"2.0","method":"notifications/initialized"}}
-{"pid":1979,"sequence":3,"message":{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}}
-{"pid":1979,"sequence":4,"message":{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}}}
+{"pid":25130,"sequence":1,"message":{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"xfx","version":"0.1.0"}}}}
+{"pid":25130,"sequence":2,"message":{"jsonrpc":"2.0","method":"notifications/initialized"}}
+{"pid":25130,"sequence":3,"message":{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}}
+{"pid":25130,"sequence":4,"message":{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"progressToken":2},"name":"echo","arguments":{"text":"hi"}}}}

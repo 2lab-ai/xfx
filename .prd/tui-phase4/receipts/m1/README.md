@@ -24,9 +24,18 @@ scenarios and `scenarios/mcp-ws/.mcp.json` say `<fixtures>/mcp-legacy-stdio.mjs`
 The fx captures of `mcp-empty` and `mcp-fixture` are the research captures
 (`research/media-ext/cap/`, same binary, same scenarios); `mcp-wire` was taken
 on both sides in this unit. The xfx binary is `target/debug/xfx` built at
-`cda5004` -- the unit with `plan/tui-phase4` `276e805` merged, which is what
-its banner says -- and every xfx file here was retaken with it. Same driver guards as every receipt: isolated tmux socket,
-empty `HOME`, fake key, loopback fake gateway, browser/clipboard/sound shims.
+`3776cad` -- the unit with `plan/tui-phase4` `d91a996` merged, which is what
+its banner says -- and every xfx file here was retaken with it on 2026-11-03.
+Against the take before it (at `cda5004`), the request bodies and the
+fixture's frames are byte for byte the same; what moved is each run's own:
+ports, pids, clocks, session ids, and the byte counts `.files` gives for a
+file that names the scenario directory. Same driver guards as every receipt:
+isolated tmux socket, empty `HOME`, fake key, loopback fake gateway,
+browser/clipboard/sound shims, and, since `d91a996`, `FX_AUTO_UPGRADE=0` on
+every fx run (`main.zig:727-733`): without it fx 0.0.13 installs the latest
+release over the binary it was started from about ten seconds after launch
+(`auto_upgrade.zig:9-10`), which on 2026-11-03 replaced the reference build
+with v0.0.16.
 
 **Sanitized after comparison**, the same way on both sides: the session
 scratch directory is written `<session>`, the scenario directory `<fixtures>`,
@@ -39,26 +48,28 @@ was edited. `.ansi` files are tmux's re-serialization of cell attributes
 
 **40 snap pairs; in 38 the only row that differs is row 1 (each product's
 banner).** The other two (`mcp-wire` `turn` and `end.full`) differ in row 1
-and in one more row, the turn's wall time (fx `1s`, xfx `2s` at this take, `0s` at an earlier one): each run's own clock.
-Compared with `sgr.py` row by row in text and SGR, row 1 removed, run
-directories and `.fx`/`.xfx` normalized.
+and in one more row, the turn's wall time (fx `1s`, xfx `0s` at this take, `2s` and `0s` at earlier ones): each run's own clock.
+Compared with the research's `sgr.py` row by row in text and SGR, row 1
+removed, run directories and `.fx`/`.xfx` normalized; at this take, with
+`cells.py` (next section), with the same result.
 
 | scenario | snaps | verdict |
 |---|---|---|
 | `mcp-empty` | `menu`, `menu-down`, `menu-tools`, `menu-esc`, `list`, `path`, `reload`, `auth-bare`, `auth-nope`, `logout-nope`, `remove-nope`, `add-bare`, `resource-nope`, `prompt-bare`, `trust-bare`, `bogus` | identical (row 1 only) |
 | `mcp-fixture` | `startup` (trust prompt), `rejected`, `list-rejected`, `added`, `menu`, `menu-down`, `menu-tools`, `menu-resources`, `menu-prompts`, `list`, `resource-list`, `resource-read`, `prompt-list`, `prompt-get`, `auth-stdio`, `logout-stdio`, `turn`, `trust-approve`, `removed`, `trust-reset`, `end.full` | identical (row 1 only) |
 | `mcp-wire` | `added` | identical (row 1 only) |
-| `mcp-wire` | `turn`, `end.full` | row 1, and the summary's wall time, fx `1s` / xfx `2s` (row 18) -- the `├ Ran MCP mcp_fixture_echo` row, its emphasis on `MCP`, and every tool row and result identical |
+| `mcp-wire` | `turn`, `end.full` | row 1, and the summary's wall time, fx `1s` / xfx `0s` (row 18) -- the `├ Ran MCP mcp_fixture_echo` row, its emphasis on `MCP`, and every tool row and result identical |
 
 ## The menu's own screens (`mcp-menu-screens`)
 
 fx: the files are the take of 2026-10-07, with the c1db919 build (banner
-`v0.0.13`). A second take on 2026-11-03 gave the same 13 snaps byte for byte.
-It used another c1db919 build, which carries the `c1db919112c5` stamp and
-started as `v0.0.13`. xfx: taken
-2026-11-03 with `target/debug/xfx` built at `2bc6d8b` (its banner). Neither
-side needed sanitizing; `end.files` writes the run directory `<scratch>`, as
-the driver always does.
+`v0.0.13`). A second take on 2026-11-03 gave the same 13 snaps byte for byte;
+it used the reference rebuilt from c1db9191 (ReleaseSafe, `--version`
+0.0.13) under `FX_AUTO_UPGRADE=0`. Its `end.files` differs from the first in
+the session's id, its clocks and its pid. xfx: taken 2026-11-03 with
+`target/debug/xfx` built at `3776cad` (its banner). Neither side needed
+sanitizing; `end.files` writes the run directory `<scratch>`, as the driver
+always does.
 
 Compared with `cells.py` (this directory), which compares **cells**, not the
 text of the `.ansi` file: every printed character, its column and the
@@ -70,7 +81,7 @@ pair in this directory, it finds no row that differs except the `mcp-wire`
 wall time above.
 
 **Nothing in the menu needed a fix at this take.** The two differences this
-scenario found were fixed in `2bc6d8b`, the commit before it: the
+scenario found were fixed in `2bc6d8b`, before the receipt was written: the
 `Capabilities` fact of a server that is not ready, and `ConnectionRefused` as
 the `Error` of an HTTP server nothing listens on (`server_views.zig:130-150`,
 `catalog_state.zig:23-66`).
@@ -97,8 +108,9 @@ the clear. In `menu`, `details-esc` and `confirm-reset-esc` the `.ansi` text of
 the first server row differs: xfx's file ends the row's run with `\e[0m` on
 that row, fx's at the head of the next. That is where tmux writes the reset,
 not what is on the screen. The terminal bytes of those three frames
-(`capture.sh`'s `wire` verb, taken separately) show the reason. When the menu
-opens and when Escape leaves the details, fx repaints the whole screen with
+(`capture.sh`'s `wire` verb, taken separately with the same two builds) show
+the reason. When the menu opens and when Escape leaves the details, fx
+repaints the whole screen with
 `CUP`+`2K` on each of the 40 rows (`terminal_diff.zig:619-631`, `:1160-1166`).
 Its later diffs write only as far as the last changed column
 (`engine.zig:2369-2444`). So row 17 holds no cell after `Profile`. xfx ended

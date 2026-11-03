@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-cda5004 [debug] · Run /help for commands
+x𝒇x v0.1.0-3776cad [debug] · Run /help for commands
 
 * mcp: <scratch>/home/.xfx/mcp.json
 
