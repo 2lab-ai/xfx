@@ -1484,9 +1484,16 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                     ))
                 }
             }
+            // **Flattened, on any stream.** A failure quotes what it failed
+            // on, and that is often the model's -- a tool name it invented, a
+            // call id it reused -- or a server's. Raw, a conceal or a scroll
+            // region in it would outlive the turn and be in force when the
+            // next one asks a question; a line break would forge a line of
+            // xfx's own. xfx's own sentences carry no control, so blanking the
+            // class ([`one_line`]) changes nothing a person was meant to read.
             Event::Error { message } => {
                 self.end_line()?;
-                self.diagnostics.write_all(message.as_bytes())?;
+                self.diagnostics.write_all(one_line(message).as_bytes())?;
                 self.diagnostics.write_all(b"\n")?;
                 self.diagnostics.flush()
             }
@@ -1973,9 +1980,12 @@ mod tests {
     #[test]
     fn an_answer_reaches_a_terminal_inert_and_anything_else_byte_for_byte() {
         // Conceal, a colour, a scroll region, a title with its BEL, the C1
-        // CSI and a DEL: state a terminal would keep. The line break, the
-        // CRLF's carriage return and the tab are a reader's text and stay.
-        let answer = "a\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\u{1b}]0;t\u{7}\u{9b}8m\u{7f}\n\tb\r\n";
+        // CSI, a DEL, shift-out (G1), and the C1 DCS and OSC with their ST:
+        // state a terminal would keep. A list of known sequences would miss
+        // the next one; the whole class goes. The line break, the CRLF's
+        // carriage return and the tab are a reader's text and stay.
+        let answer = "a\u{1b}[8m\u{1b}[30;40m\u{1b}[2;3r\u{1b}]0;t\u{7}\u{9b}8m\u{7f}\
+                      \u{e}\u{90}q\u{9c}\u{9d}2;t\u{9c}\n\tb\r\n";
         let delta = Event::AssistantDelta {
             text: answer.to_string(),
         };
@@ -1985,7 +1995,7 @@ mod tests {
         let (shown, _) = terminal.into_inner();
         assert_eq!(
             String::from_utf8(shown).unwrap(),
-            "a [8m [30;40m [2;3r ]0;t  8m \n\tb\r\n"
+            "a [8m [30;40m [2;3r ]0;t  8m   q  2;t \n\tb\r\n"
         );
 
         let (piped, _) = text_sink_output(&[delta]);

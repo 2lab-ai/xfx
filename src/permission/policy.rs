@@ -882,21 +882,50 @@ impl TtyPrompter {
     /// nor reorder the glyphs around it. A line break is spelled too: the
     /// choices are lines of xfx's own, and a break in the payload would let it
     /// forge one.
+    ///
+    /// **A backslash is spelled `\\`**, so a model that types the four
+    /// characters `\x0a` into a command is shown them as `\\x0a`, and only a
+    /// real line break reads `\x0a`: one argument and two commands do not look
+    /// alike. The one exception is the summary of a write or an edit, which
+    /// quotes the change through the permission boundary's bounded excerpt
+    /// (`super::bounded_excerpt`): that spelling already doubles a backslash
+    /// and names a control (`\u{001B}`), and doubling again would show an
+    /// `ESC` in the file as the literal text `\u{001B}`.
+    ///
+    /// And it begins with [`QUESTION_RESET`], so nothing another writer left
+    /// on this terminal is in force where the question is drawn.
     fn question(request: &ApprovalRequest) -> String {
+        let quotes_excerpts = request.tool == super::MutationKind::Write.tool()
+            || request.tool == super::MutationKind::Edit.tool();
         format!(
-            "\nxfx wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
-            spelled_for_the_terminal(&request.summary),
-            spelled_for_the_terminal(&request.always_scope)
+            "{QUESTION_RESET}\nxfx wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
+            spelled_for_the_terminal(&request.summary, !quotes_excerpts),
+            spelled_for_the_terminal(&request.always_scope, true)
         )
     }
 }
+
+/// What is written immediately before every question: attributes off
+/// (`SGR 0`), then the scroll region reset (`DECSTBM` with no margins) inside
+/// a cursor save and restore (`DECSC`, `DECRC`), because that reset homes the
+/// cursor. The save comes after `SGR 0`, so the restore brings back plain
+/// attributes rather than whatever was in force.
+///
+/// The question's own fields are spelled, and the answer before it reaches a
+/// terminal inert (`crate::output::TextSink::on_terminal`); this is for every
+/// writer xfx does not control -- a relay the answer was piped through on its
+/// way back to this terminal, another process on it -- so that a conceal, a
+/// colour or a scroll region one of them left is not in force here.
+const QUESTION_RESET: &str = "\u{1b}[0m\u{1b}7\u{1b}[r\u{1b}8";
 
 /// `text` with nothing left in it a terminal would obey or reorder, and no
 /// line break: the TUI approval's spelling of a command
 /// (`crate::tui::approval_view`'s `command_text`, upstream's
 /// `projectCommandText`), so one payload reads the same on both surfaces --
 /// an `ESC` is `\x1b`, a carriage return `\x0d`, a C1 control or a
-/// bidirectional, zero-width or invisible code point its `\u{…}`.
+/// bidirectional, zero-width or invisible code point its `\u{…}` -- with a
+/// payload's own backslash first spelled `\\` when `double_backslashes`
+/// ([`TtyPrompter::question`] says when not).
 ///
 /// That spelling keeps a line break, because the TUI lays one out as a row
 /// break under the command. Here the text is quoted inside a sentence whose
@@ -904,18 +933,27 @@ impl TtyPrompter {
 /// controls are, `\x0a`. Every other byte the spelling leaves is printable, so
 /// replacing the breaks it kept leaves nothing a terminal acts on.
 #[cfg(unix)]
-fn spelled_for_the_terminal(text: &str) -> String {
+fn spelled_for_the_terminal(text: &str, double_backslashes: bool) -> String {
+    let doubled;
+    let text = if double_backslashes {
+        doubled = text.replace('\\', "\\\\");
+        doubled.as_str()
+    } else {
+        text
+    };
     crate::tui::approval_view::command_text(text).replace('\n', "\\x0a")
 }
 
 /// Where there is no TUI to share a spelling with (`crate::tui` is
 /// unix-only), the strictest one: everything but printable ASCII is named by
-/// its code point.
+/// its code point, and a backslash is doubled as on unix.
 #[cfg(not(unix))]
-fn spelled_for_the_terminal(text: &str) -> String {
+fn spelled_for_the_terminal(text: &str, double_backslashes: bool) -> String {
     let mut safe = String::with_capacity(text.len());
     for character in text.chars() {
-        if character == ' ' || character.is_ascii_graphic() {
+        if character == '\\' && double_backslashes {
+            safe.push_str("\\\\");
+        } else if character == ' ' || character.is_ascii_graphic() {
             safe.push(character);
         } else {
             safe.push_str(&format!("\\u{{{:04x}}}", u32::from(character)));
@@ -2669,11 +2707,12 @@ mod tests {
 
     /// The line-mode question quotes the model's and the repository's text,
     /// and writes it straight to a terminal. Every byte of it is pinned here:
-    /// each control (`CR`, `ESC`, `BEL`, `DEL`, `TAB`, the line break), the C1
-    /// `CSI`, a bidirectional override and isolate, a zero-width space and the
-    /// Arabic letter mark are spelled as the TUI approval spells a command,
-    /// in both fields -- and printable text, a non-ASCII path included, is
-    /// left as it is.
+    /// the reset it opens with; each control (`CR`, `ESC`, `BEL`, `DEL`, `TAB`,
+    /// the line break), the C1 `CSI`, a bidirectional override and isolate, a
+    /// zero-width space and the Arabic letter mark, spelled as the TUI
+    /// approval spells a command, in both fields; a payload's own backslash,
+    /// doubled, so a typed `\x0a` is not a line break -- and printable text, a
+    /// non-ASCII path included, left as it is.
     #[cfg(unix)]
     #[test]
     fn the_terminal_question_spells_every_field_it_quotes() {
@@ -2681,20 +2720,61 @@ mod tests {
             tool: "grep_files",
             target: "/w/소스".to_string(),
             summary: "search the files below `소스` for \
-                      `a\r\u{1b}[2K\u{9b}2J\u{202e}b\n  [y] yes, once\u{7f}\t\u{2066}\u{200b}\u{61c}`"
+                      `a\r\u{1b}[2K\u{9b}2J\u{202e}b\n  [y] yes, once\u{7f}\t\u{2066}\u{200b}\u{61c}\\x0a`"
                 .to_string(),
-            always_scope: "allow every future run of exactly `x\u{1b}]0;t\u{7}` in .".to_string(),
+            always_scope: "allow every future run of exactly `x\u{1b}]0;t\u{7}\\` in .".to_string(),
             diff: None,
             subject: ApprovalSubject::Call("a".to_string()),
         };
         assert_eq!(
             TtyPrompter::question(&request),
-            "\nxfx wants to search the files below `소스` for \
-             `a\\x0d\\x1b[2K\\u{009b}2J\\u{202e}b\\x0a  [y] yes, once\\x7f\\x09\\u{2066}\\u{200b}\\u{061c}`\
+            "\u{1b}[0m\u{1b}7\u{1b}[r\u{1b}8\
+             \nxfx wants to search the files below `소스` for \
+             `a\\x0d\\x1b[2K\\u{009b}2J\\u{202e}b\\x0a  [y] yes, once\\x7f\\x09\\u{2066}\\u{200b}\\u{061c}\\\\x0a`\
              \n  [y] yes, once\
-             \n  [a] always -- allow every future run of exactly `x\\x1b]0;t\\x07` in .\
+             \n  [a] always -- allow every future run of exactly `x\\x1b]0;t\\x07\\\\` in .\
              \n  [n] no\
              \n> "
+        );
+    }
+
+    /// A write's or an edit's summary quotes the change through the bounded
+    /// excerpt, which already doubles a backslash and names a control; the
+    /// question does not spell those a second time, so an `ESC` in the file
+    /// still reads `\u{001B}` rather than as that literal text. Its path, in
+    /// the "always" sentence, is spelled as everything else is.
+    #[cfg(unix)]
+    #[test]
+    fn a_change_summary_is_not_spelled_twice() {
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            PathBuf::from("/w/a\\b.txt"),
+            "a\\b.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"x".to_vec(),
+        )
+        .with_excerpt(crate::permission::authority::MutationExcerpt {
+            before: crate::permission::authority::bounded_excerpt("\u{1b}[2J\\"),
+            after: crate::permission::authority::bounded_excerpt("\u{202e}"),
+        });
+        let action = ProposedAction::Mutation(&plan);
+        let request = ApprovalRequest {
+            tool: action.tool(),
+            target: "/w/a\\b.txt".to_string(),
+            summary: action.summary(),
+            always_scope: action.always_scope(),
+            diff: None,
+            subject: action.subject(),
+        };
+        let question = TtyPrompter::question(&request);
+        assert!(
+            question.contains("replace \"\\u{001B}[2J\\\\\" with \"\\u{202e}\""),
+            "{question:?}"
+        );
+        assert!(
+            question.contains("allow every future edit_file to `a\\\\b.txt`"),
+            "{question:?}"
         );
     }
 }
