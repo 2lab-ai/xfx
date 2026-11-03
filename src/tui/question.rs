@@ -1902,6 +1902,16 @@ mod tests {
                 if let Some(why) = hides(&rows, 120, character, cells, tail) {
                     hidden.push(format!("{what}: {why}"));
                 }
+                // And the rows the document keeps once it is answered, the
+                // question and the answer the user gave.
+                let answered: Vec<String> = panel
+                    .answered_with(std::slice::from_ref(&text), 120, "", "")
+                    .into_iter()
+                    .map(|(row, _)| row)
+                    .collect();
+                if let Some(why) = hides(&answered, 120, character, cells, tail) {
+                    hidden.push(format!("{what}, answered: {why}"));
+                }
             }
         }
         assert!(hidden.is_empty(), "{hidden:#?}");

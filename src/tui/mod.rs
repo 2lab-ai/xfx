@@ -780,6 +780,7 @@ mod image_paths;
 mod inline_completion;
 mod input;
 mod layout;
+mod marks;
 mod mcp_menu;
 mod model_column;
 mod model_menu;

@@ -1043,6 +1043,65 @@ fn default_ignorable(code: u32) -> bool {
     )
 }
 
+/// Whether xfx's width table counts `character` as no cells and it is not a
+/// combining mark ([`super::marks`]) -- so a terminal may give it a cell of
+/// its own where xfx's grid gives it none.
+///
+/// Keyed on xfx's **own count** rather than on a list of properties: a
+/// character a later width table counts as none is named until it is shown to
+/// be a mark. Measured where xfx counts none (cursor column between two
+/// markers, 2026-11-03): the halfwidth voiced sound mark `U+FF9E` is one cell
+/// in tmux 3.7b and in herdr's libghostty-vt; the Hangul tone mark `U+302E` two
+/// and one; the Devanagari caret `U+A8FA` and the prepended letter `U+0D4E` one
+/// and one; the prepended number marks `U+0605`, `U+070F`, `U+08E2` and the
+/// spacing vowel sign `U+09BE` one in libghostty-vt. A Hangul vowel or trailing
+/// consonant on its own (`U+1161`, `U+11A8`, `U+D7C6`) is none in both and one
+/// to upstream's count; inside a syllable it stays ([`Syllable`]).
+fn uncounted(character: char) -> bool {
+    unicode_width::UnicodeWidthChar::width(character) == Some(0)
+        && !super::marks::is_combining_mark(character)
+}
+
+/// How far a conjoining Hangul syllable has come, as its jamo cross as
+/// themselves: what keeps a decomposed Korean name -- macOS writes file names
+/// in NFD -- as text rather than as numbers.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Syllable {
+    /// The last character to cross is not a leading consonant or its vowel.
+    Open,
+    /// A leading consonant crossed.
+    Lead,
+    /// A vowel crossed after its leading consonant.
+    Vowel,
+}
+
+impl Syllable {
+    /// Whether `character` completes the syllable: a vowel after its leading
+    /// consonant, a trailing consonant after that vowel. tmux 3.7b and
+    /// libghostty-vt both draw `U+1100 U+1161` and `U+1100 U+1161 U+11A8` as the
+    /// two cells xfx counts; a second vowel or trailing consonant, or one with
+    /// no syllable to complete, is named.
+    fn completes(self, character: char) -> bool {
+        match self {
+            Self::Lead => matches!(character, '\u{1161}'..='\u{11a7}' | '\u{d7b0}'..='\u{d7c6}'),
+            Self::Vowel => matches!(character, '\u{11a8}'..='\u{11ff}' | '\u{d7cb}'..='\u{d7fb}'),
+            Self::Open => false,
+        }
+    }
+
+    /// Where the syllable stands once `character` has crossed as itself. The
+    /// fillers (`U+115F`, `U+1160`) are default-ignorable and never cross.
+    fn after(self, character: char) -> Self {
+        if matches!(character, '\u{1100}'..='\u{115e}' | '\u{a960}'..='\u{a97c}') {
+            Self::Lead
+        } else if self == Self::Lead && self.completes(character) {
+            Self::Vowel
+        } else {
+            Self::Open
+        }
+    }
+}
+
 /// Whether the RGI emoji sequence `sequence` may cross whole: when xfx counts
 /// it as two cells, which is what tmux 3.7b, herdr's terminal (grapheme
 /// clustering on) and upstream's count (`matchRgiSequence`, two cells) give
@@ -1062,8 +1121,9 @@ fn agreed_presentation(base: char) -> bool {
 }
 
 /// [`tamed`] or [`named`]: `line` with nothing left in it a terminal would
-/// obey or reorder, and no character whose width a terminal and xfx disagree
-/// on.
+/// obey or reorder, and nothing a terminal may draw where xfx counts no cells
+/// -- no default-ignorable code point and nothing else xfx counts as none but
+/// a combining mark, past the exceptions [`tamed`] and [`Syllable`] make.
 fn spelled(line: &str, emoji: Emoji) -> String {
     if line.bytes().all(|byte| (0x20..0x7f).contains(&byte)) {
         return line.to_string();
@@ -1071,6 +1131,7 @@ fn spelled(line: &str, emoji: Emoji) -> String {
     let mut safe = String::with_capacity(line.len());
     // The character before this one when it crossed as itself.
     let mut base: Option<char> = None;
+    let mut syllable = Syllable::Open;
     let mut index = 0;
     while let Some(character) = line[index..].chars().next() {
         if emoji == Emoji::Kept {
@@ -1078,6 +1139,7 @@ fn spelled(line: &str, emoji: Emoji) -> String {
             if len > 0 && agreed_emoji(&line[index..index + len]) {
                 safe.push_str(&line[index..index + len]);
                 base = line[index..index + len].chars().last();
+                syllable = Syllable::Open;
                 index += len;
                 continue;
             }
@@ -1086,27 +1148,34 @@ fn spelled(line: &str, emoji: Emoji) -> String {
         if let Some(replacement) = escaped(character) {
             safe.push_str(&replacement);
             base = None;
-        } else if default_ignorable(u32::from(character))
+            syllable = Syllable::Open;
+        } else if (default_ignorable(u32::from(character))
             && !(emoji == Emoji::Kept
                 && character == '\u{fe0f}'
-                && base.is_some_and(agreed_presentation))
+                && base.is_some_and(agreed_presentation)))
+            || (uncounted(character) && !syllable.completes(character))
         {
             safe.push_str(&crate::permission::scalar_token(character));
             base = None;
+            syllable = Syllable::Open;
         } else {
             safe.push(character);
             base = Some(character);
+            syllable = syllable.after(character);
         }
     }
     safe
 }
 
 /// One line of foreign text read as text, with nothing left in it a terminal
-/// would obey or reorder, and nothing whose width a terminal could make
-/// different from xfx's count: every default-ignorable code point is named
-/// ([`default_ignorable`]), except where an emoji every terminal agrees on
-/// carries one -- inside an RGI emoji sequence, and `U+FE0F` after a character
-/// that takes an emoji presentation.
+/// would obey or reorder, and nothing a terminal may draw where xfx counts no
+/// cells: every default-ignorable code point is named ([`default_ignorable`]),
+/// and every other character xfx counts as none that is not a combining mark
+/// ([`uncounted`]) -- except where an emoji every measured terminal agrees on
+/// carries one (inside an RGI emoji sequence, and `U+FE0F` after a character
+/// that takes an emoji presentation) and a Hangul syllable's own jamo
+/// ([`Syllable`]). What xfx counts as one cell or more is left as it is, so a
+/// terminal that draws an East Asian ambiguous character as two still can.
 ///
 /// Upstream names only its non-printing set in this text and shows the rest as
 /// it is; this is xfx's own, for the reason [`default_ignorable`] gives.
@@ -1114,15 +1183,15 @@ pub(crate) fn tamed(line: &str) -> String {
     spelled(line, Emoji::Kept)
 }
 
-/// One line of text that names what is being granted, with every
-/// default-ignorable code point named, an emoji's included: [`tamed`], without
-/// its emoji exception.
+/// One line of text that names what is being granted: [`tamed`], without its
+/// emoji exception -- every default-ignorable code point is named, an emoji's
+/// included. A Hangul syllable's jamo still cross as text.
 fn named(line: &str) -> String {
     spelled(line, Emoji::Named)
 }
 
 /// `text` as rows of a `budget`-wide screen, with nothing left in it a terminal
-/// would obey or reorder, or draw wider than xfx counts it ([`tamed`]).
+/// would obey or reorder, or draw where xfx counts no cells ([`tamed`]).
 ///
 /// The **split comes first**: a real line break in the payload is a row break
 /// here, so text that carries newlines reads as the file does. What is then
@@ -1134,7 +1203,7 @@ pub(crate) fn safe_rows(text: &str, budget: u16) -> Vec<String> {
 }
 
 /// [`safe_rows`] for text that names what is being granted ([`named`]).
-fn named_rows(text: &str, budget: u16) -> Vec<String> {
+pub(crate) fn named_rows(text: &str, budget: u16) -> Vec<String> {
     rows_of(text, budget, named)
 }
 
@@ -1185,7 +1254,9 @@ fn rows_of(text: &str, budget: u16, tame: fn(&str) -> String) -> Vec<String> {
 /// by East Asian Width gives the Hangul filler two -- pushes whatever follows
 /// a run of them past the margin, where the reviewer never sees it and the
 /// shell still runs it. Spelled, each is printable ASCII, the same width on
-/// every terminal. The cost is that a command's emoji variation selector is
+/// every terminal. So is every other character xfx counts as no cells that is
+/// not a combining mark ([`uncounted`]), but a Hangul syllable's own jamo
+/// ([`Syllable`]). The cost is that a command's emoji variation selector is
 /// spelled too (`\u{fe0f}`), which a command the reviewer is asked to run can
 /// afford.
 ///
@@ -1196,16 +1267,22 @@ fn rows_of(text: &str, budget: u16, tame: fn(&str) -> String) -> Vec<String> {
 /// own.
 pub(crate) fn command_text(command: &str) -> String {
     let mut safe = String::with_capacity(command.len());
+    let mut syllable = Syllable::Open;
     for character in command.chars() {
         let code = u32::from(character);
         if character == '\n' {
             safe.push('\n');
+            syllable = Syllable::Open;
         } else if code < 0x20 || code == 0x7f {
             safe.push_str(&format!("\\x{code:02x}"));
-        } else if names_code_point(code) {
+            syllable = Syllable::Open;
+        } else if names_code_point(code) || (uncounted(character) && !syllable.completes(character))
+        {
             safe.push_str(&format!("\\u{{{code:04x}}}"));
+            syllable = Syllable::Open;
         } else {
             safe.push(character);
+            syllable = syllable.after(character);
         }
     }
     safe
@@ -1836,6 +1913,152 @@ mod tests {
     }
 
     #[test]
+    fn everything_xfx_counts_as_no_cells_but_a_mark_is_named() {
+        // SEC-A4c. Keyed on xfx's own count, not on a list: every scalar the
+        // width table counts as none that is not a combining mark is named in
+        // text, in what names a grant and in a command, after a letter.
+        let mut seen = 0;
+        for code in 0..=0x10ffff_u32 {
+            let Some(character) = char::from_u32(code) else {
+                continue;
+            };
+            if !uncounted(character) {
+                continue;
+            }
+            seen += 1;
+            let line = format!("a{character}b");
+            for (rule, spelled) in [
+                ("tamed", tamed(&line)),
+                ("named", named(&line)),
+                ("command", command_text(&line)),
+            ] {
+                assert!(!spelled.contains(character), "{rule}: U+{code:04X} crossed");
+            }
+        }
+        // Unicode 17.0's table under unicode-width 0.2.2: the default-ignorables
+        // that are not marks, the Hangul vowels and trailing consonants, the
+        // prepended and spacing marks, the voiced sound marks and the caret.
+        assert!(seen > 4000, "{seen}");
+        // A mark is not: it joins its letter, as every terminal draws it.
+        assert_eq!(tamed("e\u{301}"), "e\u{301}");
+        assert_eq!(named("e\u{301}"), "e\u{301}");
+    }
+
+    #[test]
+    fn a_decomposed_korean_name_is_shown_as_it_is_and_a_lone_jamo_is_named() {
+        use super::wider_terminal::NFD_KOREAN;
+        assert_eq!(tamed(NFD_KOREAN), NFD_KOREAN);
+        assert_eq!(named(NFD_KOREAN), NFD_KOREAN);
+        assert_eq!(command_text(NFD_KOREAN), NFD_KOREAN);
+        // Laid out as the two cells a syllable takes, on the subject's row.
+        assert_eq!(super::super::wrap::width(NFD_KOREAN), 8);
+        let rows = subject_rows(
+            Kind::Edit,
+            &asked("edit_file", ApprovalSubject::Path(NFD_KOREAN.into()), "."),
+            120,
+            &Styles::PLAIN,
+        );
+        assert_eq!(
+            rows,
+            [format!("  {NFD_KOREAN}{PATH_SEPARATOR}{FILE_QUESTION}")]
+        );
+        // A jamo with no syllable to complete is named: after a letter, a
+        // second vowel, a filler, or a trailing consonant with no vowel.
+        assert_eq!(tamed("x\u{1161}"), "x\\u{1161}");
+        assert_eq!(
+            tamed("\u{1100}\u{1161}\u{1161}"),
+            "\u{1100}\u{1161}\\u{1161}"
+        );
+        assert_eq!(tamed("\u{115f}\u{1161}"), "\\u{115F}\\u{1161}");
+        assert_eq!(tamed("\u{1100}\u{11a8}"), "\u{1100}\\u{11A8}");
+        assert_eq!(command_text("x\u{11a8}"), "x\\u{11a8}");
+    }
+
+    #[test]
+    fn a_grant_names_an_emojis_joiners_and_selectors_and_text_keeps_the_emoji() {
+        // Each field that names the grant goes through `named`, so not one
+        // default-ignorable code point survives on its rows -- a ZWJ family's
+        // joiners and a heart's selector included -- while a diff's line
+        // keeps the emoji, which every measured terminal draws as xfx counts.
+        let emoji = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} \u{2764}\u{fe0f}";
+        let text = format!("x {emoji} y");
+        let cases: [(&str, Vec<String>); 6] = [
+            (
+                "edit path",
+                subject_rows(
+                    Kind::Edit,
+                    &asked("edit_file", ApprovalSubject::Path(text.clone()), "."),
+                    120,
+                    &Styles::PLAIN,
+                ),
+            ),
+            (
+                "write path",
+                subject_rows(
+                    Kind::Write,
+                    &asked("write_file", ApprovalSubject::Path(text.clone()), "."),
+                    120,
+                    &Styles::PLAIN,
+                ),
+            ),
+            (
+                "read path",
+                subject_rows(
+                    Kind::Read,
+                    &asked("read_file", ApprovalSubject::Call(text.clone()), "."),
+                    120,
+                    &Styles::PLAIN,
+                ),
+            ),
+            (
+                "search pattern",
+                subject_rows(
+                    Kind::Read,
+                    &asked("grep_files", ApprovalSubject::Call(text.clone()), "."),
+                    120,
+                    &Styles::PLAIN,
+                ),
+            ),
+            (
+                "MCP call",
+                subject_rows(
+                    Kind::Other,
+                    &asked(
+                        "mcp",
+                        ApprovalSubject::Path(format!("fs_write {text}")),
+                        ".",
+                    ),
+                    120,
+                    &Styles::PLAIN,
+                ),
+            ),
+            (
+                "scope row",
+                scope_rows(
+                    &asked("mcp", ApprovalSubject::Path("fs_write {}".into()), &text),
+                    120,
+                    &Styles::PLAIN,
+                ),
+            ),
+        ];
+        for (what, rows) in cases {
+            assert!(
+                rows.iter()
+                    .all(|row| !row.chars().any(|c| default_ignorable(u32::from(c)))),
+                "{what}: {rows:?}"
+            );
+            assert!(rows.concat().contains("\\u{200D}"), "{what}: {rows:?}");
+            assert!(rows.concat().contains("\\u{FE0F}"), "{what}: {rows:?}");
+        }
+        let rows: Vec<String> = Review::of_diff(&diff("a\n", &format!("{text}\n")))
+            .rows(120, &Styles::PLAIN)
+            .into_iter()
+            .map(|(row, _)| row)
+            .collect();
+        assert!(rows.concat().contains(emoji), "{rows:?}");
+    }
+
+    #[test]
     fn no_diff_row_can_be_drawn_past_the_margin() {
         // SEC-A4b. A line a change writes -- into a startup file, say -- is
         // laid out by the same count, so a run of these characters hides the
@@ -2051,14 +2274,38 @@ pub(crate) mod wider_terminal {
     /// East Asian Wide, two cells to upstream's own count (`display_width.zig`,
     /// `wide_ranges` 0x3131-0x318E, `c1db919`). xfx counts the first three as
     /// none and the selector as nothing added.
-    pub(crate) fn runs() -> [(String, char, usize); 4] {
-        [
+    ///
+    /// Past the default-ignorables (SEC-A4c), each a class xfx's width table
+    /// counts as no cells and is not a combining mark, with the cells measured
+    /// the same way in tmux 3.7b and in herdr's libghostty-vt (grapheme
+    /// clustering on): the halfwidth voiced sound mark one in both, the Hangul
+    /// tone mark two in tmux, the Devanagari caret and a prepended letter one in
+    /// both, a prepended number mark and a spacing vowel sign one in
+    /// libghostty-vt. A Hangul vowel or trailing consonant on its own is none in
+    /// both and one to upstream's count. The marks that join the character
+    /// before them are paired with a letter, which is where a clustering
+    /// terminal widens the cell; the prepended ones go in front of theirs.
+    pub(crate) fn runs() -> Vec<(String, char, usize)> {
+        vec![
             ("\u{ad}".repeat(120), '\u{ad}', 1),
             ("\u{ffa0}".repeat(120), '\u{ffa0}', 1),
             ("\u{3164}".repeat(120), '\u{3164}', 2),
             ("a\u{fe0f}".repeat(60), '\u{fe0f}', 1),
+            ("a\u{ff9e}".repeat(60), '\u{ff9e}', 1),
+            ("a\u{302e}".repeat(60), '\u{302e}', 2),
+            ("\u{a8fa}".repeat(120), '\u{a8fa}', 1),
+            ("\u{d4e}a".repeat(60), '\u{d4e}', 1),
+            ("\u{605}a".repeat(60), '\u{605}', 1),
+            ("a\u{9be}".repeat(60), '\u{9be}', 1),
+            ("\u{1161}".repeat(120), '\u{1161}', 1),
+            ("\u{11a8}".repeat(120), '\u{11a8}', 1),
+            ("\u{d7c6}".repeat(120), '\u{d7c6}', 1),
         ]
     }
+
+    /// `한글.txt` as macOS writes a file name: decomposed (NFD), each
+    /// syllable a leading consonant, a vowel and a trailing consonant.
+    pub(crate) const NFD_KOREAN: &str = "\u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}.txt";
 
     /// The cells a terminal that draws `hidden` as `drawn` cells gives `row`:
     /// xfx's own count, with each `hidden` as that many cells of plain text.

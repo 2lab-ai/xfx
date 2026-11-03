@@ -148,7 +148,7 @@ impl RuleConfirm {
         // The action as the store shows it -- a person's JSON went into it --
         // made row-safe and wrapped whole, never cut: the confirmation is
         // about exactly this, as a permission question is about its command.
-        let display = super::approval_view::safe_rows(
+        let display = super::approval_view::named_rows(
             &self.confirmation.display,
             cols.saturating_sub(4).max(1),
         );
@@ -271,6 +271,27 @@ mod tests {
         assert_eq!(band.apply(Key::Digit('2')), Reply::Cancel);
         assert_eq!(band.apply(Key::Digit('1')), Reply::Confirm);
         assert_eq!(band.apply(Key::Escape), Reply::Dismiss);
+    }
+
+    #[test]
+    fn a_display_is_named_as_a_grant_is_and_cannot_be_drawn_past_the_margin() {
+        // The rule is what the user saves, so it is spelled as a grant's
+        // fields are (`super::super::approval_view::named_rows`).
+        use super::super::approval_view::wider_terminal::{hides, runs};
+        let mut hidden = Vec::new();
+        for (run, character, cells) in runs() {
+            let mut confirmation = remember().confirmation().clone();
+            confirmation.display = format!("terminal.exec echo x{run}TAILSEEN in .");
+            let rows = RuleConfirm::new(confirmation).rows(120, 40, None);
+            if let Some(why) = hides(&rows, 120, character, cells, "TAILSEEN") {
+                hidden.push(why);
+            }
+        }
+        assert!(hidden.is_empty(), "{hidden:#?}");
+        let mut confirmation = remember().confirmation().clone();
+        confirmation.display = "write_file \u{1f468}\u{200d}\u{1f469}.txt".to_string();
+        let rows = RuleConfirm::new(confirmation).rows(120, 40, None);
+        assert!(rows.concat().contains("\\u{200D}"), "{rows:?}");
     }
 
     #[test]
