@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f9c5d3a [debug] · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Results 33 · type to filter                                                                                       28–33
+
+  /sound          toggle sounds and terminal bells                                                    Appearance
+  /workspace      manage additional workspace directories                                             Workspace
+  /version        show the xfx version                                                                General
+  /quit           exit the interactive shell                                                          General
+  demo            Demo workspace skill for the capture                                                workspace .xfx
+  release-notes   Write release notes from the git log                                                workspace skills/
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

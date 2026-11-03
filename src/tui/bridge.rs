@@ -1124,6 +1124,9 @@ pub(crate) enum TurnWork {
     Attached {
         prompt: String,
         images: Vec<crate::image::Image>,
+        /// The skills its `$` tokens bound, each to the exact directory the
+        /// composer chose (`crate::skills::Binding`), in the order they stand.
+        skills: Vec<crate::skills::Binding>,
     },
     /// Switch to this provider: prepare, commit, reload, swap.
     ///

@@ -336,8 +336,31 @@ pub async fn run_turn_saved(
     events: &mut dyn EventSink,
     journal: &mut dyn TurnJournal,
 ) -> Result<TurnOutcome, TurnError> {
+    run_turn_with_skills(
+        request,
+        context,
+        &crate::skills::TurnSkills::default(),
+        provider,
+        events,
+        journal,
+    )
+    .await
+}
+
+/// [`run_turn_saved`], telling the model about the workspace's skills and
+/// the ones its prompt named ([`crate::skills::TurnSkills`]): what `ask` and
+/// the line shell run.
+pub async fn run_turn_with_skills(
+    request: TurnRequest,
+    context: ProjectContext,
+    skills: &crate::skills::TurnSkills,
+    provider: &dyn Provider,
+    events: &mut dyn EventSink,
+    journal: &mut dyn TurnJournal,
+) -> Result<TurnOutcome, TurnError> {
     TurnMachine::new(request)
         .with_context(context)
+        .with_skills(skills)
         .run_journaled(provider, events, journal)
         .await
 }
@@ -375,6 +398,15 @@ pub struct TurnMachine {
     /// Instructions admitted mid-turn, in the order they were admitted. Each is
     /// its own message, so nothing already delivered is rewritten.
     overlay: Vec<String>,
+    /// The skills catalog (`<available_skills>`), when there are skills: a
+    /// system message ahead of the project context, as upstream puts it in its
+    /// stable prefix ahead of the project rules (`crate::skills::catalog`).
+    skills_catalog: String,
+    /// The instructions of the skills this query named, whole: a system
+    /// message after the project context and before anything admitted mid-turn,
+    /// on every request of this turn and none after it -- upstream's
+    /// per-request overlay (`crate::skills::invocation`).
+    skills_explicit: String,
     /// Earlier turns, restored from a session. Never changes within a turn.
     history: Vec<Message>,
     /// What was asked now.
@@ -580,6 +612,8 @@ impl TurnMachine {
             static_context: String::new(),
             mcp_servers,
             overlay: Vec::new(),
+            skills_catalog: String::new(),
+            skills_explicit: String::new(),
             history,
             user,
             suffix: Vec::new(),
@@ -626,14 +660,29 @@ impl TurnMachine {
         self
     }
 
+    /// The same machine, telling the model about skills: the catalog every
+    /// request carries and the instructions this query named
+    /// ([`crate::skills::TurnSkills`]). Both empty is no message at all.
+    pub fn with_skills(mut self, skills: &crate::skills::TurnSkills) -> Self {
+        self.skills_catalog = skills.catalog_block().unwrap_or_default().to_string();
+        self.skills_explicit = skills.explicit_block().unwrap_or_default().to_string();
+        self
+    }
+
     /// The prompt as it currently stands, in wire order.
     pub fn messages(&self) -> Vec<Message> {
-        let mut messages = Vec::with_capacity(self.history.len() + self.suffix.len() + 3);
+        let mut messages = Vec::with_capacity(self.history.len() + self.suffix.len() + 5);
+        if !self.skills_catalog.is_empty() {
+            messages.push(Message::system(self.skills_catalog.clone()));
+        }
         if !self.static_context.is_empty() {
             messages.push(Message::system(self.static_context.clone()));
         }
         if !self.mcp_servers.is_empty() {
             messages.push(Message::system(self.mcp_servers.clone()));
+        }
+        if !self.skills_explicit.is_empty() {
+            messages.push(Message::system(self.skills_explicit.clone()));
         }
         for overlay in &self.overlay {
             messages.push(Message::system(overlay.clone()));

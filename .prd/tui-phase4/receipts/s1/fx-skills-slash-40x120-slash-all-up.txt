@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Results 38 · type to filter                                                                                       33–38
+
+  /workspace      manage additional workspace directories                                             Workspace
+  /shell          reload shell startup files for commands                                             Workspace
+  /version        show the fx version                                                                 General
+  /quit           exit the interactive shell                                                          General
+  demo            Demo workspace skill for the capture                                                workspace .fx
+  release-notes   Write release notes from the git log                                                workspace skills/
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

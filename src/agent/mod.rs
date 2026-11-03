@@ -13,7 +13,7 @@ pub mod steering;
 pub mod tokens;
 pub mod types;
 
-pub use machine::{allows_step, run_turn, run_turn_saved, TurnMachine};
+pub use machine::{allows_step, run_turn, run_turn_saved, run_turn_with_skills, TurnMachine};
 pub use steering::{Steer, Steering};
 pub use types::{
     NoJournal, StepCheck, StepCompaction, StepCompactor, TurnError, TurnJournal, TurnOutcome,
