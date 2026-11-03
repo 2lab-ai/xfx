@@ -94,12 +94,12 @@ control_paths="$(tracked_paths "$dirty")"
 # One fixture per class, so a scan that finds only the easy lowercase prose
 # cannot pass by finding one of them.
 for class in prose env protect project asset repo; do
-	if ! printf '%s\n' "$control_content" | grep -q "^${class}\.md:"; then
+	if ! grep -q "^${class}\.md:" <<<"$control_content"; then
 		fail "the content scan misses the '$class' residue in its own control; this scan is not working"
 	fi
 done
 
-if ! printf '%s\n' "$control_paths" | grep -q '^docs/'; then
+if ! grep -q '^docs/' <<<"$control_paths"; then
 	fail 'the path scan misses a retired name in a control file name; this scan is not working'
 fi
 
