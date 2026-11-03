@@ -687,6 +687,37 @@ fn slash_model_browses_the_catalog_the_daemon_publishes() {
 }
 
 #[test]
+fn slash_model_lists_a_hostile_catalog_without_its_control_characters() {
+    // The catalog is the daemon's document and its parser takes any
+    // non-empty string, so what `/model` lists is foreign text on this
+    // shell's terminal: an OSC title, a clear, an OSC 8 link, a bell and a C1
+    // CSI in an id, an alias and an effort reach stdout as spaces. Red before:
+    // each went out as written.
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "id\u{1b}]0;pwned\u{7}x", "efforts": ["lo\u{1b}[2Jw", "hi\u{9b}31mgh"]},
+        {"id": "m-2", "aliases": ["al\u{1b}]8;;mailto:a@b\u{1b}\\ias"]}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    session.type_line("/model");
+    session.wait_for("catalog=2 models");
+    // The prompt after the listing: every line of it is on the terminal.
+    let text = session.wait_for_count(PROMPT, 2);
+    assert!(text.contains("id ]0;pwned x"), "{text:?}");
+    assert!(text.contains("efforts=lo [2Jw,hi 31mgh"), "{text:?}");
+    assert!(text.contains("al ]8;;mailto:a@b \\ias"), "{text:?}");
+    let obeyed: Vec<char> = text
+        .chars()
+        .filter(|c| c.is_control() && !matches!(c, '\n' | '\r'))
+        .collect();
+    assert_eq!(obeyed, Vec::<char>::new(), "{text:?}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_model_applies_an_id_the_daemon_does_not_list_and_resolves_one_it_does() {
     // Upstream's rule (`fx-model-fuzzy-40x120-unknown`): an id the catalog does
     // not list is applied as typed, not refused -- a catalog is what a provider
