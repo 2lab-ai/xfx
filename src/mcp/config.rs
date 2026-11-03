@@ -14,8 +14,15 @@
 //!   can carry one, so none of its servers starts until the person says so,
 //!   and what they said is kept in `~/.xfx/settings.json` under
 //!   `workspaces["<root>"]` with Claude Code's own key names
-//!   (`enabledMcpjsonServers`, `disabledMcpjsonServers`,
-//!   `enableAllProjectMcpServers`; `project_config.zig:74-76`, `:723-832`).
+//!   (`enabledMcpjsonServers`, `disabledMcpjsonServers`;
+//!   `project_config.zig:74-76`, `:723-832`). **An approval is for the entry
+//!   the person was shown**, not for its name: beside each approved name is
+//!   the [`entry_digest`] of what was approved (`enabledMcpjsonServerDigests`),
+//!   and an entry that no longer matches it -- a command, an address or a
+//!   credential source changed by anyone who can write the repository's file,
+//!   the model included -- asks again. Upstream keys the approval by name
+//!   alone (`resolveAdmission`, `project_config.zig:825-832`); see
+//!   `docs/parity.md`.
 //!
 //! Parsing is upstream's `parseServerEntry` (`project_config.zig:944-1037`)
 //! rule for rule, with its error names, because those names are what a person
@@ -45,10 +52,26 @@ pub const PROFILE_LOCK: &str = "mcp.lock";
 /// The workspace's file (`workspace_config.zig:19`).
 pub const WORKSPACE_FILE: &str = ".mcp.json";
 
-/// The three keys a workspace entry keeps the person's choices under.
+/// The keys a workspace entry keeps the person's choices under: upstream's
+/// two lists, and the digest each approval is for.
 pub const ENABLED_KEY: &str = "enabledMcpjsonServers";
 pub const DISABLED_KEY: &str = "disabledMcpjsonServers";
+pub const DIGESTS_KEY: &str = "enabledMcpjsonServerDigests";
+/// Upstream's "every server, whatever it says" switch. Read by no xfx that
+/// binds approvals to content, and dropped from the entry at its next write:
+/// it approved entries nobody was shown, so it admits nothing.
 pub const ENABLE_ALL_KEY: &str = "enableAllProjectMcpServers";
+
+/// The fields of a `.mcp.json` entry that say when and how often it runs,
+/// not what runs, where it connects or what it sends: changing one keeps the
+/// approval ([`entry_digest`]).
+const SCHEDULING_FIELDS: [&str; 5] = [
+    "enabled",
+    "required",
+    "startup_timeout_ms",
+    "operation_timeout_ms",
+    "restart_limit",
+];
 
 /// How long a profile write waits for another writer's lock: upstream's two
 /// seconds (`profile_lock_deadline_ms`, `mcp.zig:26`).
@@ -748,17 +771,24 @@ fn read_bounded(path: &Path) -> io::Result<Option<String>> {
 /// What the person said about the workspace's servers.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Choices {
-    pub enable_all: bool,
-    pub approved: Vec<String>,
+    /// Each approved server's name, with the [`entry_digest`] of the entry
+    /// that was approved.
+    pub approved: Vec<(String, String)>,
     pub rejected: Vec<String>,
 }
 
 impl Choices {
-    /// `resolveAdmission` (`project_config.zig:825-832`): a rejection wins.
-    pub fn admission(&self, name: &str) -> Admission {
+    /// `resolveAdmission` (`project_config.zig:825-832`) -- a rejection wins
+    /// -- except that an approval admits only the entry it was given for: an
+    /// entry whose `digest` is not the approved one is pending again.
+    pub fn admission(&self, name: &str, digest: &str) -> Admission {
         if self.rejected.iter().any(|rejected| rejected == name) {
             Admission::Rejected
-        } else if self.enable_all || self.approved.iter().any(|approved| approved == name) {
+        } else if self
+            .approved
+            .iter()
+            .any(|(approved, approved_digest)| approved == name && approved_digest == digest)
+        {
             Admission::Approved
         } else {
             Admission::Pending
@@ -769,8 +799,20 @@ impl Choices {
 /// One thing the person can decide about workspace servers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrustAction {
+    /// Approve the entry called this as the runtime last read it -- what
+    /// `/mcp list` and the menu show.
     Approve(String),
+    /// Approve the entry the trust prompt showed, whose [`entry_digest`] this
+    /// is: if the file changed after the prompt went up, the approval is for
+    /// an entry no longer there, and the new one asks.
+    ApproveShown {
+        name: String,
+        digest: String,
+    },
     Reject(String),
+    /// Approve every entry the runtime last read that is not rejected -- the
+    /// servers there now, not ones added later, as fx v0.0.16 does
+    /// (`CHANGELOG.md:165@481104fd`, `src/core/mcp_host/verbs.zig:641-655@481104fd`).
     ApproveAll,
     Reset,
 }
@@ -782,11 +824,79 @@ pub struct WorkspaceServers {
     /// One sentence per entry that did not parse, as upstream's
     /// configuration issues say it (`renderWorkspaceDiagnostic`).
     pub issues: Vec<String>,
+    /// Every entry with a valid name and its [`entry_digest`], parsed or
+    /// not: what an approval of that name would be for.
+    pub digests: Vec<(String, String)>,
 }
 
-/// Reads `<root>/.mcp.json` under `choices`. An approved server's
-/// `${VAR}` and `${VAR:-default}` are expanded from `environment`; a
-/// pending or rejected one is kept as written, since it will not run
+/// What an approval of a `.mcp.json` entry is for: SHA-256 over the entry as
+/// written -- before `${VAR}` expansion, which only an approved entry gets --
+/// in a canonical form (object keys sorted, `Value`'s own number and string
+/// spelling), every field but [`SCHEDULING_FIELDS`].
+///
+/// So what runs (`command`, `args`, `env`/`environment`), where it connects
+/// and what it sends (`type`, `url`, `headers`, `header_env`,
+/// `bearer_token_env`, `oauth`), and any field this version does not know are
+/// all bound: a change to one is an entry the person has not approved. There
+/// is no `cwd` field to bind: a stdio server starts in xfx's own working
+/// directory, which the entry cannot name.
+pub fn entry_digest(value: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut text = String::new();
+    match value {
+        Value::Object(object) => {
+            let kept: Map<String, Value> = object
+                .iter()
+                .filter(|(key, _)| !SCHEDULING_FIELDS.contains(&key.as_str()))
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            canonical(&Value::Object(kept), &mut text);
+        }
+        other => canonical(other, &mut text),
+    }
+    let digest = Sha256::digest(text.as_bytes());
+    let mut out = String::from("sha256:");
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// `value` as JSON with every object's keys in sorted order.
+fn canonical(value: &Value, out: &mut String) {
+    match value {
+        Value::Object(object) => {
+            let mut keys: Vec<&String> = object.keys().collect();
+            keys.sort();
+            out.push('{');
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(&Value::from(key.as_str()).to_string());
+                out.push(':');
+                canonical(&object[key], out);
+            }
+            out.push('}');
+        }
+        Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                canonical(item, out);
+            }
+            out.push(']');
+        }
+        other => out.push_str(&other.to_string()),
+    }
+}
+
+/// Reads `<root>/.mcp.json` under `choices`, each entry admitted by its name
+/// and its [`entry_digest`]. An approved server's `${VAR}` and
+/// `${VAR:-default}` are expanded from `environment`; a pending or rejected
+/// one is kept as written, since it will not run
 /// (`expandApprovedWorkspaceConfigs`, `project_config.zig:501-575`).
 pub fn load_workspace(
     root: &Path,
@@ -799,8 +909,8 @@ pub fn load_workspace(
         Ok(None) => return WorkspaceServers::default(),
         Err(_) => {
             return WorkspaceServers {
-                servers: Vec::new(),
                 issues: vec![".mcp.json: McpConfigUnreadable".to_string()],
+                ..WorkspaceServers::default()
             }
         }
     };
@@ -808,8 +918,8 @@ pub fn load_workspace(
         Ok(document) => document,
         Err(_) => {
             return WorkspaceServers {
-                servers: Vec::new(),
                 issues: vec![".mcp.json: McpConfigInvalidJson".to_string()],
+                ..WorkspaceServers::default()
             }
         }
     };
@@ -822,7 +932,9 @@ pub fn load_workspace(
             result.issues.push(format!("{name}: McpInvalidServerName"));
             continue;
         }
-        let admission = choices.admission(name);
+        let digest = entry_digest(value);
+        let admission = choices.admission(name, &digest);
+        result.digests.push((name.clone(), digest));
         let value = if admission == Admission::Approved {
             expand(value, environment)
         } else {
@@ -880,7 +992,9 @@ fn expand_text(text: &str, environment: &dyn Fn(&str) -> Option<String>) -> Stri
 
 /// The person's choices for `root` in a settings document
 /// (`parseChoices`, `project_config.zig:723-773`): a name both approved and
-/// rejected counts as rejected.
+/// rejected counts as rejected, and an approved name with no digest beside it
+/// -- an approval an older xfx saved by name alone -- is no approval: that
+/// server asks once more, and the answer is saved with its digest.
 pub fn choices_in(document: &Map<String, Value>, root: &Path) -> Choices {
     let entry = root.to_str().and_then(|key| {
         document
@@ -908,15 +1022,16 @@ pub fn choices_in(document: &Map<String, Value>, root: &Path) -> Choices {
         names
     };
     let rejected = names(DISABLED_KEY);
+    let digests = entry.get(DIGESTS_KEY).and_then(Value::as_object);
     let approved = names(ENABLED_KEY)
         .into_iter()
         .filter(|name| !rejected.contains(name))
+        .filter_map(|name| {
+            let digest = digests?.get(&name)?.as_str()?.to_string();
+            Some((name, digest))
+        })
         .collect();
-    Choices {
-        enable_all: entry.get(ENABLE_ALL_KEY).and_then(Value::as_bool) == Some(true),
-        approved,
-        rejected,
-    }
+    Choices { approved, rejected }
 }
 
 /// The choices in the settings file at `settings`, or none when it cannot
@@ -929,31 +1044,65 @@ pub fn load_choices(settings: Option<&Path>, root: &Path) -> Choices {
 }
 
 /// `applyAction` (`project_config.zig:775-823`), and whether it reduced the
-/// authority in force.
-pub fn apply_action(current: &Choices, action: &TrustAction) -> (Choices, bool) {
+/// authority in force. `loaded` is each entry the runtime last read with its
+/// [`entry_digest`] ([`WorkspaceServers::digests`]): what [`TrustAction::Approve`]
+/// and [`TrustAction::ApproveAll`] approve. A name with no entry there has
+/// nothing to approve and is only taken off the rejected list.
+pub fn apply_action(
+    current: &Choices,
+    action: &TrustAction,
+    loaded: &[(String, String)],
+) -> (Choices, bool) {
     let mut next = current.clone();
+    let approve = |next: &mut Choices, name: &str, digest: Option<&str>| {
+        if let Some(digest) = digest {
+            match next
+                .approved
+                .iter_mut()
+                .find(|(approved, _)| approved == name)
+            {
+                Some(approval) => approval.1 = digest.to_string(),
+                None => next.approved.push((name.to_string(), digest.to_string())),
+            }
+        }
+        next.rejected.retain(|rejected| rejected != name);
+    };
+    let loaded_digest = |name: &str| {
+        loaded
+            .iter()
+            .find(|(entry, _)| entry == name)
+            .map(|(_, digest)| digest.as_str())
+    };
     let reduced = match action {
         TrustAction::Approve(name) => {
-            if !next.approved.contains(name) {
-                next.approved.push(name.clone());
-            }
-            next.rejected.retain(|rejected| rejected != name);
+            approve(&mut next, name, loaded_digest(name));
+            false
+        }
+        TrustAction::ApproveShown { name, digest } => {
+            approve(&mut next, name, Some(digest));
             false
         }
         TrustAction::Reject(name) => {
-            let reduced = current.enable_all || current.approved.contains(name);
-            next.approved.retain(|approved| approved != name);
+            let reduced = current
+                .approved
+                .iter()
+                .any(|(approved, _)| approved == name);
+            next.approved.retain(|(approved, _)| approved != name);
             if !next.rejected.contains(name) {
                 next.rejected.push(name.clone());
             }
             reduced
         }
         TrustAction::ApproveAll => {
-            next.enable_all = true;
+            for (name, digest) in loaded {
+                if !current.rejected.contains(name) {
+                    approve(&mut next, name, Some(digest));
+                }
+            }
             false
         }
         TrustAction::Reset => {
-            let reduced = current.enable_all || !current.approved.is_empty();
+            let reduced = !current.approved.is_empty();
             next = Choices::default();
             reduced
         }
@@ -963,9 +1112,15 @@ pub fn apply_action(current: &Choices, action: &TrustAction) -> (Choices, bool) 
 
 /// Writes `action` into the settings file at `settings` for `root`, through
 /// the settings writer every other profile change uses
-/// ([`crate::provider::profile::edit_document`]). An entry left with nothing
-/// leaves the file, and so does an empty `workspaces`.
-pub fn save_action(settings: &Path, root: &Path, action: &TrustAction) -> io::Result<bool> {
+/// ([`crate::provider::profile::edit_document`]), `loaded` as
+/// [`apply_action`] takes it. An entry left with nothing leaves the file, and
+/// so does an empty `workspaces`.
+pub fn save_action(
+    settings: &Path,
+    root: &Path,
+    action: &TrustAction,
+    loaded: &[(String, String)],
+) -> io::Result<bool> {
     let key = root
         .to_str()
         .ok_or_else(|| {
@@ -978,7 +1133,7 @@ pub fn save_action(settings: &Path, root: &Path, action: &TrustAction) -> io::Re
     let workspaces_key = crate::workspace::access::WORKSPACES_KEY;
     crate::provider::profile::edit_document::<io::Error>(settings, |document| {
         let current = choices_in(document, root);
-        let (next, _) = apply_action(&current, action);
+        let (next, _) = apply_action(&current, action, loaded);
         if next == current && !matches!(action, TrustAction::Reset) {
             return Ok(false);
         }
@@ -1001,10 +1156,8 @@ pub fn save_action(settings: &Path, root: &Path, action: &TrustAction) -> io::Re
             ));
         };
         let before = entry.clone();
-        for (field, names) in [
-            (ENABLED_KEY, &next.approved),
-            (DISABLED_KEY, &next.rejected),
-        ] {
+        let approved: Vec<String> = next.approved.iter().map(|(name, _)| name.clone()).collect();
+        for (field, names) in [(ENABLED_KEY, &approved), (DISABLED_KEY, &next.rejected)] {
             if names.is_empty() {
                 entry.shift_remove(field);
             } else {
@@ -1014,11 +1167,20 @@ pub fn save_action(settings: &Path, root: &Path, action: &TrustAction) -> io::Re
                 );
             }
         }
-        if next.enable_all {
-            entry.insert(ENABLE_ALL_KEY.to_string(), Value::Bool(true));
+        if next.approved.is_empty() {
+            entry.shift_remove(DIGESTS_KEY);
         } else {
-            entry.shift_remove(ENABLE_ALL_KEY);
+            entry.insert(
+                DIGESTS_KEY.to_string(),
+                Value::Object(
+                    next.approved
+                        .iter()
+                        .map(|(name, digest)| (name.clone(), Value::String(digest.clone())))
+                        .collect(),
+                ),
+            );
         }
+        entry.shift_remove(ENABLE_ALL_KEY);
         let changed = *entry != before;
         if entry.is_empty() {
             workspaces.shift_remove(&key);
@@ -1164,18 +1326,126 @@ mod tests {
         let document = json!({"workspaces": {"/w": {
             "enabledMcpjsonServers": ["a", "both"],
             "disabledMcpjsonServers": ["both", "b"],
+            "enabledMcpjsonServerDigests": {"a": "sha256:a", "both": "sha256:both"},
         }}});
         let choices = choices_in(document.as_object().unwrap(), Path::new("/w"));
-        assert_eq!(choices.admission("a"), Admission::Approved);
-        assert_eq!(choices.admission("both"), Admission::Rejected);
-        assert_eq!(choices.admission("c"), Admission::Pending);
-        let (next, reduced) = apply_action(&choices, &TrustAction::Reject("a".into()));
+        assert_eq!(choices.admission("a", "sha256:a"), Admission::Approved);
+        assert_eq!(
+            choices.admission("both", "sha256:both"),
+            Admission::Rejected
+        );
+        assert_eq!(choices.admission("c", "sha256:c"), Admission::Pending);
+        let loaded = [("b".to_string(), "sha256:b".to_string())];
+        let (next, reduced) = apply_action(&choices, &TrustAction::Reject("a".into()), &loaded);
         assert!(reduced);
-        assert_eq!(next.admission("a"), Admission::Rejected);
-        let (next, reduced) = apply_action(&next, &TrustAction::Approve("b".into()));
+        assert_eq!(next.admission("a", "sha256:a"), Admission::Rejected);
+        let (next, reduced) = apply_action(&next, &TrustAction::Approve("b".into()), &loaded);
         assert!(!reduced);
-        assert_eq!(next.admission("b"), Admission::Approved);
-        let (next, _) = apply_action(&next, &TrustAction::Reset);
+        assert_eq!(next.admission("b", "sha256:b"), Admission::Approved);
+        let (next, _) = apply_action(&next, &TrustAction::Reset, &loaded);
+        assert_eq!(next, Choices::default());
+    }
+
+    #[test]
+    fn an_approval_admits_only_the_entry_it_was_given_for() {
+        let entry = json!({"command": "/bin/node", "args": ["server.js"], "env": {"K": "v"}});
+        let digest = entry_digest(&entry);
+        let choices = Choices {
+            approved: vec![("proj".into(), digest.clone())],
+            ..Choices::default()
+        };
+        assert_eq!(choices.admission("proj", &digest), Admission::Approved);
+        // What runs, where it connects, what it sends: each change asks again.
+        for changed in [
+            json!({"command": "/bin/sh", "args": ["server.js"], "env": {"K": "v"}}),
+            json!({"command": "/bin/node", "args": ["evil.js"], "env": {"K": "v"}}),
+            json!({"command": "/bin/node", "args": ["server.js"], "env": {"K": "w"}}),
+            json!({"command": "/bin/node", "args": ["server.js"], "env": {"K": "v", "L": "v"}}),
+            json!({"command": "/bin/node", "args": ["server.js"], "environment": {"K": "v"}}),
+            json!({"command": ["/bin/node", "server.js"], "env": {"K": "v"}}),
+            json!({"command": "/bin/node", "args": ["server.js"], "env": {"K": "v"}, "x": 1}),
+        ] {
+            assert_eq!(
+                choices.admission("proj", &entry_digest(&changed)),
+                Admission::Pending,
+                "{changed}"
+            );
+        }
+        let remote = json!({"type": "http", "url": "https://a.test/mcp",
+            "headers": {"X-A": "1"}, "header_env": {"X-T": "TEAM"}, "bearer_token_env": "TOKEN"});
+        for changed in [
+            json!({"type": "http", "url": "https://b.test/mcp",
+                "headers": {"X-A": "1"}, "header_env": {"X-T": "TEAM"}, "bearer_token_env": "TOKEN"}),
+            json!({"type": "http", "url": "https://a.test/mcp",
+                "headers": {"X-A": "2"}, "header_env": {"X-T": "TEAM"}, "bearer_token_env": "TOKEN"}),
+            json!({"type": "http", "url": "https://a.test/mcp",
+                "headers": {"X-A": "1"}, "header_env": {"X-T": "OTHER"}, "bearer_token_env": "TOKEN"}),
+            json!({"type": "http", "url": "https://a.test/mcp",
+                "headers": {"X-A": "1"}, "header_env": {"X-T": "TEAM"}, "bearer_token_env": "OTHER"}),
+            json!({"type": "sse", "url": "https://a.test/mcp",
+                "headers": {"X-A": "1"}, "header_env": {"X-T": "TEAM"}, "bearer_token_env": "TOKEN"}),
+        ] {
+            assert_ne!(entry_digest(&changed), entry_digest(&remote), "{changed}");
+        }
+        // Key order, and the fields that only say when it runs, are not what
+        // was approved.
+        let reordered: Value = serde_json::from_str(
+            r#"{"env":{"K":"v"},"args":["server.js"],"enabled":false,"startup_timeout_ms":5,"operation_timeout_ms":5,"restart_limit":0,"required":true,"command":"/bin/node"}"#,
+        )
+        .unwrap();
+        assert_eq!(entry_digest(&reordered), digest);
+        assert!(
+            digest.starts_with("sha256:") && digest.len() == 7 + 64,
+            "{digest}"
+        );
+    }
+
+    #[test]
+    fn an_approval_saved_by_name_alone_or_for_every_server_asks_again() {
+        // What an xfx that keyed approvals by name wrote: no digest, or the
+        // switch that approved every entry whatever it said.
+        let document = json!({"workspaces": {"/w": {
+            "enabledMcpjsonServers": ["a"],
+            "enableAllProjectMcpServers": true,
+        }}});
+        let choices = choices_in(document.as_object().unwrap(), Path::new("/w"));
+        let digest = entry_digest(&json!({"command": "x"}));
+        assert_eq!(choices.admission("a", &digest), Admission::Pending);
+        assert_eq!(choices.admission("b", &digest), Admission::Pending);
+        assert_eq!(choices, Choices::default());
+    }
+
+    #[test]
+    fn approve_all_approves_the_entries_there_now_and_not_later_ones() {
+        let current = Choices {
+            rejected: vec!["no".into()],
+            ..Choices::default()
+        };
+        let loaded = [
+            ("a".to_string(), "sha256:a".to_string()),
+            ("no".to_string(), "sha256:no".to_string()),
+        ];
+        let (next, _) = apply_action(&current, &TrustAction::ApproveAll, &loaded);
+        assert_eq!(next.admission("a", "sha256:a"), Admission::Approved);
+        assert_eq!(next.admission("a", "sha256:changed"), Admission::Pending);
+        assert_eq!(next.admission("no", "sha256:no"), Admission::Rejected);
+        assert_eq!(next.admission("later", "sha256:later"), Admission::Pending);
+        // The prompt's approval is for what it showed, whatever was read since.
+        let shown = TrustAction::ApproveShown {
+            name: "a".into(),
+            digest: "sha256:shown".into(),
+        };
+        let (next, _) = apply_action(&next, &shown, &loaded);
+        assert_eq!(
+            next.approved,
+            [("a".to_string(), "sha256:shown".to_string())]
+        );
+        // A name not in the file has nothing to approve.
+        let (next, _) = apply_action(
+            &Choices::default(),
+            &TrustAction::Approve("ghost".into()),
+            &loaded,
+        );
         assert_eq!(next, Choices::default());
     }
 
@@ -1185,21 +1455,52 @@ mod tests {
         let settings = dir.path().join("settings.json");
         let root = Path::new("/w/x");
         // The document upstream leaves (`cap/fx-mcp-fixture-40x120-{after-add,end}.files`),
-        // in the layout xfx's settings writer gives every profile.
+        // in the layout xfx's settings writer gives every profile, with the
+        // digest each approval is for beside upstream's list.
         let read =
             || serde_json::from_str::<Value>(&fs::read_to_string(&settings).unwrap()).unwrap();
-        save_action(&settings, root, &TrustAction::Reject("proj".into())).expect("saved");
+        let loaded = [("proj".to_string(), "sha256:p".to_string())];
+        save_action(
+            &settings,
+            root,
+            &TrustAction::Reject("proj".into()),
+            &loaded,
+        )
+        .expect("saved");
         assert_eq!(
             read(),
             json!({"workspaces": {"/w/x": {"disabledMcpjsonServers": ["proj"]}}})
         );
-        save_action(&settings, root, &TrustAction::Approve("proj".into())).expect("saved");
+        save_action(
+            &settings,
+            root,
+            &TrustAction::Approve("proj".into()),
+            &loaded,
+        )
+        .expect("saved");
         assert_eq!(
             read(),
-            json!({"workspaces": {"/w/x": {"enabledMcpjsonServers": ["proj"]}}})
+            json!({"workspaces": {"/w/x": {
+                "enabledMcpjsonServers": ["proj"],
+                "enabledMcpjsonServerDigests": {"proj": "sha256:p"},
+            }}})
         );
-        save_action(&settings, root, &TrustAction::Reset).expect("saved");
+        save_action(&settings, root, &TrustAction::Reset, &loaded).expect("saved");
         assert_eq!(read(), json!({}));
+        // The switch an older xfx wrote leaves at the next write.
+        fs::write(
+            &settings,
+            json!({"workspaces": {"/w/x": {"enableAllProjectMcpServers": true}}}).to_string(),
+        )
+        .unwrap();
+        save_action(&settings, root, &TrustAction::ApproveAll, &loaded).expect("saved");
+        assert_eq!(
+            read(),
+            json!({"workspaces": {"/w/x": {
+                "enabledMcpjsonServers": ["proj"],
+                "enabledMcpjsonServerDigests": {"proj": "sha256:p"},
+            }}})
+        );
     }
 
     #[test]
@@ -1216,11 +1517,24 @@ mod tests {
         assert_eq!(pending.servers[0].command, "${CMD}");
         assert_eq!(pending.servers[0].admission, Some(Admission::Pending));
         assert_eq!(pending.issues.len(), 2, "{:?}", pending.issues);
+        // Every entry with a valid name has a digest, parsed or not; the
+        // digest is of the entry as written, `${CMD}` and all.
+        let names: Vec<&str> = pending
+            .digests
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(names, ["ok", "bad", "remote"]);
+        assert_eq!(
+            pending.digests[0].1,
+            entry_digest(&json!({"command": "${CMD}", "args": ["${MISSING:-fallback}"]}))
+        );
         let approved = Choices {
-            approved: vec!["ok".into()],
+            approved: vec![("ok".into(), pending.digests[0].1.clone())],
             ..Choices::default()
         };
         let servers = load_workspace(dir.path(), &approved, &env).servers;
+        assert_eq!(servers[0].admission, Some(Admission::Approved));
         assert_eq!(servers[0].command, "/bin/node");
         assert_eq!(servers[0].args, ["fallback"]);
     }

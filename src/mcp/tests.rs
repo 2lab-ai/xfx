@@ -181,22 +181,26 @@ fn a_server_that_cannot_start_is_tried_once_more_and_then_failed() {
 #[test]
 fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     let home = Home::new();
+    let entry = json!({"command": "/bin/sh", "args": [fixture()]});
     std::fs::write(
         home.workspace().join(".mcp.json"),
-        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+        json!({"mcpServers": {"proj": entry}}).to_string(),
     )
     .unwrap();
     let runtime = home.runtime();
     runtime.start();
     let events = runtime.take_events();
     assert!(
-        events.contains(&Event::Raw(
-            "Project MCP server 'proj' is defined in .mcp.json.\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n".into()
-        )),
+        events.contains(&Event::Raw(format!(
+            "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+            fixture().display()
+        ))),
         "{events:?}"
     );
+    let digest = config::entry_digest(&entry);
     assert!(events.contains(&Event::TrustPrompt {
-        name: "proj".into()
+        name: "proj".into(),
+        digest: digest.clone(),
     }));
     let view = settled(&runtime, "proj");
     assert_eq!(view.state_label(), "Pending trust");
@@ -218,10 +222,138 @@ fn a_project_server_waits_for_approval_and_the_choice_is_kept_in_settings() {
     assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
     let document: Value =
         serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
+    let entry = &document["workspaces"][home.workspace().to_str().unwrap()];
+    assert_eq!(entry["enabledMcpjsonServers"], json!(["proj"]));
     assert_eq!(
-        document["workspaces"][home.workspace().to_str().unwrap()]["enabledMcpjsonServers"],
-        json!(["proj"])
+        entry["enabledMcpjsonServerDigests"],
+        json!({"proj": digest})
     );
+    runtime.shutdown();
+}
+
+#[test]
+fn an_approval_an_older_xfx_saved_by_name_alone_asks_once_more() {
+    let home = Home::new();
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(home.settings().parent().unwrap()).unwrap();
+    std::fs::write(
+        home.settings(),
+        json!({"workspaces": {home.workspace().to_str().unwrap(): {
+            "enabledMcpjsonServers": ["proj"],
+            "enableAllProjectMcpServers": true,
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
+    assert!(runtime
+        .take_events()
+        .iter()
+        .any(|event| matches!(event, Event::TrustPrompt { name, .. } if name == "proj")));
+    runtime.shutdown();
+}
+
+#[test]
+fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it_runs() {
+    // The approval is for the server the person was shown. `.mcp.json` is an
+    // ordinary workspace file -- `auto`, the default mode, writes it without
+    // asking, as upstream's does (`sensitiveAutoWriteTarget`,
+    // `tool_admission.zig:679-693`) -- so a write that swaps an approved
+    // entry's command must not inherit the approval on the next reload.
+    let home = Home::new();
+    let ran = home.dir.path().join("replacement-ran");
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": [fixture()]}}}).to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "proj");
+    runtime.run(Job::Trust {
+        action: TrustAction::Approve("proj".into()),
+        body: "Approving project MCP server 'proj'.".into(),
+    });
+    assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
+    let _ = runtime.take_events();
+
+    let replaced = json!({"mcpServers": {"proj": {
+        "command": "/bin/sh",
+        "args": ["-c", ": > \"$0\"; exec /bin/sh \"$1\"", ran, fixture()],
+    }}})
+    .to_string();
+    // As the model would: read the file, then replace it.
+    let write = |mode| {
+        let context = context(&home, &runtime, mode, RuleSet::default());
+        let read = call(&context, "read_file", json!({"path": ".mcp.json"}));
+        assert!(read.ok, "{read:?}");
+        call(
+            &context,
+            "write_file",
+            json!({"path": ".mcp.json", "content": replaced}),
+        )
+    };
+    // `ask` with nobody to ask refuses: in the TUI the person sees the diff.
+    let asked = write(PermissionMode::Ask);
+    assert_eq!(asked.outcome, crate::tools::Outcome::Denied, "{asked:?}");
+    // `auto` writes it on its own.
+    let wrote = write(PermissionMode::Auto);
+    assert!(wrote.ok, "{wrote:?}");
+
+    runtime.run(Job::Command("reload".into()));
+    let view = settled(&runtime, "proj");
+    assert!(
+        !ran.exists(),
+        "the rewritten entry ran without a new prompt"
+    );
+    assert_eq!(
+        view.state_label(),
+        "Pending trust",
+        "the rewritten entry kept the approval: {view:?}"
+    );
+    // The prompt names what would run, not only the name.
+    let events = runtime.take_events();
+    let shown = format!(
+        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c ': > \"$0\"; exec /bin/sh \"$1\"' {} {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+        ran.display(),
+        fixture().display()
+    );
+    assert!(events.contains(&Event::Raw(shown)), "{events:?}");
+    let Some(Event::TrustPrompt { digest, .. }) = events
+        .iter()
+        .find(|event| matches!(event, Event::TrustPrompt { .. }))
+    else {
+        panic!("no prompt: {events:?}")
+    };
+    // An answer to a prompt that showed the old entry approves the old entry,
+    // which is no longer there.
+    let first = config::entry_digest(&json!({"command": "/bin/sh", "args": [fixture()]}));
+    assert_ne!(*digest, first);
+    runtime.run(Job::Trust {
+        action: TrustAction::ApproveShown {
+            name: "proj".into(),
+            digest: first,
+        },
+        body: "Approving project MCP server 'proj'.".into(),
+    });
+    assert_eq!(settled(&runtime, "proj").state_label(), "Pending trust");
+    assert!(!ran.exists());
+    // The person approving the entry they were shown runs it.
+    runtime.run(Job::Trust {
+        action: TrustAction::ApproveShown {
+            name: "proj".into(),
+            digest: digest.clone(),
+        },
+        body: "Approving project MCP server 'proj'.".into(),
+    });
+    assert_eq!(settled(&runtime, "proj").status(), Status::Ready);
+    assert!(ran.exists());
     runtime.shutdown();
 }
 
