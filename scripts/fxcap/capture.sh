@@ -128,6 +128,15 @@
 # src/core/notifications/sound.zig:40-62, :176-181), and the bell reaches no
 # real terminal (no client is attached). The run checks afterwards that every
 # one of those names is still a directory, and fails loudly if not.
+#
+# fx also upgrades itself: ten seconds after launch its auto-upgrade thread
+# fetches the latest release from https://releases.fx.sh and copies it over its
+# own executable (vercel-labs/fx@c1db9191 src/main.zig:727-733,
+# src/core/upgrade/auto_upgrade.zig:344), unless FX_AUTO_UPGRADE=0 or the binary
+# sits under a `/zig-out/bin/` path. A reference binary that upgrades itself is
+# no longer the reference, and the run reaches the network. Every fx run is
+# launched with FX_AUTO_UPGRADE=0, last in its environment so no scenario `env`
+# can lift it, and the run fails loudly if the binary's bytes changed under it.
 # (2026-10-06 23:09 and 23:14: a research copy of this script, without the
 # guard, let fx write /tmp/fx-toggle.m4a and /tmp/fx-bloom.m4a and play them.)
 #
@@ -177,6 +186,8 @@ main() {
     *) echo "fx or xfx, not $which" >&2; exit 2 ;;
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
+  local bin_sha=''
+  [[ $which == fx ]] && bin_sha=$(shasum -a 256 "$bin" | cut -d' ' -f1)
 
   local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown=''
   local raw line
@@ -308,7 +319,7 @@ SHIM
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
-$fx_model $extra_env $bin"
+$fx_model $extra_env FX_AUTO_UPGRADE=0 $bin"
   else
     mkdir -p "$run/xfxtmp"
     launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
@@ -470,6 +481,7 @@ $xfx_model $extra_env $bin"
       [[ -d $run/fxtmp/fx-$chime.m4a ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-$chime.m4a" >&2; exit 3; }
     done
     [[ -d $run/fxtmp/fx-click.caf ]] || { echo "SOUND GUARD BREACHED: fx wrote fx-click.caf" >&2; exit 3; }
+    [[ $(shasum -a 256 "$bin" | cut -d' ' -f1) == "$bin_sha" ]] || { echo "UPGRADE GUARD BREACHED: $bin changed during the run" >&2; exit 3; }
   fi
 }
 
