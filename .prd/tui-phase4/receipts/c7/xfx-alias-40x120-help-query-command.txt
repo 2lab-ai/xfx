@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b65cb6a [debug] · Run /help for commands
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+* aliases: Aliases are not yet configurable.
+
+┃ command
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 2  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /help         show available slash commands
+  /allowlist    manage trusted commands, tools, and URLs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

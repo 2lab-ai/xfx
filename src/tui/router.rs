@@ -440,7 +440,7 @@ mod tests {
     fn an_alias_line_is_a_command_in_every_form_and_never_reaches_the_model() {
         // Upstream's row takes the rest of the line (`commands.zig:489`), so a
         // name, and a name with a command after it, reach the handler too
-        // (`command_router.zig:131-137`, `:174`). Before this surface had the
+        // (`command_router.zig:135-137`, `:174`). Before this surface had the
         // command, `/alias build zig build` went to the model as a prompt.
         for (line, call) in [
             ("/alias", "alias "),
