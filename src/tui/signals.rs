@@ -1143,7 +1143,7 @@ mod tests {
     }
 
     /// The case [`an_inherited_sigint_ignore_outlives_the_session`] runs
-    /// again in a runner started ignoring `SIGINT`.
+    /// again in a runner started ignoring `SIGINT`, `SIGHUP` and `SIGTERM`.
     const INHERITED_SIGINT_CASE: &str =
         "tui::signals::tests::the_installation_keeps_an_ignored_sigint_and_owns_the_rest";
 
@@ -1155,12 +1155,25 @@ mod tests {
         // is not included because raw mode disables terminal-generated
         // SIGINT"), so `nohup … &`'s ignore reaches every command it runs and
         // a `kill -INT` changes nothing. Whatever this runner was started
-        // with is the case: ignoring `SIGINT` (the copy the next case starts)
-        // or not (the ordinary run), and both are asserted.
+        // with is the case: ignoring `SIGINT`, `SIGHUP` and `SIGTERM` (the copy
+        // the next case starts) or not (the ordinary run), and both are
+        // asserted. The keep is `SIGINT`'s alone: `SIGHUP` and `SIGTERM` get the
+        // restore over an ignore too, so a skip widened past `SIGINT` fails in
+        // that copy.
         let _serialized = ONE_AT_A_TIME
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let inherited = disposition(libc::SIGINT) == libc::SIG_IGN;
+        // The copy's premise, checked rather than trusted: a runner that did
+        // not really start these ignored would make the two checks below about
+        // signals at their default.
+        for signal in told_ignored_at_entry() {
+            assert_eq!(
+                disposition(signal),
+                libc::SIG_IGN,
+                "the copy was not started ignoring signal {signal}"
+            );
+        }
         let wakeup = Wakeup::new().expect("open the self-pipe");
         let installed = Installed;
         let restore: extern "C" fn(libc::c_int) = restore_and_reraise;
@@ -1200,14 +1213,35 @@ mod tests {
             "the end of the session did not leave SIGINT as the process was started with it"
         );
         for signal in [libc::SIGTERM, libc::SIGHUP] {
-            assert_eq!(disposition(signal), libc::SIG_DFL);
+            assert_ne!(
+                disposition(signal),
+                restore,
+                "signal {signal} kept the session's handler after it ended"
+            );
         }
     }
 
+    /// The signals the copy [`an_inherited_sigint_ignore_outlives_the_session`]
+    /// starts was told it is started ignoring; none in the ordinary run.
+    fn told_ignored_at_entry() -> Vec<libc::c_int> {
+        std::env::var(IGNORED_AT_ENTRY)
+            .map(|names| {
+                names
+                    .split(',')
+                    .filter_map(|name| name.parse().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Where the copy is told which signals it was started ignoring.
+    const IGNORED_AT_ENTRY: &str = "XFX_TEST_IGNORED_AT_ENTRY";
+
     /// The case above, in a copy of this test binary started the way `nohup …
-    /// &` starts one -- `SIGINT` ignored -- so its ignore branch is the one
-    /// that runs. Counted, not only exited-zero: a filter that matched nothing
-    /// passes.
+    /// &` starts one and further -- `SIGINT`, `SIGHUP` and `SIGTERM` ignored --
+    /// so its ignore branch is the one that runs, and the two signals xfx owns
+    /// over an ignore are asked to be owned. Counted, not only exited-zero: a
+    /// filter that matched nothing passes.
     #[test]
     fn an_inherited_sigint_ignore_outlives_the_session() {
         use std::os::unix::process::CommandExt;
@@ -1222,12 +1256,19 @@ mod tests {
         };
         let mut runner =
             crate::process::command(std::env::current_exe().expect("this test binary"));
+        const IGNORED: [libc::c_int; 3] = [libc::SIGINT, libc::SIGHUP, libc::SIGTERM];
         runner.args(["--exact", "--test-threads=1", INHERITED_SIGINT_CASE]);
+        runner.env(
+            IGNORED_AT_ENTRY,
+            IGNORED.map(|signal| signal.to_string()).join(","),
+        );
         // SAFETY: the child only calls `sigaction` on a value it owns by copy.
         unsafe {
             runner.pre_exec(move || {
-                if libc::sigaction(libc::SIGINT, &ignore, std::ptr::null_mut()) != 0 {
-                    return Err(io::Error::last_os_error());
+                for signal in IGNORED {
+                    if libc::sigaction(signal, &ignore, std::ptr::null_mut()) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
                 }
                 Ok(())
             });

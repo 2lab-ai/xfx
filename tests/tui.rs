@@ -1137,15 +1137,23 @@ fn a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken() {
 /// group, same session, parent outside it is the shape a job-controlling shell
 /// puts a real job in, and the only one in which a stop signal means anything.
 fn in_its_own_process_group(sandbox: &Sandbox, pty: &Pty) -> Session {
+    in_its_own_process_group_with(sandbox, pty, None)
+}
+
+/// [`in_its_own_process_group`], with `SIGINT` set to `sigint` in the child
+/// before it `exec`s, when one is given.
+///
+/// For the cases about an external `SIGINT`, which would otherwise be about
+/// whatever the test runner was started with -- a runner under `nohup … &`
+/// hands every child `SIGINT` ignored (`process.rs`'s `undoing_the_runners_ignores`
+/// meets the same thing) -- rather than about the disposition they name.
+fn in_its_own_process_group_with(
+    sandbox: &Sandbox,
+    pty: &Pty,
+    sigint: Option<libc::sighandler_t>,
+) -> Session {
     let mut command = tui(sandbox);
-    // SAFETY: `setpgid` is async-signal-safe and touches nothing outside the
-    // child that is about to `exec`.
-    unsafe {
-        command.pre_exec(|| {
-            rustix::process::setpgid(None, None)?;
-            Ok(())
-        });
-    }
+    with_sigint(&mut command, sigint);
     let session = Session::spawn_without_taking_the_terminal(pty, command);
 
     // Waited for rather than assumed: a stop aimed before `setpgid` has landed
@@ -1164,9 +1172,32 @@ fn in_its_own_process_group(sandbox: &Sandbox, pty: &Pty) -> Session {
     session
 }
 
+/// Puts the child in a process group of its own and, when `sigint` is given,
+/// sets its `SIGINT` to it, both between `fork` and `exec`.
+fn with_sigint(command: &mut Command, sigint: Option<libc::sighandler_t>) {
+    // SAFETY: `setpgid` and `signal` are async-signal-safe and touch nothing
+    // outside the child that is about to `exec`.
+    unsafe {
+        command.pre_exec(move || {
+            rustix::process::setpgid(None, None)?;
+            if let Some(sigint) = sigint {
+                if libc::signal(libc::SIGINT, sigint) == libc::SIG_ERR {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+}
+
 /// The same, once it has announced itself and painted its band.
 fn started(sandbox: &Sandbox, pty: &Pty) -> Session {
-    let session = in_its_own_process_group(sandbox, pty);
+    started_with(sandbox, pty, None)
+}
+
+/// [`started`], with `SIGINT` set to `sigint` in the child when one is given.
+fn started_with(sandbox: &Sandbox, pty: &Pty, sigint: Option<libc::sighandler_t>) -> Session {
+    let session = in_its_own_process_group_with(sandbox, pty, sigint);
     session.wait_for(READY);
     // And its band, so that every case below starts from a session that has
     // painted exactly one frame. Counting frames is only sound when the test
@@ -1214,11 +1245,13 @@ fn sighup_restores_the_line_discipline_and_dies_by_the_signal() {
 fn an_external_sigint_is_not_swallowed_because_isig_is_off() {
     // `ISIG` only suppresses *terminal-generated* SIGINT. A `kill -INT` still
     // arrives, and there is no `xfx-interrupt` thread in this session to catch
-    // it, so the handler must do the same restore-and-die as TERM.
+    // it, so the handler must do the same restore-and-die as TERM. Started with
+    // `SIGINT` at its default by construction: one the runner was started
+    // ignoring is the next case's.
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let before = modes(&pty);
-    let session = started(&sandbox, &pty);
+    let session = started_with(&sandbox, &pty, Some(libc::SIG_DFL));
     session.signal(Signal::INT);
 
     assert_eq!(
@@ -1241,21 +1274,7 @@ fn a_sigint_the_launcher_ignored_stays_ignored() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let before = modes(&pty);
-    let mut command = tui(&sandbox);
-    // SAFETY: `setpgid` and `signal` are async-signal-safe and touch nothing
-    // outside the child that is about to `exec`.
-    unsafe {
-        command.pre_exec(|| {
-            rustix::process::setpgid(None, None)?;
-            if libc::signal(libc::SIGINT, libc::SIG_IGN) == libc::SIG_ERR {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
-    session.wait_for(READY);
-    session.wait_for(FRAME_END);
+    let mut session = started_with(&sandbox, &pty, Some(libc::SIG_IGN));
     session.signal(Signal::INT);
     // Long enough for a handler to have restored and re-raised: the case above
     // dies inside a few milliseconds of the same signal.
@@ -1276,6 +1295,59 @@ fn a_sigint_the_launcher_ignored_stays_ignored() {
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     assert_eq!(before, modes(&pty), "termios byte-identical after the exit");
+}
+
+#[test]
+fn a_command_the_tui_runs_keeps_a_sigint_ignore_and_only_that() {
+    // The other half of the launcher's ignore: what a command the session runs
+    // inherits, through the real path -- the TUI's handlers, the runtime's
+    // `terminal` tool, `process::command`'s `pre_exec` -- rather than through
+    // any one of them. The command asks its own shell: one that kills itself
+    // with a signal it ignores lives on to say `kept`. Started with `SIGINT`
+    // ignored, the command keeps it ignored, as fx c1db919's does (its TUI
+    // catches no `SIGINT`, `app_lifecycle.zig:82-104`, and its spawn sets no
+    // `POSIX_SPAWN_SETSIGDEF`, `darwin_process_spawn.zig:74-83`); started at
+    // the default, it has the default and dies of it. So a handler that came
+    // back over the ignore, or a reset added to `process::command`, fails
+    // here, as does a probe that cannot tell the two apart.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    for (sigint, kept) in [(libc::SIG_IGN, true), (libc::SIG_DFL, false)] {
+        let gateway = FakeGateway::start(vec![
+            Reply::Sse(sse_body(&[
+                tool_call(
+                    "call-0",
+                    "terminal",
+                    serde_json::json!({
+                        "action": "exec",
+                        "command": "(sh -c 'kill -INT $$; echo kept') > int.txt 2>&1",
+                    }),
+                ),
+                finish("tool-calls"),
+            ])),
+            Reply::Sse(content_only(&["MARKER-PROBED"])),
+        ]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_PERMISSION_MODE", "yolo");
+        with_sigint(&mut command, Some(sigint));
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"probe\r");
+        session.wait_for("MARKER-PROBED");
+        wait_for_the_turn_to_conclude(&sandbox);
+        let said = std::fs::read_to_string(sandbox.workspace.join("int.txt"))
+            .expect("the probe command ran and wrote its answer");
+        assert_eq!(
+            said.contains("kept"),
+            kept,
+            "started with SIGINT {}, the command said {said:?}",
+            if kept { "ignored" } else { "at its default" }
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+    }
 }
 
 #[test]
