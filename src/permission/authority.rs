@@ -366,7 +366,14 @@ pub enum TargetScope {
 ///   `mcp.json` -- when a root is at or inside it, so that the protected
 ///   component below a root ([`crate::workspace::PROTECTED_WRITE_DIRECTORY_NAMES`])
 ///   does not see it;
-/// - `.mcp.json`: the commands a project's MCP servers start.
+/// - `.mcp.json`: the commands a project's MCP servers start;
+/// - the editors' and the multiplexer's startup files, each able to run a
+///   command on the next start: vim's `.vimrc` and `.vim/` (`plugin/`,
+///   `autoload/` load by themselves; `:!` runs a shell), neovim's
+///   `.config/nvim/` (`init.lua` is Lua), emacs's `.emacs`, `.emacs.d/` and
+///   `.config/emacs/` (`init.el` is Lisp, `shell-command` included), tmux's
+///   `.tmux.conf` and `.config/tmux/` (`run-shell` at server start).
+///   `Library/LaunchAgents` and `.config/autostart` are upstream's already.
 const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
     &[".git", "hooks"],
     &[".git", "config"],
@@ -394,6 +401,14 @@ const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
     &[".config", "systemd"],
     &[".xfx"],
     &[".mcp.json"],
+    &[".vimrc"],
+    &[".vim"],
+    &[".config", "nvim"],
+    &[".emacs"],
+    &[".emacs.d"],
+    &[".config", "emacs"],
+    &[".tmux.conf"],
+    &[".config", "tmux"],
 ];
 
 /// The first of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] that appears in `path` as
@@ -410,15 +425,7 @@ const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
 /// root without following a link and refuses `..`, so the components here are
 /// the ones the write reaches.
 fn sensitive_sequence(path: &Path) -> Option<String> {
-    let components: Vec<String> = path
-        .components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(name) => {
-                Some(crate::workspace::fold_case(&name.to_string_lossy()))
-            }
-            _ => None,
-        })
-        .collect();
+    let components = folded_components(path);
     SENSITIVE_AUTO_WRITE_SEQUENCES
         .iter()
         .find(|expected| {
@@ -436,6 +443,95 @@ fn sensitive_sequence(path: &Path) -> Option<String> {
             false
         })
         .map(|expected| expected.join("/"))
+}
+
+/// The protected entry below one of `bases` that `target` is, or is inside,
+/// once that entry's links are followed, named by the entry's own path -- or
+/// `None`.
+///
+/// **The dotfiles case.** `~/.zshenv` is often a link to `~/dotfiles/zshenv`,
+/// `~/.config/fish` to a directory in a repository. The written path then has
+/// no component [`sensitive_sequence`] knows, and the next shell reads exactly
+/// the bytes written. So every entry of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] is
+/// looked up below each base -- the home directory and every authorized root
+/// (a repository's `.git/hooks` linked to its tracked `githooks/`) -- and
+/// resolved, read-only, at the moment the write is planned; a target equal to
+/// or below what one resolves to is that entry. A link whose target is not
+/// there yet -- nor its directory -- resolves to where it points, because
+/// that is where the shell will look once the write has created it.
+///
+/// Compared component by component under [`crate::workspace::fold_case`], as
+/// the direct check is. `target` is canonical up to case (the executor never
+/// follows a link and refuses `..`); an entry that does not exist, or whose
+/// link cannot be read, names nothing.
+pub fn sensitive_link_source(target: &Path, bases: &[&Path]) -> Option<String> {
+    let target = folded_components(target);
+    for base in bases {
+        for sequence in SENSITIVE_AUTO_WRITE_SEQUENCES {
+            let entry = sequence
+                .iter()
+                .fold(base.to_path_buf(), |path, part| path.join(part));
+            let Some(resolved) = resolve_entry(&entry, MAX_LINK_HOPS) else {
+                continue;
+            };
+            let resolved = folded_components(&resolved);
+            if target.len() >= resolved.len()
+                && target
+                    .iter()
+                    .zip(&resolved)
+                    .all(|(written, protected)| written == protected)
+            {
+                return Some(entry.display().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// How many links in a row [`resolve_entry`] follows past the last one
+/// `canonicalize` could not: the kernel's own bound for a path.
+const MAX_LINK_HOPS: u8 = 32;
+
+/// Where `entry` leads: its canonical path when everything on the way exists,
+/// and when it is a link to something not there yet, where that link points.
+fn resolve_entry(entry: &Path, hops: u8) -> Option<std::path::PathBuf> {
+    if let Ok(real) = std::fs::canonicalize(entry) {
+        return Some(real);
+    }
+    // Not there, or a dangling link. Only the second leads anywhere.
+    let link = std::fs::read_link(entry).ok()?;
+    let parent = std::fs::canonicalize(entry.parent()?).ok()?;
+    let pointed = parent.join(link);
+    if hops == 0 {
+        return None;
+    }
+    // Some of where it points may be missing, directories included: the
+    // write that creates them lands there. The part that exists is followed
+    // like any path, through a further dangling link too; the rest is joined
+    // on as named, and a `..` in it names nothing.
+    let mut existing = pointed.as_path();
+    let mut missing = Vec::new();
+    while std::fs::symlink_metadata(existing).is_err() {
+        missing.push(existing.file_name()?);
+        existing = existing.parent()?;
+    }
+    let mut resolved = resolve_entry(existing, hops - 1)?;
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Some(resolved)
+}
+
+/// `path`'s normal components, each folded ([`crate::workspace::fold_case`]).
+fn folded_components(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(name) => {
+                Some(crate::workspace::fold_case(&name.to_string_lossy()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// What was at the target when the plan was prepared.
@@ -858,6 +954,11 @@ pub struct MutationPlan {
     /// made in ([`super::policy::ProposedAction::state_key`]). Set by the
     /// executor; a plan without it matches no saved rule.
     state_binding: Option<Vec<u8>>,
+    /// The protected entry a link resolves to this target from, named as the
+    /// link is ([`sensitive_link_source`]). Set by the executor, which knows
+    /// the home directory and the roots; not part of the fingerprint, as it
+    /// is a reading of the same target, for policy.
+    linked_from: Option<String>,
     fingerprint: ContentHash,
 }
 
@@ -898,8 +999,16 @@ impl MutationPlan {
             diff: None,
             rule_targets: None,
             state_binding: None,
+            linked_from: None,
             fingerprint,
         }
+    }
+
+    /// The same plan, known to be what the protected entry `linked_from`
+    /// resolves to ([`Self::sensitive_auto_write_target`]).
+    pub fn with_sensitive_link(mut self, linked_from: Option<String>) -> Self {
+        self.linked_from = linked_from;
+        self
     }
 
     /// The same plan, bound to `binding` for a saved-session rule's key
@@ -996,10 +1105,12 @@ impl MutationPlan {
 
     /// The configuration file this plan would change that auto does not
     /// change on its own, named as the components that make it one -- `.zshrc`,
-    /// `.git/hooks` -- or `None` for an ordinary file. Judged on the canonical
-    /// target, in whichever root it is ([`TargetScope`]).
+    /// `.git/hooks` -- or, when the target is one only because a protected
+    /// entry links to it, as that entry's path; `None` for an ordinary file.
+    /// Judged on the canonical target, in whichever root it is
+    /// ([`TargetScope`]).
     pub fn sensitive_auto_write_target(&self) -> Option<String> {
-        sensitive_sequence(&self.target)
+        sensitive_sequence(&self.target).or_else(|| self.linked_from.clone())
     }
 
     pub fn preimage(&self) -> &Preimage {
@@ -1371,19 +1482,23 @@ fn platform_shell() -> PathBuf {
 pub(crate) type AllowSourceTag = super::policy::AllowSource;
 
 /// Permission to perform exactly one prepared action, exactly once.
+///
+/// A mutation's plan holds its whole preimage summary, bytes, excerpt and
+/// diff, so it is boxed rather than making every command's authority as
+/// large as the largest write's.
 #[derive(Debug)]
 pub enum ExecutionAuthority {
-    Mutation(PreparedMutation),
+    Mutation(Box<PreparedMutation>),
     Command(PreparedCommand),
 }
 
 impl ExecutionAuthority {
     pub(crate) fn mint_mutation(plan: MutationPlan, source: AllowSourceTag, nonce: Nonce) -> Self {
-        Self::Mutation(PreparedMutation {
+        Self::Mutation(Box::new(PreparedMutation {
             plan,
             nonce,
             source,
-        })
+        }))
     }
 
     pub(crate) fn mint_command(plan: CommandPlan, source: AllowSourceTag, nonce: Nonce) -> Self {

@@ -1654,6 +1654,15 @@ mod tests {
             "/home/u/.xfx/settings.json",
             "/home/u/.XFX/mcp.json",
             "/w/repo/.mcp.json",
+            // The editors and the multiplexer, which run their rc on start.
+            "/home/u/.vimrc",
+            "/home/u/.vim/plugin/x.vim",
+            "/home/u/.config/nvim/init.lua",
+            "/home/u/.emacs",
+            "/home/u/.emacs.d/init.el",
+            "/home/u/.config/emacs/init.el",
+            "/home/u/.tmux.conf",
+            "/home/u/.config/tmux/tmux.conf",
         ] {
             for scope in [TargetScope::PrimaryWorkspace, TargetScope::AdditionalRoot] {
                 let plan = MutationPlan::new(
@@ -1683,6 +1692,10 @@ mod tests {
             "/w/config/git",
             "/w/mcp.json",
             "/w/.mcp.json.example",
+            "/w/vimrc",
+            "/w/.vimrc.example",
+            "/w/docs/emacs.md",
+            "/w/tmux.conf",
             "/w/hooks/.git",
             "/w/.git-config",
             // An accented letter is a different name on every volume.
