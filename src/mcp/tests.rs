@@ -738,6 +738,12 @@ fn an_http_server_is_sent_its_headers_then_its_environment_headers_then_its_bear
 /// where the person can see it. A profile entry, which the person wrote, may.
 #[test]
 fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_may() {
+    let withheld = |server: &str, field: &str, variable: &str| {
+        format!(
+            ".mcp.json server '{server}' field {field} uses '{variable}', which xfx withholds \
+             from project servers; a server in ~/.xfx/mcp.json may use it."
+        )
+    };
     const KEY: &str = "sentinel-gateway-key-not-real";
     const TOKEN: &str = "sentinel-oidc-token-not-real";
     let dir = tempfile::tempdir().expect("workspace");
@@ -789,14 +795,10 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
     }
     let mut names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
     names.sort_unstable();
-    assert_eq!(
-        names,
-        ["args", "env", "fine", "header", "url"],
-        "{loaded:?}"
-    );
+    assert_eq!(names, ["args", "fine"], "{loaded:?}");
     let server = |name: &str| loaded.servers.iter().find(|s| s.name == name).unwrap();
+    // Withheld is unset: a default stands in for it.
     assert_eq!(server("args").args, ["--token=fallback"]);
-    assert_eq!(server("env").env, [("K".to_string(), String::new())]);
     assert_eq!(
         super::runtime::http_headers(server("fine"), &environment).expect("resolved"),
         [
@@ -811,12 +813,17 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
         issues.sort();
         issues
     };
+    // Every refusal says the variable is withheld on purpose, and where it
+    // may be used instead.
     assert_eq!(
         sorted(loaded.issues.clone()),
         [
-            "bearer: McpConfigCredentialVariable",
-            "header-env: McpConfigCredentialVariable",
-            "indirect: McpConfigCredentialVariable",
+            withheld("bearer", "bearer_token_env", "VERCEL_OIDC_TOKEN"),
+            withheld("env", "environment", "AI_GATEWAY_API_KEY"),
+            withheld("header", "http_header", "AI_GATEWAY_API_KEY"),
+            withheld("header-env", "header_env", "AI_GATEWAY_API_KEY"),
+            withheld("indirect", "bearer_token_env", "AI_GATEWAY_API_KEY"),
+            withheld("url", "url", "AI_GATEWAY_API_KEY"),
         ]
     );
     // Refused before the person is asked: an entry naming one is not offered
@@ -826,9 +833,9 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
     assert_eq!(
         sorted(pending.issues),
         [
-            "bearer: McpConfigCredentialVariable",
-            "header-env: McpConfigCredentialVariable",
-            "indirect: McpConfigInvalidBearerEnvironment",
+            withheld("bearer", "bearer_token_env", "VERCEL_OIDC_TOKEN"),
+            withheld("header-env", "header_env", "AI_GATEWAY_API_KEY"),
+            "indirect: McpConfigInvalidBearerEnvironment".to_string(),
         ]
     );
     // The profile is the person's own file: the same fields still resolve.
@@ -846,6 +853,68 @@ fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_ma
             ("Authorization".to_string(), format!("Bearer {KEY}")),
         ]
     );
+}
+
+/// An approved project server whose `${VAR}` has no value and no default
+/// does not start, and the menu says which field needs which variable, in
+/// upstream's words (`renderWorkspaceDiagnostic`, `vercel-labs/fx@c1db9191
+/// src/core/mcp/project_config.zig:156-176`, the server dropped at
+/// `:526-545`). Every field `${}` is expanded in takes that path.
+#[test]
+fn an_unset_variable_keeps_a_project_server_from_starting_and_says_so_as_upstream_does() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let url = "https://mcp.example.test/mcp";
+    std::fs::write(
+        dir.path().join(config::WORKSPACE_FILE),
+        json!({"mcpServers": {
+            "cmd": {"command": "${UNSET_CMD}"},
+            "arg": {"command": "/bin/sh", "args": ["-c", "x ${UNSET_ARG} y"]},
+            "array": {"command": ["/bin/sh", "${UNSET_ARRAY}"]},
+            "env": {"command": "/bin/sh", "env": {"K": "${UNSET_ENV}"}},
+            "header": {"type": "http", "url": url, "headers": {"X-A": "${UNSET_HEADER}"}},
+            "url": {"type": "http", "url": "https://${UNSET_HOST}/mcp"},
+            "control": {"command": "${UNSET\u{1b}[2J}"},
+            "empty": {"command": "/bin/sh", "env": {"K": "${SET_EMPTY}"}},
+            "defaulted": {"command": "/bin/sh", "args": ["${UNSET_ARG:-d}"]},
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let environment = |name: &str| (name == "SET_EMPTY").then(String::new);
+    let approved = config::Choices {
+        enable_all: true,
+        ..config::Choices::default()
+    };
+    let loaded = config::load_workspace(dir.path(), &approved, &environment);
+    let mut names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
+    names.sort_unstable();
+    // Set, even to nothing, is set; a default stands in for an unset one.
+    assert_eq!(names, ["defaulted", "empty"], "{loaded:?}");
+    let missing = |server: &str, field: &str, variable: &str| {
+        format!(
+            ".mcp.json server '{server}' field {field} requires environment variable \
+             '{variable}'; set it or use ${{{variable}:-default}}."
+        )
+    };
+    let mut issues = loaded.issues.clone();
+    issues.sort();
+    assert_eq!(
+        issues,
+        [
+            missing("arg", "argument", "UNSET_ARG"),
+            missing("array", "argument", "UNSET_ARRAY"),
+            missing("cmd", "command", "UNSET_CMD"),
+            // A control byte in the name is not put on the terminal.
+            missing("control", "command", "UNSET[2J"),
+            missing("env", "environment", "UNSET_ENV"),
+            missing("header", "http_header", "UNSET_HEADER"),
+            missing("url", "url", "UNSET_HOST"),
+        ]
+    );
+    // Not approved, not expanded: nothing is missing yet.
+    let pending = config::load_workspace(dir.path(), &config::Choices::default(), &environment);
+    assert_eq!(pending.servers.len(), 9, "{pending:?}");
+    assert!(pending.issues.is_empty(), "{:?}", pending.issues);
 }
 
 #[test]
