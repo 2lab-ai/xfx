@@ -102,9 +102,12 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
   runs later (`.zshrc`, `.zshenv` and the other shell startup files, all of
   `.ssh`, launch agents and systemd user units, `.git/hooks`, `.git/config`,
   `~/.gitconfig`, `~/.xfx`, a project's `.mcp.json`, the vim, neovim, emacs
-  and tmux startup files), in any root, in any spelling a case-insensitive
-  volume folds onto those names, and through a link -- a dotfiles file that
-  `~/.zshenv` links to is `~/.zshenv` -- which it leaves to `ask`.
+  and tmux startup files, `~/.aws/config`, `~/.kube/config`, Claude Code's
+  settings), which it leaves to `ask`. That holds in any root,
+  in any spelling a case-insensitive volume folds onto those names, and
+  through a link: a dotfiles file that `~/.zshenv`, or a link inside `~/.ssh`
+  or `~/.vim`, leads to is that file, and when xfx cannot finish checking for
+  such links, `auto` asks.
 - **`yolo` runs no permission check at all.** It prints a warning to stderr
   every time. Use it in a container you are willing to lose.
 - **Approvals are scoped.** Answering "always" grants exactly one tool and one

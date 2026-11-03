@@ -401,7 +401,10 @@ fn walk(
 /// `git ls-files -z <args>` run in `root`, or `None` when git said no, said
 /// too much, or was stopped.
 fn ls_files(root: &Path, git: &Path, args: &[&str], stop: &AtomicBool) -> Option<String> {
+    // `core.fsmonitor` is a command `ls-files` runs from the repository's
+    // configuration when it reads the index; the listing does not need it.
     let mut child = crate::process::command(git)
+        .args(["-c", "core.fsmonitor=false"])
         .arg("--no-optional-locks")
         .arg("ls-files")
         .arg("-z")

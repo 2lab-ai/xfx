@@ -629,8 +629,8 @@ impl<'a> ProposedAction<'a> {
     fn auto_admission(&self) -> Result<(), String> {
         match self {
             Self::Mutation(plan) => match plan.sensitive_auto_write_target() {
-                Some(sequence) => Err(format!(
-                    "auto mode does not change `{}` on its own because `{sequence}` decides what runs later; ask the user to approve it",
+                Some(because) => Err(format!(
+                    "auto mode does not change `{}` on its own because {because}; ask the user to approve it",
                     plan.display()
                 )),
                 None => Ok(()),
@@ -1753,6 +1753,11 @@ mod tests {
             "/home/u/.config/emacs/init.el",
             "/home/u/.tmux.conf",
             "/home/u/.config/tmux/tmux.conf",
+            // The tools' own command hooks.
+            "/home/u/.aws/config",
+            "/home/u/.kube/config",
+            "/home/u/.claude/settings.json",
+            "/w/repo/.claude/settings.local.json",
         ] {
             for scope in [TargetScope::PrimaryWorkspace, TargetScope::AdditionalRoot] {
                 let plan = MutationPlan::new(
@@ -1786,6 +1791,9 @@ mod tests {
             "/w/.vimrc.example",
             "/w/docs/emacs.md",
             "/w/tmux.conf",
+            "/w/.cargo/config.toml",
+            "/w/.aws/credentials",
+            "/w/.claude/agents/x.md",
             "/w/hooks/.git",
             "/w/.git-config",
             // An accented letter is a different name on every volume.

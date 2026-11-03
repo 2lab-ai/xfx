@@ -376,7 +376,7 @@ pub(crate) fn prepare_write_file(
         bytes.to_vec(),
     )
     .with_rule_targets(located.rule_targets())
-    .with_sensitive_link(linked_protection(context, located.full()))
+    .with_link_bases(link_bases(context))
     .with_state_binding(located.state_binding(&[input.path.as_bytes(), input.content.as_bytes()]))
     .with_diff(ApprovalDiff::around_change(
         &preimage.as_text(),
@@ -489,7 +489,7 @@ pub(crate) fn prepare_edit_file(
         after.into_bytes(),
     )
     .with_rule_targets(located.rule_targets())
-    .with_sensitive_link(linked_protection(context, located.full()))
+    .with_link_bases(link_bases(context))
     .with_state_binding(located.state_binding(&[
         input.path.as_bytes(),
         input.old_string.as_bytes(),
@@ -558,7 +558,7 @@ pub(crate) fn prepare_create_folder(
         Vec::new(),
     )
     .with_rule_targets(located.rule_targets())
-    .with_sensitive_link(linked_protection(context, located.full()))
+    .with_link_bases(link_bases(context))
     .with_state_binding(located.state_binding(&[input.path.as_bytes()]));
     Ok(Prepared {
         located,
@@ -571,29 +571,31 @@ pub(crate) fn prepare_create_folder(
 }
 
 /// Refuses a value larger than one mutation may carry.
-/// The protected entry a link makes `target` -- `~/.zshenv` linked into a
-/// dotfiles repository -- looked up below the home directory and every
-/// authorized root ([`crate::permission::authority::sensitive_link_source`]).
+/// Where auto looks for a protected entry that leads to a target: the home
+/// directory, the directories the front end named besides it
+/// (`$XDG_CONFIG_HOME`, `$ZDOTDIR`), then every authorized root
+/// ([`crate::permission::MutationPlan::sensitive_auto_write_target`]).
 ///
-/// The home directory is the one the front end resolved the profile under,
-/// and `$HOME` when none did, so a context built without one does not skip
-/// the check.
-fn linked_protection(context: &ToolContext, target: &std::path::Path) -> Option<String> {
-    let home = context
+/// The home directory is the one the front end resolved the profile under
+/// (`ToolContext::home`), which every front end sets for a turn; a context
+/// without one is checked below its roots alone, and is never sent to the
+/// process's own `$HOME` -- a test's context would otherwise walk the real
+/// one.
+fn link_bases(context: &ToolContext) -> Vec<crate::permission::LinkBase> {
+    use crate::permission::LinkBase;
+    let mut bases: Vec<LinkBase> = context
         .home()
-        .map(std::path::Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(std::path::PathBuf::from)
-                .filter(|home| home.is_absolute())
-        });
-    let mut bases: Vec<&std::path::Path> = home.as_deref().into_iter().collect();
+        .map(|home| LinkBase::Home(home.to_path_buf()))
+        .into_iter()
+        .chain(context.link_bases().iter().cloned())
+        .collect();
     for root in context.scope().roots() {
+        let root = LinkBase::Home(root.to_path_buf());
         if !bases.contains(&root) {
             bases.push(root);
         }
     }
-    crate::permission::authority::sensitive_link_source(target, &bases)
+    bases
 }
 
 fn bounded(tool: &str, field: &str, len: usize, context: &ToolContext) -> Result<(), String> {

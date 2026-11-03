@@ -946,6 +946,10 @@ pub struct ToolContext {
     /// turn's catalog does not hold it.
     skills: Option<Arc<crate::skills::Locations>>,
     home: Option<std::path::PathBuf>,
+    /// The directories besides the home directory and the roots that a
+    /// mutation looks for protected links below (`$XDG_CONFIG_HOME`,
+    /// `$ZDOTDIR`), as the front end read them.
+    link_bases: Vec<crate::permission::LinkBase>,
     /// The session's MCP servers, and what this turn has selected of them.
     /// Absent on a surface that runs no MCP client: the meta-tools are not
     /// advertised there at all ([`super::Registry::advertisement_for`]).
@@ -1003,6 +1007,7 @@ impl ToolContext {
             questioner: None,
             skills: None,
             home: None,
+            link_bases: Vec::new(),
             mcp: None,
         }
     }
@@ -1062,10 +1067,23 @@ impl ToolContext {
     }
 
     /// The home directory the managed skill root is under, and the one the
-    /// mutating tools resolve protected links below
-    /// (`crate::permission::authority::sensitive_link_source`).
+    /// mutating tools look for protected links below
+    /// (`crate::permission::MutationPlan::sensitive_auto_write_target`).
     pub fn home(&self) -> Option<&std::path::Path> {
         self.home.as_deref()
+    }
+
+    /// The same context, looking for protected links below `bases` too
+    /// ([`crate::permission::LinkBase::from_environment`]).
+    pub fn with_link_bases(mut self, bases: Vec<crate::permission::LinkBase>) -> Self {
+        self.link_bases = bases;
+        self
+    }
+
+    /// The directories besides the home directory and the roots a mutation
+    /// looks for protected links below.
+    pub fn link_bases(&self) -> &[crate::permission::LinkBase] {
+        &self.link_bases
     }
 
     /// The same context, with the session's MCP servers.
