@@ -11,8 +11,8 @@ Every scenario is `scripts/fxcap/scenarios/h1-*.cap`, taken on three
 binaries, each into a directory of its own:
 
 ```
-TMPDIR=<tmp> FX_BIN=<fxref>/fx-c1db919/bin/fx scripts/fxcap/capture.sh fx  <scenario> <size> fx-c1db919/
-TMPDIR=<tmp> FX_BIN=<fxref>/fx-v0.0.16/bin/fx scripts/fxcap/capture.sh fx  <scenario> <size> fx-v0.0.16/
+TMPDIR=<tmp> FX_BIN=<refs>/fx-c1db919/bin/fx scripts/fxcap/capture.sh fx  <scenario> <size> fx-c1db919/
+TMPDIR=<tmp> FX_BIN=<refs>/fx-v0.0.16/bin/fx scripts/fxcap/capture.sh fx  <scenario> <size> fx-v0.0.16/
 TMPDIR=<tmp>                                  scripts/fxcap/capture.sh xfx <scenario> <size> xfx/
 ```
 
@@ -26,7 +26,7 @@ wrote, the lines the new verbs print (`resize:`, `signal …`, `rehomefile …`,
 
 Sanitized after the runs, the same way in every text file (`.txt`, `.ansi`,
 `.log`, `.files`, `.sockets`, request bodies): each run directory is written
-`<scratch>`, the reference binaries' directory `<fxref>`, this checkout
+`<scratch>`, the reference binaries' directory `<refs>`, this checkout
 `<repo>`, the scratch TMPDIR `<tmp>`. A row that named one of those is shorter
 than it was on screen. `.wire` files are left as written. `.ansi` files are
 tmux's re-serialization of cell attributes (`capture-pane -e`), not the wire.
@@ -55,7 +55,7 @@ means the same lines in `fx-c1db919/`, `fx-v0.0.16/` and `xfx/`.
 | usage on the other two | `h1-usage*` | fx c1db919 and xfx answer `/usage` from their own tracking (`Usage [30 days] … Tracking has not started`); their gateway logs have no usage path at all. |
 | `mcphttp` ready on cue | `h1-mcphttp` (30x100) | `…-hanging.txt`: `remote Connecting` (c1db919), `connecting` (v0.0.16), `remote Reloading` (xfx); after `mcphttp ready`, `…-ready.txt`: `Ready` / `ready, 1 tool`. `*-mcphttp.log`: the held `initialize` answered when the mode changed (c1db919 asked at +4485ms, answered +10748ms), then `notifications/initialized` and `tools/list` with the session id and `version=2025-11-25`; v0.0.16 first `server/discover` (`version=2026-07-28`) -> 404, then the legacy handshake. |
 | `mcphttp` failing on cue | `h1-mcphttp-fail` (30x100) | c1db919 and xfx: `Failed` from launch (`fail=1` request, 500), `Failed` after the reload in `rpcerror`, `Ready` after the reload in `ready`. fx v0.0.16 has no `/mcp reload` and retries on its own: `retrying` through eight 500s, then `ready, 1 tool` once the mode is `ready`; its retries happened to miss the `rpcerror` window. |
-| guards, over 15 s | `h1-guards` (18.5 s of waits after launch), and every fx run | `runs.log` of both fx: 14 runs each, 14 `guards: <fxref>/fx-…/bin/fx sha256 7b76319a8711` / `8e6cda2efddb unchanged; fx-{…}.m4a and fx-click.caf still directories`; `h1-refuse` (a request at 18-24 s) and `h1-refuse-pause` (23 s) are longer still. `*-h1-guards-*.sockets`: every internet socket the binary had at launch, mid-turn, at 12 s and at the end -- only `127.0.0.1:<port>->127.0.0.1:<gateway>`; `sockets` fails the run on any other address. The gateway log is every request the binary made of it: one catalog read and two completions (title, turn). |
+| guards, over 15 s | `h1-guards` (18.5 s of waits after launch), and every fx run | `runs.log` of both fx: 14 runs each, 14 `guards: <refs>/fx-…/bin/fx sha256 7b76319a8711` / `8e6cda2efddb unchanged; fx-{…}.m4a and fx-click.caf still directories`; `h1-refuse` (a request at 18-24 s) and `h1-refuse-pause` (23 s) are longer still. `*-h1-guards-*.sockets`: every internet socket the binary had at launch, mid-turn, at 12 s and at the end -- only `127.0.0.1:<port>->127.0.0.1:<gateway>`; `sockets` fails the run on any other address. The gateway log is every request the binary made of it: one catalog read and two completions (title, turn). |
 | bad arguments | `refusals.sh` | `refusals.txt`: 26 bad lines across every new verb, each `2` with the reason, none launched. |
 
 ## What the harness still cannot do

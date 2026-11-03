@@ -5,7 +5,7 @@ fx-c1db919/fx-h1-resize-30x100-small.txt
 resize: the pane is now 40x120
 fx-c1db919/fx-h1-resize-30x100-large.txt
 fx-c1db919/fx-h1-resize-30x100-end.wire (2789 bytes)
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-signal 24x80   # fx-c1db919
 fx-c1db919/fx-h1-signal-24x80-start.txt
@@ -22,42 +22,42 @@ fx-c1db919/fx-h1-signal-24x80-typed.txt
 signal SIGTERM -> pid 70360: gone; pane dead, signal term
 fx-c1db919/fx-h1-signal-24x80-terminated.txt
 fx-c1db919/fx-h1-signal-24x80-end.wire (1517 bytes)
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-signal-hup 24x80   # fx-c1db919
 fx-c1db919/fx-h1-signal-hup-24x80-start.txt
 signal SIGHUP -> pid 88802: gone; pane dead, signal hup
 fx-c1db919/fx-h1-signal-hup-24x80-hup.txt
 fx-c1db919/fx-h1-signal-hup-24x80-end.wire (658 bytes)
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-rehomefile 30x100   # fx-c1db919
 fx-c1db919/fx-h1-rehomefile-30x100-start.txt
 rehomefile ~/.fx/settings.json: mode 600, 29 bytes
 fx-c1db919/fx-h1-rehomefile-30x100-swapped.files
 fx-c1db919/fx-h1-rehomefile-30x100-status.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-models2 30x100   # fx-c1db919
 fx-c1db919/fx-h1-models2-30x100-before.txt
 fx-c1db919/fx-h1-models2-30x100-after.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-reset 30x100   # fx-c1db919
 fx-c1db919/fx-h1-reset-30x100-after.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-refuse 30x100   # fx-c1db919
 fx-c1db919/fx-h1-refuse-30x100-refused.txt
 fx-c1db919/fx-h1-refuse-30x100-back.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-refuse-pause 30x100   # fx-c1db919
 fx-c1db919/fx-h1-refuse-pause-30x100-refused.txt
 fx-c1db919/fx-h1-refuse-pause-30x100-paused.txt
 fx-c1db919/fx-h1-refuse-pause-30x100-after-pause.txt
 fx-c1db919/fx-h1-refuse-pause-30x100-end.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-usage 30x100   # fx-c1db919
 fx-c1db919/fx-h1-usage-30x100-unknown.txt
@@ -66,26 +66,26 @@ fx-c1db919/fx-h1-usage-30x100-month.txt
 fx-c1db919/fx-h1-usage-30x100-today.txt
 fx-c1db919/fx-h1-usage-30x100-refused.txt
 fx-c1db919/fx-h1-usage-30x100-end.files
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-usage-codex 30x100   # fx-c1db919
 fx-c1db919/fx-h1-usage-codex-30x100-codex.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-usage-grok 30x100   # fx-c1db919
 fx-c1db919/fx-h1-usage-grok-30x100-grok.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-mcphttp 30x100   # fx-c1db919
 fx-c1db919/fx-h1-mcphttp-30x100-hanging.txt
 fx-c1db919/fx-h1-mcphttp-30x100-ready.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-mcphttp-fail 30x100   # fx-c1db919
 fx-c1db919/fx-h1-mcphttp-fail-30x100-failed.txt
 fx-c1db919/fx-h1-mcphttp-fail-30x100-rpcerror.txt
 fx-c1db919/fx-h1-mcphttp-fail-30x100-ready.txt
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
 $ capture.sh fx h1-guards 30x100   # fx-c1db919
 fx-c1db919/fx-h1-guards-30x100-launch.sockets: 1 socket(s)
@@ -95,5 +95,5 @@ fx-c1db919/fx-h1-guards-30x100-mid.txt
 fx-c1db919/fx-h1-guards-30x100-end.sockets: 2 socket(s)
 fx-c1db919/fx-h1-guards-30x100-end.txt
 fx-c1db919/fx-h1-guards-30x100-end.files
-guards: <fxref>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+guards: <refs>/fx-c1db919/bin/fx sha256 7b76319a8711 unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
 exit=0
