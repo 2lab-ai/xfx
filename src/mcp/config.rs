@@ -118,7 +118,9 @@ pub struct ServerConfig {
     /// The endpoint, for an HTTP or SSE server.
     pub url: String,
     pub headers: Vec<(String, String)>,
-    /// Kept verbatim so a profile written back keeps them; never sent.
+    /// Header names and the variables whose values they are sent with
+    /// (`runtime::http_headers`); kept verbatim so a profile written back
+    /// keeps them.
     pub header_env: Vec<(String, String)>,
     pub bearer_token_env: Option<String>,
     pub oauth: Option<Value>,
@@ -364,6 +366,20 @@ fn parse_entry(
         Some(Value::String(name)) if is_env_name(name) => Some(name.clone()),
         Some(_) => return Err(ConfigError("McpConfigInvalidBearerEnvironment")),
     };
+    // Nor may a repository name xfx's own credentials as a header's or the
+    // bearer's source (`is_credential_variable`).
+    if source == Source::Workspace
+        && (config
+            .header_env
+            .iter()
+            .any(|(_, variable)| is_credential_variable(variable))
+            || config
+                .bearer_token_env
+                .as_deref()
+                .is_some_and(is_credential_variable))
+    {
+        return Err(ConfigError("McpConfigCredentialVariable"));
+    }
     config.oauth = match object.get("oauth") {
         None => None,
         Some(value @ Value::Object(_)) => Some(value.clone()),
@@ -449,6 +465,15 @@ fn string_map(
             _ => Err(ConfigError(error)),
         })
         .collect()
+}
+
+/// xfx's own credentials, the two variables the gateway key is read from
+/// (`crate::config`). A workspace server never resolves them: approval is by
+/// name and an HTTP server runs none of the repository's code, so an approved
+/// entry naming one would send the key to whatever host it names. Upstream
+/// resolves them like any other variable (`docs/parity.md`).
+fn is_credential_variable(name: &str) -> bool {
+    name == crate::config::ENV_GATEWAY_KEY || name == crate::config::ENV_OIDC_TOKEN
 }
 
 fn is_env_name(name: &str) -> bool {
@@ -785,7 +810,8 @@ pub struct WorkspaceServers {
 }
 
 /// Reads `<root>/.mcp.json` under `choices`. An approved server's
-/// `${VAR}` and `${VAR:-default}` are expanded from `environment`; a
+/// `${VAR}` and `${VAR:-default}` are expanded from `environment`, in which
+/// xfx's own credentials are never set (`is_credential_variable`); a
 /// pending or rejected one is kept as written, since it will not run
 /// (`expandApprovedWorkspaceConfigs`, `project_config.zig:501-575`).
 pub fn load_workspace(
@@ -816,6 +842,13 @@ pub fn load_workspace(
     let Some(servers) = document.get("mcpServers").and_then(Value::as_object) else {
         return WorkspaceServers::default();
     };
+    let lookup = |variable: &str| {
+        if is_credential_variable(variable) {
+            None
+        } else {
+            environment(variable)
+        }
+    };
     let mut result = WorkspaceServers::default();
     for (name, value) in servers {
         if !is_valid_server_name(name) {
@@ -824,7 +857,7 @@ pub fn load_workspace(
         }
         let admission = choices.admission(name);
         let value = if admission == Admission::Approved {
-            expand(value, environment)
+            expand(value, &lookup)
         } else {
             value.clone()
         };

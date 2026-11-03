@@ -166,8 +166,8 @@ pub const SKILL_SYMLINK_AUTHORITIES_KEY: &str = "skill_symlink_authorities";
 /// The most entries that list may have (`max_skill_symlink_authorities`,
 /// `config_runtime.zig:264-265`).
 pub const MAX_SKILL_SYMLINK_AUTHORITIES: usize = 32;
-const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
-const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
+pub(crate) const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
+pub(crate) const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 
 /// The variable llmux uses to name its own configuration file.
 ///

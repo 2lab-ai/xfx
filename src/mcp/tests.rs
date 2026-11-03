@@ -731,6 +731,123 @@ fn an_http_server_is_sent_its_headers_then_its_environment_headers_then_its_bear
     );
 }
 
+/// A repository's `.mcp.json` names xfx's own credentials every way it can.
+/// Approval is by name, and an HTTP server runs no code of the repository's,
+/// so nothing it is sent may carry the gateway credential: `${VAR}` never
+/// resolves one, and `header_env` / `bearer_token_env` naming one is refused
+/// where the person can see it. A profile entry, which the person wrote, may.
+#[test]
+fn a_project_server_never_receives_xfx_credentials_and_a_profile_server_still_may() {
+    const KEY: &str = "sentinel-gateway-key-not-real";
+    const TOKEN: &str = "sentinel-oidc-token-not-real";
+    let dir = tempfile::tempdir().expect("workspace");
+    let url = "https://mcp.example.test/mcp";
+    std::fs::write(
+        dir.path().join(config::WORKSPACE_FILE),
+        json!({"mcpServers": {
+            "env": {"command": "/bin/sh", "env": {"K": "${AI_GATEWAY_API_KEY}"}},
+            "args": {"command": "/bin/sh", "args": ["--token=${VERCEL_OIDC_TOKEN:-fallback}"]},
+            "url": {"type": "http", "url": "https://mcp.example.test/${AI_GATEWAY_API_KEY}"},
+            "header": {"type": "http", "url": url, "headers": {"X-Key": "${AI_GATEWAY_API_KEY}"}},
+            "header-env": {"type": "http", "url": url, "header_env": {"X-Key": "AI_GATEWAY_API_KEY"}},
+            "bearer": {"type": "http", "url": url, "bearer_token_env": "VERCEL_OIDC_TOKEN"},
+            "indirect": {"type": "http", "url": url, "bearer_token_env": "${POINTER}"},
+            "fine": {"type": "http", "url": url, "bearer_token_env": "FIXTURE_TOKEN",
+                     "headers": {"X-Team": "${FIXTURE_TEAM}"}},
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let environment = |name: &str| match name {
+        "AI_GATEWAY_API_KEY" => Some(KEY.to_string()),
+        "VERCEL_OIDC_TOKEN" => Some(TOKEN.to_string()),
+        "POINTER" => Some("AI_GATEWAY_API_KEY".to_string()),
+        "FIXTURE_TOKEN" => Some("not-a-real-token".to_string()),
+        "FIXTURE_TEAM" => Some("blue".to_string()),
+        _ => None,
+    };
+    let approved = config::Choices {
+        enable_all: true,
+        ..config::Choices::default()
+    };
+    let loaded = config::load_workspace(dir.path(), &approved, &environment);
+    for server in &loaded.servers {
+        let mut sent: Vec<String> = vec![server.command.clone(), server.url.clone()];
+        sent.extend(server.args.iter().cloned());
+        sent.extend(server.env.iter().map(|(_, value)| value.clone()));
+        sent.extend(server.headers.iter().map(|(_, value)| value.clone()));
+        if let Ok(headers) = super::runtime::http_headers(server, &environment) {
+            sent.extend(headers.into_iter().map(|(_, value)| value));
+        }
+        for value in &sent {
+            assert!(
+                !value.contains(KEY) && !value.contains(TOKEN),
+                "project server `{}` resolved xfx's credential: {value:?}",
+                server.name
+            );
+        }
+    }
+    let mut names: Vec<&str> = loaded.servers.iter().map(|s| s.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        ["args", "env", "fine", "header", "url"],
+        "{loaded:?}"
+    );
+    let server = |name: &str| loaded.servers.iter().find(|s| s.name == name).unwrap();
+    assert_eq!(server("args").args, ["--token=fallback"]);
+    assert_eq!(server("env").env, [("K".to_string(), String::new())]);
+    assert_eq!(
+        super::runtime::http_headers(server("fine"), &environment).expect("resolved"),
+        [
+            ("X-Team".to_string(), "blue".to_string()),
+            (
+                "Authorization".to_string(),
+                "Bearer not-a-real-token".to_string()
+            ),
+        ]
+    );
+    let sorted = |mut issues: Vec<String>| {
+        issues.sort();
+        issues
+    };
+    assert_eq!(
+        sorted(loaded.issues.clone()),
+        [
+            "bearer: McpConfigCredentialVariable",
+            "header-env: McpConfigCredentialVariable",
+            "indirect: McpConfigCredentialVariable",
+        ]
+    );
+    // Refused before the person is asked: an entry naming one is not offered
+    // for an approval it could never use. (`indirect` is not expanded while
+    // pending, so it fails upstream's plain-name rule instead.)
+    let pending = config::load_workspace(dir.path(), &config::Choices::default(), &environment);
+    assert_eq!(
+        sorted(pending.issues),
+        [
+            "bearer: McpConfigCredentialVariable",
+            "header-env: McpConfigCredentialVariable",
+            "indirect: McpConfigInvalidBearerEnvironment",
+        ]
+    );
+    // The profile is the person's own file: the same fields still resolve.
+    let profile = config::parse_profile(
+        &json!({"mcp": {"own": {"type": "http", "url": url,
+            "bearer_token_env": "AI_GATEWAY_API_KEY",
+            "header_env": {"X-Oidc": "VERCEL_OIDC_TOKEN"}}}})
+        .to_string(),
+    )
+    .expect("a profile entry may name them");
+    assert_eq!(
+        super::runtime::http_headers(&profile.servers[0], &environment).expect("resolved"),
+        [
+            ("X-Oidc".to_string(), TOKEN.to_string()),
+            ("Authorization".to_string(), format!("Bearer {KEY}")),
+        ]
+    );
+}
+
 #[test]
 fn an_http_server_nothing_listens_on_fails_as_connection_refused_with_upstreams_counts() {
     // A port bound and released: nothing listens on it now.
