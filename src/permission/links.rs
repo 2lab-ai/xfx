@@ -441,7 +441,9 @@ impl Walk {
 /// asks anyway ([`Chain::git_dir`]). Which piece comes last does not matter:
 /// the write that adds it is this one.
 fn completes_git_dir(directory: &Path, name: &str) -> Result<bool, String> {
-    let has = |entry: &str| match std::fs::metadata(directory.join(entry)) {
+    // Not followed: a link that dangles is a piece too -- git reads `HEAD`
+    // without following it -- and counting one only ever asks more.
+    let has = |entry: &str| match std::fs::symlink_metadata(directory.join(entry)) {
         Ok(_) => Ok(true),
         Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
             Ok(false)

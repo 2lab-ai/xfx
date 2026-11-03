@@ -2893,6 +2893,53 @@ fn auto_mode_will_not_assemble_a_git_directory_one_ordinary_write_at_a_time() {
         json!({ "path": "head", "content": "ref: refs/heads/main\n" }),
     );
     assert!(refusal.contains("ask the user"), "{refusal}");
+    // `commondir` first, then `HEAD`: a linked worktree's git directory,
+    // whose common one -- here an ordinary `real/` with `objects`, `refs`
+    // and a `config` -- supplies the rest.
+    tree.mkdir("real/objects");
+    tree.mkdir("real/refs");
+    tree.write("real/config", marker);
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": "wt/commondir", "content": "../real\n" }),
+    );
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "wt/HEAD", "content": "ref: refs/heads/main\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    // A dangling link is a piece too: git does not need `HEAD` to resolve.
+    tree.mkdir("three");
+    symlink(
+        tree.root().join("nowhere"),
+        tree.root().join("three/objects"),
+    )
+    .expect("a link");
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "three/HEAD", "content": "ref: refs/heads/main\n" }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
+    tree.mkdir("four/objects");
+    tree.mkdir("four/refs");
+    symlink("refs/heads/main", tree.root().join("four/HEAD")).expect("a link");
+    assert_eq!(
+        git_says(
+            &tree.root().join("four"),
+            home.root(),
+            &["rev-parse", "--is-bare-repository"]
+        ),
+        "true"
+    );
+    let refusal = fails(
+        &context,
+        "write_file",
+        json!({ "path": "four/config", "content": marker }),
+    );
+    assert!(refusal.contains("ask the user"), "{refusal}");
     // One piece alone, where the other is not there, is an ordinary write.
     succeeds(
         &context,
