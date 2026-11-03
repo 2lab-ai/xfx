@@ -9200,6 +9200,13 @@ mod tests {
         let UiEvent::CatalogUnread { attempted, .. } = failed else {
             panic!("{failed:?}");
         };
+        // The read tells before it records what it told: waited for, so the
+        // ask below sees the answer and not a read still on its way.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !state.selector.has_answered() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(state.selector.has_answered(), "the launch read never ended");
         let (_control_tx, control_rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(control_rx);
         // Inside its second: told again as it failed, and nothing read.
