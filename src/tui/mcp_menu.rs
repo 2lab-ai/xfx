@@ -148,7 +148,15 @@ pub(crate) struct McpMenu {
     prompts: Vec<Prompt>,
     feedback: Option<String>,
     filter: Option<String>,
+    /// The project server whose entry the details screen last drew, and that
+    /// entry's digest: what `a` approves. Set while drawing, which takes
+    /// `&self`; a key reads it against the entry as it is now.
+    drawn: std::cell::RefCell<Option<(String, String)>>,
 }
+
+/// What the details screen says when `a` meets an entry other than the one
+/// it drew: nothing is approved, and the next frame shows the new one.
+const ENTRY_CHANGED: &str = "This entry changed since it was drawn; check it and press a again.";
 
 impl McpMenu {
     /// A menu open on the servers, the first one marked (`.open`,
@@ -167,6 +175,7 @@ impl McpMenu {
             prompts: Vec::new(),
             feedback: None,
             filter: None,
+            drawn: std::cell::RefCell::new(None),
         }
     }
 
@@ -541,6 +550,12 @@ impl McpMenu {
             .map(|row| format!("{}{row}{}", palette.subtitle(), palette.reset()))
             .collect();
         let room = body.saturating_sub(rows.len());
+        let drew = !entry.is_empty() && (entry.len() <= room || room > 1);
+        *self.drawn.borrow_mut() = server
+            .entry
+            .as_ref()
+            .filter(|_| drew)
+            .map(|entry| (server.name.clone(), entry.digest.clone()));
         if entry.len() <= room {
             rows.extend(entry);
         } else if room > 0 {
@@ -623,6 +638,7 @@ impl McpMenu {
             }
             (Screen::Browse, KeyAction::Enter) => {
                 if self.section == Section::Servers && !servers.is_empty() {
+                    *self.drawn.borrow_mut() = None;
                     self.screen = Screen::Details;
                     return Effect::Repaint;
                 }
@@ -703,10 +719,19 @@ impl McpMenu {
                 Effect::Repaint
             }
             // The entry this screen drew, whatever the file says by now.
+            // The entry this screen last drew -- and only while it is still
+            // the entry: one a reload read after the frame was never seen,
+            // so `a` approves nothing and the next frame shows it.
             'a' if server.admission == Some(Admission::Pending) => {
                 let Some(entry) = &server.entry else {
                     return Effect::Ignored;
                 };
+                let drawn = self.drawn.borrow().clone();
+                if drawn.as_ref() != Some(&(server.name.clone(), entry.digest.clone())) {
+                    self.feedback = Some(ENTRY_CHANGED.to_string());
+                    return Effect::Repaint;
+                }
+                self.feedback = None;
                 self.screen = Screen::Browse;
                 Effect::Trust {
                     body: format!(
