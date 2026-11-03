@@ -3666,7 +3666,20 @@ mod tests {
             r#"{"max_agent_steps":"seven","permission":{"read":{"secrets/*":"deny"}}}"#,
             Some("{not json"),
         );
-        assert!(!config.diagnostics.is_empty());
+        for (layer, key) in [
+            (ConfigLayer::User, Some("max_agent_steps")),
+            (ConfigLayer::Project, None),
+        ] {
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.layer == layer
+                        && diagnostic.setting_key.as_deref() == key),
+                "{layer:?} {key:?}: {:?}",
+                config.diagnostics
+            );
+        }
         assert_eq!(config.permission.unreadable, None);
         assert_eq!(
             config.permission.effective(),
