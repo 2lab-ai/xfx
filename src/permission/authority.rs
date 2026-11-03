@@ -329,9 +329,11 @@ pub enum TargetScope {
     AdditionalRoot,
 }
 
-/// The component runs upstream will not let auto write without review,
-/// wherever they sit (`sensitiveAutoWriteTarget`, `vercel-labs/fx@c1db9191
-/// src/core/tooling/tool_admission.zig:680-694`), verbatim and in its order.
+/// The component runs auto will not write without the user, wherever they sit:
+/// upstream's thirteen first (`sensitiveAutoWriteTarget`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:679-693`), verbatim and in its order, so
+/// the first match still names the most specific run; then the rest of the
+/// same kind, which upstream's list misses.
 ///
 /// Each is a file that decides what runs later with the user's authority -- a
 /// login shell's startup file, a launch agent, an SSH trust list, a git hook
@@ -339,6 +341,32 @@ pub enum TargetScope {
 /// sense the rest of a root is: by the time anybody reverses it, it has run.
 /// Upstream sends these to its classifier; xfx's auto has no reviewer to send
 /// them to, so it refuses them and leaves the decision to `ask`.
+///
+/// The additions, and what each one runs:
+///
+/// - the rest of the startup files of the shells upstream names: zsh reads
+///   `.zshenv` for *every* zsh, `-c` included, and `.zprofile`, `.zlogin`,
+///   `.zlogout` around a login (upstream's own shell snapshot names the first
+///   three as zsh's user files, `src/core/terminal/shell_snapshot.zig:95`);
+///   bash reads `.bash_login` when there is no `.bash_profile`, and
+///   `.bash_logout` on the way out;
+/// - all of `.config/fish`: fish sources every `conf.d/*.fish` and autoloads
+///   `functions/`, not only `config.fish`;
+/// - all of `.ssh`: sshd runs `rc` at every login, reads `environment` where
+///   `PermitUserEnvironment` allows, and trusts `authorized_keys2` as well as
+///   `authorized_keys` by default; `ssh` runs a `ProxyCommand` or a
+///   `Match exec` from any file `config` includes;
+/// - git's global configuration, `.gitconfig` and `.config/git`: the same
+///   executable input `.git/config` is, and closer to hand -- a
+///   `filter.<driver>.clean` there is a shell command that auto's own
+///   `git diff` runs for every file a `.gitattributes` selects, and neither
+///   [`GIT_CONFIG_OVERRIDES`] nor [`GIT_DIFF_SAFETY`] switches it off;
+/// - `.config/systemd`: a user unit is Linux's launch agent;
+/// - `.xfx`: xfx's profile home -- its permission mode, its rules and its
+///   `mcp.json` -- when a root is at or inside it, so that the protected
+///   component below a root ([`crate::workspace::PROTECTED_WRITE_DIRECTORY_NAMES`])
+///   does not see it;
+/// - `.mcp.json`: the commands a project's MCP servers start.
 const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
     &[".git", "hooks"],
     &[".git", "config"],
@@ -353,22 +381,41 @@ const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
     &[".bashrc"],
     &[".bash_profile"],
     &[".profile"],
+    &[".zshenv"],
+    &[".zprofile"],
+    &[".zlogin"],
+    &[".zlogout"],
+    &[".bash_login"],
+    &[".bash_logout"],
+    &[".config", "fish"],
+    &[".ssh"],
+    &[".gitconfig"],
+    &[".config", "git"],
+    &[".config", "systemd"],
+    &[".xfx"],
+    &[".mcp.json"],
 ];
 
 /// The first of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] that appears in `path` as
 /// consecutive components, joined with `/` for a sentence.
 ///
-/// Upstream's scan (`pathContainsComponentSequence`, `tool_admission.zig:696-718`):
+/// Upstream's scan (`pathContainsComponentSequence`, `tool_admission.zig:695-716`):
 /// one pass over the components, a run restarted at the first element when a
-/// component breaks it. **Case-blind** where upstream's is exact, for the
-/// reason [`crate::workspace::path::is_protected_write_directory`] is: on a
-/// case-insensitive volume `.ZSHRC` is `.zshrc`, and the exact comparison would
-/// be a check a path could spell its way around. It refuses more, never less.
+/// component breaks it. **Folded** where upstream's is exact, as a
+/// case-insensitive volume folds a name ([`crate::workspace::fold_case`]): there
+/// `.ZSHRC` and `.zſhrc` are `.zshrc`, and the exact comparison would be a check
+/// a path could spell its way around. It refuses more, never less.
+///
+/// `path` is the canonical target: the executor resolves it from a canonical
+/// root without following a link and refuses `..`, so the components here are
+/// the ones the write reaches.
 fn sensitive_sequence(path: &Path) -> Option<String> {
-    let components: Vec<&str> = path
+    let components: Vec<String> = path
         .components()
         .filter_map(|component| match component {
-            std::path::Component::Normal(name) => name.to_str(),
+            std::path::Component::Normal(name) => {
+                Some(crate::workspace::fold_case(&name.to_string_lossy()))
+            }
             _ => None,
         })
         .collect();

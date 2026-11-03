@@ -104,12 +104,53 @@ pub const PROTECTED_WRITE_DIRECTORY_NAMES: &[&str] = &[".git", ".xfx"];
 /// genuinely called `.GIT` is refused as well, which has no plausible legitimate
 /// instance and is the safe direction to be wrong in.
 ///
-/// ASCII folding only: both names are ASCII, and Unicode case folding would put
-/// locale-dependent behaviour inside a security check for nothing.
+/// Folded with [`fold_case`], so the comparison is the one such a volume makes.
 pub fn is_protected_write_directory(name: &str) -> bool {
+    let folded = fold_case(name);
     PROTECTED_WRITE_DIRECTORY_NAMES
         .iter()
-        .any(|protected| protected.eq_ignore_ascii_case(name))
+        .any(|protected| folded.eq_ignore_ascii_case(protected))
+}
+
+/// `name` as a case-insensitive volume compares it with an ASCII name: ASCII
+/// lowered, and every non-ASCII character that folds onto ASCII replaced by
+/// what it folds to.
+///
+/// **ASCII folding alone is a check a path can spell its way around.** APFS's
+/// case-insensitive variant -- macOS's default -- compares names under full
+/// Unicode case folding after canonical decomposition, so `.zſhrc` (U+017F)
+/// opens `.zshrc`, `.ßh` is `.ssh`, `.proﬁle` (U+FB01) is `.profile` and
+/// `authorized_Keys` (the Kelvin sign, U+212A) is `authorized_keys`: a file
+/// created under the first spelling is the one the shell or sshd later opens by
+/// the second.
+///
+/// The table is every code point whose canonical decomposition, case-folded
+/// (Unicode 16.0 `CaseFolding.txt`, statuses C and F), is pure ASCII -- the
+/// thirteen below, found by scanning every scalar value. Any other non-ASCII
+/// character folds to something that is not ASCII, so it can never equal an
+/// ASCII name, and is kept as it is. No locale enters: the Turkic mappings are
+/// not ones a volume applies.
+///
+/// The result is compared with `eq_ignore_ascii_case` against an ASCII name.
+pub fn fold_case(name: &str) -> String {
+    let mut folded = String::with_capacity(name.len());
+    for character in name.chars() {
+        match character {
+            '\u{DF}' | '\u{1E9E}' => folded.push_str("ss"),
+            '\u{17F}' => folded.push('s'),
+            '\u{212A}' => folded.push('k'),
+            '\u{FB00}' => folded.push_str("ff"),
+            '\u{FB01}' => folded.push_str("fi"),
+            '\u{FB02}' => folded.push_str("fl"),
+            '\u{FB03}' => folded.push_str("ffi"),
+            '\u{FB04}' => folded.push_str("ffl"),
+            '\u{FB05}' | '\u{FB06}' => folded.push_str("st"),
+            '\u{37E}' => folded.push(';'),
+            '\u{1FEF}' => folded.push('`'),
+            other => folded.push(other.to_ascii_lowercase()),
+        }
+    }
+    folded
 }
 
 /// Why a path could not be used.
@@ -434,6 +475,37 @@ mod tests {
                 "`{ordinary}` must stay writable"
             );
         }
+    }
+
+    #[test]
+    fn a_name_is_folded_as_a_case_insensitive_volume_folds_it() {
+        // Each pair was observed to open one file on a case-insensitive APFS
+        // volume: the non-ASCII spelling is not a different name there.
+        for (spelled, ascii) in [
+            (".ZSHRC", ".zshrc"),
+            (".z\u{17F}hrc", ".zshrc"),
+            (".\u{DF}h", ".ssh"),
+            (".\u{1E9E}h", ".ssh"),
+            (".pro\u{FB01}le", ".profile"),
+            (".bash_pro\u{FB01}le", ".bash_profile"),
+            ("authorized_\u{212A}eys", "authorized_keys"),
+            ("\u{FB00}", "ff"),
+            ("\u{FB02}", "fl"),
+            ("\u{FB03}", "ffi"),
+            ("\u{FB04}", "ffl"),
+            ("\u{FB05}", "st"),
+            ("\u{FB06}", "st"),
+            ("x\u{37E}y", "x;y"),
+            ("a\u{1FEF}b", "a`b"),
+        ] {
+            assert!(
+                fold_case(spelled).eq_ignore_ascii_case(ascii),
+                "`{spelled}` folds to `{}`, not `{ascii}`",
+                fold_case(spelled)
+            );
+        }
+        // An accented letter is a different name, on every volume.
+        assert!(!fold_case(".zshr\u{E7}").eq_ignore_ascii_case(".zshrc"));
     }
 
     #[test]

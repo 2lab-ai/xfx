@@ -99,8 +99,11 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
   families, nothing that compiles or runs your project's code. A directory added
   with `--add-dir` or `/workspace add` is a root like the workspace, and `auto`
   writes there as it does in the workspace -- except the files that decide what
-  runs later (`.zshrc` and the other shell startup files, `.ssh/authorized_keys`,
-  launch agents, `.git/hooks`, `.git/config`), which it leaves to `ask`.
+  runs later (`.zshrc`, `.zshenv` and the other shell startup files, all of
+  `.ssh`, launch agents and systemd user units, `.git/hooks`, `.git/config`,
+  `~/.gitconfig`, `~/.xfx`, a project's `.mcp.json`), in any root and in any
+  spelling a case-insensitive volume folds onto those names, which it leaves
+  to `ask`.
 - **`yolo` runs no permission check at all.** It prints a warning to stderr
   every time. Use it in a container you are willing to lose.
 - **Approvals are scoped.** Answering "always" grants exactly one tool and one
