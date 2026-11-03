@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-0e78888 [debug] · Run /help for commands
+
+* skills: Skill 'nope' not found.
+
+* skills: xfx workspace roots are auto-discovered from .xfx/skills and skills/.
+  xfx managed install root: /private/tmp/claude-501/fxcap.XXXXXX/home/.xfx/skills
+
+* skills: Created /private/tmp/claude-501/fxcap.XXXXXX/home/.xfx/skills/made/SKILL.md
+
+* skills: Invalid skill name. Use a single directory name without '/' or '\'.
+
+* skills: Installing from ./skill-src...
+
+* skills: Installed: foo
+
+* skills: Removed skill 'made'.
+
+* skills: Skill 'demo' comes from workspace .xfx/skills, not the xfx managed install root. Remove it from /private/tmp/
+  claude-501/fxcap.XXXXXX/work/.xfx/skills/demo.
+
+* usage: /skills [list|add|install|show|create|remove|path] [name|url|path]
+
+┃ demo run it
+
+* 1 requested skill loaded
+└ Loaded skill demo
+
+  Used the skill.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+

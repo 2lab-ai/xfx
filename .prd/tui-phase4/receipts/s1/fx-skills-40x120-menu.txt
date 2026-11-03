@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Skills 2  [All]  fx  Workspace  Claude  Codex  Agents  OpenCode  Claw
+
+  demo             fx · Workspace
+  release-notes    fx · Workspace
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab source     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

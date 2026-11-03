@@ -1,5 +1,5 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
+// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_MODELS_DOWN_MS=<ms>] [FAKEGW_MODELS_DELAY_MS=<ms>] [FAKEGW_CREDITS=<credits.json>] [FAKEGW_TITLE=<title.json>]
 //        bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
@@ -185,13 +185,23 @@ const server = Bun.serve({
         return Response.json(known.record);
       }
       if (url.pathname.endsWith("/models")) {
-        log(`GET ${url.pathname} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}`);
-        // FAKEGW_MODELS_DOWN_MS (`capture.sh`'s `modelsdown` verb): unavailable for that long after
-        // the gateway starts, so a catalog the launch could not read is back for a later ask.
-        if (Date.now() - started < Number(process.env.FAKEGW_MODELS_DOWN_MS || 0)) {
-          log(`GET ${url.pathname} -> 503 (down)`);
+        const asked = Date.now();
+        // FAKEGW_MODELS_DELAY_MS (`capture.sh`'s `modelsdelay` verb): a catalog served waits
+        // that long before it answers -- and, set at all (`0` too), the catalog's log lines say
+        // when, in ms since the gateway started. Unset, the lines are as they always were.
+        const timed = Boolean(process.env.FAKEGW_MODELS_DELAY_MS);
+        const at = (ms: number) => (timed ? ` at=${ms}ms` : "");
+        log(`GET ${url.pathname} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}${at(asked - started)}`);
+        // FAKEGW_MODELS_DOWN_MS (`modelsdown`): unavailable for that long after the gateway
+        // starts, so a catalog the launch could not read is back for a later ask. A 503 answers
+        // at once.
+        if (asked - started < Number(process.env.FAKEGW_MODELS_DOWN_MS || 0)) {
+          log(`GET ${url.pathname} -> 503 (down)${at(Date.now() - started)}`);
           return new Response("unavailable", { status: 503 });
         }
+        const delay = Number(process.env.FAKEGW_MODELS_DELAY_MS || 0);
+        if (delay > 0) await Bun.sleep(delay);
+        if (timed) log(`GET ${url.pathname} -> 200${at(Date.now() - started)}`);
         if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
         return Response.json({ data: [{ id: "fake/model-a", type: "language", tags: ["tool-use"] }] });
       }

@@ -1,0 +1,81 @@
+# /skills with two workspace skills and one local source directory: fx's
+# `.fx/skills/demo` is xfx's `.xfx/skills/demo`. `add` is given only an
+# existing local directory: anything else falls through, on fx, to
+# `git clone https://github.com/...`.
+gateway skills-turn.json
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+wait 3
+type /skills
+key Enter
+wait 1.5
+snap menu
+key Down
+wait 0.5
+snap menu-down
+key Escape
+wait 0.5
+snap menu-esc
+key C-u
+type /skills list
+key Enter
+wait 1.5
+snap list
+key Escape
+wait 0.3
+key C-u
+type /skills show demo
+key Enter
+wait 1.5
+snap show-demo
+key Escape
+wait 0.3
+key C-u
+type /skills show nope
+key Enter
+wait 1.5
+snap show-nope
+type /skills path
+key Enter
+wait 1
+snap path
+type /skills create made
+key Enter
+wait 1.5
+snap create
+type /skills create ../escape
+key Enter
+wait 1
+snap create-bad
+type /skills add ./skill-src
+key Enter
+wait 2
+snap add-local
+home after-add
+type /skills remove made
+key Enter
+wait 1.5
+snap remove-made
+type /skills remove demo
+key Enter
+wait 1
+snap remove-workspace
+type /skills bogus
+key Enter
+wait 1
+snap bogus
+type $
+wait 1
+snap dollar
+type dem
+wait 0.5
+snap dollar-dem
+key Enter
+wait 0.5
+snap dollar-enter
+type  run it
+key Enter
+wait 3
+snap sent
+snapfull end
+gwlog

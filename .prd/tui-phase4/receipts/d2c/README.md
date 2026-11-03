@@ -93,9 +93,43 @@ The catalog cannot be read at launch -- the fake gateway's `/models` answers 503
 
 The gateway logs are line for line the same: the launch read and the first `/model` answered 503, the turn's title and completion requests, then the mid-turn read served -- before the turn ended. Before this round xfx queued that read behind the turn, so its menu said `Loading models…` until the turn was over (`src/tui/worker.rs` `a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends` fails with the request put aside until the work ends, which is what queueing it amounted to).
 
+## Round 5 (`14dd9c3`, merged with plan `ee617e4` at `fef6a14`): fx's one-second floor, and a read a question does not hold
+
+```
+scripts/fxcap/capture.sh {fx,xfx} model-floor  40x120 <dir>   # /model inside the second after a failed read began, and after it
+scripts/fxcap/capture.sh {fx,xfx} model-parked 40x120 <dir>   # /model mid-turn with a slow catalog; the model's question is up when it lands
+```
+
+`fx` is the reference build of c1db919 restored on 2026-11-03 (sha256 `7b76319a871163ad...`, `--version` 0.0.13), run with `FX_AUTO_UPGRADE=0` (plan `d91a996`); `xfx` is `target/debug/xfx` at `fef6a14` (the banner's revision). Harness: `modelsdelay <ms>` (`FAKEGW_MODELS_DELAY_MS`) makes a catalog the fake serves answer `<ms>` after it is asked -- a `modelsdown` 503 still answers at once -- and, set at all (`0` too), stamps the gateway log's catalog lines with `at=<ms since the gateway started>`; unset, the lines are as before, so earlier receipts' logs still compare line for line. Sanitized as above; no file matched.
+
+**The floor** (`model-floor`; the catalog 503 throughout). fx starts no load within a second of the **start** of the attempt that failed, and a `/model` inside that second opens the menu over the failure it holds (`beginLoad`, `model_cache_runtime.zig:441-442`, the attempt's time set as it starts, `:454`; `openMenu` -> `refreshMenuLocked`, `:529-539`, `:792-806`). `/model` at 4 s reads again (the launch read began long before), Escape, `/model` again about half a second later -- inside the second -- then Escape, 1.5 s, `/model` a third time.
+
+| Snap | Rows identical | What differs, and why |
+|---|---|---|
+| `start` | **2/2** | -- |
+| `inside-floor` | **6/6** | `Models 0  [All]` and `Could not reach AI Gateway; retry /model.` from both, the composer row empty in both -- so the second `/model` was submitted as a command, not typed into the menu's search |
+| `after-floor` | **6/6** | the same screen, after a read |
+
+The gateway logs carry the evidence -- one read at launch and **two** after it, not three: fx at 1276, 5227 and 7545 ms, xfx at 821, 4855 and 7157 ms, each answered 503 within 5 ms. The ask between the second read and the third read nothing in either. The second read and the third are 2.3 s apart in both, and the script spends at least 1.8 s of that after the ask inside the floor (its 0.3 s wait, the snap, Escape, the 1.5 s wait), so that ask came within 0.5 s of the read it was floored by. Before this round xfx read on every `/model` after a failure: `a_catalog_request_answers_the_menu_and_never_the_document` (the runtime: a read inside the floor) and `a_model_inside_the_second_after_a_failed_read_began_opens_over_the_failure_and_asks_nothing` (the band: the menu said `Loading models…` and asked) both fail with the floor taken out. Escape and the next `/` are 0.3 s apart in the script: fx holds an Escape for 30 ms to see whether a key follows it (`input_escape_timeout_ms`, `main.zig:188`, handed to `flushPendingEscape`, `app_input_runtime.zig:681-694`), and an earlier run under load (about 43) read the Escape and the `/` together as one chord -- `model` in fx's menu search, no second command, so no read for a reason that was not the floor. That run is not kept.
+
+**A question parked** (`model-parked`). The launch read fails (503 for the first six seconds), a turn starts once the catalog is back, `/model` asks again while it streams, and the catalog answers eight seconds after it is asked; the model's `ask_user_question` arrives while that read is on its way. fx's load is a thread of its own (`startWarmup` spawning `preloadThreadMain`, `model_cache_runtime.zig:321-349`, `:698-743`), so the question does not hold it, and the open menu -- behind the question, which owns the band -- takes the rows (`pollLoadTransition`, `:549-557`). xfx's read now runs on an `xfx-catalog` thread of its own, started at once whether the work's race or the question's parked wait reads the ask.
+
+| Snap | Rows identical | What differs, and why |
+|---|---|---|
+| `start` | **2/2** | -- |
+| `menu-loading` | **8/8** | the turn `Generating (1s)` and the menu's `Loading models…` under it -- the read on its way |
+| `question-up` | **9/9** | the question owns the band; the menu is behind it in both, not closed |
+| `question-landed` | **9/9** | the same question, after the read has answered |
+| `answered` | **16/16** | `1) Which database should I use?` / `Postgres`, `Got it.`, and the menu back with `Models 4  [All]  Anthropic  OpenAI  xAI  Others`, its four rows and the note -- the rows taken while the question was up |
+
+The gateway logs are the same in order: the launch read's 503, the title, the turn's completion (`tool ask_user_question`), the mid-turn read asked (fx 8327 ms, xfx 11095 ms) and answered 200 eight seconds later (16328, 19098 ms), and only then the completion the answer sent. xfx's ends with the harness's `stream closed by client` line, after the reply was read, as `e1`, `f1`, `f3` and `w2` say. What a screen cannot show is the difference this round makes: until the answer the band paints the question in either case, and round 4's read -- a task on the runtime thread the question had parked -- resumed the moment the answer let the thread go, to bytes already waiting, so its `answered` screen would have been the same. The unit tests are the receipt for that: `a_catalog_asked_for_while_a_question_has_parked_the_turn_is_told_before_it_is_answered` and `..._while_an_approval_has_parked_...` hold a real `TuiQuestioner` / `TuiPrompter` parked in `park_on`, send `/model`'s ask, and answer only once the band has been told the rows, or after a minute; with round 4's hand-back the band was told nothing in that minute (both RED, 60 s), and both are green here.
+
+**Round 4's `model-reask`, retaken at `fef6a14`** beside fx in the same run (files not kept): `start` 2/2, `menu-failed` 6/6, `turn-running` 3/4, `reask-midturn` 11/12 -- the differing row the activity row's pulse (`•` in fx's frame, between pulses in xfx's) -- and the gateway logs line for line the same but the port.
+
 ## What does not match, and why
 
 - **The unconfirmed-Ultra line's wrap** (`fast-unconfirmed`): closed in the follow-up but for one word. fx's assistant wrap keeps no word alone on a line's last row -- when the word that overflows is the line's final one, the word before it moves down too (`assistant_wrap.zig:219-267`, `:269-298`, `isFinalWordOnLine` `:862-883`) -- and `tui::wrap::wrap` has no such rule, so at 120 columns xfx fits `lower` on the first row. The rule is fx's for every assistant row; recorded in `ssot.md` Tensions for the prose wrap.
 - **The trailing blank cells of the footer row** (`commit`, `fast-on`): fx's own frames differ from each other there; text and colours match.
+- **The inline column after a failed read** (round 5, not captured): fx's column asks the cache again from its render path whenever it is drawn over a failed catalog, held to the same one-second floor (`app_render_runtime.zig:563` -> `modelPickerCompletions`, `input_completion_runtime.zig:1029-1030` -> `modelCompletions`, `main.zig:2370-2373` -> `ensureModelCache`); xfx's column says `unable to load models` and never asks again by itself -- `/model` is the gesture that does (`the_column_asks_for_the_catalog_once_and_says_where_it_is`). Recorded in `ssot.md`'s Tension.
 - **The elapsed seconds** of a turn: a clock.
 - **The banner**: xfx's brand line (WU-A).

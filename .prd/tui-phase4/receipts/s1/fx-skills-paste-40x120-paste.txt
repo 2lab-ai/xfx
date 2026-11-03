@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ use $rel please
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Skills 1  [All]  fx  Workspace  Claude  Codex  Agents  OpenCode  Claw
+
+  release-notes    fx · Workspace
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab source     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

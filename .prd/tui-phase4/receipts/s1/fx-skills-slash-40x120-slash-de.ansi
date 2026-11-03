@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m /de
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mResults 4[39m
+
+[1m[38;5;255m  /provider       [38;5;245mchoose the model provider and how it signs in                                       Account[0m
+[38;5;245m  /model          choose what model and reasoning effort to use                                       Model[39m
+[38;5;245m  demo            Demo workspace skill for the capture                                                workspace .fx[39m
+[38;5;245m  release-notes   Write release notes from the git log                                                workspace skills/[39m
+
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     enter use     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

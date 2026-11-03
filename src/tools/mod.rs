@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod mutate;
 pub mod question;
 pub mod read;
+pub mod skill;
 pub mod spec;
 pub mod terminal;
 pub mod undo;
@@ -51,6 +52,7 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
     "create_folder",
     "terminal",
     "capability_search",
+    "skill",
     "mcp_select_tool",
     "mcp_features",
     "ask_user_question",
@@ -58,8 +60,9 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
 
 /// The specs themselves, in upstream's order (`tools.zig:1352-1367`): the read
 /// group, then the mutation group, then the terminal -- and, where upstream
-/// puts them, between its shell and `ask_user_question`, the three MCP
-/// meta-tools (`vercel-labs/fx@c1db9191 src/builtins/tools.zig:868-883`).
+/// puts them, between its shell and `ask_user_question`, the MCP meta-tools
+/// with `skill` among them (`advertisement_order`, `vercel-labs/fx@c1db9191
+/// src/builtins/tools.zig:865-881`).
 static BUILTIN_TOOLS: &[ToolSpec] = &[
     read::LIST_FILES,
     read::GLOB_FILES,
@@ -70,6 +73,7 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     mutate::CREATE_FOLDER,
     terminal::TERMINAL,
     mcp::CAPABILITY_SEARCH,
+    skill::SKILL,
     mcp::MCP_SELECT_TOOL,
     mcp::MCP_FEATURES,
     question::ASK_USER_QUESTION,
@@ -349,6 +353,7 @@ mod tests {
             ("create_folder", PermissionKind::MutateFile),
             ("terminal", PermissionKind::RunCommand),
             ("capability_search", PermissionKind::ReadOnly),
+            ("skill", PermissionKind::ReadOnly),
             ("mcp_select_tool", PermissionKind::ReadOnly),
             ("mcp_features", PermissionKind::ReadOnly),
             ("ask_user_question", PermissionKind::Interaction),

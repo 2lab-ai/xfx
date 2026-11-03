@@ -32,6 +32,11 @@
 #                          gateway starts, and the catalog after: a catalog
 #                          the launch could not read that is back by the time
 #                          `/model` asks again
+#   modelsdelay <ms>       a catalog that path serves answers <ms> after it
+#                          is asked (a `modelsdown` 503 answers at once), so a
+#                          read can still be on its way when the model asks
+#                          its question; with it (`0` too) the gateway log's
+#                          catalog lines say when, in ms since it started
 #   credits <credits.json> what it answers for GET /coding-agent/v1/credits
 #                          (default: 404 `not found`)
 #   titled <title.json>    what it answers a session-title request with
@@ -196,7 +201,7 @@ main() {
   local bin_sha=''
   [[ $which == fx ]] && bin_sha=$(shasum -a 256 "$bin" | cut -d' ' -f1)
 
-  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown=''
+  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown='' modelsdelay=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -215,6 +220,7 @@ main() {
     fi
     [[ $line == models\ * ]] && models=$scenarios/${line#models }
     [[ $line == modelsdown\ * ]] && modelsdown=${line#modelsdown }
+    [[ $line == modelsdelay\ * ]] && modelsdelay=${line#modelsdelay }
     [[ $line == credits\ * ]] && credits=$scenarios/${line#credits }
     [[ $line == titled\ * ]] && titled=$scenarios/${line#titled }
     [[ $line == nomodel ]] && nomodel=1
@@ -249,7 +255,7 @@ main() {
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_MODELS_DELAY_MS=$modelsdelay FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -350,7 +356,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|modelsdelay|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;

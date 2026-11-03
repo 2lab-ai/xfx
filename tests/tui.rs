@@ -11369,8 +11369,11 @@ F1 (T3): MARKER-HANDOFF-77 the files are evidence\n";
          "context_window": 17_000, "max_tokens": 4_000},
     ]}));
     let sandbox = Sandbox::new();
+    // 49 lines each: the third read takes the request past the point and
+    // still leaves the notes room after it, with every advertised tool's
+    // schema -- `skill`'s included -- in the request it measures.
     for name in ["a.txt", "b.txt", "c.txt"] {
-        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(50)).expect("a fixture");
+        std::fs::write(sandbox.workspace.join(name), lines_of_evidence(49)).expect("a fixture");
     }
     let pty = Pty::open();
     pty.resize(40, 120);
@@ -12165,6 +12168,235 @@ fn a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn() {
     assert_eq!(gateway.title_requests().len(), 1, "no title was asked for");
     release.store(true, std::sync::atomic::Ordering::SeqCst);
     session.wait_for("\u{1b}]2;Held Then Given\u{7}");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+// -- /skills and `$` -----------------------------------------------------------
+
+/// The capture's workspace (`research/media-ext/scenarios/skills-ws`) on xfx's
+/// roots: `demo` in `.xfx/skills`, `release-notes` in `skills/`, and a local
+/// source directory holding `foo`.
+fn skills_workspace(sandbox: &Sandbox) {
+    for (dir, name, description, body) in [
+        (
+            ".xfx/skills",
+            "demo",
+            "Demo workspace skill for the capture",
+            "Say DEMO.",
+        ),
+        (
+            "skills",
+            "release-notes",
+            "Write release notes from the git log",
+            "Summarize.",
+        ),
+        (
+            "skill-src",
+            "foo",
+            "A skill installed from a local directory",
+            "Foo body.",
+        ),
+    ] {
+        let at = sandbox.workspace.join(dir).join(name);
+        std::fs::create_dir_all(&at).expect("a skill directory");
+        std::fs::write(
+            at.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\n{body}\n"),
+        )
+        .expect("SKILL.md");
+    }
+}
+
+/// The system messages of a captured Gateway request, in order.
+fn system_messages(body: &Value) -> Vec<String> {
+    body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] == "system")
+        .filter_map(|message| message["content"].as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions() {
+    // `cap/fx-skills-40x120-dollar` .. `-sent`, and the request body upstream
+    // sent for it (`cap/fx-skills-40x120-bodies/001-completion.json`).
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["Used ", "the skill."]),
+    )]);
+    let sandbox = Sandbox::new();
+    skills_workspace(&sandbox);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"$");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "Skills 2  [All]  xfx  Workspace",
+            "  demo             xfx \u{b7} Workspace",
+            "  release-notes    xfx \u{b7} Workspace",
+            "\u{2191}\u{2193} navigate     tab source     enter use     esc close",
+        ],
+        &[],
+    );
+    session.type_bytes(b"dem");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Skills 1  [All]"],
+        &["release-notes"],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} demo"],
+        &["Skills 1", "$dem"],
+    );
+    session.type_bytes(b" run it\r");
+    session.wait_for("the skill.");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} demo run it",
+            "* 1 requested skill loaded",
+            "\u{2514} Loaded skill demo",
+            "Used the skill.",
+        ],
+        &[],
+    );
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[0].json();
+    assert_eq!(user_messages(&body), ["$demo run it"]);
+    let work = sandbox.workspace.display().to_string();
+    let systems = system_messages(&body);
+    let catalog = systems
+        .iter()
+        .find(|text| text.contains("<available_skills>"))
+        .expect("the catalog block");
+    // Upstream's block, byte for byte but for the paths and the namespace
+    // they hash to.
+    let namespace = catalog
+        .split("(location: skill:")
+        .nth(1)
+        .and_then(|rest| rest.get(..16))
+        .expect("a namespace")
+        .to_string();
+    assert_eq!(
+        catalog,
+        &format!(
+            "Skills provide task instructions. Use named skills and clearly matching skills before substantive work.\n\
+Read selected skills completely, including required references. Descriptions may be shortened; metadata is not loaded instructions.\n\
+<available_skills>\n\
+Root 0: {work}/.xfx/skills\n\
+Root 1: {work}/skills\n\
+- demo: Demo workspace skill for the capture (location: skill:{namespace}:0/demo)\n\
+- release-notes: Write release notes from the git log (location: skill:{namespace}:1/release-notes)\n\
+</available_skills>\n"
+        )
+    );
+    let explicit = systems
+        .iter()
+        .position(|text| text.starts_with("Explicitly invoked skill content for this query:\n"))
+        .expect("the explicit block");
+    assert_eq!(
+        systems[explicit],
+        format!(
+            "Explicitly invoked skill content for this query:\n\
+Use every successfully loaded skill for this query. Report blocked or ambiguous requests.\n\
+Follow each skill's complete instructions and required resources before substantive work.\n\
+If a skill cannot be followed, state the blocker instead of silently substituting another workflow.\n\
+<skill_content name=\"demo\" location=\"{work}/.xfx/skills/demo\" resource=\"SKILL.md\" complete=\"true\">\n\
+---\nname: demo\ndescription: Demo workspace skill for the capture\n---\n\n# demo\n\nSay DEMO.\n\n</skill_content>\n"
+        )
+    );
+    // The catalog comes before the explicit block, as upstream's stable
+    // prefix precedes its per-request overlay.
+    let catalog_at = systems
+        .iter()
+        .position(|text| text == catalog)
+        .expect("found");
+    assert!(catalog_at < explicit, "{systems:#?}");
+    // And the tool the catalog's locations are for.
+    let tools: Vec<&str> = body["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(tools.contains(&"skill"), "{tools:?}");
+    assert!(!tools.contains(&"install_skill"), "{tools:?}");
+}
+
+#[test]
+fn slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network() {
+    // `cap/fx-skills-40x120-menu`, `-add-local`, `-path`; a source that is not
+    // a directory is the failed install upstream says for a clone that failed.
+    let sandbox = Sandbox::new();
+    skills_workspace(&sandbox);
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.type_bytes(b"/skills\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "Skills 2  [All]  xfx  Workspace",
+            "  demo             xfx \u{b7} Workspace",
+        ],
+        &[],
+    );
+    session.type_bytes(&[0x1b]);
+    on_screen(&session, (40, 120), &[], &["Skills 2"]);
+    session.type_bytes(b"/skills add ./skill-src\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "* skills: Installing from ./skill-src...",
+            "* skills: Installed: foo",
+        ],
+        &[],
+    );
+    assert_eq!(
+        std::fs::read_to_string(sandbox.home.join(".xfx/skills/foo/SKILL.md")).expect("installed"),
+        "---\nname: foo\ndescription: A skill installed from a local directory\n---\n\n# foo\n\nFoo body.\n"
+    );
+    session.type_bytes(b"/skills add vercel-labs/agent-skills\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["* skills: Failed to install. Check the source path or URL and try again."],
+        &[],
+    );
+    // The installed skill is in the next search. By its whole name: a search
+    // also reads each skill's path (`skillMatchRank`,
+    // `skill_runtime.zig:1378-1395`), and a sandbox under `/var/folders`
+    // would answer a shorter one with every skill -- the ranking itself is
+    // `skills_menu`'s own case.
+    session.type_bytes(b"$foo");
+    on_screen(
+        &session,
+        (40, 120),
+        &["Skills 1", "  foo    xfx \u{b7} Global"],
+        &["  demo "],
+    );
+    session.type_bytes(&[0x1b, 0x7f, 0x7f, 0x7f, 0x7f]);
+    on_screen(&session, (40, 120), &[], &["Skills 1", "$foo"]);
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 }
