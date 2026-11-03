@@ -421,17 +421,22 @@ fn last_frame(text: &str) -> Option<&str> {
     Some(&text[begins..ends])
 }
 
-/// The band's part of an update, from where it retitles the window.
+/// The band's part of an update: from the `CUP` in front of its first `ED`.
 ///
 /// An update that grows the document carries the document's rows first and
 /// the band's frame behind them (upstream's order, `composeWireFrame`,
-/// `render_engine/terminal_diff.zig:604-645`), and a band frame writes the
-/// window title at its head whenever the terminal has not been told it yet --
-/// which the session's first frame always has not. So on the first update the
-/// title is where the document's rows end and the band's begin; an update with
-/// no title in it is taken whole.
+/// `render_engine/terminal_diff.zig:604-645`), and the session's first frame
+/// is a whole one, which opens by erasing from the band's top row down
+/// (`CUP(top,1) ED`) -- a sequence no document row is written with. So on the
+/// first update that erase is where the document's rows end and the band's
+/// begin; an update with no erase in it is taken whole.
 fn band_part(update: &str) -> &str {
-    update.find("\u{1b}]2;").map_or(update, |at| &update[at..])
+    let Some(erase) = update.find("\u{1b}[J") else {
+        return update;
+    };
+    update[..erase]
+        .rfind("\u{1b}[")
+        .map_or(update, |cup| &update[cup..])
 }
 
 /// The end of a frame that leaves the cursor off: the full transcript's,
@@ -457,23 +462,26 @@ const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?203
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
 const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
-/// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`): the
-/// window title cleared, as upstream's exit clears it (`render.zig:780-792`),
-/// and then the pushed one popped back.
-const RESTORE: &str = "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
-                       \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+/// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`): an
+/// update a torn frame may have left open closed first, as upstream's restores
+/// both begin (`app_lifecycle.zig:41`, `:44`), then the window title cleared, as
+/// upstream's exit clears it (`render.zig:780-792`), and the pushed one popped
+/// back.
+const RESTORE: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\
+                       \u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
-const RESTORE_TMUX: &str =
-    "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE_TMUX: &str = "\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\
+                            \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
-/// `1049l` defensively (`app_lifecycle.zig:36-38`).
+/// `1049l` defensively (`app_lifecycle.zig:36-38`), behind only the close of an
+/// update (`app_lifecycle.zig:41`).
 ///
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
-const ABNORMAL_RESTORE: &str = "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
-                               \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
+const ABNORMAL_RESTORE: &str = "\u{1b}[?2026l\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\
+                               \u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
@@ -2251,13 +2259,23 @@ fn the_band_is_painted_under_the_welcome_inside_one_synchronized_frame() {
         "the frame did not paint the composer's rail: {frame:?}"
     );
     assert!(frame.contains('\u{2503}'), "no rail: {frame:?}");
-    // And the window title, inside the same synchronized frame as everything
-    // else: it is frame metadata rather than a second writer's business.
-    // Upstream's `fx v<version> | <workspace>` before the session has a title
-    // of its own (`app_session_runtime.zig:3608-3629`).
+    // And the window title, in the frame's own write but **ahead of** its
+    // update, where upstream writes a title -- by a write of its own between
+    // two frames (`syncTerminalTitleWith`, `app_session_runtime.zig:3608-3629`)
+    // -- and not inside it. Upstream's `fx v<version> | <workspace>` before the
+    // session has a title of its own.
+    let title_at = text[..begins].rfind("\u{1b}]2;").expect("a window title");
+    let title = &text[title_at..begins];
     assert!(
-        frame.contains(&format!("\u{1b}]2;xfx v{} | ", env!("CARGO_PKG_VERSION"))),
-        "the frame did not set the window title: {frame:?}"
+        title.starts_with(&format!("\u{1b}]2;xfx v{} | ", env!("CARGO_PKG_VERSION")))
+            && title.ends_with('\u{7}')
+            && title.matches('\u{1b}').count() == 1,
+        "the window title is not the write right ahead of the first update: {:?}",
+        &text[..begins]
+    );
+    assert!(
+        !frame.contains("\u{1b}]2;"),
+        "the window title was written inside the update: {frame:?}"
     );
     for (row, what) in [
         ("\u{1b}[3;1H", "the composer"),
@@ -6158,7 +6176,7 @@ fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with
 #[test]
 fn sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
     // A supervisor's signal at the worst moment there is. The handler writes
-    // the abnormal restore -- which leads with `1049l` for exactly this case --
+    // the abnormal restore -- which writes `1049l` for exactly this case --
     // and re-raises, so the user is left on their own buffer with a cooked
     // terminal rather than on an approval screen nobody will ever answer.
     let sandbox = Sandbox::new();
@@ -6236,7 +6254,7 @@ fn sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
 fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() {
     // The one path on which the terminal changes plane without a frame saying
     // so, driven at a real process. `SIGTSTP` runs the stop handler, which
-    // writes the abnormal restore -- `1049l` first -- and stops with the user's
+    // writes the abnormal restore -- `1049l` unconditionally -- and stops with the user's
     // own buffer back; `SIGCONT` re-announces the mode set, which carries no
     // `1049h`. So the session comes back owing a question on a plane the
     // terminal is no longer showing, and it has to take that plane again before
@@ -6524,7 +6542,7 @@ mod faults {
 
         let text = session.settled_text();
         // The two restores are distinguishable, which is what makes this
-        // assertion sharp: only the abnormal one leads with `1049l`, and the
+        // assertion sharp: only the abnormal one carries `1049l`, and the
         // owner's ordinary exit never writes it. Its presence anywhere in the
         // whole settled stream means something restored that owned nothing.
         assert!(
@@ -6838,6 +6856,67 @@ mod faults {
         assert!(
             !body.contains("accepted"),
             "the independent report leaked the terminal's own human-readable sentence: {body:?}"
+        );
+    }
+
+    #[test]
+    fn an_update_torn_inside_its_rows_with_its_cleanup_refused_is_closed_by_the_exit() {
+        // The worst state a torn write can leave: the terminal took the opener
+        // of the launch's update -- `?2026h`, so it is holding an update open
+        // -- and part of the welcome rows inside it, and then refused the
+        // cleanup vector that would have closed it (`partial-rows`). The rows
+        // may already be in its scrollback, so the session ends on it
+        // (upstream's `DocumentAppendInterrupted`,
+        // `render_engine/terminal_diff.zig:648-689`). What it must not do is
+        // leave the user's terminal in synchronized-update mode, where nothing
+        // it shows moves until the terminal's own timeout: the exit's restore
+        // closes the update first, as upstream's restores both begin
+        // (`app_lifecycle.zig:41`, `:44`).
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "partial-rows"));
+
+        let status = session.wait_exit();
+        assert_eq!(
+            status.code(),
+            Some(1),
+            "a terminal that took part of an update's rows was not the end of the session"
+        );
+        let text = session.settled_text();
+        let opened = text
+            .find("\u{1b}[?2026h")
+            .expect("the update the terminal took part of");
+        let restore = text
+            .find(RESTORE)
+            .unwrap_or_else(|| panic!("the exit did not write the restore: {text:?}"));
+        let torn = &text[opened..restore];
+        assert!(
+            torn.contains("\u{1b}[1;1H") && !torn.contains("\u{1b}[?2026l"),
+            "the tear is not inside the update's rows, still open: {torn:?}"
+        );
+        assert!(
+            !torn.contains("\u{18}"),
+            "the cleanup this fault refuses reached the terminal: {torn:?}"
+        );
+        // The update the tear left open is closed by the restore's first bytes,
+        // and every update on the wire is closed: nothing is left holding.
+        assert!(RESTORE.starts_with("\u{1b}[?2026l"));
+        assert_eq!(
+            text.matches("\u{1b}[?2026h").count(),
+            text.matches("\u{1b}[?2026l").count(),
+            "an update was left open on the terminal: {text:?}"
+        );
+        assert!(
+            text.contains("accepted"),
+            "the session did not say how much the terminal took: {text:?}"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
         );
     }
 
@@ -8069,6 +8148,385 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
         !text.contains("MARKER-THE-GATEWAY-ANSWERED"),
         "the old provider answered after the switch: {text:?}"
     );
+}
+
+/// A Gateway turn that reads `notes.txt` under a call id no Anthropic
+/// `tool_use` takes -- upstream's own vector, `functions.read:0`
+/// (`tool_call_ids.zig:139`) -- and then answers `answer`.
+fn reads_the_notes(answer: &str) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "functions.read:0",
+                "read_file",
+                serde_json::json!({"path": "notes.txt"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&[answer])),
+    ]
+}
+
+#[test]
+fn a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire() {
+    // Upstream's `/provider` swaps the selection and leaves the session where
+    // it is (`app.provider_selection.adoptOwned`, `app_auth_runtime.zig:
+    // 1377-1381`; nothing there touches `app.session`), so the next prompt
+    // goes to the new provider with every earlier turn in its history. Here
+    // the earlier turn was the Gateway's -- a tool call, its result, an
+    // answer -- and the next request is llmux's: Anthropic messages, the call
+    // a `tool_use` under a portable alias of its id, the result a
+    // `tool_result` naming the same alias.
+    let gateway = FakeGateway::start(reads_the_notes("MARKER-GATEWAY-READ-IT"));
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-THE-DAEMON-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(
+        &pty,
+        tui_with_both(&sandbox, &gateway, &daemon),
+    );
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("MARKER-GATEWAY-READ-IT");
+    wait_for_conclusions(&sandbox, 1);
+
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-THE-DAEMON-ANSWERED");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Upstream's sentence, and nothing after it.
+    let text = session.settled_text();
+    assert!(
+        !text.contains("fresh conversation"),
+        "the switch said it dropped the conversation: {text:?}"
+    );
+
+    let body: Value =
+        serde_json::from_str(&daemon.only_message_request().body).expect("a json body");
+    let messages = body["messages"].as_array().expect("messages");
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "user", "assistant", "user"],
+        "{messages:#?}"
+    );
+    assert_eq!(messages[0]["content"][0]["text"], "read the notes");
+    let call = &messages[1]["content"][0];
+    assert_eq!(call["type"], "tool_use");
+    assert_eq!(call["name"], "read_file");
+    assert_eq!(call["input"], serde_json::json!({"path": "notes.txt"}));
+    let alias = call["id"].as_str().expect("an id");
+    assert!(
+        alias.starts_with("fx_")
+            && alias
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'),
+        "the Gateway's id went to Anthropic as it was: {alias}"
+    );
+    let result = &messages[2]["content"][0];
+    assert_eq!(result["type"], "tool_result");
+    assert_eq!(result["tool_use_id"], alias);
+    assert!(
+        result["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("NOTE-BODY")),
+        "{result}"
+    );
+    assert_eq!(messages[3]["content"][0]["text"], "MARKER-GATEWAY-READ-IT");
+    assert_eq!(messages[4]["content"][0]["text"], "and now?");
+
+    // One session, and its log says where the conversation went: the
+    // preference upstream's switch writes (`commitRuntimePreferences`,
+    // `app_session_runtime.zig:3539-3550`), between the two turns. The id the
+    // Gateway minted is the one recorded -- only the request was projected.
+    assert_eq!(
+        sandbox.session_ids().len(),
+        1,
+        "the switch opened a session"
+    );
+    let frames = session_frames(&sandbox);
+    let kinds: Vec<&str> = frames
+        .iter()
+        .filter_map(|frame| frame["event"]["kind"].as_str())
+        .collect();
+    let switched = frames
+        .iter()
+        .position(|frame| {
+            frame["event"]["kind"] == "preferences_changed" && frame["event"]["provider"] == "llmux"
+        })
+        .unwrap_or_else(|| panic!("no provider change was recorded: {kinds:?}"));
+    let concluded: Vec<usize> = frames
+        .iter()
+        .enumerate()
+        .filter(|(_, frame)| frame["event"]["kind"] == "turn_concluded")
+        .map(|(at, _)| at)
+        .collect();
+    assert!(
+        concluded[0] < switched && switched < concluded[1],
+        "{kinds:?}"
+    );
+    let log = serde_json::to_string(&frames).expect("frames");
+    assert!(log.contains("functions.read:0"), "the recorded id changed");
+    assert_eq!(gateway.request_count(), 2, "the Gateway was asked after it");
+}
+
+#[test]
+fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind() {
+    // The other way, and the one part that does not translate: Anthropic's
+    // signed `thinking` blocks. Upstream sends a message's replay state only
+    // to the provider that produced it and the rest of the message as it is
+    // (`projectProviderReplay`, `types.zig:1548-1563`, called by every
+    // encoder -- `builtins/gateway.zig:183`): here the Gateway gets the call
+    // and the answer, and no thinking. Upstream drops it silently (a debug
+    // trace, `:185`); xfx says so (`.prd/04-providers.md` §Provenance) --
+    // once for the conversation, not once per step on every turn after.
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
+            "SECRET-THOUGHT",
+            "sig-abc123",
+            "toolu_01",
+            "read_file",
+            "{\"path\":\"notes.txt\"}",
+        )),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-THE-DAEMON-READ-IT",
+        ])),
+    ]);
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-THE-GATEWAY-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-THE-GATEWAY-AGAIN",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut command = sandbox.command_with_llmux(&daemon);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    command.env("AI_GATEWAY_API_KEY", support::sandbox::TEST_KEY);
+    command.env("XFX_GATEWAY_URL", gateway.chat_url());
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("MARKER-THE-DAEMON-READ-IT");
+    wait_for_conclusions(&sandbox, 1);
+
+    session.type_bytes(b"/setup gateway\r");
+    session.wait_for("Switched to Vercel AI Gateway with");
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-THE-GATEWAY-ANSWERED");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(b"once more\r");
+    session.wait_for("MARKER-THE-GATEWAY-AGAIN");
+    wait_for_conclusions(&sandbox, 3);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    assert_eq!(text.matches("not carried over").count(), 1, "{text:?}");
+    assert!(
+        text.contains("continuing on") && !text.contains("resuming on"),
+        "the notice still speaks of a resume: {text:?}"
+    );
+
+    let body = gateway.requests()[0].json();
+    let prompt = body["prompt"].as_array().expect("a prompt");
+    let roles: Vec<&str> = prompt
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "tool", "assistant", "user"],
+        "{prompt:#?}"
+    );
+    let sent = serde_json::to_string(&body).expect("body");
+    assert!(
+        !sent.contains("SECRET-THOUGHT") && !sent.contains("sig-abc123"),
+        "llmux's signed reasoning went to the Gateway: {sent}"
+    );
+    let call = prompt
+        .iter()
+        .filter(|message| message["role"] == "assistant")
+        .flat_map(|message| message["content"].as_array().cloned().unwrap_or_default())
+        .find(|part| part["type"] == "tool-call")
+        .expect("the call went");
+    assert_eq!(call["toolCallId"], "toolu_01");
+    assert_eq!(call["toolName"], "read_file");
+    assert_eq!(user_messages(&body), ["read the notes", "and now?"]);
+    assert_eq!(gateway.request_count(), 2);
+    assert_eq!(
+        sandbox.session_ids().len(),
+        1,
+        "the switch opened a session"
+    );
+}
+
+#[test]
+fn after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_window() {
+    // fx's switch adopts the target's catalog before it says `Switched to`
+    // (`app.model_cache.adoptOwnedCatalog`, `app_auth_runtime.zig:1377`), and
+    // its meter keeps the session's tokens (`total_input_tokens`, reset only
+    // by a session transition): `1k/272k 0%` on the switched screen
+    // (`receipts/p1`, `fx-provider-carry-40x120-switched`). So the meter is
+    // the conversation's tokens against the daemon's window, with no prompt
+    // in between.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("answer_0", "MARKER-GATEWAY-SAID-IT"),
+            support::fake_gateway::finish_with_usage("stop", 12_000, 5),
+        ]),
+    )]);
+    let daemon = support::fake_llmux::FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let command = tui_with_both(&sandbox, &gateway, &daemon);
+    std::fs::write(
+        sandbox.settings_path(),
+        format!(
+            "{{\"provider\":\"gateway\",\"llmux_url\":{},\"models\":{{\"gateway\":\"zai/glm-5.2\"}},\
+             \"statusLine\":{{\"context\":true}}}}",
+            serde_json::to_string(&daemon.url()).expect("url")
+        ),
+    )
+    .expect("the profile");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"say it\r");
+    session.wait_for("MARKER-GATEWAY-SAID-IT");
+    wait_for_conclusions(&sandbox, 1);
+    on_screen(&session, (24, 120), &["\u{b7} 12k"], &[]);
+
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    on_screen(&session, (24, 120), &["\u{b7} 12k/200k 6%"], &[]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(daemon.message_requests().len(), 0, "a turn ran");
+}
+
+#[test]
+fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resumes_on() {
+    // A log that holds a Gateway turn, the switch, and a llmux turn that
+    // thought before it called a tool. Resumed on llmux -- the provider the
+    // switch wrote into the profile -- the next request carries both turns:
+    // the Gateway's as text, llmux's own blocks verbatim with their
+    // signature, since this wire produced them (`ProviderReplay.matches`,
+    // `types.zig:1512-1515`).
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-GATEWAY-FIRST"]),
+    )]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
+            "SIGNED-THOUGHT",
+            "sig-resume-1",
+            "toolu_02",
+            "read_file",
+            "{\"path\":\"notes.txt\"}",
+        )),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-DAEMON-SECOND",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-DAEMON-RESUMED",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(
+        &pty,
+        tui_with_both(&sandbox, &gateway, &daemon),
+    );
+    session.wait_for(READY);
+    session.type_bytes(b"first question\r");
+    session.wait_for("MARKER-GATEWAY-FIRST");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Switched to llmux with");
+    session.type_bytes(b"second question\r");
+    session.wait_for("MARKER-DAEMON-SECOND");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1, "the switch opened a session");
+    assert_eq!(
+        sandbox.settings().expect("a profile")["provider"],
+        "llmux",
+        "the switch was not saved for the resume to read"
+    );
+
+    // The profile the switch wrote is the one the resume reads: llmux, the
+    // daemon's url. `command` rather than `command_with_both`, which would
+    // seed the Gateway over it.
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut resumed = tui(&sandbox);
+    resumed.env("AI_GATEWAY_API_KEY", support::sandbox::TEST_KEY);
+    resumed.env("XFX_GATEWAY_URL", gateway.chat_url());
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    second.wait_for(READY);
+    second.wait_for("session resumed:");
+    second.type_bytes(b"third question\r");
+    second.wait_for("MARKER-DAEMON-RESUMED");
+    wait_for_conclusions(&sandbox, 3);
+    second.type_bytes(&[0x04]);
+    assert_eq!(second.wait_exit().code(), Some(0));
+
+    let requests = daemon.message_requests();
+    assert_eq!(requests.len(), 3);
+    let body: Value = serde_json::from_str(&requests[2].body).expect("a json body");
+    let messages = body["messages"].as_array().expect("messages");
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+            "user"
+        ],
+        "{messages:#?}"
+    );
+    assert_eq!(messages[0]["content"][0]["text"], "first question");
+    assert_eq!(messages[1]["content"][0]["text"], "MARKER-GATEWAY-FIRST");
+    assert_eq!(messages[2]["content"][0]["text"], "second question");
+    let replayed = messages[3]["content"].as_array().expect("blocks");
+    assert_eq!(replayed[0]["type"], "thinking");
+    assert_eq!(replayed[0]["signature"], "sig-resume-1");
+    assert_eq!(replayed[1]["type"], "tool_use");
+    assert_eq!(replayed[1]["id"], "toolu_02");
+    assert_eq!(messages[4]["content"][0]["type"], "tool_result");
+    assert_eq!(messages[5]["content"][0]["text"], "MARKER-DAEMON-SECOND");
+    assert_eq!(messages[6]["content"][0]["text"], "third question");
+    assert_eq!(gateway.request_count(), 1, "the Gateway was asked after it");
 }
 
 #[test]

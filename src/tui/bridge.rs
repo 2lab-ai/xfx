@@ -622,7 +622,19 @@ impl UiEvent {
                     tool: asked.request.tool,
                     target: inert_owned(asked.request.target),
                     summary: inert_owned(asked.request.summary),
-                    always_scope: inert_owned(asked.request.always_scope),
+                    // What `2` would grant quotes the command, so for a command
+                    // it is spelled as the command is (below): the panel shows
+                    // one command in one spelling, above the choices and under
+                    // them. Everything else in the sentence is printable text
+                    // the spelling leaves as it is.
+                    always_scope: if matches!(
+                        asked.request.subject,
+                        ApprovalSubject::Command { .. }
+                    ) {
+                        super::approval_view::command_text(&asked.request.always_scope)
+                    } else {
+                        inert_owned(asked.request.always_scope)
+                    },
                     // Where the window sits is two numbers this crate counted,
                     // so it crosses as it was.
                     diff: asked.request.diff.map(|diff| ApprovalDiff {
@@ -631,13 +643,30 @@ impl UiEvent {
                         first_line: diff.first_line,
                         lines_below: diff.lines_below,
                     }),
-                    // The path and the command a review lays out on rows of
-                    // their own: the same quotation as the summary, so the same
-                    // policy.
+                    // The path a review lays out on rows of its own: the same
+                    // quotation as the summary, so the same policy.
+                    //
+                    // **The command is spelled rather than blanked**, as
+                    // upstream's approval spells it
+                    // (`super::approval_view::command_text`,
+                    // `approval_ui.zig:228-247`): an `ESC` is the four
+                    // characters `\x1b`, a tab `\x09`, a `CR` `\x0d`, a C1
+                    // control its `\u{…}`. The channel's promise holds, and
+                    // more strictly than `inert`'s: every character `inert`
+                    // would blank is spelled, every token is printable ASCII,
+                    // and the carriage return `inert` keeps is spelled too --
+                    // only the line break crosses as itself. What changes is
+                    // what the reviewer reads: a command with an escape
+                    // sequence in it shows the sequence, where a space would
+                    // show a command that is not the one being asked about.
+                    // The command is read for display only, by
+                    // `super::approval_view`'s `subject_rows`, which spells it
+                    // again -- and a spelling is its own answer, so twice is
+                    // once.
                     subject: match asked.request.subject {
                         ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
                         ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
-                            command: inert_owned(command),
+                            command: super::approval_view::command_text(&command),
                             cwd: inert_owned(cwd),
                         },
                     },
@@ -950,6 +979,23 @@ pub(crate) enum TurnControl {
     /// channel, so a title typed before a `/new` is the session the reset
     /// drops and one typed after it is the session the reset starts.
     Rename { title: String, announced: bool },
+    /// `/model`'s menu or its column wants the configured provider's model
+    /// catalog: told to the UI as it is when the runtime holds it, and read
+    /// otherwise -- read **again** after a read that failed, which is the
+    /// `retry /model.` the menu says -- with the answer told the moment it
+    /// arrives ([`UiEvent::CatalogLoaded`], [`UiEvent::CatalogUnread`]).
+    ///
+    /// **A control message rather than work**, because upstream's is not
+    /// queued behind anything: opening the menu starts the load on a thread of
+    /// its own at once, a turn streaming or not (`ensureModelCache` from
+    /// `openModelBrowseCatalog`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_input_runtime.zig:2346-2349`; `startWarmup`,
+    /// `src/core/app/model_cache_runtime.zig:321-349`), and the open menu is
+    /// refreshed when it lands (`pollLoadTransition`, `:549-557`). The read
+    /// is a task beside whatever the runtime is doing
+    /// ([`crate::provider::model::CatalogReader`]), so the socket is still
+    /// not the UI thread's.
+    Catalog,
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -1076,12 +1122,6 @@ pub(crate) enum TurnWork {
     /// happen under a running turn, and none of it may happen on the thread
     /// holding the terminal.
     Setup(crate::provider::ProviderId),
-    /// Load the configured provider's model catalog.
-    ///
-    /// Work rather than a control message because it opens a socket. The UI
-    /// thread sits in `pselect(2)` holding the terminal and may not wait for a
-    /// daemon that is not answering.
-    Catalog,
     /// List the saved sessions a `/resume` picker offers
     /// ([`UiEvent::Sessions`]). Work because it reads the store, which the
     /// thread holding the terminal does not.
@@ -2301,15 +2341,20 @@ mod tests {
                     tool: "write",
                     target: " [2Jsrc/main.rs".into(),
                     summary: "write  [2Jsomething".into(),
-                    always_scope: " [2Jsrc".into(),
+                    // A command's grant quotes the command, so it is spelled
+                    // as the command is.
+                    always_scope: "\\x1b[2Jsrc".into(),
                     diff: Some(ApprovalDiff {
                         before: " [2Jold".into(),
                         after: " ]0;new ".into(),
                         first_line: 1,
                         lines_below: 0,
                     }),
+                    // The command spelled as upstream's approval spells it,
+                    // the `ESC` named rather than blanked; nothing in it is a
+                    // character a terminal obeys.
                     subject: ApprovalSubject::Command {
-                        command: " [2Jrm".into(),
+                        command: "\\x1b[2Jrm".into(),
                         cwd: " ]0;. ".into(),
                     },
                 },
@@ -2400,6 +2445,44 @@ mod tests {
             UiEvent::RenameUnsaved("a\x1b[2Jb".into()).made_inert(),
             UiEvent::RenameUnsaved("a [2Jb".into())
         );
+    }
+
+    #[test]
+    fn a_commands_grant_is_spelled_as_its_command_and_a_files_is_blanked() {
+        // One panel, one spelling of the command: the rows under `$` and the
+        // `2 = ...` grant that quotes it. A file's grant keeps `inert`'s.
+        let asked = |subject| {
+            UiEvent::Approval(super::super::approval::ApprovalAsked {
+                id: super::super::approval_readiness::ApprovalId(1),
+                request: ApprovalRequest {
+                    tool: "terminal",
+                    target: "t".into(),
+                    summary: "s".into(),
+                    always_scope: "allow `a\x1b[2Jb\r`".into(),
+                    diff: None,
+                    subject,
+                },
+            })
+            .made_inert()
+        };
+        let UiEvent::Approval(command) = asked(ApprovalSubject::Command {
+            command: "a\x1b[2Jb\r".into(),
+            cwd: ".".into(),
+        }) else {
+            panic!("an approval stayed an approval");
+        };
+        assert_eq!(command.request.always_scope, "allow `a\\x1b[2Jb\\x0d`");
+        let ApprovalSubject::Command {
+            command: spelled, ..
+        } = &command.request.subject
+        else {
+            panic!("a command stayed a command");
+        };
+        assert!(command.request.always_scope.contains(spelled.as_str()));
+        let UiEvent::Approval(file) = asked(ApprovalSubject::Path("a.txt".into())) else {
+            panic!("an approval stayed an approval");
+        };
+        assert_eq!(file.request.always_scope, "allow `a [2Jb\r`");
     }
 
     #[test]

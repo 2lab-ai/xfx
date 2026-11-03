@@ -1,0 +1,15 @@
+# Table cells (`.prd/tui-phase4` T10): fx wraps a cell with `wrapTableCell`
+# (`transcript_blocks.zig:1443-1477`) inside widths `fitTableColumnWidths`
+# chose (`:976-1053`). One answer with a three-column table: CJK cells that
+# wrap at an even and an odd column width, a CJK cell with spaces, a long
+# English cell, styles and a link inside a cell, and the three alignments.
+# Its rows are fx's at 118 cells (120 less the answer's gutter) and at 78. The
+# turn arrives in 37-character chunks. Long waits for a loaded machine.
+gateway table-wrap-turns.json
+wait 10
+type show me a table
+wait 2
+key Enter
+wait 20
+snap answered
+snapfull answered

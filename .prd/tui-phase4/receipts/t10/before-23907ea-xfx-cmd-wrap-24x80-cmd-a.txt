@@ -1,0 +1,24 @@
+└ Running echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeee…
+
+✗ permissions: this screen is too small to ask for permission, so the change was
+  refused
+
+────────────────────────────────────────────────────────────────────────────────
+  Permission needed · Choose one                                       Command
+  Would you like to run the following command?
+
+  $ # terminal.exec cwd=.
+    echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeeeeeeeee
+    goes down
+    B-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    [31mred [0m
+  ❯ 1. Yes
+    2. Yes, and don't ask again for this exact command
+    3. No
+  2 = allow every future run of exactly `echo B-C1 echo the quick brown fox
+  jumps over the lazy dog and eeeeeeeeeeeee goes down
+  B-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  [31mred [0m` in . for the rest of this session, and in every later `xfx ask
+  --resume-id 1791348716624-646c37f4a0fbeaa8` of this saved session
+────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel

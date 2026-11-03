@@ -1,0 +1,47 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mA-R2a-one-word-exactly-the-width-=============================================
+[0m[38;5;255m┃[39m [1m======================================== then a row that starts with a blank[0m
+[38;5;255m┃[39m [1mA-R2b-one-word-exactly-the-width-=============================================
+[0m[38;5;255m┃[39m [1m========================================[0m
+[38;5;255m┃[39m [1m/a/path/with/no/space/that/is/as/wide/as/the/row/ppppppppppppppppppppppppppppp
+[0m[38;5;255m┃[39m [1mpppppppppppppppppppppppppppppppppppppppp end[0m
+[38;5;255m┃[39m [1mA-R3 the quick brown fox jumps over the lazy dog while the card keeps its[0m
+[38;5;255m┃[39m [1mrail on every row the quick ends-at--------- goes down whole[0m
+[38;5;255m┃[39m [1mA-R4 the quick brown fox jumps over the lazy dog while the card keeps its[0m
+[38;5;255m┃[39m [1mrail on every row the quick brown spssssss   after three spaces[0m
+[38;5;255m┃[39m [1mA-R5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-toke
+[0m[38;5;255m┃[39m [1mn-no-space-token-no-space-token-no-space-token-no-space-token-[0m
+[38;5;255m┃[39m [1mA-R6:漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢[0m
+[38;5;255m┃[39m [1m漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢[0m
+[38;5;255m┃[39m
+[38;5;255m┃[39m [1mA-R8[0m	[1mtab[0m	[1mstops[0m
+
+  Card A seen.
+
+[38;5;245m  0s (↑262 ↓40)[39m
+
+[38;5;255m┃[39m [1mB-R2a-one-word-exactly-the-width-=============================================
+[0m[38;5;255m┃[39m [1m then a row that starts with a blank[0m
+[38;5;255m┃[39m [1mB-R2b-one-word-exactly-the-width-=============================================
+[0m[38;5;255m┃[39m
+[38;5;255m┃[39m [1m/a/path/with/no/space/that/is/as/wide/as/the/row/ppppppppppppppppppppppppppppp
+[0m[38;5;255m┃[39m [1m end[0m
+[38;5;255m┃[39m [1mB-R3 the quick brown fox jumps over the lazy dog while the card[0m
+[38;5;255m┃[39m [1mends-at------- goes down whole[0m
+[38;5;255m┃[39m [1mB-R4 the quick brown fox jumps over the lazy dog while the card keeps spssss [0m
+[38;5;255m┃[39m [1m after three spaces[0m
+[38;5;255m┃[39m [1mB-R5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-toke
+[0m[38;5;255m┃[39m [1mn-no-space-token-[0m
+[38;5;255m┃[39m [1mB-R6:漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢漢[0m
+[38;5;255m┃[39m [1m漢漢漢漢漢漢[0m
+[38;5;255m┃[39m
+[38;5;255m┃[39m [1mB-R8[0m  [1mtab[0m     [1mstops[0m
+
+  Card B seen.
+
+[38;5;245m  0s (↑184 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

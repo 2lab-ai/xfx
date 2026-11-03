@@ -1,0 +1,27 @@
+[
+ {
+  "tool": {
+   "name": "terminal",
+   "input": {
+    "action": "exec",
+    "command": "echo A-C1 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin eeeeeeeeeeeee goes down\nA-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[31mred\u001b[0m\nprintf '\u001b]8;;https://example.com/A\u001b\\link\u001b]8;;\u001b\\' && echo \u6f22\u5b57\u304b\u306a &&\ttab\n\nA-C5:no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-no-space-token-\necho A-C6 echo the quick brown fox jumps over the lazy dog and the command keeps going past the margin echo zzzzzz   after three spaces\n"
+   }
+  }
+ },
+ {
+  "tool": {
+   "name": "terminal",
+   "input": {
+    "action": "exec",
+    "command": "echo B-C1 echo the quick brown fox jumps over the lazy dog and eeeeeeeeeeeee goes down\nB-C2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\u001b[31mred\u001b[0m"
+   }
+  }
+ },
+ {
+  "delayMs": 100,
+  "chunks": [
+   "Both ",
+   "refused."
+  ]
+ }
+]

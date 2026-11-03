@@ -1,0 +1,47 @@
+# P1, the other way: the conversation starts on the provider that seals its
+# reasoning -- fx on codex (a `reasoning` item, `encrypted_content`), xfx on
+# llmux (a signed `thinking` block) -- reads a file and answers, then
+# `/provider` moves to the Gateway. The Gateway's requests carry the call, its
+# result and the answer, and none of the sealed reasoning. fx's Gateway row
+# opens its gated sign-in columns: Enter (method), Down + Enter (api-key),
+# Enter (the environment key); xfx's Gateway row commits. Two turns after the
+# switch, to show what is said about the reasoning, and how often.
+fx: seed provider-carry-back-fx.json
+xfx: seed provider-carry-back-xfx.json
+fx: homefile .fx/chatgpt-auth.json provider-carry-chatgpt-auth.json
+fx: env FX_E2E_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:@PORT@/codex/models FX_E2E_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:@PORT@/codex/responses
+nomodel
+gateway provider-carry-back-turns.json
+work provider-carry-ws
+wait 6
+snap start
+type read the notes and tell me what they say
+key Enter
+wait 15
+snap turn1
+type /provider
+key Enter
+wait 4
+snap open
+key Enter
+wait 3
+fx: key Down
+fx: wait 1
+fx: key Enter
+fx: wait 3
+fx: key Enter
+wait 10
+snap switched
+type what day was it again?
+key Enter
+wait 15
+snap turn2
+type and once more?
+key Enter
+wait 15
+snap turn3
+home end
+gwlog
+type /quit
+key Enter
+wait 3

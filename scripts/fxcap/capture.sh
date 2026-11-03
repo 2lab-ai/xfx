@@ -16,8 +16,22 @@
 #   seed <settings.json>   copied to the binary's own profile before launch,
 #                          owner-only: ~/.fx/settings.json for fx,
 #                          ~/.xfx/settings.json for xfx
+#   homefile <path> <file> copies scenarios/<file> to HOME/<path> before
+#                          launch, owner-only (the file 0600, every directory
+#                          made for it 0700) -- a saved sign-in, say
+#                          (`.fx/chatgpt-auth.json`); <path> is relative and
+#                          has no `..`
+#
+# `@PORT@` in a seeded file (`seed`, `homefile`) and in an `env` value is the
+# fake gateway's port, written in once it listens: the same port also answers
+# as a llmux daemon and as a Codex endpoint (fakegw.ts), so a profile can name
+# `"llmux_url":"http://127.0.0.1:@PORT@"` and a provider switch reaches it.
 #   models <catalog.json>  what the fake gateway answers for
 #                          GET /coding-agent/v1/models (default: one model)
+#   modelsdown <ms>        that path answers 503 for the first <ms> after the
+#                          gateway starts, and the catalog after: a catalog
+#                          the launch could not read that is back by the time
+#                          `/model` asks again
 #   credits <credits.json> what it answers for GET /coding-agent/v1/credits
 #                          (default: 404 `not found`)
 #   titled <title.json>    what it answers a session-title request with
@@ -164,7 +178,7 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]' extra_env='' models='' credits='' titled='' nomodel=''
+  local turns='[]' extra_env='' models='' credits='' titled='' nomodel='' modelsdown=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -173,7 +187,16 @@ main() {
     # Owner-only, as each product keeps its own profile: xfx refuses to read
     # a profile directory anyone else can reach.
     [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/.$which"; cp "$scenarios/${line#seed }" "$run/home/.$which/settings.json"; chmod 600 "$run/home/.$which/settings.json"; }
+    if [[ $line == homefile\ * ]]; then
+      local dest from
+      read -r dest from <<< "${line#homefile }"
+      case $dest in ''|/*|..|../*|*/..|*/../*) echo "homefile takes a relative path inside HOME, not $dest" >&2; exit 2 ;; esac
+      (umask 077 && mkdir -p "$run/home/$(dirname "$dest")")
+      cp "$scenarios/$from" "$run/home/$dest"
+      chmod 600 "$run/home/$dest"
+    fi
     [[ $line == models\ * ]] && models=$scenarios/${line#models }
+    [[ $line == modelsdown\ * ]] && modelsdown=${line#modelsdown }
     [[ $line == credits\ * ]] && credits=$scenarios/${line#credits }
     [[ $line == titled\ * ]] && titled=$scenarios/${line#titled }
     [[ $line == nomodel ]] && nomodel=1
@@ -208,7 +231,7 @@ main() {
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  FAKEGW_MODELS=$models FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_MODELS=$models FAKEGW_MODELS_DOWN_MS=$modelsdown FAKEGW_CREDITS=$credits FAKEGW_TITLE=$titled bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -220,6 +243,16 @@ main() {
     sleep 0.1
   done
   port=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/gateway.log" | head -1)
+  # The port, into every seeded file that names it and every `env` value. The
+  # rewrite goes through `cat >` so a file keeps the owner-only mode it was
+  # seeded with.
+  local seeded
+  while IFS= read -r seeded; do
+    sed "s/@PORT@/$port/g" "$seeded" > "$run/seed.tmp"
+    cat "$run/seed.tmp" > "$seeded"
+    rm -f "$run/seed.tmp"
+  done < <(grep -rl '@PORT@' "$run/home" 2>/dev/null || true)
+  extra_env=${extra_env//@PORT@/$port}
 
   # Nothing a binary does under capture may reach the user's desktop: a shim
   # directory ahead of the system PATH answers `open` (browser sign-in),
@@ -299,7 +332,7 @@ $xfx_model $extra_env $bin"
     # binary again with no arguments, rather than with the word `relaunch`.
     [[ $line == *' '* ]] || rest=''
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|credits|titled|nomodel|githead|sparsepng|pnghdr|dir) ;;
+      ''|'#'*|gateway|env|seed|homefile|work|models|credits|titled|modelsdown|nomodel|githead|sparsepng|pnghdr|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;

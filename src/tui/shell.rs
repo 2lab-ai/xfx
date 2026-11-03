@@ -600,6 +600,10 @@ pub(crate) struct StagedDocument {
     geometry: Geometry,
     retint_debt: bool,
     collapse_debt: bool,
+    /// What a resume's reset staged into the update moves ([`Shell::wiped`]).
+    wipe: bool,
+    handoff: Option<u16>,
+    tail_unknown: bool,
 }
 
 /// The UI's state: what the band shows, and what it owes the screen.
@@ -1936,9 +1940,6 @@ enum CatalogKnown {
     Unasked,
     /// The runtime has been asked and has not answered.
     Asked,
-    /// The inline column wanted it while the queue was full; it is asked for
-    /// again as soon as a keystroke or the end of a turn finds room.
-    Wanted,
     /// The runtime's answer is [`Shell::catalog`].
     Loaded,
     /// The runtime could not read it, and whether asking again could help.
@@ -1953,7 +1954,7 @@ fn known(state: CatalogKnown, catalog: &[CatalogEntry]) -> Known<'_> {
     match state {
         CatalogKnown::Loaded => Known::Rows(catalog),
         CatalogKnown::Unread(_) => Known::Failed,
-        CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted => Known::Loading,
+        CatalogKnown::Unasked | CatalogKnown::Asked => Known::Loading,
     }
 }
 
@@ -2708,7 +2709,7 @@ impl Shell {
                     self.settings.effort.supported_by(entry) && !entry.efforts.is_empty()
                 }),
             CatalogKnown::Unread(_) => false,
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted => true,
+            CatalogKnown::Unasked | CatalogKnown::Asked => true,
         };
         let effort =
             (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone());
@@ -3553,14 +3554,19 @@ impl Shell {
                 self.provider = provider;
                 self.model = model;
                 self.missing_credential = missing_credential;
-                // The old provider's catalog is not this one's, and the
-                // conversation the meter was counting was dropped with the
-                // bundle. Keeping either would put another daemon's window --
-                // or a dead conversation's tokens -- on the hint row.
+                // The old provider's catalog is not this one's: keeping it
+                // would put another daemon's window under this one's model.
+                // **The tokens stay**, because the conversation does -- the
+                // runtime keeps it across a switch, as upstream keeps its
+                // session, and upstream's meter keeps `total_input_tokens`
+                // (reset only by a session transition,
+                // `app_session_runtime.zig:1646`, `:1672`, `:1693`) and
+                // measures it against the new model's window. Until this
+                // provider's catalog is read there is no window to measure
+                // against, and the meter waits for it.
                 self.catalog.clear();
                 self.catalog_known = CatalogKnown::Unasked;
                 self.column.reset();
-                self.context_used = None;
                 // The speed switches went off with the model the switch
                 // replaced, on the runtime too (`super::worker`'s `adopt`), and
                 // a `/fast` held for the old provider's catalog is about a
@@ -3569,21 +3575,12 @@ impl Shell {
                 self.settings.fast = false;
                 self.settings.ultrafast = false;
                 self.held_speed.clear();
-                // The conversation went with the bundle, and the session its
-                // title named with it.
-                self.forget_session_title();
-                // Upstream's sentence for a finished switch
+                // Upstream's sentence for a finished switch, and all of it
                 // (`app_auth_runtime.zig:1383-1386`, topic `provider` at
-                // `:1410-1414`), with xfx's one more fact: the runtime dropped
-                // the conversation with the bundle, so the next prompt is the
-                // first of a new one.
+                // `:1410-1414`): the session, and with it the title, go on.
                 self.announce(notice::Notice::neutral(
                     "provider",
-                    format!(
-                        "Switched to {} with {}. The next prompt starts a fresh conversation.",
-                        provider.entry().name,
-                        self.model
-                    ),
+                    format!("Switched to {} with {}.", provider.entry().name, self.model),
                 ));
                 // A column standing open was built against the old provider's
                 // `current`.
@@ -3796,15 +3793,6 @@ impl Shell {
                 // runs a prompt that missed its turn (`handoff`,
                 // `worker_runtime.zig:1196-1206`).
                 self.hand_on_steers();
-                // A column that wanted the catalog while this held the queue
-                // asks for it now, rather than on the next keystroke.
-                if self.catalog_known == CatalogKnown::Wanted
-                    && self.help_menu.is_none()
-                    && self.model_menu.is_none()
-                    && self.column.active(self.editor.text()).is_some()
-                {
-                    self.want_catalog();
-                }
                 // A turn is what moves a branch under a session -- a tool
                 // that ran `git checkout` -- so the end of one is when the
                 // workspace segment reads `HEAD` again.
@@ -8646,7 +8634,6 @@ impl Shell {
         self.work.control(TurnControl::Cancel {
             through: self.work.accepted(),
         });
-        self.forget_catalog_request();
         let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
         if let Some(compaction) = self.compaction.as_mut() {
             compaction.stopping();
@@ -9659,7 +9646,6 @@ impl Shell {
         self.work.control(TurnControl::Cancel {
             through: self.work.accepted(),
         });
-        self.forget_catalog_request();
         // The turn this stops ends with no bell: the user is here, and
         // upstream's turn-end cue is silent for an interrupted turn.
         self.sound.interrupted();
@@ -11342,11 +11328,13 @@ impl Shell {
     /// `app_input_runtime.zig:2346-2355`), with the composer -- emptied by the
     /// submit that got here -- as its search. The rows are the ones this shell
     /// already holds when it holds an answer for the provider in force;
-    /// otherwise the menu says `Loading models…` and the load is handed to the
-    /// runtime thread, which owns the socket, as [`TurnWork::Catalog`] -- the
-    /// one network call a bare `/model` makes, and never one this thread waits
-    /// on. A load that failed is asked again: that is the `retry /model.` the
-    /// menu said. The rows arrive as [`UiEvent::CatalogLoaded`].
+    /// otherwise the menu says `Loading models…` and the runtime is asked for
+    /// the catalog ([`TurnControl::Catalog`]) -- a control message, so the
+    /// read starts at once beside whatever the runtime is doing, as upstream's
+    /// starts on a thread of its own; the one network call a bare `/model`
+    /// makes, and never one this thread waits on. A load that failed is asked
+    /// again: that is the `retry /model.` the menu said. The rows arrive as
+    /// [`UiEvent::CatalogLoaded`], and the open menu takes them.
     ///
     /// **With one word, it asks for that model** ([`Self::request_model`]):
     /// upstream's router form. Two or three words are the explicit form,
@@ -11394,14 +11382,15 @@ impl Shell {
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Never asked, wanted by the column while the queue was full, or
-            // failed -- in which case this is the retry upstream's sentence
-            // asks for.
-            CatalogKnown::Unasked | CatalogKnown::Wanted | CatalogKnown::Unread(_) => {
-                if let Err(rejected) = self.work.submit(TurnWork::Catalog) {
-                    self.refused(rejected);
-                    return;
-                }
+            // Never asked, or failed -- in which case this is the retry
+            // upstream's sentence asks for. Asked as a control message, so the
+            // read starts at once, a turn running or not, as upstream's
+            // `ensureModelCache` starts one on a thread of its own
+            // (`openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`); the
+            // menu is refreshed when the answer lands ([`UiEvent::CatalogLoaded`],
+            // `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
+            CatalogKnown::Unasked | CatalogKnown::Unread(_) => {
+                self.work.control(TurnControl::Catalog);
                 self.catalog_known = CatalogKnown::Asked;
                 ModelMenu::loading(query)
             }
@@ -11411,40 +11400,18 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
-    /// Forgets a catalog load that was asked for and may now never be
-    /// answered: an interrupt drops queued work, and a load the runtime was
-    /// running when it came sends nothing more. Left as it was, the menu and
-    /// the column would say `loading` for the rest of the session and nothing
-    /// would ask again; forgotten, the next `/model` or column asks afresh.
-    fn forget_catalog_request(&mut self) {
-        if self.catalog_known == CatalogKnown::Asked {
-            self.catalog_known = CatalogKnown::Unasked;
-        }
-    }
-
     /// Asks the runtime for the catalog on the inline column's behalf, when
-    /// nothing has yet.
-    ///
-    /// **Quietly, unlike [`Self::open_models`]**: the column opens on a
-    /// keystroke -- the space after `/model` -- and a keystroke is not a
-    /// command, so a full queue is not refused on the hint row. The column says
-    /// `loading models...` and the request is made again by the next keystroke
-    /// or the end of the turn that was holding the queue
-    /// ([`CatalogKnown::Wanted`]). A catalog that could not be read is not asked
-    /// again from here: the column says `unable to load models`, and `/model`
-    /// is the gesture that retries.
+    /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
+    /// the column says `loading models...` only until the read lands, a turn
+    /// running or not. A catalog that could not be read is not asked again
+    /// from here: the column says `unable to load models`, and `/model` is the
+    /// gesture that retries.
     fn want_catalog(&mut self) {
-        if !matches!(
-            self.catalog_known,
-            CatalogKnown::Unasked | CatalogKnown::Wanted
-        ) {
+        if self.catalog_known != CatalogKnown::Unasked {
             return;
         }
-        match self.work.submit(TurnWork::Catalog) {
-            Ok(()) => self.catalog_known = CatalogKnown::Asked,
-            Err(Rejected::Busy) => self.catalog_known = CatalogKnown::Wanted,
-            Err(gone @ Rejected::Gone) => self.refused(gone),
-        }
+        self.work.control(TurnControl::Catalog);
+        self.catalog_known = CatalogKnown::Asked;
     }
 
     /// Asks for `query`, typed after `/model`, with the router form's meaning
@@ -11466,10 +11433,7 @@ impl Shell {
     fn request_model(&mut self, query: &str) {
         let resolved = match self.catalog_known {
             CatalogKnown::Loaded => Some(resolve_in_order(&self.catalog, query)),
-            CatalogKnown::Unasked
-            | CatalogKnown::Asked
-            | CatalogKnown::Wanted
-            | CatalogKnown::Unread(_) => None,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(_) => None,
         };
         let announced = resolved.is_some();
         self.request_change(ModelChange {
@@ -11547,7 +11511,7 @@ impl Shell {
         };
         let unknown = matches!(
             self.catalog_known,
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted
+            CatalogKnown::Unasked | CatalogKnown::Asked
         );
         if !self.held_speed.is_empty() || (needs_row && unknown) {
             self.held_speed.push(command);
@@ -11671,10 +11635,7 @@ impl Shell {
     fn catalog_row(&self, model: &str) -> Option<&CatalogEntry> {
         match self.catalog_known {
             CatalogKnown::Loaded => self.catalog.iter().find(|entry| entry.matches(model)),
-            CatalogKnown::Unasked
-            | CatalogKnown::Asked
-            | CatalogKnown::Wanted
-            | CatalogKnown::Unread(_) => None,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(_) => None,
         }
     }
 
@@ -11847,7 +11808,6 @@ impl Shell {
         // cancelled now, as upstream clears its session at the keystroke, and
         // one a prompt typed after this asks is the next one's.
         self.work.new_title_lineage();
-        self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
         // Nor will a steer sent into that turn.
@@ -12130,9 +12090,10 @@ impl Shell {
     /// the band's (`super::event_loop`'s `commit_primary`), and saves what the
     /// document's writers move as they are staged into it.
     ///
-    /// Everything those writers record -- the rows the document reaches, the
-    /// band floated under them, the recolour and collapse debts paid, the
-    /// transcript's operations taken -- is recorded as if the vector had
+    /// Everything those writers record -- a resume's reset owed and paid, the
+    /// rows the document reaches, the band floated under them, the recolour
+    /// and collapse debts paid, the transcript's operations taken -- is
+    /// recorded as if the vector had
     /// landed, because each one is measured against the screen the one before
     /// it leaves. [`Self::unstage_document`] is what makes that honest: a
     /// vector the screen did not take puts every one of them back.
@@ -12143,6 +12104,9 @@ impl Shell {
             geometry: self.geometry,
             retint_debt: self.retint_debt,
             collapse_debt: self.collapse_debt,
+            wipe: self.wipe,
+            handoff: self.handoff,
+            tail_unknown: self.tail_unknown,
         }
     }
 
@@ -12162,6 +12126,9 @@ impl Shell {
         self.geometry = staged.geometry;
         self.retint_debt = staged.retint_debt;
         self.collapse_debt = staged.collapse_debt;
+        self.wipe = staged.wipe;
+        self.handoff = staged.handoff;
+        self.tail_unknown = staged.tail_unknown;
         self.transcript.unstage();
     }
 
@@ -15425,15 +15392,19 @@ mod tests {
 
     #[test]
     fn a_command_the_runtime_runs_after_a_turn_is_not_the_model_thinking() {
-        // `/model` travels on the work channel like a prompt, so the runtime
-        // has work in hand for one -- but nothing is being answered. A session
-        // that started a clock because a turn ended with something still
-        // queued would say `Thinking` about a command it had already answered
-        // on its own thread. (`/new` used to travel the same way; a reset is a
-        // control message now, and takes no place in the queue.)
+        // Work that is not a prompt -- a session listing here -- is work the
+        // runtime has in hand, but nothing is being answered. A session that
+        // started a clock because a turn ended with something still queued
+        // would say `Thinking` about a command it had already answered on its
+        // own thread. (`/new` and `/model`'s catalog request used to travel
+        // that way; both are control messages now, and take no place in the
+        // queue, so the work is handed over directly.)
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"ask something\r");
-        shell.route_bytes(b"/model other\r");
+        shell
+            .work
+            .submit(TurnWork::Sessions)
+            .expect("a place for the listing");
         let _ = shell.document();
         assert!(
             shell.work.outstanding() > 1,
@@ -19108,7 +19079,7 @@ mod tests {
                     document.is_empty(),
                     "/fast answered before its row: {document:?}"
                 );
-                assert_eq!(shell.picks_up(), TurnWork::Catalog);
+                assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
                 shell.apply(UiEvent::CatalogLoaded {
                     provider: ProviderId::Gateway,
                     entries: Vec::new(),
@@ -21109,9 +21080,11 @@ mod tests {
 
     #[test]
     fn dropping_the_conversation_takes_the_window_title_back_to_the_workspace() {
-        // `/new` and a provider switch both start the next prompt in a fresh
-        // conversation, and upstream's `/new` clears the cached title
-        // (`clearCachedSessionTitle`, `app_session_runtime.zig:1982`).
+        // `/new` starts the next prompt in a fresh conversation, and
+        // upstream's `/new` clears the cached title (`clearCachedSessionTitle`,
+        // `app_session_runtime.zig:1982`). A provider switch does not: it
+        // keeps the session, as upstream's `/provider` does
+        // (`app_auth_runtime.zig:1377-1381`), and so its title.
         let mut shell = shell(24, 80);
         let fallback = shell.take_title().expect("the launch owes a title");
         turn_running(&mut shell, b"say the marker\r");
@@ -21149,12 +21122,12 @@ mod tests {
             model: "fable".to_string(),
             missing_credential: false,
         });
-        assert!(
-            switched
-                .take_title()
-                .is_some_and(|title| title.starts_with("xfx v")),
-            "a provider switch kept the dropped conversation's title"
+        assert_eq!(
+            switched.take_title(),
+            None,
+            "a provider switch took the conversation's title back"
         );
+        assert_eq!(switched.session_title.as_deref(), Some("say the marker"));
     }
 
     #[test]
@@ -22414,15 +22387,14 @@ mod tests {
     fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model second-model\r");
-        let _ = shell.picks_up();
+        let _ = shell.controlled();
         shell.route_bytes(b"/resume\r");
         assert!(shell.sessions.is_some(), "{:?}", shell.document());
         assert_eq!(shell.picks_up(), TurnWork::Sessions);
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.sessions.is_none());
-        // Both answered, as the runtime would have by now.
-        shell.work.give_back();
+        // Answered, as the runtime would have by now.
         shell.work.give_back();
 
         // A prompt sent and not started yet runs before anything the picker
@@ -22947,7 +22919,7 @@ mod tests {
         // one piece of *work* in this, because it opens a socket.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/model second-model\r");
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         assert_eq!(
             change(&mut shell),
             ModelChange {
@@ -23013,7 +22985,7 @@ mod tests {
         // network call a bare `/model` makes**.
         let mut fresh = self::shell(24, 80);
         fresh.shell.use_model("");
-        assert_eq!(fresh.picks_up(), TurnWork::Catalog);
+        assert_eq!(fresh.controlled(), Some(TurnControl::Catalog));
     }
 
     #[test]
@@ -23504,7 +23476,7 @@ mod tests {
         // `fx-model2-40x120-menu-esc`.
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        let _ = shell.picks_up();
+        let _ = shell.controlled();
         shell.route_bytes(b"gro");
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -23518,7 +23490,7 @@ mod tests {
     fn a_catalog_that_arrives_or_fails_is_what_the_open_menu_shows() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         // Enter on a menu still loading has nothing to use, and is spent.
         shell.route_bytes(b"\r");
         assert!(shell.sent.try_recv().is_err());
@@ -23554,12 +23526,43 @@ mod tests {
     }
 
     #[test]
+    fn a_model_menu_asking_again_after_a_failed_read_mid_turn_is_control_and_takes_the_answer_when_it_lands(
+    ) {
+        // `fx-model-reask-*`: the launch read failed, a turn is running, and
+        // `/model` asks again. Upstream starts the load on a thread of its
+        // own at once (`ensureModelCache` from `openModelBrowseCatalog`,
+        // `app_input_runtime.zig:2346-2349`) and the open menu takes the rows
+        // when it lands (`pollLoadTransition`, `model_cache_runtime.zig:549-557`).
+        // Here the ask is a control message -- no place in the queue, nothing
+        // behind the turn -- and the menu takes the answer as it arrives.
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+        });
+        let _started = turn_running(&mut shell, b"ask something\r");
+        shell.route_bytes(b"/model\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(shell.work.queued(), 0, "the ask waits behind the turn");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
+        // The turn still running, the answer lands.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("one", None, &[])],
+        });
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows, ["Models 1  [All]", "", "  vendor/one"]);
+        assert!(shell.activity.working(), "the turn ended meanwhile");
+    }
+
+    #[test]
     fn the_note_under_a_gateway_menu_names_the_key_it_was_asked_with() {
         let mut llmux = shell(40, 120);
         let mut gateway = shell(40, 120);
         gateway.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
         gateway.route_bytes(b"/model\r");
-        let _ = gateway.picks_up();
+        let _ = gateway.controlled();
         gateway.apply(UiEvent::CatalogLoaded {
             provider: ProviderId::Gateway,
             entries: vec![entry("one", None, &[])],
@@ -23687,7 +23690,7 @@ mod tests {
     fn the_column_asks_for_the_catalog_once_and_says_where_it_is() {
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model ");
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         assert_eq!(column(&shell)[0], "         loading models...");
         shell.route_bytes(b"x");
         assert!(shell.sent.try_recv().is_err(), "asked twice");
@@ -23722,7 +23725,7 @@ mod tests {
         // The runtime gives the turn's place back as it ends it.
         shell.work.finished_one();
         shell.apply(UiEvent::TurnEnded { failure: None });
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
     }
 
     #[test]
@@ -24314,7 +24317,7 @@ mod tests {
         shell.route_bytes(b"/fast\r");
         shell.route_bytes(b"/fast\r");
         assert!(shell.document().is_empty(), "said before the row was read");
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         let mut row = harness_rows().remove(3);
         row.id = model;
         row.facts.fast = true;
@@ -24341,6 +24344,9 @@ mod tests {
             retry: None,
         });
         assert!(other.document().is_empty(), "{:?}", other.document());
+        // The held command's ask for the old provider's catalog, and no
+        // speed change.
+        assert_eq!(other.controlled(), Some(TurnControl::Catalog));
         assert!(other.controlled().is_none());
     }
 
@@ -24535,7 +24541,7 @@ mod tests {
         // `retry /model.` made true.
         let mut shell = shell(40, 120);
         shell.route_bytes(b"/model\r");
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
@@ -24548,41 +24554,46 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.route_bytes(b"/model\r");
         assert_eq!(
-            shell.picks_up(),
-            TurnWork::Catalog,
+            shell.controlled(),
+            Some(TurnControl::Catalog),
             "the retry was not asked for"
         );
     }
 
     #[test]
-    fn an_interrupt_forgets_a_catalog_load_it_may_have_dropped() {
+    fn a_catalog_request_is_control_an_interrupt_does_not_drop_and_its_answer_ends() {
+        // **Changed claim** (D2c round 4). The request used to be queued work,
+        // which an interrupt dropped, so the band forgot it and asked again.
+        // It is a control message now, as upstream's load is a thread of its
+        // own (`ensureModelCache`, `app_input_runtime.zig:2346-2349`): it
+        // takes no place in the queue, an interrupt drops nothing of it, and
+        // it is not asked twice -- its answer ends it whenever it lands.
         let mut shell = shell(40, 120);
         let _started = turn_running(&mut shell, b"first\r");
         shell.route_bytes(b"/model ");
-        let _first = shell.picks_up();
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
-        // Claim changed with F4: over a running turn, a Ctrl-C with a draft in
-        // the composer takes the draft and nothing else (`app_input_runtime.zig:
-        // 1675-1712`), so the turn is stopped by the second one.
-        shell.route_bytes(&[0x03]);
-        assert!(
-            shell.controlled().is_none(),
-            "the draft's Ctrl-C stopped the turn"
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        assert_eq!(
+            shell.work.queued(),
+            0,
+            "the request took a place in the queue"
         );
+        shell.route_bytes(&[0x03]);
         shell.route_bytes(&[0x03]);
         assert!(matches!(
             shell.controlled(),
             Some(TurnControl::Cancel { .. })
         ));
-        // The runtime stops the turn and drops the load queued behind it,
-        // giving both places back -- and sends nothing about the load.
         shell.work.finished_one();
-        shell.work.finished_one();
-        shell.route_bytes(b"/model ");
-        assert_eq!(
-            shell.picks_up(),
-            TurnWork::Catalog,
-            "a dropped load was never asked again"
+        shell.route_bytes(b"\x15/model ");
+        assert!(shell.controlled().is_none(), "asked a second time");
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        assert!(
+            column(&shell)[0].contains("/"),
+            "the column did not take the answer: {:?}",
+            column(&shell)
         );
     }
 
@@ -26423,7 +26434,7 @@ mod tests {
                 .is_some(),
             "the completed /model opened no column"
         );
-        assert_eq!(with_argument.picks_up(), TurnWork::Catalog);
+        assert_eq!(with_argument.controlled(), Some(TurnControl::Catalog));
 
         // A command that takes no argument is completed exactly, and the word
         // is still a slash word, so upstream's menu follows it: one command,
@@ -27371,12 +27382,9 @@ mod tests {
             assert_eq!(shell.editor.text(), held, "{way_out} lost the draft");
             assert_eq!(shell.editor.caret(), caret, "{way_out} moved the caret");
             assert_eq!(shell.editor.entities().len(), 1, "{way_out} lost the block");
-            assert!(shell
-                .sent
-                .try_recv()
-                .is_ok_and(|work| matches!(work, TurnWork::Catalog)));
+            assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
             assert!(
-                shell.sent.try_recv().is_err(),
+                shell.sent.try_recv().is_err() && shell.controlled().is_none(),
                 "{way_out} sent something besides the catalog request"
             );
         }
@@ -28224,11 +28232,11 @@ mod tests {
     #[test]
     fn a_catalog_load_or_a_model_change_in_the_queue_does_not_block_the_column() {
         // **Changed claim.** The runtime's whole queue used to be the busy
-        // rule; upstream's is a turn or a prompt only. A bare `/model` puts a
-        // catalog load on the runtime's queue (`TurnWork::Catalog`, its menu
-        // then closed with Escape) and `/model other` a `TurnWork::Model`;
+        // rule; upstream's is a turn or a prompt only. A bare `/model` asks
+        // for the catalog (a control message since D2c round 4, its menu then
+        // closed with Escape) and `/model other` asks for a model change;
         // neither starts a turn, so the column opens behind either, and the
-        // switch it commits is queued after it.
+        // switch it commits is queued.
         for model in [b"/model\r".as_slice(), b"/model other\r".as_slice()] {
             let mut shell = shell(40, 120);
             shell.route_bytes(model);
@@ -28236,7 +28244,7 @@ mod tests {
                 escape(&mut shell);
                 assert!(shell.model_menu.is_none(), "Escape left the menu up");
             }
-            assert!(shell.work.outstanding() > 0, "nothing was queued");
+            assert!(shell.controlled().is_some(), "nothing was asked");
             let _ = shell.document();
             shell.route_bytes(b"/provider\r");
             assert!(
@@ -28244,7 +28252,6 @@ mod tests {
                 "{model:?} blocked the column"
             );
             shell.route_bytes(b"\x1b[B\r");
-            let _ = shell.picks_up();
             assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
             assert!(!shell
                 .document()
@@ -28338,6 +28345,7 @@ mod tests {
         let mut shell = shell(24, 120);
         shell.shell.missing_credential = true;
         shell.shell.model = "old".to_string();
+        shell.shell.session_title = Some("the first prompt".to_string());
         shell.shell.apply(UiEvent::CatalogLoaded {
             provider: ProviderId::Gateway,
             entries: vec![entry("old", Some(100_000), &[])],
@@ -28345,7 +28353,7 @@ mod tests {
         shell.shell.apply(UiEvent::Usage {
             input: Some(50_000),
         });
-        assert!(shell.shell.context_meter().is_some(), "the meter was armed");
+        assert_eq!(shell.shell.context_meter(), Some((50_000, Some(100_000))));
 
         shell.shell.apply(UiEvent::ProviderSelected {
             provider: ProviderId::Llmux,
@@ -28359,20 +28367,35 @@ mod tests {
             shell.shell.catalog.is_empty(),
             "the old provider's catalog survived the switch"
         );
+        // **Changed claim**: the conversation is kept across a switch, as
+        // upstream's session is, so its tokens and its title stay -- upstream
+        // resets `total_input_tokens` only on a session transition
+        // (`app_session_runtime.zig:1646`). The old window does not: the
+        // meter has no denominator until this provider's catalog arrives,
+        // and then it is that catalog's.
+        assert_eq!(shell.shell.context_meter(), Some((50_000, None)));
         assert_eq!(
-            shell.shell.context_meter(),
-            None,
-            "the dropped conversation's tokens survived the switch"
+            shell.shell.session_title.as_deref(),
+            Some("the first prompt")
         );
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(1_000_000), &[])],
+        });
+        assert_eq!(shell.shell.context_meter(), Some((50_000, Some(1_000_000))));
         let document = shell.document();
-        // **Changed claim**: upstream's sentence for a finished switch
-        // (`Switched to {route} with {model}.`, `app_auth_runtime.zig:1385`)
-        // and xfx's fact about the conversation, rather than `[shell]`-era
-        // `key=value` words.
+        // Upstream's sentence for a finished switch, word for word
+        // (`Switched to {route} with {model}.`, `app_auth_runtime.zig:1385`).
         assert!(
-            document.iter().any(|row| row
-                == "* provider: Switched to llmux with fable. The next prompt starts a \
-                    fresh conversation."),
+            document
+                .iter()
+                .any(|row| row == "* provider: Switched to llmux with fable."),
+            "{document:?}"
+        );
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("fresh conversation")),
             "{document:?}"
         );
     }
@@ -32743,7 +32766,7 @@ mod tests {
         assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
         // The one thing it asks the runtime for is the catalog its effort and
         // speed rows read.
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         assert!(
             shell.sent.try_recv().is_err(),
             "/settings asked the runtime for more than the catalog"
@@ -32795,7 +32818,7 @@ mod tests {
         let mut shell = with_settings(root.path());
         // The menu's own ask, for its effort and speed rows; nothing typed
         // into the search asks for another.
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         shell.route_bytes(b"@src");
         assert!(
             shell.file_picker.is_none(),
@@ -33215,7 +33238,7 @@ mod tests {
         assert!(shell.settings_menu.is_some(), "the settings menu closed");
         assert!(shell.model_menu.is_some(), "no list under the row");
         assert_eq!(shell.editor.text(), "model used", "the search was taken");
-        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         assert!(shell.document().is_empty());
         // Waiting for the catalog: one dim line, four columns in.
         assert_eq!(
@@ -33383,7 +33406,8 @@ mod tests {
         );
         none.route_bytes(LEFT);
         assert!(none.model_menu.is_some());
-        assert!(none.controlled().is_none());
+        // The menu's own ask for the catalog, and no change.
+        assert!(std::iter::from_fn(|| none.controlled()).all(|asked| asked == TurnControl::Catalog));
     }
 
     #[test]

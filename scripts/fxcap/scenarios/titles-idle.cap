@@ -1,0 +1,28 @@
+# W9 r5: the first prompt typed 14 s after launch, then `/trace`. fx warms one
+# connection to the Gateway at launch and sends nothing on it (`warmAsync`,
+# src/main.zig:706; `warm`, src/core/shared/http_pool.zig:76-102) and reuses a
+# pooled connection idle for up to 30 s (`default_ttl_ms`, :14). The fake resets
+# a connection that has sent no request for about 10 s, so fx's title call --
+# the first request, on that connection, one attempt
+# (session_title_generation.zig:168) -- fails before the fake sees it:
+# `title` is missing from fx's gateway log and its `/trace` says
+# `reason=transport_error detail=ReadFailed`. `titles.cap` is the same prompt
+# typed 3 s after launch, where fx asks.
+gateway titles-turns.json
+titled titles-answer.json
+seed titles-seed.json
+xfx: env XFX_SOUND=off
+wait 3
+wait 14
+type fix the renderer loop, it redraws every row twice
+key Enter
+wait 4
+snap answered
+title answered
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap trace
+reports report
+gwlog

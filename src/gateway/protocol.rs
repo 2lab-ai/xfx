@@ -22,6 +22,7 @@ use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::Serialize;
 use serde_json::Value;
 
+use super::tool_call_ids::Projection;
 use crate::provider::Wire;
 
 /// Who a message is from.
@@ -439,6 +440,15 @@ pub enum ProtocolError {
     /// is left to invent arguments for something that runs on the operator's
     /// machine.
     UnusableTool { tool: String, reason: &'static str },
+    /// A tool call or result whose id is empty, or that no portable alias
+    /// stands in for (`error.InvalidToolCallId`, `vercel-labs/fx@c1db9191
+    /// src/gateway/tool_call_ids.zig:18-19`, `:83`).
+    InvalidToolCallId { call_id: String },
+    /// A call whose id would have to be sent under an alias, named by state
+    /// the wire replays verbatim under the id it was minted with
+    /// (`error.ProtectedToolCallId`, `tool_call_ids.zig:56`, `:65`): renaming
+    /// the one and not the other would send a call the state does not name.
+    ProtectedToolCallId { call_id: String },
 }
 
 impl fmt::Display for ProtocolError {
@@ -463,6 +473,14 @@ impl fmt::Display for ProtocolError {
             Self::UnusableTool { tool, reason } => {
                 write!(f, "the advertised tool {tool} {reason}")
             }
+            Self::InvalidToolCallId { call_id } => {
+                write!(f, "tool call id `{call_id}` cannot be sent on this wire")
+            }
+            Self::ProtectedToolCallId { call_id } => write!(
+                f,
+                "tool call id `{call_id}` would have to be renamed for this wire, and the \
+                 provider state recorded with it names it as it is"
+            ),
         }
     }
 }
@@ -486,7 +504,12 @@ impl CompletionRequest {
     /// `vercel_protocol.zig:376-379`), and absent when there is none to ask for.
     pub fn body_with(&self, options: &RequestOptions) -> Result<String, ProtocolError> {
         self.validate()?;
-        Ok(serde_json::to_string(&WireRequest(self, options))
+        // The ids every call and result go under: as they are, unless one is
+        // not portable (`Projection.init`, `vercel_protocol.zig:331`). This
+        // wire replays no blocks verbatim -- it reduces them to their text --
+        // so no call is protected from being renamed.
+        let ids = Projection::of(&self.messages, false)?;
+        Ok(serde_json::to_string(&WireRequest(self, options, &ids))
             .expect("a validated request is always serializable"))
     }
 
@@ -541,12 +564,12 @@ impl CompletionRequest {
 }
 
 /// The request body, written in upstream's key order.
-struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions);
+struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions, &'a Projection);
 
 impl Serialize for WireRequest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("prompt", &WireMessages(&self.0.messages))?;
+        map.serialize_entry("prompt", &WireMessages(&self.0.messages, self.2))?;
         map.serialize_entry("tools", &self.0.tools)?;
         map.serialize_entry("toolChoice", &ToolChoiceBody(self.0.tool_choice))?;
         if let Some(limit) = self.1.max_output_tokens {
@@ -575,13 +598,13 @@ impl Serialize for WireRequest<'_> {
     }
 }
 
-struct WireMessages<'a>(&'a [Message]);
+struct WireMessages<'a>(&'a [Message], &'a Projection);
 
 impl Serialize for WireMessages<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(None)?;
         for (index, message) in self.0.iter().enumerate() {
-            seq.serialize_element(&WireMessage(message))?;
+            seq.serialize_element(&WireMessage(message, self.1))?;
             // **The tool results' images ride in a user message after the run
             // of results**, upstream's one image position every Gateway route
             // reads (`write_tool_image_user_message`,
@@ -672,7 +695,7 @@ impl Serialize for ToolChoiceBody {
     }
 }
 
-struct WireMessage<'a>(&'a Message);
+struct WireMessage<'a>(&'a Message, &'a Projection);
 
 impl Serialize for WireMessage<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -683,16 +706,17 @@ impl Serialize for WireMessage<'_> {
         if self.0.role == Role::System {
             map.serialize_entry("content", &self.0.text())?;
         } else {
-            map.serialize_entry("content", &WireParts(&self.0.content))?;
+            map.serialize_entry("content", &WireParts(&self.0.content, self.1))?;
         }
         map.end()
     }
 }
 
-struct WireParts<'a>(&'a [ContentPart]);
+struct WireParts<'a>(&'a [ContentPart], &'a Projection);
 
 impl Serialize for WireParts<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let ids = self.1;
         let mut seq = serializer.serialize_seq(None)?;
         for part in self.0 {
             match part {
@@ -724,7 +748,7 @@ impl Serialize for WireParts<'_> {
                 })?,
                 ContentPart::ToolCall(call) => seq.serialize_element(&ToolCallPart {
                     r#type: "tool-call",
-                    tool_call_id: &call.id,
+                    tool_call_id: ids.resolve(&call.id),
                     tool_name: &call.name,
                     input: &call.input,
                 })?,
@@ -737,7 +761,7 @@ impl Serialize for WireParts<'_> {
                 } if images.is_empty() || *status == ResultStatus::Denied => {
                     seq.serialize_element(&ToolResultPart {
                         r#type: "tool-result",
-                        tool_call_id: call_id,
+                        tool_call_id: ids.resolve(call_id),
                         tool_name: tool,
                         output: match status {
                             ResultStatus::Success => ResultOutput::Value {
@@ -774,7 +798,7 @@ impl Serialize for WireParts<'_> {
                     };
                     seq.serialize_element(&ContentResultPart {
                         r#type: "tool-result",
-                        tool_call_id: call_id,
+                        tool_call_id: ids.resolve(call_id),
                         tool_name: tool,
                         output: ContentOutput {
                             r#type: "content",
@@ -1035,7 +1059,9 @@ mod tests {
         // fx's request after a cancelled command
         // (`fx-interrupt-40x120-bodies/006-completion.json`):
         // `{"type":"tool-result",...,"output":{"type":"error-text","value":"aborted by user"}}`.
-        let parts = |message: &Message| serde_json::to_value(WireParts(&message.content)).unwrap();
+        let parts = |message: &Message| {
+            serde_json::to_value(WireParts(&message.content, &Projection::identity())).unwrap()
+        };
         assert_eq!(
             parts(&Message::tool_error(
                 "call_1",
@@ -1059,7 +1085,9 @@ mod tests {
     fn a_refused_call_is_answered_with_execution_denied_and_its_reason() {
         // `vercel_protocol.zig:742-744`: `{"type":"execution-denied","reason":
         // <the refusal>}`, the refusal under `reason` rather than `value`.
-        let parts = |message: &Message| serde_json::to_value(WireParts(&message.content)).unwrap();
+        let parts = |message: &Message| {
+            serde_json::to_value(WireParts(&message.content, &Projection::identity())).unwrap()
+        };
         assert_eq!(
             parts(&Message::tool_ended(
                 "call_1",
