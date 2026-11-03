@@ -241,6 +241,11 @@ pub enum SessionError {
     /// different: a symlinked or foreign-owned `~/.xfx` does not leak one file,
     /// it redirects or exposes the whole store.
     InsecureParent { path: PathBuf, detail: String },
+    /// A fork was asked for at a point the session does not have: before a
+    /// turn 0, past its turns, or keeping a turn that has not ended
+    /// (upstream's `InvalidForkPoint`, `vercel-labs/fx@481104fd
+    /// src/core/session_manager/session.zig:1708`).
+    InvalidForkPoint { id: String, detail: String },
     /// The store cannot be used at all: no home directory, or a read-only store
     /// asked to write.
     Unavailable { detail: String },
@@ -287,6 +292,9 @@ impl fmt::Display for SessionError {
             ),
             Self::InsecureParent { path, detail } => {
                 write!(f, "{} cannot hold session state: {detail}", path.display())
+            }
+            Self::InvalidForkPoint { id, detail } => {
+                write!(f, "session `{id}` cannot be forked there: {detail}")
             }
             Self::Unavailable { detail } => write!(f, "{detail}"),
             Self::Io { path, source } => write!(f, "cannot use {}: {source}", path.display()),
@@ -1801,6 +1809,7 @@ impl SessionStore {
                 model: spec.model,
                 permission_mode: spec.permission_mode.label().to_string(),
                 provider: spec.provider.map(|provider| provider.label().to_string()),
+                forked_from: None,
             },
         )?;
         self.publish(&mut session)?;
@@ -2933,9 +2942,19 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             model,
             permission_mode,
             provider,
+            forked_from,
         } => {
             let mode = PermissionMode::parse(permission_mode)
                 .ok_or_else(|| format!("unknown permission mode `{permission_mode}`"))?;
+            // The origin a fork names is an id a session could be stored
+            // under, another session's, and a frame of its log: what
+            // [`SessionStore::fork`] writes, and nothing a reader would have
+            // to second-guess before it names it.
+            if let Some(origin) = forked_from {
+                if SessionId::parse(&origin.id).is_err() || origin.id == *id || origin.seq == 0 {
+                    return Err("a fork names an origin xfx would not have written".to_string());
+                }
+            }
             state.id = id.clone();
             state.created_at_ms = envelope.timestamp_ms;
             state.origin_workspace_root = origin_workspace_root.clone();
@@ -3798,6 +3817,7 @@ mod tests {
             model: "m".to_string(),
             permission_mode: "auto".to_string(),
             provider: None,
+            forked_from: None,
         }
     }
 
@@ -3843,6 +3863,7 @@ mod tests {
             model: model.clone(),
             permission_mode: permission_mode.clone(),
             provider: Some(provider.to_string()),
+            forked_from: None,
         };
         assert_eq!(
             reduce(vec![opened_under("gateway")])
@@ -6171,3 +6192,6 @@ mod tests {
 /// A conversation carried across a provider switch, as each wire is sent it.
 #[cfg(test)]
 mod carry_tests;
+
+/// A new session that starts from an earlier prompt of another (`/fork`).
+mod fork;

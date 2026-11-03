@@ -675,3 +675,98 @@ fn continuing_a_session_the_preview_wrote_in_the_tui_appends_only_frames_the_pre
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 4. forking one leaves it as the preview left it
+// ---------------------------------------------------------------------------
+
+/// A fork of each session the preview wrote, before its last turn (P5-FK1,
+/// upstream's `openFork`, `vercel-labs/fx@481104fd
+/// src/core/session_manager/session.zig:1714-1759`): the source keeps every
+/// byte, time and mode the preview gave it -- so the preview opens it as it
+/// did -- and the fork holds what the preview wrote and a rename, which this
+/// build reads whole.
+#[test]
+fn forking_a_session_the_preview_wrote_leaves_it_as_the_preview_left_it() {
+    let preview = Preview::seed();
+    let sessions = preview.sandbox.sessions_dir();
+    let store =
+        xfx::session::SessionStore::open(&preview.sandbox.home.join(".xfx")).expect("the store");
+    let before: Vec<_> = ALL.iter().map(|id| tree(&sessions.join(id))).collect();
+    let known: BTreeSet<&str> = PREVIEW_KINDS.into_iter().collect();
+
+    for id in ALL {
+        let turns = kinds_of(&preview.log(id))
+            .iter()
+            .filter(|kind| *kind == "user_message")
+            .count();
+        let source = xfx::session::SessionId::parse(id).expect("an id");
+        let fork = store
+            .fork(&source, turns, preview.workspace_of(id))
+            .unwrap_or_else(|err| panic!("{id}: {err}"));
+        let fork_id = fork.id().to_string();
+        drop(fork);
+
+        let detail: Value = serde_json::from_str(&ok(
+            &preview.xfx(&["session", "--id", &fork_id, "--json"]),
+            &format!("the fork of {id}"),
+        ))
+        .expect("the detail is JSON");
+        assert_eq!(detail["history_turns"], turns - 1, "{id}: {detail}");
+
+        // Every frame is one the preview wrote or reads, but the rename.
+        let log = fs::read(sessions.join(&fork_id).join("events.jsonl")).expect("the fork's log");
+        let kinds = kinds_of(&log);
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|kind| *kind == "session_renamed")
+                .count(),
+            1,
+            "{id}: {kinds:?}"
+        );
+        for kind in &kinds {
+            assert!(
+                kind == "session_renamed" || known.contains(kind.as_str()),
+                "{id}: {kind}"
+            );
+        }
+        let first: Value = serde_json::from_str(
+            std::str::from_utf8(&log)
+                .expect("UTF-8")
+                .lines()
+                .next()
+                .expect("line 1"),
+        )
+        .expect("a frame");
+        assert_eq!(first["event"]["forked_from"]["id"], id, "{id}: {first}");
+    }
+
+    let after: Vec<_> = ALL.iter().map(|id| tree(&sessions.join(id))).collect();
+    assert_eq!(after, before, "a fork wrote to a session the preview wrote");
+    // Each listed beside its source, under the source's title marked once.
+    let listed: Value = serde_json::from_str(&ok(
+        &preview.xfx(&["sessions", "--all", "--json"]),
+        "sessions --all --json",
+    ))
+    .expect("the listing is JSON");
+    assert_eq!(listed["skipped_invalid"], 0, "{listed}");
+    let rows = listed["sessions"].as_array().expect("a list");
+    assert_eq!(rows.len(), 2 * ALL.len(), "{listed}");
+    let forks = rows
+        .iter()
+        .filter(|row| !ALL.contains(&row["id"].as_str().expect("an id")))
+        .filter(|row| {
+            row["title"].as_str().is_some_and(|title| {
+                title.ends_with(" (fork)") && !title.ends_with(" (fork) (fork)")
+            })
+        })
+        .count();
+    assert_eq!(forks, ALL.len(), "{listed}");
+    for id in ALL {
+        ok(
+            &preview.xfx(&["session", "--id", id]),
+            &format!("session --id {id} after it was forked"),
+        );
+    }
+}
