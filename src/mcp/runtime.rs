@@ -37,7 +37,7 @@
 //! server cannot be overtaken by the `/mcp path` typed after it, and the UI
 //! thread never waits on a server.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -138,7 +138,7 @@ pub struct ServerView {
     /// For a project server not approved as it stands -- pending or
     /// rejected, so never expanded -- what approving it would let run or
     /// reach, and the digest an approval of what was drawn is for.
-    pub entry: Option<ShownEntry>,
+    pub entry: Option<Arc<ShownEntry>>,
 }
 
 /// A project entry as a person is shown it: the rows of [`what_it_runs`],
@@ -355,10 +355,17 @@ pub struct Server {
     /// Set by the one reload that starts its connection, so a server carried
     /// over while it is still coming up is connected once and only once.
     claimed: AtomicBool,
+    /// What a person is shown of it before approving it, built once when the
+    /// reload that read it built the server ([`shown_entry`]): every view
+    /// shares it rather than spelling the entry again per frame.
+    entry: Option<Arc<ShownEntry>>,
 }
 
 impl Server {
-    fn new(config: ServerConfig) -> Arc<Self> {
+    /// `config` as a server, with its [`ShownEntry`] from `digests`, the last
+    /// read's digests by name.
+    fn new(config: ServerConfig, digests: &HashMap<&str, &str>) -> Arc<Self> {
+        let entry = shown_entry(&config, digests).map(Arc::new);
         let disabled = !config.enabled
             || matches!(
                 config.admission,
@@ -384,6 +391,7 @@ impl Server {
             }),
             stopped: AtomicBool::new(false),
             claimed: AtomicBool::new(false),
+            entry,
         })
     }
 
@@ -414,7 +422,7 @@ impl Server {
             tools_held: live.tools.len(),
             listed: live.listed,
             failure: live.failure.clone(),
-            entry: None,
+            entry: self.entry.clone(),
         }
     }
 
@@ -584,11 +592,7 @@ impl McpRuntime {
         state
             .servers
             .iter()
-            .map(|server| {
-                let mut view = server.view(state.reloading && server.should_connect());
-                view.entry = shown_entry(&server.config, &state.digests);
-                view
-            })
+            .map(|server| server.view(state.reloading && server.should_connect()))
             .collect()
     }
 
@@ -723,7 +727,11 @@ impl McpRuntime {
         }
         if let Ok((configs, issues, choices, digests)) = self.read_configuration() {
             let mut state = self.state();
-            state.servers = configs.into_iter().map(Server::new).collect();
+            let index = by_name(&digests);
+            state.servers = configs
+                .into_iter()
+                .map(|config| Server::new(config, &index))
+                .collect();
             state.issues = issues;
             state.choices = choices;
             state.digests = digests;
@@ -821,6 +829,7 @@ impl McpRuntime {
         };
         // The servers carried over: same configuration, and up or coming up.
         let current = self.servers();
+        let index = by_name(&digests);
         let mut next: Vec<Arc<Server>> = Vec::with_capacity(configs.len());
         let mut connecting: Vec<Arc<Server>> = Vec::new();
         for config in configs {
@@ -834,7 +843,7 @@ impl McpRuntime {
             });
             let server = match kept {
                 Some(server) => Arc::clone(server),
-                None => Server::new(config),
+                None => Server::new(config, &index),
             };
             if server.should_connect() && !server.claimed.swap(true, Ordering::AcqRel) {
                 connecting.push(Arc::clone(&server));
@@ -1183,12 +1192,7 @@ impl McpRuntime {
             .servers
             .iter()
             .find(|server| server.config.admission == Some(Admission::Pending))?;
-        let digest = state
-            .digests
-            .iter()
-            .find(|(name, _)| *name == server.config.name)?
-            .1
-            .clone();
+        let digest = server.entry.as_ref()?.digest.clone();
         Some((server.config.clone(), digest))
     }
 
@@ -1250,9 +1254,9 @@ impl McpRuntime {
                     .servers
                     .iter()
                     .filter_map(|server| {
-                        let entry = shown_entry(&server.config, &state.digests)?;
+                        let entry = server.entry.as_ref()?;
                         (server.config.admission == Some(Admission::Pending))
-                            .then(|| (server.config.name.clone(), entry.digest))
+                            .then(|| (server.config.name.clone(), entry.digest.clone()))
                     })
                     .collect(),
             }
@@ -1687,23 +1691,29 @@ fn fitted(row: &str, name: &str) -> String {
     let head = &row[..floor(PROMPT_ROW_MAX_BYTES / 2)];
     let tail = &row[ceil(row.len() - PROMPT_ROW_MAX_BYTES / 4)..];
     format!(
-        "{head} \u{2026} [{} bytes in all; in /mcp, Enter on '{name}' then v writes every byte] \u{2026} {tail}",
-        row.len()
+        "{head} \u{2026} [{} bytes in all; in /mcp, Enter on '{}' then v writes every byte] \u{2026} {tail}",
+        row.len(),
+        super::terminal_safe(name)
     )
+}
+
+/// The last read's digests by entry name, for one lookup per server rather
+/// than a scan.
+fn by_name(digests: &[(String, String)]) -> HashMap<&str, &str> {
+    digests
+        .iter()
+        .map(|(name, digest)| (name.as_str(), digest.as_str()))
+        .collect()
 }
 
 /// A project server's [`ShownEntry`], when it is one a person is asked
 /// about: a workspace entry not approved as it stands, which is never
 /// expanded, so its rows are the entry as written.
-fn shown_entry(config: &ServerConfig, digests: &[(String, String)]) -> Option<ShownEntry> {
+fn shown_entry(config: &ServerConfig, digests: &HashMap<&str, &str>) -> Option<ShownEntry> {
     if config.source != Source::Workspace || config.admission == Some(Admission::Approved) {
         return None;
     }
-    let digest = digests
-        .iter()
-        .find(|(name, _)| *name == config.name)?
-        .1
-        .clone();
+    let digest = (*digests.get(config.name.as_str())?).to_string();
     Some(ShownEntry {
         rows: entry_rows(config),
         digest,
@@ -1960,6 +1970,10 @@ mod tests {
             )),
             "{shown}"
         );
+        // The name it points to is spelled as every name is.
+        let named = fitted(whole, "p\u{1b}[2J");
+        assert!(named.contains(r"Enter on 'p\x1b[2J'"), "{named}");
+        assert!(!named.contains('\u{1b}'), "{named}");
         // A row that fits is whole.
         let short = ServerConfig::local("p", "/bin/true", &[]);
         assert_eq!(what_it_runs(&short), "command: /bin/true");

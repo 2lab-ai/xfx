@@ -148,15 +148,27 @@ pub(crate) struct McpMenu {
     prompts: Vec<Prompt>,
     feedback: Option<String>,
     filter: Option<String>,
-    /// The project server whose entry the details screen last drew, and that
-    /// entry's digest: what `a` approves. Set while drawing, which takes
-    /// `&self`; a key reads it against the entry as it is now.
-    drawn: std::cell::RefCell<Option<(String, String)>>,
+    /// The project entry the details screen last drew: what `a` approves,
+    /// once it has been shown whole. Set while drawing, which takes `&self`;
+    /// a key reads it against the entry as it is now.
+    drawn: std::cell::RefCell<Option<Drawn>>,
+}
+
+/// A project entry the details screen drew.
+#[derive(Debug, Clone, PartialEq)]
+struct Drawn {
+    name: String,
+    digest: String,
+    /// Every row of it was on the screen, or `v` wrote it into the
+    /// transcript.
+    whole: bool,
 }
 
 /// What the details screen says when `a` meets an entry other than the one
 /// it drew: nothing is approved, and the next frame shows the new one.
 const ENTRY_CHANGED: &str = "This entry changed since it was drawn; check it and press a again.";
+/// What it says when `a` meets an entry the screen did not show whole.
+const ENTRY_NOT_SHOWN: &str = "This entry is not shown whole: press v to see all of it, then a.";
 
 impl McpMenu {
     /// A menu open on the servers, the first one marked (`.open`,
@@ -549,14 +561,27 @@ impl McpMenu {
             .into_iter()
             .map(|row| format!("{}{row}{}", palette.subtitle(), palette.reset()))
             .collect();
-        let room = body.saturating_sub(rows.len());
-        let drew = !entry.is_empty() && (entry.len() <= room || room > 1);
-        *self.drawn.borrow_mut() = server
-            .entry
-            .as_ref()
-            .filter(|_| drew)
-            .map(|entry| (server.name.clone(), entry.digest.clone()));
-        if entry.len() <= room {
+        let mut room = body.saturating_sub(rows.len());
+        let fits = entry.len() <= room;
+        // An entry that does not fit always gets its row saying how to see
+        // it: on a screen with no room left, in place of the last fact.
+        while !fits && room == 0 && rows.len() > 1 {
+            rows.pop();
+            room += 1;
+        }
+        let mut drawn = self.drawn.borrow_mut();
+        *drawn = server.entry.as_ref().map(|entry| {
+            let seen = drawn.as_ref().is_some_and(|drawn| {
+                drawn.whole && drawn.name == server.name && drawn.digest == entry.digest
+            });
+            Drawn {
+                name: server.name.clone(),
+                digest: entry.digest.clone(),
+                whole: fits || seen,
+            }
+        });
+        drop(drawn);
+        if fits {
             rows.extend(entry);
         } else if room > 0 {
             let more = entry.len() - (room - 1);
@@ -727,9 +752,21 @@ impl McpMenu {
                     return Effect::Ignored;
                 };
                 let drawn = self.drawn.borrow().clone();
-                if drawn.as_ref() != Some(&(server.name.clone(), entry.digest.clone())) {
-                    self.feedback = Some(ENTRY_CHANGED.to_string());
-                    return Effect::Repaint;
+                match drawn {
+                    Some(drawn) if drawn.name == server.name && drawn.digest == entry.digest => {
+                        if !drawn.whole {
+                            self.feedback = Some(ENTRY_NOT_SHOWN.to_string());
+                            return Effect::Repaint;
+                        }
+                    }
+                    Some(drawn) if drawn.name == server.name => {
+                        self.feedback = Some(ENTRY_CHANGED.to_string());
+                        return Effect::Repaint;
+                    }
+                    _ => {
+                        self.feedback = Some(ENTRY_NOT_SHOWN.to_string());
+                        return Effect::Repaint;
+                    }
                 }
                 self.feedback = None;
                 self.screen = Screen::Browse;
@@ -744,12 +781,20 @@ impl McpMenu {
                     },
                 }
             }
+            // Written whole into the transcript: shown, so `a` may approve it.
             'v' => match &server.entry {
-                Some(entry) => Effect::Show(format!(
-                    "Project MCP server '{}' in .mcp.json:\n  {}\n",
-                    crate::mcp::terminal_safe(&server.name),
-                    entry.rows.join("\n  ")
-                )),
+                Some(entry) => {
+                    *self.drawn.borrow_mut() = Some(Drawn {
+                        name: server.name.clone(),
+                        digest: entry.digest.clone(),
+                        whole: true,
+                    });
+                    Effect::Show(format!(
+                        "Project MCP server '{}' in .mcp.json:\n  {}\n",
+                        crate::mcp::terminal_safe(&server.name),
+                        entry.rows.join("\n  ")
+                    ))
+                }
                 None => Effect::Ignored,
             },
             'c' => {
@@ -851,7 +896,17 @@ impl McpMenu {
             }
         }
         details.push_str("c help  esc back");
-        let details_variants = [details.as_str(), "c help  esc back", "c esc"];
+        // `v` stays in every width: on a screen too short for the entry it is
+        // the only way to see it, and so to approve it.
+        let entry = self
+            .server(servers)
+            .is_some_and(|server| server.entry.is_some());
+        let (medium, narrow) = if entry {
+            ("v show whole  c help  esc back", "v c esc")
+        } else {
+            ("c help  esc back", "c esc")
+        };
+        let details_variants = [details.as_str(), medium, narrow];
         let variants: [&str; 3] = match self.screen {
             Screen::Browse if self.section == Section::Servers => ROOT,
             Screen::Browse => CATALOG,
@@ -1433,10 +1488,10 @@ mod tests {
             Some(Admission::Pending),
         );
         let command = format!("command: /bin/sh -c '{}'", "w ".repeat(150));
-        server.entry = Some(crate::mcp::runtime::ShownEntry {
+        server.entry = Some(std::sync::Arc::new(crate::mcp::runtime::ShownEntry {
             rows: vec![command.clone()],
             digest: "sha256:p".into(),
-        });
+        }));
         let servers = [server];
         let mut menu = McpMenu::open();
         menu.key(KeyAction::Enter, &servers, 5);
@@ -1471,5 +1526,76 @@ mod tests {
             Some("  \u{2026} 5 more rows: press v to see all"),
             "{short:#?}"
         );
+    }
+
+    #[test]
+    fn details_with_no_room_for_the_entry_say_press_v_and_a_approves_only_what_was_whole() {
+        // Seven facts fill a nine-row panel's body (two header rows): with
+        // no room left the entry is not drawn, so the last fact gives way to
+        // the row that says how to see it, and `a` approves only an entry
+        // shown whole -- on the screen, or written into the transcript by `v`.
+        let mut server = view(
+            "p",
+            Source::Workspace,
+            Connection::Disabled,
+            Some(Admission::Pending),
+        );
+        server.entry = Some(std::sync::Arc::new(crate::mcp::runtime::ShownEntry {
+            rows: vec![format!("command: /bin/sh -c '{}'", "w ".repeat(60))],
+            digest: "sha256:p".into(),
+        }));
+        let servers = [server];
+        let wrapped = entry_rows(&servers[0], 80).len();
+        assert!(wrapped >= 2, "{wrapped}");
+        let approves = |menu: &mut McpMenu| {
+            matches!(
+                menu.key(KeyAction::Char('a'), &servers, 5),
+                Effect::Trust { .. }
+            )
+        };
+        for (row_count, room) in [(9u16, 0usize), (10, 1)] {
+            let mut menu = McpMenu::open();
+            menu.key(KeyAction::Enter, &servers, 5);
+            let rows: Vec<String> = menu
+                .rows(&servers, &[], 80, row_count, PALETTE)
+                .iter()
+                .map(|row| plain(row))
+                .collect();
+            assert_eq!(rows.len(), usize::from(row_count), "room {room}: {rows:#?}");
+            assert_eq!(
+                rows.last().map(String::as_str),
+                Some(format!("  \u{2026} {wrapped} more rows: press v to see all").as_str()),
+                "room {room}: {rows:#?}"
+            );
+            assert!(
+                !approves(&mut menu),
+                "room {room}: approved an entry not shown"
+            );
+            let said: Vec<String> = menu
+                .rows(&servers, &[], 80, row_count, PALETTE)
+                .iter()
+                .map(|row| plain(row))
+                .collect();
+            assert_eq!(
+                said[1],
+                format!("  {ENTRY_NOT_SHOWN}"),
+                "room {room}: {said:#?}"
+            );
+            // `v` shows it whole; then `a` approves it.
+            assert!(matches!(
+                menu.key(KeyAction::Char('v'), &servers, 5),
+                Effect::Show(_)
+            ));
+            assert!(approves(&mut menu), "room {room}: `a` after `v`");
+        }
+        // Drawn whole on a screen with the rows: `a` approves it at once.
+        let mut menu = McpMenu::open();
+        menu.key(KeyAction::Enter, &servers, 5);
+        menu.rows(&servers, &[], 80, 30, PALETTE);
+        // The hint names `v` however narrow it gets.
+        for cols in [20, 40, 120] {
+            assert!(menu.key_help(&servers, cols).contains('v'), "{cols}");
+        }
+        assert!(approves(&mut menu));
     }
 }
