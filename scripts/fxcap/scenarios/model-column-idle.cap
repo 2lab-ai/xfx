@@ -1,0 +1,23 @@
+# The catalog cannot be read for the first nine seconds -- longer than either
+# binary takes to start and open the column under load -- and the inline
+# column is open over the failure with nothing running. fx paints a frame only
+# when something asks for one (`flushRequestedFrame`,
+# `app_render_runtime.zig:928-929`) and nothing animates while idle, so the
+# column's render path -- the only thing that asks the cache again
+# (`footerContext`, `:561-563`) -- does not run: it says `unable to load
+# models` after the catalog is back, and the next keystroke's frame asks again
+# and lists the rows. `modelsdelay 0` stamps each read in the gateway log.
+models models.json
+modelsdown 9000
+modelsdelay 0
+wait 6
+type /model
+key Space
+wait 0.8
+snap col-down
+wait 6
+snap col-idle
+type o
+wait 1
+snap col-typed
+gwlog

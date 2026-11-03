@@ -37,15 +37,17 @@
 //!
 //! # What the keystrokes mean here
 //!
-//! [`Shell::route_bytes`] owns the [`Decoder`], so the deferred bytes the
+//! [`Shell::route_read`] owns the [`Decoder`], so the deferred bytes the
 //! launch probe read and the bytes every later read produces go through one
-//! machine in arrival order -- which is the whole of what that decoder asks of
-//! its caller. What comes out is routed in exactly three ways: the composer's
-//! own actions go to the editor, `Submit` and `Ctrl-D` are the session's, and
-//! everything else is a keystroke this phase has no binding for. `Ctrl-D` is
-//! the one worth stating: it leaves **only** on an empty composer, and with
-//! text under the caret it is a forward delete, which is what it means in every
-//! shell that has both.
+//! machine in arrival order -- which is half of what that decoder asks of its
+//! caller. The other half is [`Shell::end_delivery`], said once the terminal
+//! has nothing more to read, which is when a paste's end is settled. What
+//! comes out is routed in exactly three ways: the composer's own actions go to
+//! the editor, `Submit` and `Ctrl-D` are the session's, and everything else is
+//! a keystroke this phase has no binding for. `Ctrl-D` is the one worth
+//! stating: it leaves **only** on an empty composer, and with text under the
+//! caret it is a forward delete, which is what it means in every shell that has
+//! both.
 //!
 //! The transcript is the one thing here that is **not** a picture of the band.
 //! Nothing above the divider belongs to xfx: a row that goes there goes into
@@ -97,7 +99,7 @@ use super::history::{History, HistoryEntry, HistoryStep};
 use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
 use super::image_paths;
 use super::inline_completion;
-use super::input::{Action, Decoder, Input};
+use super::input::{Action, Decoder, Delivery, Input};
 use super::layout::{self, Geometry};
 use super::model_column::{self, Chosen, Column, Edit as ColumnEdit, Known};
 use super::model_menu::{self, ModelAction, ModelMenu};
@@ -133,7 +135,7 @@ use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
-use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
+use crate::provider::model::{may_read_again, resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
@@ -467,6 +469,13 @@ const GONE_NOTICE: &str = "the runtime is gone; that line was not sent";
 /// and for every paste, each of which begins a run of its own
 /// (`input_paste_runtime.zig:110-127`).
 const INPUT_LIMIT: &str = "That edit exceeds the local prompt safety limit and was not applied.";
+
+/// What a paste refused for the input behind its end marker says, under
+/// `input`, as an error in the document (`input_paste_runtime.zig:188-192`,
+/// `fx-p5-input-paste-40x120-paste-enter`) -- wherever the paste was going:
+/// the composer, an amendment, a question's answer, or a question that was
+/// taking no text at all ([`Shell::paste_refused`]).
+const PASTE_SUFFIX: &str = "Paste was not applied because extra input followed its end marker.";
 
 /// The hint row's refusal for a paste this session has no number left for.
 ///
@@ -954,6 +963,13 @@ pub(crate) struct Shell {
     /// what makes the blink a multiple of that tick rather than a second clock
     /// beside it.
     phase: u8,
+    /// Whether the animation tick has turned over since the column last
+    /// looked ([`Self::settle_column`]): a frame upstream draws every 50 ms
+    /// while a stream runs whether or not a row changed
+    /// (`requestAnimationDue`, `ui/render_request.zig:236-248`), and this band
+    /// skips painting when nothing did -- but the column asks at it all the
+    /// same, as upstream's frame does.
+    animation_turned: bool,
     /// The question the turn is waiting on an answer to, while it is waiting.
     ///
     /// `Some` is the whole of "the panel has the focus": the band paints it,
@@ -1983,8 +1999,11 @@ enum CatalogKnown {
     Asked,
     /// The runtime's answer is [`Shell::catalog`].
     Loaded,
-    /// The runtime could not read it, and whether asking again could help.
-    Unread(Option<CatalogRetry>),
+    /// The runtime could not read it, whether asking again could help, and
+    /// when the read that failed began: a `/model` within a second of that
+    /// opens the menu over the failure and asks nothing
+    /// (`crate::provider::model::RETRY_FLOOR`).
+    Unread(Option<CatalogRetry>, Instant),
 }
 
 /// The catalog as `/model`'s column is drawn from it.
@@ -1994,7 +2013,7 @@ enum CatalogKnown {
 fn known(state: CatalogKnown, catalog: &[CatalogEntry]) -> Known<'_> {
     match state {
         CatalogKnown::Loaded => Known::Rows(catalog),
-        CatalogKnown::Unread(_) => Known::Failed,
+        CatalogKnown::Unread(..) => Known::Failed,
         CatalogKnown::Unasked | CatalogKnown::Asked => Known::Loading,
     }
 }
@@ -2147,6 +2166,7 @@ impl Shell {
             compaction: None,
             activity: Activity::new(),
             phase: 0,
+            animation_turned: false,
             panel: None,
             alternate: None,
             asked_id: None,
@@ -2793,7 +2813,7 @@ impl Shell {
                 .is_some_and(|entry| {
                     self.settings.effort.supported_by(entry) && !entry.efforts.is_empty()
                 }),
-            CatalogKnown::Unread(_) => false,
+            CatalogKnown::Unread(..) => false,
             CatalogKnown::Unasked | CatalogKnown::Asked => true,
         };
         let effort =
@@ -3784,8 +3804,10 @@ impl Shell {
             // Nothing to list, and the menu and the column say so -- the menu
             // in upstream's `retry /model.` words when asking again could
             // help, which the next `/model` then does.
-            UiEvent::CatalogUnread { retry, .. } => {
-                self.catalog_known = CatalogKnown::Unread(retry);
+            UiEvent::CatalogUnread {
+                retry, attempted, ..
+            } => {
+                self.catalog_known = CatalogKnown::Unread(retry, attempted);
                 // No row says the model offers a mode, as upstream's generic
                 // capabilities say none (`capabilitiesForModel`).
                 self.settle_speed();
@@ -8409,20 +8431,51 @@ impl Shell {
         self.leaving.get_or_insert(why);
     }
 
-    /// Decodes `bytes` -- in the order the terminal delivered them -- and does
-    /// what they mean.
+    /// Decodes one read's `bytes` -- in the order the terminal delivered
+    /// them -- and does what they mean.
     ///
     /// One [`Instant`] for the whole read rather than one per byte: the bytes
     /// of a single read arrived together, and the only thing the decoder times
     /// is how long a bare `ESC` has been alone, which a burst's own bytes must
     /// not be able to expire.
-    pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
+    ///
+    /// A paste whose end marker is in these bytes has not ended yet: that is
+    /// [`Self::end_delivery`]'s to say, once it is known whether anything
+    /// followed the marker before the terminal went quiet.
+    pub(crate) fn route_read(&mut self, bytes: &[u8]) {
         let now = Instant::now();
         let mut events = Vec::new();
         for byte in bytes {
             self.decoder.feed(*byte, now, &mut events);
         }
         self.consume(events, now);
+    }
+
+    /// The terminal has nothing more to read: the delivery the reads since the
+    /// last one were part of is over (`settleTerminalPasteDeliveryEpoch`,
+    /// `app_input_runtime.zig:813-836`).
+    ///
+    /// Said by the loop's readiness check and nowhere else
+    /// (`super::event_loop`'s `read_burst`), because only it knows. A paste
+    /// that ended in the delivery with nothing behind its marker reaches
+    /// whatever gathered it as [`Action::PasteEnd`]; one that something
+    /// followed is refused whole ([`Self::paste_refused`]).
+    pub(crate) fn end_delivery(&mut self) {
+        match self.decoder.end_delivery() {
+            Delivery::Quiet => {}
+            Delivery::Pasted => self.consume(vec![Input::Action(Action::PasteEnd)], Instant::now()),
+            Delivery::Refused { .. } => self.paste_refused(),
+        }
+    }
+
+    /// `bytes` as one whole delivery: [`Self::route_read`], then
+    /// [`Self::end_delivery`] -- the shape every keystroke a test types has,
+    /// and the shape the loop gives one write that fits in one read. A case
+    /// about a delivery made of several reads calls the two itself.
+    #[cfg(test)]
+    pub(crate) fn route_bytes(&mut self, bytes: &[u8]) {
+        self.route_read(bytes);
+        self.end_delivery();
     }
 
     /// Resolves what only the passage of time resolves: a bare `ESC` that has
@@ -9054,6 +9107,7 @@ impl Shell {
             .animate(self.activity.working() || self.compacting(), now)
         {
             self.phase = (self.phase + 1) % PHASES;
+            self.animation_turned = true;
         }
         let output = self.tally.output();
         let colours = super::activity::Colours {
@@ -9693,6 +9747,65 @@ impl Shell {
             }
             self.amended(Some(delta));
         }
+    }
+
+    /// A paste whose end marker shared its delivery with more input
+    /// (`Settlement.reject`, `input_paste_runtime.zig:179-193`): nothing of it
+    /// is applied anywhere, and the sentence is fx's.
+    ///
+    /// The input behind the marker never reached here. The decoder counted it
+    /// and read none of it as keys ([`super::input::Decoder::end_delivery`]),
+    /// so a copied end marker followed by a newline is not a prompt, and a
+    /// copied `1` behind one is not an answer.
+    ///
+    /// **Settled before the focus, for every surface at once**, as fx settles
+    /// a paste whatever owns it (`settleTerminalPasteDeliveryEpochWithLimits`,
+    /// `app_input_runtime.zig:813-836`): the composer, an amendment and a
+    /// question's answer each drop what they had gathered of it, and a
+    /// question that was taking no text -- a choice marked, an approval with
+    /// no draft open, fx's `decision_prompt` -- says the same sentence
+    /// (`app_input_runtime.zig:10128-10183`). Said on the plane the user can
+    /// see: the review plane's own status row while it is up, as every
+    /// refusal at a question is ([`Self::notice_at_the_question`]).
+    ///
+    /// **A capture that had already outgrown its budget says that instead**:
+    /// fx settles an overflowed capture as finished whatever followed it
+    /// (`paste_framing.zig:165`, its test `:448-464`), and finishing it is the
+    /// input-limit refusal (`input_paste_runtime.zig:199-224`). Nothing is
+    /// applied either way; what differs is which sentence is true.
+    fn paste_refused(&mut self) {
+        let composer = self
+            .paste
+            .overflowed(self.editor.text().len(), self.editor.retained());
+        self.paste.discard();
+        let draft = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.refuse_paste(),
+            (_, Some(screen)) => screen.refuse_paste(),
+            (None, None) => false,
+        };
+        if let Some(ask) = self.ask.as_mut() {
+            ask.refuse_paste();
+        }
+        if draft {
+            self.notice_at_the_question();
+            self.render.request(Reason::Modal);
+            return;
+        }
+        if composer {
+            self.over_budget();
+            return;
+        }
+        match self.alternate.as_mut() {
+            Some(screen) => screen.set_status(PASTE_SUFFIX.to_string()),
+            None => self.announce(notice::Notice::error("input", PASTE_SUFFIX)),
+        }
+        // The surface the paste was for is the one to repaint
+        // (`input_paste_runtime.zig:181-185`).
+        self.render.request(if self.modal() {
+            Reason::Modal
+        } else {
+            Reason::Footer
+        });
     }
 
     /// The end of a paste: what the composer is given for it.
@@ -11623,6 +11736,17 @@ impl CommandHandlers for Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Upstream's `commandHandleAlias` (`app_commands.zig:2043-2050`):
+    /// `* aliases: Aliases are not yet configurable.`, said the way
+    /// `/version` is (`writeDomainNotice(…, true)` for both), whatever came
+    /// after the name -- upstream's handler does not read it.
+    fn alias(&mut self, _argument: &str) {
+        self.announce(notice::Notice::neutral(
+            interactive::ALIAS_TOPIC,
+            interactive::ALIASES_NOT_CONFIGURABLE,
+        ));
+    }
+
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
     /// conversation's last reply onto the clipboard, raw.
     ///
@@ -11978,14 +12102,27 @@ impl Shell {
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Never asked, or failed -- in which case this is the retry
-            // upstream's sentence asks for. Asked as a control message, so the
-            // read starts at once, a turn running or not, as upstream's
-            // `ensureModelCache` starts one on a thread of its own
+            // Failed, and within a second of the start of the read that did:
+            // upstream's cache starts no load then, and the menu opens over
+            // the failure it holds -- `Could not reach AI Gateway; retry
+            // /model.` at once, and nothing asked (`beginLoad`,
+            // `model_cache_runtime.zig:441-442`; `openMenu` ->
+            // `refreshMenuLocked`, `:529-539`, `:792-806`).
+            CatalogKnown::Unread(retry, attempted)
+                if !may_read_again(attempted, Instant::now()) =>
+            {
+                let mut menu = ModelMenu::loading(query);
+                menu.failed(retry);
+                menu
+            }
+            // Never asked, or failed longer ago than that -- in which case this
+            // is the retry upstream's sentence asks for. Asked as a control
+            // message, so the read starts at once, a turn running or not, as
+            // upstream's `ensureModelCache` starts one on a thread of its own
             // (`openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`); the
             // menu is refreshed when the answer lands ([`UiEvent::CatalogLoaded`],
             // `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
-            CatalogKnown::Unasked | CatalogKnown::Unread(_) => {
+            CatalogKnown::Unasked | CatalogKnown::Unread(..) => {
                 self.work.control(TurnControl::Catalog);
                 self.catalog_known = CatalogKnown::Asked;
                 ModelMenu::loading(query)
@@ -12000,14 +12137,64 @@ impl Shell {
     /// nothing has yet: a control message, as [`Self::open_models`]'s is, so
     /// the column says `loading models...` only until the read lands, a turn
     /// running or not. A catalog that could not be read is not asked again
-    /// from here: the column says `unable to load models`, and `/model` is the
-    /// gesture that retries.
+    /// from an edit: the column says `unable to load models`, and the frame
+    /// that paints it asks again once the read that failed is a second old
+    /// ([`Self::settle_column`]).
     fn want_catalog(&mut self) {
         if self.catalog_known != CatalogKnown::Unasked {
             return;
         }
         self.work.control(TurnControl::Catalog);
         self.catalog_known = CatalogKnown::Asked;
+    }
+
+    /// The inline column's own redraw asking for the catalog again after a
+    /// read that failed, as upstream's does: every frame that draws the column
+    /// on its models stage lists them through `modelPickerCompletions` ->
+    /// `modelCompletions` -> `ensureModelCache` (`app_render_runtime.zig:561-563`,
+    /// in `footerContext`; `input_completion_runtime.zig:1029-1030`;
+    /// `main.zig:2370-2373`), which starts a load again once the one that
+    /// failed began a second ago (`beginLoad`, `model_cache_runtime.zig:441-442`),
+    /// and the same frame says `loading models...` (`isModelCacheLoading`,
+    /// `app_render_runtime.zig:745-746`). So here: called as a frame is about
+    /// to be committed (`super::event_loop`'s `commit_counted`), and acting
+    /// only when one is owed -- the column in the band's slot, on its models
+    /// stage, over a failure past its floor ([`may_read_again`]).
+    ///
+    /// **No clock of its own.** What paints the column paints it again: an
+    /// edit, the catalog's answer, a resize, and while a turn or a compaction
+    /// works the activity row's 50 ms tick
+    /// ([`super::render_request::ANIMATION_TICK`]) -- upstream's are its 50 ms
+    /// animation frames while a stream runs (`advanceVisibleAnimation`,
+    /// `app_worker_runtime.zig:840-875`; `animation_interval_ms`,
+    /// `ui/render_request.zig:68`). That tick counts whether or not this band
+    /// paints it ([`Self::animation_turned`]): upstream draws every one, and
+    /// a band that waited for the row to change would ask up to half a second
+    /// late. With none of those an idle tick owes no frame, paints nothing and
+    /// asks nothing, here and upstream (`flushRequestedFrame` begins no
+    /// attempt without a request, `app_render_runtime.zig:928-929`): the
+    /// column says `unable to load models` until the next keystroke.
+    pub(crate) fn settle_column(&mut self, now: Instant) {
+        let ticked = std::mem::take(&mut self.animation_turned);
+        if !(self.render.owed() || ticked) || !matches!(self.slot(), Some(Slot::Column)) {
+            return;
+        }
+        let Some(query) = self.column.active(self.editor.text()) else {
+            return;
+        };
+        if query.stage != model_column::Stage::Model {
+            return;
+        }
+        let CatalogKnown::Unread(_, attempted) = self.catalog_known else {
+            return;
+        };
+        if !may_read_again(attempted, now) {
+            return;
+        }
+        self.work.control(TurnControl::Catalog);
+        self.catalog_known = CatalogKnown::Asked;
+        // The column says `loading models...` now, in this frame.
+        self.render.request(Reason::Modal);
     }
 
     /// Asks for `query`, typed after `/model`, with the router form's meaning
@@ -12029,7 +12216,7 @@ impl Shell {
     fn request_model(&mut self, query: &str) {
         let resolved = match self.catalog_known {
             CatalogKnown::Loaded => Some(resolve_in_order(&self.catalog, query)),
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(_) => None,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(..) => None,
         };
         let announced = resolved.is_some();
         self.request_change(ModelChange {
@@ -12231,7 +12418,7 @@ impl Shell {
     fn catalog_row(&self, model: &str) -> Option<&CatalogEntry> {
         match self.catalog_known {
             CatalogKnown::Loaded => self.catalog.iter().find(|entry| entry.matches(model)),
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(_) => None,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(..) => None,
         }
     }
 
@@ -13672,6 +13859,21 @@ mod tests {
         depth: super::super::theme::Depth::Ansi256,
     };
 
+    /// When a read that failed began, long enough ago that a `/model` asks
+    /// again ([`crate::provider::model::RETRY_FLOOR`]).
+    fn failed_long_ago() -> Instant {
+        Instant::now()
+            .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+            .expect("a clock older than two seconds")
+    }
+
+    /// When a read that failed began, inside the floor however long the test
+    /// thread is held up between the failure and the `/model`: later than
+    /// now, which the floor counts as no time at all.
+    fn failed_just_now() -> Instant {
+        Instant::now() + std::time::Duration::from_secs(3600)
+    }
+
     fn shell(rows: u16, cols: u16) -> Fixture {
         // Unlocked, because the fixture every case here starts from is a
         // session whose palette the **terminal** decided -- which is also the
@@ -14275,6 +14477,118 @@ mod tests {
         assert!(
             shell.controlled().is_none(),
             "a pasted 0x03 asked the runtime to stop"
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_in_one_delivery_is_refused_whole() {
+        // `app_input_runtime.zig:9862-9873` and `:9841-9860`: an Enter in the
+        // read that carried the end marker is not a key, the paste is not
+        // applied, and fx says so once under `input`. The Enter after it, in a
+        // delivery of its own, sends the draft as it was.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+
+        shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        assert_eq!(
+            shell.editor.text(),
+            "prior",
+            "the refused paste was applied"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the Enter behind the end marker sent a prompt"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX)),
+            "the refusal was not said in fx's words"
+        );
+
+        // A second end marker and a slash command behind an empty paste: all
+        // of it is the paste's suffix, none of it a command.
+        shell.route_bytes(b"\x1b[200~\x1b[201~/version\r\x1b[201~");
+        assert_eq!(shell.editor.text(), "prior");
+        assert!(shell.sent.try_recv().is_err(), "a pasted /version ran");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        shell.route_bytes(&[0x0d]);
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "prior"),
+            "the composer was not left as it was"
+        );
+    }
+
+    #[test]
+    fn a_delivery_is_every_read_until_the_terminal_is_drained() {
+        // One write can be two reads -- a read takes at most `BURST_BYTES` --
+        // so the Enter at the head of the second read is still behind the end
+        // marker at the tail of the first. Only the readiness check that finds
+        // nothing ends the delivery (`event_loop.zig:44-72`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"prior");
+        let _ = shell.document();
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.route_read(b"\r");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "prior");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the second read's Enter sent"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        // The same bytes in two deliveries are a paste and then a key.
+        shell.route_read(b"\x1b[200~new\x1b[201~");
+        shell.end_delivery();
+        assert_eq!(shell.editor.text(), "priornew", "a paste that stands");
+        shell.route_read(b"\r");
+        shell.end_delivery();
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "priornew"),
+            "the Enter of its own did not submit"
+        );
+        assert!(shell
+            .document()
+            .iter()
+            .all(|row| !row.contains(PASTE_SUFFIX)));
+    }
+
+    #[test]
+    fn a_paste_past_the_budget_with_input_behind_it_says_the_limit_and_sends_nothing() {
+        // fx's overflowed capture settles as finished whatever followed it
+        // (`paste_framing.zig:165`, `:448-464`): the limit's sentence, not the
+        // suffix's -- and still nothing applied and nothing sent.
+        let mut shell = shell(24, 80);
+        let typed = "x".repeat(500_000);
+        assert!(
+            shell.editor.insert(&typed).is_some(),
+            "the draft could not be set up"
+        );
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend(std::iter::repeat_n(b'y', 8_000_000));
+        bytes.extend(b"\x1b[201~\r");
+
+        shell.route_bytes(&bytes);
+        assert_eq!(
+            shell.editor.text().len(),
+            typed.len(),
+            "the paste changed the draft"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the Enter behind the marker sent"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", INPUT_LIMIT))
         );
     }
 
@@ -17811,6 +18125,68 @@ mod tests {
         assert!(
             fixture.editor.is_empty(),
             "the paste or the keys reached the composer"
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_reaches_no_answer_and_answers_nothing() {
+        // fx's question owners (`app_input_runtime.zig:10160-10182`): a
+        // freeform answer keeps what it had, the Enter behind the marker does
+        // not take the choice, and the sentence is the composer's.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"keep");
+        let _ = fixture.document();
+
+        fixture.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        assert_eq!(
+            fixture.marked(),
+            "    3) keep ",
+            "the refused paste reached the answer"
+        );
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "the Enter behind the end marker answered"
+        );
+        assert_eq!(
+            fixture.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        // An Enter of its own takes the answer as it was.
+        fixture.route_bytes(&[0x0d]);
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer {
+                id: QuestionId(1),
+                answers: vec!["keep".to_string(), "Yes".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_says_so_at_a_choice_too() {
+        // A question taking no text -- a choice marked, fx's `decision_prompt`
+        // (`paste_rt.beginPaste`, `input_paste_runtime.zig:106-107`) -- drops a
+        // paste whole either way; one with input behind its marker says so,
+        // and a `1` behind the marker is not the first choice.
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        let _ = fixture.document();
+
+        fixture.route_bytes(b"\x1b[200~\x1b[201~1\r");
+        assert_eq!(fixture.controlled(), None, "a `1` behind the marker chose");
+        assert!(
+            fixture.marked().contains("1) Thorough"),
+            "{}",
+            fixture.marked()
+        );
+        assert_eq!(
+            fixture.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
         );
     }
 
@@ -24162,6 +24538,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
+            attempted: failed_long_ago(),
         });
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows, ["Models 0  [All]", "", "Unable to load models."]);
@@ -24202,6 +24579,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
         });
         let _started = turn_running(&mut shell, b"ask something\r");
         shell.route_bytes(b"/model\r");
@@ -24360,14 +24738,81 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
-        // The column does not ask again by itself; `/model` does, and the
-        // menu says upstream's retryable sentence while it waits for nothing.
+        // An edit does not ask again; the frame that draws the column does,
+        // once the failed read is a second old
+        // (`the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed`).
         shell.route_bytes(b"y");
+        assert!(shell.sent.try_recv().is_err(), "the edit retried");
+    }
+
+    #[test]
+    fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_a_second_has_passed(
+    ) {
+        // Upstream's column lists its models through `ensureModelCache` in
+        // every frame that draws it (`footerContext`,
+        // `app_render_runtime.zig:561-563`), which loads again a second after
+        // the failed load began (`beginLoad`, `model_cache_runtime.zig:441-442`)
+        // and says `loading models...` in that same frame (`:745-746`); a tick
+        // that owes no frame draws nothing and asks nothing (`:928-929`).
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_just_now(),
+        });
+        shell.route_bytes(b"/model ");
+        assert_eq!(column(&shell)[0], "         unable to load models");
+        // A frame inside the second: asks nothing.
+        assert!(shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert!(shell.controlled().is_none(), "asked inside the floor");
+        let _ = shell.render.begin();
+        // Past the second, an idle tick -- no frame owed -- asks nothing:
+        // there is no clock of the column's own.
+        shell.shell.catalog_known =
+            CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
+        assert!(!shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert!(shell.controlled().is_none(), "an idle tick asked");
+        // The activity row's tick turning over while a turn works -- a frame
+        // upstream draws every 50 ms, though no row of this band changed and
+        // none is owed -- asks, once, and asks for the frame that says so.
+        shell.shell.animation_turned = true;
+        assert!(!shell.render.owed());
+        shell.settle_column(Instant::now());
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
         assert!(
-            shell.sent.try_recv().is_err(),
-            "the column retried on its own"
+            shell.render.owed(),
+            "the frame that says so was not asked for"
+        );
+        assert_eq!(column(&shell)[0], "         loading models...");
+        shell.settle_column(Instant::now());
+        assert!(shell.controlled().is_none(), "asked twice for one read");
+        // The read lands, and the column lists it.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("one", None, &[])],
+        });
+        assert_eq!(column(&shell)[0], "         vendor/one");
+        // A column the band is not drawing -- a question has the slot -- asks
+        // nothing, frame or not.
+        let mut asked = self::shell(40, 120);
+        asked.route_bytes(b"/model ");
+        let _ = asked.controlled();
+        asked.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
+        });
+        asked.apply(UiEvent::Question(a_batch()));
+        assert!(asked.render.owed());
+        asked.settle_column(Instant::now());
+        assert!(
+            asked.controlled().is_none(),
+            "a column under a question asked"
         );
     }
 
@@ -25005,6 +25450,7 @@ mod tests {
         other.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Llmux,
             retry: None,
+            attempted: failed_long_ago(),
         });
         assert!(other.document().is_empty(), "{:?}", other.document());
         // The held command's ask for the old provider's catalog, and no
@@ -25208,6 +25654,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
         });
         assert_eq!(
             visible_text(&menu(&shell)[2]),
@@ -25221,6 +25668,47 @@ mod tests {
             Some(TurnControl::Catalog),
             "the retry was not asked for"
         );
+    }
+
+    #[test]
+    fn a_model_inside_the_second_after_a_failed_read_began_opens_over_the_failure_and_asks_nothing()
+    {
+        // `fx-model-floor-*`: upstream's cache starts no load within a second
+        // of the start of the one that failed, and `/model` then opens the
+        // menu over the failure it holds -- the retryable sentence at once,
+        // never `Loading models…`, and nothing asked (`beginLoad`,
+        // `model_cache_runtime.zig:441-442`; `openMenu` -> `refreshMenuLocked`,
+        // `:529-539`, `:792-806`).
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_just_now(),
+        });
+        shell.route_bytes(b"/model\r");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "Models 0  [All]",
+                "",
+                "Could not reach AI Gateway; retry /model."
+            ]
+        );
+        assert!(
+            shell.controlled().is_none(),
+            "asked inside the second the failure holds"
+        );
+        // And the band still knows the failure for what it is: the next
+        // `/model` after the second asks.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.shell.catalog_known =
+            CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
+        shell.route_bytes(b"/model\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
     }
 
     #[test]
@@ -30944,6 +31432,123 @@ mod tests {
             "a question that landed on the review plane could not be amended"
         );
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_reaches_no_draft_and_answers_nothing() {
+        // fx's amendment owner (`app_input_runtime.zig:10145-10158`): the draft
+        // keeps what it had, the Enter behind the marker is not the answer,
+        // and the sentence is the composer's, in the document above the panel.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        assert!(band(&shell).contains("keep"), "{:?}", band(&shell));
+
+        shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        assert!(
+            !band(&shell).contains("keepnew"),
+            "the refused paste reached the draft: {:?}",
+            band(&shell)
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the end marker answered"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+
+        // An Enter of its own answers, with the draft as it was.
+        delivered(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("keep".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_paste_with_input_behind_its_end_marker_says_so_at_a_panel_with_no_draft() {
+        // fx's `decision_prompt` owner (`app_input_runtime.zig:10131-10143`): an
+        // approval with no amendment open takes no text, and the `1` and the
+        // Enter behind the marker are neither an answer nor a key.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+
+        shell.route_bytes(b"\x1b[200~\x1b[201~1\r");
+        assert_eq!(shell.controlled(), None, "a `1` behind the marker answered");
+        assert!(shell.panel.is_some(), "the question went away");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("input", PASTE_SUFFIX))
+        );
+    }
+
+    #[test]
+    fn an_oversized_paste_at_a_draft_with_input_behind_it_says_the_limit() {
+        // fx settles a capture that had already overflowed as finished whatever
+        // followed it (`paste_framing.zig:165`, its test `:448-464`), so the
+        // sentence is the limit's -- and nothing is applied or answered either
+        // way.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.route_bytes(b"\tkeep");
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend(std::iter::repeat_n(
+            b'x',
+            super::super::approval_amendment::MAX_FEEDBACK_BYTES + 1,
+        ));
+        bytes.extend(b"\x1b[201~\r");
+
+        shell.route_bytes(&bytes);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "input",
+                super::super::approval_amendment::INPUT_LIMIT
+            ))
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the marker answered"
+        );
+        assert!(
+            band(&shell).contains("keep") && !band(&shell).contains("xxxxxxxxxx"),
+            "{:?}",
+            band(&shell)
+        );
+    }
+
+    #[test]
+    fn a_refused_paste_on_the_review_plane_is_said_on_the_plane() {
+        // The plane owns every row while it is up, so the sentence is on its
+        // status row rather than behind it -- the rule every refusal at a
+        // question follows here.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
+        shell.route_bytes(b"\tkeep");
+
+        shell.route_bytes(b"\x1b[200~new\x1b[201~\r");
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(painted.contains(PASTE_SUFFIX), "{painted:?}");
+        assert!(!painted.contains("keepnew"), "{painted:?}");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the Enter behind the marker answered"
+        );
+        assert!(shell.document().is_empty(), "said behind the plane");
     }
 
     #[test]

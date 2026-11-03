@@ -124,6 +124,14 @@ impl RenderRequest {
         self.pending |= reason.bit();
     }
 
+    /// Whether a frame is owed: the next commit paints one. Asked by what
+    /// upstream does while it builds a frame ([`super::shell::Shell::settle_column`]),
+    /// and nothing else -- a tick with no frame owed paints nothing and asks
+    /// nothing.
+    pub(crate) fn owed(&self) -> bool {
+        self.pending != 0
+    }
+
     /// Takes every pending reason, or `None` when a tick has nothing to draw.
     pub(crate) fn begin(&mut self) -> Option<Attempt> {
         if self.pending == 0 {

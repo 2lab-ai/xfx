@@ -234,10 +234,12 @@ fn session(
     failures: &mut FrameFailures,
 ) -> io::Result<ExitCode> {
     // The probe's leftovers are the session's first bytes, and they go into the
-    // same decoder every later read does -- `Shell::route_bytes` is that
+    // same decoder every later read does -- `Shell::route_read` is that
     // decoder's only door -- so a sequence the user typed across the report's
-    // own read is decoded rather than scanned.
-    shell.route_bytes(launch.deferred);
+    // own read is decoded rather than scanned. Their delivery is not over
+    // here: the first burst's readiness check is what knows whether more of it
+    // is waiting, and it says so (`read_burst`).
+    shell.route_read(launch.deferred);
     if shell.leaving() {
         // A Ctrl-D that shared a read with the cursor report ends the session
         // before a band is drawn, which is why the exit has a row to clear from
@@ -544,6 +546,17 @@ struct Reconciled;
 /// `_reconciled` is consumed rather than read: a burst that ran on a terminal
 /// the session had not taken back since the last wait would read whatever the
 /// line discipline assembled while the user's shell had it.
+///
+/// **The readiness check that finds nothing is the end of a delivery**, and
+/// it is the only place that says so ([`Shell::end_delivery`]): upstream
+/// settles a paste exactly there, once a burst has drained the input
+/// (`event_loop.zig:44-72`, `:118`) -- on an idle turn too, whose first check
+/// finds nothing. Nowhere else: not after the 32nd read with input still
+/// waiting, which upstream carries into the next turn unsettled (`:109-112`);
+/// not on a signal or a read that was interrupted, whose delivery the next
+/// turn's check ends; and not at the end of input, which ends the session.
+/// So a check one past the last read is part of the burst: a burst that
+/// drained on its 32nd read is settled in the turn that read it.
 fn read_burst(
     shell: &mut Shell,
     stdin: &io::Stdin,
@@ -551,16 +564,24 @@ fn read_burst(
     launch: &Launch<'_>,
     _reconciled: Reconciled,
 ) -> io::Result<()> {
-    for _ in 0..READ_BURSTS {
+    for reads in 0..=READ_BURSTS {
         // Standard input blocks, so "there was something a moment ago" is not a
         // licence to read again.
         match signals::wait_for_input(&[stdin.as_fd()], Some(Duration::ZERO), launch.held) {
             Ok(true) => {}
-            Ok(false) => return Ok(()),
+            Ok(false) => {
+                shell.end_delivery();
+                return Ok(());
+            }
             // A signal landed inside this wait. The turn goes on to its second
             // reconcile, which is where that is answered.
             Err(err) if err.kind() == io::ErrorKind::Interrupted => return Ok(()),
             Err(err) => return Err(err),
+        }
+        // Still readable after the last read this turn may take: the paint is
+        // owed, and the delivery goes on into the next turn.
+        if reads == READ_BURSTS {
+            return Ok(());
         }
         match rustix::io::read(stdin, &mut *buffer) {
             // No writer left on the terminal. There is nothing more to read,
@@ -569,7 +590,7 @@ fn read_burst(
                 shell.leave();
                 return Ok(());
             }
-            Ok(read) => shell.route_bytes(&buffer[..read]),
+            Ok(read) => shell.route_read(&buffer[..read]),
             Err(rustix::io::Errno::INTR | rustix::io::Errno::WOULDBLOCK) => return Ok(()),
             Err(err) => return Err(err.into()),
         }
@@ -995,6 +1016,10 @@ fn commit_counted(
     now: Instant,
     reconciled: Reconciled,
 ) -> io::Result<()> {
+    // The frame about to be painted is the `/model` column's redraw, which
+    // asks for a catalog that failed again, as upstream's render path does
+    // ([`Shell::settle_column`]); a tick that owes no frame asks nothing.
+    shell.settle_column(now);
     let mut counted = Counted::new(out);
     let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled)
         .and_then(|()| commit_bells(shell, &mut counted, failures, now));
@@ -6019,6 +6044,35 @@ mod tests {
             self.vectors.push(bytes.to_vec());
             Ok(())
         }
+    }
+
+    #[test]
+    fn the_model_columns_frame_asks_for_a_failed_catalog_again_and_an_idle_tick_does_not() {
+        // The column's own redraw is what asks again, as upstream's render
+        // path is (`footerContext` -> `ensureModelCache`,
+        // `app_render_runtime.zig:561-563`): through the counted commit every
+        // frame goes out by, and only on a tick that owes one.
+        let mut shell = shell_of(40, 120);
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        shell.apply(UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
+            retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+            attempted: Instant::now()
+                .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+                .expect("a clock older than two seconds"),
+        });
+        shell.route_bytes(b"/model ");
+        assert!(shell._control.try_recv().is_err(), "the edit asked");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert_eq!(
+            shell._control.try_recv().ok(),
+            Some(crate::tui::bridge::TurnControl::Catalog)
+        );
+        // The tick after it owes nothing, paints nothing and asks nothing.
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the tick");
+        assert!(shell._control.try_recv().is_err(), "an idle tick asked");
     }
 
     #[test]
