@@ -112,6 +112,18 @@ mod tests {
     use unicode_segmentation::UnicodeSegmentation;
 
     #[test]
+    fn the_table_holds_as_many_marks_as_unicode_17_has() {
+        // Counted from UnicodeData.txt 17.0 (the hash in the module's header)
+        // apart from the generator: 2,059 `Mn` and 13 `Me` code points.
+        let marks: u32 = COMBINING_MARKS
+            .iter()
+            .map(|&(first, last)| last - first + 1)
+            .sum();
+        assert_eq!(marks, 2059 + 13);
+        assert_eq!(COMBINING_MARKS.len(), 362);
+    }
+
+    #[test]
     fn the_table_is_ordered_and_holds_marks_only() {
         assert!(COMBINING_MARKS
             .windows(2)
