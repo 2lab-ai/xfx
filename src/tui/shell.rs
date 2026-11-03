@@ -130,7 +130,7 @@ use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
-use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
+use crate::provider::model::{may_read_again, resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
@@ -1836,8 +1836,11 @@ enum CatalogKnown {
     Asked,
     /// The runtime's answer is [`Shell::catalog`].
     Loaded,
-    /// The runtime could not read it, and whether asking again could help.
-    Unread(Option<CatalogRetry>),
+    /// The runtime could not read it, whether asking again could help, and
+    /// when the read that failed began: a `/model` within a second of that
+    /// opens the menu over the failure and asks nothing
+    /// (`crate::provider::model::RETRY_FLOOR`).
+    Unread(Option<CatalogRetry>, Instant),
 }
 
 /// The catalog as `/model`'s column is drawn from it.
@@ -1847,7 +1850,7 @@ enum CatalogKnown {
 fn known(state: CatalogKnown, catalog: &[CatalogEntry]) -> Known<'_> {
     match state {
         CatalogKnown::Loaded => Known::Rows(catalog),
-        CatalogKnown::Unread(_) => Known::Failed,
+        CatalogKnown::Unread(..) => Known::Failed,
         CatalogKnown::Unasked | CatalogKnown::Asked => Known::Loading,
     }
 }
@@ -2590,7 +2593,7 @@ impl Shell {
                 .is_some_and(|entry| {
                     self.settings.effort.supported_by(entry) && !entry.efforts.is_empty()
                 }),
-            CatalogKnown::Unread(_) => false,
+            CatalogKnown::Unread(..) => false,
             CatalogKnown::Unasked | CatalogKnown::Asked => true,
         };
         let effort =
@@ -3540,8 +3543,10 @@ impl Shell {
             // Nothing to list, and the menu and the column say so -- the menu
             // in upstream's `retry /model.` words when asking again could
             // help, which the next `/model` then does.
-            UiEvent::CatalogUnread { retry, .. } => {
-                self.catalog_known = CatalogKnown::Unread(retry);
+            UiEvent::CatalogUnread {
+                retry, attempted, ..
+            } => {
+                self.catalog_known = CatalogKnown::Unread(retry, attempted);
                 // No row says the model offers a mode, as upstream's generic
                 // capabilities say none (`capabilitiesForModel`).
                 self.settle_speed();
@@ -10890,14 +10895,27 @@ impl Shell {
             // A load is on its way already: the menu waits for it rather than
             // asking twice.
             CatalogKnown::Asked => ModelMenu::loading(query),
-            // Never asked, or failed -- in which case this is the retry
-            // upstream's sentence asks for. Asked as a control message, so the
-            // read starts at once, a turn running or not, as upstream's
-            // `ensureModelCache` starts one on a thread of its own
+            // Failed, and within a second of the start of the read that did:
+            // upstream's cache starts no load then, and the menu opens over
+            // the failure it holds -- `Could not reach AI Gateway; retry
+            // /model.` at once, and nothing asked (`beginLoad`,
+            // `model_cache_runtime.zig:441-442`; `openMenu` ->
+            // `refreshMenuLocked`, `:529-539`, `:792-806`).
+            CatalogKnown::Unread(retry, attempted)
+                if !may_read_again(attempted, Instant::now()) =>
+            {
+                let mut menu = ModelMenu::loading(query);
+                menu.failed(retry);
+                menu
+            }
+            // Never asked, or failed longer ago than that -- in which case this
+            // is the retry upstream's sentence asks for. Asked as a control
+            // message, so the read starts at once, a turn running or not, as
+            // upstream's `ensureModelCache` starts one on a thread of its own
             // (`openModelBrowseCatalog`, `app_input_runtime.zig:2346-2349`); the
             // menu is refreshed when the answer lands ([`UiEvent::CatalogLoaded`],
             // `pollLoadTransition`, `model_cache_runtime.zig:549-557`).
-            CatalogKnown::Unasked | CatalogKnown::Unread(_) => {
+            CatalogKnown::Unasked | CatalogKnown::Unread(..) => {
                 self.work.control(TurnControl::Catalog);
                 self.catalog_known = CatalogKnown::Asked;
                 ModelMenu::loading(query)
@@ -10941,7 +10959,7 @@ impl Shell {
     fn request_model(&mut self, query: &str) {
         let resolved = match self.catalog_known {
             CatalogKnown::Loaded => Some(resolve_in_order(&self.catalog, query)),
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(_) => None,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(..) => None,
         };
         let announced = resolved.is_some();
         self.request_change(ModelChange {
@@ -11143,7 +11161,7 @@ impl Shell {
     fn catalog_row(&self, model: &str) -> Option<&CatalogEntry> {
         match self.catalog_known {
             CatalogKnown::Loaded => self.catalog.iter().find(|entry| entry.matches(model)),
-            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(_) => None,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Unread(..) => None,
         }
     }
 
@@ -12568,6 +12586,21 @@ mod tests {
         mode: super::super::theme::Mode::Dark,
         depth: super::super::theme::Depth::Ansi256,
     };
+
+    /// When a read that failed began, long enough ago that a `/model` asks
+    /// again ([`crate::provider::model::RETRY_FLOOR`]).
+    fn failed_long_ago() -> Instant {
+        Instant::now()
+            .checked_sub(crate::provider::model::RETRY_FLOOR * 2)
+            .expect("a clock older than two seconds")
+    }
+
+    /// When a read that failed began, inside the floor however long the test
+    /// thread is held up between the failure and the `/model`: later than
+    /// now, which the floor counts as no time at all.
+    fn failed_just_now() -> Instant {
+        Instant::now() + std::time::Duration::from_secs(3600)
+    }
 
     fn shell(rows: u16, cols: u16) -> Fixture {
         // Unlocked, because the fixture every case here starts from is a
@@ -22996,6 +23029,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: None,
+            attempted: failed_long_ago(),
         });
         let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(rows, ["Models 0  [All]", "", "Unable to load models."]);
@@ -23036,6 +23070,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
         });
         let _started = turn_running(&mut shell, b"ask something\r");
         shell.route_bytes(b"/model\r");
@@ -23194,6 +23229,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
         });
         assert_eq!(column(&shell)[0], "         unable to load models");
         // The column does not ask again by itself; `/model` does, and the
@@ -23839,6 +23875,7 @@ mod tests {
         other.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Llmux,
             retry: None,
+            attempted: failed_long_ago(),
         });
         assert!(other.document().is_empty(), "{:?}", other.document());
         // The held command's ask for the old provider's catalog, and no
@@ -24042,6 +24079,7 @@ mod tests {
         shell.apply(UiEvent::CatalogUnread {
             provider: ProviderId::Gateway,
             retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_long_ago(),
         });
         assert_eq!(
             visible_text(&menu(&shell)[2]),
@@ -24055,6 +24093,47 @@ mod tests {
             Some(TurnControl::Catalog),
             "the retry was not asked for"
         );
+    }
+
+    #[test]
+    fn a_model_inside_the_second_after_a_failed_read_began_opens_over_the_failure_and_asks_nothing()
+    {
+        // `fx-model-floor-*`: upstream's cache starts no load within a second
+        // of the start of the one that failed, and `/model` then opens the
+        // menu over the failure it holds -- the retryable sentence at once,
+        // never `Loading models…`, and nothing asked (`beginLoad`,
+        // `model_cache_runtime.zig:441-442`; `openMenu` -> `refreshMenuLocked`,
+        // `:529-539`, `:792-806`).
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+            retry: Some(CatalogRetry::Unreachable),
+            attempted: failed_just_now(),
+        });
+        shell.route_bytes(b"/model\r");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "Models 0  [All]",
+                "",
+                "Could not reach AI Gateway; retry /model."
+            ]
+        );
+        assert!(
+            shell.controlled().is_none(),
+            "asked inside the second the failure holds"
+        );
+        // And the band still knows the failure for what it is: the next
+        // `/model` after the second asks.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.shell.catalog_known =
+            CatalogKnown::Unread(Some(CatalogRetry::Unreachable), failed_long_ago());
+        shell.route_bytes(b"/model\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Catalog));
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[2], "Loading models…", "{rows:?}");
     }
 
     #[test]

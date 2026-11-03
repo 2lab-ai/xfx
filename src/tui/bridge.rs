@@ -268,10 +268,13 @@ pub(crate) enum UiEvent {
     /// change, its `retry /model.` sentence, which `retry` names
     /// (`crate::provider::model::CatalogRetry`). The selector remembers the
     /// failure, so a `/model <id>` still applies the id as typed, and the next
-    /// `/model` asks again.
+    /// `/model` asks again -- once a second has passed since `attempted`, when
+    /// the read that failed began, as upstream's model cache asks again
+    /// (`crate::provider::model::RETRY_FLOOR`).
     CatalogUnread {
         provider: crate::provider::ProviderId,
         retry: Option<crate::provider::model::CatalogRetry>,
+        attempted: std::time::Instant,
     },
     /// What a **completed** turn's answering request read: the context
     /// meter's numerator.
@@ -588,8 +591,16 @@ impl UiEvent {
                     })
                     .collect(),
             },
-            // A provider tag and a category. Nothing here is text.
-            Self::CatalogUnread { provider, retry } => Self::CatalogUnread { provider, retry },
+            // A provider tag, a category and an instant. Nothing here is text.
+            Self::CatalogUnread {
+                provider,
+                retry,
+                attempted,
+            } => Self::CatalogUnread {
+                provider,
+                retry,
+                attempted,
+            },
             // Numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input } => Self::Usage { input },
             Self::Output(progress) => Self::Output(progress),
@@ -2710,6 +2721,7 @@ mod tests {
         assert!(!UiEvent::CatalogUnread {
             provider: crate::provider::ProviderId::Gateway,
             retry: None,
+            attempted: std::time::Instant::now(),
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {
