@@ -27,7 +27,10 @@
 //! `SHELL`, `TERM`, `USER` -- and the server's own `env`, never xfx's
 //! credential or anything else it inherited
 //! ([`transport::server_environment`]), in a process group of its own and
-//! stopped by that group. An HTTP server is reached only at an `https` URL or
+//! stopped by that group. A server that needs more of the person's
+//! environment -- a proxy, `TMPDIR`, the locale (`LANG`, `LC_*`), on Linux
+//! `DISPLAY`, `XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS`, `NODE_*`, a
+//! token -- names it in its `env`. An HTTP server is reached only at an `https` URL or
 //! a loopback `http` one with a port ([`config::validate_endpoint`]). Neither is
 //! confined: a server does what its program does. A workspace's servers start
 //! only once the person approves them, and every call of a server's tool is
