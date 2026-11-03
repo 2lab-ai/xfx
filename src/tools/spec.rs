@@ -950,6 +950,9 @@ pub struct ToolContext {
     /// mutation looks for protected links below (`$XDG_CONFIG_HOME`,
     /// `$ZDOTDIR`), as the front end read them.
     link_bases: Vec<crate::permission::LinkBase>,
+    /// What the user's git is told about its configuration, as the front end
+    /// read it (`crate::permission::GitEnvironment::from_process`).
+    git_environment: crate::permission::GitEnvironment,
     /// The session's MCP servers, and what this turn has selected of them.
     /// Absent on a surface that runs no MCP client: the meta-tools are not
     /// advertised there at all ([`super::Registry::advertisement_for`]).
@@ -1008,6 +1011,7 @@ impl ToolContext {
             skills: None,
             home: None,
             link_bases: Vec::new(),
+            git_environment: crate::permission::GitEnvironment::default(),
             mcp: None,
         }
     }
@@ -1084,6 +1088,18 @@ impl ToolContext {
     /// looks for protected links below.
     pub fn link_bases(&self) -> &[crate::permission::LinkBase] {
         &self.link_bases
+    }
+
+    /// The same context, telling the configuration check what the user's git
+    /// reads ([`crate::permission::GitEnvironment::from_process`]).
+    pub fn with_git_environment(mut self, git: crate::permission::GitEnvironment) -> Self {
+        self.git_environment = git;
+        self
+    }
+
+    /// What the user's git is told about its configuration.
+    pub fn git_environment(&self) -> &crate::permission::GitEnvironment {
+        &self.git_environment
     }
 
     /// The same context, with the session's MCP servers.

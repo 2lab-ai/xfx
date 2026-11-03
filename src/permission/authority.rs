@@ -331,9 +331,20 @@ pub enum TargetScope {
 
 /// The component runs auto will not write without the user, wherever they sit:
 /// upstream's thirteen first (`sensitiveAutoWriteTarget`, `vercel-labs/fx@c1db9191
-/// src/core/tooling/tool_admission.zig:679-693`), verbatim and in its order, so
-/// the first match still names the most specific run; then the rest of the
-/// same kind, which upstream's list misses.
+/// src/core/tooling/tool_admission.zig:679-693`), in its order, so the first
+/// match still names the most specific run; then the rest of the same kind,
+/// which upstream's list misses.
+///
+/// Upstream's three `.git` runs -- `.git/hooks`, `.git/config`,
+/// `.git/config.worktree` -- are one here, `.git`, at any depth, a file or a
+/// directory: a run has to be consecutive, so they miss
+/// `.git/modules/<name>/config`, `.git/modules/<name>/hooks/*`,
+/// `.git/worktrees/<name>/config.worktree` and `.git/info/attributes`, and the
+/// `.git` *file* of a submodule's work tree (`gitdir: ...`) names the
+/// directory that submodule's git reads. No write inside `.git` is one auto
+/// has a reason to make. A git directory by another name -- a bare
+/// repository, the target of a `gitdir:` file -- has no component to match,
+/// and is found by what is in it instead ([`super::links`]).
 ///
 /// Each is a file that decides what runs later with the user's authority -- a
 /// login shell's startup file, a launch agent, an SSH trust list, a git hook
@@ -382,9 +393,7 @@ pub enum TargetScope {
 ///   project's cargo configuration is project content, like its `build.rs`,
 ///   and runs only when the user builds -- auto never does.
 pub(super) const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
-    &[".git", "hooks"],
-    &[".git", "config"],
-    &[".git", "config.worktree"],
+    &[".git"],
     &[".ssh", "authorized_keys"],
     &[".ssh", "config"],
     &["Library", "LaunchAgents"],
@@ -892,7 +901,7 @@ pub struct MutationPlan {
     /// whether a link leads here -- the home directory and every root
     /// ([`super::links`]). Set by the executor, which knows them; not part of
     /// the fingerprint, as it is a reading of the same target, for policy.
-    link_bases: Vec<super::LinkBase>,
+    link_check: Option<super::LinkCheck>,
     fingerprint: ContentHash,
 }
 
@@ -933,15 +942,15 @@ impl MutationPlan {
             diff: None,
             rule_targets: None,
             state_binding: None,
-            link_bases: Vec::new(),
+            link_check: None,
             fingerprint,
         }
     }
 
     /// The same plan, checked for protected links below `bases`
     /// ([`Self::sensitive_auto_write_target`]).
-    pub fn with_link_bases(mut self, bases: Vec<super::LinkBase>) -> Self {
-        self.link_bases = bases;
+    pub fn with_link_check(mut self, check: super::LinkCheck) -> Self {
+        self.link_check = Some(check);
         self
     }
 
@@ -1039,7 +1048,7 @@ impl MutationPlan {
 
     /// Why auto does not change this target on its own, as a clause that
     /// finishes "because", or `None` for an ordinary file: the components that
-    /// make it a file deciding what runs later -- `.zshrc`, `.git/hooks` --
+    /// make it a file deciding what runs later -- `.zshrc`, `.git` --
     /// or a protected entry that leads to it through a link, or the entry xfx
     /// could not check for one ([`super::links`]). Judged on the canonical
     /// target, in whichever root it is ([`TargetScope`]).
@@ -1050,10 +1059,8 @@ impl MutationPlan {
         if let Some(sequence) = sensitive_sequence(&self.target) {
             return Some(format!("`{sequence}` decides what runs later"));
         }
-        if self.link_bases.is_empty() {
-            return None;
-        }
-        super::links::link_hold(&self.target, &self.link_bases)
+        let check = self.link_check.as_ref()?;
+        super::links::link_hold(&self.target, check)
     }
 
     pub fn preimage(&self) -> &Preimage {
@@ -1177,13 +1184,21 @@ impl CommandPlan {
             denied => denied,
         };
         // The one attribute source the hardened argv cannot switch off
-        // ([`super::git_attributes`]).
+        // ([`super::git_attributes`]), and the hooks no option does
+        // ([`super::gitconfig::configured_hooks`]): either makes auto ask.
         let effect = match effect {
             CommandEffect::DirectReadOnly { argv }
-                if argv.first().map(String::as_str) == Some("git")
-                    && super::git_attributes::driver_hold(&resolved_cwd).is_some() =>
+                if argv.first().map(String::as_str) == Some("git") =>
             {
-                CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+                if super::git_attributes::driver_hold(&resolved_cwd).is_some() {
+                    CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+                } else if super::gitconfig::configured_hooks(&resolved_cwd, &git_environment())
+                    .unwrap_or(true)
+                {
+                    CommandEffect::Denied(DeniedEffect::ConfiguredHooks)
+                } else {
+                    CommandEffect::DirectReadOnly { argv }
+                }
             }
             other => other,
         };
@@ -1196,14 +1211,12 @@ impl CommandPlan {
             },
         };
 
-        let mut environment = minimal_environment();
-        if let CommandRoute::Direct { argv } = &route {
-            if argv.first().map(String::as_str) == Some("git") {
-                // The system attributes file, which no `-c` switches off.
-                environment.push(("GIT_ATTR_NOSYSTEM".to_string(), "1".to_string()));
-                environment.sort();
+        let environment = match &route {
+            CommandRoute::Direct { argv } if argv.first().map(String::as_str) == Some("git") => {
+                git_environment()
             }
-        }
+            _ => minimal_environment(),
+        };
         let mut hasher = Sha256::new();
         hasher.update(trimmed.as_bytes());
         hasher.update([0u8]);
@@ -1318,6 +1331,12 @@ impl PreparedCommand {
 ///   auto at all ([`super::git_attributes`]).
 /// - `log.showSignature` makes `log` and `show` run `gpg.program` on every
 ///   signed commit.
+/// - `core.hooksPath=/dev/null` leaves no hook file to run: `git diff` and
+///   `git describe --dirty` write the index even with optional locks off, and
+///   a `post-index-change` hook in `.git/hooks` runs on that write (measured
+///   on git 2.54). A hook defined in configuration (`hook.<name>.command`,
+///   git-hook(1)) is not switched off by it; a plan whose git would read one
+///   is not admitted at all (`DeniedEffect::ConfiguredHooks`).
 ///
 /// `-c` outranks every configuration file, include or not, for every key but
 /// one family: `trace2.*` is read from the system and global files only and
@@ -1343,6 +1362,8 @@ const GIT_CONFIG_OVERRIDES: &[&str] = &[
     "core.attributesFile=/dev/null",
     "-c",
     "log.showSignature=false",
+    "-c",
+    "core.hooksPath=/dev/null",
     "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
 ];
 
@@ -1459,6 +1480,19 @@ fn minimal_environment() -> Vec<(String, String)> {
         ("LC_ALL".to_string(), "C".to_string()),
         ("PATH".to_string(), path),
     ]
+}
+
+/// The environment an admitted `git` runs with: [`minimal_environment`],
+/// plus `GIT_ATTR_NOSYSTEM` -- the system attributes file, which no `-c`
+/// switches off -- and `GIT_OPTIONAL_LOCKS=0`, so that `status` does not
+/// write the index and no `post-index-change` hook runs (measured on git
+/// 2.54). Sorted, as the rest is.
+fn git_environment() -> Vec<(String, String)> {
+    let mut environment = minimal_environment();
+    environment.push(("GIT_ATTR_NOSYSTEM".to_string(), "1".to_string()));
+    environment.push(("GIT_OPTIONAL_LOCKS".to_string(), "0".to_string()));
+    environment.sort();
+    environment
 }
 
 /// The shell a reviewed command runs under.
@@ -2430,6 +2464,168 @@ mod tests {
     }
 
     #[test]
+    fn an_admitted_git_runs_no_hook_and_asks_when_configuration_defines_one() {
+        let fixture = GitFixture::new();
+        let ran = fixture.home.join("HOOK-RAN");
+        let hook_ran = || {
+            let was = ran.exists();
+            let _ = std::fs::remove_file(&ran);
+            was
+        };
+        // A hook file: `status` writes the index unless optional locks are
+        // off, `diff` writes it anyway; `post-index-change` runs on the write.
+        let hook = fixture.repo().join(".git/hooks/post-index-change");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch {}\n", ran.display())).expect("a hook");
+        std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .expect("chmod");
+        // The committed bytes, rewritten: only the stat changes, so git
+        // refreshes the index entry and writes the index.
+        let touch = || {
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            std::fs::write(fixture.repo().join("a.txt"), "one\n").expect("a touch");
+        };
+        for command in ["git status --short", "git diff --stat"] {
+            touch();
+            let words: Vec<String> = command.split(' ').map(str::to_string).collect();
+            assert!(fixture.run(&words).success());
+            assert!(hook_ran(), "the control `{command}` did not run the hook");
+            touch();
+            let plan = fixture.plan(command);
+            assert!(fixture.run_plan(&plan).success(), "`{command}` failed");
+            assert!(!hook_ran(), "`{command}` ran a hook file");
+        }
+        std::fs::remove_file(&hook).expect("removed");
+        // A hook defined in configuration: no option switches it off, so a
+        // git that would read one is not admitted.
+        let mut global =
+            std::fs::read_to_string(fixture.home.join(".gitconfig.local")).expect("included");
+        global.push_str(&format!(
+            "[hook \"x\"]\n\tcommand = touch {}\n\tevent = post-index-change\n",
+            ran.display()
+        ));
+        std::fs::write(fixture.home.join(".gitconfig.local"), global).expect("written");
+        touch();
+        assert!(fixture
+            .run(&["git".into(), "diff".into(), "--stat".into()])
+            .success());
+        assert!(hook_ran(), "the control did not run the configured hook");
+        touch();
+        let hardened = hardened(&["git".into(), "diff".into(), "--stat".into()]);
+        assert!(fixture
+            .run_with(&hardened, &[("GIT_OPTIONAL_LOCKS", "0")])
+            .success());
+        assert!(
+            hook_ran(),
+            "why it is refused: the hardened argv still runs it"
+        );
+        // The plan's own git reads `$HOME`, which the fixture stands in for
+        // only in its runs; ask the configuration that plan would read.
+        let environment: Vec<(String, String)> = git_environment()
+            .into_iter()
+            .map(|(name, value)| {
+                if name == "HOME" {
+                    (name, fixture.home.display().to_string())
+                } else {
+                    (name, value)
+                }
+            })
+            .collect();
+        assert_eq!(
+            super::super::gitconfig::configured_hooks(fixture.repo(), &environment),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn an_admitted_git_drops_system_attributes_and_optional_locks() {
+        let (_dir, scope) = scope();
+        let limits = ToolLimits::default();
+        let git = CommandPlan::prepare("git log --oneline", &scope, None, &limits).expect("a plan");
+        for (name, value) in [("GIT_ATTR_NOSYSTEM", "1"), ("GIT_OPTIONAL_LOCKS", "0")] {
+            assert!(
+                git.environment()
+                    .iter()
+                    .any(|(set, to)| set == name && to == value),
+                "{name}: {:?}",
+                git.environment()
+            );
+        }
+        let other = CommandPlan::prepare("pwd", &scope, None, &limits).expect("a plan");
+        assert!(other
+            .environment()
+            .iter()
+            .all(|(name, _)| name != "GIT_ATTR_NOSYSTEM" && name != "GIT_OPTIONAL_LOCKS"));
+    }
+
+    #[test]
+    fn a_real_submodule_is_inspected_without_counting_its_objects() {
+        // A submodule's git directory holds objects, refs and logs; only its
+        // `info/attributes` and its own `modules/` are looked at.
+        let fixture = GitFixture::new();
+        let source = tempfile::tempdir().expect("a source");
+        let source_path = source.path().canonicalize().expect("canonical");
+        let in_source = |args: &[&str]| {
+            std::process::Command::new(&fixture.git)
+                .args(args)
+                .current_dir(&source_path)
+                .env_clear()
+                .env("HOME", &fixture.home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .output()
+                .expect("git runs")
+        };
+        assert!(in_source(&["init", "-q"]).status.success());
+        for index in 0..300 {
+            std::fs::write(source_path.join(format!("f{index}")), format!("{index}\n"))
+                .expect("a file");
+        }
+        assert!(in_source(&["add", "."]).status.success());
+        assert!(in_source(&[
+            "-c",
+            "user.email=a@b",
+            "-c",
+            "user.name=a",
+            "commit",
+            "-q",
+            "-m",
+            "s"
+        ])
+        .status
+        .success());
+        assert!(
+            in_source(&["-c", "core.looseCompression=0", "repack", "-q"])
+                .status
+                .success()
+        );
+        let words = |line: String| -> Vec<String> { line.split(' ').map(str::to_string).collect() };
+        assert!(fixture
+            .run(&words(format!(
+                "git -c protocol.file.allow=always submodule add -q {} sub",
+                source_path.display()
+            )))
+            .success());
+        // Loose objects in the submodule's git directory, more than the bound.
+        let objects = fixture.repo().join(".git/modules/sub/objects");
+        for index in 0..5000 {
+            let dir = objects.join(format!("x{index}"));
+            std::fs::create_dir_all(&dir).expect("a directory");
+        }
+        assert!(matches!(
+            fixture.plan("git status --short").effect(),
+            CommandEffect::DirectReadOnly { .. }
+        ));
+        // And a driver its `info/attributes` selects is still found.
+        let info = fixture.repo().join(".git/modules/sub/info");
+        std::fs::create_dir_all(&info).expect("info");
+        std::fs::write(info.join("attributes"), "* filter=x\n").expect("attributes");
+        assert_eq!(
+            fixture.plan("git status --short").effect(),
+            &CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+    }
+
+    #[test]
     fn a_git_that_does_not_know_an_option_it_is_given_runs_nothing() {
         // Git older than 2.40 has no `--attr-source`. What it does with a
         // global option it does not know is what any git does: refuse it and
@@ -2554,6 +2750,8 @@ mod tests {
             "core.attributesFile=/dev/null",
             "-c",
             "log.showSignature=false",
+            "-c",
+            "core.hooksPath=/dev/null",
             "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
         ];
         let expected = |rest: &[&str]| -> Vec<String> {

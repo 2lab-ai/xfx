@@ -40,8 +40,8 @@ use xfx::permission::session_rules::{self, Decision};
 use xfx::permission::{
     classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
     AuthorityError, CommandEffect, CommandPlan, CommandRoute, ConfiguredRule, DeniedEffect,
-    DenyCause, Grant, LinkBase, PermissionMode, PermissionSession, PolicyDecision, ProposedAction,
-    RuleAction, RuleSet, YOLO_WARNING,
+    DenyCause, GitEnvironment, Grant, LinkBase, PermissionMode, PermissionSession, PolicyDecision,
+    ProposedAction, RuleAction, RuleSet, YOLO_WARNING,
 };
 use xfx::provider::Wire;
 use xfx::tools::{
@@ -2642,6 +2642,188 @@ fn auto_mode_will_not_write_a_file_the_users_git_configuration_includes() {
         "write_file",
         json!({ "path": repo.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
     );
+}
+
+/// Runs the real git in `dir` with a clean environment and `home` as its
+/// home; required, not skipped.
+fn real_git(dir: &Path, home: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env_clear()
+        .env("HOME", home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .output()
+        .expect("git on PATH: this test runs the real one");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn auto_mode_will_not_write_inside_any_git_directory() {
+    // A superproject with a submodule whose git directory is
+    // `.git/modules/sub`, a dotfiles repository kept bare under another name,
+    // and a work tree whose `.git` file names a git directory outside any
+    // `.git`.
+    let home = Tree::new();
+    let tree = Tree::new();
+    let source = Tree::new();
+    real_git(source.root(), home.root(), &["init", "-q"]);
+    source.write("s.txt", "s\n");
+    real_git(source.root(), home.root(), &["add", "s.txt"]);
+    real_git(
+        source.root(),
+        home.root(),
+        &[
+            "-c",
+            "user.email=a@b",
+            "-c",
+            "user.name=a",
+            "commit",
+            "-q",
+            "-m",
+            "s",
+        ],
+    );
+    real_git(tree.root(), home.root(), &["init", "-q"]);
+    real_git(
+        tree.root(),
+        home.root(),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            source.root().to_str().unwrap(),
+            "sub",
+        ],
+    );
+    real_git(tree.root(), home.root(), &["init", "-q", "--bare", "cfg"]);
+    tree.mkdir("gitdirs");
+    real_git(
+        tree.root(),
+        home.root(),
+        &["init", "-q", "--separate-git-dir", "gitdirs/other", "other"],
+    );
+    let context = context(&tree, PermissionMode::Auto);
+    // Below a root, `.git` was already refused in every mode
+    // (`protected_component`).
+    for relative in [".git/modules/sub/config", "sub/.git"] {
+        let target = tree.root().join(relative);
+        let before = fs::read(&target).ok();
+        let refusal = fails(
+            &context,
+            "write_file",
+            json!({ "path": target.to_str().unwrap(), "content": "x\n" }),
+        );
+        assert!(
+            refusal.contains("passes through `.git`"),
+            "{relative}: {refusal}"
+        );
+        assert_eq!(fs::read(&target).ok(), before, "{relative} changed");
+    }
+    // What was open: a git directory by another name, below the root ...
+    for relative in [
+        "cfg/config",
+        "cfg/hooks/pre-commit",
+        "gitdirs/other/config",
+        "gitdirs/other/info/attributes",
+    ] {
+        every_mutation_refused(&context, &tree, relative);
+    }
+    // ... and a root inside `.git`.
+    let inside = ToolContext::new(
+        AccessScope::primary_only(tree.root().join(".git/modules/sub")).expect("a root"),
+    )
+    .with_permissions(session(PermissionMode::Auto));
+    let module = Tree {
+        _dir: TempDir::new().expect("unused"),
+        root: tree.root().join(".git/modules/sub"),
+    };
+    for relative in ["config", "hooks/post-checkout", "info/attributes"] {
+        every_mutation_refused(&inside, &module, relative);
+    }
+}
+
+#[test]
+fn auto_mode_will_not_write_what_a_repositorys_own_configuration_includes() {
+    // `.git/config` itself is refused, but a file it includes is ordinary
+    // workspace content -- and a `hook.<name>.command` there needs no
+    // attribute to run.
+    let home = Tree::new();
+    let repo = Tree::new();
+    real_git(repo.root(), home.root(), &["init", "-q"]);
+    let mut config = fs::read_to_string(repo.root().join(".git/config")).expect("config");
+    config.push_str("[include]\n\tpath = ../team.gitconfig\n[includeIf \"onbranch:never\"]\n\tpath = ../later.gitconfig\n");
+    fs::write(repo.root().join(".git/config"), config).expect("config");
+    repo.write("team.gitconfig", "[alias]\n\tst = status\n");
+    let context = home_context(&repo, &home);
+    every_mutation_refused(&context, &repo, "team.gitconfig");
+    // Not active today, and not there yet: still configuration.
+    every_mutation_refused(&context, &repo, "later.gitconfig");
+}
+
+#[test]
+fn auto_mode_will_not_write_a_global_configuration_the_environment_selects() {
+    // `GIT_CONFIG_GLOBAL` in xfx's own environment is what the user's git
+    // reads in place of `~/.gitconfig`; here it is a workspace file, and so
+    // is what it includes.
+    let home = Tree::new();
+    let repo = Tree::new();
+    repo.write(
+        "global.gitconfig",
+        "[user]\n\tname = u\n[include]\n\tpath = more.gitconfig\n",
+    );
+    let context = home_context(&repo, &home).with_git_environment(
+        GitEnvironment::default().with("GIT_CONFIG_GLOBAL", repo.root().join("global.gitconfig")),
+    );
+    every_mutation_refused(&context, &repo, "global.gitconfig");
+    every_mutation_refused(&context, &repo, "more.gitconfig");
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": repo.root().join("notes.txt").to_str().unwrap(), "content": "ok\n" }),
+    );
+}
+
+#[test]
+fn an_include_path_is_protected_as_git_reads_its_bytes() {
+    // U+3000, IDEOGRAPHIC SPACE, is whitespace to Unicode and not to git:
+    // git includes `a<U+3000>b.gitconfig`, and a reading that turned it into
+    // a space would protect `a b.gitconfig` instead.
+    let home = Tree::new();
+    let repo = Tree::new();
+    home.write(
+        ".gitconfig",
+        &format!(
+            "[include]\n\tpath = {}\n",
+            repo.root().join("a\u{3000}b.gitconfig").display()
+        ),
+    );
+    repo.write("a\u{3000}b.gitconfig", "[alias]\n\tst = status\n");
+    every_mutation_refused(&home_context(&repo, &home), &repo, "a\u{3000}b.gitconfig");
+}
+
+#[test]
+fn a_hard_linked_configuration_is_read_from_each_directory_that_names_it() {
+    // One file, two names in two directories; its relative include is a
+    // different file from each. Git reads both.
+    let home = Tree::new();
+    home.write("a/cfg", "[include]\n\tpath = inc\n");
+    home.mkdir("b");
+    fs::hard_link(home.root().join("a/cfg"), home.root().join("b/cfg")).expect("a hard link");
+    home.write(
+        ".gitconfig",
+        "[include]\n\tpath = ~/a/cfg\n[include]\n\tpath = ~/b/cfg\n",
+    );
+    let context = context_in(&home);
+    every_mutation_refused(&context, &home, "a/inc");
+    every_mutation_refused(&context, &home, "b/inc");
 }
 
 /// An auto context whose workspace is the home directory itself.

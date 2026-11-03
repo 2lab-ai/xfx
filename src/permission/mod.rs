@@ -69,7 +69,8 @@ pub use authority::{
     MAX_APPROVAL_DIFF_SIDE_BYTES, MAX_EXCERPT_BYTES,
 };
 pub use command::{classify, CommandEffect, DeniedEffect};
-pub use links::Base as LinkBase;
+pub use gitconfig::GitEnvironment;
+pub use links::{Base as LinkBase, LinkCheck};
 pub use policy::{
     AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
     ApprovalSubject, Decided, DenyCause, Grant, LiveAuthority, LiveRules, McpCallPlan,

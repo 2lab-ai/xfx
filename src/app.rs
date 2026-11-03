@@ -502,7 +502,8 @@ async fn run_ask(
             Some(std::sync::Arc::new(skills.catalog.locations.clone())),
             config.home().map(Path::to_path_buf),
         )
-        .with_link_bases(crate::permission::LinkBase::from_environment());
+        .with_link_bases(crate::permission::LinkBase::from_environment())
+        .with_git_environment(crate::permission::GitEnvironment::from_process());
 
     let turn = TurnRequest {
         images: Vec::new(),

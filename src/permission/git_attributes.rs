@@ -45,17 +45,30 @@ pub(crate) fn driver_hold(cwd: &Path) -> Option<String> {
 }
 
 fn check(cwd: &Path) -> Result<(), String> {
+    for dir in repository_dirs(cwd)? {
+        attributes(&dir.join("info").join("attributes"))?;
+    }
+    Ok(())
+}
+
+/// Every git directory a git command run in `cwd` can read: each one from
+/// `cwd` up, a linked worktree's common directory, and every submodule's
+/// below `modules/`.
+pub(crate) fn repository_dirs(cwd: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut found: Vec<PathBuf> = Vec::new();
     for git_dir in git_dirs(cwd)? {
         let mut dirs = vec![git_dir.clone()];
         if let Some(common) = common_dir(&git_dir)? {
             dirs.push(common);
         }
         for dir in dirs {
-            attributes(&dir.join("info").join("attributes"))?;
-            modules(&dir.join("modules"))?;
+            if !found.contains(&dir) {
+                found.push(dir.clone());
+            }
+            modules(&dir.join("modules"), &mut found)?;
         }
     }
-    Ok(())
+    Ok(found)
 }
 
 /// Every git directory from `cwd` up to `/`.
@@ -89,14 +102,17 @@ fn git_file_target(file: &Path, dir: &Path) -> Result<PathBuf, String> {
     Ok(dir.join(target))
 }
 
-/// Whether `dir` is itself a git directory, as a bare repository is.
-fn is_git_dir(dir: &Path) -> Result<bool, String> {
+/// Whether `dir` is itself a git directory, whatever it is called: a `HEAD`
+/// file, and an `objects` directory or -- a linked worktree's -- a
+/// `commondir` file.
+pub(crate) fn is_git_dir(dir: &Path) -> Result<bool, String> {
     let is = |path: PathBuf, directory: bool| match std::fs::metadata(&path) {
         Ok(metadata) => Ok(metadata.is_dir() == directory),
         Err(err) if absent(&err) => Ok(false),
         Err(err) => Err(uninspectable(&path, &err)),
     };
-    Ok(is(dir.join("HEAD"), false)? && is(dir.join("objects"), true)?)
+    Ok(is(dir.join("HEAD"), false)?
+        && (is(dir.join("objects"), true)? || is(dir.join("commondir"), false)?))
 }
 
 /// The main repository's git directory, for a linked worktree's.
@@ -116,8 +132,12 @@ fn common_dir(git_dir: &Path) -> Result<Option<PathBuf>, String> {
     }
 }
 
-/// Every submodule's `info/attributes` below `modules`.
-fn modules(modules: &Path) -> Result<(), String> {
+/// Every submodule git directory below `modules`. A submodule's name may
+/// hold `/`, so a directory that is not a git directory is a step of a name
+/// and is descended; one that is, is recorded, and only its own `modules/`
+/// is descended -- never its objects, refs or logs, which would count a
+/// real repository's size against the bound. A linked directory is followed.
+fn modules(modules: &Path, found: &mut Vec<PathBuf>) -> Result<(), String> {
     let mut queue = vec![modules.to_path_buf()];
     let mut left = MAX_MODULE_ENTRIES;
     while let Some(dir) = queue.pop() {
@@ -135,13 +155,20 @@ fn modules(modules: &Path) -> Result<(), String> {
                 )
             })?;
             let path = entry.path();
-            let kind = entry
-                .file_type()
-                .map_err(|err| uninspectable(&path, &err))?;
-            if kind.is_dir() {
-                if entry.file_name() == "info" {
-                    attributes(&path.join("attributes"))?;
+            let directory = match std::fs::metadata(&path) {
+                Ok(metadata) => metadata.is_dir(),
+                Err(err) if absent(&err) => false,
+                Err(err) => return Err(uninspectable(&path, &err)),
+            };
+            if !directory {
+                continue;
+            }
+            if is_git_dir(&path)? {
+                if !found.contains(&path) {
+                    found.push(path.clone());
                 }
+                queue.push(path.join("modules"));
+            } else {
                 queue.push(path);
             }
         }

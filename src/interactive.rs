@@ -1703,7 +1703,8 @@ async fn one_turn(
     let mut tools = conversation
         .tools
         .clone()
-        .with_link_bases(crate::permission::LinkBase::from_environment());
+        .with_link_bases(crate::permission::LinkBase::from_environment())
+        .with_git_environment(crate::permission::GitEnvironment::from_process());
     tools.set_skills(
         Some(std::sync::Arc::new(skills.catalog.locations.clone())),
         config.home().map(std::path::Path::to_path_buf),

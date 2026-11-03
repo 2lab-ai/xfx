@@ -78,10 +78,21 @@ pub(crate) const MAX_WALK_ENTRIES: usize = 65_536;
 pub(crate) const MAX_LINK_HOPS: u8 = 32;
 
 /// Why auto holds a write to `target`, as a clause that finishes "because",
-/// when a protected entry below one of `bases` leads to it, or when xfx could
-/// not tell; `None` when every entry was looked at and none does.
-pub(crate) fn link_hold(target: &Path, bases: &[Base]) -> Option<String> {
-    hold_within(target, bases, MAX_WALK_ENTRIES)
+/// when the target is inside a git directory, when a protected entry or a
+/// configuration file the user's git reads leads to it, or when xfx could
+/// not tell; `None` when every one was looked at and none does.
+pub(crate) fn link_hold(target: &Path, check: &LinkCheck) -> Option<String> {
+    hold_within(target, check, MAX_WALK_ENTRIES)
+}
+
+/// Where a write is checked against: the bases protected entries are looked
+/// for below, the authorized roots git is asked about, and what the user's
+/// git is told about its configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkCheck {
+    pub bases: Vec<Base>,
+    pub roots: Vec<PathBuf>,
+    pub git: super::GitEnvironment,
 }
 
 /// A directory protected entries are looked for below.
@@ -117,8 +128,8 @@ impl Base {
             .collect()
     }
 
-    /// Every protected entry below this base.
-    fn entries(&self) -> Vec<PathBuf> {
+    /// Every protected entry below this base, and whether it is a `.git`.
+    fn entries(&self) -> Vec<(PathBuf, bool)> {
         let (base, config) = match self {
             Self::Home(base) | Self::Root(base) => (base, false),
             Self::Config(base) => (base, true),
@@ -131,27 +142,24 @@ impl Base {
                 } else {
                     sequence
                 };
-                Some(
+                Some((
                     parts
                         .iter()
                         .fold(base.clone(), |path, part| path.join(part)),
-                )
+                    parts == [".git"],
+                ))
             })
             .collect()
     }
-
-    /// The git configuration files below this base whose includes are part
-    /// of the user's git configuration.
-    fn git_configs(&self) -> Vec<PathBuf> {
-        match self {
-            Self::Home(home) => vec![home.join(".gitconfig"), home.join(".config/git/config")],
-            Self::Config(config) => vec![config.join("git/config")],
-            Self::Root(_) => Vec::new(),
-        }
-    }
 }
 
-fn hold_within(target: &Path, bases: &[Base], limit: usize) -> Option<String> {
+/// Directories inside a git directory that hold data git never runs or
+/// reads as configuration -- objects, references, logs, large-file stores --
+/// and are not listed for links, so that a real repository's size does not
+/// count against [`MAX_WALK_ENTRIES`].
+const GIT_DATA_DIRECTORIES: &[&str] = &["objects", "refs", "logs", "lfs", "annex", "rr-cache"];
+
+fn hold_within(target: &Path, check: &LinkCheck, limit: usize) -> Option<String> {
     let chain = match Chain::of(target) {
         Ok(chain) => chain,
         Err(why) => {
@@ -160,15 +168,20 @@ fn hold_within(target: &Path, bases: &[Base], limit: usize) -> Option<String> {
             ))
         }
     };
+    if let Some(git_dir) = chain.git_dir.clone() {
+        return Some(format!(
+            "it is inside the git directory `{}`, whose config, hooks and attributes decide what git runs",
+            git_dir.display()
+        ));
+    }
     let mut walk = Walk {
         chain,
         limit,
         left: limit,
         queue: VecDeque::new(),
         listed: HashSet::new(),
-        parsed: HashSet::new(),
     };
-    walk.run(bases).err()
+    walk.run(check).err()
 }
 
 /// A filesystem object as the volume names it: device and inode.
@@ -207,8 +220,13 @@ enum Lead {
 }
 
 /// The target's directories that exist, each with the target's names below
-/// it, folded.
-struct Chain(Vec<(Identity, Vec<String>)>);
+/// it, folded; and the first of them that is a git directory, whatever it is
+/// called -- a bare repository, `.git/modules/<name>`, the directory a `.git`
+/// file names -- where every file decides what git runs.
+struct Chain {
+    links: Vec<(Identity, Vec<String>)>,
+    git_dir: Option<PathBuf>,
+}
 
 impl Chain {
     fn of(target: &Path) -> Result<Self, String> {
@@ -223,14 +241,23 @@ impl Chain {
             .iter()
             .map(|name| fold(&name.to_string_lossy()))
             .collect();
-        let mut chain = Vec::new();
+        let mut links = Vec::new();
+        let mut git_dir = None;
         let mut path = PathBuf::from("/");
         for depth in 0..=parts.len() {
             if depth > 0 {
                 path.push(parts[depth - 1]);
             }
             match std::fs::metadata(&path) {
-                Ok(metadata) => chain.push((Identity::of(&metadata), names[depth..].to_vec())),
+                Ok(metadata) => {
+                    links.push((Identity::of(&metadata), names[depth..].to_vec()));
+                    if git_dir.is_none()
+                        && metadata.is_dir()
+                        && super::git_attributes::is_git_dir(&path)?
+                    {
+                        git_dir = Some(path.clone());
+                    }
+                }
                 Err(err)
                     if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
                 {
@@ -239,7 +266,7 @@ impl Chain {
                 Err(err) => return Err(format!("`{}` cannot be inspected: {err}", path.display())),
             }
         }
-        Ok(Self(chain))
+        Ok(Self { links, git_dir })
     }
 
     /// Whether `lead` is the target or a directory above it, or names the
@@ -247,9 +274,9 @@ impl Chain {
     fn reached_by(&self, lead: &Lead) -> bool {
         match lead {
             Lead::Absent => false,
-            Lead::Node { identity, .. } => self.0.iter().any(|(object, _)| object == identity),
+            Lead::Node { identity, .. } => self.links.iter().any(|(object, _)| object == identity),
             Lead::Missing { parent, names } => self
-                .0
+                .links
                 .iter()
                 .any(|(object, below)| object == parent && below.starts_with(names)),
         }
@@ -260,32 +287,43 @@ struct Walk {
     chain: Chain,
     limit: usize,
     left: usize,
-    /// Directories still to list, each with the protected entry it is part of.
-    queue: VecDeque<(PathBuf, String)>,
+    /// Directories still to list, each with the protected entry it is part
+    /// of and whether it is inside a git directory.
+    queue: VecDeque<(PathBuf, String, bool)>,
     listed: HashSet<Identity>,
-    /// Git configuration files already read for their includes.
-    parsed: HashSet<Identity>,
 }
 
 impl Walk {
-    fn run(&mut self, bases: &[Base]) -> Result<(), String> {
-        let home = bases.iter().find_map(|base| match base {
-            Base::Home(home) => Some(home.clone()),
-            _ => None,
-        });
-        for base in bases {
-            for entry in base.entries() {
+    fn run(&mut self, check: &LinkCheck) -> Result<(), String> {
+        for base in &check.bases {
+            for (entry, git) in base.entries() {
                 let name = entry.display().to_string();
                 let lead =
                     resolve(&entry, MAX_LINK_HOPS).map_err(|why| cannot_check(&name, &why))?;
-                self.reach(lead, &name, &name)?;
-            }
-            for config in base.git_configs() {
-                self.includes(&config, home.as_deref())?;
+                self.reach(lead, &name, &name, git)?;
             }
         }
-        while let Some((directory, entry)) = self.queue.pop_front() {
-            self.list(&directory, &entry)?;
+        // Every file the user's git reads as configuration
+        // ([`super::gitconfig`]).
+        let home = check.bases.iter().find_map(|base| match base {
+            Base::Home(home) => Some(home.as_path()),
+            _ => None,
+        });
+        let xdg = check.bases.iter().find_map(|base| match base {
+            Base::Config(config) => Some(config.as_path()),
+            _ => None,
+        });
+        let configuration = "the user's git configuration";
+        let files = super::gitconfig::configuration_files(&check.roots, home, xdg, &check.git)
+            .map_err(|why| cannot_check(configuration, &why))?;
+        for file in files {
+            let via = file.display().to_string();
+            let lead = resolve(&file, MAX_LINK_HOPS)
+                .map_err(|why| cannot_check(configuration, &format!("`{via}`: {why}")))?;
+            self.reach(lead, configuration, &via, false)?;
+        }
+        while let Some((directory, entry, git)) = self.queue.pop_front() {
+            self.list(&directory, &entry, git)?;
         }
         Ok(())
     }
@@ -293,7 +331,7 @@ impl Walk {
     /// `via`, part of the protected `entry`, leads to `lead`: the write is
     /// held when that reaches the target, and a directory is queued to be
     /// listed for links of its own.
-    fn reach(&mut self, lead: Lead, entry: &str, via: &str) -> Result<(), String> {
+    fn reach(&mut self, lead: Lead, entry: &str, via: &str, git: bool) -> Result<(), String> {
         if self.chain.reached_by(&lead) {
             return Err(if via == entry {
                 format!("`{entry}` leads to it and decides what runs later")
@@ -308,59 +346,13 @@ impl Walk {
         } = lead
         {
             if self.listed.insert(identity) {
-                self.queue.push_back((path, entry.to_string()));
+                self.queue.push_back((path, entry.to_string(), git));
             }
         }
         Ok(())
     }
 
-    /// Every file `config` includes, recursively: each is part of the
-    /// configuration that includes it, so it is reached as that file is.
-    fn includes(&mut self, config: &Path, home: Option<&Path>) -> Result<(), String> {
-        let name = config.display().to_string();
-        let identity = match std::fs::metadata(config) {
-            Ok(metadata) => Identity::of(&metadata),
-            Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
-                return Ok(())
-            }
-            Err(err) => return Err(cannot_check(&name, &format!("it cannot be read: {err}"))),
-        };
-        if !self.parsed.insert(identity) {
-            return Ok(());
-        }
-        if self.parsed.len() > MAX_GIT_CONFIGS {
-            return Err(cannot_check(
-                &name,
-                &format!("the configuration includes more than {MAX_GIT_CONFIGS} files"),
-            ));
-        }
-        let text = read_config(config).map_err(|why| cannot_check(&name, &why))?;
-        let paths =
-            super::gitconfig::include_paths(&text).map_err(|why| cannot_check(&name, &why))?;
-        for raw in paths {
-            for path in
-                expand_include(&raw, config, home).map_err(|why| cannot_check(&name, &why))?
-            {
-                let via = path.display().to_string();
-                let lead = resolve(&path, MAX_LINK_HOPS)
-                    .map_err(|why| cannot_check(&name, &format!("`{via}`: {why}")))?;
-                let file = matches!(
-                    lead,
-                    Lead::Node {
-                        directory: false,
-                        ..
-                    }
-                );
-                self.reach(lead, &name, &via)?;
-                if file {
-                    self.includes(&path, home)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn list(&mut self, directory: &Path, entry: &str) -> Result<(), String> {
+    fn list(&mut self, directory: &Path, entry: &str, git: bool) -> Result<(), String> {
         let unlistable = |err: std::io::Error| {
             cannot_check(
                 entry,
@@ -391,8 +383,15 @@ impl Walk {
                 let via = path.display().to_string();
                 let lead = resolve(&path, MAX_LINK_HOPS)
                     .map_err(|why| cannot_check(entry, &format!("`{via}`: {why}")))?;
-                self.reach(lead, entry, &via)?;
+                self.reach(lead, entry, &via, git)?;
             } else if kind.is_dir() {
+                if git
+                    && GIT_DATA_DIRECTORIES
+                        .iter()
+                        .any(|data| item.file_name() == *data)
+                {
+                    continue;
+                }
                 // Recorded too: a bind mount of a directory inside a protected
                 // one is that directory, under another name.
                 let metadata = item.metadata().map_err(uninspectable)?;
@@ -401,64 +400,11 @@ impl Walk {
                     directory: true,
                     path: path.clone(),
                 };
-                self.reach(lead, entry, &path.display().to_string())?;
+                self.reach(lead, entry, &path.display().to_string(), git)?;
             }
         }
         Ok(())
     }
-}
-
-/// The most git configuration files one check reads for includes.
-const MAX_GIT_CONFIGS: usize = 64;
-
-/// The most bytes of one git configuration file read for its includes.
-const MAX_GIT_CONFIG_BYTES: u64 = 1024 * 1024;
-
-fn read_config(config: &Path) -> Result<String, String> {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    std::fs::File::open(config)
-        .and_then(|file| file.take(MAX_GIT_CONFIG_BYTES + 1).read_to_end(&mut bytes))
-        .map_err(|err| format!("it cannot be read: {err}"))?;
-    if bytes.len() as u64 > MAX_GIT_CONFIG_BYTES {
-        return Err(format!("it is larger than {MAX_GIT_CONFIG_BYTES} bytes"));
-    }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
-}
-
-/// Where an include path in `config` points, as git expands it: `~/` from
-/// the home directory, a relative path from the directory of the file that
-/// names it -- both that file's directory as named and as resolved, since a
-/// `~/.gitconfig` that is a link has two.
-fn expand_include(raw: &str, config: &Path, home: Option<&Path>) -> Result<Vec<PathBuf>, String> {
-    if raw == "~" || raw.starts_with("~/") {
-        let home =
-            home.ok_or_else(|| format!("`{raw}` names a home directory xfx was not given"))?;
-        return Ok(vec![
-            home.join(raw.trim_start_matches('~').trim_start_matches('/'))
-        ]);
-    }
-    if raw.starts_with('~') || raw.starts_with("%(") {
-        return Err(format!("`{raw}` is not a path xfx expands"));
-    }
-    let path = Path::new(raw);
-    if path.is_absolute() {
-        return Ok(vec![path.to_path_buf()]);
-    }
-    let named = config
-        .parent()
-        .ok_or_else(|| format!("`{}` has no directory", config.display()))?;
-    let mut paths = vec![named.join(path)];
-    if let Some(resolved) = std::fs::canonicalize(config)
-        .ok()
-        .and_then(|real| real.parent().map(Path::to_path_buf))
-    {
-        let other = resolved.join(path);
-        if !paths.contains(&other) {
-            paths.push(other);
-        }
-    }
-    Ok(paths)
 }
 
 fn cannot_check(entry: &str, why: &str) -> String {
@@ -549,6 +495,14 @@ mod tests {
         (dir, root)
     }
 
+    /// A check with these bases, no roots, and no git environment.
+    fn check(bases: Vec<Base>) -> LinkCheck {
+        LinkCheck {
+            bases,
+            ..LinkCheck::default()
+        }
+    }
+
     fn identity(path: &Path) -> Identity {
         Identity::of(&std::fs::metadata(path).expect("there"))
     }
@@ -562,7 +516,7 @@ mod tests {
             std::fs::write(home.join(".vim/plugin").join(name), "").expect("a plugin");
         }
         let target = repo.join("notes.txt");
-        let bases = [Base::Home(home.clone())];
+        let bases = check(vec![Base::Home(home.clone())]);
         // Under the bound, a tree with no link in it is no reason to ask.
         assert_eq!(hold_within(&target, &bases, 16), None);
         let hold = hold_within(&target, &bases, 3).expect("held");
@@ -582,7 +536,7 @@ mod tests {
                 names: vec!["a".into(), "b".into(), "zshenv".into()],
             })
         );
-        let bases = [Base::Home(home.clone())];
+        let bases = check(vec![Base::Home(home.clone())]);
         let hold = hold_within(&repo.join("a/b/zshenv"), &bases, 64).expect("held");
         assert!(hold.contains("decides what runs later"), "{hold}");
         // Spelled as the link spells it, but folded as the volume would.
@@ -602,7 +556,8 @@ mod tests {
         let (_repo_dir, repo) = tree();
         std::os::unix::fs::symlink(repo.join("\u{AC1C}\u{BC1C}/zshenv"), home.join(".zshenv"))
             .expect("link");
-        let hold = hold_within(&repo.join("notes.txt"), &[Base::Home(home)], 64).expect("held");
+        let hold =
+            hold_within(&repo.join("notes.txt"), &check(vec![Base::Home(home)]), 64).expect("held");
         assert!(hold.contains("not ASCII"), "{hold}");
     }
 
@@ -611,7 +566,7 @@ mod tests {
         let (_home_dir, home) = tree();
         let (_repo_dir, repo) = tree();
         let target = repo.join("notes.txt");
-        let bases = [Base::Home(home.clone())];
+        let bases = check(vec![Base::Home(home.clone())]);
         for config in [
             "[include]\n\tpath = \"open\n",
             "[include]\n\tpath = ~someone/x\n",
@@ -636,7 +591,7 @@ mod tests {
         std::os::unix::fs::symlink(repo.join("fish"), xdg.join("fish")).expect("link");
         let hold = hold_within(
             &repo.join("fish/config.fish"),
-            &[Base::Config(xdg.clone())],
+            &check(vec![Base::Config(xdg.clone())]),
             64,
         )
         .expect("held");
@@ -644,7 +599,7 @@ mod tests {
         // `.zshrc` is not below `.config`, so a config base has no such entry.
         std::os::unix::fs::symlink(repo.join("zshrc"), xdg.join(".zshrc")).expect("link");
         assert_eq!(
-            hold_within(&repo.join("zshrc"), &[Base::Config(xdg)], 64),
+            hold_within(&repo.join("zshrc"), &check(vec![Base::Config(xdg)]), 64),
             None
         );
     }
@@ -658,7 +613,7 @@ mod tests {
         std::fs::create_dir_all(home.join(".vim")).expect(".vim");
         std::os::unix::fs::symlink(repo.join("Dotfiles/VimRC"), home.join(".vim/vimrc"))
             .expect("link");
-        let bases = [Base::Home(home.clone())];
+        let bases = check(vec![Base::Home(home.clone())]);
         // The link's own spelling.
         let hold = hold_within(&repo.join("Dotfiles/VimRC"), &bases, 64).expect("held");
         assert!(hold.contains("vimrc` leads to it"), "{hold}");

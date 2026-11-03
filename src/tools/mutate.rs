@@ -376,7 +376,7 @@ pub(crate) fn prepare_write_file(
         bytes.to_vec(),
     )
     .with_rule_targets(located.rule_targets())
-    .with_link_bases(link_bases(context))
+    .with_link_check(link_check(context))
     .with_state_binding(located.state_binding(&[input.path.as_bytes(), input.content.as_bytes()]))
     .with_diff(ApprovalDiff::around_change(
         &preimage.as_text(),
@@ -489,7 +489,7 @@ pub(crate) fn prepare_edit_file(
         after.into_bytes(),
     )
     .with_rule_targets(located.rule_targets())
-    .with_link_bases(link_bases(context))
+    .with_link_check(link_check(context))
     .with_state_binding(located.state_binding(&[
         input.path.as_bytes(),
         input.old_string.as_bytes(),
@@ -558,7 +558,7 @@ pub(crate) fn prepare_create_folder(
         Vec::new(),
     )
     .with_rule_targets(located.rule_targets())
-    .with_link_bases(link_bases(context))
+    .with_link_check(link_check(context))
     .with_state_binding(located.state_binding(&[input.path.as_bytes()]));
     Ok(Prepared {
         located,
@@ -571,17 +571,19 @@ pub(crate) fn prepare_create_folder(
 }
 
 /// Refuses a value larger than one mutation may carry.
-/// Where auto looks for a protected entry that leads to a target: the home
+/// What auto checks a write against
+/// ([`crate::permission::MutationPlan::sensitive_auto_write_target`]): the home
 /// directory, the directories the front end named besides it
-/// (`$XDG_CONFIG_HOME`, `$ZDOTDIR`), then every authorized root
-/// ([`crate::permission::MutationPlan::sensitive_auto_write_target`]).
+/// (`$XDG_CONFIG_HOME`, `$ZDOTDIR`) and every authorized root as bases; the
+/// roots, where git is asked what it reads as configuration; and what the
+/// front end read of the user's git environment.
 ///
 /// The home directory is the one the front end resolved the profile under
 /// (`ToolContext::home`), which every front end sets for a turn; a context
 /// without one is checked below its roots alone, and is never sent to the
 /// process's own `$HOME` -- a test's context would otherwise walk the real
 /// one.
-fn link_bases(context: &ToolContext) -> Vec<crate::permission::LinkBase> {
+fn link_check(context: &ToolContext) -> crate::permission::LinkCheck {
     use crate::permission::LinkBase;
     let mut bases: Vec<LinkBase> = context
         .home()
@@ -589,14 +591,23 @@ fn link_bases(context: &ToolContext) -> Vec<crate::permission::LinkBase> {
         .into_iter()
         .chain(context.link_bases().iter().cloned())
         .collect();
-    for root in context.scope().roots() {
-        let home = LinkBase::Home(root.to_path_buf());
-        let root = LinkBase::Root(root.to_path_buf());
+    let roots: Vec<std::path::PathBuf> = context
+        .scope()
+        .roots()
+        .map(std::path::Path::to_path_buf)
+        .collect();
+    for root in &roots {
+        let home = LinkBase::Home(root.clone());
+        let root = LinkBase::Root(root.clone());
         if !bases.contains(&root) && !bases.contains(&home) {
             bases.push(root);
         }
     }
-    bases
+    crate::permission::LinkCheck {
+        bases,
+        roots,
+        git: context.git_environment().clone(),
+    }
 }
 
 fn bounded(tool: &str, field: &str, len: usize, context: &ToolContext) -> Result<(), String> {

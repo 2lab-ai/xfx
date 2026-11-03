@@ -77,6 +77,10 @@ pub enum DeniedEffect {
     /// Like [`Self::OperandOutsideWorkspace`], a fact about the filesystem that
     /// only [`crate::permission::CommandPlan::prepare`] establishes.
     RepositoryAttributes,
+    /// A `git` whose configuration defines a hook (`hook.<name>.command`),
+    /// which `core.hooksPath` does not switch off and which `git diff` runs on
+    /// the index write it makes; or whose configuration could not be read.
+    ConfiguredHooks,
     /// There was no command.
     Empty,
     /// The command is longer than the classifier will consider.
@@ -102,6 +106,9 @@ impl DeniedEffect {
             }
             Self::OperandOutsideWorkspace => {
                 "one of its operands resolves outside the authorized workspace roots"
+            }
+            Self::ConfiguredHooks => {
+                "the git configuration it would read defines a hook (hook.<name>.command) that git runs on its own, or could not be read"
             }
             Self::RepositoryAttributes => {
                 "the repository's own attributes ($GIT_DIR/info/attributes) select a filter, diff or merge driver that git would run, or could not be read"
