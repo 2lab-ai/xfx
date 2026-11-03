@@ -419,12 +419,27 @@ pub(crate) fn wait_for_input(
 /// requirement, spelled so that a future edit cannot install a handler outside
 /// the window the mask protects without first removing an argument it would
 /// have to explain.
+///
+/// **A `SIGINT` this process was started ignoring is left ignored**, as fx
+/// c1db919 leaves it: fx installs its restore for `SIGTERM` and `SIGHUP` only
+/// (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104` -- "SIGINT is not
+/// included because raw mode disables terminal-generated SIGINT"). An ignore is
+/// the launcher's choice -- `nohup … &` from a non-interactive shell makes it,
+/// so that everything under it inherits the ignore -- and a handler here would
+/// undo it for every command the session runs, because `exec` gives a caught
+/// signal its default. An ignored signal cannot reach a raw terminal, so there
+/// is nothing for a handler to protect. `SIGHUP` and `SIGTERM` are owned
+/// whatever the launcher said, as fx's are: a hangup or a supervisor's stop
+/// still restores the terminal before the process ends.
 fn install_handlers(_blocked: &Blocked) -> io::Result<()> {
     // SAFETY: every handler installed below is `extern "C"`, allocates nothing,
     // takes no lock, and calls only `write`, `signal`, `raise`, and an atomic
     // swap -- each of which POSIX lists as async-signal-safe.
     unsafe {
         for (signal, func) in HANDLERS {
+            if signal == libc::SIGINT && launcher_ignored(signal) {
+                continue;
+            }
             handler(signal, func)?;
         }
         // The UI owns one terminal; a failed write is handled by its return
@@ -472,15 +487,35 @@ pub(crate) fn install_tstp() -> io::Result<()> {
 /// `SIGPIPE` is left alone on purpose: the Rust runtime sets it to `SIG_IGN`
 /// before `main`, so "restoring the default" would hand back a process more
 /// fragile than the one xfx was given.
+///
+/// A `SIGINT` the session left ignored ([`install_handlers`]) is left ignored
+/// here too: it is still the launcher's, and the default would undo the ignore
+/// for whatever the process does after the session.
 pub(crate) fn release() {
     // SAFETY: `signal` with `SIG_DFL` on a platform signal number; a failure is
     // reported by return value and there is nothing to do about one here.
     unsafe {
         for signal in OWNED {
+            if signal == libc::SIGINT && launcher_ignored(signal) {
+                continue;
+            }
             libc::signal(signal, libc::SIG_DFL);
         }
     }
     POKE.store(-1, Ordering::Release);
+}
+
+/// Whether `signal` is ignored right now -- before [`install_handlers`], the
+/// disposition this process was started with; after it, for `SIGINT`, the same
+/// one, since nothing here sets an ignore on it.
+fn launcher_ignored(signal: libc::c_int) -> bool {
+    // SAFETY: a null new action makes `sigaction` a pure query, and `current`
+    // is a valid out-parameter for the call.
+    unsafe {
+        let mut current: libc::sigaction = std::mem::zeroed();
+        libc::sigaction(signal, std::ptr::null(), &mut current) == 0
+            && current.sa_sigaction == libc::SIG_IGN
+    }
 }
 
 /// Starts a thread on which no owned signal can ever be delivered: **the way
@@ -1089,5 +1124,123 @@ mod tests {
         unsafe {
             libc::pthread_sigmask(libc::SIG_SETMASK, &entry, std::ptr::null_mut());
         }
+    }
+
+    /// What `signal` is disposed to right now: `SIG_DFL`, `SIG_IGN`, or the
+    /// address of a handler. Read only -- a null new action makes `sigaction`
+    /// a query.
+    fn disposition(signal: libc::c_int) -> libc::sighandler_t {
+        // SAFETY: `current` is a valid out-parameter for the call.
+        unsafe {
+            let mut current: libc::sigaction = std::mem::zeroed();
+            assert_eq!(
+                libc::sigaction(signal, std::ptr::null(), &mut current),
+                0,
+                "query signal {signal}'s disposition"
+            );
+            current.sa_sigaction
+        }
+    }
+
+    /// The case [`an_inherited_sigint_ignore_outlives_the_session`] runs
+    /// again in a runner started ignoring `SIGINT`.
+    const INHERITED_SIGINT_CASE: &str =
+        "tui::signals::tests::the_installation_keeps_an_ignored_sigint_and_owns_the_rest";
+
+    #[test]
+    fn the_installation_keeps_an_ignored_sigint_and_owns_the_rest() {
+        // A launcher's `SIGINT` ignore is kept, as fx c1db919 keeps it: fx
+        // installs its restore for `SIGTERM` and `SIGHUP` only
+        // (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104`, "SIGINT
+        // is not included because raw mode disables terminal-generated
+        // SIGINT"), so `nohup … &`'s ignore reaches every command it runs and
+        // a `kill -INT` changes nothing. Whatever this runner was started
+        // with is the case: ignoring `SIGINT` (the copy the next case starts)
+        // or not (the ordinary run), and both are asserted.
+        let _serialized = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let inherited = disposition(libc::SIGINT) == libc::SIG_IGN;
+        let wakeup = Wakeup::new().expect("open the self-pipe");
+        let installed = Installed;
+        let restore: extern "C" fn(libc::c_int) = restore_and_reraise;
+        let restore = restore as libc::sighandler_t;
+        let held =
+            install(&wakeup, block_owned().expect("block")).expect("install the handler set");
+        if inherited {
+            assert_eq!(
+                disposition(libc::SIGINT),
+                libc::SIG_IGN,
+                "the installation replaced the SIGINT ignore this process was started with"
+            );
+        } else {
+            assert_eq!(
+                disposition(libc::SIGINT),
+                restore,
+                "a SIGINT at its default was not given the restore"
+            );
+        }
+        // The two fx owns whatever the launcher said, and xfx with it.
+        for signal in [libc::SIGTERM, libc::SIGHUP] {
+            assert_eq!(
+                disposition(signal),
+                restore,
+                "signal {signal} has no restore to run on a raw terminal"
+            );
+        }
+        drop(held);
+        drop(installed);
+        assert_eq!(
+            disposition(libc::SIGINT),
+            if inherited {
+                libc::SIG_IGN
+            } else {
+                libc::SIG_DFL
+            },
+            "the end of the session did not leave SIGINT as the process was started with it"
+        );
+        for signal in [libc::SIGTERM, libc::SIGHUP] {
+            assert_eq!(disposition(signal), libc::SIG_DFL);
+        }
+    }
+
+    /// The case above, in a copy of this test binary started the way `nohup …
+    /// &` starts one -- `SIGINT` ignored -- so its ignore branch is the one
+    /// that runs. Counted, not only exited-zero: a filter that matched nothing
+    /// passes.
+    #[test]
+    fn an_inherited_sigint_ignore_outlives_the_session() {
+        use std::os::unix::process::CommandExt;
+
+        // SAFETY: `ignore` is a plain struct for which all-zero is valid, then
+        // given `SIG_IGN`.
+        let ignore = unsafe {
+            let mut ignore: libc::sigaction = std::mem::zeroed();
+            ignore.sa_sigaction = libc::SIG_IGN;
+            libc::sigemptyset(&mut ignore.sa_mask);
+            ignore
+        };
+        let mut runner =
+            crate::process::command(std::env::current_exe().expect("this test binary"));
+        runner.args(["--exact", "--test-threads=1", INHERITED_SIGINT_CASE]);
+        // SAFETY: the child only calls `sigaction` on a value it owns by copy.
+        unsafe {
+            runner.pre_exec(move || {
+                if libc::sigaction(libc::SIGINT, &ignore, std::ptr::null_mut()) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let output = runner.output().expect("a runner");
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success() && report.contains("test result: ok. 1 passed"),
+            "{report}"
+        );
     }
 }

@@ -21,11 +21,26 @@
 //! library resets `SIGPIPE` itself today (`unix.rs:364-376`, `:741-754`);
 //! doing it here too keeps the rule ours rather than a version's.
 //!
-//! A signal xfx was *started* ignoring is left ignored, as a shell leaves it:
-//! `nohup` ignores `SIGHUP`, and a non-interactive shell's `&` ignores `SIGINT`
-//! and `SIGQUIT`, precisely so that everything started under them inherits the
-//! ignore through `exec`. That is the launcher's choice, not a disposition xfx
-//! set.
+//! A signal xfx was *started* ignoring and does not catch is left ignored, as
+//! a shell leaves it: `nohup` ignores `SIGHUP`, and a non-interactive shell's
+//! `&` ignores `SIGINT` and `SIGQUIT`, precisely so that everything started
+//! under them inherits the ignore through `exec`. That is the launcher's
+//! choice, not a disposition xfx set. **A signal xfx catches is not** -- `exec`
+//! gives it its default -- so what a command inherits depends on where it was
+//! started from, as it does in fx c1db919:
+//!
+//! - **In the TUI**, `SIGHUP` and `SIGTERM` are caught whatever the launcher
+//!   said, so the terminal is restored before a hangup or a stop ends the
+//!   process (`tui::signals::install_handlers`), and a command has both at
+//!   their defaults -- as under fx, which installs its restore over any
+//!   ignore (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104`).
+//!   `SIGINT` is caught only when it was not inherited ignored, so
+//!   `nohup … &`'s ignore reaches the command, as fx's does: fx catches no
+//!   `SIGINT` while its TUI runs. `SIGQUIT` is never caught.
+//! - **In `ask` and the line shell**, `SIGINT` is the user's Ctrl-C and is
+//!   caught (`app::spawn_interrupt_thread`), so a command has it at its
+//!   default -- as under fx's headless ask, which installs its interrupt over
+//!   any ignore (`cli_ask.zig:166-178`).
 //!
 //! The case `no_child_process_is_made_any_other_way` keeps every
 //! `Command::new` in the library's own code in this file.

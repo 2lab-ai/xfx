@@ -5267,8 +5267,10 @@ IGNORED_STOP_DEADLINE = 5.0
 def scenario_3g(run):
     """xfx started the way `nohup … &` starts it: `SIGHUP`, `SIGINT` and `SIGQUIT` ignored.
 
-    T9's rule (`src/process.rs:23-28`, merged `104ccaa2`): **a signal xfx was
-    started ignoring is left ignored** in what it runs, as a shell leaves it --
+    T9's rule (`src/process.rs:24-43`, merged `104ccaa2`; made exact for what
+    the TUI catches in `fix/p2-sigint-inherit`): **a signal xfx was started
+    ignoring and does not catch is left ignored** in what it runs, as a shell
+    leaves it --
     fx's spawn sets no `POSIX_SPAWN_SETSIGDEF` (`darwin_process_spawn.zig:74-83`)
     -- and **xfx's own stop of a command is `SIGKILL` to the command's group**,
     which no ignore holds back. `process.rs`'s cases hold the mask half on a
@@ -5281,7 +5283,8 @@ def scenario_3g(run):
       while it runs (`app_lifecycle.zig:82-84` leaves it out; its only `SIGINT`
       action is the graceful-exit ignore around its shutdown,
       `app_entry_runtime.zig:370`), so the launcher's ignore is what fx's
-      command inherits -- and what the rule above says xfx's does.
+      command inherits -- and xfx's, since its TUI leaves an inherited
+      `SIGINT` ignore alone (`src/tui/signals.rs`'s `install_handlers`).
     * `SIGHUP` is **not**: while the TUI owns the terminal a hangup is its to
       answer -- fx installs its restore over the launcher's ignore
       (`installAbnormalExitHandlers`, `app_lifecycle.zig:85-104`) and xfx
@@ -5349,7 +5352,7 @@ def scenario_3g(run):
     run.require(
         said("int.txt") == "kept\n",
         "SIGINT, which xfx was started ignoring and fx c1db919 leaves alone while it runs, "
-        "is still ignored in the command it runs (process.rs:23-28; got %r -- the command "
+        "is still ignored in the command it runs (process.rs:24-43; got %r -- the command "
         "died of it)" % said("int.txt"),
     )
     # Died is "never said `kept`": a shell may report its child's signal on

@@ -1230,6 +1230,55 @@ fn an_external_sigint_is_not_swallowed_because_isig_is_off() {
 }
 
 #[test]
+fn a_sigint_the_launcher_ignored_stays_ignored() {
+    // `nohup … &` from a non-interactive shell starts xfx with `SIGINT`
+    // ignored, and fx c1db919 leaves that ignore alone while it runs: it
+    // installs its restore for `SIGTERM` and `SIGHUP` only
+    // (`installAbnormalExitHandlers`, `app_lifecycle.zig:82-104`). So a
+    // `kill -INT` is ignored -- the session keeps the terminal and keeps
+    // answering keys -- and it leaves the ordinary way, with the terminal
+    // given back. The case above is the same signal with no ignore inherited.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let before = modes(&pty);
+    let mut command = tui(&sandbox);
+    // SAFETY: `setpgid` and `signal` are async-signal-safe and touch nothing
+    // outside the child that is about to `exec`.
+    unsafe {
+        command.pre_exec(|| {
+            rustix::process::setpgid(None, None)?;
+            if libc::signal(libc::SIGINT, libc::SIG_IGN) == libc::SIG_ERR {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+    session.signal(Signal::INT);
+    // Long enough for a handler to have restored and re-raised: the case above
+    // dies inside a few milliseconds of the same signal.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        matches!(session.state(), Wait::Running),
+        "the ignored SIGINT ended the session: {:?}",
+        session.state()
+    );
+    // Positively alive, not merely not dead: a key typed after the signal is
+    // drawn in the composer.
+    session.type_bytes(b"still-here");
+    session.wait_for("still-here");
+    assert!(
+        !session.text().contains(ABNORMAL_RESTORE),
+        "a handler ran the abnormal restore for a signal the launcher ignored"
+    );
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(before, modes(&pty), "termios byte-identical after the exit");
+}
+
+#[test]
 fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
     // The startup window, at the acceptance level. `SIGTSTP` is blocked from
     // before the terminal is taken until the session is inside its wait, so a
