@@ -526,6 +526,19 @@ fn is_in_ranges(codepoint: u32, ranges: &[PackedRange]) -> bool {
     false
 }
 
+/// The bytes of the RGI emoji sequence that starts at `index` of `text`, or
+/// `0` when none does (upstream's `matchRgiSequence`): what a terminal that
+/// clusters graphemes draws as one two-cell emoji.
+pub(crate) fn rgi_sequence_len(text: &[u8], index: usize) -> usize {
+    match_rgi_sequence(text, index)
+}
+
+/// Whether `codepoint` takes a text or emoji presentation selector
+/// (`emoji-variation-sequences.txt`, the table [`display_unit_at`] reads).
+pub(crate) fn is_variation_base(codepoint: u32) -> bool {
+    is_in_ranges(codepoint, &VARIATION_BASES)
+}
+
 fn match_rgi_sequence(text: &[u8], index: usize) -> usize {
     let mut node_index = 0usize;
     let mut cursor = index;
