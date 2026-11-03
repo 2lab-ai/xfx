@@ -27,7 +27,12 @@ upstream's `Session.fork` → `openFork` (`src/core/session/session_adapter.zig:
   published there, then renamed into `sessions/<id>`; a failure removes the stage. The writer unlocks in
   `Drop` like every `WritableSession`.
 - The source is read as `detail` reads it -- published boundary, digest, cross-check, no lock -- and never
-  written.
+  written. A hard link does raise its image file's link count and `ctime`, as upstream's D6 links do;
+  no byte, `mtime`, mode or name of the source changes.
+- The stage is under the profile rather than in `sessions/`, because a listing counts every name there
+  that is not a session. If `sessions/` were a mount of its own the rename would fail `EXDEV` and the
+  fork would be refused, stage removed. A stage a killed process leaves is inert, and `doctor`'s
+  leftover count (one level under `sessions/`) does not see it.
 
 ## RED (base `e0d97bd5`)
 
