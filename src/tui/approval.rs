@@ -790,6 +790,43 @@ pub(crate) struct ControlChannel {
     /// waiting for it to end ([`Self::defer`], [`Self::defer_speed`],
     /// [`Self::defer_undo`]), in the order they were read.
     deferred: Mutex<Vec<Deferred>>,
+    /// What answers [`TurnControl::Catalog`] for the work that is running,
+    /// lent for as long as it runs ([`Self::lend_catalog`]), so a prompter
+    /// parked on a question answers it too.
+    catalog: Mutex<Option<Arc<dyn CatalogAsker>>>,
+}
+
+/// What answers `/model`'s ask for the catalog ([`TurnControl::Catalog`])
+/// for a piece of work that holds the runtime -- read by the work's own race,
+/// or by a prompter a question has parked the thread in.
+///
+/// **Here so the question does not hold the read**, as upstream's does not:
+/// its catalog load runs on a thread of its own, whatever its worker is
+/// waiting for (`ensureModelCache` from `openModelBrowseCatalog`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
+/// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`). The read
+/// it starts runs on a thread of its own as well
+/// (`crate::provider::model::CatalogReader`), and tells the band from there.
+pub(crate) trait CatalogAsker: Send + Sync {
+    /// Starts the read, or says what the band is told now instead -- the
+    /// catalog as it is held, or a failure asked about again too soon
+    /// (`crate::provider::model::RETRY_FLOOR`). `None` when the read is
+    /// started, or one is on its way that will tell its own answer.
+    fn ask_catalog(&self, control: &ControlChannel) -> Option<UiEvent>;
+}
+
+/// A [`CatalogAsker`] lent to a [`ControlChannel`]: given back -- whatever
+/// was lent before it put back -- when this is dropped, however the work it
+/// was lent for ends.
+pub(crate) struct CatalogLent<'a> {
+    control: &'a ControlChannel,
+    before: Option<Arc<dyn CatalogAsker>>,
+}
+
+impl Drop for CatalogLent<'_> {
+    fn drop(&mut self) {
+        *self.control.catalog.guarded() = self.before.take();
+    }
 }
 
 /// One message put aside while work ran, for the turn loop once it is over.
@@ -838,7 +875,37 @@ impl ControlChannel {
             loop_waker: Mutex::new(None),
             put_back: Mutex::new(VecDeque::new()),
             deferred: Mutex::new(Vec::new()),
+            catalog: Mutex::new(None),
         })
+    }
+
+    /// Lends `asker` for the work that is about to run: a prompter parked on
+    /// a question while it runs answers [`TurnControl::Catalog`] through it
+    /// ([`Self::ask_catalog`]) instead of handing it back for when the
+    /// question lets the thread go.
+    pub(crate) fn lend_catalog(&self, asker: Arc<dyn CatalogAsker>) -> CatalogLent<'_> {
+        let before = self.catalog.guarded().replace(asker);
+        CatalogLent {
+            control: self,
+            before,
+        }
+    }
+
+    /// [`TurnControl::Catalog`], read by a prompter parked on a question:
+    /// answered through what the running work lent ([`Self::lend_catalog`]),
+    /// and handed back to the loop when nothing was lent. **A catalog request
+    /// answers no question**: the question stays up. What the band is to be
+    /// told now, if anything.
+    pub(crate) fn ask_catalog(&self) -> Option<UiEvent> {
+        // Cloned out, so the lock is not held while it is asked.
+        let asker = self.catalog.guarded().clone();
+        match asker {
+            Some(asker) => asker.ask_catalog(self),
+            None => {
+                self.give_back(TurnControl::Catalog);
+                None
+            }
+        }
     }
 
     /// Puts a model change aside until the work that is running ends
@@ -1204,11 +1271,15 @@ impl ApprovalPrompter for TuiPrompter {
                         continue;
                     }
                     // `/model`'s menu asking for the catalog while this question
-                    // is up: handed back to the work's own loop, which starts
-                    // the read the moment the question lets the thread go --
-                    // this wait holds it -- and the question stays up.
+                    // is up: the read starts now, on a thread of its own, and
+                    // tells the band itself -- this wait does not hold it
+                    // ([`ControlChannel::ask_catalog`]) -- and the question
+                    // stays up. What the band is told instead, when it is told
+                    // something now, goes from here.
                     Some(TurnControl::Catalog) => {
-                        self.control.give_back(TurnControl::Catalog);
+                        if let Some(answer) = self.control.ask_catalog() {
+                            let _ = send_ui(&self.events, &token, answer).await;
+                        }
                         continue;
                     }
                     // A cancel (Escape at the panel, or an interrupt) or a
