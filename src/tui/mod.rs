@@ -132,11 +132,14 @@ fn session(
     let resumed = resume
         .map(|selector| worker::Resumption::open(config, selector))
         .transpose()?;
-    // A model the session last ran under is restored when nothing chose one,
-    // which is `xfx ask --resume`'s rule (`app::run_ask`): an explicit setting
-    // or override outranks what a past turn happened to use. The band and the
-    // runtime both read the model from the configuration, so it is restored
-    // there, once, for both of them.
+    // The provider the session last recorded is the one it continues on, as
+    // upstream's resume puts it back (`restoreRuntimePreferences`,
+    // `app_session_runtime.zig:6147`), and the model with it; on the
+    // configured provider, a model the session last ran under is restored
+    // when nothing chose one, which is `xfx ask --resume`'s rule
+    // (`app::run_ask`) -- [`worker::Resumption::selection`]. The band and the
+    // runtime both read the provider and the model from the configuration, so
+    // they are restored there, once, for both of them.
     //
     // The effort and the speed switches the session recorded come back with
     // it whatever the profile says, as upstream's do
@@ -147,9 +150,7 @@ fn session(
     let config = match &resumed {
         Some(resumed) => {
             let mut owned = config.clone();
-            if config.sources.model == crate::config::SettingSource::CompiledDefault {
-                owned.model = resumed.model().to_string();
-            }
+            (owned.provider, owned.model) = resumed.selection(config, &config.model);
             // The Fast binding survives only for the selection this launch
             // was configured with: the session's provider, model and Fast
             // ([`worker::Resumption::keeps_fast_binding`]).
@@ -349,7 +350,14 @@ fn hold(
     // Read before the session goes to the runtime thread, which is the only
     // place it lives from then on: what the saved session replays as, built
     // from the state the open already read, with no read of its own.
-    let replay = resumed.as_ref().map(worker::Resumption::hydration);
+    // The band is built from this configuration, with the provider the
+    // session continues on already in it; what it still has to say is
+    // whether that provider can authenticate ([`worker::unauthenticated`]).
+    let replay = resumed.as_ref().map(|resumed| {
+        let mut replay = resumed.hydration();
+        replay.unauthenticated = worker::unauthenticated(config);
+        replay
+    });
     let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone(), resumed)?;
 
     // The block lifts inside `install`, so anything held across the transition
@@ -497,6 +505,10 @@ fn hold(
         &mut worker,
         &mut events,
     )?;
+    // The session's MCP servers stop with it, each by its own process group
+    // ([`crate::mcp::McpRuntime::shutdown`]): a server that ignores the end of
+    // its input is not left running after the person has gone.
+    worker.handle().mcp().shutdown();
     // Asked of the worker after the loop, because the loop's exit is what
     // joined the thread that knows ([`worker::Worker::resumable`]); formatted
     // by the shell, because the palette and the width are its.
@@ -762,6 +774,7 @@ mod hyperlink;
 mod image_paths;
 mod input;
 mod layout;
+mod mcp_menu;
 mod model_column;
 mod model_menu;
 mod notice;

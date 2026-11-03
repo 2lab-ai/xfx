@@ -827,6 +827,9 @@ pub(crate) fn inert_hydration(
         // A number.
         next_image: hydration.next_image,
         keeps_fast_binding: hydration.keeps_fast_binding,
+        // Enums this crate wrote, and a yes or a no.
+        provider: hydration.provider,
+        unauthenticated: hydration.unauthenticated,
     }
 }
 

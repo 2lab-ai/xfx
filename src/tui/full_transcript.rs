@@ -177,8 +177,15 @@ const SESSION_TOOLS_SHOWN: usize = 8;
 /// counts upstream's skill catalog, and xfx has no catalog to count.
 /// `effort: auto` is upstream's word for an effort nobody chose -- what it
 /// writes for an app with no effort of its own (`:378-381`) -- and xfx sends
-/// none. `mcp: none` is the fact: xfx connects to no server.
-pub(crate) fn session_record(provider: &str, model: &str, tools: &[&str]) -> Notice {
+/// none. `mcp:` names the configured servers as upstream's does, each with
+/// its connection and, once it is ready, its tools, the first ten and a count
+/// of the rest (`:92-111`), or `none`.
+pub(crate) fn session_record(
+    provider: &str,
+    model: &str,
+    tools: &[&str],
+    mcp: &[crate::mcp::runtime::ServerView],
+) -> Notice {
     let mut body = format!("provider: {provider} \u{b7} model: {model} \u{b7} effort: auto\n");
     body.push_str(&format!("tools: {} advertised", tools.len()));
     if !tools.is_empty() {
@@ -189,8 +196,45 @@ pub(crate) fn session_record(provider: &str, model: &str, tools: &[&str]) -> Not
         }
         body.push(')');
     }
-    body.push_str("\nmcp: none");
+    body.push('\n');
+    body.push_str(&mcp_record(mcp));
     Notice::neutral("session", body)
+}
+
+/// The session record's `mcp:` line (`app_bootstrap_runtime.zig:92-111`).
+fn mcp_record(servers: &[crate::mcp::runtime::ServerView]) -> String {
+    use crate::mcp::runtime::Connection;
+    const SHOWN: usize = 10;
+    if servers.is_empty() {
+        return "mcp: none".to_string();
+    }
+    let mut line = format!(
+        "mcp: {} server{}: ",
+        servers.len(),
+        if servers.len() == 1 { "" } else { "s" }
+    );
+    let named: Vec<String> = servers
+        .iter()
+        .take(SHOWN)
+        .map(|server| {
+            let connection = match server.connection {
+                Connection::Disconnected => "disconnected",
+                Connection::Disabled => "disabled",
+                Connection::Connecting => "connecting",
+                Connection::Ready => "ready",
+                Connection::Failed => "failed",
+            };
+            match server.tool_count {
+                Some(tools) => format!("{} ({connection}, {tools} tools)", server.name),
+                None => format!("{} ({connection})", server.name),
+            }
+        })
+        .collect();
+    line.push_str(&named.join(", "));
+    if servers.len() > SHOWN {
+        line.push_str(&format!(", +{} more", servers.len() - SHOWN));
+    }
+    line
 }
 
 /// The record of one settled provider request (`writeNetworkRecordBody` and
@@ -2525,6 +2569,7 @@ mod tests {
             "gateway",
             "fake/model-a",
             &["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+            &[],
         );
         assert_eq!(notice.tone, Tone::Neutral);
         assert_eq!(notice.topic, "session");
@@ -2535,7 +2580,7 @@ mod tests {
              mcp: none"
         );
         assert_eq!(
-            session_record("llmux", "m", &["a"]).body,
+            session_record("llmux", "m", &["a"], &[]).body,
             "provider: llmux \u{b7} model: m \u{b7} effort: auto\ntools: 1 advertised (a)\nmcp: none"
         );
     }
@@ -2739,7 +2784,7 @@ mod tests {
         // the answer is still above them, as in the capture.
         let mut record = record();
         record.welcome();
-        record.full_detail(session_record("gateway", "m", &["read_file"]));
+        record.full_detail(session_record("gateway", "m", &["read_file"], &[]));
         record.prompt("hi");
         record.answer("hello\n");
         record.observe(&UiEvent::FullDetail(Notice::neutral(
@@ -2785,6 +2830,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 images: Vec::new(),
@@ -2877,6 +2923,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 call_id: "c".into(),
@@ -3234,6 +3281,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             });
             teed.record(SessionEvent::ToolResult {
                 ending: None,

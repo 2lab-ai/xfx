@@ -4244,6 +4244,8 @@ mod tests {
             model: None,
             settings: None,
             keeps_fast_binding: true,
+            provider: None,
+            unauthenticated: None,
             next_image: 1,
         }
     }

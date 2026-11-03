@@ -15,6 +15,7 @@
 //!   [`UnadvertisedTool`] rather than inventing a result, and the turn ends
 //!   rather than continuing on a false premise.
 
+pub mod mcp;
 pub mod mutate;
 pub mod question;
 pub mod read;
@@ -49,11 +50,16 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
     "edit_file",
     "create_folder",
     "terminal",
+    "capability_search",
+    "mcp_select_tool",
+    "mcp_features",
     "ask_user_question",
 ];
 
 /// The specs themselves, in upstream's order (`tools.zig:1352-1367`): the read
-/// group, then the mutation group, then the terminal.
+/// group, then the mutation group, then the terminal -- and, where upstream
+/// puts them, between its shell and `ask_user_question`, the three MCP
+/// meta-tools (`vercel-labs/fx@c1db9191 src/builtins/tools.zig:868-883`).
 static BUILTIN_TOOLS: &[ToolSpec] = &[
     read::LIST_FILES,
     read::GLOB_FILES,
@@ -63,6 +69,9 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     mutate::EDIT_FILE,
     mutate::CREATE_FOLDER,
     terminal::TERMINAL,
+    mcp::CAPABILITY_SEARCH,
+    mcp::MCP_SELECT_TOOL,
+    mcp::MCP_FEATURES,
     question::ASK_USER_QUESTION,
 ];
 
@@ -192,6 +201,26 @@ impl Registry {
         self.specs.iter().map(ToolSpec::advertisement).collect()
     }
 
+    /// What a turn running under `context` advertises: the registry, less
+    /// the MCP meta-tools where no MCP client runs, and then every MCP tool
+    /// this turn has selected ([`ToolContext::mcp_selected`]), in the order
+    /// it was selected (`cap/fx-mcp-wire-40x120-bodies/003-completion.json`).
+    pub fn advertisement_for(&self, context: &ToolContext) -> Vec<Value> {
+        let mut tools: Vec<Value> = self
+            .specs
+            .iter()
+            .filter(|spec| context.mcp().is_some() || !mcp::META_TOOLS.contains(&spec.name()))
+            .map(ToolSpec::advertisement)
+            .collect();
+        tools.extend(
+            context
+                .mcp_selected()
+                .into_iter()
+                .map(|selected| selected.schema),
+        );
+        tools
+    }
+
     /// Runs one model tool call.
     ///
     /// Ok(result) covers both "it worked" and "it refused": a refusal is
@@ -319,6 +348,9 @@ mod tests {
             ("edit_file", PermissionKind::MutateFile),
             ("create_folder", PermissionKind::MutateFile),
             ("terminal", PermissionKind::RunCommand),
+            ("capability_search", PermissionKind::ReadOnly),
+            ("mcp_select_tool", PermissionKind::ReadOnly),
+            ("mcp_features", PermissionKind::ReadOnly),
             ("ask_user_question", PermissionKind::Interaction),
         ];
         let actual: Vec<(&str, PermissionKind)> = Registry::builtin()

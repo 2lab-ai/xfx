@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Rejecting project MCP server 'proj'.
+
+* mcp: MCP configuration reloaded successfully.
+
+* mcp: Saved MCP server 'fixture'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+* mcp: MCP configuration reloaded successfully.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 2  Servers  [Tools]  Resources  Prompts
+  All available servers
+  mcp_fixture_echo                    Tool
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab section     enter open     / filter     esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

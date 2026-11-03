@@ -1,0 +1,49 @@
+=== ~/.fx/continue/b6b0125e105e27a5b7edc15e1bb273ab86227e96d2610b2f958eb2c8b0777071 (13 bytes)
+hhzis3VNwGHm
+
+=== ~/.fx/history.jsonl (443 bytes)
+{"schema_version":1,"timestamp_ms":1791348235696,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs"}
+{"schema_version":1,"timestamp_ms":1791348240772,"workspace_root":"<scratch>/work","text":"use the fixture echo tool"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/mcp.json (301 bytes)
+{"mcp":{"fixture":{"type":"local","command":["/opt/homebrew/bin/bun","<fixtures>/mcp-legacy-stdio.mjs"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}}}
+=== ~/.fx/mcp.lock (0 bytes)
+=== ~/.fx/sessions/hhzis3VNwGHm/events.jsonl (5118 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791348242771,"event":{"user":{"text":"use the fixture echo tool","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791348242771,"event":{"tool_call":{"call_id":"call_search","tool_name":"capability_search","arguments_json":"{\"query\":\"echo text through the fixture\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791348242771,"event":{"tool_result":{"call_id":"call_search","tool_name":"capability_search","status":"success","artifact_ref":"result-capability_search-393dc8bcd3fde5aa-e6f9280e2314ca81.txt","tool_image_handle":null,"output_bytes":296,"stored_bytes":296,"completeness":"complete","preview":"{\"skills\":[],\"mcp_tools\":[{\"name\":\"mcp_fixture_echo\",\"server\":\"fixture\",\"description\":\"Echo text through the legacy MCP fixture\",\"purpose\":\"Echo text through the legacy MCP fixture\",\"usage\":[\"mcp\",\"fixture\",\"echo\"]}],\"counts\":{\"skills\":0,\"mcp_tools\":1},\"total_matches\":{\"skills\":0,\"mcp_tools\":1}}","provider_native":false,"created_at_ms":1791348242762,"permission_feedback":[],"committed_file_presentation":null,"command_replay_ref":null,"command_replay_bytes":null,"command_process_presentation":null,"terminal_action_presentation":null}}}
+{"schema_version":3,"seq":4,"timestamp_ms":1791348242771,"event":{"tool_call":{"call_id":"call_echo","tool_name":"mcp_fixture_echo","arguments_json":"{\"text\":\"hi\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":5,"timestamp_ms":1791348242771,"event":{"tool_result":{"call_id":"call_echo","tool_name":"mcp_fixture_echo","status":"success","artifact_ref":"result-mcp_fixture_echo-9f5e0e782ff61195-f9cff5d607c6f4af.txt","tool_image_handle":null,"output_bytes":120,"stored_bytes":120,"completeness":"complete","preview":"{\"server\":\"fixture\",\"tool\":\"mcp_fixture_echo\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"LEGACY_MCP_TOOL_RESULT:hi\"}]}}","provider_native":false,"created_at_ms":1791348242762,"permission_feedback":[],"committed_file_presentation":null,"command_replay_ref":null,"command_replay_bytes":null,"command_process_presentation":null,"terminal_action_presentation":null}}}
+{"schema_version":3,"seq":6,"timestamp_ms":1791348242771,"event":{"tool_call":{"call_id":"call_features","tool_name":"mcp_features","arguments_json":"{\"action\":\"resource_list\",\"server\":\"fixture\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":7,"timestamp_ms":1791348242771,"event":{"tool_result":{"call_id":"call_features","tool_name":"mcp_features","status":"success","artifact_ref":"result-mcp_features-03ad9ee252771f84-d5ef1c3232836b1b.txt","tool_image_handle":null,"output_bytes":259,"stored_bytes":259,"completeness":"complete","preview":"{\"trust\":\"untrusted_external\",\"authority\":\"none\",\"action\":\"resource_list\",\"server\":\"fixture\",\"unsupported\":true,\"message\":\"fixture did not advertise a resources capability, so this feature is unavailable on that server. Use its tools or pick another server.\"}","provider_native":false,"created_at_ms":1791348242762,"permission_feedback":[],"committed_file_presentation":null,"command_replay_ref":null,"command_replay_bytes":null,"command_process_presentation":null,"terminal_action_presentation":null}}}
+{"schema_version":3,"seq":8,"timestamp_ms":1791348242771,"event":{"tool_call":{"call_id":"call_select","tool_name":"mcp_select_tool","arguments_json":"{\"name\":\"mcp_fixture_echo\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":9,"timestamp_ms":1791348242771,"event":{"tool_result":{"call_id":"call_select","tool_
+=== ~/.fx/sessions/hhzis3VNwGHm/owner.live (43 bytes)
+{"pid":14962,"opened_at_ms":1791348232687}
+
+=== ~/.fx/sessions/hhzis3VNwGHm/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/hhzis3VNwGHm/session.json (406 bytes)
+{"schema_version":4,"id":"hhzis3VNwGHm","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791348232687,"updated_at_ms":1791348242771,"conversation_language":"und-Latn","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"title":"use the fixture echo tool","subagent_child":false}
+=== ~/.fx/sessions/hhzis3VNwGHm/session.lock (0 bytes)
+=== ~/.fx/sessions/hhzis3VNwGHm/tool-results/result-capability_search-393dc8bcd3fde5aa-e6f9280e2314ca81.txt (296 bytes)
+{"skills":[],"mcp_tools":[{"name":"mcp_fixture_echo","server":"fixture","description":"Echo text through the legacy MCP fixture","purpose":"Echo text through the legacy MCP fixture","usage":["mcp","fixture","echo"]}],"counts":{"skills":0,"mcp_tools":1},"total_matches":{"skills":0,"mcp_tools":1}}
+=== ~/.fx/sessions/hhzis3VNwGHm/tool-results/result-mcp_features-03ad9ee252771f84-d5ef1c3232836b1b.txt (259 bytes)
+{"trust":"untrusted_external","authority":"none","action":"resource_list","server":"fixture","unsupported":true,"message":"fixture did not advertise a resources capability, so this feature is unavailable on that server. Use its tools or pick another server."}
+=== ~/.fx/sessions/hhzis3VNwGHm/tool-results/result-mcp_fixture_echo-9f5e0e782ff61195-f9cff5d607c6f4af.txt (120 bytes)
+{"server":"fixture","tool":"mcp_fixture_echo","result":{"content":[{"type":"text","text":"LEGACY_MCP_TOOL_RESULT:hi"}]}}
+=== ~/.fx/sessions/hhzis3VNwGHm/tool-results/result-mcp_select_tool-81da1ea327b77a74-2f38baad3edcaf3a.txt (178 bytes)
+Selected dynamic MCP tool `mcp_fixture_echo`. Its executable schema will be available on the next model step; call `mcp_fixture_echo` with arguments matching the selected schema.
+=== ~/.fx/sessions/hhzis3VNwGHm/usage-v2.json (540 bytes)
+{"schema_version":1,"session_id":"hhzis3VNwGHm","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":7,"settled_through_sequence":6,"api_duration_ms":256,"wall_duration_ms":10074,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/usage.jsonl (657 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791348241237}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791348241108,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791348241632,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791348242160,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791348242500,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791348242690,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791348242751,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

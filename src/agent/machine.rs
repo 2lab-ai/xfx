@@ -103,7 +103,7 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// merged into one.
 ///
 /// Nothing at all is still not evidence, and is still not recorded.
-fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
+fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion, model: &str) {
     if completion.text.is_empty()
         && completion.tool_calls.is_empty()
         && completion.raw_content.is_empty()
@@ -130,6 +130,10 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
         // recording path to discover.
         responses_state: Vec::new(),
         wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
+        // And the model the request named, beside the state as the wire is:
+        // a state replays only to the model that sealed it
+        // (`ProviderReplay.matches`, `types.zig:1512-1515`).
+        model: (!completion.raw_content.is_empty()).then(|| model.to_string()),
     });
 }
 
@@ -362,6 +366,12 @@ pub struct TurnMachine {
     /// The static system message: the project context as of the turn's start.
     /// Empty when there is none.
     static_context: String,
+    /// The configured MCP servers as they stood when the turn began
+    /// ([`crate::mcp::catalog::render_servers`]), or empty where no MCP client
+    /// runs. A system message of its own after the project's, as upstream
+    /// sends it (`cap/fx-mcp-fixture-40x120-bodies/001-completion.json`,
+    /// `prompt[3]`), and like the project's never rewritten within a turn.
+    mcp_servers: String,
     /// Instructions admitted mid-turn, in the order they were admitted. Each is
     /// its own message, so nothing already delivered is rewritten.
     overlay: Vec<String>,
@@ -554,12 +564,21 @@ enum Stepped {
 
 impl TurnMachine {
     pub fn new(request: TurnRequest) -> Self {
+        let mut request = request;
+        // A turn starts with no MCP tool selected (`orchestrator.zig:6785`).
+        request.tools.begin_mcp_turn();
+        let mcp_servers = request
+            .tools
+            .mcp()
+            .map(|link| crate::mcp::catalog::render_servers(&link.runtime.views()))
+            .unwrap_or_default();
         let history = request.history.clone();
         let user = user_message(&request, None);
         Self {
             request,
             context: ProjectContext::none(),
             static_context: String::new(),
+            mcp_servers,
             overlay: Vec::new(),
             history,
             user,
@@ -612,6 +631,9 @@ impl TurnMachine {
         let mut messages = Vec::with_capacity(self.history.len() + self.suffix.len() + 3);
         if !self.static_context.is_empty() {
             messages.push(Message::system(self.static_context.clone()));
+        }
+        if !self.mcp_servers.is_empty() {
+            messages.push(Message::system(self.mcp_servers.clone()));
         }
         for overlay in &self.overlay {
             messages.push(Message::system(overlay.clone()));
@@ -726,6 +748,7 @@ impl TurnMachine {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 });
             }
         }
@@ -915,6 +938,7 @@ impl TurnMachine {
                             raw_content: Vec::new(),
                             responses_state: Vec::new(),
                             wire: None,
+                            model: None,
                         });
                         self.suffix
                             .push(Message::assistant(Some(&partial), Vec::new()));
@@ -960,7 +984,7 @@ impl TurnMachine {
             if completion.tool_calls.is_empty() {
                 // The answering step's own evidence, recorded through the same
                 // guard the tool-calling step uses.
-                record_assistant(journal, &completion);
+                record_assistant(journal, &completion, &self.request.model);
                 // **The last boundary a steer can reach the turn at**: one sent
                 // while this answer arrived is told now, after it, and the turn
                 // goes on (`append_pending_steering_after_assistant`,
@@ -1107,7 +1131,12 @@ impl TurnMachine {
             announced.push(call.id.clone());
         }
         for call in &completion.tool_calls {
-            if registry.spec(&call.name).is_none() {
+            // A server's own tool is known once this turn has selected it,
+            // and only then: its schema went out with the request
+            // ([`Registry::advertisement_for`]).
+            if registry.spec(&call.name).is_none()
+                && !crate::tools::mcp::is_selected(&self.request.tools, &call.name)
+            {
                 return Err(TurnError::ToolCallUnsupported {
                     tool: call.name.clone(),
                 });
@@ -1131,7 +1160,7 @@ impl TurnMachine {
                 completion.tool_calls.clone(),
             )
         });
-        record_assistant(journal, completion);
+        record_assistant(journal, completion, &self.request.model);
 
         // What the user said while answering this step's approvals, in call
         // order. **Function-local, never a field**: a buffer on `self` would
@@ -1151,36 +1180,41 @@ impl TurnMachine {
                 return Err(TurnError::Cancelled);
             }
 
+            let spec = registry.spec(&call.name);
             // Before the call is admitted, not after it runs: a rule about the
             // directory this call is about to touch is worth nothing once the
-            // file has already been written.
-            if let Some(target) = target_path(call.input.get("path")) {
-                if let Some(delta) = self.context.admit_target(&target) {
-                    self.overlay.push(delta);
+            // file has already been written. A server's own tool names no
+            // path of this workspace's, whatever its arguments call `path`.
+            if spec.is_some() {
+                if let Some(target) = target_path(call.input.get("path")) {
+                    if let Some(delta) = self.context.admit_target(&target) {
+                        self.overlay.push(delta);
+                    }
                 }
             }
 
-            // Checked above like the execution below it, and mapped rather than
-            // unwrapped for the same reason.
-            let Some(spec) = registry.spec(&call.name) else {
-                return Err(TurnError::ToolCallUnsupported {
-                    tool: call.name.clone(),
-                });
+            let shown = match spec {
+                Some(spec) => spec.shown(&call.input),
+                None => crate::tools::mcp::shown(&call.name),
             };
             events
                 .emit(&Event::ToolStart {
                     call_id: call.id.clone(),
                     tool: call.name.clone(),
-                    shown: spec.shown(&call.input),
+                    shown,
                 })
                 .map_err(TurnError::Sink)?;
 
             // Checked above, so the registry cannot refuse the name here; the
             // error is still mapped rather than unwrapped, because a panic in a
             // turn would lose the terminal event the caller is owed.
-            let result = registry
-                .execute(call, &self.request.tools)
-                .map_err(|err| TurnError::ToolCallUnsupported { tool: err.name })?;
+            let result = match spec {
+                Some(_) => registry
+                    .execute(call, &self.request.tools)
+                    .map_err(|err| TurnError::ToolCallUnsupported { tool: err.name })?,
+                None => crate::tools::mcp::call(call, &self.request.tools)
+                    .clipped(self.request.tools.limits().max_output_bytes),
+            };
 
             // Counted as soon as the file has changed, ahead of anything that
             // can still fail this step: the lines are on disk either way.
@@ -1644,10 +1678,11 @@ impl TurnMachine {
             // the text in its place, as upstream projects each request
             // (`withholdOversizedAttachments`, `orchestrator.zig:7215-7226`).
             messages: crate::image::withhold(self.messages()),
-            // The registry verbatim, every step. Re-advertising is not
-            // redundant: the Gateway is stateless, so a schema omitted from
-            // step two is a tool the model no longer has.
-            tools: Registry::builtin().advertisement(),
+            // The registry verbatim, every step, and every MCP tool this
+            // turn has selected after it. Re-advertising is not redundant:
+            // the Gateway is stateless, so a schema omitted from step two is
+            // a tool the model no longer has.
+            tools: Registry::builtin().advertisement_for(&self.request.tools),
             // `auto`, because every advertised tool is real and read-only.
             tool_choice: ToolChoice::Auto,
         }
@@ -2233,7 +2268,16 @@ mod tests {
             tools,
         });
         let request = machine.completion_request();
-        assert_eq!(request.tools, Registry::builtin().advertisement());
+        // The whole registry but the MCP meta-tools, which a context with no
+        // MCP client does not offer ([`Registry::advertisement_for`]).
+        let expected: Vec<serde_json::Value> = Registry::builtin()
+            .advertisement()
+            .into_iter()
+            .filter(|tool| {
+                !crate::tools::mcp::META_TOOLS.contains(&tool["name"].as_str().unwrap_or_default())
+            })
+            .collect();
+        assert_eq!(request.tools, expected);
         assert_eq!(request.tool_choice, ToolChoice::Auto);
     }
 

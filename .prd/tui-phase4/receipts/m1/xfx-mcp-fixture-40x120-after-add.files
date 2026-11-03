@@ -1,0 +1,28 @@
+=== ~/.xfx/history.jsonl (1580 bytes)
+{"schema_version":1,"timestamp_ms":1793702637473,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793702639336,"workspace_root":"<scratch>/work","text":"/mcp add fixture /opt/homebrew/bin/bun <fixtures>/mcp-legacy-stdio.mjs"}
+{"schema_version":1,"timestamp_ms":1793702643357,"workspace_root":"<scratch>/work","text":"/mcp"}
+{"schema_version":1,"timestamp_ms":1793702649307,"workspace_root":"<scratch>/work","text":"/mcp list"}
+{"schema_version":1,"timestamp_ms":1793702651155,"workspace_root":"<scratch>/work","text":"/mcp resource list fixture"}
+{"schema_version":1,"timestamp_ms":1793702653186,"workspace_root":"<scratch>/work","text":"/mcp resource read fixture legacy://alpha"}
+{"schema_version":1,"timestamp_ms":1793702655215,"workspace_root":"<scratch>/work","text":"/mcp prompt list fixture"}
+{"schema_version":1,"timestamp_ms":1793702657242,"workspace_root":"<scratch>/work","text":"/mcp prompt get fixture review {\"tone\":\"brief\"}"}
+{"schema_version":1,"timestamp_ms":1793702659267,"workspace_root":"<scratch>/work","text":"/mcp auth fixture"}
+{"schema_version":1,"timestamp_ms":1793702660291,"workspace_root":"<scratch>/work","text":"/mcp logout fixture"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/mcp.json (295 bytes)
+{"mcp":{"fixture":{"type":"local","command":["/opt/homebrew/bin/bun","<fixtures>/mcp-legacy-stdio.mjs"],"enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000,"restart_limit":1}}}
+=== ~/.xfx/mcp.lock (0 bytes)
+=== ~/.xfx/settings.json (140 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "disabledMcpjsonServers": [
+        "proj"
+      ]
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

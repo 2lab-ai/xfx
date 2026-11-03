@@ -11,7 +11,12 @@ R = sys.argv[1]
 SNAPS = {
     "provider-carry": ["start", "turn1", "open", "switched", "turn2", "quit", "resumed", "turn3"],
     "provider-carry-back": ["start", "turn1", "open", "switched", "turn2", "turn3"],
+    # Round 2: the resume after the profile went back to the Gateway.
+    "provider-resume": ["start", "turn1", "switched", "turn2", "resumed", "turn3"],
+    "provider-resume-missing": ["turn2", "resumed", "refused"],
 }
+# Snaps taken after a `relaunch --resume`, which writes no banner.
+RESUMED = {"resumed", "turn3", "refused"}
 MAP = [
     ("Codex subscription with gpt-5.6-sol", "llmux with fake/model-a"),
     ("Codex subscription", "llmux"),
@@ -38,7 +43,7 @@ for scenario, snaps in SNAPS.items():
         fx = rows(f"{R}/fx-{scenario}-40x120-{snap}.ansi")
         xf = rows(f"{R}/xfx-{scenario}-40x120-{snap}.ansi")
         # The banner is each product's; rows after it are compared.
-        start = 1 if snap not in ("resumed", "turn3") or scenario != "provider-carry" else 0
+        start = 0 if snap in RESUMED and scenario != "provider-carry-back" else 1
         a, b = fx[start:], xf[start:]
         if "--drop" in sys.argv:
             # The two rows that are not this unit's to match: fx's gated

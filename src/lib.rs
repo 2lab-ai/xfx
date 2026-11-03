@@ -37,6 +37,7 @@ pub mod image;
 pub mod interactive;
 pub mod llmux;
 pub mod markdown;
+pub mod mcp;
 pub mod output;
 pub mod permission;
 pub mod process;

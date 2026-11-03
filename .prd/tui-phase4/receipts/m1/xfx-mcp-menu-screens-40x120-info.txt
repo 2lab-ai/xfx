@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3776cad [debug] · Run /help for commands
+
+Project MCP server 'proj' is defined in .mcp.json.
+  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts
+
+* mcp: Project MCP approval prompts dismissed for this process.
+
+* mcp: Saved MCP server 'remote'.
+  MCP reconnection started. Your existing MCP servers will stay active while the new configuration is checked.
+
+! mcp: MCP configuration reloaded, but server 'remote' is unavailable. Run /mcp list for details.
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+MCP 2  [Servers]  Tools  Resources  Prompts
+
+  Profile config      ~/.xfx/mcp.json
+  Project config      <workspace>/.mcp.json
+  servers: s add Slack · a add · r reload · enter inspect
+  project trust: p approve all · z reset
+  details: enter sign in · l logout · d remove
+  project details: a approve · x reject
+  catalogs: / filter · enter open · i insert preview
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc back
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
