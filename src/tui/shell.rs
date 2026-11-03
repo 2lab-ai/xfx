@@ -22341,13 +22341,25 @@ mod tests {
         let _ = live.picks_up();
         live.apply(UiEvent::TurnStarted);
         live.apply(tool_start("c1", "terminal", echo("echo hi")));
-        live.apply(tool_ended("c1", "terminal", true, "", CallOutcome::Exited(0)));
+        live.apply(tool_ended(
+            "c1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
         live.apply(UiEvent::ToolFeedback {
             call_id: "c1".to_string(),
             text: "use capitals".to_string(),
         });
         live.apply(tool_start("c2", "terminal", echo("echo again")));
-        live.apply(tool_ended("c2", "terminal", true, "", CallOutcome::Exited(0)));
+        live.apply(tool_ended(
+            "c2",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
         live.apply(UiEvent::Delta("Done.".to_string()));
         live.apply(UiEvent::Output(Progress::Settled(40)));
         live.apply(UiEvent::Usage { input: Some(6) });
@@ -22416,7 +22428,11 @@ mod tests {
             true,
         );
         let rows = resumed.painted_document();
-        assert_eq!(rows[2..], live_rows[..], "the replay is not the live document");
+        assert_eq!(
+            rows[2..],
+            live_rows[..],
+            "the replay is not the live document"
+        );
 
         // Ctrl-O: a prompt, as upstream's full transcript has the user's
         // words, not a line of xfx's.

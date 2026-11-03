@@ -2269,7 +2269,11 @@ mod tests {
         );
         // What a question about it says, and what "always" buys: every later
         // call of the tool, whatever it asks.
-        let search = tool_call("capability_search", "github issues", r#"{"query":"github issues"}"#);
+        let search = tool_call(
+            "capability_search",
+            "github issues",
+            r#"{"query":"github issues"}"#,
+        );
         let action = ProposedAction::Tool(&search);
         assert_eq!(action.target(), "capability_search");
         assert_eq!(
@@ -2306,7 +2310,10 @@ mod tests {
             key: format!(r#"{{"a":"{long}{tail}"}}"#),
         };
         let (first, second) = (mcp("1"), mcp("2"));
-        assert_eq!(first.arguments, second.arguments, "the shown line is the same");
+        assert_eq!(
+            first.arguments, second.arguments,
+            "the shown line is the same"
+        );
         let (first, second) = (
             ProposedAction::Mcp(&first).state_key(),
             ProposedAction::Mcp(&second).state_key(),

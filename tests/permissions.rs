@@ -3430,15 +3430,18 @@ async fn a_rule_that_asks_before_a_question_asks_in_auto_and_with_nobody_to_ask_
         &[("ask_user_question", "*", RuleAction::Ask)],
     );
     let provider = ScriptedProvider::new(vec![
-        calls_step(vec![ToolCall {
-            id: "q1".to_string(),
-            name: "capability_search".to_string(),
-            input: json!({ "query": "anything" }),
-        }, ToolCall {
-            id: "q2".to_string(),
-            name: "ask_user_question".to_string(),
-            input: one_question(),
-        }]),
+        calls_step(vec![
+            ToolCall {
+                id: "q1".to_string(),
+                name: "capability_search".to_string(),
+                input: json!({ "query": "anything" }),
+            },
+            ToolCall {
+                id: "q2".to_string(),
+                name: "ask_user_question".to_string(),
+                input: one_question(),
+            },
+        ]),
         answer_step("refused"),
     ]);
     let mut sink = RecordingSink::new();
@@ -4559,7 +4562,11 @@ fn a_remembered_rule_decides_exactly_one_call_of_a_tool_judged_by_its_name() {
         refused.output
     );
     // Another query is another call: the rule does not reach it.
-    let other = call(&context, "capability_search", json!({"query": "pull requests"}));
+    let other = call(
+        &context,
+        "capability_search",
+        json!({"query": "pull requests"}),
+    );
     assert_ne!(other.outcome, Outcome::Denied, "{}", other.output);
 
     // A store that does not read refuses it too, as it refuses everything.
@@ -4947,7 +4954,8 @@ fn a_store_that_cannot_be_read_refuses_the_call_rather_than_letting_a_deny_lapse
 }
 
 #[test]
-fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_and_a_question_is_prepared_by_its_label() {
+fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_and_a_question_is_prepared_by_its_label(
+) {
     let tree = Tree::new();
     let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
         .with_permissions(session(PermissionMode::Ask).with_rules(table(&[(
@@ -4987,12 +4995,9 @@ fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_and_a_questio
     )
     .expect("a question is prepared");
     assert_eq!(question.display, "ask_user_question");
-    let search = xfx::tools::prepare_rule_action(
-        "capability_search",
-        &json!({"query": "issues"}),
-        &context,
-    )
-    .expect("a search is prepared");
+    let search =
+        xfx::tools::prepare_rule_action("capability_search", &json!({"query": "issues"}), &context)
+            .expect("a search is prepared");
     assert_eq!(search.display, "capability_search issues");
     assert_ne!(question.key, search.key);
     // Preparing ran nothing.

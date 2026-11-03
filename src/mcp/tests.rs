@@ -405,7 +405,11 @@ fn a_deny_written_mid_turn_takes_a_selected_tool_out_of_the_next_request_in_ever
         let context = ToolContext::new(scope)
             .with_permissions(PermissionSession::new(mode).with_live_rules(live.clone()))
             .with_mcp(Arc::clone(&runtime));
-        let selected = call(&context, "mcp_select_tool", json!({"name": "mcp_fixture_echo"}));
+        let selected = call(
+            &context,
+            "mcp_select_tool",
+            json!({"name": "mcp_fixture_echo"}),
+        );
         assert!(selected.ok, "{mode:?}: {selected:?}");
         let names = |context: &ToolContext| -> Vec<String> {
             crate::tools::Registry::builtin()
@@ -414,7 +418,10 @@ fn a_deny_written_mid_turn_takes_a_selected_tool_out_of_the_next_request_in_ever
                 .filter_map(|tool| tool["name"].as_str().map(str::to_string))
                 .collect()
         };
-        assert!(names(&context).contains(&"mcp_fixture_echo".to_string()), "{mode:?}");
+        assert!(
+            names(&context).contains(&"mcp_fixture_echo".to_string()),
+            "{mode:?}"
+        );
 
         live.replace(RuleSet::parse(&json!({"mcp_fixture_*": "deny"})).expect("rules"));
         assert!(
@@ -427,7 +434,10 @@ fn a_deny_written_mid_turn_takes_a_selected_tool_out_of_the_next_request_in_ever
 
         // Taken back: offered again from the next step on.
         live.replace(RuleSet::default());
-        assert!(names(&context).contains(&"mcp_fixture_echo".to_string()), "{mode:?}");
+        assert!(
+            names(&context).contains(&"mcp_fixture_echo".to_string()),
+            "{mode:?}"
+        );
     }
     runtime.shutdown();
 }
@@ -444,7 +454,11 @@ fn a_rule_that_asks_about_an_mcp_tool_asks_in_auto_before_auto_holds_it() {
     settled(&runtime, "fixture");
     let rules = RuleSet::parse(&json!({"mcp_fixture_echo": "ask"})).expect("rules");
     let auto = context(&home, &runtime, PermissionMode::Auto, rules);
-    let selected = call(&auto, "mcp_select_tool", json!({"name": "mcp_fixture_echo"}));
+    let selected = call(
+        &auto,
+        "mcp_select_tool",
+        json!({"name": "mcp_fixture_echo"}),
+    );
     assert!(selected.ok, "{selected:?}");
     let asked = call(&auto, "mcp_fixture_echo", json!({"text": "hi"}));
     assert_eq!(asked.outcome, crate::tools::Outcome::Denied, "{asked:?}");
@@ -474,8 +488,16 @@ fn a_global_deny_hides_the_mcp_meta_tools_and_refuses_a_call_to_one_anyway() {
     assert!(crate::tools::Registry::builtin()
         .advertisement_for(&denied)
         .is_empty());
-    let searched = call(&denied, "capability_search", json!({"query": "echo text back"}));
-    assert_eq!(searched.outcome, crate::tools::Outcome::Denied, "{searched:?}");
+    let searched = call(
+        &denied,
+        "capability_search",
+        json!({"query": "echo text back"}),
+    );
+    assert_eq!(
+        searched.outcome,
+        crate::tools::Outcome::Denied,
+        "{searched:?}"
+    );
     assert!(denied.mcp_selected().is_empty());
     // Full access offers all three, and the search runs.
     let full = context(

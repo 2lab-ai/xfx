@@ -709,7 +709,9 @@ mod tests {
                 "mcp_select_tool" => json!({ "name": "mcp_some_tool" }),
                 "mcp_features" => json!({ "server": "s", "action": "prompt_list" }),
                 "skill" => json!({ "location": "/skills/some-skill" }),
-                _ => json!({ "questions": [{ "question": "q", "options": [{ "label": "a" }, { "label": "b" }] }] }),
+                _ => {
+                    json!({ "questions": [{ "question": "q", "options": [{ "label": "a" }, { "label": "b" }] }] })
+                }
             };
             let call = ToolCall {
                 id: "c1".into(),
@@ -742,9 +744,9 @@ mod tests {
             let asked = run(PermissionMode::Auto, &[(name, "*", Ask)], name);
             assert_eq!(asked.outcome, Outcome::Denied, "{name}");
             assert!(
-                asked
-                    .output
-                    .contains(&format!("a configured permission rule asks before `{name}`")),
+                asked.output.contains(&format!(
+                    "a configured permission rule asks before `{name}`"
+                )),
                 "{name}: {}",
                 asked.output
             );
@@ -752,7 +754,10 @@ mod tests {
             for (mode, rows) in [
                 (PermissionMode::Ask, &[][..]),
                 (PermissionMode::Ask, &[("edit", "*", Deny)][..]),
-                (PermissionMode::Ask, &[("*", "*", Deny), (*name, "*", Allow)][..]),
+                (
+                    PermissionMode::Ask,
+                    &[("*", "*", Deny), (*name, "*", Allow)][..],
+                ),
                 (PermissionMode::Yolo, &[("*", "*", Deny)][..]),
             ] {
                 let ran = run(mode, rows, name);
@@ -776,7 +781,8 @@ mod tests {
         use crate::permission::{PermissionMode, PermissionSession, RuleSet};
         let dir = tempfile::tempdir().expect("temporary workspace");
         let scope = AccessScope::primary_only(dir.path()).expect("scope");
-        let rules = RuleSet::parse(&json!({ "skill": { "restricted-name": "deny" } })).expect("rules");
+        let rules =
+            RuleSet::parse(&json!({ "skill": { "restricted-name": "deny" } })).expect("rules");
         for mode in [PermissionMode::Ask, PermissionMode::Auto] {
             let context = ToolContext::new(scope.clone())
                 .with_permissions(PermissionSession::new(mode).with_rules(rules.clone()));
@@ -790,12 +796,19 @@ mod tests {
                     name: "skill".into(),
                     input: input.clone(),
                 };
-                let result = Registry::builtin().execute(&call, &context).expect("registered");
-                assert_eq!(result.outcome, Outcome::Denied, "{mode:?} {input}: {}", result.output);
+                let result = Registry::builtin()
+                    .execute(&call, &context)
+                    .expect("registered");
+                assert_eq!(
+                    result.outcome,
+                    Outcome::Denied,
+                    "{mode:?} {input}: {}",
+                    result.output
+                );
                 assert!(
-                    result
-                        .output
-                        .contains("a configured permission rule denies `skill` for `restricted-name`"),
+                    result.output.contains(
+                        "a configured permission rule denies `skill` for `restricted-name`"
+                    ),
                     "{}",
                     result.output
                 );
@@ -806,7 +819,9 @@ mod tests {
                 name: "skill".into(),
                 input: json!({ "location": "/installed/other-skill" }),
             };
-            let result = Registry::builtin().execute(&other, &context).expect("registered");
+            let result = Registry::builtin()
+                .execute(&other, &context)
+                .expect("registered");
             assert_ne!(result.outcome, Outcome::Denied, "{}", result.output);
         }
     }
@@ -818,16 +833,19 @@ mod tests {
         let scope = AccessScope::primary_only(dir.path()).expect("scope");
         // `ask` with nobody to ask: a call that reached a question would be
         // refused as one. This one never gets that far.
-        let context = ToolContext::new(scope)
-            .with_permissions(PermissionSession::new(PermissionMode::Ask).with_rules(
+        let context = ToolContext::new(scope).with_permissions(
+            PermissionSession::new(PermissionMode::Ask).with_rules(
                 crate::permission::RuleSet::parse(&json!({ "*": "ask" })).expect("rules"),
-            ));
+            ),
+        );
         let call = ToolCall {
             id: "c1".into(),
             name: "capability_search".into(),
             input: json!({}),
         };
-        let result = Registry::builtin().execute(&call, &context).expect("registered");
+        let result = Registry::builtin()
+            .execute(&call, &context)
+            .expect("registered");
         assert_ne!(result.outcome, Outcome::Denied, "{}", result.output);
         assert!(!result.output.contains("asks before"), "{}", result.output);
     }
