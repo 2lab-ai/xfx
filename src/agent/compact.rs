@@ -789,7 +789,8 @@ enum Item {
 /// Gateway's wire sends it -- its text and its calls.
 fn items_of(turn: &HistoryTurn) -> Vec<Item> {
     let mut ignored = Vec::new();
-    let messages = turn_messages(turn, &Wire::VercelGateway, &mut ignored);
+    // No model: the Gateway's wire replays no state, so none could match.
+    let messages = turn_messages(turn, &Wire::VercelGateway, "", &mut ignored);
     // The person's steers, in the words they typed, as the turn's steps
     // hold them.
     let mut steers: Vec<&str> = turn
@@ -3323,6 +3324,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             }],
             outcome: concluded(),
             timing: TurnTiming::default(),
@@ -3351,6 +3353,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
                 TurnStep::ToolResult {
                     call_id: "read1".to_string(),
@@ -3368,6 +3371,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
             ],
             outcome: concluded(),
@@ -3592,6 +3596,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             });
             steps.push(TurnStep::ToolResult {
                 call_id: format!("read{n}"),
@@ -3611,6 +3616,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             });
         }
         let step_seqs: Vec<u64> = (0..steps.len() as u64).map(|n| seq + 1 + n).collect();

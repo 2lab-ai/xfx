@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod mutate;
 pub mod question;
 pub mod read;
+pub mod skill;
 pub mod spec;
 pub mod terminal;
 pub mod undo;
@@ -51,6 +52,7 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
     "create_folder",
     "terminal",
     "capability_search",
+    "skill",
     "mcp_select_tool",
     "mcp_features",
     "ask_user_question",
@@ -58,8 +60,9 @@ pub const ADVERTISED_TOOLS: &[&str] = &[
 
 /// The specs themselves, in upstream's order (`tools.zig:1352-1367`): the read
 /// group, then the mutation group, then the terminal -- and, where upstream
-/// puts them, between its shell and `ask_user_question`, the three MCP
-/// meta-tools (`vercel-labs/fx@c1db9191 src/builtins/tools.zig:868-883`).
+/// puts them, between its shell and `ask_user_question`, the MCP meta-tools
+/// with `skill` among them (`advertisement_order`, `vercel-labs/fx@c1db9191
+/// src/builtins/tools.zig:865-881`).
 static BUILTIN_TOOLS: &[ToolSpec] = &[
     read::LIST_FILES,
     read::GLOB_FILES,
@@ -70,6 +73,7 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     mutate::CREATE_FOLDER,
     terminal::TERMINAL,
     mcp::CAPABILITY_SEARCH,
+    skill::SKILL,
     mcp::MCP_SELECT_TOOL,
     mcp::MCP_FEATURES,
     question::ASK_USER_QUESTION,
@@ -174,10 +178,12 @@ pub fn prepare_rule_action(
         // 2262-2267`). The key is the one [`run_judged_by_name`] decides by.
         ToolInput::AskUserQuestion(_)
         | ToolInput::CapabilitySearch(_)
+        | ToolInput::Skill(_)
         | ToolInput::McpSelectTool(_)
         | ToolInput::McpFeatures(_) => {
             let plan = crate::permission::ToolCallPlan {
                 tool: spec.name(),
+                targets: targets_of(spec.name(), arguments, context),
                 label: label_of(spec.name(), arguments),
                 arguments: arguments.to_string(),
             };
@@ -361,8 +367,12 @@ impl Registry {
 ///
 /// Every other spec is judged by its own executor, against the plan it
 /// prepared; `every_spec_is_judged_somewhere` keeps the two lists whole.
+///
+/// `skill` is one of them too, judged under `skill` at the skill it loads
+/// rather than at its own name ([`targets_of`]).
 pub const JUDGED_BY_NAME: &[&str] = &[
     "capability_search",
+    "skill",
     "mcp_select_tool",
     "mcp_features",
     "ask_user_question",
@@ -378,6 +388,7 @@ fn run_judged_by_name(spec: &ToolSpec, call: &ToolCall, context: &ToolContext) -
     }
     let plan = ToolCallPlan {
         tool: spec.name(),
+        targets: targets_of(spec.name(), &call.input, context),
         label: label_of(spec.name(), &call.input),
         arguments: call.input.to_string(),
     };
@@ -409,6 +420,7 @@ fn run_judged_by_name(spec: &ToolSpec, call: &ToolCall, context: &ToolContext) -
 fn label_of(tool: &str, input: &Value) -> String {
     let field = match tool {
         "capability_search" => "query",
+        "skill" => "name",
         "mcp_select_tool" => "name",
         "mcp_features" => "action",
         _ => return String::new(),
@@ -418,6 +430,53 @@ fn label_of(tool: &str, input: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
+}
+
+/// Where a [`JUDGED_BY_NAME`] call is judged: at the tool's own name
+/// (`permissions.zig:226`), and a `skill` call at the skill it loads, which
+/// upstream names by the skill the location resolves to, else the call's
+/// `name` (`permissionTargetForCall`, `vercel-labs/fx@c1db9191
+/// src/core/permissions/permissions.zig:181-185`) -- never at the resource
+/// it reads, so a deny on a skill refuses every way of loading any part of it
+/// (`resolved skill calls retain name policy`, `tool_admission.zig:
+/// 3840-3870`).
+///
+/// Every name the call could be about is judged, the resolved skill's first:
+/// the catalog's name for the location, the `name` the call gave, and the
+/// location's last component, the skill's name unless its directory was
+/// renamed. A deny at any of them refuses, so a call that names a denied
+/// skill some other way is still refused; one that names nothing is judged
+/// at `skill`.
+fn targets_of(tool: &'static str, input: &Value, context: &ToolContext) -> Vec<String> {
+    if tool != "skill" {
+        return vec![tool.to_string()];
+    }
+    let mut targets: Vec<String> = Vec::new();
+    let mut push = |name: &str| {
+        if !name.is_empty() && !targets.iter().any(|known| known == name) {
+            targets.push(name.to_string());
+        }
+    };
+    let location = input.get("location").and_then(Value::as_str);
+    if let (Some(location), Some(catalog)) = (location, context.skills()) {
+        if let Ok(path) = catalog.resolve(location) {
+            if let Some(skill) = catalog.skills.iter().find(|skill| skill.path == path) {
+                push(&skill.name);
+            }
+        }
+    }
+    if let Some(name) = input.get("name").and_then(Value::as_str) {
+        push(name);
+    }
+    if let Some(location) = location {
+        if let Some(leaf) = location.rsplit('/').next() {
+            push(leaf);
+        }
+    }
+    if targets.is_empty() {
+        targets.push(tool.to_string());
+    }
+    targets
 }
 
 /// The name upstream's projection judges a spec by.
@@ -551,6 +610,7 @@ mod tests {
                 "read_file",
                 "terminal",
                 "capability_search",
+                "skill",
                 "mcp_select_tool",
                 "mcp_features",
                 "ask_user_question"
@@ -567,6 +627,7 @@ mod tests {
                 "create_folder",
                 "terminal",
                 "capability_search",
+                "skill",
                 "mcp_select_tool",
                 "mcp_features",
                 "ask_user_question"
@@ -647,6 +708,7 @@ mod tests {
                 "capability_search" => json!({ "query": "anything" }),
                 "mcp_select_tool" => json!({ "name": "mcp_some_tool" }),
                 "mcp_features" => json!({ "server": "s", "action": "prompt_list" }),
+                "skill" => json!({ "location": "/skills/some-skill" }),
                 _ => json!({ "questions": [{ "question": "q", "options": [{ "label": "a" }, { "label": "b" }] }] }),
             };
             let call = ToolCall {
@@ -701,6 +763,51 @@ mod tests {
                     ran.output
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_deny_on_a_skill_refuses_every_way_of_loading_any_part_of_it() {
+        // Upstream judges a skill call at the skill, whatever part of it the
+        // call reads (`permissionTargetForCall`, `permissions.zig:181-185`;
+        // `resolved skill calls retain name policy`, `tool_admission.zig:
+        // 3840-3870`): its canonical form with a resource, its legacy named
+        // form, and a location alone are all refused by a deny on its name.
+        use crate::permission::{PermissionMode, PermissionSession, RuleSet};
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        let scope = AccessScope::primary_only(dir.path()).expect("scope");
+        let rules = RuleSet::parse(&json!({ "skill": { "restricted-name": "deny" } })).expect("rules");
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            let context = ToolContext::new(scope.clone())
+                .with_permissions(PermissionSession::new(mode).with_rules(rules.clone()));
+            for input in [
+                json!({ "location": "/installed/restricted-name", "resource": "reference.md" }),
+                json!({ "location": "/installed/restricted-name" }),
+                json!({ "name": "restricted-name", "location": "/installed/renamed", "offset": 1 }),
+            ] {
+                let call = ToolCall {
+                    id: "c1".into(),
+                    name: "skill".into(),
+                    input: input.clone(),
+                };
+                let result = Registry::builtin().execute(&call, &context).expect("registered");
+                assert_eq!(result.outcome, Outcome::Denied, "{mode:?} {input}: {}", result.output);
+                assert!(
+                    result
+                        .output
+                        .contains("a configured permission rule denies `skill` for `restricted-name`"),
+                    "{}",
+                    result.output
+                );
+            }
+            // Another skill is not covered.
+            let other = ToolCall {
+                id: "c2".into(),
+                name: "skill".into(),
+                input: json!({ "location": "/installed/other-skill" }),
+            };
+            let result = Registry::builtin().execute(&other, &context).expect("registered");
+            assert_ne!(result.outcome, Outcome::Denied, "{}", result.output);
         }
     }
 
@@ -776,6 +883,7 @@ mod tests {
             ("create_folder", PermissionKind::MutateFile),
             ("terminal", PermissionKind::RunCommand),
             ("capability_search", PermissionKind::ReadOnly),
+            ("skill", PermissionKind::ReadOnly),
             ("mcp_select_tool", PermissionKind::ReadOnly),
             ("mcp_features", PermissionKind::ReadOnly),
             ("ask_user_question", PermissionKind::Interaction),

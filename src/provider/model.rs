@@ -7,7 +7,7 @@
 //! advertises no catalog has `None`, not an object that answers nothing.
 
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -979,7 +979,7 @@ impl ModelCatalog for GatewayCatalog {
 /// contact a remote host on its own initiative, and a Gateway with no
 /// credential cannot run a turn either, so `/model` there says there is
 /// nothing to browse. A llmux daemon's is its `GET /models`.
-pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
+pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog + Send + Sync>> {
     match config.provider {
         ProviderId::Gateway => {
             let credential = config.credential.clone()?;
@@ -1167,7 +1167,7 @@ pub struct ModelSelector {
     provider: ProviderId,
     model: String,
     source: SettingSource,
-    catalog_fetcher: Option<std::rc::Rc<dyn ModelCatalog>>,
+    catalog_fetcher: Option<Fetcher>,
     catalog_state: CatalogState,
     /// Whether the failure [`CatalogState::Failed`] holds is one asking again
     /// could change, and how the menu says so. `None` beside any other state.
@@ -1175,18 +1175,90 @@ pub struct ModelSelector {
     /// A load started in the background ([`Self::begin_load`]) that nothing
     /// has taken the answer of yet. [`CatalogState::NotLoaded`] meanwhile.
     pending: Option<PendingLoad>,
+    /// When the read whose answer [`Self::catalog`] holds began: what
+    /// [`RETRY_FLOOR`] counts from. `None` before any read.
+    last_attempt: Option<Instant>,
+    /// Reads handed to this selector that it did not take the answer of
+    /// ([`Self::adopt_load`]): each runs on to tell its answer, and is stopped
+    /// with the selector -- so a provider switch, which replaces it, is never
+    /// followed by the old provider's rows.
+    strays: Vec<PendingLoad>,
 }
 
-/// A catalog load running beside whatever else the thread does. Dropped
-/// with its selector -- a provider switch replaces both -- it is stopped
-/// rather than left to finish for nobody.
+/// What a selector asks its catalog with: shared with the thread each read
+/// runs on ([`PendingLoad`]), so `Send + Sync`. The future a fetch returns is
+/// not `Send`, and never leaves the thread that polls it.
+pub(crate) type Fetcher = std::sync::Arc<dyn ModelCatalog + Send + Sync>;
+
+/// How soon after a read began a read that failed may be asked again:
+/// upstream's model cache starts no load within a second of the last
+/// attempt's start, and a `/model` inside that second opens the menu over
+/// the failure it holds (`beginLoad`, `vercel-labs/fx@c1db9191
+/// src/core/app/model_cache_runtime.zig:441-442`, the attempt's time set when
+/// it starts, `:454`; `openMenu` -> `refreshMenuLocked`, `:529-539`,
+/// `:792-806`).
+pub(crate) const RETRY_FLOOR: Duration = Duration::from_secs(1);
+
+/// Whether a read that failed, begun at `attempted`, may be asked again at
+/// `now` ([`RETRY_FLOOR`]). Counted from the attempt's **start**, as
+/// upstream's is, so a failure that took longer than the floor to arrive is
+/// asked again at once.
+pub(crate) fn may_read_again(attempted: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(attempted) >= RETRY_FLOOR
+}
+
+/// A catalog load running on a thread of its own, as upstream's does
+/// (`startWarmup` spawns `preloadThreadMain`, `vercel-labs/fx@c1db9191
+/// src/core/app/model_cache_runtime.zig:321-349`, `:698-743`): it goes on
+/// whatever the thread that started it does meanwhile -- a turn's stream, or
+/// a question that has parked it (`crate::tui::bridge::park_on`) -- and tells
+/// its answer the moment it arrives. The thread holds the fetcher and the
+/// telling, never the selector: the answer reaches the selector only through
+/// [`Self::answer`], awaited by the thread that owns it.
 ///
-/// `None` only once it has been let go ([`PendingLoad::detach`]).
-struct PendingLoad(Option<tokio::task::JoinHandle<Loaded>>);
+/// **Dropped, it is stopped and waited for**, as upstream's `cancelAndJoin`
+/// (`:770-776`): the fetch and the telling are both raced against the stop,
+/// so the wait ends at the read's next await, and once the drop returns it
+/// tells nothing more.
+struct PendingLoad {
+    /// When it began, and what it answered once it has ([`LoadView`]).
+    view: LoadView,
+    /// Sent once the answer has been told.
+    done: tokio::sync::oneshot::Receiver<()>,
+    /// Fired by the drop.
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    /// The telling of a read that could not be given a thread: the answer is
+    /// that failure, told when the selector takes it.
+    unstarted: Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>,
+}
+
+/// What a read is, seen from beside it: when it began, and its answer once
+/// it has told one. For work that holds the selector and is asked for the
+/// catalog meanwhile: upstream's `beginLoad` decides by the cache's state --
+/// a load on its way is not started twice, and one that failed is started
+/// again a second after it began (`model_cache_runtime.zig:441-447`).
+#[derive(Clone)]
+pub(crate) struct LoadView {
+    began: Instant,
+    outcome: std::sync::Arc<std::sync::OnceLock<Loaded>>,
+}
+
+impl LoadView {
+    /// When the read began ([`RETRY_FLOOR`]).
+    pub(crate) fn began(&self) -> Instant {
+        self.began
+    }
+
+    /// The answer it has told, if it has told one yet.
+    pub(crate) fn answered(&self) -> Option<&Loaded> {
+        self.outcome.get()
+    }
+}
 
 /// What a load leaves the selector holding: the catalog's state, and whether
 /// asking again could change a failure ([`ModelSelector::failure_retry`]).
-type Loaded = (CatalogState, Option<CatalogRetry>);
+pub(crate) type Loaded = (CatalogState, Option<CatalogRetry>);
 
 /// [`Loaded`] for one attempt's answer.
 fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
@@ -1204,30 +1276,133 @@ fn loaded(answer: Result<Vec<CatalogEntry>, CatalogError>) -> Loaded {
 
 impl Drop for PendingLoad {
     fn drop(&mut self) {
-        if let Some(handle) = self.0.take() {
-            handle.abort();
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }
 
 impl PendingLoad {
-    /// Starts `fetcher`'s read as a local task, telling `told` its answer the
-    /// moment it arrives ([`ModelSelector::begin_load`]).
-    fn start<Told, Telling>(fetcher: std::rc::Rc<dyn ModelCatalog>, told: Told) -> Self
+    /// Starts `fetcher`'s read on a thread of its own, telling `told` its
+    /// answer -- and when the read began -- the moment it arrives
+    /// ([`ModelSelector::begin_load`]).
+    fn start<Told, Telling>(fetcher: Fetcher, told: Told) -> Self
     where
-        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
-        Telling: std::future::Future<Output = ()> + 'static,
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
     {
-        Self(Some(tokio::task::spawn_local(async move {
-            let answer = loaded(fetcher.fetch().await);
-            told(answer.0.clone(), answer.1).await;
-            answer
-        })))
+        let view = LoadView {
+            began: Instant::now(),
+            outcome: std::sync::Arc::new(std::sync::OnceLock::new()),
+        };
+        let began = view.began;
+        let outcome = std::sync::Arc::clone(&view.outcome);
+        let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
+        let (finished, done) = tokio::sync::oneshot::channel::<()>();
+        // Taken back if no thread can be had for it.
+        let work = std::sync::Arc::new(std::sync::Mutex::new(Some((fetcher, told, finished))));
+        let on_thread = std::sync::Arc::clone(&work);
+        let thread = std::thread::Builder::new()
+            .name("xfx-catalog".to_string())
+            .spawn(move || {
+                let Some((fetcher, told, finished)) = on_thread
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                else {
+                    return;
+                };
+                let runtime = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => runtime,
+                    Err(err) => {
+                        let _ = outcome.set(loaded(Err(CatalogError::Unavailable {
+                            detail: format!("could not start the catalog read: {err}"),
+                        })));
+                        let _ = finished.send(());
+                        return;
+                    }
+                };
+                runtime.block_on(async move {
+                    // A stop that was never sent -- its sender dropped -- is
+                    // no stop: the pattern disables the branch.
+                    let answer = tokio::select! {
+                        biased;
+                        Ok(()) = &mut stopped => return,
+                        answer = fetcher.fetch() => loaded(answer),
+                    };
+                    tokio::select! {
+                        biased;
+                        Ok(()) = &mut stopped => return,
+                        () = told(answer.0.clone(), answer.1, began) => {}
+                    }
+                    let _ = outcome.set(answer);
+                    let _ = finished.send(());
+                });
+            });
+        match thread {
+            Ok(thread) => Self {
+                view,
+                done,
+                stop: Some(stop),
+                thread: Some(thread),
+                unstarted: None,
+            },
+            // No thread to be had: the answer is that failure, told when the
+            // selector takes it ([`Self::answer`]).
+            Err(err) => {
+                let unstarted = work
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take()
+                    .map(|(_, told, finished)| {
+                        let failure = loaded(Err(CatalogError::Unavailable {
+                            detail: format!("could not start the catalog read: {err}"),
+                        }));
+                        let telling = told(failure.0.clone(), failure.1, began);
+                        let _ = view.outcome.set(failure);
+                        let _ = finished.send(());
+                        Box::pin(telling)
+                            as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                    });
+                Self {
+                    view,
+                    done,
+                    stop: None,
+                    thread: None,
+                    unstarted,
+                }
+            }
+        }
     }
 
-    /// Lets the load finish -- and tell its answer -- for nobody to take.
-    fn detach(mut self) {
-        drop(self.0.take());
+    /// Whether it has answered -- and told its answer -- already.
+    fn is_finished(&self) -> bool {
+        self.unstarted.is_none()
+            && self
+                .thread
+                .as_ref()
+                .is_none_or(std::thread::JoinHandle::is_finished)
+    }
+
+    /// Waits for the answer, once it has been told. Cancel-safe: dropped
+    /// before it ends, it leaves the read as it was.
+    async fn answer(&mut self) -> Loaded {
+        if let Some(telling) = self.unstarted.as_mut() {
+            telling.await;
+            self.unstarted = None;
+        }
+        let _ = (&mut self.done).await;
+        self.view.answered().cloned().unwrap_or_else(|| {
+            loaded(Err(CatalogError::Unavailable {
+                detail: "the catalog read ended without an answer".to_string(),
+            }))
+        })
     }
 }
 
@@ -1238,34 +1413,33 @@ impl PendingLoad {
 /// (`ensureModelCache` from `openModelBrowseCatalog`,
 /// `vercel-labs/fx@c1db9191 src/core/app/app_input_runtime.zig:2346-2349`;
 /// `startWarmup`, `src/core/app/model_cache_runtime.zig:321-349`). The read
-/// it starts is handed back to the selector afterwards
-/// ([`ModelSelector::adopt_load`]).
+/// it starts runs on a thread of its own ([`PendingLoad`]), so a question
+/// that parks the thread asking does not hold it, and it is handed back to
+/// the selector afterwards ([`ModelSelector::adopt_load`]). `Send + Sync`,
+/// so the prompter a question parks in can start one.
 #[derive(Clone)]
 pub(crate) struct CatalogReader {
-    fetcher: Option<std::rc::Rc<dyn ModelCatalog>>,
+    fetcher: Option<Fetcher>,
 }
 
 /// A read a [`CatalogReader`] started, for the selector to take.
 pub(crate) struct StartedLoad(PendingLoad);
 
 impl StartedLoad {
-    /// Whether it has answered -- and told its answer -- already.
-    pub(crate) fn is_finished(&self) -> bool {
-        self.0
-             .0
-            .as_ref()
-            .is_none_or(tokio::task::JoinHandle::is_finished)
+    /// When it began, and its answer once it has told one.
+    pub(crate) fn view(&self) -> LoadView {
+        self.0.view.clone()
     }
 }
 
 impl CatalogReader {
     /// Starts the read, telling `told` its answer the moment it arrives, as
     /// [`ModelSelector::begin_load`] does; `None` when the provider has no
-    /// catalog to read. **Inside a [`tokio::task::LocalSet`]**, as that.
+    /// catalog to read.
     pub(crate) fn begin<Told, Telling>(&self, told: Told) -> Option<StartedLoad>
     where
-        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
-        Telling: std::future::Future<Output = ()> + 'static,
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
     {
         let fetcher = self.fetcher.clone()?;
         Some(StartedLoad(PendingLoad::start(fetcher, told)))
@@ -1287,10 +1461,12 @@ impl ModelSelector {
             provider: config.provider,
             model: config.model.clone(),
             source: config.sources.model,
-            catalog_fetcher: catalog_fetcher.map(std::rc::Rc::from),
+            catalog_fetcher: catalog_fetcher.map(Fetcher::from),
             catalog_state,
             failure_retry: None,
             pending: None,
+            last_attempt: None,
+            strays: Vec::new(),
         }
     }
 
@@ -1341,6 +1517,7 @@ impl ModelSelector {
         let Some(fetcher) = &self.catalog_fetcher else {
             return &self.catalog_state;
         };
+        self.last_attempt = Some(Instant::now());
         let answer = fetcher.fetch().await;
         self.adopt(answer);
         &self.catalog_state
@@ -1360,14 +1537,13 @@ impl ModelSelector {
     /// and the footer when a load has ended (`pollLoadTransition`,
     /// `model_cache_runtime.zig:549-557`, from `loopCollectFacts`,
     /// `main.zig:3050-3083`). The selector itself takes the answer later,
-    /// when something asks it ([`Self::is_loading`]).
-    ///
-    /// **Must be called inside a [`tokio::task::LocalSet`]**: the fetchers
-    /// are not `Send`, so the load is a local task.
+    /// when something asks it ([`Self::is_loading`]). The load runs on a
+    /// thread of its own ([`PendingLoad`]), so a question that parks this
+    /// thread does not hold it.
     pub(crate) fn begin_load<Told, Telling>(&mut self, told: Told)
     where
-        Told: FnOnce(CatalogState, Option<CatalogRetry>) -> Telling + 'static,
-        Telling: std::future::Future<Output = ()> + 'static,
+        Told: FnOnce(CatalogState, Option<CatalogRetry>, Instant) -> Telling + Send + 'static,
+        Telling: std::future::Future<Output = ()> + Send + 'static,
     {
         if !matches!(self.catalog_state, CatalogState::NotLoaded) || self.pending.is_some() {
             return;
@@ -1392,10 +1568,20 @@ impl ModelSelector {
     /// ([`Self::ensure_catalog`]). A read of the selector's own still on its
     /// way stands, and so does a catalog it holds already; this one is then
     /// let finish for nobody -- it tells its answer still, to an interface
-    /// that may be waiting on it -- and its answer is not taken.
+    /// that may be waiting on it -- and its answer is not taken. It is kept
+    /// all the same ([`Self::strays`]), so it is stopped with the selector.
+    ///
+    /// A read of the selector's own that **has answered** does not stand: a
+    /// reader's read begun beside it is begun only after it failed (the
+    /// worker's `CatalogAsks`), so this one is the newer, and the one taken.
     pub(crate) fn adopt_load(&mut self, load: StartedLoad) {
-        if self.pending.is_some() || matches!(self.catalog_state, CatalogState::Loaded(_)) {
-            load.0.detach();
+        self.strays.retain(|stray| !stray.is_finished());
+        let on_its_way = self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| !pending.is_finished());
+        if on_its_way || matches!(self.catalog_state, CatalogState::Loaded(_)) {
+            self.strays.push(load.0);
             return;
         }
         self.catalog_state = CatalogState::NotLoaded;
@@ -1410,22 +1596,30 @@ impl ModelSelector {
         self.pending.is_some()
     }
 
+    /// The background load, seen from beside it ([`LoadView`]), while there
+    /// is one.
+    pub(crate) fn load_view(&self) -> Option<LoadView> {
+        self.pending.as_ref().map(|pending| pending.view.clone())
+    }
+
+    /// Whether the background load has answered, and told its answer, and
+    /// only its taking is left ([`Self::settle_load`] returns at once).
+    pub(crate) fn has_answered(&self) -> bool {
+        self.pending.as_ref().is_some_and(PendingLoad::is_finished)
+    }
+
     /// Waits for the background load, if there is one, and takes its answer.
     ///
     /// Cancel-safe: dropped before the load ends, it leaves the load running
     /// and still pending.
     pub(crate) async fn settle_load(&mut self) {
-        let Some(PendingLoad(Some(handle))) = self.pending.as_mut() else {
+        let Some(pending) = self.pending.as_mut() else {
             return;
         };
-        let answer = handle.await;
+        let answer = pending.answer().await;
+        self.last_attempt = Some(pending.view.began);
         self.pending = None;
-        (self.catalog_state, self.failure_retry) = match answer {
-            Ok(answer) => answer,
-            Err(join) => loaded(Err(CatalogError::Unavailable {
-                detail: join.to_string(),
-            })),
-        };
+        (self.catalog_state, self.failure_retry) = answer;
     }
 
     fn adopt(&mut self, answer: Result<Vec<CatalogEntry>, CatalogError>) {
@@ -1442,11 +1636,42 @@ impl ModelSelector {
     /// else retries: a turn that wants the catalog for its effort takes the
     /// failure as it stands rather than spending a request on every prompt
     /// against a Gateway that is down.
+    ///
+    /// This one asks again whenever it is asked: a query `/model` could not
+    /// resolve is upstream's `fetchModelIds`, a read of its own beside the
+    /// model cache (`resolveModelQuery`, `session_commands.zig:1147-1166`;
+    /// `src/main.zig:2211-2220`), which no floor holds. The menu's and the
+    /// column's asks are [`Self::retry_after_failure_at`]'s.
     pub fn retry_after_failure(&mut self) {
         if matches!(self.catalog_state, CatalogState::Failed(_)) {
             self.catalog_state = CatalogState::NotLoaded;
             self.failure_retry = None;
         }
+    }
+
+    /// [`Self::retry_after_failure`], held to upstream's model cache's floor:
+    /// within [`RETRY_FLOOR`] of the start of the read that failed, the
+    /// failure stands and nothing is asked (`beginLoad`,
+    /// `model_cache_runtime.zig:441-442`). Whether it let the next read
+    /// happen.
+    pub(crate) fn retry_after_failure_at(&mut self, now: Instant) -> bool {
+        if !matches!(self.catalog_state, CatalogState::Failed(_)) {
+            return false;
+        }
+        if self
+            .last_attempt
+            .is_some_and(|attempted| !may_read_again(attempted, now))
+        {
+            return false;
+        }
+        self.retry_after_failure();
+        true
+    }
+
+    /// When the read whose answer the catalog holds began, if any has
+    /// ([`RETRY_FLOOR`]).
+    pub(crate) fn last_attempt(&self) -> Option<Instant> {
+        self.last_attempt
     }
 
     /// Whether the failure the catalog is in is worth asking again about
@@ -1548,6 +1773,8 @@ impl ModelSelector {
             catalog_state: CatalogState::Unavailable,
             failure_retry: None,
             pending: None,
+            last_attempt: None,
+            strays: Vec::new(),
         }
     }
 
@@ -1564,16 +1791,26 @@ impl ModelSelector {
         self.catalog_state = state;
     }
 
+    /// Moves the start of the last read back past [`RETRY_FLOOR`], so a test
+    /// can ask after the floor without waiting a second for it.
+    #[cfg(test)]
+    pub(crate) fn backdate_attempt_for_test(&mut self) {
+        self.last_attempt = self
+            .last_attempt
+            .and_then(|attempted| attempted.checked_sub(RETRY_FLOOR * 2));
+    }
+
     /// A catalog this selector *asks* -- one a test wrote -- in place of the
     /// provider's, with nothing loaded yet. For the worker's tests of what a
     /// load that fails or succeeds is told to the UI as; `#[cfg(test)]` like
     /// [`Self::set_catalog_for_test`], so no binary can reach it.
     #[cfg(test)]
-    pub(crate) fn set_fetcher_for_test(&mut self, fetcher: Box<dyn ModelCatalog>) {
-        self.catalog_fetcher = Some(std::rc::Rc::from(fetcher));
+    pub(crate) fn set_fetcher_for_test(&mut self, fetcher: Box<dyn ModelCatalog + Send + Sync>) {
+        self.catalog_fetcher = Some(Fetcher::from(fetcher));
         self.catalog_state = CatalogState::NotLoaded;
         self.failure_retry = None;
         self.pending = None;
+        self.last_attempt = None;
     }
 }
 
@@ -2008,7 +2245,7 @@ mod tests {
 
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(std::rc::Rc::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::sync::Arc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
 
         // First call should fetch.
@@ -2123,7 +2360,7 @@ mod tests {
         }));
         let mut selector =
             ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(std::rc::Rc::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::sync::Arc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
         selector.ensure_catalog().await;
         assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
@@ -2153,7 +2390,7 @@ mod tests {
 
         let mut selector =
             ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
-        selector.catalog_fetcher = Some(std::rc::Rc::new(catalog.clone()));
+        selector.catalog_fetcher = Some(std::sync::Arc::new(catalog.clone()));
         selector.catalog_state = CatalogState::NotLoaded;
 
         // First call should fetch and fail.
@@ -2169,6 +2406,151 @@ mod tests {
         let count_after_second = catalog.count();
         assert_eq!(count_after_second, count_after_first);
     }
+    #[test]
+    fn a_failed_read_is_asked_again_a_second_after_it_began_and_not_before() {
+        // Upstream's model cache: `.failed => now - last_attempt_ms >= 1000`,
+        // the attempt's time set when it starts (`beginLoad`,
+        // `model_cache_runtime.zig:441-442`, `:454`).
+        let began = Instant::now();
+        assert!(!may_read_again(began, began));
+        assert!(!may_read_again(
+            began,
+            began + RETRY_FLOOR - Duration::from_millis(1)
+        ));
+        assert!(may_read_again(began, began + RETRY_FLOOR));
+        // A clock that reads earlier than the attempt is no time at all.
+        assert!(!may_read_again(began + RETRY_FLOOR, began));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_state = CatalogState::Failed("HTTP 503".to_string());
+        selector.failure_retry = Some(CatalogRetry::Unreachable);
+        selector.last_attempt = Some(began);
+        // Inside the second: the failure stands, retryable sentence and all.
+        assert!(!selector.retry_after_failure_at(began + Duration::from_millis(999)));
+        assert!(matches!(selector.catalog(), CatalogState::Failed(_)));
+        assert_eq!(selector.failure_retry(), Some(CatalogRetry::Unreachable));
+        // After it, the next read may happen.
+        assert!(selector.retry_after_failure_at(began + RETRY_FLOOR));
+        assert!(matches!(selector.catalog(), CatalogState::NotLoaded));
+        // A loaded catalog is not given up by it, whenever it is asked.
+        selector.catalog_state = CatalogState::Loaded(Vec::new());
+        assert!(!selector.retry_after_failure_at(began + RETRY_FLOOR * 10));
+        assert!(matches!(selector.catalog(), CatalogState::Loaded(_)));
+    }
+
+    /// A catalog that answers once `gate` opens, or never.
+    struct Waiting {
+        gate: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        answer: Result<Vec<CatalogEntry>, CatalogError>,
+    }
+
+    impl Waiting {
+        fn new(
+            answer: Result<Vec<CatalogEntry>, CatalogError>,
+        ) -> (tokio::sync::oneshot::Sender<()>, Self) {
+            let (open, gate) = tokio::sync::oneshot::channel();
+            (
+                open,
+                Self {
+                    gate: std::sync::Mutex::new(Some(gate)),
+                    answer,
+                },
+            )
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl ModelCatalog for Waiting {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+            let gate = self.gate.lock().expect("gate").take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            match &self.answer {
+                Ok(entries) => Ok(entries.clone()),
+                Err(_) => Err(CatalogError::Gateway {
+                    detail: "HTTP 503".to_string(),
+                    retry: Some(CatalogRetry::Unreachable),
+                }),
+            }
+        }
+    }
+
+    #[test]
+    fn a_background_read_counts_its_floor_from_when_it_began_not_from_when_it_failed() {
+        // Upstream sets the attempt's time as the load starts (`:454`), so a
+        // failure that took longer than the floor to arrive is asked again
+        // at once.
+        let (open, waiting) = Waiting::new(Err(CatalogError::Empty));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(waiting));
+        selector.catalog_state = CatalogState::NotLoaded;
+        let before = Instant::now();
+        selector.begin_load(|_, _, _| async {});
+        let after_begin = Instant::now();
+        // Answered well after it began.
+        let opened = Instant::now();
+        open.send(()).expect("the read waits");
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(selector.settle_load());
+        assert!(matches!(selector.catalog(), CatalogState::Failed(_)));
+        let attempted = selector.last_attempt().expect("an attempt");
+        assert!(before <= attempted && attempted <= after_begin && attempted <= opened);
+    }
+
+    #[test]
+    fn a_read_on_its_way_is_stopped_with_its_selector_and_tells_nothing_after() {
+        // Upstream's `resetForProviderChange` -> `cancelAndJoin`
+        // (`model_cache_runtime.zig:483-492`, `reset` `:461-462`, `:770-776`): the old provider's
+        // load is stopped and waited for before the new one's is read, so it
+        // tells nothing about a catalog that is no longer the one in force.
+        // The telling holds the only sender: disconnected and empty is a
+        // thread that has ended without telling.
+        let (open, waiting) = Waiting::new(Ok(Vec::new()));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(waiting));
+        selector.catalog_state = CatalogState::NotLoaded;
+        let (told, heard) = std::sync::mpsc::channel::<()>();
+        selector.begin_load(move |_, _, _| async move {
+            let _ = told.send(());
+        });
+        assert!(selector.is_loading());
+        drop(selector);
+        let _ = open.send(());
+        assert_eq!(
+            heard.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        );
+
+        // And a read handed to a selector that did not take its answer is
+        // stopped with it too.
+        let (open, waiting) = Waiting::new(Ok(Vec::new()));
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "m", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(std::sync::Arc::new(waiting));
+        selector.catalog_state = CatalogState::Loaded(Vec::new());
+        let (told, heard) = std::sync::mpsc::channel::<()>();
+        let load = selector
+            .reader()
+            .begin(move |_, _, _| async move {
+                let _ = told.send(());
+            })
+            .expect("a catalog to read");
+        selector.adopt_load(load);
+        assert!(!selector.is_loading(), "a catalog in hand was given up");
+        drop(selector);
+        let _ = open.send(());
+        assert_eq!(
+            heard.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        );
+    }
+
     /// The third state of the same contract the two cases above pin
     /// (`ensure_catalog_fetches_exactly_once_on_success` and
     /// `ensure_catalog_does_not_retry_after_failure`): a provider that has no

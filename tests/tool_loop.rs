@@ -354,7 +354,6 @@ fn the_advertisement_names_no_deferred_tool() {
         "web_search",
         "memory",
         "semantic_search",
-        "skill",
         "install_skill",
         "subagent",
         "mcp_search_tools",
@@ -2522,7 +2521,7 @@ async fn a_resumed_session_replays_the_same_order_with_no_orphan_calls() {
     let (requests, events) = amended_batch(&tree).await;
 
     let state = replayed(&events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
 
     // Message for message, the prompt the turn actually sent -- results then
     // sentences, in call order, with no orphan call and no orphan sentence.
@@ -2748,7 +2747,7 @@ async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
     // result, never between a call and its answer -- and `<turn_aborted>`
     // closes the turn.
     let state = replayed(&journal.events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert_eq!(
         replay_shape(&replay.messages),
         [
@@ -3274,7 +3273,7 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
     // that ran, the one that never did answered `aborted by user` as a
     // failure, and `<turn_aborted>`.
     let state = replayed(&journal.events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert_eq!(
         replay_shape(&replay.messages),
         [
@@ -3411,7 +3410,11 @@ async fn a_steer_cuts_a_tool_free_answer_and_the_turn_goes_on_with_it() {
     // (`fx-interrupt-steer-40x120-bodies/005-completion.json`).
     let state = replayed(&journal.events, tree.root());
     assert_eq!(
-        told(&state.history_messages(Wire::VercelGateway).messages),
+        told(
+            &state
+                .history_messages(Wire::VercelGateway, &state.model)
+                .messages
+        ),
         [
             "user: go",
             "assistant: PARTIAL ",
@@ -3530,7 +3533,7 @@ async fn a_refused_call_goes_back_as_a_refusal_live_and_on_resume() {
     );
 
     let state = replayed(&journal.events, tree.root());
-    let replay = state.history_messages(Wire::VercelGateway);
+    let replay = state.history_messages(Wire::VercelGateway, &state.model);
     assert_eq!(
         refusal(&replay.messages),
         Some((ResultStatus::Denied, output)),

@@ -2472,6 +2472,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
                 SessionEvent::ToolResult {
                     call_id: "call-1".to_string(),

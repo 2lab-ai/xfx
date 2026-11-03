@@ -23,7 +23,7 @@ use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{run_turn_with_skills, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
 use crate::config::{Environment, PermissionMode, RuntimeConfig, StatusLineItem};
@@ -78,6 +78,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/allowlist",
     "/undo",
     "/mcp",
+    "/skills",
     "/copy",
     "/trace",
     "/compact",
@@ -312,6 +313,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         // Upstream's row whole (`commands.zig:482`): its words, its place
         // after `/undo`, and the Extensions tab.
         summary: "manage local and remote MCP servers, resources, prompts, and project trust",
+        category: "Extensions",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Skills,
+        name: "/skills",
+        aliases: &[],
+        // Upstream's row (`commands.zig:483`): its sentence, its category, and
+        // an argument. The grammar is `crate::skills::command::parse`, whose
+        // refusal is upstream's usage line.
+        summary: "browse and manage skills",
         category: "Extensions",
         has_args: true,
     },
@@ -772,6 +784,10 @@ pub enum Slash {
     /// its project trust (`commandHandleMcp`, `app_commands.zig:1312-1405`;
     /// [`crate::mcp`]).
     Mcp,
+    /// The skills the session can see: a menu in the TUI, `show`, `path`,
+    /// `create`, `remove` and `add` from a local directory on either surface
+    /// ([`crate::skills::command`]).
+    Skills,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
@@ -1546,6 +1562,12 @@ pub async fn run(
                         sound =
                             apply_sound(&argument, sound, config.user_settings_path.as_deref())?;
                     }
+                    Slash::Skills => skills_on_the_line(
+                        &argument,
+                        &config,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                     Slash::Workspace => workspace_on_the_line(
                         &argument,
                         &mut config,
@@ -1627,10 +1649,30 @@ async fn one_turn(
             bytes: context.total_bytes() as u64,
         });
 
+    // The skills this workspace has, and those the prompt names, read now as
+    // the project instructions are (`crate::skills`). This shell reads no
+    // catalog for a turn, so the catalog's budget is sized by the window the
+    // Gateway is known to give the model, and by none elsewhere.
+    let window = (config.provider == ProviderId::Gateway)
+        .then(|| crate::provider::model::gateway_context_window(model))
+        .flatten();
+    let skills = crate::skills::TurnSkills::prepare(
+        conversation.tools.scope().primary(),
+        config.home(),
+        &prompt,
+        &[],
+        window,
+    );
+    let mut tools = conversation.tools.clone();
+    tools.set_skills(
+        Some(std::sync::Arc::new(skills.catalog.locations.clone())),
+        config.home().map(std::path::Path::to_path_buf),
+    );
+
     let replay = conversation
         .recorder
         .state()
-        .history_messages(config.provider.wire());
+        .history_messages(config.provider.wire(), model);
     let request = TurnRequest {
         images: Vec::new(),
         model: model.to_string(),
@@ -1639,7 +1681,7 @@ async fn one_turn(
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
         cancel: conversation.tools.cancel().clone(),
-        tools: conversation.tools.clone(),
+        tools,
     };
 
     let stdout = io::stdout();
@@ -1649,14 +1691,23 @@ async fn one_turn(
         writeln!(stderr_lock, "{notice}")?;
     }
     drop(stderr_lock);
+    // What the TUI says under the card, one `[shell]` line per row: which of
+    // the named skills loaded (`buildExplicitPromptSection`'s `load_notice`).
+    if let Some((_, said)) = &skills.explicit.load_notice {
+        let mut out = io::stdout().lock();
+        for line in said.lines() {
+            writeln!(out, "[shell] {line}")?;
+        }
+    }
     let mut sink = TextSink::new(stdout, stderr).with_tool_notices();
 
     interrupts.begin_turn();
     // Awaited here, on this thread: when this returns there is no work left
     // running anywhere, which is what makes the next prompt safe to print.
-    let _ = run_turn_saved(
+    let _ = run_turn_with_skills(
         request,
         context,
+        &skills,
         provider,
         &mut sink,
         &mut conversation.recorder,
@@ -2209,6 +2260,89 @@ fn workspace_on_the_line(
     )
 }
 
+/// `/skills` on this shell: the forms the TUI answers with notices answered
+/// the same way, as `[shell] skills: …` lines; and the two that open the
+/// TUI's menu -- a bare `/skills` or `list`, and `show` -- said as upstream's
+/// listing (`listSkillsSummary`, `vercel-labs/fx@c1db9191
+/// src/core/skills/skill_runtime.zig:2964-3004`), there being no band to put a
+/// menu in.
+fn skills_on_the_line(
+    argument: &str,
+    config: &RuntimeConfig,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    use crate::skills::command::{self, Command, Outcome};
+    let workspace = &config.workspace_root;
+    let found = crate::skills::discovery::discover(workspace, config.home());
+    if !found.diagnostics.is_empty() {
+        writeln!(
+            err,
+            "xfx: {}: {}",
+            command::TOPIC,
+            crate::skills::diagnostic_summary(&found.diagnostics)
+        )?;
+    }
+    let Some(home) = config.home() else {
+        return writeln!(
+            err,
+            "xfx: {}: no home directory is set, so there is no managed skill root",
+            command::TOPIC
+        );
+    };
+    let managed = crate::skills::discovery::managed_root(home);
+    let parsed = command::parse(argument);
+    let said = |out: &mut dyn Write, body: &str| -> io::Result<()> {
+        let topic = command::topic_for(body);
+        for (index, line) in body.lines().enumerate() {
+            match (index, topic.is_empty()) {
+                (0, true) => writeln!(out, "[shell] {line}")?,
+                (0, false) => writeln!(out, "[shell] {topic}: {line}")?,
+                _ => writeln!(out, "[shell]   {line}")?,
+            }
+        }
+        Ok(())
+    };
+    match command::execute(&parsed, &found, &managed, workspace) {
+        Outcome::OpenMenu => {
+            for line in crate::skills::summary(&found.skills).lines() {
+                writeln!(out, "[shell] {line}")?;
+            }
+            Ok(())
+        }
+        Outcome::Focus(name) | Outcome::Search(name) => {
+            let named: Vec<crate::skills::Skill> = found
+                .skills
+                .iter()
+                .filter(|skill| skill.name == name)
+                .cloned()
+                .collect();
+            for line in crate::skills::summary(&named).lines() {
+                writeln!(out, "[shell] {line}")?;
+            }
+            Ok(())
+        }
+        Outcome::Said(lines) => {
+            for body in &lines {
+                if matches!(parsed, Command::Usage) {
+                    writeln!(err, "xfx: {body}")?;
+                } else {
+                    said(out, body)?;
+                }
+            }
+            Ok(())
+        }
+        // No list held between lines here: the next command discovers again,
+        // so what changed is said with the rest.
+        Outcome::Changed { said: lines, after } => {
+            for body in lines.iter().chain(std::iter::once(&after)) {
+                said(out, body)?;
+            }
+            Ok(())
+        }
+    }
+}
+
 /// A `/workspace` snapshot on this shell: the first row after the topic, the
 /// rest two columns in, as the TUI's notice continues its rows.
 fn workspace_said(out: &mut dyn Write, body: &str) -> io::Result<()> {
@@ -2522,10 +2656,10 @@ mod tests {
         // since `/settings`, twenty-four since `/image`, `/images` and
         // `/paste`, twenty-five since `/allowlist`, twenty-six since
         // `/workspace`, twenty-seven since `/compact`, and twenty-nine since
-        // `/fast` and `/ultrafast`, and thirty since `/mcp`; `/provider` took
-        // `/setup`'s place rather than adding one, and `/models` stays
-        // deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 30);
+        // `/fast` and `/ultrafast`, thirty since `/mcp`, and thirty-one since
+        // `/skills`; `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 31);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2835,6 +2969,7 @@ mod tests {
                     | "/settings"
                     | "/workspace"
                     | "/mcp"
+                    | "/skills"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }

@@ -209,6 +209,10 @@ pub enum ProposedAction<'a> {
 pub struct ToolCallPlan {
     /// The tool, as the model called it.
     pub tool: &'static str,
+    /// Where a rule judges it: its own name, or -- for `skill` -- the skill
+    /// it loads (`permissionTargetForCall`, `permissions.zig:181-185`). The
+    /// first is the one an exact grant is about; a deny at any refuses.
+    pub targets: Vec<String>,
     /// The argument upstream's question shows after the tool -- a search's
     /// query, a selection's name, a feature's action -- or empty for a tool
     /// that shows none (`formatPermissionLabel`, `tool_presentation.zig:
@@ -306,12 +310,17 @@ impl<'a> ProposedAction<'a> {
                 plan.tool,
                 Some(vec![plan.candidate.clone()]),
             ),
-            // Its own name is its category and its one target
-            // (`permissions.zig:226`).
+            // Its own name is its category, and its own name its one target
+            // (`permissions.zig:226`) -- a skill's, the skill (`:181-185`).
             Self::Tool(plan) => (
                 super::rules::permission_name_for_tool(plan.tool),
                 plan.tool,
-                Some(vec![plan.tool.as_bytes().to_vec()]),
+                Some(
+                    plan.targets
+                        .iter()
+                        .map(|target| target.as_bytes().to_vec())
+                        .collect(),
+                ),
             ),
         }
     }
@@ -357,6 +366,9 @@ impl<'a> ProposedAction<'a> {
                 field(&mut canonical, b"xfx-permission-state-tool-v1");
                 field(&mut canonical, plan.tool.as_bytes());
                 field(&mut canonical, plan.arguments.as_bytes());
+                for target in &plan.targets {
+                    field(&mut canonical, target.as_bytes());
+                }
                 RuleKey::new(KeyKind::StructuredTool, canonical)
             }
             Self::Mutation(plan) => {
@@ -448,9 +460,14 @@ impl<'a> ProposedAction<'a> {
             // The file it resolved, for the reason a mutation's is.
             Self::Read(plan) => plan.target.to_string_lossy().into_owned(),
             Self::Mcp(plan) => plan.alias.clone(),
-            // Its one target, its own name: an "always" is for every later
-            // call of the tool, as the always-scope says.
-            Self::Tool(plan) => plan.tool.to_string(),
+            // Its own target -- its name, or the skill it loads: an "always"
+            // is for every later call of the tool at it, as the always-scope
+            // says.
+            Self::Tool(plan) => plan
+                .targets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| plan.tool.to_string()),
         }
     }
 
@@ -568,10 +585,16 @@ impl<'a> ProposedAction<'a> {
                 "allow every future call of the MCP tool `{}` for the rest of this session, whatever its arguments",
                 plan.alias
             ),
-            Self::Tool(plan) => format!(
-                "allow every future call of `{}` for the rest of this session, whatever its arguments",
-                plan.tool
-            ),
+            Self::Tool(plan) => match plan.targets.first() {
+                Some(target) if target != plan.tool => format!(
+                    "allow every future call of `{}` for `{target}` for the rest of this session, whatever its arguments",
+                    plan.tool
+                ),
+                _ => format!(
+                    "allow every future call of `{}` for the rest of this session, whatever its arguments",
+                    plan.tool
+                ),
+            },
         }
     }
 
@@ -2177,6 +2200,7 @@ mod tests {
     fn tool_call(tool: &'static str, label: &str, arguments: &str) -> ToolCallPlan {
         ToolCallPlan {
             tool,
+            targets: vec![tool.to_string()],
             label: label.to_string(),
             arguments: arguments.to_string(),
         }
