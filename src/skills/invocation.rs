@@ -776,8 +776,8 @@ fn load(
         }
     };
     let authority = discovery::authority_of(skill);
-    let file = match discovery::reopen(skill, authority.as_deref()) {
-        Ok(file) => file,
+    let mut candidate = match discovery::reopen(skill, authority.as_deref()) {
+        Ok(candidate) => candidate,
         Err(Reopened::NameMismatch) => {
             let output = match location {
                 Some(path) => location_mismatch(name, &path.to_string_lossy(), bound),
@@ -793,7 +793,20 @@ fn load(
             return attach(Loaded::failure(output), &mut discovery_notice, budget);
         }
     };
-    let read = match read_resource(skill, file, resource) {
+    #[cfg(test)]
+    tests::after_validation();
+    // A resource other than the skill's own file is read only while the
+    // skill is still the one that was checked: its `SKILL.md`, held open, is
+    // read again and must not have changed under the read
+    // (`revalidatePrimaryIdentity`, `skill_invocation.zig:1316-1329`, from
+    // `:857-859`), in either mode.
+    let read = match read_resource(&mut candidate, resource).and_then(|read| {
+        if resource_is_skill_file(resource) {
+            Ok(read)
+        } else {
+            revalidate_primary(&candidate.file, skill).map(|()| read)
+        }
+    }) {
         Ok(read) => read,
         Err(error) => {
             return attach(
@@ -1039,13 +1052,19 @@ fn resource_is_skill_file(resource: &str) -> bool {
     segments.next() == Some("SKILL.md") && segments.next().is_none()
 }
 
-/// Reads `resource` of `skill`: its `SKILL.md` from the file already opened,
-/// or another file under its directory, every component opened without
-/// following a link, `.` and `..` refused (`openResource`,
-/// `skill_runtime.zig:56-90`; `readSkillResourceFile`, `skill_invocation.zig:1371-1409`).
-fn read_resource(skill: &Skill, skill_file: File, resource: &str) -> Result<Read_, &'static str> {
-    let mut file = if resource_is_skill_file(resource) {
-        skill_file
+/// Reads `resource` of the checked candidate: its `SKILL.md` from the file
+/// already opened, or another file under the directory held open, every
+/// component opened without following a link, `.` and `..` refused
+/// (`openResource`, `skill_runtime.zig:56-90`; `readSkillResourceFile`,
+/// `skill_invocation.zig:1371-1409`). A file whose size or modification time
+/// moved while it was read is refused as `SkillResourceChanged`.
+fn read_resource(
+    candidate: &mut discovery::Candidate,
+    resource: &str,
+) -> Result<Read_, &'static str> {
+    let mut opened;
+    let file: &mut File = if resource_is_skill_file(resource) {
+        &mut candidate.file
     } else {
         let trimmed = resource.trim_matches([' ', '\t', '\r', '\n']);
         if trimmed.is_empty() || trimmed.starts_with('/') {
@@ -1062,52 +1081,173 @@ fn read_resource(skill: &Skill, skill_file: File, resource: &str) -> Result<Read
         {
             return Err("InvalidSkillResourcePath");
         }
-        let mut path = skill.path.clone();
-        for (index, segment) in segments.iter().enumerate() {
-            path.push(segment);
-            let meta = fs::symlink_metadata(&path).map_err(error_name)?;
-            let last = index + 1 == segments.len();
-            if meta.file_type().is_symlink() {
-                return Err("SymLinkLoop");
-            }
-            if !last && !meta.is_dir() {
-                return Err("NotDir");
-            }
-            if last && meta.is_dir() {
-                return Err("IsDir");
-            }
-        }
-        discovery::open_no_follow(&path).map_err(error_name)?
+        opened = open_resource(&candidate.dir, &segments)?;
+        &mut opened
     };
-    let meta = file.metadata().map_err(error_name)?;
-    if !meta.is_file() {
+    let before = file.metadata().map_err(error_name)?;
+    if !before.is_file() {
         return Err("InvalidSkillResource");
     }
-    let observed = usize::try_from(meta.len()).map_err(|_| "SkillFileLimitExceeded")?;
+    let observed = usize::try_from(before.len()).map_err(|_| "SkillFileLimitExceeded")?;
     let mut bytes = Vec::with_capacity(observed.min(FILE_LIMIT + 3));
-    (&mut file)
+    (&mut *file)
         .take((FILE_LIMIT + 3).min(observed) as u64)
         .read_to_end(&mut bytes)
         .map_err(error_name)?;
-    if bytes.len() != observed.min(FILE_LIMIT + 3) {
-        return Err("UnexpectedEndOfFile");
-    }
     // The whole file is UTF-8 or none of it is loaded: the part past the limit
     // too (`validateSkillResourceUtf8`), checked as it streams by.
-    if observed > bytes.len() {
+    let utf8 = if observed > bytes.len() {
         let mut rest = Vec::new();
         file.read_to_end(&mut rest).map_err(error_name)?;
         let mut whole = bytes.clone();
         whole.extend_from_slice(&rest);
-        if std::str::from_utf8(&whole).is_err() {
-            return Err("BinarySkillResource");
-        }
-    } else if std::str::from_utf8(&bytes).is_err() {
+        std::str::from_utf8(&whole).is_ok()
+    } else {
+        std::str::from_utf8(&bytes).is_ok()
+    };
+    let after = file.metadata().map_err(error_name)?;
+    if changed(&before, &after) {
+        return Err("SkillResourceChanged");
+    }
+    if bytes.len() != observed.min(FILE_LIMIT + 3) {
+        return Err("UnexpectedEndOfFile");
+    }
+    if !utf8 {
         return Err("BinarySkillResource");
     }
     let allowed = line_safe_prefix(&bytes, FILE_LIMIT);
     bytes.truncate(allowed);
     Ok(Read_ { bytes, observed })
+}
+
+/// Whether a file's size or modification time moved between two looks at it
+/// (`final_stat.size != stat.size or final_stat.mtime != stat.mtime`).
+fn changed(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    before.len() != after.len() || before.modified().ok() != after.modified().ok()
+}
+
+/// The skill's own `SKILL.md`, through the handle opened when it was
+/// checked, read again from its start: its size and modification time the
+/// same on either side of the read, and its name still the skill's
+/// (`revalidatePrimaryIdentity`, `skill_invocation.zig:1316-1329`). Anything
+/// else is `SkillResourceChanged`.
+fn revalidate_primary(file: &File, skill: &Skill) -> Result<(), &'static str> {
+    let before = file.metadata().map_err(error_name)?;
+    let length = usize::try_from(before.len())
+        .unwrap_or(usize::MAX)
+        .min(contract::MAX_FRONTMATTER_BYTES + 1);
+    let mut bytes = vec![0u8; length];
+    let mut filled = 0;
+    while filled < length {
+        match read_at(file, &mut bytes[filled..], filled as u64) {
+            Ok(0) => break,
+            Ok(count) => filled += count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error_name(error)),
+        }
+    }
+    if filled != length {
+        return Err("SkillResourceChanged");
+    }
+    let after = file.metadata().map_err(error_name)?;
+    if changed(&before, &after) {
+        return Err("SkillResourceChanged");
+    }
+    let fallback = skill
+        .path
+        .file_name()
+        .map(|leaf| leaf.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match contract::resolve(&contract::parse(&bytes), &fallback) {
+        Ok(metadata) if metadata.name == skill.name => Ok(()),
+        _ => Err("SkillResourceChanged"),
+    }
+}
+
+/// `buffer.len()` bytes of `file` from `offset`, wherever its cursor is.
+#[cfg(unix)]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, offset)
+}
+
+#[cfg(not(unix))]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = file;
+    file.seek(SeekFrom::Start(offset))?;
+    file.read(buffer)
+}
+
+/// The resource `segments` name, under the candidate's directory held open:
+/// each component looked at without following it, then opened without
+/// following it, so neither a link nor a component swapped in between is
+/// read through (`openResource`'s `follow_symlinks = false`).
+#[cfg(unix)]
+fn open_resource(dir: &std::os::fd::OwnedFd, segments: &[&str]) -> Result<File, &'static str> {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags};
+    use std::os::fd::AsFd;
+    let mut owned: Option<std::os::fd::OwnedFd> = None;
+    for (index, segment) in segments.iter().enumerate() {
+        let last = index + 1 == segments.len();
+        let parent = owned.as_ref().map_or(dir.as_fd(), |fd| fd.as_fd());
+        let stat =
+            rustix::fs::statat(parent, *segment, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_name)?;
+        match FileType::from_raw_mode(stat.st_mode) {
+            FileType::Symlink => return Err("SymLinkLoop"),
+            FileType::Directory if last => return Err("IsDir"),
+            FileType::Directory => {}
+            _ if !last => return Err("NotDir"),
+            _ => {}
+        }
+        let flags = OFlags::RDONLY
+            | OFlags::NOFOLLOW
+            | OFlags::CLOEXEC
+            | if last {
+                OFlags::empty()
+            } else {
+                OFlags::DIRECTORY
+            };
+        let fd = rustix::fs::openat(parent, *segment, flags, Mode::empty()).map_err(errno_name)?;
+        if last {
+            return Ok(File::from(fd));
+        }
+        owned = Some(fd);
+    }
+    Err("InvalidSkillResourcePath")
+}
+
+#[cfg(not(unix))]
+fn open_resource(dir: &PathBuf, segments: &[&str]) -> Result<File, &'static str> {
+    let mut path = dir.clone();
+    for (index, segment) in segments.iter().enumerate() {
+        path.push(segment);
+        let meta = fs::symlink_metadata(&path).map_err(error_name)?;
+        let last = index + 1 == segments.len();
+        if meta.file_type().is_symlink() {
+            return Err("SymLinkLoop");
+        }
+        if !last && !meta.is_dir() {
+            return Err("NotDir");
+        }
+        if last && meta.is_dir() {
+            return Err("IsDir");
+        }
+    }
+    discovery::open_no_follow(&path).map_err(error_name)
+}
+
+/// Upstream's error name for a failed `openat`/`statat`.
+#[cfg(unix)]
+fn errno_name(errno: rustix::io::Errno) -> &'static str {
+    use rustix::io::Errno;
+    match errno {
+        Errno::NOENT => "FileNotFound",
+        Errno::ACCESS | Errno::PERM => "AccessDenied",
+        Errno::ISDIR => "IsDir",
+        Errno::NOTDIR => "NotDir",
+        Errno::LOOP => "SymLinkLoop",
+        _ => "Unexpected",
+    }
 }
 
 /// The longest UTF-8 prefix within `limit`, cut back to its last line break
@@ -1434,6 +1574,29 @@ mod tests {
     use super::super::discovery::Source;
     use super::*;
 
+    thread_local! {
+        static AFTER_VALIDATION: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Runs, once, what a case set to happen right after a load checked its
+    /// candidate (upstream's `test_after_candidate_validation`,
+    /// `skill_invocation.zig:140-150`, `:854`).
+    pub(super) fn after_validation() {
+        let hook = AFTER_VALIDATION.with(|slot| slot.borrow_mut().take());
+        if let Some(mut hook) = hook {
+            hook();
+        }
+    }
+
+    /// `run`, with `hook` run between its load's check and its read.
+    fn checked_then<T>(hook: impl FnMut() + 'static, run: impl FnOnce() -> T) -> T {
+        AFTER_VALIDATION.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        let out = run();
+        AFTER_VALIDATION.with(|slot| *slot.borrow_mut() = None);
+        out
+    }
+
     fn named(names: &[&str]) -> Vec<Skill> {
         names
             .iter()
@@ -1648,5 +1811,236 @@ If a skill cannot be followed, state the blocker instead of silently substitutin
             refused.output,
             "skill failed: StaleSkillLocation. Refresh available skills and retry with an exact advertised location."
         );
+    }
+
+    /// A skill `workflow` with a `reference.md` beside it, under a fresh root.
+    fn workflow(base: &Path) -> (Skill, PathBuf) {
+        let root = base.join("home/.xfx/skills");
+        let skill = workspace_skill(&root, "workflow", "ORIGINAL BODY\n");
+        fs::write(skill.path.join("reference.md"), "REFERENCE BODY\n").unwrap();
+        let path = skill.path.clone();
+        (skill, path)
+    }
+
+    /// Rewrites `SKILL.md` in place -- the same file, a new name -- as
+    /// upstream's cases do with `createFile` over it.
+    fn rewrite(path: &Path, name: &str) {
+        fs::write(
+            path.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: d\n---\n\nCHANGED BODY\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_resource_is_read_only_while_its_skill_is_still_the_one_that_was_checked() {
+        // `skill references reject primary identity changes after candidate
+        // validation` and `whole skill reads reject identity changes after
+        // candidate validation` (`skill_invocation.zig:469-528`): the file
+        // rewritten after the check, in both load modes.
+        let base = tempfile::tempdir().unwrap();
+        let (skill, path) = workflow(base.path());
+        let skills = vec![skill];
+        let load = |resource: Option<&str>| {
+            load_by_identity(
+                &skills,
+                &[],
+                "workflow",
+                Some(&path),
+                resource,
+                Some(1 << 20),
+            )
+        };
+        assert!(load(Some("reference.md")).ok);
+        for resource in [Some("reference.md"), None] {
+            let at = path.clone();
+            let refused = checked_then(move || rewrite(&at, "renamed"), || load(resource));
+            assert!(!refused.ok, "{resource:?}");
+            assert_eq!(
+                refused.output, "skill failed: SkillResourceChanged",
+                "{resource:?}"
+            );
+            assert!(!refused.output.contains("CHANGED BODY"));
+            rewrite(&path, "workflow");
+        }
+        let at = path.clone();
+        let chunked = checked_then(
+            move || rewrite(&at, "renamed"),
+            || {
+                load_chunk(
+                    &skills,
+                    &[],
+                    "workflow",
+                    Some(&path),
+                    Some("reference.md"),
+                    0,
+                    None,
+                )
+            },
+        );
+        assert_eq!(chunked.output, "skill failed: SkillResourceChanged");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_replaced_by_a_link_is_refused_and_what_it_points_at_is_never_read() {
+        let base = tempfile::tempdir().unwrap();
+        let (skill, path) = workflow(base.path());
+        let outside = base.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.md"), "OUTSIDE BODY\n").unwrap();
+        fs::write(
+            outside.join("SKILL.md"),
+            "---\nname: workflow\ndescription: d\n---\n\nOUTSIDE BODY\n",
+        )
+        .unwrap();
+        let skills = vec![skill];
+        // After the check: the resource a link now (`openResource`'s
+        // `follow_symlinks = false`).
+        let (at, target) = (path.clone(), outside.join("secret.md"));
+        let refused = checked_then(
+            move || {
+                fs::remove_file(at.join("reference.md")).unwrap();
+                std::os::unix::fs::symlink(&target, at.join("reference.md")).unwrap();
+            },
+            || {
+                load_by_identity(
+                    &skills,
+                    &[],
+                    "workflow",
+                    Some(&path),
+                    Some("reference.md"),
+                    None,
+                )
+            },
+        );
+        assert_eq!(refused.output, "skill failed: SymLinkLoop");
+        // Before the load: `SKILL.md` a link out of a root with no authority,
+        // so the advertised skill is not there to load
+        // (`openPrimarySkillFile`'s `.sym_link` arm).
+        fs::remove_file(path.join("SKILL.md")).unwrap();
+        std::os::unix::fs::symlink(outside.join("SKILL.md"), path.join("SKILL.md")).unwrap();
+        let gone = load_by_identity(&skills, &[], "workflow", Some(&path), None, None);
+        assert!(!gone.ok);
+        assert!(
+            gone.output
+                .starts_with("Skill \"workflow\" was not found at advertised location \""),
+            "{}",
+            gone.output
+        );
+        assert!(!gone.output.contains("OUTSIDE BODY"));
+    }
+
+    #[test]
+    fn a_file_replaced_by_another_one_is_the_one_that_was_checked_or_nothing() {
+        let base = tempfile::tempdir().unwrap();
+        let (skill, path) = workflow(base.path());
+        let skills = vec![skill];
+        // Before the load: another `SKILL.md` renamed into place, under
+        // another name -- the advertised skill is not this one.
+        let staged = base.path().join("staged.md");
+        fs::write(&staged, "---\nname: other\n---\nOTHER BODY\n").unwrap();
+        fs::rename(&staged, path.join("SKILL.md")).unwrap();
+        let mismatch = load_by_identity(&skills, &[], "workflow", Some(&path), None, None);
+        assert!(!mismatch.ok);
+        assert!(
+            mismatch
+                .output
+                .contains("\" does not match the skill advertised at location \""),
+            "{}",
+            mismatch.output
+        );
+        assert!(!mismatch.output.contains("OTHER BODY"));
+        rewrite(&path, "workflow");
+        // After the check: the whole directory swapped for another, with the
+        // same names in it. What is read is the directory that was checked
+        // (`skill invocation reads validated candidate resources after path
+        // replacement`, `skill_invocation.zig:1888-1985`).
+        let replacement = base.path().join("replacement");
+        fs::create_dir_all(&replacement).unwrap();
+        fs::write(
+            replacement.join("SKILL.md"),
+            "---\nname: workflow\ndescription: d\n---\n\nREPLACEMENT BODY\n",
+        )
+        .unwrap();
+        fs::write(replacement.join("reference.md"), "REPLACEMENT REFERENCE\n").unwrap();
+        for resource in [None, Some("reference.md")] {
+            let (at, from) = (path.clone(), replacement.clone());
+            let aside = base.path().join("aside");
+            let loaded = checked_then(
+                move || {
+                    fs::rename(&at, &aside).unwrap();
+                    copy_dir(&from, &at);
+                },
+                || load_by_identity(&skills, &[], "workflow", Some(&path), resource, None),
+            );
+            assert!(loaded.ok, "{resource:?}: {loaded:?}");
+            assert!(
+                !loaded.output.contains("REPLACEMENT"),
+                "{resource:?}: {}",
+                loaded.output
+            );
+            assert!(
+                loaded.output.contains("CHANGED BODY") || loaded.output.contains("REFERENCE BODY"),
+                "{}",
+                loaded.output
+            );
+            fs::remove_dir_all(&path).unwrap();
+            fs::rename(base.path().join("aside"), &path).unwrap();
+        }
+    }
+
+    fn copy_dir(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_named_form_checks_the_skill_again_at_every_offset() {
+        let base = tempfile::tempdir().unwrap();
+        let (skill, path) = workflow(base.path());
+        let line = format!("{}\n", "x".repeat(99));
+        fs::write(path.join("big.md"), line.repeat(300)).unwrap();
+        let skills = vec![skill];
+        let page = |offset: usize| {
+            load_chunk(
+                &skills,
+                &[],
+                "workflow",
+                Some(&path),
+                Some("big.md"),
+                offset,
+                None,
+            )
+        };
+        let first = page(0);
+        assert!(first.ok, "{first:?}");
+        let next = CHUNK_LIMIT / 100 * 100;
+        assert!(first.output.contains(&format!("next_offset=\"{next}\">")));
+        // Rewritten while the next chunk is read: refused, nothing of it given.
+        let at = path.clone();
+        let changed = checked_then(move || rewrite(&at, "renamed"), || page(next));
+        assert_eq!(changed.output, "skill failed: SkillResourceChanged");
+        // Asked again with the skill still renamed: not the advertised one.
+        let renamed = page(next);
+        assert!(
+            renamed
+                .output
+                .contains("\" does not match the skill advertised at location \""),
+            "{}",
+            renamed.output
+        );
+        // The skill back as it was: the chunk after, to the end, and no marker.
+        rewrite(&path, "workflow");
+        let rest = page(next);
+        assert!(rest.ok, "{rest:?}");
+        assert!(rest
+            .output
+            .contains(&format!("offset=\"{next}\" next_offset=\"30000\">")));
+        assert!(!rest.output.contains("<context_limit"));
+        assert_eq!(rest.notice, None);
     }
 }
