@@ -157,7 +157,8 @@ impl Base {
 /// reads as configuration -- objects, references, logs, large-file stores --
 /// and are not listed for links, so that a real repository's size does not
 /// count against [`MAX_WALK_ENTRIES`].
-const GIT_DATA_DIRECTORIES: &[&str] = &["objects", "refs", "logs", "lfs", "annex", "rr-cache"];
+pub(super) const GIT_DATA_DIRECTORIES: &[&str] =
+    &["objects", "refs", "logs", "lfs", "annex", "rr-cache"];
 
 fn hold_within(target: &Path, check: &LinkCheck, limit: usize) -> Option<String> {
     let chain = match Chain::of(target) {

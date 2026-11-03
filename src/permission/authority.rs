@@ -2558,6 +2558,29 @@ mod tests {
     }
 
     #[test]
+    fn a_module_git_directory_below_another_is_still_inspected() {
+        // A dangling `objects` link makes `modules/foo` count as a git
+        // directory; a real one nested under it, `modules/foo/bar`, is still
+        // looked at.
+        let fixture = GitFixture::new();
+        let foo = fixture.repo().join(".git/modules/foo");
+        std::fs::create_dir_all(&foo).expect("foo");
+        std::fs::write(foo.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+        std::os::unix::fs::symlink(fixture.home.join("nowhere"), foo.join("objects"))
+            .expect("a dangling link");
+        let bar = foo.join("bar");
+        for dir in ["objects", "refs", "info"] {
+            std::fs::create_dir_all(bar.join(dir)).expect("a directory");
+        }
+        std::fs::write(bar.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+        std::fs::write(bar.join("info/attributes"), "* filter=x\n").expect("attributes");
+        assert_eq!(
+            fixture.plan("git status --short").effect(),
+            &CommandEffect::Denied(DeniedEffect::RepositoryAttributes)
+        );
+    }
+
+    #[test]
     fn a_real_submodule_is_inspected_without_counting_its_objects() {
         // A submodule's git directory holds objects, refs and logs; only its
         // `info/attributes` and its own `modules/` are looked at.
