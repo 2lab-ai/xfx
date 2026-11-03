@@ -1,0 +1,22 @@
+# H1 the guards, held over a run longer than fx's ten-second auto-upgrade
+# delay: one turn, then idle past 18 s, with the binary's internet sockets
+# sampled at launch, during the turn, after 12 s and at the end. The run's
+# `guards:` line (fx) says the binary's sha256 and the chime directories held;
+# the gateway log is every request the binary made of it; a `sockets` file is
+# every socket the binary had open at that moment, all of them loopback, or
+# the run would have failed.
+gateway h1-guards-turns.json
+wait 2
+sockets launch
+type say something slowly
+key Enter
+wait 0.5
+sockets turn
+wait 10
+sockets t12
+snap mid
+wait 6
+sockets end
+snap end
+home end
+gwlog

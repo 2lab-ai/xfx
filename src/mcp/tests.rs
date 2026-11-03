@@ -385,6 +385,138 @@ fn a_search_selects_the_tool_and_a_rule_or_full_access_admits_its_call() {
     runtime.shutdown();
 }
 
+#[test]
+fn a_deny_written_mid_turn_takes_a_selected_tool_out_of_the_next_request_in_every_mode() {
+    // Upstream re-reads each selected definition before every request, with
+    // the engine's rules whatever the mode (`snapshotDynamicTools`,
+    // `gateway_step.zig`; `snapshotToolDefinition`, `mcp_runtime.zig:2093`;
+    // `src/main.zig:1957-1959`): a deny written mid-turn makes the tool
+    // `unavailable`, the next request leaves it out, and a call to it is to a
+    // tool the step did not advertise (`unknown tool: …`,
+    // `tool_dispatch.zig:845`).
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    for mode in [PermissionMode::Yolo, PermissionMode::Ask] {
+        let live = crate::permission::LiveRules::new(RuleSet::default());
+        let scope = AccessScope::primary_only(home.workspace()).expect("scope");
+        let context = ToolContext::new(scope)
+            .with_permissions(PermissionSession::new(mode).with_live_rules(live.clone()))
+            .with_mcp(Arc::clone(&runtime));
+        let selected = call(
+            &context,
+            "mcp_select_tool",
+            json!({"name": "mcp_fixture_echo"}),
+        );
+        assert!(selected.ok, "{mode:?}: {selected:?}");
+        let names = |context: &ToolContext| -> Vec<String> {
+            crate::tools::Registry::builtin()
+                .advertisement_for(context)
+                .iter()
+                .filter_map(|tool| tool["name"].as_str().map(str::to_string))
+                .collect()
+        };
+        assert!(
+            names(&context).contains(&"mcp_fixture_echo".to_string()),
+            "{mode:?}"
+        );
+
+        live.replace(RuleSet::parse(&json!({"mcp_fixture_*": "deny"})).expect("rules"));
+        assert!(
+            !names(&context).contains(&"mcp_fixture_echo".to_string()),
+            "{mode:?}"
+        );
+        let refused = call(&context, "mcp_fixture_echo", json!({"text": "hi"}));
+        assert!(!refused.ok, "{mode:?}");
+        assert_eq!(refused.output, "unknown tool: mcp_fixture_echo", "{mode:?}");
+
+        // Taken back: offered again from the next step on.
+        live.replace(RuleSet::default());
+        assert!(
+            names(&context).contains(&"mcp_fixture_echo".to_string()),
+            "{mode:?}"
+        );
+    }
+    runtime.shutdown();
+}
+
+#[test]
+fn a_rule_that_asks_about_an_mcp_tool_asks_in_auto_before_auto_holds_it() {
+    // An ask rule comes before the mode (`configured_ask`,
+    // `tool_admission.zig:1426-1442`), for a server's tool as for a read:
+    // with nobody to ask the refusal names the rule, not auto's hold.
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let rules = RuleSet::parse(&json!({"mcp_fixture_echo": "ask"})).expect("rules");
+    let auto = context(&home, &runtime, PermissionMode::Auto, rules);
+    let selected = call(
+        &auto,
+        "mcp_select_tool",
+        json!({"name": "mcp_fixture_echo"}),
+    );
+    assert!(selected.ok, "{selected:?}");
+    let asked = call(&auto, "mcp_fixture_echo", json!({"text": "hi"}));
+    assert_eq!(asked.outcome, crate::tools::Outcome::Denied, "{asked:?}");
+    assert!(
+        asked
+            .output
+            .contains("a configured permission rule asks before `mcp` on `mcp_fixture_echo`"),
+        "{}",
+        asked.output
+    );
+    runtime.shutdown();
+}
+
+#[test]
+fn a_global_deny_hides_the_mcp_meta_tools_and_refuses_a_call_to_one_anyway() {
+    // The meta-tools are builtins upstream projects and admits like any
+    // other (`tool_projection.zig:563-566`; `toolHasPermissionContract`,
+    // `tool_admission.zig:101-103`): under `*: deny` none is offered, and a
+    // search called anyway selects nothing.
+    let home = Home::new();
+    config::add_profile_server(&home.profile(), fixture_server("fixture")).expect("saved");
+    let runtime = home.runtime();
+    runtime.start();
+    settled(&runtime, "fixture");
+    let rules = RuleSet::parse(&json!({"*": "deny"})).expect("rules");
+    let denied = context(&home, &runtime, PermissionMode::Auto, rules);
+    assert!(crate::tools::Registry::builtin()
+        .advertisement_for(&denied)
+        .is_empty());
+    let searched = call(
+        &denied,
+        "capability_search",
+        json!({"query": "echo text back"}),
+    );
+    assert_eq!(
+        searched.outcome,
+        crate::tools::Outcome::Denied,
+        "{searched:?}"
+    );
+    assert!(denied.mcp_selected().is_empty());
+    // Full access offers all three, and the search runs.
+    let full = context(
+        &home,
+        &runtime,
+        PermissionMode::Yolo,
+        RuleSet::parse(&json!({"capability_search": "deny"})).expect("rules"),
+    );
+    let names: Vec<String> = crate::tools::Registry::builtin()
+        .advertisement_for(&full)
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_string))
+        .collect();
+    for name in crate::tools::mcp::META_TOOLS {
+        assert!(names.contains(&name.to_string()), "{name}: {names:?}");
+    }
+    runtime.shutdown();
+}
+
 /// What the server saw: each method, and the session id it came with.
 type Seen = Arc<Mutex<Vec<(String, Option<String>)>>>;
 

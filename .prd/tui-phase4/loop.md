@@ -13,20 +13,31 @@ Done ledger: [`loop.done.md`](loop.done.md).
 
 ## Open work
 
+Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity unanimous R5, 2026-11-03). Phase 4 ships once the P2 preconditions land and the receipt is green; everything else goes to `main` as its own PR after that.
+
+### P2 preconditions
+
 | ID | Status | Scope | Branch | Next |
 |---|---|---|---|---|
-| P1-r4 | 🟡 | a refused prompt is held and sent once a credential arrives (`awaiting_auth`); no hint lead during an approval; carries P1 r3 (`! auth:`/`✗ auth:`, any-credential lead) | `feat/tui-phase4-provider-session` | report → merge |
-| R1-r2 | 🟡 | `ask_user_question` judged at admission; the amendment read-back as fx's user card; the read band's scope row; M1's MCP admission merged in | `feat/tui-phase4-rules` | report → merge |
-| S1-r3 | 🟡 | skill resource identity re-check (both load modes); the `skill` tool's context notices | `feat/tui-phase4-skills` | report → merge |
-| X1-r2 | 🟡 | a paste under a key-swallowing menu goes to the composer; a question's freeform paste bound | `fix/tui-paste-suffix` | report → merge |
-| D4e | 🟡 | collapse off/on redraws the visible screen as fx's | `fix/tui-collapse-expand` | report → merge |
-| C7 | 🟡 | `/alias` | `feat/tui-phase4-alias` | report → merge |
-| C8 | 🟡 | `/shell reload` | `feat/tui-phase4-shell-reload` | report → merge |
-| H1 | 🟡 | harness verbs: resize, signal, mid-run HOME file, request log, catalog swap, refused turn, usage routes, loopback HTTP MCP server | `feat/fxcap-verbs` | report → merge |
-| SWEEP | 🔴 | the parity sweep (every scenario on fx and xfx, scoreboard) — program P3 | — | dispatch after H1 |
-| SM1-final | 🚪 | smoke-tui against the final plan, release and fault-injection builds; rows other units invalidated | `fix/smoke-tui` | after the 🟡 rows land |
-| DOCS | 🚪 | README command count, `docs/parity.md` header counts and pin, `03-tui-port.md`, `06-qa-harness.md`, `UPSTREAM.md`, the D4d receipt's stale lines | — | after the 🟡 rows land |
-| SHIP | 🚪 | receipt (gates, CI, SM1, sweep vs `c1db9191`, trinity security review) → PR → `main` → preview + tap → real-profile run | — | after SM1, SWEEP, DOCS |
+| SWEEP | 🟡 | local sweep + ledger + scoreboard + closed denominator | `feat/fxcap-sweep` | report → merge |
+| P2-RECEIPT | 🔴 | final-SHA gates, CI, SM1 with the behaviour list, sweep vs `c1db9191`, delta/seam/safety review, frames read, public-suitability scan, session back-compat, RED/GREEN | — | after S1-sec, SWEEP |
+| SHIP | 🚪 | PR → `main` → preview + tap → real-profile run (sessions backed up), label "Phase 4 integration preview — fx c1db919 baseline, before the 0.0.16 transition" | — | after P2-RECEIPT |
+
+### After P2 (own PRs to `main`)
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| C7-r2 | 🟡 | `help_entry` on every row, `/help` search as fx | `feat/tui-phase4-alias` @ `8d83f961` | PR after SHIP |
+| D4e | 🟡 | collapse off/on re-projects the visible screen as fx | `fix/tui-collapse-expand` @ `65c4425e` | PR after SHIP |
+| X1-r2 | 🟡 | paste under key-swallowing menus; question freeform bound | `fix/tui-paste-suffix` | report → PR after SHIP |
+| P1-r3r4 | 🟡 | `! auth:`/`✗ auth:`; held prompt resent once a credential arrives (never without the user's confirmation, or exactly as fx) | `feat/tui-phase4-provider-session` | report → PR after SHIP |
+| S1-vis | 🟡 | the `skill` tool's context notices; the `/skills` usage line still names `url` | `feat/tui-phase4-skills` | after S1-sec |
+| C8 | 🟡 | `/shell reload` — new execution surface, own security review | `feat/tui-phase4-shell-reload` | report → PR after SHIP |
+| K-resize | 🔴 | resize leaves a stale cut-off row (H1 `xfx/…-small.txt`) | — | dispatch |
+| K-jobctl | 🔴 | Ctrl-Z ignored (fx suspends); external SIGTSTP restores before stopping (fx writes nothing) | — | dispatch |
+| K-recover | 🔴 | a cut stream or refused connection fails the turn; fx retries and recovers (`[Response interrupted. Restarting.]`, `⚠ Connection lost · waiting for connection`) | — | dispatch |
+| K-mcpwords | 🔴 | a connecting server shows `Reloading` (fx `Connecting`); startup failure `* mcp:` (fx `! mcp:`) | — | dispatch |
+| DOCS | 🚪 | README counts, parity header counts and pin, `03-tui-port.md`, `06-qa-harness.md`, `UPSTREAM.md`, D4d receipt stale lines | — | with SHIP |
 
 ## Open gaps
 
@@ -34,4 +45,8 @@ Done ledger: [`loop.done.md`](loop.done.md).
 |---|---|---|---|
 | G-copy-flake | 🔴 | `tui::copy::tests::an_ending_session_lets_a_copy_that_answers_land` fails at load ≥ 60 (5/7, T9) | watch in the batch gates; RCA unit on recurrence |
 | G-caret | 🔴 | the hardware cursor stays visible under the reversed caret (F3) | check in the sweep |
-| G-decisions | 🚪 | user decisions: Codex/Grok sign-in (#88), MCP OAuth and `/mcp auth|logout`, other agents' skill roots, network skill install, the provider-switch reasoning notice, the OSC 8 scheme allowlist | asked batched at the blocking point (program P5) |
+| G-decisions | 🚪 | user decisions: Codex/Grok sign-in (#88), MCP OAuth and `/mcp auth|logout`, other agents' skill roots, network skill install, the provider-switch reasoning notice, the OSC 8 scheme allowlist, the `ask_user_question` >4096-byte saved-rule exemption (R1; kept fail-closed) | asked batched at the blocking point (program § Decisions) |
+
+## Round log (current)
+
+- 2026-11-03: batches 14–22 landed (T8 r2, D2c r4–r6, W9 r5, M1, P1 r2, S1 r2, X1 r1, C7 r1, R1 r2, H1); fx self-upgrade guard d91a9968; program adopted. Public-suitability scan of plan's files and `origin/main..plan` history: no personal names, user paths or real keys (tests use `/Users/me`, `/Users/u`; the two `sk-` hits are fake test strings, shortened in 56f20fcc); harness scratch paths (`/private/tmp/claude-501/fxcap.*`) remain in some receipts, no personal data.

@@ -179,10 +179,9 @@ fn execute_skill(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let ToolInput::Skill(input) = input else {
         return ToolResult::failure(mismatched("skill"));
     };
+    // Judged before it got here, under `skill` at the skill it loads
+    // (`super::targets_of`, in `super::Registry::execute`).
     let target = input.target();
-    if let Err(reason) = context.permissions().judge_read("skill", target.as_bytes()) {
-        return ToolResult::refused("skill", &reason);
-    }
     let loaded = crate::skills::invocation::tool_call(
         context.skills(),
         context.scope().primary(),

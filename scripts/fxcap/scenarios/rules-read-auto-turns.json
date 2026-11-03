@@ -1,0 +1,7 @@
+[
+ {"tool":{"name":"grep_files","input":{"pattern":"secret"}}},
+ {"delayMs":50,"chunks":["Told."]},
+ {"tool":{"name":"read_file","input":{"path":"secret.txt"}}},
+ {"tool":{"name":"read_file","input":{"path":"secret.txt"}}},
+ {"delayMs":50,"chunks":["Remembered."]}
+]

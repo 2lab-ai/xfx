@@ -1,0 +1,16 @@
+# H1 `usage`, the Grok scope: fx v0.0.16 on the Grok provider, with a
+# synthetic Grok login (fx's own e2e shape, usage-fakes.ts writeGrokLogin),
+# reads /billing and /settings from its Grok origin, carrying the user header
+# -- named in the gateway log, never its value.
+fx: homefile .fx/grok-auth.json h1-grok-auth.json
+fx: env FX_PROVIDER=grok FX_MODEL=grok-4.20 FX_E2E_GROK_ORIGIN=http://127.0.0.1:@PORT@
+clock 1791819000000
+usage h1-usage-grok.json
+wait 5
+type /usage
+key Enter
+wait 4
+snap grok
+key Escape
+wait 0.5
+gwlog

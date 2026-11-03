@@ -1,0 +1,27 @@
+=== ~/.fx/continue/1048912b445911141963a0e6794a63516875852f0bed487c862b3905243bf8e5 (13 bytes)
+P6X7TE979wbH
+
+=== ~/.fx/history.jsonl (141 bytes)
+{"schema_version":1,"timestamp_ms":1793707395022,"workspace_root":"<scratch>/work","text":"say something slowly"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/P6X7TE979wbH/events.jsonl (625 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1793707397458,"event":{"user":{"text":"say something slowly","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1793707397458,"event":{"assistant":{"text":"a slow answer, word by word","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1793707397458,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1793707395023,"completed_at_ms":1793707397451,"thinking_duration_ms":2,"turn_duration_ms":2428,"token_progress":{"input_tokens":6,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/P6X7TE979wbH/owner.live (43 bytes)
+{"pid":18670,"opened_at_ms":1793707392853}
+
+=== ~/.fx/sessions/P6X7TE979wbH/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/P6X7TE979wbH/session.json (401 bytes)
+{"schema_version":4,"id":"P6X7TE979wbH","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1793707392853,"updated_at_ms":1793707397458,"conversation_language":"und-Latn","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"title":"say something slowly","subagent_child":false}
+=== ~/.fx/sessions/P6X7TE979wbH/session.lock (0 bytes)
+=== ~/.fx/sessions/P6X7TE979wbH/usage-v2.json (540 bytes)
+{"schema_version":1,"session_id":"P6X7TE979wbH","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":2,"settled_through_sequence":1,"api_duration_ms":2419,"wall_duration_ms":4598,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/usage.jsonl (167 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1793707397451}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1793707397444,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

@@ -1,0 +1,30 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.16 · Run /help for commands[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[39musage:[0m API key (AI_GATEWAY_API_KEY)           rate limited, try again shortly, last updated just now
+
+[1mperiod[0m        [38;5;245mspent[39m  [38;5;245mrequests[39m  [38;5;245mtokens[39m
+today       $0.5000         2      15
+7d          $0.7500         3      20
+month         $2.50         6      63
+
+  [1mmodel (today)[0m       [38;5;245mspent[39m   [38;5;245mshare[39m  [38;5;245mrequests[39m  [38;5;245mtokens[39m
+[1m❯ provider/today    $0.5000  100.0%         2      15[0m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ model     enter detail     tab period     r refresh     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,99 @@
+$ capture.sh fx h1-resize 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-resize-30x100-start.txt
+resize: the pane is now 20x60
+fx-v0.0.16/fx-h1-resize-30x100-small.txt
+resize: the pane is now 40x120
+fx-v0.0.16/fx-h1-resize-30x100-large.txt
+fx-v0.0.16/fx-h1-resize-30x100-end.wire (2815 bytes)
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-signal 24x80   # fx-v0.0.16
+fx-v0.0.16/fx-h1-signal-24x80-start.txt
+fx-v0.0.16/fx-h1-signal-24x80-ctrlz.txt
+fx-v0.0.16/fx-h1-signal-24x80-ctrlz.wire (713 bytes)
+signal SIGCONT -> pid 79546: S+
+fx-v0.0.16/fx-h1-signal-24x80-ctrlz-continued.txt
+signal SIGTSTP -> pid 79546: T+
+fx-v0.0.16/fx-h1-signal-24x80-stopped.txt
+fx-v0.0.16/fx-h1-signal-24x80-stopped.wire (1394 bytes)
+signal SIGCONT -> pid 79546: S+
+fx-v0.0.16/fx-h1-signal-24x80-continued.txt
+fx-v0.0.16/fx-h1-signal-24x80-typed.txt
+signal SIGTERM -> pid 79546: gone; pane dead, signal term
+fx-v0.0.16/fx-h1-signal-24x80-terminated.txt
+fx-v0.0.16/fx-h1-signal-24x80-end.wire (1609 bytes)
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-signal-hup 24x80   # fx-v0.0.16
+fx-v0.0.16/fx-h1-signal-hup-24x80-start.txt
+signal SIGHUP -> pid 89870: gone; pane dead, signal hup
+fx-v0.0.16/fx-h1-signal-hup-24x80-hup.txt
+fx-v0.0.16/fx-h1-signal-hup-24x80-end.wire (704 bytes)
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-rehomefile 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-rehomefile-30x100-start.txt
+rehomefile ~/.fx/settings.json: mode 600, 29 bytes
+fx-v0.0.16/fx-h1-rehomefile-30x100-swapped.files
+fx-v0.0.16/fx-h1-rehomefile-30x100-status.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-models2 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-models2-30x100-before.txt
+fx-v0.0.16/fx-h1-models2-30x100-after.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-reset 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-reset-30x100-after.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-refuse 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-refuse-30x100-refused.txt
+fx-v0.0.16/fx-h1-refuse-30x100-back.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-refuse-pause 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-refuse-pause-30x100-refused.txt
+fx-v0.0.16/fx-h1-refuse-pause-30x100-paused.txt
+fx-v0.0.16/fx-h1-refuse-pause-30x100-after-pause.txt
+fx-v0.0.16/fx-h1-refuse-pause-30x100-end.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-usage 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-usage-30x100-unknown.txt
+fx-v0.0.16/fx-h1-usage-30x100-fetching.txt
+fx-v0.0.16/fx-h1-usage-30x100-month.txt
+fx-v0.0.16/fx-h1-usage-30x100-today.txt
+fx-v0.0.16/fx-h1-usage-30x100-refused.txt
+fx-v0.0.16/fx-h1-usage-30x100-end.files
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-usage-codex 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-usage-codex-30x100-codex.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-usage-grok 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-usage-grok-30x100-grok.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-mcphttp 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-mcphttp-30x100-hanging.txt
+fx-v0.0.16/fx-h1-mcphttp-30x100-ready.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-mcphttp-fail 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-mcphttp-fail-30x100-failed.txt
+fx-v0.0.16/fx-h1-mcphttp-fail-30x100-rpcerror.txt
+fx-v0.0.16/fx-h1-mcphttp-fail-30x100-ready.txt
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0
+$ capture.sh fx h1-guards 30x100   # fx-v0.0.16
+fx-v0.0.16/fx-h1-guards-30x100-launch.sockets: 1 socket(s)
+fx-v0.0.16/fx-h1-guards-30x100-turn.sockets: 1 socket(s)
+fx-v0.0.16/fx-h1-guards-30x100-t12.sockets: 1 socket(s)
+fx-v0.0.16/fx-h1-guards-30x100-mid.txt
+fx-v0.0.16/fx-h1-guards-30x100-end.sockets: 1 socket(s)
+fx-v0.0.16/fx-h1-guards-30x100-end.txt
+fx-v0.0.16/fx-h1-guards-30x100-end.files
+guards: <refs>/fx-v0.0.16/bin/fx sha256 8e6cda2efddb unchanged; fx-{success,error,bloom,press,release,toggle}.m4a and fx-click.caf still directories
+exit=0

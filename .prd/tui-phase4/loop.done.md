@@ -170,3 +170,33 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 - d91a9968: fx's auto-upgrade had replaced the c1db919 reference with v0.0.16 in place (11-03 19:24; it copies the latest release over its own executable 10 s after launch unless `FX_AUTO_UPGRADE=0`). capture.sh now launches every fx run with `FX_AUTO_UPGRADE=0` last in its environment and fails when the binary's bytes change; the reference bin directories are read-only; the reference was rebuilt with a fresh zig cache (sha256 `7b76319a…`). October's fx receipts stand (no newer release existed then); fx captures taken after 19:24 were redone.
 - Merged M1 `/mcp` (stdio and HTTP without OAuth; 53 snap pairs cell-identical but row 1; auth/logout/OAuth/browser gated) and P1 round 2 (sealed reasoning replays only to the provider and model that sealed it; a TUI resume continues on the recorded provider; with no credential it stays there, warns once and refuses the prompt). Gates green on 668995e8 (lib 3396, tui 154; fault-injection 3403, 168). R1 conflicts with M1 in the permission code → R1 round 2 merges it (read ask and hidden tools must cover MCP tools as fx's do). Dispatched X1 (fx refuses a paste followed by more input in the same read: `✗ input: Paste was not applied because extra input followed its end marker.` — xfx had no such rule) and D4e (collapse off/on re-renders the visible screen as fx's).
 - Merged D2c round 5 (every catalog read on its own `xfx-catalog` thread, never held by a parked approval or question; fx's one-second floor after a failed read; round 6 sent: the inline column re-asks on redraw) and S1 round 2 (fx's inline ghost completion for `$` and `/`; skill rows in the slash popup; the catalog budget sized by the model's window; discovery off the UI thread; the `skill` tool's legacy `name`/`offset` form with chunking; `skill_symlink_authorities`, deny unless authorized, fail closed; round 3 sent: resource identity re-check, context notices). Gates green on 1785efd2 (lib 3473, tui 156; fault-injection 3480, 170). Registry check: xfx lacks fx c1db919's `/alias` (P) and `/shell reload` (B) → units C7 and C8; `/login`, `/logout` (G #88) and `/feedback` (X) stay as classified. P1 round 3 (`! auth:`/`✗ auth:` refusals, fx's any-credential hint lead) waits for round 4 (hold a refused prompt until a credential arrives; no lead during an approval).
+
+## R21–R22 — closed 2026-11-03
+
+- result: batch 21 (C7 `/alias`, `1a94cdff`) and batch 22 (R1 round 2 `0eabf266` + H1 `2522c026`, `2ff00a09`) landed; gates on `2ff00a09`: lib 3509, tui 160, permissions 139; fault-injection lib 3516, tui 174; 0 failed; clippy 0 both. Two of Phase 4's P2 preconditions closed. · closed rows: R1-sec, H1 · commit: `2ff00a09`
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| R1-sec | ✅ | every registered tool judged at admission; MCP admission merged with read-ask/hidden-tool; `skill` judged at the skill (fail-open found and fixed) | `feat/tui-phase4-rules` | landed batch 22 (`b6392eae`) |
+| H1 | ✅ | resize, signal (+ jobctl, request log, cut/refused turns, usage routes, loopback MCP) | `feat/fxcap-verbs` | landed batch 22 (`2ff00a09`) |
+
+### Round section (as it was in loop.md)
+
+- R1 round 2: every registered tool judged against the table at admission (`ask_user_question`, the MCP search tools, `skill` at the skill — S1's `skill` failed open on a per-skill deny and still refused ask rules; fixed with a RED test); a selected MCP tool re-checked against live rules each step; M1's saved-rule key built from the whole arguments, not the 2 KiB display copy; the amendment drawn as fx's prompt card (drawn on delivery, not before the step ends); the read band's scope row kept (recorded Tension, F2).
+- H1: `resize`, `jobctl`, `signal`, `rehomefile`, `clock`, `usage`, `models2`, `mcphttp`, `sockets`; `@HOME@`/`@MCPPORT@`; fakegw request log, `reset`/`refuse` turns, catalog swap, usage routes; guards moved into the EXIT trap. Found (not fixed, now rows K-*): stale row after resize, Ctrl-Z/SIGTSTP, stream-failure recovery, MCP status words.
+
+## R23 — closed 2026-11-03
+
+- result: batch 23 (S1 round 3 item 1 `414205f9`, `65f43ded`) landed; gates on `65f43ded`: lib 3513, tui 160, permissions 139; fault-injection lib 3520, tui 174; 0 failed; clippy 0 both. The last code precondition of P2 closed. · closed rows: S1-sec · commit: `65f43ded`
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| S1-sec | ✅ | skill resource identity re-check, both load modes (skills on by default) | `feat/tui-phase4-skills` | report → merge |
+
+### Round section (as it was in loop.md)
+
+- S1 round 3 item 1: the skill directory held as `O_DIRECTORY|O_NOFOLLOW`; `SKILL.md` and every resource component opened `openat` + NOFOLLOW from it; a resource read is bracketed by length+mtime and, for anything but `SKILL.md`, by re-reading the held `SKILL.md` from offset 0 and re-parsing its name (fx `revalidatePrimaryIdentity`, `skill_invocation.zig:1316-1329`; `readSkillResourceFile`, `:1371-1409`), in the whole and the named/chunked forms. Gap shared with fx: a `SKILL.md` renamed over the held one after the check (no inode comparison on either side).

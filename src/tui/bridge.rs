@@ -676,6 +676,9 @@ impl UiEvent {
                     // once.
                     subject: match asked.request.subject {
                         ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
+                        ApprovalSubject::Call(argument) => {
+                            ApprovalSubject::Call(inert_owned(argument))
+                        }
                         ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
                             command: super::approval_view::command_text(&command),
                             cwd: inert_owned(cwd),

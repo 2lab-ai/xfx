@@ -527,10 +527,23 @@ fn inspect(file: &mut File, fallback: &str) -> Inspected {
     }
 }
 
+/// A candidate checked to still be the skill that was advertised
+/// (`OpenedSkillCandidate`, `skill_runtime.zig:40-91`): its directory, held
+/// open so that every resource is read from the directory that was checked --
+/// a candidate path renamed or replaced afterwards changes nothing that is
+/// read -- and its `SKILL.md`, held open too.
+pub(crate) struct Candidate {
+    #[cfg(unix)]
+    pub(crate) dir: std::os::fd::OwnedFd,
+    #[cfg(not(unix))]
+    pub(crate) dir: PathBuf,
+    pub(crate) file: File,
+}
+
 /// The candidate `skill` names, opened and checked to still be the skill that
 /// was advertised: its file a regular `SKILL.md` and its name unchanged
 /// (`openValidatedSkillCandidate`, `:989-1046`).
-pub(crate) fn reopen(skill: &Skill, authority: Option<&Path>) -> Result<File, Reopened> {
+pub(crate) fn reopen(skill: &Skill, authority: Option<&Path>) -> Result<Candidate, Reopened> {
     let extra = authorities();
     let dir = match fs::symlink_metadata(&skill.path) {
         Ok(meta) if meta.is_dir() => skill.path.clone(),
@@ -544,7 +557,24 @@ pub(crate) fn reopen(skill: &Skill, authority: Option<&Path>) -> Result<File, Re
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(Reopened::Missing),
         Err(_) => return Err(Reopened::Skipped),
     };
-    let mut file = match open_skill_file(&dir, authority, &extra) {
+    // The directory itself, without following a link at its last component,
+    // as upstream opens it (`openDirAbsoluteNoFollow`).
+    #[cfg(unix)]
+    let held = {
+        use rustix::fs::{Mode, OFlags};
+        match rustix::fs::open(
+            &dir,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(held) => held,
+            Err(rustix::io::Errno::NOENT) => return Err(Reopened::Missing),
+            Err(_) => return Err(Reopened::Skipped),
+        }
+    };
+    #[cfg(not(unix))]
+    let held = dir.clone();
+    let mut file = match open_primary(&held, &dir, authority, &extra) {
         Opened::File(file) => file,
         Opened::Missing => return Err(Reopened::Missing),
         Opened::Rejected => return Err(Reopened::Skipped),
@@ -558,11 +588,48 @@ pub(crate) fn reopen(skill: &Skill, authority: Option<&Path>) -> Result<File, Re
         Inspected::Valid(metadata) if metadata.name == skill.name => {
             use std::io::Seek;
             file.rewind().map_err(|_| Reopened::Skipped)?;
-            Ok(file)
+            Ok(Candidate { dir: held, file })
         }
         Inspected::Valid(_) => Err(Reopened::NameMismatch),
         _ => Err(Reopened::Skipped),
     }
+}
+
+/// The candidate's `SKILL.md`, from the directory held open: a regular file
+/// opened under it without following a link, or a link resolved inside the
+/// root's authority as discovery resolves one (`openPrimarySkillFile`,
+/// `skill_runtime.zig:779-842`).
+#[cfg(unix)]
+fn open_primary(
+    held: &std::os::fd::OwnedFd,
+    dir: &Path,
+    authority: Option<&Path>,
+    extra: &Authorities,
+) -> Opened {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags};
+    match rustix::fs::statat(held, "SKILL.md", AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) => match FileType::from_raw_mode(stat.st_mode) {
+            FileType::RegularFile => match rustix::fs::openat(
+                held,
+                "SKILL.md",
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            ) {
+                Ok(fd) => Opened::File(File::from(fd)),
+                Err(rustix::io::Errno::NOENT) => Opened::Missing,
+                Err(_) => Opened::Rejected,
+            },
+            FileType::Symlink => open_skill_file(dir, authority, extra),
+            _ => Opened::Rejected,
+        },
+        Err(rustix::io::Errno::NOENT) => Opened::Missing,
+        Err(_) => Opened::Rejected,
+    }
+}
+
+#[cfg(not(unix))]
+fn open_primary(_: &PathBuf, dir: &Path, authority: Option<&Path>, extra: &Authorities) -> Opened {
+    open_skill_file(dir, authority, extra)
 }
 
 /// Why an advertised candidate could not be opened again.

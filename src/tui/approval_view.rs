@@ -50,6 +50,12 @@ const COMMAND_QUESTION: &str = "Would you like to run the following command?";
 /// What any other question asks (`approval_ui.zig:1854-1871`'s fallback).
 const OTHER_QUESTION: &str = "Would you like to allow this action?";
 
+/// The reason row under a question no other reason fits, in xfx's name
+/// (`approvalReasonLine`'s fallback, `approval_ui.zig:1913`): `Reason:` dim
+/// and the sentence plain.
+const REASON_LABEL: &str = "Reason:";
+const OTHER_REASON: &str = "This action needs approval before xfx can continue.";
+
 /// How many unchanged lines the review shows on either side of the change
 /// (`diff.zig:497`, `review_context_lines`).
 pub(crate) const CONTEXT_LINES: usize = 5;
@@ -207,6 +213,14 @@ pub(crate) enum Kind {
     Write,
     /// `terminal`: `Would you like to run the following command?`.
     Command,
+    /// A read a configured rule asks about -- `read_file`, `list_files`,
+    /// `glob_files`, `grep_files` -- or a tool judged by its name
+    /// ([`crate::tools::JUDGED_BY_NAME`]), as upstream asks about any tool its
+    /// label does not name a kind for: the generic question, the generic
+    /// reason, and the tool with its argument (`approvalQuestion` and
+    /// `approvalReasonLine`, `approval_ui.zig:1842-1920`;
+    /// `fx-rules-read-40x120-ask`).
+    Read,
     /// Anything else -- today `create_folder` -- in upstream's generic words.
     Other,
 }
@@ -217,6 +231,8 @@ impl Kind {
             "edit_file" => Self::Edit,
             "write_file" => Self::Write,
             "terminal" => Self::Command,
+            "read_file" | "list_files" | "glob_files" | "grep_files" => Self::Read,
+            tool if crate::tools::JUDGED_BY_NAME.contains(&tool) => Self::Read,
             _ => Self::Other,
         }
     }
@@ -233,7 +249,7 @@ impl Kind {
             Self::Edit => "Edit",
             Self::Write => "Write",
             Self::Command => "Command",
-            Self::Other => "Tool",
+            Self::Read | Self::Other => "Tool",
         }
     }
 }
@@ -623,7 +639,9 @@ pub(crate) fn subject_rows(
         Kind::Edit | Kind::Write => {
             let path = match &request.subject {
                 ApprovalSubject::Path(path) => tamed(path),
-                ApprovalSubject::Command { .. } => tamed(&request.target),
+                ApprovalSubject::Command { .. } | ApprovalSubject::Call(_) => {
+                    tamed(&request.target)
+                }
             };
             let whole = INSET
                 + super::wrap::width(&path) as usize
@@ -653,7 +671,9 @@ pub(crate) fn subject_rows(
         Kind::Command => {
             let (command, cwd) = match &request.subject {
                 ApprovalSubject::Command { command, cwd } => (command.as_str(), cwd.as_str()),
-                ApprovalSubject::Path(_) => (request.target.as_str(), "."),
+                ApprovalSubject::Path(_) | ApprovalSubject::Call(_) => {
+                    (request.target.as_str(), ".")
+                }
             };
             let mut rows = vec![
                 styles.finish(
@@ -673,9 +693,45 @@ pub(crate) fn subject_rows(
             }
             rows
         }
+        Kind::Read => {
+            let argument = match &request.subject {
+                ApprovalSubject::Call(argument) | ApprovalSubject::Path(argument) => {
+                    argument.as_str()
+                }
+                ApprovalSubject::Command { command, .. } => command.as_str(),
+            };
+            let mut rows = vec![
+                styles.finish(
+                    &format!("{inset}{}", styles.run(styles.bold, OTHER_QUESTION)),
+                    cols,
+                ),
+                styles.finish(
+                    &format!(
+                        "{inset}{} {OTHER_REASON}",
+                        styles.run(styles.dim, REASON_LABEL)
+                    ),
+                    cols,
+                ),
+            ];
+            // Wrapped whole rather than cut at the edge, as every subject on
+            // this panel is: the readiness receipt is about all of it. A tool
+            // that shows no argument is its name alone (`formatPermissionLabel`
+            // returns `call.name`, `tool_presentation.zig:707`).
+            let label = if argument.is_empty() {
+                request.tool.to_string()
+            } else {
+                format!("{} {argument}", request.tool)
+            };
+            rows.extend(
+                safe_rows(&label, budget)
+                    .iter()
+                    .map(|segment| styles.finish(&format!("{inset}{segment}"), cols)),
+            );
+            rows
+        }
         Kind::Other => {
             let path = match &request.subject {
-                ApprovalSubject::Path(path) => path.as_str(),
+                ApprovalSubject::Path(path) | ApprovalSubject::Call(path) => path.as_str(),
                 ApprovalSubject::Command { command, .. } => command.as_str(),
             };
             let mut rows = vec![

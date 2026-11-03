@@ -1,0 +1,24 @@
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (signal hup, Tue Nov  3 20:54:28 2026)

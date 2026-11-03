@@ -1,0 +1,1 @@
+{"mcp":{"remote":{"type":"http","url":"http://127.0.0.1:@MCPPORT@/mcp","enabled":true,"startup_timeout_ms":30000,"operation_timeout_ms":60000}}}

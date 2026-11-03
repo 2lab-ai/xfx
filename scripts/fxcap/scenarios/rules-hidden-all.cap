@@ -1,0 +1,13 @@
+# R1: `"permission": "deny"` -- one action for every category -- leaves every
+# tool out of the request: an empty `tools` array, still with
+# `toolChoice: auto` (`vercel_protocol.zig:363-368`).
+gateway rules-hidden-turns.json
+seed rules-hidden-all-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type hello
+key Enter
+wait 4
+snap first
+gwlog

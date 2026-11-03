@@ -1,0 +1,24 @@
+# R1: a tool a global deny covers is left out of the request, as upstream's
+# projection leaves it out (`rulesDenyAllTargetsForTool`,
+# `tool_projection.zig:563-566`). `edit: {"*": "deny"}` in the profile: the
+# first turn's request offers no edit tool; `/allowlist add tool write_file`
+# writes a local table that shadows the profile's, and the next turn's
+# request offers them again -- upstream projects the tools when each
+# prompt's job starts (`app_agent_runtime.zig:1048-1052`).
+gateway rules-hidden-turns.json
+seed rules-hidden-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type hello
+key Enter
+wait 4
+snap first
+type /allowlist add tool write_file
+key Enter
+wait 2
+type again
+key Enter
+wait 4
+snap second
+gwlog

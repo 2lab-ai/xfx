@@ -1,0 +1,10 @@
+# H1 a `reset` turn: the stream sends some text and the connection is cut
+# before the finish. What each binary does next -- retry and take the next
+# turn, or say so and stop -- is on the screen and in the gateway log.
+gateway h1-reset-turns.json
+wait 4
+type say something
+key Enter
+wait 8
+snap after
+gwlog

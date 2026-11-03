@@ -1,0 +1,30 @@
+x𝒇x v0.1.0-72bf024 [debug] · Run /help for commands
+
+┃ say something slowly
+
+  a slow answer, word by word
+
+  2s (↑6 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,16 @@
+{
+ "/ai-gateway/usage-report": {
+  "json": {
+   "users": [
+    {
+     "budget": {
+      "limitAmount": 100,
+      "currentSpend": 12.5,
+      "refreshPeriod": "monthly"
+     }
+    }
+   ]
+  },
+  "delayMs": 200
+ }
+}

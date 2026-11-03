@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ read the secret
+
+● 1 tool call · 1 read · 1 denied
+└ Denied secret.txt
+
+  Refused.
+
+  5s (↑4 ↓80)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

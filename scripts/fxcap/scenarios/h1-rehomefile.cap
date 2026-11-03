@@ -1,0 +1,13 @@
+# H1 `rehomefile`: the profile is valid at launch and made malformed after
+# it, and `/status` reads it again (the panels research's settings row).
+fx: seed h1-settings-ok.json
+xfx: seed h1-settings-ok.json
+wait 4
+snap start
+fx: rehomefile .fx/settings.json h1-settings-bad.json
+xfx: rehomefile .xfx/settings.json h1-settings-bad.json
+home swapped
+type /status
+key Enter
+wait 2
+snap status

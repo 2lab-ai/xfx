@@ -566,25 +566,6 @@ fn switched(next_turn: bool, model: &str, settings: &TurnSettings) -> String {
     )
 }
 
-/// What labels the sentence a user attached to a permission decision.
-///
-/// **Its own label, beside `[tool]` and `[shell]` rather than one of them**,
-/// because it is a different kind of claim: those two rows are xfx reporting
-/// what it did, and this row is the user's own words being read back to them
-/// after they were delivered to the model. A sentence painted as `[tool] …`
-/// would read as the tool's account of what it did.
-pub(crate) const AMENDMENT_PREFIX: &str = "[you]";
-
-/// How much of an amendment the document row carries.
-///
-/// Longer than [`TOOL_DETAIL_BYTES`], because this one is a sentence a person
-/// wrote on purpose and the point of the row is that they can check it against
-/// what they meant; still bounded, because the draft behind it holds up to four
-/// kibibytes ([`super::approval_amendment::MAX_FEEDBACK_BYTES`]) and a
-/// transcript row is not where the whole of one belongs. The model gets the
-/// text whole either way -- this is a display of it, not the record.
-const AMENDMENT_BYTES: usize = 240;
-
 /// What a screen that changed size did to the band.
 ///
 /// Three answers rather than a `bool`, because the caller owes a different
@@ -1504,12 +1485,13 @@ enum Asked {
     Alternate(ApprovalScreen),
 }
 
-/// One of xfx's own lines written while a tool group was open
-/// ([`Shell::trail_group`]): what it is, so it can be laid out again at the
-/// width of whatever screen the block is next written to.
+/// What was written while a tool group was open ([`Shell::trail_group`]):
+/// what it is, so it can be laid out again at the width of whatever screen
+/// the block is next written to.
 #[derive(Debug, Clone)]
 enum Trailed {
-    Line(String, Role),
+    /// What the user said at an approval, as its card ([`Mark::Amendment`]).
+    Card(String),
     Notice(notice::Notice),
 }
 
@@ -1521,6 +1503,30 @@ pub(crate) fn queue_line(transcript: &mut Transcript, line: &str, role: Role) {
     }
     transcript.queue_push(line, role);
     transcript.queue_end_line();
+}
+
+/// Queues one card onto `transcript`, the rail and the text in bold with a
+/// blank row under it -- the transcript half of [`Shell::write_card`], for a
+/// card with no image badges.
+fn queue_card(transcript: &mut Transcript, text: &str) {
+    if transcript.open_line() {
+        transcript.queue_end_line();
+    }
+    transcript.queue_gutter(Gutter::Rail);
+    transcript.queue_push(&bold_card(text, &BadgeLinks::new()), Role::Plain);
+    transcript.queue_end_line();
+    transcript.queue_gutter(Gutter::None);
+    transcript.queue_end_line();
+}
+
+/// A card's text, bold opened on every line rather than once around the
+/// text: a hard break ends a row's attributes here, as upstream's card
+/// re-applies its style per row (`user_message_card.zig:365,374`).
+fn bold_card(text: &str, links: &BadgeLinks) -> String {
+    text.split('\n')
+        .map(|line| format!("{BOLD}{}{RESET}", card_line(line, links, true)))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Queues one notice onto `transcript` as upstream renders one -- the
@@ -1765,15 +1771,13 @@ enum Mark {
     /// The turn's summary under its answer, and a blank row under it
     /// (`transcript/runtime.zig:540-547`).
     Summary(String),
-    /// A whole line, on rows of its own, and what it is.
-    ///
-    /// The role is carried rather than decided where the mark is run, because
-    /// the two things that reach the document this way are not the same thing:
-    /// xfx's own sentences about the session are [`Role::Notice`], and the echo
-    /// of a line the **user** submitted is [`Role::Plain`] -- it is their text,
-    /// and colouring it as xfx's words would be this surface claiming to have
-    /// said it.
-    Line(String, Role),
+    /// What the user said at an approval, once the runtime has delivered it:
+    /// a card as upstream writes it, the user's prompt card
+    /// (`write_user_prompt`, `app_worker_runtime.zig:1020-1026`) -- and under
+    /// an open tool group, a card the group keeps growing above, as upstream's
+    /// next call of the same turn is drawn above it
+    /// (`fx-approvals-40x120-cmd2-ask`, rows 5-12).
+    Amendment(String),
     /// One of xfx's own notices, with a blank row above and below it
     /// ([`Shell::write_notice`]).
     Notice(notice::Notice),
@@ -3361,13 +3365,9 @@ impl Shell {
                     outcome,
                     changes,
                 }),
-                HydratedStep::Feedback(text) => self.run_mark(Mark::Line(
-                    format!(
-                        "{AMENDMENT_PREFIX} {}",
-                        safe_one_line(&text, AMENDMENT_BYTES)
-                    ),
-                    Role::Notice,
-                )),
+                // The card the live session wrote when it was delivered
+                // (`UiEvent::ToolFeedback` below), in the place the log keeps.
+                HydratedStep::Feedback(text) => self.run_mark(Mark::Amendment(text)),
                 // A steer carries no images, so its card has no badge links.
                 HydratedStep::Steer(text) => {
                     self.run_mark(Mark::Card(text, BadgeLinks::new(), SkillRuns::new()))
@@ -3649,27 +3649,16 @@ impl Shell {
             }
             // What the user said about a decision, once the runtime has
             // really delivered it (`crate::agent::machine`'s
-            // `flush_amendments`). A row rather than a hint, because it is part
-            // of the conversation rather than a fact about this keystroke --
-            // and it goes through [`Self::say`] like every other thing this
-            // session writes, so it takes its place in the stream behind
-            // whatever the pacer is still holding rather than overtaking the
-            // answer it belongs after.
-            //
-            // **Flattened here, and by the same function the tool detail two
-            // arms up uses.** `super::bridge::send_ui` already made every
-            // sequence the terminal would obey a space, but it deliberately
-            // keeps `\n`: a streamed answer's line breaks are rows the
-            // transcript exists to make. An amendment is not a stream, it is
-            // one sentence about one decision, and a draft can hold newlines
-            // (`C-j` at the panel, or a pasted paragraph) -- so the row it
-            // becomes is made one row here rather than left to the sender.
-            UiEvent::ToolFeedback { text, .. } => {
-                self.say(format!(
-                    "{AMENDMENT_PREFIX} {}",
-                    safe_one_line(&text, AMENDMENT_BYTES)
-                ));
-            }
+            // `flush_amendments`) -- never when the key was pressed, so the
+            // document never says something was said that was not. Written as
+            // upstream writes it, a prompt card of the person's own words, the
+            // sentence whole and a row per line of it (`write_user_prompt`,
+            // `vercel-labs/fx@c1db9191 src/core/app/app_worker_runtime.zig:
+            // 1020-1026`; `fx-rules-read-auto-40x120-grep-no`), the card a
+            // steer is ([`UiEvent::Steered`]): behind whatever of the answer
+            // the pacer still holds. `super::bridge::send_ui` has already made
+            // every sequence the terminal would obey a space.
+            UiEvent::ToolFeedback { text, .. } => self.mark(Mark::Amendment(text)),
             UiEvent::Notice(notice) => self.announce(notice),
             // Written like any notice; what makes it different is only that
             // a reset never drops it ([`Self::drained`]).
@@ -4315,16 +4304,8 @@ impl Shell {
         match mark {
             Mark::Card(text, links, _) => self.full.prompt(&card_text(text, links)),
             Mark::Summary(line) => self.full.usage(line),
-            // The one line said this way is what the user said at an
-            // approval, which upstream's screen heads as a prompt.
-            Mark::Line(line, role) => {
-                let kind = if line.starts_with(AMENDMENT_PREFIX) {
-                    full_transcript::Kind::Prompt
-                } else {
-                    full_transcript::Kind::Notice
-                };
-                self.full.line(line, *role, kind);
-            }
+            // Upstream's full transcript has it as the user prompt it is.
+            Mark::Amendment(text) => self.full.prompt(&card_text(text, &BadgeLinks::new())),
             Mark::Block(rows) => {
                 let rows: Vec<String> = rows.iter().map(|(row, _)| row.clone()).collect();
                 self.full.block(&rows);
@@ -7867,7 +7848,8 @@ impl Shell {
         self.pacer.enqueue(text);
     }
 
-    /// Says one of xfx's own lines, in the place the stream has reached.
+    /// Says one of xfx's own notices, in the place the stream has reached
+    /// ([`Self::mark`]'s timing), in upstream's shape ([`Self::write_notice`]).
     ///
     /// Immediately when nothing is waiting, which is every keystroke's case and
     /// most of a session's: a refusal, an echo or a `/help` that queued behind
@@ -7876,28 +7858,12 @@ impl Shell {
     /// document -- it is the point the answer had reached when the line
     /// happened, and Phase 1 never goes back to insert one.
     ///
-    /// Two lines do **not** come through here, and they are a pair: the
-    /// cancelled line and the sentence saying the queue went with it
-    /// ([`Self::cancel_turn`]). Both are what a Ctrl-C is answered with, so both
-    /// are about the keystroke rather than about the answer, and the reason is
-    /// written where they are.
-    fn say(&mut self, line: String) {
-        self.say_as(line, Role::Notice);
-    }
-
-    /// The same, for a line that is not xfx's own words.
-    fn say_as(&mut self, line: String, role: Role) {
-        self.mark(Mark::Line(line, role));
-    }
-
-    /// Says one of xfx's own notices, in the place the stream has reached --
-    /// [`Self::say`]'s timing, upstream's shape ([`Self::write_notice`]).
-    ///
     /// Everything xfx says about the session goes through here or, for the
     /// few sentences that answer a keystroke at once, straight to
-    /// [`Self::write_notice`]. What still goes through [`Self::say`] is the
-    /// tool trail -- `[tool] …` and the `[you] …` amendment that belongs to a
-    /// tool's decision -- whose rendering is the tool rows' own unit.
+    /// [`Self::write_notice`] -- among them the pair a Ctrl-C is answered
+    /// with, the cancelled line and the sentence saying the queue went with
+    /// it ([`Self::cancel_turn`]), which are about the keystroke rather than
+    /// about the answer.
     fn announce(&mut self, notice: notice::Notice) {
         self.mark(Mark::Notice(notice));
     }
@@ -8079,12 +8045,12 @@ impl Shell {
                 self.write_document_line(&line, Role::Dim);
                 self.end_transcript_line();
             }
-            // One of xfx's own lines rides under an open tool group rather
-            // than closing it ([`Self::trail_group`]).
-            Mark::Line(line, role) if self.group.drawn() => {
-                self.trail_group(Trailed::Line(line, role));
+            // An amendment rides under an open tool group rather than
+            // closing it ([`Self::trail_group`]).
+            Mark::Amendment(text) if self.group.drawn() => {
+                self.trail_group(Trailed::Card(text));
             }
-            Mark::Line(line, role) => self.write_document_line(&line, role),
+            Mark::Amendment(text) => self.write_card(&text, &BadgeLinks::new(), &SkillRuns::new()),
             Mark::Operational(text) => {
                 self.full.presented(&markdown::Event::Text(text.clone()));
                 self.write_prose(&text);
@@ -8309,7 +8275,7 @@ impl Shell {
         let mut scratch = Transcript::new(self.geometry.cols);
         for line in &self.trailer {
             match line {
-                Trailed::Line(text, role) => queue_line(&mut scratch, text, *role),
+                Trailed::Card(text) => queue_card(&mut scratch, text),
                 Trailed::Notice(notice) => {
                     queue_notice(&mut scratch, notice);
                 }
@@ -21945,11 +21911,10 @@ mod tests {
 
     #[test]
     fn a_notice_has_a_blank_row_above_it_unless_the_document_already_ends_on_one() {
-        // A row that ends on its text -- the user's own amendment, read back --
-        // so the notice after it opens a blank row first; the notice's own
-        // blank row under it is the one the next notice stands on. (This case
-        // used a tool row; a tool call is a group now, which ends on a blank
-        // row of its own -- `a_notice_under_a_tool_group_shares_its_blank_row`.)
+        // The user's amendment, read back, is a card, which ends on a blank
+        // row of its own: the notice after it stands on that one rather than
+        // opening another, and its own blank row under it is the one the next
+        // notice stands on.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::ToolFeedback {
             call_id: "1".to_string(),
@@ -21958,12 +21923,11 @@ mod tests {
         shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "said")));
         assert_eq!(
             shell.document(),
-            vec![
-                format!("{AMENDMENT_PREFIX} keep the header"),
-                String::new(),
-                "* tool: said".to_string(),
-                String::new()
+            [
+                card("keep the header"),
+                vec!["* tool: said".to_string(), String::new()]
             ]
+            .concat()
         );
     }
 
@@ -22706,6 +22670,122 @@ mod tests {
             lines,
             change: None,
         }
+    }
+
+    #[test]
+    fn an_amendment_is_the_same_card_live_and_resumed_and_a_prompt_in_the_full_transcript() {
+        // Upstream writes it as a user prompt card (`write_user_prompt`,
+        // `app_worker_runtime.zig:1020-1026`) under the open group, which
+        // keeps growing above it (`fx-approvals-40x120-cmd2-ask`); a resumed
+        // session draws it where the log keeps it, as the live one did.
+        let echo = |command: &str| serde_json::json!({"action": "exec", "command": command});
+        let mut live = shell(40, 120);
+        live.route_bytes(b"run them\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted);
+        live.apply(tool_start("c1", "terminal", echo("echo hi")));
+        live.apply(tool_ended(
+            "c1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        live.apply(UiEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "use capitals".to_string(),
+        });
+        live.apply(tool_start("c2", "terminal", echo("echo again")));
+        live.apply(tool_ended(
+            "c2",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        live.apply(UiEvent::Delta("Done.".to_string()));
+        live.apply(UiEvent::Output(Progress::Settled(40)));
+        live.apply(UiEvent::Usage { input: Some(6) });
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let live_rows = live.painted_document();
+        assert_eq!(
+            live_rows
+                .iter()
+                .map(|row| colourless(row))
+                .collect::<Vec<_>>()[..8],
+            [
+                "\u{2503} run them",
+                "",
+                "\u{25cf} 2 tool calls \u{b7} 2 commands",
+                "\u{251c} Ran echo hi",
+                "\u{2514} Ran echo again",
+                "",
+                "\u{2503} use capitals",
+                "",
+            ]
+        );
+        // The card's row is the one a submitted prompt is drawn with.
+        assert_eq!(live_rows[6], card_row("use capitals"));
+
+        let shown = |command: &str| {
+            crate::tools::Registry::builtin()
+                .spec("terminal")
+                .expect("the terminal")
+                .shown(&echo(command))
+        };
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            replay(
+                Some("run them"),
+                vec![saved(
+                    "run them",
+                    vec![
+                        HydratedStep::ToolStart {
+                            id: "c1".into(),
+                            shown: shown("echo hi"),
+                        },
+                        HydratedStep::ToolResult {
+                            id: "c1".into(),
+                            ok: true,
+                            outcome: CallOutcome::Exited(0),
+                            changes: None,
+                        },
+                        HydratedStep::Feedback("use capitals".to_string()),
+                        HydratedStep::ToolStart {
+                            id: "c2".into(),
+                            shown: shown("echo again"),
+                        },
+                        HydratedStep::ToolResult {
+                            id: "c2".into(),
+                            ok: true,
+                            outcome: CallOutcome::Exited(0),
+                            changes: None,
+                        },
+                        HydratedStep::Text("Done.".to_string()),
+                    ],
+                    0,
+                    Some(40),
+                )],
+            ),
+            true,
+        );
+        let rows = resumed.painted_document();
+        assert_eq!(
+            rows[2..],
+            live_rows[..],
+            "the replay is not the live document"
+        );
+
+        // Ctrl-O: a prompt, as upstream's full transcript has the user's
+        // words, not a line of xfx's.
+        live.open_full_transcript();
+        let full = full_screen(&live);
+        let card = full
+            .iter()
+            .position(|row| row == "\u{2503} use capitals")
+            .unwrap_or_else(|| panic!("no card in the full transcript: {full:#?}"));
+        assert!(full[card - 1].ends_with("\u{b7} Prompt"), "{full:#?}");
     }
 
     #[test]
@@ -26934,9 +27014,10 @@ mod tests {
 
     #[test]
     fn what_the_user_said_at_an_approval_does_not_split_the_group() {
-        // `fx-approvals-40x120-cmd2`: the amendment is read back under the
-        // group, and the next call of the same turn is counted in the same
-        // header and drawn above it. Text is what breaks a group.
+        // `fx-approvals-40x120-cmd2-ask`: the amendment is read back under
+        // the group as a card, `┃ use capitals` and a blank row, and the next
+        // call of the same turn is counted in the same header and drawn above
+        // it. Text is what breaks a group.
         let mut shell = shell(24, 80);
         shell.apply(tool_start(
             "1",
@@ -26966,7 +27047,8 @@ mod tests {
                 "\u{251c} Ran echo hi",
                 "\u{2514} Running echo again",
                 "",
-                &format!("{AMENDMENT_PREFIX} use capitals"),
+                "\u{2503} use capitals",
+                "",
             ]
         );
         // And the answer closes it, under the line.
@@ -26981,13 +27063,14 @@ mod tests {
         shell.flush_paced();
         let written = shell.written();
         assert_eq!(
-            written[..7],
+            written[..8],
             [
                 "\u{25cf} 2 tool calls \u{b7} 2 commands",
                 "\u{251c} Ran echo hi",
                 "\u{2514} Ran echo again",
                 "",
-                &format!("{AMENDMENT_PREFIX} use capitals"),
+                "\u{2503} use capitals",
+                "",
                 "  Done.",
                 "",
             ],
@@ -31552,14 +31635,14 @@ mod tests {
     }
 
     #[test]
-    fn a_submitted_amendment_reaches_the_document_as_the_users_own_row() {
-        // **Where the user reads back what they said.** The row is written when
-        // the runtime says the sentence was delivered -- the same flush that
-        // journals it and puts it in the prompt -- and not when the key was
-        // pressed, so the transcript can never show a sentence the model was
-        // not told. It goes through `say` like every other thing this session
-        // writes, so it takes its place in the stream behind whatever the pacer
-        // is still holding.
+    fn a_submitted_amendment_reaches_the_document_as_the_users_own_card() {
+        // **Where the user reads back what they said.** The card is written
+        // when the runtime says the sentence was delivered -- the same flush
+        // that journals it and puts it in the prompt -- and not when the key
+        // was pressed, so the transcript can never show a sentence the model
+        // was not told. It is marked like every other thing this session
+        // writes, so it takes its place in the stream behind whatever the
+        // pacer is still holding.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"draft the plan\r");
         shell.apply(tool_start(
@@ -31578,12 +31661,13 @@ mod tests {
             said.contains("keep the header comment"),
             "the user's own sentence never reached the document: {said:?}"
         );
-        // Labelled as theirs rather than as the tool's report of what it did:
-        // the two are different claims and the row that carries one must not
-        // read as the other.
+        // Drawn as theirs -- the prompt card upstream writes it as
+        // (`write_user_prompt`, `app_worker_runtime.zig:1020-1026`) -- rather
+        // than as the tool's report of what it did: the two are different
+        // claims and the row that carries one must not read as the other.
         assert!(
-            said.contains(&format!("{AMENDMENT_PREFIX} keep the header comment")),
-            "the sentence is not labelled as the user's: {said:?}"
+            said.contains(&format!("{RAIL} {BOLD}keep the header comment")),
+            "the sentence is not drawn as the user's card: {said:?}"
         );
         assert!(
             !said.contains("Wrote plan.md keep the header"),
@@ -31592,31 +31676,27 @@ mod tests {
     }
 
     #[test]
-    fn an_amendment_takes_one_document_row() {
-        // The band places rows by number, so a sentence spread over two would
-        // be a row the layout does not know about. What keeps it to one is
-        // `super::super::bridge`'s `made_inert`, which turns every control the
-        // channel carries into a space -- asserted there, where that function
-        // is; asserted here is that this end really writes one row.
-        let mut shell = shell(24, 80);
-        let started = turn_running(&mut shell, b"draft the plan\r");
+    fn an_amendment_with_breaks_in_it_is_a_card_of_rows_none_of_which_carries_a_break() {
         // A draft really can hold newlines -- `C-j` at the panel, or a pasted
         // paragraph -- and `super::super::bridge`'s `made_inert` deliberately
-        // keeps them, because a streamed answer's breaks are rows the
-        // transcript exists to make. So the sentence arrives with one in it,
-        // and what is asserted is that this end makes it a row.
+        // keeps them. Upstream's card writes each line of the user's words on
+        // a row of its own behind the rail, as a prompt of several lines is
+        // (`buildUserPromptCard…`, `user_message_card.zig:365,374`); the band
+        // places rows by number, so what is asserted too is that no row the
+        // document is given carries a break the band did not place.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"draft the plan\r");
         shell.apply(UiEvent::ToolFeedback {
             call_id: "c1".to_string(),
             text: "first\nsecond\nthird".to_string(),
         });
         shell.settle_band(started);
         let rows = shell.released();
-        let carrying: Vec<&String> = rows.iter().filter(|row| row.contains("first")).collect();
-        assert_eq!(carrying.len(), 1, "{rows:?}");
-        assert!(
-            carrying[0].contains("third"),
-            "the sentence was split across rows: {rows:?}"
-        );
+        for word in ["first", "second", "third"] {
+            let carrying: Vec<&String> = rows.iter().filter(|row| row.contains(word)).collect();
+            assert_eq!(carrying.len(), 1, "{word}: {rows:?}");
+            assert_eq!(carrying[0], &format!("{RAIL} {BOLD}{word}"), "{rows:?}");
+        }
         assert!(
             !rows.iter().any(|row| row.contains('\n')),
             "a document row carries a break the band did not place: {rows:?}"
