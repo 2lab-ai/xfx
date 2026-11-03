@@ -591,7 +591,13 @@ fn open_session(
         Some(selector) => {
             let resumed = store.resume(selector, &config.workspace_root)?;
             let state = resumed.session.state();
-            let replay = state.history_messages(config.provider.wire());
+            // The model the turn will be sent to, by `run_ask`'s rule.
+            let model = if config.sources.model == SettingSource::CompiledDefault {
+                state.model.as_str()
+            } else {
+                config.model.as_str()
+            };
+            let replay = state.history_messages(config.provider.wire(), model);
             let restored_grants = state.grants.clone();
             let restored_model = Some(state.model.clone());
             Ok(OpenedSession {

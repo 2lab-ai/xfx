@@ -407,6 +407,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
                 TurnStep::ToolResult {
                     ending: None,
@@ -428,6 +429,7 @@ mod tests {
                     raw_content: Vec::new(),
                     responses_state: Vec::new(),
                     wire: None,
+                    model: None,
                 },
             ],
             TurnTiming {
@@ -504,6 +506,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         }
     }
 

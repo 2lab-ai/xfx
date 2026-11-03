@@ -8345,6 +8345,117 @@ fn after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_w
 }
 
 #[test]
+fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent() {
+    // fx's replay goes back only to the provider **and the model** that
+    // sealed it (`ProviderReplay.matches`, `vercel-labs/fx@c1db9191
+    // src/core/shared/types.zig:1512-1515`); a step it does not match is sent
+    // as its text and calls (`projectProviderReplay`, `:1548-1563`). A daemon
+    // asked by one model to verify a signature another made can refuse the
+    // request, so the request after `/model claude-fable-5[1m]` carries the
+    // first turn's call and answer and none of `m-1`'s thinking -- and says
+    // so, once.
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_thinking_then_tool(
+            "SIGNED-BY-M1",
+            "sig-m1",
+            "toolu_m1",
+            "read_file",
+            "{\"path\":\"notes.txt\"}",
+        )),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-M1-READ-IT",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-M2-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
+            "MARKER-M2-AGAIN",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("notes.txt"), "NOTE-BODY\n").expect("notes.txt");
+    let pty = Pty::open();
+    pty.resize(24, 120);
+    let mut command = sandbox.command_with_llmux(&daemon);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("MARKER-M1-READ-IT");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(b"/model claude-fable-5[1m]\r");
+    session.wait_for("Switched to claude-fable-5[1m]");
+    session.type_bytes(b"and now?\r");
+    session.wait_for("MARKER-M2-ANSWERED");
+    wait_for_conclusions(&sandbox, 2);
+    session.type_bytes(b"once more\r");
+    session.wait_for("MARKER-M2-AGAIN");
+    wait_for_conclusions(&sandbox, 3);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = daemon.message_requests();
+    assert_eq!(requests.len(), 4);
+    // The first turn's second step, to the model that sealed the first: the
+    // blocks go back, signature and all.
+    let continued: Value = serde_json::from_str(&requests[1].body).expect("json");
+    assert_eq!(continued["model"], "m-1");
+    assert_eq!(
+        continued["messages"][1]["content"][0]["signature"],
+        "sig-m1"
+    );
+    // The next turns, to the other model: the call and the answer, no
+    // thinking.
+    for request in &requests[2..] {
+        let body: Value = serde_json::from_str(&request.body).expect("json");
+        assert_eq!(body["model"], "claude-fable-5[1m]");
+        let sent = body.to_string();
+        assert!(
+            !sent.contains("SIGNED-BY-M1") && !sent.contains("sig-m1"),
+            "a block m-1 signed went to another model: {sent}"
+        );
+        assert_eq!(
+            body["messages"][1],
+            serde_json::json!({"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_m1", "name": "read_file",
+                 "input": {"path": "notes.txt"}},
+            ]})
+        );
+        assert_eq!(
+            body["messages"][3]["content"][0]["text"],
+            "MARKER-M1-READ-IT"
+        );
+    }
+    let text = session.settled_text();
+    assert_eq!(
+        text.matches("recorded reasoning from m-1 and is continuing with claude-fable-5[1m]")
+            .count(),
+        1,
+        "{text:?}"
+    );
+    // The model is recorded beside the blocks it sealed, as fx records it
+    // with its replay (`ProviderReplay.source`).
+    let sealed: Vec<Value> = session_frames(&sandbox)
+        .into_iter()
+        .filter(|frame| {
+            frame["event"]["kind"] == "assistant_message"
+                && frame["event"]["raw_content"].is_array()
+        })
+        .map(|frame| frame["event"]["model"].clone())
+        .collect();
+    assert_eq!(
+        sealed,
+        [
+            Value::from("m-1"),
+            Value::from("m-1"),
+            Value::from("claude-fable-5[1m]"),
+            Value::from("claude-fable-5[1m]")
+        ]
+    );
+}
+
+#[test]
 fn a_session_that_switched_provider_resumes_with_every_turn_in_the_wire_it_resumes_on() {
     // A log that holds a Gateway turn, the switch, and a llmux turn that
     // thought before it called a tool. Resumed on llmux -- the provider the

@@ -21218,6 +21218,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             crate::session::TurnStep::ToolResult {
                 call_id: "c1".into(),
@@ -21396,6 +21397,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         }];
         steps.extend([
             logged_result(
@@ -21417,6 +21419,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
         ]);
         let mut resumed = shell(40, 120);
@@ -21474,6 +21477,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 images: Vec::new(),
@@ -21540,6 +21544,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             logged_result("w", false, Some(ToolEnding::Cancelled), None),
         ];

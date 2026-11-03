@@ -3910,6 +3910,7 @@ impl crate::agent::StepCompactor for TurnCompactor {
         let removed_turns = plan.turn_count();
         check.journal.record(event);
         let wire = self.wire.clone();
+        let model = self.model.clone();
         let committed = check.journal.state().and_then(|state| {
             let checkpoint = state.checkpoint.as_ref()?;
             (state.last_event_seq != before).then(|| {
@@ -3917,7 +3918,7 @@ impl crate::agent::StepCompactor for TurnCompactor {
                     checkpoint.count,
                     crate::session::checkpoint::render(&checkpoint.compacted),
                     checkpoint.compacted.tool_count,
-                    state.history_messages_before_open(wire).messages,
+                    state.history_messages_before_open(wire, &model).messages,
                 )
             })
         });
@@ -5030,7 +5031,7 @@ async fn one_turn(
     let replay = conversation
         .recorder
         .state()
-        .history_messages(state.config.provider.wire());
+        .history_messages(state.config.provider.wire(), &model);
     // Once each for the conversation ([`Conversation::unsaid`]): the history
     // is rebuilt for every turn, and so are these.
     for notice in conversation.unsaid(replay.notices) {
@@ -6825,6 +6826,7 @@ mod tests {
             raw_content: Vec::new(),
             responses_state: Vec::new(),
             wire: None,
+            model: None,
         });
         assert_eq!(recorder.failure(), None, "the log refused the turn");
     }
@@ -7332,6 +7334,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::ToolResult {
                 call_id: "r".to_string(),
@@ -7348,6 +7351,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             SessionEvent::TurnConcluded {
                 outcome: crate::session::TurnConclusion::Final {

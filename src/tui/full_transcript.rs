@@ -2785,6 +2785,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 images: Vec::new(),
@@ -2877,6 +2878,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             },
             TurnStep::ToolResult {
                 call_id: "c".into(),
@@ -3234,6 +3236,7 @@ mod tests {
                 raw_content: Vec::new(),
                 responses_state: Vec::new(),
                 wire: None,
+                model: None,
             });
             teed.record(SessionEvent::ToolResult {
                 ending: None,
