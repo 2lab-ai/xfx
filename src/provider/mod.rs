@@ -294,6 +294,19 @@ pub fn credential_ready(provider: ProviderId, config: &RuntimeConfig) -> bool {
         .is_some_and(|credential| authorizes(provider, credential.source()))
 }
 
+/// What a turn on `provider` is refused with when there is nothing to
+/// authenticate with ([`Bundle::select`]), and what a resumed session on it is
+/// told beforehand -- one sentence per provider, as upstream's resume and its
+/// refused prompt say the same one (`restoreSessionCredential` and
+/// `missingPromptCredential`, `vercel-labs/fx@c1db9191
+/// src/core/app/app_auth_runtime.zig:172-182`, `:198-214`).
+pub fn missing_credential_help(provider: ProviderId) -> &'static str {
+    match provider {
+        ProviderId::Gateway => crate::output::MISSING_AUTH_HELP,
+        ProviderId::Llmux => crate::llmux::MISSING_URL_HELP,
+    }
+}
+
 /// A selected provider and the transport that talks to it.
 ///
 /// Upstream's bundle also carries the catalog fetcher
@@ -334,12 +347,7 @@ impl Bundle {
         let provider_id = config.provider;
         let credential = match resolve_credential_for(provider_id, config) {
             Some(cred) => cred,
-            None => {
-                return Err(match provider_id {
-                    ProviderId::Gateway => crate::output::MISSING_AUTH_HELP.to_string(),
-                    ProviderId::Llmux => crate::llmux::MISSING_URL_HELP.to_string(),
-                });
-            }
+            None => return Err(missing_credential_help(provider_id).to_string()),
         };
 
         // Verify the credential is authorized for this provider.
