@@ -215,3 +215,26 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - P2 security review (four groups × gpt-6-astra and opus at `de6618de`): union of MUST-FIX = 11 SEC units; SM1-final found the launcher's SIGINT ignore replaced by xfx's handler (fx keeps it) and fixed it as its own unit; COMPAT found the resume write-on-open (G-resume-prefs).
+
+## R25 — closed 2026-11-03
+
+- result: batch 25 (`8133dee2`): SEC-A1/A1b, A2, A4/A4b, B1/B1b, C1+C2/C2b, C3/C3b, D2, G-resume-prefs + COMPAT, the batch's resume-test restatement, the check-scripts pipefail fix, sweep tooling r2. Gates on `8133dee2`: lib 3552, tui 162, session_compat 6; fault-injection lib 3559, tui 176; 0 failed; clippy 0 both; test-sweep OK. Merge resolutions: `docs/parity.md` rows (rowmerge), `selection` doc (both rules), `transport.rs` imports (union).
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+| SEC-A1 | ✅ | the TTY question spells every field (`command_text`); on a terminal the line shell's and `ask`'s answer is inert (no state left to hide the question) | `fix/p2sec-tty-escape` @ `796d69cd` | landed batch 25 (`8133dee2`) |
+| SEC-A2 | ✅ | a failed `/allowlist` view keeps the table in force; an unreadable table at launch refuses every tool; config diagnostics said at launch as fx | `fix/p2sec-malformed-table` @ `1754afde` | landed batch 25 |
+| SEC-A4 | ✅ | every default-ignorable spelled out in approval and question fields; content keeps only RGI emoji sequences — no row can be drawn past the margin (tmux, Ghostty, fx widths) | `fix/p2sec-ignorable-cp` @ `f33a9747` | landed batch 25 |
+| SEC-B1 | ✅ | a catalog/log model id with a control is refused at `apply` and not restored at resume; store errors and the line shell's `/model` listing quote no controls | `fix/p2sec-resume-model-inert` @ `ece5fa11` | landed batch 25 |
+| SEC-C1 | ✅ | MCP stdio env = `HOME LOGNAME PATH SHELL TERM USER` + the server's `env` (fx 0.0.15); Docker cleanup the same; other children lose xfx's credentials | `fix/p2sec-mcp-env` @ `5d741708` | landed batch 25 (via `fix/p2sec-mcp-ws-cred`) |
+| SEC-C2 | ✅ | workspace MCP entries cannot resolve or name xfx's credentials; an unset `${VAR}` stops the entry with fx's sentence | `fix/p2sec-mcp-ws-cred` @ `f003b378` | landed batch 25 |
+| SEC-C3 | ✅ | stdin writes deadline-bound and non-blocking; a write cut mid-way ends the connection (c1db9191's taint rule); close never waits on a writer; group signals before the leader is reaped | `fix/p2sec-mcp-stdin` @ `431f3bd6` | landed batch 25 |
+| SEC-D2 | ✅ | pasted/typed paths and `/image` obey the read table's denies (every mode); stat before open, non-regular files refused | `fix/p2sec-paste-image-read` @ `96e8b7b1` | landed batch 25 |
+| COMPAT | ✅ | session-log back-compat vs the installed preview (6 tests); opening a session and quitting writes nothing; the session keeps its model (G-resume-prefs, as fx) | `test/session-compat` → `fix/p2-resume-prefs` @ `3652549c` | landed batch 25 |
+| G-resume-prefs | ✅ | resume wrote the launch's model and mode over the session's | closed by COMPAT/G-resume-prefs, batch 25 |
+
+### Round section (as it was in loop.md)
+
+- Follow-ups the units found and closed in the same round: hidden tails in every approval field (A4b), model text leaving terminal state before the TTY question (A1b), the line shell's `/model` listing (B1b), an unset `${VAR}` now stops the entry (C2b), group signals after reaping (C3b), the check scripts' SIGPIPE false results — two failed open.
