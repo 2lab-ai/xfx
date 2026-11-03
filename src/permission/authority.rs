@@ -2626,6 +2626,92 @@ mod tests {
     }
 
     #[test]
+    fn an_admitted_git_selects_no_driver_in_a_submodule_child_either() {
+        // `git status` in a superproject runs `git status` in each submodule.
+        // The submodule's own work-tree `.gitattributes` selects a filter its
+        // own `config` defines; `--attr-source` and `core.attributesFile`
+        // reach that child too (git passes them on), so it is not selected.
+        let fixture = GitFixture::new();
+        let source = tempfile::tempdir().expect("a source");
+        let source = source.path().canonicalize().expect("canonical");
+        let git_in = |dir: &Path, args: &[&str]| {
+            let status = std::process::Command::new(&fixture.git)
+                .args(args)
+                .current_dir(dir)
+                .env_clear()
+                .env("HOME", &fixture.home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?}");
+        };
+        git_in(&source, &["init", "-q"]);
+        std::fs::write(source.join("s.txt"), "s\n").expect("a file");
+        git_in(&source, &["add", "s.txt"]);
+        git_in(
+            &source,
+            &[
+                "-c",
+                "user.email=a@b",
+                "-c",
+                "user.name=a",
+                "commit",
+                "-q",
+                "-m",
+                "s",
+            ],
+        );
+        git_in(
+            fixture.repo(),
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                source.to_str().expect("utf-8"),
+                "sub",
+            ],
+        );
+        let ran = fixture.home.join("SUB-RAN");
+        let module_config = fixture.repo().join(".git/modules/sub/config");
+        let mut config = std::fs::read_to_string(&module_config).expect("config");
+        config.push_str(&format!(
+            "[filter \"y\"]\n\tclean = \"touch {}; cat\"\n",
+            ran.display()
+        ));
+        std::fs::write(&module_config, config).expect("config");
+        let sub = fixture.repo().join("sub");
+        std::fs::write(sub.join(".gitattributes"), "* filter=y\n").expect("attributes");
+        // The committed bytes, rewritten: the stat changes, the content does
+        // not, so the child has to hash it -- through the clean filter.
+        let touch = || {
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            std::fs::write(sub.join("s.txt"), "s\n").expect("a touch");
+            let _ = std::fs::remove_file(&ran);
+        };
+        touch();
+        assert!(fixture
+            .run(&["git".into(), "status".into(), "--short".into()])
+            .success());
+        assert!(
+            ran.exists(),
+            "the control did not run the submodule's filter"
+        );
+        touch();
+        let plan = fixture.plan("git status --short");
+        let status = fixture.run_plan(&plan);
+        assert!(status.success(), "{status}");
+        assert!(
+            !ran.exists(),
+            "the hardened status ran the submodule's filter"
+        );
+    }
+
+    #[test]
     fn a_git_that_does_not_know_an_option_it_is_given_runs_nothing() {
         // Git older than 2.40 has no `--attr-source`. What it does with a
         // global option it does not know is what any git does: refuse it and
