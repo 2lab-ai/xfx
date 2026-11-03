@@ -113,7 +113,8 @@ pub struct ServerConfig {
     /// The program, for a stdio server.
     pub command: String,
     pub args: Vec<String>,
-    /// Added to the inherited environment (`server_transport.zig:107-124`).
+    /// A stdio server's own variables, set over the few of xfx's it is given
+    /// ([`super::transport::server_environment`]).
     pub env: Vec<(String, String)>,
     /// The endpoint, for an HTTP or SSE server.
     pub url: String,
@@ -454,12 +455,12 @@ fn string_map(
 }
 
 /// xfx's own credentials, the two variables the gateway key is read from
-/// (`crate::config`). A workspace server never resolves them: approval is by
+/// ([`crate::config::CREDENTIAL_VARIABLES`]). A workspace server never resolves them: approval is by
 /// name and an HTTP server runs none of the repository's code, so an approved
 /// entry naming one would send the key to whatever host it names. Upstream
 /// resolves them like any other variable (`docs/parity.md`).
 fn is_credential_variable(name: &str) -> bool {
-    name == crate::config::ENV_GATEWAY_KEY || name == crate::config::ENV_OIDC_TOKEN
+    crate::config::CREDENTIAL_VARIABLES.contains(&name)
 }
 
 fn is_env_name(name: &str) -> bool {
