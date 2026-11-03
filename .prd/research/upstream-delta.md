@@ -1,7 +1,7 @@
 # fx upstream 최근 델타 — pin 580a0c5 → HEAD ef1d0d0 (0.0.5)
 
 작성 2026-08-24. 소스: 업스트림 클론 `scratchpad/fx-src` (shallow, HEAD ef1d0d0 = PR #381 머지),
-`CHANGELOG.md` 0.0.5 섹션, `README.md`; xfx 측은 `/Users/zhugehyuk/2lab.ai/xfx/docs/parity.md`(정본 원장)와
+`CHANGELOG.md` 0.0.5 섹션, `README.md`; xfx 측은 `docs/parity.md`(정본 원장)와
 `UPSTREAM.md`(pin 선언 + 의도적 편차 9종).
 
 **범위 주의**: 클론이 depth-1 shallow라 pin 커밋이 0.0.4/0.0.5 경계 어디에 있는지 git으로 확정 불가.
