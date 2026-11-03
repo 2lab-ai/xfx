@@ -339,12 +339,12 @@ async fn ask(
     // Then what the configuration could not use, one line each, as upstream's
     // headless run says it (`vercel-labs/fx@c1db9191
     // src/core/cli/cli_ask.zig:1716-1727`) -- and, when a permission table was
-    // among it, that every tool is refused
-    // ([`crate::config::PermissionTables::unreadable`]).
+    // among it, what that means in the mode this run is in
+    // ([`crate::config::PermissionTables::refusal`]).
     for diagnostic in &config.diagnostics {
         writeln!(stderr, "xfx ask: config {}", diagnostic.startup_line())?;
     }
-    if let Some(refusal) = config.permission.refusal() {
+    if let Some(refusal) = config.permission.refusal(mode) {
         writeln!(stderr, "xfx ask: permissions: {refusal}")?;
     }
 

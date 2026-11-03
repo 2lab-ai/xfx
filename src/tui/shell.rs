@@ -3148,8 +3148,9 @@ impl Shell {
     /// transcript only (`visibility = .full_only`).
     ///
     /// A permission table that did not read is said in the document too, as
-    /// a warning, because xfx refuses every tool until it reads
-    /// ([`crate::config::PermissionTables::unreadable`]) where upstream goes
+    /// a warning, because xfx refuses every tool until it reads -- in every
+    /// mode but full access, which the line says
+    /// ([`crate::config::PermissionTables::refusal`]) -- where upstream goes
     /// on without the table: the way back is `/allowlist`, which reads the
     /// file again and puts a table that reads in force.
     pub(crate) fn config_issues(&mut self, config: &RuntimeConfig) {
@@ -3170,7 +3171,7 @@ impl Shell {
             self.full
                 .full_detail(notice::Notice::neutral("config", lines.join("\n")));
         }
-        if let Some(refusal) = config.permission.refusal() {
+        if let Some(refusal) = config.permission.refusal(self.mode) {
             self.announce(notice::Notice::warning(
                 "permissions",
                 format!("{refusal}; fix it, then /allowlist reads it again"),
@@ -21204,6 +21205,38 @@ mod tests {
                 == "* config: user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny"),
             "{screen:#?}"
         );
+        // In full access, which consults no table, it says the table is not
+        // applied rather than that every tool is refused.
+        std::fs::write(
+            &settings,
+            r#"{"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
+        )
+        .unwrap();
+        let yolo = config(home.path(), workspace.path());
+        assert_eq!(yolo.permission_mode, PermissionMode::Yolo);
+        let (work, sent, control, _changes) = WorkHandle::detached_with_changes();
+        let mut full_access = Fixture {
+            shell: Shell::new(
+                &yolo,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        full_access.config_issues(&yolo);
+        let said = full_access.document().join(" ");
+        let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            said.contains(
+                "! permissions: full access consults no table, so it is not applied; every other mode refuses every tool: a permission table did not read"
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("every tool is refused"), "{said}");
         // A configuration with nothing to say says nothing.
         let (home, workspace, mut quiet) = allowlist_shell();
         let clean = config(home.path(), workspace.path());

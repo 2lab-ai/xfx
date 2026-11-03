@@ -148,6 +148,51 @@ fn a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation
     assert_eq!(session.wait_exit().code(), Some(1));
 }
 
+#[test]
+fn the_shell_opens_saying_what_the_configuration_could_not_use_and_what_it_means() {
+    // `xfx ask`'s lines with the shell's prefix, and a table that did not read
+    // with the way back -- in full access, which consults no table, that it is
+    // not applied rather than that every tool is refused.
+    let reason = "a permission table did not read (user config diagnostic: invalid_value \
+                  key=permission `sure` is not a permission action; use allow, ask or deny); \
+                  fix it, then /allowlist reads it again";
+    for (profile, said) in [
+        (
+            r#"{"permission":{"bash":"sure"}}"#,
+            format!("xfx: permissions: every tool is refused: {reason}"),
+        ),
+        (
+            r#"{"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
+            format!(
+                "xfx: permissions: full access consults no table, so it is not applied; \
+                 every other mode refuses every tool: {reason}"
+            ),
+        ),
+    ] {
+        let sandbox = Sandbox::new();
+        let profile_dir = sandbox.settings_path().parent().unwrap().to_path_buf();
+        fs::create_dir_all(&profile_dir).unwrap();
+        // Owner-only, as a session store must be.
+        fs::set_permissions(
+            &profile_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        fs::write(sandbox.settings_path(), profile).unwrap();
+        let pty = Pty::open();
+        let mut session = start(&sandbox, &pty, sandbox.command());
+        let text = session.text();
+        assert!(
+            text.contains(
+                "xfx: config user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny\r\n"
+            ),
+            "{profile}: {text}"
+        );
+        assert!(text.contains(&format!("{said}\r\n")), "{profile}: {text}");
+        assert_eq!(session.quit().code(), Some(0), "{profile}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // the prompt loop
 // ---------------------------------------------------------------------------
