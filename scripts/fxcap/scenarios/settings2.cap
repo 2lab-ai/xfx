@@ -32,8 +32,8 @@ key Right
 wait 0.5
 snap right-context
 home right-context
-fx: key Down Down Down Down Down Down Down Down Down Down Down
-xfx: key Down Down Down Down Down Down Down Down
+# One Down count for both: xfx's menu has fx's fourteen rows.
+key Down Down Down Down Down Down Down Down Down Down Down
 wait 0.4
 snap down-sound
 key Right
