@@ -8557,12 +8557,14 @@ QUESTION_ABORTED = "aborted by user"
 # Postgres`), which is where an open freeform draft is typed.
 CHOICE_TEXT_COLUMN = 7
 
-# What labels the sentence a user attached to a decision, in the transcript.
+# What the sentence a user attached to a decision is read back as, in the
+# transcript: the user's own card, the rail and a space before their words, as
+# upstream writes it (`write_user_prompt`, `app_worker_runtime.zig:1020-1026`).
 #
 # Spelled out rather than imported, for the reason `ALWAYS_WORDING` is: a needle
 # that read the constant it is checking would pass for whatever `src/tui/shell.rs`
 # happened to declare.
-AMENDMENT_PREFIX = "[you]"
+AMENDMENT_CARD = RAIL + " "
 
 
 def on_the_grid(trial, needle, what=None):
@@ -9285,7 +9287,7 @@ def scenario_25(run):
     )
     grid = allowed.grid("answered")
     run.require(
-        grid.find(AMENDMENT_PREFIX + " " + allow_phrase) is not None,
+        grid.find(AMENDMENT_CARD + allow_phrase) is not None,
         "the user's own sentence is not in the transcript, labelled as the user's own, after "
         "the panel came down: %r" % grid.text(),
     )
@@ -9361,7 +9363,7 @@ def scenario_25(run):
     )
     grid = refused.grid("refused")
     run.require(
-        grid.find(AMENDMENT_PREFIX + " " + deny_phrase) is not None,
+        grid.find(AMENDMENT_CARD + deny_phrase) is not None,
         "a refusal's own sentence is not in the transcript after the panel came down",
     )
     run.require(
@@ -9442,7 +9444,7 @@ def scenario_25(run):
         "the transcript claims a sentence was delivered that the key dropped",
     )
     run.require(
-        grid.find(AMENDMENT_PREFIX) is None,
+        grid.find(AMENDMENT_CARD + "never sent") is None,
         "a dropped amendment was labelled as delivered: %r" % grid.text(),
     )
     run.require(

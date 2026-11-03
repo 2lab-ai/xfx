@@ -762,9 +762,6 @@ enum Body {
     /// it: rendered prose, code, tables and rules, laid out at the screen's
     /// width when drawn.
     Response(Vec<markdown::Event>),
-    /// A line of xfx's own that is not a notice: what the user said at an
-    /// approval (`[you] …`).
-    Line(String, Role, Kind),
     Notice(Notice),
     Usage(String),
     /// Rows the document was given already laid out: what a question batch
@@ -1035,11 +1032,6 @@ impl FullTranscript {
         for event in processor.finish() {
             self.presented(&event);
         }
-    }
-
-    /// One of xfx's own lines that is not a notice, and what to call it.
-    pub(crate) fn line(&mut self, text: &str, role: Role, kind: Kind) {
-        self.push(Body::Line(text.to_string(), role, kind));
     }
 
     pub(crate) fn notice(&mut self, notice: &Notice) {
@@ -1414,7 +1406,6 @@ impl FullTranscript {
         match &entry.body {
             Body::Prompt(text) => (Some(Kind::Prompt), card(text, cols, palette)),
             Body::Response(events) => (Some(Kind::Response), answer(events, cols, palette)),
-            Body::Line(text, role, kind) => (Some(*kind), line(text, *role, cols, palette)),
             Body::Notice(notice) => (
                 Some(if notice.tone == Tone::Error {
                     Kind::Error
@@ -1457,7 +1448,7 @@ impl FullTranscript {
                     let kind = match body {
                         Body::Response(_) => "assistant",
                         Body::Notice(_) => "semantic notice",
-                        Body::Usage(_) | Body::Line(..) => "raw",
+                        Body::Usage(_) => "raw",
                         Body::Tool(_) => "tool",
                         _ => "questions",
                     };
@@ -3003,19 +2994,6 @@ mod tests {
                 "",
                 "  1) Which database?",
                 "     SQLite",
-            ]
-        );
-    }
-
-    #[test]
-    fn the_amendment_line_keeps_the_kind_the_shell_gave_it() {
-        let mut record = record();
-        record.line("[you] use capitals", Role::Notice, Kind::Prompt);
-        assert_eq!(
-            &screen(&record)[..2],
-            [
-                "  2026-10-06 14:43:50.620 UTC \u{b7} Prompt",
-                "[you] use capitals",
             ]
         );
     }
