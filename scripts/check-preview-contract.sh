@@ -661,14 +661,14 @@ if command -v gh >/dev/null 2>&1; then
 		esac
 
 		usage="$(gh release "$verb" --json 2>&1 || true)"
-		if ! printf '%s\n' "$usage" | grep -q 'comma-separated fields'; then
+		if ! grep -q 'comma-separated fields' <<<"$usage"; then
 			printf 'check-preview-contract: gh did not report its --json fields for `release %s`; the pinned list is unverified here\n' "$verb"
 			continue
 		fi
 
 		live="$(printf '%s\n' "$usage" | sed -n 's/^[[:space:]][[:space:]]*\([a-zA-Z][a-zA-Z0-9_]*\)$/\1/p')"
 		for field in $pinned; do
-			if ! printf '%s\n' "$live" | grep -qx "$field"; then
+			if ! grep -qx "$field" <<<"$live"; then
 				fail "the pinned field list for \`gh release $verb --json\` includes '$field', which the installed gh does not accept"
 			fi
 		done
@@ -779,7 +779,7 @@ if command -v actionlint >/dev/null 2>&1; then
 		# guessed: a rejection of a runner label this repository already builds
 		# on is far more often a stale local binary than a bad workflow, and
 		# that is the same mistake the pinned floor above exists for.
-		fail "actionlint $(actionlint --version | head -1) rejects the preview workflow (the workflow pins v$CONTRACT_ACTIONLINT_MINIMUM or newer):"
+		fail "actionlint $(actionlint --version | sed -n 1p) rejects the preview workflow (the workflow pins v$CONTRACT_ACTIONLINT_MINIMUM or newer):"
 		cat "$work/actionlint.txt" >&2
 	fi
 fi

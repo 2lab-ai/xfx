@@ -264,7 +264,7 @@ check_inventory() {
 	# 2. everything documented as implemented is really advertised
 	while IFS= read -r name; do
 		[ -n "$name" ] || continue
-		if ! printf '%s\n' "$advertised" | grep -qxF -- "$name"; then
+		if ! grep -qxF -- "$name" <<<"$advertised"; then
 			fail "$kind \`$name\` is documented as implemented but $source does not advertise it"
 		fi
 	done <<<"$(parity_names "$kind" implemented)"
@@ -272,7 +272,7 @@ check_inventory() {
 	# 3. nothing documented as deferred is advertised, grouped rows included
 	while IFS= read -r name; do
 		[ -n "$name" ] || continue
-		if printf '%s\n' "$advertised" | grep -qxF -- "$name"; then
+		if grep -qxF -- "$name" <<<"$advertised"; then
 			fail "$kind \`$name\` is documented as deferred but $source advertises it"
 		fi
 	done <<<"$(
@@ -332,11 +332,11 @@ if [ -f "$shell_source" ]; then
 		# 1. every alias is documented, on the row of its own command
 		while IFS="$(printf '\t')" read -r command alias; do
 			[ -n "$alias" ] || continue
-			if ! printf '%s\n' "$canonical" | grep -qxF -- "$command"; then
+			if ! grep -qxF -- "$command" <<<"$canonical"; then
 				fail "slash alias \`$alias\` names \`$command\`, which is not in SLASH_COMMANDS"
 				continue
 			fi
-			if ! parity_notes_names "$parity" slash "$command" | grep -qxF -- "$alias"; then
+			if ! grep -qxF -- "$alias" <<<"$(parity_notes_names "$parity" slash "$command")"; then
 				fail "slash alias \`$alias\` is answered by $shell_source but the \`$command\` row in $parity does not name it"
 			fi
 		done <<<"$aliases"
@@ -344,7 +344,7 @@ if [ -f "$shell_source" ]; then
 		# 2. nothing documented as deferred is answered as an alias
 		while IFS="$(printf '\t')" read -r _command alias; do
 			[ -n "$alias" ] || continue
-			if parity_mentioned_names slash deferred | grep -qxF -- "$alias"; then
+			if grep -qxF -- "$alias" <<<"$(parity_mentioned_names slash deferred)"; then
 				fail "slash alias \`$alias\` is answered by $shell_source but a deferred row in $parity claims it"
 			fi
 		done <<<"$aliases"
@@ -353,8 +353,8 @@ if [ -f "$shell_source" ]; then
 		#    a name the shell really has, canonical or alias
 		while IFS="$(printf '\t')" read -r row name; do
 			[ -n "$name" ] || continue
-			printf '%s\n' "$canonical" | grep -qxF -- "$name" && continue
-			printf '%s\n' "$aliases" | cut -f2 | grep -qxF -- "$name" && continue
+			grep -qxF -- "$name" <<<"$canonical" && continue
+			grep -qxF -- "$name" <<<"$(cut -f2 <<<"$aliases")" && continue
 			fail "the \`$row\` row in $parity names \`$name\`, which $shell_source neither lists nor aliases"
 		done <<<"$(parity_notes_slash_claims "$parity" slash implemented)"
 	fi
