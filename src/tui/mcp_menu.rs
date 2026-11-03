@@ -1174,4 +1174,35 @@ mod tests {
             "  Interactive MCP authentication is unavailable here."
         );
     }
+
+    #[test]
+    fn a_hostile_project_server_name_is_spelled_out_on_the_issue_row() {
+        // A `.mcp.json` key that would retitle the window and reverse what
+        // follows it is no valid server name (`config.rs`'s issue for it
+        // carries the name as written); the menu's issue row spells it out.
+        let dir = tempfile::tempdir().expect("dir");
+        std::fs::write(
+            dir.path().join(crate::mcp::config::WORKSPACE_FILE),
+            serde_json::json!({"mcpServers": {"\u{1b}]0;owned\u{7}\u{202e}live": {"command": "x"}}})
+                .to_string(),
+        )
+        .unwrap();
+        let issues = crate::mcp::config::load_workspace(
+            dir.path(),
+            &crate::mcp::config::Choices::default(),
+            &|_| None,
+        )
+        .issues;
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        let rows = McpMenu::open().rows(&[], &issues, 120, 3, PALETTE);
+        let row = &rows[1];
+        assert!(
+            !row.contains(['\u{7}', '\u{202e}']) && !row.contains("\u{1b}]"),
+            "{row:?}"
+        );
+        assert_eq!(
+            plain(row),
+            r"  1 project MCP configuration error. Run /mcp list for details. \x1b]0;owned\x07\u{202e}live: McpInvalidServerName"
+        );
+    }
 }

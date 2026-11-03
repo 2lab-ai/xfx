@@ -404,6 +404,64 @@ fn every_feature_command_answers_in_upstreams_shape() {
     runtime.shutdown();
 }
 
+#[test]
+fn a_hostile_name_is_spelled_out_and_cut_at_upstreams_256_bytes() {
+    use super::terminal_safe;
+    // `encodeTerminalSafe(.., 256)` (`text_utils.zig:343-380@c1db9191`): a
+    // name that would retitle the window, clear the screen and reverse what
+    // follows is shown as the characters it is made of.
+    assert_eq!(
+        terminal_safe("ok\u{1b}]0;owned\u{7}\u{1b}[2J\u{202e}x\u{2066}\u{200b}\u{feff}\u{9b}\n"),
+        r"ok\x1b]0;owned\x07\x1b[2J\u{202e}x\u{2066}\u{200b}\u{feff}\u{009b}\x0a"
+    );
+    assert_eq!(
+        terminal_safe("plain-name_1 \u{65e5}"),
+        "plain-name_1 \u{65e5}"
+    );
+    // Spelled text is spelled the same again.
+    let once = terminal_safe("x\u{202e}\u{7}");
+    assert_eq!(terminal_safe(&once), once);
+    // At most 256 bytes, cut at a token boundary and marked as upstream's is.
+    assert_eq!(terminal_safe(&"a".repeat(256)), "a".repeat(256));
+    let cut = terminal_safe(&"a".repeat(300));
+    assert_eq!(cut, format!("{}...", "a".repeat(253)));
+    assert_eq!(cut.len(), super::TERMINAL_SAFE_MAX_BYTES);
+    // Never half an escape: the override that would not fit goes whole.
+    assert_eq!(
+        terminal_safe(&format!("{}{}", "a".repeat(250), "\u{202e}".repeat(10))),
+        format!("{}...", "a".repeat(250))
+    );
+}
+
+#[test]
+fn a_hostile_command_is_named_in_the_trust_prompt_as_the_approval_view_names_it() {
+    let home = Home::new();
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {"proj": {
+            "command": "/bin/sh",
+            "args": ["-c", "true \u{202e}hs.live cexe\u{200b}"],
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    let events = runtime.take_events();
+    let prompt = events
+        .iter()
+        .find_map(|event| match event {
+            Event::Raw(text) => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no prompt: {events:?}"));
+    assert_eq!(
+        prompt,
+        "Project MCP server 'proj' is defined in .mcp.json.\n  command: /bin/sh -c 'true \\u{202e}hs.live cexe\\u{200b}'\n  [1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts\n",
+    );
+    runtime.shutdown();
+}
+
 /// A context over `runtime` in `mode`, with `rules`.
 fn context(
     home: &Home,
