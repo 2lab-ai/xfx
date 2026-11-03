@@ -432,9 +432,15 @@ async fn run_ask(
         }
     };
 
-    // Report any notices about dropped state before the turn starts.
+    // Report any notices about dropped state before the turn starts. Inert:
+    // a notice quotes what the log names -- the wire and the model a step's
+    // reasoning was recorded under -- and the log is file input.
     for notice in &opened.notices {
-        writeln!(stderr, "{notice}")?;
+        writeln!(
+            stderr,
+            "{}",
+            crate::output::safe_one_line(notice, MAX_NOTICE_BYTES)
+        )?;
     }
 
     // Now create the sink after notices are printed. On a terminal the
@@ -601,6 +607,11 @@ async fn run_ask(
     ))
 }
 
+/// The most bytes of one history notice `ask` prints: a notice is a sentence
+/// around the names the log gave a step, and a log can make those as long as
+/// a frame.
+const MAX_NOTICE_BYTES: usize = 1024;
+
 /// The model a resumed `ask` is sent in.
 ///
 /// **The session's**, as upstream's `ask --resume` goes on in the model the
@@ -615,16 +626,26 @@ async fn run_ask(
 /// `ask` cannot -- its provider was built before the session was opened -- so
 /// a session recorded on another provider, or on none, keeps the launch's
 /// rule: its model only when no setting chose one.
+///
+/// **Never a model xfx would not have written**
+/// ([`crate::provider::model::model_id_problem`]), as the TUI's rule never
+/// restores one: the log is file input, and such a model would go into a
+/// request header and onto the terminal. The configuration's goes instead,
+/// and the turn records it, so the log is clean again after it.
 fn resumed_model<'a>(config: &'a RuntimeConfig, state: &'a DurableState) -> &'a str {
+    let logged = match crate::provider::model::model_id_problem(&state.model) {
+        None => &state.model,
+        Some(_) => &config.model,
+    };
     let recorded = state.provider.as_deref().and_then(ProviderId::parse);
     if recorded == Some(config.provider) {
         if config.sources.model == SettingSource::ProcessOverride {
             &config.model
         } else {
-            &state.model
+            logged
         }
     } else if config.sources.model == SettingSource::CompiledDefault {
-        &state.model
+        logged
     } else {
         &config.model
     }

@@ -1831,6 +1831,80 @@ fn ask_resume_keeps_the_sessions_model_over_the_profiles_and_under_the_processs(
 }
 
 #[test]
+fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one() {
+    // The log is file input. A model xfx would not have written
+    // (`model_id_problem`) is not sent, as the TUI's resume does not restore
+    // one (`Resumption::selection`): the launch's model goes instead. And the
+    // notice about the history -- which quotes the wire a step's reasoning
+    // was recorded on, as the log names it -- reaches the terminal inert.
+    // Red before: the log's model was the one asked for, and the notice
+    // carried its escapes to stderr.
+    const HOSTILE_MODEL: &str = "m\u{1b}]0;pwned\u{7}x";
+    const HOSTILE_WIRE: &str = "w\u{1b}[2Jire\u{9b}31m";
+    let sandbox = Sandbox::new();
+    let store = SessionStore::open(&sandbox.profile_dir()).expect("open the store");
+    let mut session = store
+        .create(
+            id("hostile-model"),
+            NewSession {
+                origin_workspace_root: sandbox.workspace.clone(),
+                workspace_root: sandbox.workspace.clone(),
+                model: HOSTILE_MODEL.to_string(),
+                permission_mode: PermissionMode::Auto,
+                provider: Some(xfx::provider::ProviderId::Gateway),
+            },
+        )
+        .expect("create");
+    for event in [
+        SessionEvent::UserMessage {
+            text: "first question".to_string(),
+        },
+        SessionEvent::AssistantMessage {
+            text: "first answer".to_string(),
+            tool_calls: Vec::new(),
+            raw_content: vec![json!({"type": "thinking", "thinking": "t", "signature": "s"})],
+            responses_state: Vec::new(),
+            wire: Some(Wire::parse(HOSTILE_WIRE)),
+            model: None,
+        },
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            },
+        },
+    ] {
+        store.append(&mut session, event).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    drop(session);
+
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["continued"]))]);
+    let url = gateway.chat_url();
+    let run = sandbox.run(
+        &["ask", "--resume-id", "hostile-model", "second question"],
+        &gateway_env(&url, TEST_KEY),
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    let asked = gateway.only_request();
+    let model = asked.header("ai-language-model-id").expect("a model");
+    assert!(!model.chars().any(char::is_control), "{model:?}");
+    assert_ne!(model, HOSTILE_MODEL);
+    assert!(
+        run.stderr.contains("recorded reasoning on the"),
+        "the notice was not printed: {:?}",
+        run.stderr
+    );
+    for output in [&run.stdout, &run.stderr] {
+        assert!(
+            !output.chars().any(|character| character.is_control()
+                && !matches!(character, '\n' | '\r' | '\t')),
+            "a control character reached the terminal: {output:?}"
+        );
+    }
+}
+
+#[test]
 fn a_request_is_static_context_then_overlay_then_history_then_user_then_suffix() {
     let sandbox = Sandbox::new();
     sandbox.write("AGENTS.md", "ROOT PROJECT RULE\n");

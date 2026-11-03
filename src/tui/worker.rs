@@ -2206,7 +2206,9 @@ impl Runtime {
     /// ([`Resumption::selection`]): the session continues on the provider it
     /// last recorded, as upstream's picker resume does (`hydrateResumedSession`
     /// → `restoreRuntimePreferences`, `app_session_runtime.zig:2404`,
-    /// `:6147`), and in the model it last ran under when no setting chose one.
+    /// `:6147`), and in the model it recorded there, which only `XFX_MODEL`
+    /// outranks (`:6150-6151`). Nothing is written to its log here
+    /// ([`Runtime::resume`]); its first turn writes what it goes on under.
     fn resume_by_id(
         &mut self,
         id: &str,
@@ -3181,6 +3183,9 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    // A resume whose selection was still to be written down goes with it: the
+    // next conversation's log starts with the selection in force.
+    state.unrecorded_resume = None;
     state.bills.forget();
     // The band moved the title lineage on at the keystroke
     // ([`WorkHandle::new_title_lineage`]): what was asked about this
@@ -8237,6 +8242,159 @@ mod tests {
         assert_ne!(once, before);
         turn(&mut state, "a-later-model");
         assert_eq!(log_text(&state), once, "written twice");
+    }
+
+    /// Runs one turn of `prompt` through the runtime's own path, its provider
+    /// answering `answer`.
+    fn one_turn_of(state: &mut Runtime, prompt: &str, answer: &str) -> Ended {
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![answers(answer)])),
+        });
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        on_a_runtime(run_turn(
+            state,
+            prompt.to_string(),
+            (Vec::new(), Vec::new()),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ))
+    }
+
+    /// A session's two files and its log's modification time.
+    fn session_files(state: &Runtime, id: &SessionId) -> (Vec<u8>, Vec<u8>, std::time::SystemTime) {
+        let dir = state.store.sessions_dir().join(id.as_str());
+        let log = dir.join(crate::session::store::EVENTS_FILE);
+        (
+            std::fs::read(&log).expect("the log"),
+            std::fs::read(dir.join(crate::session::store::MANIFEST_FILE)).expect("the manifest"),
+            std::fs::metadata(&log)
+                .and_then(|metadata| metadata.modified())
+                .expect("an mtime"),
+        )
+    }
+
+    #[test]
+    fn a_picker_resume_and_a_refused_first_turn_write_nothing_and_the_next_turn_writes_the_mode() {
+        // The picker's path (`resume_by_id`), not the launch's: the log's
+        // bytes, its manifest and its modification time as they were. A first
+        // turn refused before its prompt is recorded -- Ultra the model is
+        // not offered -- writes nothing either; the turn that does run writes
+        // the launch's mode just ahead of its prompt.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let saved_under = config(home.path(), workspace.path());
+        let grant = Grant::new("edit_file", "notes.txt".to_string());
+        let saved = a_saved_session(&saved_under, &grant);
+        let mut config = saved_under.clone();
+        config.permission_mode = PermissionMode::Yolo;
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let before = session_files(&state, &saved);
+
+        state
+            .resume_by_id(saved.as_str(), &CancelToken::new())
+            .expect("resumed");
+        assert_eq!(session_files(&state, &saved), before, "the picker wrote");
+
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
+        state.settings.ultrafast = true;
+        one_turn_of(&mut state, "refused", "never sent");
+        assert_eq!(
+            session_files(&state, &saved),
+            before,
+            "a refused turn wrote"
+        );
+
+        state.settings.ultrafast = false;
+        assert_eq!(one_turn_of(&mut state, "answered", "ANSWERED"), Ended::Turn);
+        let after = session_files(&state, &saved).0;
+        assert!(after.starts_with(&before.0), "the log was rewritten");
+        let appended: Vec<serde_json::Value> = String::from_utf8_lossy(&after[before.0.len()..])
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a frame"))
+            .map(|frame| frame["event"].clone())
+            .collect();
+        let kinds: Vec<&str> = appended
+            .iter()
+            .filter_map(|event| event["kind"].as_str())
+            .collect();
+        assert_eq!(
+            kinds[..3],
+            [
+                "preferences_changed",
+                "project_context_recorded",
+                "user_message"
+            ],
+            "{kinds:?}"
+        );
+        assert_eq!(appended[0]["permission_mode"], "yolo", "{}", appended[0]);
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|kind| **kind == "preferences_changed")
+                .count(),
+            1,
+            "{kinds:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_conversation_after_a_resume_carries_no_resumed_selection() {
+        // `/new` after a resume, then a prompt: the new session starts with
+        // the selection in force and nothing of the resumed one's, and the
+        // resumed session -- in which no turn ran -- is left as it was.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let saved_under = config(home.path(), workspace.path());
+        let grant = Grant::new("edit_file", "notes.txt".to_string());
+        let saved = a_saved_session(&saved_under, &grant);
+        let mut config = saved_under.clone();
+        config.permission_mode = PermissionMode::Yolo;
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let before = session_files(&state, &saved);
+        state
+            .resume_by_id(saved.as_str(), &CancelToken::new())
+            .expect("resumed");
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        assert_eq!(state.unrecorded_resume, None);
+
+        assert_eq!(one_turn_of(&mut state, "fresh", "FRESH"), Ended::Turn);
+        let fresh = state
+            .conversation
+            .as_ref()
+            .expect("a new conversation")
+            .recorder
+            .id()
+            .clone();
+        assert_ne!(fresh, saved);
+        let kinds: Vec<String> = String::from_utf8_lossy(&session_files(&state, &fresh).0)
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("a frame"))
+            .filter_map(|frame| frame["event"]["kind"].as_str().map(str::to_string))
+            .collect();
+        assert_eq!(kinds[0], "session_started", "{kinds:?}");
+        assert!(
+            !kinds.iter().any(|kind| kind == "preferences_changed"),
+            "{kinds:?}"
+        );
+        assert_eq!(session_files(&state, &saved), before);
     }
 
     #[test]
