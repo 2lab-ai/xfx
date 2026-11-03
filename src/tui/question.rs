@@ -1918,6 +1918,36 @@ mod tests {
     }
 
     #[test]
+    fn a_label_one_cluster_wider_than_the_screen_is_split_and_shown_whole() {
+        // SEC-A4e: a 201-cell Devanagari cluster in a choice, on a 40-cell view.
+        let chain = "\u{915}".to_string() + &"\u{94d}\u{915}".repeat(200);
+        let panel = QuestionPanel::new(QuestionRequest {
+            id: QuestionId(8),
+            entries: vec![QuestionEntry {
+                question: "Which?".to_string(),
+                options: vec![
+                    QuestionOption {
+                        label: format!("{chain} TAILSEEN"),
+                        description: None,
+                    },
+                    QuestionOption {
+                        label: "No".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        });
+        super::super::approval_view::wider_terminal::assert_shown_whole(
+            "question label",
+            &panel.rows(40, 60),
+            40,
+            "\u{915}",
+            201,
+            "TAILSEEN",
+        );
+    }
+
+    #[test]
     fn a_label_too_wide_for_the_screen_is_still_the_answer_whole() {
         // The clip is a *screen* cut. The answer is the canonical label, and the
         // model reads that string back beside the question it belongs to -- a

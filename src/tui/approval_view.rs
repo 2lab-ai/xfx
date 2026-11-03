@@ -1098,10 +1098,12 @@ fn squeezed(cluster: &str) -> bool {
             && agreed_emoji(cluster))
 }
 
-/// `safe` with every squeezed cluster ([`squeezed`]) kept to its first
-/// character and the rest of it named, so the row is laid out at the cells a
-/// terminal draws its characters at one by one, or more. The first character
-/// alone is a cluster xfx counts as it is drawn, and the names are ASCII.
+/// `safe` with every squeezed cluster ([`squeezed`]) and every cluster wider
+/// than [`CLUSTER_CAP`] kept to its first character and the rest of it named,
+/// and a lone regional indicator named whole, so the row is laid out at the
+/// cells a terminal draws its characters at one by one, or more, and no
+/// cluster is wider than a row. The first character alone is a cluster xfx
+/// counts as it is drawn, and the names are ASCII.
 fn declustered(safe: String) -> String {
     if safe.is_ascii() {
         return safe;
@@ -1110,8 +1112,12 @@ fn declustered(safe: String) -> String {
     let mut rest = safe.as_str();
     while let Some(cluster) = super::wrap::first_cluster(rest) {
         rest = &rest[cluster.len()..];
-        if squeezed(cluster) {
-            let mut characters = cluster.chars();
+        let mut characters = cluster.chars();
+        if lone_regional_indicator(cluster) {
+            // One cell to xfx, two to libghostty-vt, which boxes an unpaired
+            // indicator as a letter.
+            out.extend(characters.map(crate::permission::scalar_token));
+        } else if squeezed(cluster) || super::wrap::cluster_width(cluster) > CLUSTER_CAP {
             out.extend(characters.next());
             for character in characters {
                 out.push_str(&crate::permission::scalar_token(character));
@@ -1121,6 +1127,17 @@ fn declustered(safe: String) -> String {
         }
     }
     out
+}
+
+/// Whether `cluster` is a regional indicator with no partner: xfx counts it as
+/// one cell, tmux 3.7b draws one and libghostty-vt two (measured `[U+1F1E6]`,
+/// 2026-11-04). A pair, a flag or not, is two cells to all three.
+fn lone_regional_indicator(cluster: &str) -> bool {
+    let mut characters = cluster.chars();
+    matches!(
+        (characters.next(), characters.next()),
+        (Some('\u{1f1e6}'..='\u{1f1ff}'), None)
+    )
 }
 
 /// How far a conjoining Hangul syllable has come, as its jamo cross as
@@ -1164,12 +1181,30 @@ impl Syllable {
 }
 
 /// Whether the RGI emoji sequence `sequence` may cross whole: when xfx counts
-/// it as two cells, which is what tmux 3.7b, herdr's terminal (grapheme
-/// clustering on) and upstream's count (`matchRgiSequence`, two cells) give
-/// one -- measured for a ZWJ family, a flag, a keycap and a modifier.
+/// it as two cells and it carries no skin-tone modifier.
+///
+/// Measured for every sequence xfx's table holds (2,553, two markers and a
+/// cursor-position report, 2026-11-04): libghostty-vt (grapheme clustering on)
+/// draws none wider than two cells. tmux 3.7b draws all 523 without a modifier
+/// as two, and 545 of the 2,030 with one as four or six -- the modifier on a
+/// cell pair of its own, for bases old (`U+261D`) and new (`U+1F46F`) alike,
+/// so no rule short of the list itself tells them apart. A modifier sequence
+/// is therefore named past its base, the 1,485 tmux draws as two included.
 fn agreed_emoji(sequence: &str) -> bool {
     super::wrap::width(sequence) == 2
+        && !sequence
+            .chars()
+            .any(|character| ('\u{1f3fb}'..='\u{1f3ff}').contains(&character))
 }
+
+/// The most cells a cluster may take as itself on a row. A cluster wider than
+/// any row is either painted over the budget or cut off at the edge, so
+/// whatever is wider than this is kept to its first character and the rest
+/// named. Four cells holds every conjunct a real word carries -- xfx counts a
+/// Devanagari conjunct at one cell per consonant, and the longest in use join
+/// four -- and an emoji, a Hangul syllable or a letter with its marks is at
+/// most two, while the narrowest band xfx lays out is sixteen cells.
+const CLUSTER_CAP: u16 = 4;
 
 /// Whether `U+FE0F` after `base` may cross as itself: after a character that
 /// takes an emoji presentation (`emoji-variation-sequences.txt`), where xfx,
@@ -2030,9 +2065,126 @@ mod tests {
             "e\u{301}",
             "\u{1100}\u{1161}\u{11a8}",
             "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
-            "\u{1f44d}\u{1f3fd}",
         ] {
             assert_eq!(tamed(kept), kept);
+        }
+        // A skin-tone sequence is named past its base (SEC-A4e): tmux draws
+        // the modifier on cells of its own for a quarter of them.
+        assert_eq!(tamed("\u{1f44d}\u{1f3fd}"), "\u{1f44d}\\u{1F3FD}");
+    }
+
+    #[test]
+    fn the_measured_corpus_is_laid_out_at_least_as_wide_as_both_terminals_draw_it() {
+        // Each case as measured between two markers (2026-11-03 and -04):
+        // the cells tmux 3.7b and herdr's libghostty-vt (grapheme clustering
+        // on) advanced, and what `tamed` makes of it. Whatever it makes is
+        // counted by xfx at no fewer cells than either terminal draws the
+        // original: over-counting only wraps a row early.
+        let corpus: [(&str, u16, u16, &str); 22] = [
+            // Emoji 15.1 and 16/17 RGI sequences, and the older family.
+            (
+                "\u{1f642}\u{200d}\u{2194}\u{fe0f}",
+                2,
+                2,
+                "\u{1f642}\u{200d}\u{2194}\u{fe0f}",
+            ),
+            (
+                "\u{1f6b6}\u{200d}\u{27a1}\u{fe0f}",
+                2,
+                2,
+                "\u{1f6b6}\u{200d}\u{27a1}\u{fe0f}",
+            ),
+            ("\u{1f1e8}\u{1f1f6}", 2, 2, "\u{1f1e8}\u{1f1f6}"),
+            (
+                "\u{1f9d1}\u{200d}\u{1fa70}",
+                2,
+                2,
+                "\u{1f9d1}\u{200d}\u{1fa70}",
+            ),
+            (
+                "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+                2,
+                2,
+                "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}",
+            ),
+            // Skin tones: RGI, and on a base that takes none.
+            ("\u{1f46f}\u{1f3fb}", 4, 2, "\u{1f46f}\\u{1F3FB}"),
+            ("\u{1f93c}\u{1f3fb}", 4, 2, "\u{1f93c}\\u{1F3FB}"),
+            ("a\u{1f3fd}", 3, 3, "a\u{1f3fd}"),
+            // Regional indicators: a flag, a pair that is none, one alone.
+            ("\u{1f1f0}\u{1f1f7}", 2, 2, "\u{1f1f0}\u{1f1f7}"),
+            ("\u{1f1e6}\u{1f1e6}", 2, 2, "\u{1f1e6}\u{1f1e6}"),
+            ("\u{1f1e6}", 1, 2, "\\u{1F1E6}"),
+            // A joining with no RGI sequence to complete.
+            (
+                "\u{1f642}\u{200d}\u{2194}",
+                2,
+                2,
+                "\u{1f642}\\u{200D}\u{2194}",
+            ),
+            // Clusters xfx counts as less than their parts.
+            (
+                "\u{1780}\u{17d2}\u{1780}\u{17d2}\u{1780}",
+                3,
+                2,
+                "\u{1780}\\u{17D2}\\u{1780}\\u{17D2}\\u{1780}",
+            ),
+            (
+                "\u{16d67}\u{16d67}\u{16d67}",
+                3,
+                0,
+                "\u{16d67}\\u{16D67}\\u{16D67}",
+            ),
+            // Marks on their letter, Unicode 16/17 and East Asian Wide.
+            ("a\u{897}", 1, 1, "a\u{897}"),
+            ("a\u{1e6e3}", 1, 1, "a\u{1e6e3}"),
+            ("a\u{302a}", 1, 1, "a\u{302a}"),
+            // What xfx counts as no cells on its own.
+            ("\u{ad}", 1, 1, "\\u{00AD}"),
+            ("\u{ffa0}", 1, 0, "\\u{FFA0}"),
+            ("\u{ff9e}", 1, 1, "\\u{FF9E}"),
+            ("\u{302e}", 2, 1, "\\u{302E}"),
+            ("\u{a8fa}", 1, 1, "\\u{A8FA}"),
+        ];
+        for (input, tmux, ghostty, expected) in corpus {
+            let shown = tamed(input);
+            assert_eq!(shown, expected, "{input:?}");
+            assert!(
+                super::super::wrap::width(&shown) >= tmux.max(ghostty),
+                "{input:?}: laid out at {} cells, drawn at {tmux} and {ghostty}",
+                super::super::wrap::width(&shown)
+            );
+        }
+    }
+
+    #[test]
+    fn a_cluster_wider_than_any_row_is_split_and_shown_whole() {
+        // SEC-A4e. A Devanagari chain of 201 consonants joined by viramas is
+        // one cluster (GB9c) of 201 cells: no row can hold it, so the wrap
+        // either paints it over the budget or the edge cuts it off.
+        let chain = "\u{915}".to_string() + &"\u{94d}\u{915}".repeat(200);
+        let text = format!("{chain} TAILSEEN");
+        let mut target = asked("edit_file", ApprovalSubject::Path(text.clone()), ".");
+        let cases: [(&str, Vec<String>); 3] = [
+            (
+                "edit path",
+                subject_rows(Kind::Edit, &target, 40, &Styles::PLAIN),
+            ),
+            (
+                "diff line",
+                Review::of_diff(&diff("a\n", &format!("{text}\n")))
+                    .rows(40, &Styles::PLAIN)
+                    .into_iter()
+                    .map(|(row, _)| row)
+                    .collect(),
+            ),
+            ("scope row", {
+                target.always_scope = format!("allow every future write to `{text}`");
+                scope_rows(&target, 40, &Styles::PLAIN)
+            }),
+        ];
+        for (what, rows) in cases {
+            super::wider_terminal::assert_shown_whole(what, &rows, 40, "\u{915}", 201, "TAILSEEN");
         }
     }
 
@@ -2421,12 +2573,47 @@ pub(crate) mod wider_terminal {
                 0,
             ),
             ("\u{16d67}".repeat(120), '\u{16d67}', 1),
+            // SEC-A4e: an RGI skin-tone sequence xfx counts as two cells that
+            // tmux 3.7b draws as four, the modifier on a cell pair of its own
+            // (545 of the 2,030 modifier sequences xfx's table holds; none
+            // without a modifier), and a regional indicator on its own, one
+            // cell to xfx and two to libghostty-vt.
+            ("\u{1f46f}\u{1f3fb}".repeat(60), '\u{1f3fb}', 2),
+            ("a\u{1f1e6}".repeat(60), '\u{1f1e6}', 2),
         ]
     }
 
     /// `한글.txt` as macOS writes a file name: decomposed (NFD), each
     /// syllable a leading consonant, a vowel and a trailing consonant.
     pub(crate) const NFD_KOREAN: &str = "\u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}.txt";
+
+    /// Every row of `rows` fits in `cols` cells, the `count` occurrences of
+    /// `character` are all on the screen -- as themselves or by name -- and so
+    /// is `tail`.
+    pub(crate) fn assert_shown_whole(
+        what: &str,
+        rows: &[String],
+        cols: u16,
+        character: &str,
+        count: usize,
+        tail: &str,
+    ) {
+        for row in rows {
+            assert!(
+                super::super::wrap::width(row) <= cols,
+                "{what}: a row {} cells wide on a {cols}-cell screen",
+                super::super::wrap::width(row)
+            );
+        }
+        let shown: String = rows.iter().map(|row| row.trim_start()).collect();
+        let token = crate::permission::scalar_token(character.chars().next().unwrap_or(' '));
+        assert_eq!(
+            shown.matches(character).count() + shown.matches(token.as_str()).count(),
+            count,
+            "{what}: not every character is on the screen"
+        );
+        assert!(shown.contains(tail), "{what}: {tail:?} is on no row");
+    }
 
     /// The cells a terminal that draws `hidden` as `drawn` cells gives `row`:
     /// xfx's own count, with each `hidden` as that many cells of plain text.
