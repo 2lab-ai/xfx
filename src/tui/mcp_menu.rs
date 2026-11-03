@@ -159,6 +159,9 @@ pub(crate) struct McpMenu {
     /// A frame of the confirmation found the pending servers other than
     /// `listed`: it said so, and Enter approves nothing.
     listed_changed: std::cell::Cell<bool>,
+    /// The pending servers the servers tab last drew, each with its digest:
+    /// the list a person sees before pressing `p`, and so what `p` binds.
+    browsed: std::cell::RefCell<Option<Vec<(String, String)>>>,
 }
 
 /// A project entry the details screen drew.
@@ -208,6 +211,7 @@ impl McpMenu {
             drawn: std::cell::RefCell::new(None),
             listed: None,
             listed_changed: std::cell::Cell::new(false),
+            browsed: std::cell::RefCell::new(None),
         }
     }
 
@@ -370,6 +374,9 @@ impl McpMenu {
         let body = usize::from(row_count - if show_header { HEADER_ROWS } else { 0 });
         match self.screen {
             Screen::Browse => {
+                if self.section == Section::Servers {
+                    *self.browsed.borrow_mut() = Some(pending_of(servers));
+                }
                 rows.extend(self.browse_rows(servers, body, width, show_header, palette))
             }
             Screen::Details => rows.extend(self.details_rows(servers, width, body, palette)),
@@ -769,8 +776,15 @@ impl McpMenu {
                 self.screen = Screen::Info;
                 Effect::Repaint
             }
+            // The list the servers tab last drew -- what the person pressing
+            // `p` was looking at -- or, before any frame, the servers now.
             (Section::Servers, 'p') => {
-                self.listed = Some(pending_of(servers));
+                self.listed = Some(
+                    self.browsed
+                        .borrow()
+                        .clone()
+                        .unwrap_or_else(|| pending_of(servers)),
+                );
                 self.listed_changed.set(false);
                 self.screen = Screen::Confirm(Confirm::ApproveAll);
                 Effect::Repaint
@@ -1809,6 +1823,9 @@ mod tests {
                 || workspace.write(serde_json::json!({"a": quiet("a2"), "b": quiet("b1")}));
             if between == "draw and enter" {
                 rewrite();
+                // A frame after the reload: it must not make the new set
+                // the one Enter approves.
+                menu.rows(&workspace.runtime.views(), &[], 120, 12, PALETTE);
             }
             let effect = menu.key(KeyAction::Enter, &workspace.runtime.views(), 5);
             if between == "draw and enter" {
@@ -1950,6 +1967,33 @@ mod tests {
             "{rows:#?}"
         );
         assert_eq!(menu.screen(), Screen::Browse, "Enter goes back to the list");
+        workspace.runtime.shutdown();
+    }
+
+    #[test]
+    fn p_binds_the_list_the_servers_tab_drew_and_says_when_it_no_longer_stands() {
+        // The person pressing `p` saw the servers tab's last frame. A reload
+        // after it, with no frame between, changes what is pending: the
+        // confirmation is over the list that was drawn, so it says the
+        // pending servers changed and approves nothing.
+        let workspace = Workspace::new();
+        workspace.write(serde_json::json!({"a": quiet("a1")}));
+        let mut menu = McpMenu::open();
+        menu.rows(&workspace.runtime.views(), &[], 120, 12, PALETTE);
+        workspace.write(serde_json::json!({"a": quiet("a2")}));
+        let now = workspace.runtime.views();
+        assert_eq!(menu.key(KeyAction::Char('p'), &now, 5), Effect::Repaint);
+        let rows: Vec<String> = menu
+            .rows(&now, &[], 120, 12, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert!(
+            rows.iter().any(|row| row.contains(PENDING_CHANGED)),
+            "{rows:#?}"
+        );
+        assert_eq!(menu.key(KeyAction::Enter, &now, 5), Effect::Repaint);
+        assert_eq!(workspace.approved(), serde_json::Value::Null);
         workspace.runtime.shutdown();
     }
 }

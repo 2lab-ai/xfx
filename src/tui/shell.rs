@@ -14037,6 +14037,81 @@ mod tests {
     }
 
     #[test]
+    fn details_forget_what_they_drew_when_the_screen_is_written_over() {
+        // A band invalidation (something else wrote on the screen) or a write
+        // the screen refused leaves nothing known to be on it: `a` on
+        // details then approves nothing until a frame draws the entry again.
+        use crate::mcp::runtime::{Event, Job};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        std::fs::write(
+            workspace.join(".mcp.json"),
+            serde_json::json!({"mcpServers": {
+                "proj": {"command": "/bin/sh", "args": ["-c", "exit 0"]},
+            }})
+            .to_string(),
+        )
+        .expect("write .mcp.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(home.path().join(".xfx").join("settings.json")),
+            workspace: workspace.clone(),
+        });
+        runtime.start();
+        runtime.suppress_prompts();
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(40, 200, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        let quiet =
+            |runtime: &Arc<crate::mcp::McpRuntime>| -> Vec<String> {
+                runtime.submit(Job::Command("path".into()));
+                let deadline = std::time::Instant::now() + Duration::from_secs(60);
+                let mut said = Vec::new();
+                while !said.iter().any(|body: &String| body.contains("mcp.json")) {
+                    said.extend(runtime.take_events().into_iter().filter_map(
+                        |event| match event {
+                            Event::Notice { body, .. } => Some(body),
+                            _ => None,
+                        },
+                    ));
+                    assert!(std::time::Instant::now() < deadline, "no answer: {said:?}");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                said
+            };
+        shell.mcp("");
+        shell.offer_to_mcp(Input::Action(Action::Submit));
+        for forget in [Shell::invalidate_approval, Shell::approval_write_failed] {
+            assert!(shell
+                .band_rows()
+                .join("\n")
+                .contains("command: /bin/sh -c 'exit 0'"));
+            forget(&mut shell);
+            let _ = runtime.take_events();
+            shell.offer_to_mcp(Input::Text('a'));
+            let said = quiet(&runtime);
+            assert_eq!(
+                said.len(),
+                1,
+                "`a` approved what is not known to be shown: {said:?}"
+            );
+            assert!(
+                shell.band_rows().join("\n").contains("not shown whole"),
+                "{}",
+                shell.band_rows().join("\n")
+            );
+        }
+        runtime.shutdown();
+    }
+
+    #[test]
     fn two_at_the_trust_prompt_approves_nothing_once_the_pending_servers_changed() {
         // `2` is over the servers pending as the prompt went up. A reload
         // after it rewrote one: `2` hands the runtime nothing and says so.
