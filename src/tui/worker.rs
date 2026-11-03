@@ -800,6 +800,14 @@ impl WorkHandle {
         &self.mcp
     }
 
+    /// The same handle over `mcp`, for a case that needs a runtime with files
+    /// behind it rather than [`crate::mcp::McpRuntime::inert`].
+    #[cfg(test)]
+    pub(crate) fn with_mcp(mut self, mcp: Arc<crate::mcp::McpRuntime>) -> Self {
+        self.mcp = mcp;
+        self
+    }
+
     /// Stands in for the runtime's publication of the grants list, as of the
     /// reset count in force now.
     #[cfg(test)]

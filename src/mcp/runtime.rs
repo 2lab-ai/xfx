@@ -1615,10 +1615,10 @@ impl Drop for McpRuntime {
 /// The trust prompt's rows that say what approving lets run or reach, as the
 /// entry has it (`${VAR}` and all: a pending entry is not expanded), each
 /// spelled by [`prompt_value`] and never cut short: a stdio server's command
-/// line and the names of the variables it sets, or a remote server's address
-/// and the headers it sends with where each value comes from. Names, never values: a value can
-/// be a credential written into the file, and these rows stay in the
-/// transcript. A changed environment or credential source is a changed entry
+/// line and the variables it sets, or a remote server's address and the
+/// headers it sends, each named with the variables its value comes from
+/// ([`sourced`]). Names, never values: a value can be a credential written
+/// into the file, and these rows stay in the transcript. A changed environment or credential source is a changed entry
 /// ([`config::entry_digest`]), and these rows are how its prompt differs from
 /// the one already answered.
 fn what_it_runs(config: &ServerConfig) -> String {
@@ -1632,25 +1632,29 @@ fn what_it_runs(config: &ServerConfig) -> String {
         }
         Kind::Http | Kind::Sse => vec![format!("url: {}", config.url)],
     };
-    let names: Vec<String> = config.env.iter().map(|(name, _)| name.clone()).collect();
+    let names: Vec<String> = config
+        .env
+        .iter()
+        .map(|(name, value)| sourced(name, value))
+        .collect();
     if !names.is_empty() {
         rows.push(format!("env: {}", names.join(", ")));
     }
     let headers: Vec<String> = config
         .headers
         .iter()
-        .map(|(name, _)| name.clone())
+        .map(|(name, value)| sourced(name, value))
         .chain(
             config
                 .header_env
                 .iter()
-                .map(|(name, variable)| format!("{name} from ${variable}")),
+                .map(|(name, variable)| format!("{name} from ${{{variable}}}")),
         )
         .chain(
             config
                 .bearer_token_env
                 .iter()
-                .map(|variable| format!("Authorization from ${variable}")),
+                .map(|variable| format!("Authorization from ${{{variable}}}")),
         )
         .collect();
     if !headers.is_empty() {
@@ -1660,6 +1664,40 @@ fn what_it_runs(config: &ServerConfig) -> String {
         .map(|row| prompt_value(row))
         .collect::<Vec<_>>()
         .join("\n  ")
+}
+
+/// `name`, and the variables its `value` is made of -- `X-Team from ${TEAM}`,
+/// `K from ${A:-…} + ${B}` -- and never the value: what is literal in it can
+/// be a credential, a default included, and the variables are what an
+/// approval authorizes to be sent. A value with none is the name alone.
+fn sourced(name: &str, value: &str) -> String {
+    let variables = variables(value);
+    if variables.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} from {}", variables.join(" + "))
+    }
+}
+
+/// The `${VAR}` and `${VAR:-default}` in `text`, by the grammar expansion
+/// reads them with (`config`'s `expand_text`): `${VAR}`, or `${VAR:-…}` when
+/// a default stands by, the default itself not shown.
+fn variables(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            break;
+        };
+        let inner = &after[..end];
+        found.push(match inner.split_once(":-") {
+            Some((name, _)) => format!("${{{name}:-\u{2026}}}"),
+            None => format!("${{{inner}}}"),
+        });
+        rest = &after[end + 1..];
+    }
+    found
 }
 
 /// One value of the trust prompt as the approval view spells a command it
@@ -1754,7 +1792,7 @@ mod tests {
         config.bearer_token_env = Some("TOKEN".into());
         assert_eq!(
             what_it_runs(&config),
-            "url: https://example.test/mcp\n  headers: X-A, X-Team from $TEAM, Authorization from $TOKEN"
+            "url: https://example.test/mcp\n  headers: X-A, X-Team from ${TEAM}, Authorization from ${TOKEN}"
         );
     }
 
@@ -1808,5 +1846,68 @@ mod tests {
         let shown = what_it_runs(&config);
         assert!(!shown.contains('\u{ad}'), "{shown:?}");
         assert!(shown.contains(r"\u{00ad}"), "{shown:?}");
+    }
+
+    #[test]
+    fn every_row_shows_the_entry_as_written_and_names_the_variables_a_value_comes_from() {
+        // A prompt is for a pending entry, which is not expanded: each row is
+        // the entry as written, never a value the environment resolved. A
+        // header's or a variable's value is not shown -- it can be a literal
+        // credential -- but the variables it is made of are, in both forms a
+        // header can take them (`headers` with `${VAR}`, and `header_env`),
+        // since naming one is authorizing it to be sent.
+        let dir = tempfile::tempdir().expect("dir");
+        std::fs::write(
+            dir.path().join(config::WORKSPACE_FILE),
+            json!({"mcpServers": {
+                "local": {
+                    "command": "${TOOL}",
+                    "args": ["--key", "${SECRET}"],
+                    "env": {
+                        "PLAIN": "literal-secret",
+                        "K": "Bearer ${SECRET}",
+                        "M": "${A:-fallback-secret}${B}",
+                    },
+                },
+                "remote": {
+                    "type": "http",
+                    "url": "https://${HOST}/mcp",
+                    "headers": {
+                        "X-Fixed": "literal-secret",
+                        "X-Team": "${TEAM}",
+                        "X-Mix": "Bearer ${A:-fallback-secret} ${B}",
+                    },
+                    "header_env": {"X-Env": "TEAM_1"},
+                    "bearer_token_env": "TOKEN",
+                },
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        let resolved = |_: &str| Some("RESOLVED-SECRET".to_string());
+        let servers = config::load_workspace(dir.path(), &Choices::default(), &resolved).servers;
+        let shown = |name: &str| {
+            let config = servers
+                .iter()
+                .find(|server| server.name == name)
+                .unwrap_or_else(|| panic!("{name}: {servers:?}"));
+            assert_eq!(config.admission, Some(Admission::Pending));
+            what_it_runs(config)
+        };
+        let local = shown("local");
+        assert_eq!(
+            local,
+            "command: '${TOOL}' --key '${SECRET}'\n  env: PLAIN, K from ${SECRET}, M from ${A:-\u{2026}} + ${B}"
+        );
+        let remote = shown("remote");
+        assert_eq!(
+            remote,
+            "url: https://${HOST}/mcp\n  headers: X-Fixed, X-Team from ${TEAM}, X-Mix from ${A:-\u{2026}} + ${B}, X-Env from ${TEAM_1}, Authorization from ${TOKEN}"
+        );
+        for row in [&local, &remote] {
+            for value in ["RESOLVED-SECRET", "literal-secret", "fallback-secret"] {
+                assert!(!row.contains(value), "{value} in {row:?}");
+            }
+        }
     }
 }

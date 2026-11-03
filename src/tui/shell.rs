@@ -13932,6 +13932,91 @@ mod tests {
     }
 
     #[test]
+    fn one_at_the_trust_prompt_approves_the_entry_it_showed_not_one_read_since() {
+        // `1` answers the prompt on the screen. If the file changed after it
+        // went up -- a reload read the new entry before the shell drew the
+        // new prompt -- the approval is for the entry shown, so the new one
+        // stays pending and never runs. A `1` that approved by name would bind
+        // the entry the runtime read last, and run it.
+        use crate::mcp::runtime::{Connection, Event, Job};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let ran = home.path().join("replacement-ran");
+        let write = |args: serde_json::Value| {
+            std::fs::write(
+                workspace.join(".mcp.json"),
+                serde_json::json!({"mcpServers": {"proj": {"command": "/bin/sh", "args": args}}})
+                    .to_string(),
+            )
+            .expect("write .mcp.json")
+        };
+        write(serde_json::json!(["-c", "exit 0"]));
+        let settings = home.path().join(".xfx").join("settings.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(settings.clone()),
+            workspace: workspace.clone(),
+        });
+        runtime.start();
+        let (work, _sent, _control) = WorkHandle::detached();
+        let mut shell = Shell::new(
+            &config(home.path(), &workspace),
+            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+            PALETTE,
+            false,
+            work.with_mcp(Arc::clone(&runtime)),
+        )
+        .anchored();
+        shell.settle_mcp();
+        let (_, shown) = shell.mcp_prompt.clone().expect("the prompt is up");
+
+        write(serde_json::json!(["-c", ": > \"$0\"", ran]));
+        runtime.run(Job::Command("reload".into()));
+        let _ = runtime.take_events();
+        assert!(shell.offer_to_trust_prompt(&Input::Text('1')));
+
+        // The answer is saved and announced, and the reload it asks for has
+        // said how it went, whichever way that was.
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut said: Vec<String> = Vec::new();
+        while said.len() < 2 {
+            said.extend(
+                runtime
+                    .take_events()
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        Event::Notice { body, .. } => Some(body),
+                        _ => None,
+                    }),
+            );
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the answer never landed: {said:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(said[0], "Approving project MCP server 'proj'.", "{said:?}");
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings"))
+                .expect("json");
+        assert_eq!(
+            saved["workspaces"][workspace.to_str().unwrap()]["enabledMcpjsonServerDigests"]["proj"],
+            serde_json::json!(shown),
+            "{saved:#}"
+        );
+        let view = runtime
+            .views()
+            .into_iter()
+            .find(|view| view.name == "proj")
+            .expect("proj");
+        assert_ne!(view.connection, Connection::Connecting);
+        assert_eq!(view.state_label(), "Pending trust", "{view:?}");
+        assert!(!ran.exists(), "the entry read after the prompt ran");
+        runtime.shutdown();
+    }
+
+    #[test]
     fn the_band_is_the_composer_a_rule_and_a_hint_row() {
         let shell = shell(24, 80);
         let rows = shell.band_rows();
