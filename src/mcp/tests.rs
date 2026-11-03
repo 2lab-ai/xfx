@@ -260,6 +260,52 @@ fn an_approval_an_older_xfx_saved_by_name_alone_asks_once_more() {
 }
 
 #[test]
+fn approve_all_approves_the_servers_shown_and_not_an_entry_shown_only_as_an_error() {
+    // `"type": "${T:-stdio}"` does not parse as written, so the person sees a
+    // configuration error, not a server; after expansion it is a stdio
+    // server. Approving all is approving what was shown, so it stays out.
+    let home = Home::new();
+    let ran = home.dir.path().join("templated-ran");
+    std::fs::write(
+        home.workspace().join(".mcp.json"),
+        json!({"mcpServers": {
+            "shown": {"command": "/bin/sh", "args": [fixture()]},
+            "templated": {
+                "type": "${T:-stdio}",
+                "command": "/bin/sh",
+                "args": ["-c", ": > \"$0\"; exec /bin/sh \"$1\"", ran, fixture()],
+            },
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let runtime = home.runtime();
+    runtime.start();
+    assert_eq!(settled(&runtime, "shown").state_label(), "Pending trust");
+    assert_eq!(runtime.issues(), ["templated: McpConfigInvalidType"]);
+    runtime.run(Job::Trust {
+        action: TrustAction::ApproveAll,
+        body: "Approving all project MCP servers for this workspace.".into(),
+    });
+    assert_eq!(settled(&runtime, "shown").status(), Status::Ready);
+    assert!(
+        runtime.views().iter().all(|view| view.name != "templated"),
+        "{:?}",
+        runtime.views()
+    );
+    assert!(!ran.exists(), "approve-all ran an entry nobody was shown");
+    let document: Value =
+        serde_json::from_str(&std::fs::read_to_string(home.settings()).unwrap()).unwrap();
+    let entry = &document["workspaces"][home.workspace().to_str().unwrap()];
+    assert_eq!(
+        entry["enabledMcpjsonServers"],
+        json!(["shown"]),
+        "{document:#}"
+    );
+    runtime.shutdown();
+}
+
+#[test]
 fn an_approved_project_server_rewritten_by_the_models_write_asks_again_before_it_runs() {
     // The approval is for the server the person was shown. `.mcp.json` is an
     // ordinary workspace file -- `auto`, the default mode, writes it without
@@ -431,6 +477,12 @@ fn a_hostile_name_is_spelled_out_and_cut_at_upstreams_256_bytes() {
     assert_eq!(
         terminal_safe("plain-name_1 \u{65e5}"),
         "plain-name_1 \u{65e5}"
+    );
+    // And the default-ignorable code points SEC-A4 measured a terminal
+    // drawing as nothing, a tail hidden behind them.
+    assert_eq!(
+        terminal_safe("a\u{ad}b\u{3164}c\u{ffa0}d"),
+        r"a\u{00ad}b\u{3164}c\u{ffa0}d"
     );
     // Spelled text is spelled the same again.
     let once = terminal_safe("x\u{202e}\u{7}");

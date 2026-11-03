@@ -124,6 +124,13 @@ pub(crate) enum Effect {
     Command(String),
     /// Put this line in the composer and close the menu.
     Compose(String),
+    /// Run this trust choice, announced as the command would announce it.
+    Trust {
+        action: crate::mcp::config::TrustAction,
+        body: String,
+    },
+    /// Write these rows into the transcript, whole.
+    Show(String),
 }
 
 /// The menu's state.
@@ -253,9 +260,20 @@ impl McpMenu {
         servers.get(self.selected_server.min(servers.len().saturating_sub(1)))
     }
 
-    /// How many rows the menu takes in `max_rows` (`menuRowCount`, `:18-44`).
-    pub(crate) fn height(&self, servers: &[ServerView], max_rows: u16) -> u16 {
-        let max_rows = max_rows.min(MAX_ROWS);
+    /// How many rows the menu takes in `max_rows` of a `cols`-wide screen
+    /// (`menuRowCount`, `:18-44`). A project server's details may take more
+    /// than upstream's twelve: what approving it would run is shown whole
+    /// when the screen has the rows ([`entry_rows`]).
+    pub(crate) fn height(&self, servers: &[ServerView], cols: u16, max_rows: u16) -> u16 {
+        let entry = match (self.screen, self.server(servers)) {
+            (Screen::Details, Some(server)) => entry_rows(server, usize::from(cols)).len(),
+            _ => 0,
+        };
+        let max_rows = if entry > 0 {
+            max_rows
+        } else {
+            max_rows.min(MAX_ROWS)
+        };
         if max_rows == 0 {
             return 0;
         }
@@ -267,8 +285,10 @@ impl McpMenu {
         let body = match self.screen {
             Screen::Browse => u16::try_from(self.items(servers).len().max(1)).unwrap_or(u16::MAX),
             Screen::Details => match self.server(servers) {
-                Some(server) if server.failure.is_some() => 8,
-                Some(_) => 7,
+                Some(server) => {
+                    let facts = if server.failure.is_some() { 8 } else { 7 };
+                    u16::try_from(facts + entry).unwrap_or(u16::MAX)
+                }
                 None => 1,
             },
             Screen::Info => 7,
@@ -302,7 +322,7 @@ impl McpMenu {
             Screen::Browse => {
                 rows.extend(self.browse_rows(servers, body, width, show_header, palette))
             }
-            Screen::Details => rows.extend(self.details_rows(servers, width, palette)),
+            Screen::Details => rows.extend(self.details_rows(servers, width, body, palette)),
             Screen::Info => rows.extend(info_rows(width, palette)),
             Screen::Confirm(confirm) => rows.push(text_row(
                 confirm.text(),
@@ -466,7 +486,13 @@ impl McpMenu {
     }
 
     /// `composeDetailsRow` (`:434-466`).
-    fn details_rows(&self, servers: &[ServerView], width: usize, palette: Palette) -> Vec<String> {
+    fn details_rows(
+        &self,
+        servers: &[ServerView],
+        width: usize,
+        body: usize,
+        palette: Palette,
+    ) -> Vec<String> {
         let Some(server) = self.server(servers) else {
             return vec![text_row(
                 "MCP server is no longer available.",
@@ -506,6 +532,27 @@ impl McpMenu {
         ];
         if let Some(failure) = &server.failure {
             rows.push(fact_row("Error", failure, width, palette));
+        }
+        // What approving it would run or reach, whole -- not through a fact
+        // row's clip -- or, on a screen too short for all of it, as much as
+        // fits and how to see the rest.
+        let entry: Vec<String> = entry_rows(server, width)
+            .into_iter()
+            .map(|row| format!("{}{row}{}", palette.subtitle(), palette.reset()))
+            .collect();
+        let room = body.saturating_sub(rows.len());
+        if entry.len() <= room {
+            rows.extend(entry);
+        } else if room > 0 {
+            let more = entry.len() - (room - 1);
+            rows.extend(entry.into_iter().take(room - 1));
+            rows.push(text_row(
+                &format!("\u{2026} {more} more rows: press v to see all"),
+                width,
+                palette.notice_label(),
+                2,
+                palette,
+            ));
         }
         rows
     }
@@ -655,11 +702,31 @@ impl McpMenu {
                 self.screen = Screen::Confirm(Confirm::Reject);
                 Effect::Repaint
             }
+            // The entry this screen drew, whatever the file says by now.
             'a' if server.admission == Some(Admission::Pending) => {
-                let name = server.name.clone();
+                let Some(entry) = &server.entry else {
+                    return Effect::Ignored;
+                };
                 self.screen = Screen::Browse;
-                Effect::Command(format!("trust approve {name}"))
+                Effect::Trust {
+                    body: format!(
+                        "Approving project MCP server '{}'.",
+                        crate::mcp::terminal_safe(&server.name)
+                    ),
+                    action: crate::mcp::config::TrustAction::ApproveShown {
+                        name: server.name.clone(),
+                        digest: entry.digest.clone(),
+                    },
+                }
             }
+            'v' => match &server.entry {
+                Some(entry) => Effect::Show(format!(
+                    "Project MCP server '{}' in .mcp.json:\n  {}\n",
+                    crate::mcp::terminal_safe(&server.name),
+                    entry.rows.join("\n  ")
+                )),
+                None => Effect::Ignored,
+            },
             'c' => {
                 self.screen = Screen::Info;
                 Effect::Repaint
@@ -745,6 +812,7 @@ impl McpMenu {
                     "enter sign in  ",
                 ),
                 (server.admission == Some(Admission::Pending), "a approve  "),
+                (server.entry.is_some(), "v show whole  "),
                 (
                     server.source == Source::Workspace
                         && server.admission != Some(Admission::Rejected),
@@ -959,7 +1027,7 @@ fn info_rows(width: usize, palette: Palette) -> Vec<String> {
             palette,
         ),
         text_row(
-            "details: enter sign in \u{b7} l logout \u{b7} d remove",
+            "details: enter sign in \u{b7} l logout \u{b7} d remove \u{b7} v show whole",
             width,
             palette.dim(),
             2,
@@ -980,6 +1048,26 @@ fn info_rows(width: usize, palette: Palette) -> Vec<String> {
             palette,
         ),
     ]
+}
+
+/// A project server's entry ([`crate::mcp::runtime::ShownEntry`]) as the
+/// details screen lays it out: each row whole, wrapped onto as many screen
+/// rows as it needs, two columns in. Each row is already terminal-safe.
+fn entry_rows(server: &ServerView, width: usize) -> Vec<String> {
+    let Some(entry) = &server.entry else {
+        return Vec::new();
+    };
+    let cols = u16::try_from(width.saturating_sub(2).max(1)).unwrap_or(u16::MAX);
+    entry
+        .rows
+        .iter()
+        .flat_map(|row| {
+            super::wrap::wrap(row, cols)
+                .into_iter()
+                .map(|cut| format!("  {}", row[cut.start..cut.end].trim_end()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1031,6 +1119,7 @@ mod tests {
             tools_held: usize::from(connection == Connection::Ready),
             listed: Default::default(),
             failure: None,
+            entry: None,
         }
     }
 
@@ -1038,7 +1127,7 @@ mod tests {
     fn the_empty_menu_is_upstreams_three_rows_and_root_hint() {
         // `cap/fx-mcp-empty-40x120-menu.txt`, rows 5-7 and 9.
         let menu = McpMenu::open();
-        assert_eq!(menu.height(&[], 20), 3);
+        assert_eq!(menu.height(&[], 120, 20), 3);
         let rows: Vec<String> = menu
             .rows(&[], &[], 120, 3, PALETTE)
             .iter()
@@ -1071,7 +1160,7 @@ mod tests {
             ),
         ];
         let mut menu = McpMenu::open();
-        assert_eq!(menu.height(&servers, 20), 4);
+        assert_eq!(menu.height(&servers, 120, 20), 4);
         let rows = menu.rows(&servers, &[], 120, 4, PALETTE);
         assert_eq!(
             plain(&rows[2]),
@@ -1117,7 +1206,7 @@ mod tests {
         };
         assert_eq!(server.as_deref(), Some("fixture"));
         menu.loaded(request, Ok(Catalog::Tools(vec!["mcp_fixture_echo".into()])));
-        assert_eq!(menu.height(&servers, 20), 3);
+        assert_eq!(menu.height(&servers, 120, 20), 3);
         let rows: Vec<String> = menu
             .rows(&servers, &[], 120, 3, PALETTE)
             .iter()
@@ -1203,6 +1292,159 @@ mod tests {
         assert_eq!(
             plain(row),
             r"  1 project MCP configuration error. Run /mcp list for details. \x1b]0;owned\x07\u{202e}live: McpInvalidServerName"
+        );
+    }
+
+    #[test]
+    fn details_show_a_rewritten_project_entry_and_a_approves_only_what_they_drew() {
+        // With the prompts dismissed (Escape), the details screen is how a
+        // person gets back to an entry the file changed under them: it shows
+        // what the entry would run, and `a` approves that entry -- not
+        // whatever the file says by the time the answer is saved.
+        use crate::mcp::config::{entry_digest, TrustAction};
+        use crate::mcp::runtime::Job;
+        let home = tempfile::tempdir().expect("home");
+        let workspace = home.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/support/mcp_fixture.sh")
+            .to_string_lossy()
+            .into_owned();
+        let entry = |mark: &str| serde_json::json!({"command": "/bin/sh", "args": [fixture, mark]});
+        let write = |mark: &str| {
+            std::fs::write(
+                workspace.join(".mcp.json"),
+                serde_json::json!({"mcpServers": {"proj": entry(mark)}}).to_string(),
+            )
+            .expect("write .mcp.json")
+        };
+        let settings = home.path().join(".xfx").join("settings.json");
+        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+            profile: Some(home.path().join(".xfx").join("mcp.json")),
+            settings: Some(settings.clone()),
+            workspace: workspace.clone(),
+        });
+        let proj = |runtime: &crate::mcp::McpRuntime| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            loop {
+                let view = runtime
+                    .views()
+                    .into_iter()
+                    .find(|view| view.name == "proj")
+                    .expect("proj");
+                if view.connection != Connection::Connecting {
+                    return view;
+                }
+                assert!(std::time::Instant::now() < deadline, "proj never settled");
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+        write("first");
+        runtime.start();
+        runtime.run(Job::Trust {
+            action: TrustAction::Approve("proj".into()),
+            body: "Approving project MCP server 'proj'.".into(),
+        });
+        assert_eq!(proj(&runtime).status(), Status::Ready);
+        assert_eq!(
+            proj(&runtime).entry,
+            None,
+            "an approved entry is expanded: not shown"
+        );
+        runtime.suppress_prompts();
+        write("second");
+        runtime.run(Job::Command("reload".into()));
+        assert_eq!(proj(&runtime).state_label(), "Pending trust");
+
+        let views = runtime.views();
+        let mut menu = McpMenu::open();
+        assert_eq!(menu.key(KeyAction::Enter, &views, 5), Effect::Repaint);
+        let command = format!("command: /bin/sh {fixture} second");
+        let rows: Vec<String> = menu
+            .rows(&views, &[], 200, 30, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert!(rows.contains(&format!("  {command}")), "{rows:#?}");
+        assert_eq!(
+            menu.key(KeyAction::Char('v'), &views, 5),
+            Effect::Show(format!(
+                "Project MCP server 'proj' in .mcp.json:\n  {command}\n"
+            ))
+        );
+        let shown = entry_digest(&entry("second"));
+        let Effect::Trust { action, body } = menu.key(KeyAction::Char('a'), &views, 5) else {
+            panic!("`a` on a pending project server is a trust choice")
+        };
+        assert_eq!(
+            action,
+            TrustAction::ApproveShown {
+                name: "proj".into(),
+                digest: shown.clone()
+            }
+        );
+        // The file changes again before the answer is saved: the approval is
+        // for what the screen drew, and the newer entry still asks.
+        write("third");
+        runtime.run(Job::Command("reload".into()));
+        runtime.run(Job::Trust { action, body });
+        assert_eq!(proj(&runtime).state_label(), "Pending trust");
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings).expect("settings"))
+                .expect("json");
+        assert_eq!(
+            saved["workspaces"][workspace.to_str().unwrap()]["enabledMcpjsonServerDigests"]["proj"],
+            serde_json::json!(shown)
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn details_too_short_for_an_entry_say_how_much_more_and_how_to_see_it() {
+        let mut server = view(
+            "p",
+            Source::Workspace,
+            Connection::Disabled,
+            Some(Admission::Pending),
+        );
+        let command = format!("command: /bin/sh -c '{}'", "w ".repeat(150));
+        server.entry = Some(crate::mcp::runtime::ShownEntry {
+            rows: vec![command.clone()],
+            digest: "sha256:p".into(),
+        });
+        let servers = [server];
+        let mut menu = McpMenu::open();
+        menu.key(KeyAction::Enter, &servers, 5);
+        // Seven facts and the entry, wrapped at 38 columns: whole when the
+        // screen has the rows, past upstream's twelve.
+        let wrapped = entry_rows(&servers[0], 40).len();
+        assert!(wrapped >= 8, "{wrapped}");
+        assert_eq!(
+            menu.height(&servers, 40, 40),
+            u16::try_from(2 + 7 + wrapped).unwrap()
+        );
+        let whole: Vec<String> = menu
+            .rows(&servers, &[], 40, 40, PALETTE)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert_eq!(whole.len(), 2 + 7 + wrapped, "{whole:#?}");
+        // Four rows short of that: as much as fits, and the rest named.
+        let short: Vec<String> = menu
+            .rows(
+                &servers,
+                &[],
+                40,
+                u16::try_from(2 + 7 + wrapped - 4).unwrap(),
+                PALETTE,
+            )
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert_eq!(
+            short.last().map(String::as_str),
+            Some("  \u{2026} 5 more rows: press v to see all"),
+            "{short:#?}"
         );
     }
 }

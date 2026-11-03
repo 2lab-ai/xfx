@@ -812,6 +812,7 @@ mod tests {
             tools_held: tools.unwrap_or(0),
             listed: Default::default(),
             failure: None,
+            entry: None,
         }
     }
 

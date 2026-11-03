@@ -273,3 +273,85 @@ fn a_project_server_the_model_rewrites_after_approval_is_shown_and_asked_about_a
     assert_eq!(entry.get("enabledMcpjsonServers"), None, "{settings:#}");
     assert_eq!(gateway.requests().len(), 3, "one request per step");
 }
+
+/// `text` with the terminal's control sequences taken out -- CSI (`ESC [ … final`)
+/// and OSC (`ESC ] … BEL`) -- so rows a long line was wrapped onto read as the
+/// one line they were cut from.
+fn unescaped(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for next in chars.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                for next in chars.by_ref() {
+                    if next == '\u{7}' {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+#[test]
+fn a_long_command_or_address_reaches_a_narrow_screen_whole_before_the_choices() {
+    // The prompt is the only place the person sees what they are approving,
+    // so a 300-character command line and a long address must not be clipped
+    // on an 80-column terminal: each is wrapped onto as many rows as it needs,
+    // and all of it is written before the row of choices that `1` answers.
+    let gateway = FakeGateway::start(Vec::new());
+    let sandbox = Sandbox::new();
+    profile(&sandbox, &json!({"mcp": {}}), &json!({}));
+    let words: Vec<String> = (1..=58).map(|i| format!("a{i:02}")).collect();
+    let script = format!("echo {} TAILCMD", words.join(" "));
+    let command = format!("command: /bin/sh -c '{script}'");
+    assert!(command.len() >= 260, "{}", command.len());
+    let segments: Vec<String> = (1..=40).map(|i| format!("p{i:02}")).collect();
+    let url = format!("https://example.test/{}/TAILURL", segments.join("/"));
+    std::fs::write(
+        sandbox.workspace.join(".mcp.json"),
+        json!({"mcpServers": {
+            "long": {"command": "/bin/sh", "args": ["-c", script]},
+            "remote": {"type": "http", "url": url},
+        }})
+        .to_string(),
+    )
+    .expect("project config");
+    let choices = "[1] approve  [2] approve all  [3] reject  [esc] dismiss remaining prompts";
+    let pty = Pty::open();
+    pty.resize(40, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox, &gateway));
+    let whole_before_choices = |text: &str, value: &str| {
+        let text = unescaped(text);
+        let at = text
+            .find(value)
+            .unwrap_or_else(|| panic!("{value:?} is not on the screen whole:\n{text}"));
+        assert!(
+            text[at + value.len()..].contains(choices),
+            "the choices came before the end of {value:?}:\n{text}"
+        );
+    };
+    let shown = session.wait_for(choices);
+    whole_before_choices(&shown, &command);
+    session.type_bytes(b"3");
+    session.wait_for("Rejecting project MCP server 'long'.");
+    let shown = session.wait_for_count(choices, 2);
+    whole_before_choices(&shown, &format!("url: {url}"));
+    session.type_bytes(b"3");
+    session.wait_for("Rejecting project MCP server 'remote'.");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}

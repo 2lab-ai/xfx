@@ -91,10 +91,10 @@ pub const TERMINAL_SAFE_MAX_BYTES: usize = 256;
 /// (`src/core/shared/text_utils.zig:343-380@c1db9191`). Every C0 control and
 /// `DEL` -- a line break included -- is `\xNN`, and the C1 controls and the
 /// zero-width, line-separator, bidirectional and byte-order-mark code points
-/// (`isNonPrintingCodepoint`, `:620-626`) are `\u{NNNN}`, spelled out rather
-/// than dropped, so a name with a character in it is not shown as a
-/// different name ([`crate::tools::question::terminal_safe`], the same
-/// tokens). At most [`TERMINAL_SAFE_MAX_BYTES`]: past that the text is cut at
+/// (`isNonPrintingCodepoint`, `:620-626`) are `\u{NNNN}`, and so is every
+/// other default-ignorable code point the approval view names
+/// ([`terminal_safe_token`]) -- spelled out rather than dropped, so a name
+/// with a character in it is not shown as a different name. At most [`TERMINAL_SAFE_MAX_BYTES`]: past that the text is cut at
 /// a token boundary and ends `...`, as upstream's does, so a repository
 /// cannot fill a row, or the screen, with one name.
 pub fn terminal_safe(text: &str) -> String {
@@ -105,7 +105,7 @@ pub fn terminal_safe(text: &str) -> String {
     let mut boundary = 0;
     let mut buf = [0u8; 4];
     for character in text.chars() {
-        let token = crate::tools::question::terminal_safe(character.encode_utf8(&mut buf));
+        let token = terminal_safe_token(character, &mut buf);
         if out.len() + token.len() > max {
             out.truncate(boundary);
             out.push_str(MARKER);
@@ -117,4 +117,29 @@ pub fn terminal_safe(text: &str) -> String {
         }
     }
     out
+}
+
+/// One character's token: upstream's ([`crate::tools::question::terminal_safe`]),
+/// and -- where the TUI's approval view is built -- every default-ignorable
+/// code point it names as well (SEC-A4, `approval_view::command_text`:
+/// `U+00AD`, `U+3164`, `U+FFA0` and the rest a terminal may draw as nothing
+/// and so hide text behind). A line break is `\x0a` here, where the approval
+/// view keeps it: a name is one row.
+#[cfg(unix)]
+fn terminal_safe_token<'a>(character: char, buf: &'a mut [u8; 4]) -> std::borrow::Cow<'a, str> {
+    if character == '\n' {
+        return std::borrow::Cow::Borrowed("\\x0a");
+    }
+    let one = character.encode_utf8(buf);
+    let spelled = crate::tui::approval_view::command_text(one);
+    if spelled == *one {
+        std::borrow::Cow::Borrowed(one)
+    } else {
+        std::borrow::Cow::Owned(spelled)
+    }
+}
+
+#[cfg(not(unix))]
+fn terminal_safe_token<'a>(character: char, buf: &'a mut [u8; 4]) -> std::borrow::Cow<'a, str> {
+    crate::tools::question::terminal_safe(character.encode_utf8(buf))
 }

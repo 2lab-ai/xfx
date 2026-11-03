@@ -478,10 +478,11 @@ fn string_map(
 }
 
 /// xfx's own credentials, the two variables the gateway key is read from
-/// ([`crate::config::CREDENTIAL_VARIABLES`]). A workspace server never resolves them: approval is by
-/// name and an HTTP server runs none of the repository's code, so an approved
-/// entry naming one would send the key to whatever host it names. Upstream
-/// resolves them like any other variable (`docs/parity.md`).
+/// ([`crate::config::CREDENTIAL_VARIABLES`]). A workspace server never
+/// resolves them: an approval is one answer to one prompt and an HTTP server
+/// runs none of the repository's code, so an approved entry naming one would
+/// send the key to whatever host it names. Upstream resolves them like any
+/// other variable (`docs/parity.md`).
 fn is_credential_variable(name: &str) -> bool {
     crate::config::CREDENTIAL_VARIABLES.contains(&name)
 }
@@ -811,18 +812,21 @@ impl Choices {
 /// One thing the person can decide about workspace servers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrustAction {
-    /// Approve the entry called this as the runtime last read it -- what
-    /// `/mcp list` and the menu show.
+    /// Approve the entry called this as the runtime last read it: the typed
+    /// `/mcp trust approve <name>`, the one way to approve an entry that
+    /// parses only once expanded (`"url": "${URL}"`). The trust prompt and
+    /// the menu's details screen send [`Self::ApproveShown`] instead.
     Approve(String),
-    /// Approve the entry the trust prompt showed, whose [`entry_digest`] this
-    /// is: if the file changed after the prompt went up, the approval is for
-    /// an entry no longer there, and the new one asks.
+    /// Approve the entry the trust prompt or the menu's details screen
+    /// showed, whose [`entry_digest`] this is: if the file changed after it
+    /// was drawn, the approval is for an entry no longer there, and the new
+    /// one asks.
     ApproveShown {
         name: String,
         digest: String,
     },
     Reject(String),
-    /// Approve every entry the runtime last read that is not rejected -- the
+    /// Approve every entry the runtime last read as a pending server -- the
     /// servers there now, not ones added later, as fx v0.0.16 does
     /// (`CHANGELOG.md:165@481104fd`, `src/core/mcp_host/verbs.zig:641-655@481104fd`).
     ApproveAll,
@@ -1209,16 +1213,25 @@ pub fn load_choices(settings: Option<&Path>, root: &Path) -> Choices {
         .unwrap_or_default()
 }
 
+/// What the runtime last read, for an approval by name to bind: each entry
+/// with its [`entry_digest`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Loaded {
+    /// Every entry with a valid name, parsed or not
+    /// ([`WorkspaceServers::digests`]): what [`TrustAction::Approve`] binds.
+    pub entries: Vec<(String, String)>,
+    /// The entries that parsed as pending servers: what
+    /// [`TrustAction::ApproveAll`] approves. One that only parses once
+    /// expanded (`"type": "${T:-stdio}"`) was shown as a configuration error,
+    /// not as a server, so approving all does not approve it.
+    pub pending: Vec<(String, String)>,
+}
+
 /// `applyAction` (`project_config.zig:775-823`), and whether it reduced the
-/// authority in force. `loaded` is each entry the runtime last read with its
-/// [`entry_digest`] ([`WorkspaceServers::digests`]): what [`TrustAction::Approve`]
-/// and [`TrustAction::ApproveAll`] approve. A name with no entry there has
-/// nothing to approve and is only taken off the rejected list.
-pub fn apply_action(
-    current: &Choices,
-    action: &TrustAction,
-    loaded: &[(String, String)],
-) -> (Choices, bool) {
+/// authority in force, with `loaded` what an approval by name binds. A name
+/// with no entry there has nothing to approve and is only taken off the
+/// rejected list.
+pub fn apply_action(current: &Choices, action: &TrustAction, loaded: &Loaded) -> (Choices, bool) {
     let mut next = current.clone();
     let approve = |next: &mut Choices, name: &str, digest: Option<&str>| {
         if let Some(digest) = digest {
@@ -1235,6 +1248,7 @@ pub fn apply_action(
     };
     let loaded_digest = |name: &str| {
         loaded
+            .entries
             .iter()
             .find(|(entry, _)| entry == name)
             .map(|(_, digest)| digest.as_str())
@@ -1260,7 +1274,7 @@ pub fn apply_action(
             reduced
         }
         TrustAction::ApproveAll => {
-            for (name, digest) in loaded {
+            for (name, digest) in &loaded.pending {
                 if !current.rejected.contains(name) {
                     approve(&mut next, name, Some(digest));
                 }
@@ -1285,7 +1299,7 @@ pub fn save_action(
     settings: &Path,
     root: &Path,
     action: &TrustAction,
-    loaded: &[(String, String)],
+    loaded: &Loaded,
 ) -> io::Result<bool> {
     let key = root
         .to_str()
@@ -1361,6 +1375,18 @@ pub fn save_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `entries` read, each of them a pending server.
+    fn loaded_as_pending(entries: &[(&str, &str)]) -> Loaded {
+        let entries: Vec<(String, String)> = entries
+            .iter()
+            .map(|(name, digest)| (name.to_string(), digest.to_string()))
+            .collect();
+        Loaded {
+            pending: entries.clone(),
+            entries,
+        }
+    }
     use serde_json::json;
 
     #[test]
@@ -1501,7 +1527,7 @@ mod tests {
             Admission::Rejected
         );
         assert_eq!(choices.admission("c", "sha256:c"), Admission::Pending);
-        let loaded = [("b".to_string(), "sha256:b".to_string())];
+        let loaded = loaded_as_pending(&[("b", "sha256:b")]);
         let (next, reduced) = apply_action(&choices, &TrustAction::Reject("a".into()), &loaded);
         assert!(reduced);
         assert_eq!(next.admission("a", "sha256:a"), Admission::Rejected);
@@ -1587,15 +1613,22 @@ mod tests {
             rejected: vec!["no".into()],
             ..Choices::default()
         };
-        let loaded = [
-            ("a".to_string(), "sha256:a".to_string()),
-            ("no".to_string(), "sha256:no".to_string()),
-        ];
+        let loaded = Loaded {
+            pending: loaded_as_pending(&[("a", "sha256:a"), ("no", "sha256:no")]).pending,
+            // Read, and shown only as a configuration error: not approved.
+            entries: loaded_as_pending(&[
+                ("a", "sha256:a"),
+                ("no", "sha256:no"),
+                ("unparsed", "sha256:u"),
+            ])
+            .entries,
+        };
         let (next, _) = apply_action(&current, &TrustAction::ApproveAll, &loaded);
         assert_eq!(next.admission("a", "sha256:a"), Admission::Approved);
         assert_eq!(next.admission("a", "sha256:changed"), Admission::Pending);
         assert_eq!(next.admission("no", "sha256:no"), Admission::Rejected);
         assert_eq!(next.admission("later", "sha256:later"), Admission::Pending);
+        assert_eq!(next.admission("unparsed", "sha256:u"), Admission::Pending);
         // The prompt's approval is for what it showed, whatever was read since.
         let shown = TrustAction::ApproveShown {
             name: "a".into(),
@@ -1625,7 +1658,7 @@ mod tests {
         // digest each approval is for beside upstream's list.
         let read =
             || serde_json::from_str::<Value>(&fs::read_to_string(&settings).unwrap()).unwrap();
-        let loaded = [("proj".to_string(), "sha256:p".to_string())];
+        let loaded = loaded_as_pending(&[("proj", "sha256:p")]);
         save_action(
             &settings,
             root,

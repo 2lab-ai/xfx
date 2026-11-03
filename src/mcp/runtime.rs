@@ -135,6 +135,18 @@ pub struct ServerView {
     /// What its feature lists held when last read.
     pub listed: Listed,
     pub failure: Option<String>,
+    /// For a project server not approved as it stands -- pending or
+    /// rejected, so never expanded -- what approving it would let run or
+    /// reach, and the digest an approval of what was drawn is for.
+    pub entry: Option<ShownEntry>,
+}
+
+/// A project entry as a person is shown it: the rows of [`what_it_runs`],
+/// each whole, and the [`config::entry_digest`] of the entry they came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownEntry {
+    pub rows: Vec<String>,
+    pub digest: String,
 }
 
 impl ServerView {
@@ -402,6 +414,7 @@ impl Server {
             tools_held: live.tools.len(),
             listed: live.listed,
             failure: live.failure.clone(),
+            entry: None,
         }
     }
 
@@ -571,7 +584,11 @@ impl McpRuntime {
         state
             .servers
             .iter()
-            .map(|server| server.view(state.reloading && server.should_connect()))
+            .map(|server| {
+                let mut view = server.view(state.reloading && server.should_connect());
+                view.entry = shown_entry(&server.config, &state.digests);
+                view
+            })
             .collect()
     }
 
@@ -1225,7 +1242,21 @@ impl McpRuntime {
             self.present_prompt();
             return;
         };
-        let loaded = self.state().digests.clone();
+        let loaded = {
+            let state = self.state();
+            config::Loaded {
+                entries: state.digests.clone(),
+                pending: state
+                    .servers
+                    .iter()
+                    .filter_map(|server| {
+                        let entry = shown_entry(&server.config, &state.digests)?;
+                        (server.config.admission == Some(Admission::Pending))
+                            .then(|| (server.config.name.clone(), entry.digest))
+                    })
+                    .collect(),
+            }
+        };
         match config::save_action(&settings, &self.paths.workspace, &action, &loaded) {
             Ok(_) => {
                 self.notice(false, body);
@@ -1615,13 +1646,72 @@ impl Drop for McpRuntime {
 /// The trust prompt's rows that say what approving lets run or reach, as the
 /// entry has it (`${VAR}` and all: a pending entry is not expanded), each
 /// spelled by [`prompt_value`] and never cut short: a stdio server's command
-/// line and the names of the variables it sets, or a remote server's address
-/// and the headers it sends with where each value comes from. Names, never values: a value can
-/// be a credential written into the file, and these rows stay in the
-/// transcript. A changed environment or credential source is a changed entry
+/// line and the variables it sets, or a remote server's address and the
+/// headers it sends, each named with the variables its value comes from
+/// ([`sourced`]). Names, never values: a value can be a credential written
+/// into the file, and these rows stay in the transcript. A changed environment or credential source is a changed entry
 /// ([`config::entry_digest`]), and these rows are how its prompt differs from
 /// the one already answered.
 fn what_it_runs(config: &ServerConfig) -> String {
+    entry_rows(config)
+        .iter()
+        .map(|row| fitted(row, &config.name))
+        .collect::<Vec<_>>()
+        .join("\n  ")
+}
+
+/// A prompt row longer than this is shown by its two ends: written whole it
+/// would scroll its own beginning off a terminal of ordinary height before
+/// the choices under it are drawn.
+const PROMPT_ROW_MAX_BYTES: usize = 1024;
+
+/// `row` whole, or -- past [`PROMPT_ROW_MAX_BYTES`] -- its head and tail with
+/// how long it is and where it is shown whole, so a long command is never cut
+/// without saying so. Cut on a character boundary; `row` is already spelled,
+/// so no escape it carries is split from the code point it names.
+fn fitted(row: &str, name: &str) -> String {
+    if row.len() <= PROMPT_ROW_MAX_BYTES {
+        return row.to_string();
+    }
+    let floor = |at: usize| {
+        (0..=at)
+            .rev()
+            .find(|&at| row.is_char_boundary(at))
+            .unwrap_or(0)
+    };
+    let ceil = |at: usize| {
+        (at..=row.len())
+            .find(|&at| row.is_char_boundary(at))
+            .unwrap_or(row.len())
+    };
+    let head = &row[..floor(PROMPT_ROW_MAX_BYTES / 2)];
+    let tail = &row[ceil(row.len() - PROMPT_ROW_MAX_BYTES / 4)..];
+    format!(
+        "{head} \u{2026} [{} bytes in all; in /mcp, Enter on '{name}' then v writes every byte] \u{2026} {tail}",
+        row.len()
+    )
+}
+
+/// A project server's [`ShownEntry`], when it is one a person is asked
+/// about: a workspace entry not approved as it stands, which is never
+/// expanded, so its rows are the entry as written.
+fn shown_entry(config: &ServerConfig, digests: &[(String, String)]) -> Option<ShownEntry> {
+    if config.source != Source::Workspace || config.admission == Some(Admission::Approved) {
+        return None;
+    }
+    let digest = digests
+        .iter()
+        .find(|(name, _)| *name == config.name)?
+        .1
+        .clone();
+    Some(ShownEntry {
+        rows: entry_rows(config),
+        digest,
+    })
+}
+
+/// [`what_it_runs`]' rows, each whole and spelled by [`prompt_value`].
+pub(crate) fn entry_rows(config: &ServerConfig) -> Vec<String> {
     let mut rows = match config.transport {
         Kind::Stdio => {
             let words: Vec<String> = std::iter::once(&config.command)
@@ -1632,34 +1722,69 @@ fn what_it_runs(config: &ServerConfig) -> String {
         }
         Kind::Http | Kind::Sse => vec![format!("url: {}", config.url)],
     };
-    let names: Vec<String> = config.env.iter().map(|(name, _)| name.clone()).collect();
+    let names: Vec<String> = config
+        .env
+        .iter()
+        .map(|(name, value)| sourced(name, value))
+        .collect();
     if !names.is_empty() {
         rows.push(format!("env: {}", names.join(", ")));
     }
     let headers: Vec<String> = config
         .headers
         .iter()
-        .map(|(name, _)| name.clone())
+        .map(|(name, value)| sourced(name, value))
         .chain(
             config
                 .header_env
                 .iter()
-                .map(|(name, variable)| format!("{name} from ${variable}")),
+                .map(|(name, variable)| format!("{name} from ${{{variable}}}")),
         )
         .chain(
             config
                 .bearer_token_env
                 .iter()
-                .map(|variable| format!("Authorization from ${variable}")),
+                .map(|variable| format!("Authorization from ${{{variable}}}")),
         )
         .collect();
     if !headers.is_empty() {
         rows.push(format!("headers: {}", headers.join(", ")));
     }
-    rows.iter()
-        .map(|row| prompt_value(row))
-        .collect::<Vec<_>>()
-        .join("\n  ")
+    rows.iter().map(|row| prompt_value(row)).collect()
+}
+
+/// `name`, and the variables its `value` is made of -- `X-Team from ${TEAM}`,
+/// `K from ${A:-…} + ${B}` -- and never the value: what is literal in it can
+/// be a credential, a default included, and the variables are what an
+/// approval authorizes to be sent. A value with none is the name alone.
+fn sourced(name: &str, value: &str) -> String {
+    let variables = variables(value);
+    if variables.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} from {}", variables.join(" + "))
+    }
+}
+
+/// The `${VAR}` and `${VAR:-default}` in `text`, by the grammar expansion
+/// reads them with (`config`'s `expand_text`): `${VAR}`, or `${VAR:-…}` when
+/// a default stands by, the default itself not shown.
+fn variables(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            break;
+        };
+        let inner = &after[..end];
+        found.push(match inner.split_once(":-") {
+            Some((name, _)) => format!("${{{name}:-\u{2026}}}"),
+            None => format!("${{{inner}}}"),
+        });
+        rest = &after[end + 1..];
+    }
+    found
 }
 
 /// One value of the trust prompt as the approval view spells a command it
@@ -1754,7 +1879,7 @@ mod tests {
         config.bearer_token_env = Some("TOKEN".into());
         assert_eq!(
             what_it_runs(&config),
-            "url: https://example.test/mcp\n  headers: X-A, X-Team from $TEAM, Authorization from $TOKEN"
+            "url: https://example.test/mcp\n  headers: X-A, X-Team from ${TEAM}, Authorization from ${TOKEN}"
         );
     }
 
@@ -1808,5 +1933,98 @@ mod tests {
         let shown = what_it_runs(&config);
         assert!(!shown.contains('\u{ad}'), "{shown:?}");
         assert!(shown.contains(r"\u{00ad}"), "{shown:?}");
+    }
+
+    #[test]
+    fn a_row_too_long_for_the_screen_shows_both_ends_its_size_and_where_it_is_whole() {
+        let middle = "m".repeat(3000);
+        let config = ServerConfig::local(
+            "p",
+            "/bin/sh",
+            &["-c".into(), format!("HEAD-MARK {middle} TAIL-MARK")],
+        );
+        let whole = &entry_rows(&config)[0];
+        assert!(whole.len() > PROMPT_ROW_MAX_BYTES);
+        assert!(whole.ends_with("TAIL-MARK'"), "{whole}");
+        let shown = what_it_runs(&config);
+        assert!(shown.len() < PROMPT_ROW_MAX_BYTES, "{}", shown.len());
+        assert!(
+            shown.starts_with("command: /bin/sh -c 'HEAD-MARK mmm"),
+            "{shown}"
+        );
+        assert!(shown.ends_with("mmm TAIL-MARK'"), "{shown}");
+        assert!(
+            shown.contains(&format!(
+                "\u{2026} [{} bytes in all; in /mcp, Enter on 'p' then v writes every byte] \u{2026}",
+                whole.len()
+            )),
+            "{shown}"
+        );
+        // A row that fits is whole.
+        let short = ServerConfig::local("p", "/bin/true", &[]);
+        assert_eq!(what_it_runs(&short), "command: /bin/true");
+    }
+
+    #[test]
+    fn every_row_shows_the_entry_as_written_and_names_the_variables_a_value_comes_from() {
+        // A prompt is for a pending entry, which is not expanded: each row is
+        // the entry as written, never a value the environment resolved. A
+        // header's or a variable's value is not shown -- it can be a literal
+        // credential -- but the variables it is made of are, in both forms a
+        // header can take them (`headers` with `${VAR}`, and `header_env`),
+        // since naming one is authorizing it to be sent.
+        let dir = tempfile::tempdir().expect("dir");
+        std::fs::write(
+            dir.path().join(config::WORKSPACE_FILE),
+            json!({"mcpServers": {
+                "local": {
+                    "command": "${TOOL}",
+                    "args": ["--key", "${SECRET}"],
+                    "env": {
+                        "PLAIN": "literal-secret",
+                        "K": "Bearer ${SECRET}",
+                        "M": "${A:-fallback-secret}${B}",
+                    },
+                },
+                "remote": {
+                    "type": "http",
+                    "url": "https://${HOST}/mcp",
+                    "headers": {
+                        "X-Fixed": "literal-secret",
+                        "X-Team": "${TEAM}",
+                        "X-Mix": "Bearer ${A:-fallback-secret} ${B}",
+                    },
+                    "header_env": {"X-Env": "TEAM_1"},
+                    "bearer_token_env": "TOKEN",
+                },
+            }})
+            .to_string(),
+        )
+        .unwrap();
+        let resolved = |_: &str| Some("RESOLVED-SECRET".to_string());
+        let servers = config::load_workspace(dir.path(), &Choices::default(), &resolved).servers;
+        let shown = |name: &str| {
+            let config = servers
+                .iter()
+                .find(|server| server.name == name)
+                .unwrap_or_else(|| panic!("{name}: {servers:?}"));
+            assert_eq!(config.admission, Some(Admission::Pending));
+            what_it_runs(config)
+        };
+        let local = shown("local");
+        assert_eq!(
+            local,
+            "command: '${TOOL}' --key '${SECRET}'\n  env: PLAIN, K from ${SECRET}, M from ${A:-\u{2026}} + ${B}"
+        );
+        let remote = shown("remote");
+        assert_eq!(
+            remote,
+            "url: https://${HOST}/mcp\n  headers: X-Fixed, X-Team from ${TEAM}, X-Mix from ${A:-\u{2026}} + ${B}, X-Env from ${TEAM_1}, Authorization from ${TOKEN}"
+        );
+        for row in [&local, &remote] {
+            for value in ["RESOLVED-SECRET", "literal-secret", "fallback-secret"] {
+                assert!(!row.contains(value), "{value} in {row:?}");
+            }
+        }
     }
 }
