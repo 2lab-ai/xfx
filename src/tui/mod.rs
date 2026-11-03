@@ -353,10 +353,14 @@ fn hold(
     // from the state the open already read, with no read of its own.
     // The band is built from this configuration, with the provider the
     // session continues on already in it; what it still has to say is
-    // whether that provider can authenticate ([`worker::unauthenticated`]).
+    // whether that provider can authenticate ([`worker::unauthenticated`]),
+    // and whether the session's model was one it could not restore
+    // ([`worker::Resumption::replaces_model`]; the restore above changed the
+    // provider and the model, not the sources the rule reads).
     let replay = resumed.as_ref().map(|resumed| {
         let mut replay = resumed.hydration();
         replay.unauthenticated = worker::unauthenticated(config);
+        replay.model_replaced = resumed.replaces_model(config);
         replay
     });
     let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone(), resumed)?;

@@ -1748,6 +1748,58 @@ fn setup_probes_an_explicit_url_and_records_it_in_the_profile() {
     assert_eq!(settings["model"], "fable");
 }
 
+/// The control characters in `text` a terminal would obey.
+fn obeyed(text: &str) -> Vec<char> {
+    text.chars()
+        .filter(|c| c.is_control() && *c != '\n')
+        .collect()
+}
+
+#[test]
+fn setup_never_adopts_or_prints_a_catalog_model_with_a_control_character() {
+    // The catalog is the daemon's document and its parser takes any
+    // non-empty string. Setup adopts a model from it and writes it into the
+    // profile, which every launch paints, and prints it: an entry whose name
+    // carries a control character -- in its id, or in the alias it would be
+    // chosen by -- is passed over, and so is a configured model that names
+    // one, which is not quoted back. Red before: the first entry was adopted
+    // and written, and the configured one kept and quoted.
+    let hostile = "e\u{1b}]0;pwned\u{7}vil";
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[
+        (hostile, &[]),
+        ("clean-id", &["al\u{1b}[2Jias"]),
+        ("m-2", &[]),
+    ]));
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&serde_json::json!({"models": {"llmux": hostile}}).to_string());
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(obeyed(&run.stdout), Vec::<char>::new(), "{:?}", run.stdout);
+    assert_eq!(obeyed(&run.stderr), Vec::<char>::new(), "{:?}", run.stderr);
+    assert!(
+        run.stdout.contains("[setup] model=m-2\n"),
+        "{:?}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("pwned"), "quoted: {:?}", run.stdout);
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["models"]["llmux"], "m-2");
+    assert_eq!(settings["model"], "m-2");
+
+    // A catalog with nothing usable in it is refused, and nothing is written.
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[
+        (hostile, &[]),
+        ("clean-id", &["al\u{1b}[2Jias"]),
+    ]));
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert_eq!(obeyed(&run.stdout), Vec::<char>::new(), "{:?}", run.stdout);
+    assert_eq!(obeyed(&run.stderr), Vec::<char>::new(), "{:?}", run.stderr);
+    assert!(!sandbox.settings_path().exists(), "{:?}", run.stdout);
+}
+
 #[test]
 fn setup_writes_a_profile_that_the_next_turn_actually_uses() {
     // The receipt that matters: the file setup wrote is the file the loader

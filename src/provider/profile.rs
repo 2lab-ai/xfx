@@ -126,7 +126,7 @@ pub fn write(
     existing: Map<String, Value>,
     selection: &Selection<'_>,
 ) -> io::Result<()> {
-    write_document(path, &document_for(existing, selection))
+    write_document(path, &document_for(existing, selection)?)
 }
 
 /// The exact bytes a [`Selection`] merged into `existing` becomes on disk.
@@ -137,12 +137,38 @@ pub fn write(
 /// (`super::setup::prepare`) has to know exactly that. Split out rather than
 /// duplicated, so `prepare` cannot promise one document while `commit` writes
 /// another: there is only one document.
-pub fn document_for(existing: Map<String, Value>, selection: &Selection<'_>) -> Vec<u8> {
+///
+/// A selection whose model xfx would not have written is refused
+/// ([`refused_model`]), as every other model write is.
+pub fn document_for(
+    existing: Map<String, Value>,
+    selection: &Selection<'_>,
+) -> io::Result<Vec<u8>> {
+    if let Some(err) = refused_model(selection.model) {
+        return Err(err);
+    }
     let merged = merge_selection(existing, selection, selection.provider.legacy_backend());
     let mut body = serde_json::to_string_pretty(&Value::Object(merged))
         .expect("a settings object is always serializable");
     body.push('\n');
-    body.into_bytes()
+    Ok(body.into_bytes())
+}
+
+/// Why `model` is not written into the profile, when it is one xfx would not
+/// have written ([`crate::provider::model::model_id_problem`]).
+///
+/// Every model the profile holds is painted at every launch -- the footer, the
+/// line shell -- and one has reached it from a provider's catalog, whose parser
+/// takes any non-empty string. Upstream refuses it at its settings write too
+/// (`validateUserPatch`, `putModelPreference`, `settings_store.zig:921,1633`,
+/// `vercel-labs/fx@c1db9191`). The model is not quoted.
+fn refused_model(model: &str) -> Option<io::Error> {
+    crate::provider::model::model_id_problem(model).map(|problem| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("the model is not one xfx can save: {problem}"),
+        )
+    })
 }
 
 /// Sets one preference in the settings file at `path` and writes it back.
@@ -191,6 +217,16 @@ fn write_preferences_within(
             io::ErrorKind::InvalidInput,
             "a preference needs a key",
         ));
+    }
+    // A model -- the flat `model` or one of `models` -- is held to the rule
+    // every model write is ([`refused_model`]), before anything is created.
+    for (key_path, value) in preferences {
+        let names_a_model = matches!(key_path, ["model"] | [crate::config::MODELS_KEY, _]);
+        if let (true, Some(model)) = (names_a_model, value.as_str()) {
+            if let Some(err) = refused_model(model) {
+                return Err(err);
+            }
+        }
     }
     // The whole transaction, read to rename, under both locks: this process's
     // first, so two threads here queue on a mutex rather than spinning on a
@@ -320,10 +356,11 @@ pub fn edit_document<E: From<io::Error>>(
 /// selection is decided before -- the daemon probed, the catalog read -- and
 /// merged here into whatever another writer left meanwhile, so a key written
 /// between the two is kept rather than written over. A file that cannot be
-/// read is an error and `decide` is not asked.
+/// read is an error and `decide` is not asked; an `Err` from `decide` is
+/// returned as it is, with nothing written.
 pub fn rewrite_document(
     path: &Path,
-    decide: impl FnOnce(Map<String, Value>) -> Vec<u8>,
+    decide: impl FnOnce(Map<String, Value>) -> io::Result<Vec<u8>>,
 ) -> io::Result<()> {
     let _in_process = WRITERS
         .lock()
@@ -331,7 +368,7 @@ pub fn rewrite_document(
     let dir = parent_of(path)?;
     create_private_dir(dir)?;
     let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
-    let document = decide(read_existing(path)?);
+    let document = decide(read_existing(path)?)?;
     write_document(path, &document)
 }
 
@@ -975,7 +1012,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
         let preimage = snapshot(&path).expect("absent");
-        write_document(&path, &document_for(Map::new(), &selection())).expect("write");
+        write_document(
+            &path,
+            &document_for(Map::new(), &selection()).expect("a document"),
+        )
+        .expect("write");
         assert!(path.exists(), "the transaction created it");
 
         restore(&path, &preimage).expect("restore");
@@ -999,7 +1040,11 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
 
         let preimage = snapshot(&path).expect("snapshot");
-        write_document(&path, &document_for(Map::new(), &selection())).expect("write");
+        write_document(
+            &path,
+            &document_for(Map::new(), &selection()).expect("a document"),
+        )
+        .expect("write");
         assert_ne!(fs::read(&path).expect("read"), original, "the write landed");
         assert_eq!(
             fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
@@ -1023,7 +1068,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
         let existing = object(json!({"permission_mode": "auto"}));
-        let document = document_for(existing.clone(), &selection());
+        let document = document_for(existing.clone(), &selection()).expect("a document");
         write(&path, existing, &selection()).expect("write");
         assert_eq!(fs::read(&path).expect("read"), document);
         assert!(
@@ -1107,6 +1152,47 @@ mod tests {
         assert_eq!(
             written,
             json!({"statusLine": {"workspace": true}, "model": "m"})
+        );
+    }
+
+    #[test]
+    fn a_model_xfx_would_not_have_written_is_never_written_into_the_profile() {
+        // Every writer of a model ends here -- `/model`, a speed save, a
+        // change put aside by a provider switch, `xfx setup` and `/provider`
+        // -- and the profile's model is painted at every launch. Upstream
+        // refuses such a model at its settings write (`validateUserPatch`,
+        // `putModelPreference`, `settings_store.zig:921,1633`,
+        // `vercel-labs/fx@c1db9191`); so does this one, before anything is
+        // created, and without quoting it. Red before: each was written.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("profile").join("settings.json");
+        let hostile = "m\u{1b}]0;pwned\u{7}\u{9b}31m";
+        for key in [&["model"][..], &[crate::config::MODELS_KEY, "llmux"][..]] {
+            let err =
+                write_preferences(&path, &[(key, json!(hostile)), (&["effort"], json!("low"))])
+                    .expect_err("a model with a control character is refused");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{key:?}: {err}");
+            assert!(!err.to_string().chars().any(char::is_control), "{err}");
+            assert!(!err.to_string().contains("pwned"), "quoted: {err}");
+            assert!(!path.exists(), "{key:?}: a refused write wrote the file");
+        }
+        let err = write(
+            &path,
+            Map::new(),
+            &Selection {
+                provider: ProviderId::Llmux,
+                model: hostile,
+                llmux_url: None,
+            },
+        )
+        .expect_err("a selection of such a model is refused");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+        assert!(!path.exists(), "a refused selection wrote the file");
+        // A model it would write is written as before.
+        write_preferences(&path, &[(&["model"], json!("vendor/m-1"))]).expect("written");
+        assert_eq!(
+            read_existing(&path).expect("read")["model"],
+            json!("vendor/m-1")
         );
     }
 

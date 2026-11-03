@@ -93,6 +93,14 @@ pub enum SetupError {
         provider: ProviderId,
         source: String,
     },
+    /// There is no model xfx can record: none the provider offers is one xfx
+    /// would have written ([`crate::provider::model::model_id_problem`]).
+    /// Nothing was written, and the model is not quoted -- it is the
+    /// provider's text, and this is printed to a terminal.
+    NoUsableModel {
+        provider: ProviderId,
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for SetupError {
@@ -159,6 +167,11 @@ impl std::fmt::Display for SetupError {
                     provider.label()
                 )
             }
+            Self::NoUsableModel { provider, detail } => write!(
+                f,
+                "xfx found no model it can record for {}: {detail}; nothing was written",
+                provider.label()
+            ),
         }
     }
 }
@@ -267,9 +280,9 @@ pub fn commit(prepared: &mut PreparedSetup) -> Result<(), SetupError> {
         selection,
     } = prepared;
     crate::provider::profile::rewrite_document(settings_path, |existing| {
-        let merged = crate::provider::profile::document_for(existing, &selection.as_selection());
+        let merged = crate::provider::profile::document_for(existing, &selection.as_selection())?;
         document.clone_from(&merged);
-        merged
+        Ok(merged)
     })
     .map_err(|err| SetupError::Write {
         provider: report.provider,
@@ -342,7 +355,14 @@ async fn prepare_gateway(config: &RuntimeConfig) -> Result<PreparedSetup, SetupE
 
     // The document, not the write. Nothing has touched the file except the read
     // above, so a caller that drops this leaves the machine untouched.
-    let document = crate::provider::profile::document_for(existing, &selection.as_selection());
+    // The configuration's model was already held to the rule
+    // (`crate::config`'s reader), so this refuses nothing in practice; it is
+    // answered rather than assumed.
+    let document = crate::provider::profile::document_for(existing, &selection.as_selection())
+        .map_err(|err| SetupError::NoUsableModel {
+            provider: ProviderId::Gateway,
+            detail: err.to_string(),
+        })?;
 
     // Step 6: Report what outranks the file and what is missing.
     let overridden_by = overriding_layers(config);
@@ -791,6 +811,7 @@ mod tests {
                     llmux_url: None,
                 },
             )
+            .expect("a usable model")
         };
 
         run(&config, &fixture.env(), ProviderId::Gateway, None)

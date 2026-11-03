@@ -1350,31 +1350,35 @@ impl Resumption {
     /// the same substitution.
     /// Upstream refuses the frame that carries such a model as invalid
     /// instead (`parsePreferences`, `session_event.zig:1972-1976`, over
-    /// `validateModel`, `session_codec.zig:67,3165`; `docs/parity.md`).
+    /// `validateModel`, `session_codec.zig:67,3165`; `docs/parity.md`). The
+    /// band says it once ([`Self::replaces_model`]).
     pub(crate) fn selection(&self, config: &RuntimeConfig, current: &str) -> (ProviderId, String) {
-        use crate::config::SettingSource;
-        let logged = match crate::provider::model::model_id_problem(self.model()) {
-            None => self.model(),
-            Some(_) => current,
+        let provider = self.provider().unwrap_or(config.provider);
+        let model = if self.takes_logged_model(config) && !self.replaces_model(config) {
+            self.model()
+        } else {
+            current
         };
+        (provider, model.to_string())
+    }
+
+    /// Whether the rule in [`Self::selection`] takes the model the log
+    /// recorded, before that model is held to anything.
+    fn takes_logged_model(&self, config: &RuntimeConfig) -> bool {
+        use crate::config::SettingSource;
         match self.provider() {
-            Some(recorded) => {
-                let model = if config.sources.model == SettingSource::ProcessOverride {
-                    current
-                } else {
-                    logged
-                };
-                (recorded, model.to_string())
-            }
-            _ => {
-                let model = if config.sources.model == SettingSource::CompiledDefault {
-                    logged
-                } else {
-                    current
-                };
-                (config.provider, model.to_string())
-            }
+            Some(_) => config.sources.model != SettingSource::ProcessOverride,
+            None => config.sources.model == SettingSource::CompiledDefault,
         }
+    }
+
+    /// Whether [`Self::selection`] would have restored the log's model and
+    /// put the launch's in its place, because the log's is one xfx would not
+    /// have written: what the band says once under the replay, without
+    /// quoting either.
+    pub(crate) fn replaces_model(&self, config: &RuntimeConfig) -> bool {
+        self.takes_logged_model(config)
+            && crate::provider::model::model_id_problem(self.model()).is_some()
     }
 
     /// The effort and the speed switches the session last recorded, if it
@@ -2275,6 +2279,10 @@ impl Runtime {
             )
         });
         replay.unauthenticated = unauthenticated(&self.config);
+        // And whether the session's model was one it could not restore
+        // ([`Resumption::replaces_model`]; the sources it reads are the
+        // launch's, which the resume above does not move).
+        replay.model_replaced = resumption.replaces_model(&self.config);
         self.conversation = None;
         self.resume(resumption, mirror);
         self.publish_reply();
@@ -10440,10 +10448,12 @@ mod tests {
                 ),
             ] {
                 let context = format!("{written_by} {hostile:?}");
-                // Another provider's session: the session's model, unless the
-                // process named one (the first branch).
+                // A session that recorded a provider -- here another one than
+                // the configured -- continues in the session's model unless
+                // the process named one (the first branch).
                 let resumed = opened(&config, on_llmux);
                 assert_eq!(resumed.model(), hostile, "{context}: the log holds it");
+                assert!(resumed.replaces_model(&config), "{context}");
                 let (provider, model) = resumed.selection(&config, &config.model);
                 assert!(!model.chars().any(char::is_control), "{context}: {model:?}");
                 assert_eq!(
@@ -10452,9 +10462,10 @@ mod tests {
                     "{context}"
                 );
                 drop(resumed);
-                // The configured provider's, with no model chosen: the
-                // session's model (the second branch).
+                // The first branch again, on the configured provider and with
+                // no model chosen; the opening below is checked on it.
                 let resumed = opened(&unchosen, on_gateway.clone());
+                assert!(resumed.replaces_model(&unchosen), "{context}");
                 let (provider, model) = resumed.selection(&unchosen, &unchosen.model);
                 assert!(!model.chars().any(char::is_control), "{context}: {model:?}");
                 assert_eq!(
@@ -10505,7 +10516,31 @@ mod tests {
                     (ProviderId::Gateway, unchosen.model.clone()),
                     "{context}"
                 );
+                assert!(!again.replaces_model(&unchosen), "{context}");
             }
+            // A session that recorded no provider -- written before the
+            // provider was recorded -- goes on with the configured one, in
+            // the session's model when no setting chose one (the second
+            // branch): replaced there too.
+            let legacy = saved_on(&config, None, hostile);
+            let resumed = opened(&unchosen, legacy.clone());
+            assert_eq!(resumed.provider(), None, "{hostile:?}");
+            assert!(resumed.replaces_model(&unchosen), "{hostile:?}");
+            assert_eq!(
+                resumed.selection(&unchosen, &unchosen.model),
+                (ProviderId::Gateway, unchosen.model.clone()),
+                "{hostile:?}"
+            );
+            drop(resumed);
+            // And where a setting chose the model, the session's was never
+            // going to be restored: nothing is replaced, and nothing is said.
+            let resumed = opened(&config, legacy);
+            assert!(!resumed.replaces_model(&config), "{hostile:?}");
+            assert_eq!(
+                resumed.selection(&config, &config.model),
+                (ProviderId::Gateway, config.model.clone()),
+                "{hostile:?}"
+            );
         }
     }
 

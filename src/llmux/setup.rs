@@ -110,14 +110,25 @@ pub async fn prepare(
         .and_then(Value::as_str)
         .or_else(|| existing.get("model").and_then(Value::as_str))
         .unwrap_or(crate::config::DEFAULT_MODEL);
-    let (model, model_reason) = select_model(configured, &catalog);
+    let no_usable_model = |detail: String| SetupError::NoUsableModel {
+        provider: crate::provider::ProviderId::Llmux,
+        detail,
+    };
+    let (model, model_reason) = select_model(configured, &catalog).ok_or_else(|| {
+        no_usable_model(
+            "no entry in the daemon's catalog is named by one word of at most 200 bytes \
+             with no control character"
+                .to_string(),
+        )
+    })?;
 
     let selection = crate::provider::setup::SetupSelection {
         provider: crate::provider::ProviderId::Llmux,
         model: model.clone(),
         llmux_url: Some(url.clone()),
     };
-    let document = profile::document_for(existing, &selection.as_selection());
+    let document = profile::document_for(existing, &selection.as_selection())
+        .map_err(|err| no_usable_model(err.to_string()))?;
     Ok(PreparedSetup {
         report: SetupReport {
             provider: crate::provider::ProviderId::Llmux,
@@ -301,21 +312,37 @@ async fn fetch_root(base: &str) -> Result<String, String> {
 /// replaced it would be a setup command that undid a decision. Replacing it when
 /// the daemon does not have it matters for the same reason in reverse: leaving a
 /// model the daemon will reject would record a configuration that cannot run.
-fn select_model(configured: &str, catalog: &[model::CatalogEntry]) -> (String, String) {
-    if catalog.iter().any(|entry| entry.matches(configured)) {
-        return (
+///
+/// **Only a model xfx would have written** ([`model::model_id_problem`]),
+/// kept or taken: the daemon's catalog is its document, its parser takes any
+/// non-empty string, and the model chosen here is written into the profile,
+/// printed, and painted by every launch. An entry whose name breaks the rule
+/// is passed over, and a configured model that breaks it is neither kept nor
+/// quoted. `None` when the catalog has nothing that keeps it.
+fn select_model(configured: &str, catalog: &[model::CatalogEntry]) -> Option<(String, String)> {
+    let usable = |name: &str| model::model_id_problem(name).is_none();
+    let configured_usable = usable(configured);
+    if configured_usable && catalog.iter().any(|entry| entry.matches(configured)) {
+        return Some((
             configured.to_string(),
             format!("kept `{configured}`, which this daemon offers"),
-        );
+        ));
     }
-    let first = catalog
-        .first()
-        .expect("an empty catalog was refused by the probe");
-    let chosen = first.preferred_name().to_string();
-    (
-        chosen.clone(),
-        format!("`{configured}` is not in this daemon's catalog, so xfx chose its first entry"),
-    )
+    let position = catalog
+        .iter()
+        .position(|entry| usable(entry.preferred_name()))?;
+    let chosen = catalog[position].preferred_name().to_string();
+    let which = if position == 0 {
+        "its first entry"
+    } else {
+        "the first entry xfx can use"
+    };
+    let reason = if configured_usable {
+        format!("`{configured}` is not in this daemon's catalog, so xfx chose {which}")
+    } else {
+        format!("the configured model is not one xfx can use, so xfx chose {which}")
+    };
+    Some((chosen, reason))
 }
 
 /// The `proxy.port` from llmux's own configuration file, if there is one.
@@ -434,7 +461,7 @@ mod tests {
     fn a_configured_model_the_daemon_has_is_kept_by_id_or_alias() {
         let catalog = entries(&[("a-id", &["a", "second"]), ("b-id", &[])]);
         for name in ["a-id", "a", "second", "b-id"] {
-            let (model, reason) = select_model(name, &catalog);
+            let (model, reason) = select_model(name, &catalog).expect("a model");
             assert_eq!(model, name);
             assert!(reason.contains("kept"), "{reason}");
         }
@@ -443,11 +470,12 @@ mod tests {
     #[test]
     fn a_model_the_daemon_does_not_have_is_replaced_by_its_first_entry() {
         let catalog = entries(&[("a-id", &["a"]), ("b-id", &[])]);
-        let (model, reason) = select_model("vendor/absent", &catalog);
+        let (model, reason) = select_model("vendor/absent", &catalog).expect("a model");
         assert_eq!(model, "a", "the first entry, by its published short name");
         assert!(reason.contains("vendor/absent"), "{reason}");
 
-        let (model, _) = select_model("vendor/absent", &entries(&[("only-an-id", &[])]));
+        let (model, _) =
+            select_model("vendor/absent", &entries(&[("only-an-id", &[])])).expect("a model");
         assert_eq!(model, "only-an-id", "an entry with no alias uses its id");
     }
 
@@ -934,7 +962,8 @@ mod tests {
                 model: "fable",
                 llmux_url: Some(&url),
             },
-        );
+        )
+        .expect("a usable model");
         assert_eq!(prepared.document, expected);
 
         let mut committed = prepared.clone();

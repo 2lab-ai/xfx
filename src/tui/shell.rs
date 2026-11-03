@@ -513,6 +513,17 @@ const PROVIDER_BUSY: &str =
 /// `fx-model3-40x120-paste-bad-effort`).
 const MODEL_USAGE: &str = "usage: /model <id> <effort> [normal|fast|ultrafast]";
 
+/// xfx's own words for a resumed session whose recorded model is not one xfx
+/// would have written ([`crate::provider::model::model_id_problem`]): it
+/// continues in the model in force, and neither is quoted.
+const MODEL_NOT_RESTORED: &str =
+    "the session's recorded model is not a usable model id; it continues in the current model";
+
+/// xfx's own words for a catalog id the band resolved or a row it picked that
+/// is not one xfx would have written: nothing is announced or sent, and the id
+/// is not quoted.
+const MODEL_ID_UNUSABLE: &str = "that catalog entry is not a usable model id";
+
 /// `/fast` for a model whose catalog row offers no Fast mode
 /// (`toggleFastForModel`, `session_commands.zig:733-751`): neutral, topic
 /// `fast`, and nothing changed.
@@ -3316,6 +3327,13 @@ impl Shell {
                 "auth",
                 crate::provider::missing_credential_help(provider),
             ));
+        }
+        // xfx's own: the session's model was not one it would have written,
+        // so the session goes on in the model in force -- the footer's -- and
+        // says so once, quoting neither (upstream refuses such a log instead;
+        // `docs/parity.md`).
+        if replay.model_replaced {
+            self.announce(notice::Notice::warning("model", MODEL_NOT_RESTORED));
         }
         self.render.request(Reason::Footer);
     }
@@ -12277,7 +12295,19 @@ impl Shell {
     /// ones the runtime sent, every one of them
     /// (`super::worker`'s `in_menu_order`), so the two sides cannot decide
     /// differently over a row only one of them holds.
+    ///
+    /// **An id this side settled is held to the rule a typed one is**
+    /// ([`model_id_problem`]) before anything is said or sent: the rows are
+    /// the catalog's, which the channel left with its line breaks -- the
+    /// transcript's own vocabulary -- and an id announced with one is a second
+    /// line under this notice. Refused as the runtime refuses it, with xfx's
+    /// own words; the id is not quoted. A query going as typed was held to it
+    /// already (`/model`'s own check) and is the runtime's to resolve.
     fn request_change(&mut self, change: ModelChange) {
+        if change.announced && model_id_problem(&change.name).is_some() {
+            self.write_notice(&notice::Notice::error("model", MODEL_ID_UNUSABLE));
+            return;
+        }
         if change.announced {
             let settings = if change.picker {
                 let entry = self.catalog_row(&change.name);
@@ -22412,6 +22442,93 @@ mod tests {
     }
 
     #[test]
+    fn a_resume_that_could_not_restore_the_sessions_model_says_so_once() {
+        // The session's model was one xfx would not have written
+        // (`worker::Resumption::replaces_model`), so the session continues on
+        // the model in force; the band says that once, under the replay, and
+        // quotes neither model. Red before: nothing was said.
+        let mut shell = shell(24, 240);
+        let mut replay = replay(Some("first question alpha"), Vec::new());
+        replay.model_replaced = true;
+        shell.apply(UiEvent::Resumed(replay));
+        let mut expected = said(notice::Notice::neutral(
+            "session resumed",
+            "first question alpha",
+        ));
+        expected.extend(said(notice::Notice::warning("model", MODEL_NOT_RESTORED)));
+        assert_eq!(shell.document(), expected);
+        // An ordinary resume says nothing of it.
+        let mut quiet = self::shell(24, 240);
+        quiet.apply(UiEvent::Resumed(self::replay(
+            Some("first question alpha"),
+            Vec::new(),
+        )));
+        assert_eq!(
+            quiet.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "first question alpha"
+            ))
+        );
+    }
+
+    #[test]
+    fn the_band_never_announces_or_sends_a_model_id_xfx_would_not_have_written() {
+        // The channel blanks every control but a line break, which is the
+        // transcript's own vocabulary, so a catalog id can still arrive with
+        // one -- and an id the band resolves, or a row it picks, is announced
+        // on the spot. A line break in it would be a second line under the
+        // band's own notice. Held to `model_id_problem` before anything is
+        // said or sent; the id is not quoted. Red before: it was announced and
+        // sent.
+        let forged = "evil\n* provider: Switched to llmux with fable.";
+        let mut shell = self::shell(24, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![CatalogEntry {
+                id: forged.to_string(),
+                aliases: Vec::new(),
+                name: None,
+                efforts: Vec::new(),
+                max_context: None,
+                facts: Default::default(),
+            }],
+        });
+        let _ = shell.document();
+        let before = shell.shell.model.clone();
+        // Its own resolution of a query.
+        shell.shell.use_model("evil");
+        // A row picked, as the menu, `/settings` and the column hand it on.
+        shell.shell.request_change(ModelChange {
+            name: forged.to_string(),
+            effort: None,
+            speed: None,
+            picker: true,
+            announced: true,
+            next_turn: false,
+            provider: ProviderId::Gateway,
+            effort_only: false,
+        });
+        assert_eq!(shell.controlled(), None, "a refused id was sent");
+        let document = shell.document();
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("Switched to") || row.contains("evil")),
+            "{document:?}"
+        );
+        assert_eq!(
+            document
+                .iter()
+                .filter(|row| row.contains(MODEL_ID_UNUSABLE))
+                .count(),
+            2,
+            "{document:?}"
+        );
+        assert_eq!(shell.shell.model, before);
+    }
+
+    #[test]
     fn a_resumed_session_with_no_title_is_untitled_and_keeps_the_fallback() {
         // `session_display_metadata.zig:14`; and only a real title is cached,
         // so the window stays on the workspace.
@@ -22458,6 +22575,7 @@ mod tests {
             keeps_fast_binding: true,
             provider: None,
             unauthenticated: None,
+            model_replaced: false,
             next_image: 1,
         }
     }

@@ -66,6 +66,11 @@ pub(crate) struct Hydration {
     /// says it (`restoreSessionCredential`'s `.missing`,
     /// `app_auth_runtime.zig:151-180`; [`super::worker::unauthenticated`]).
     pub(crate) unauthenticated: Option<crate::provider::ProviderId>,
+    /// Whether the session's recorded model was one xfx would not have
+    /// written, so it continues on the model in force instead
+    /// ([`super::worker::Resumption::replaces_model`]): said once, under the
+    /// replay, quoting neither.
+    pub(crate) model_replaced: bool,
     /// The number the next attached image takes: one past the highest the
     /// session's prompts already name, so `[Image #N]` never means two images
     /// in one conversation (upstream rebases a resumed session's ids the same
@@ -165,6 +170,7 @@ impl Hydration {
             keeps_fast_binding: true,
             provider: None,
             unauthenticated: None,
+            model_replaced: false,
             next_image: state
                 .turns
                 .iter()
