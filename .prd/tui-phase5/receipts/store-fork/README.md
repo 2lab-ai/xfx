@@ -87,3 +87,18 @@ after the five forks; the reads below changed nothing under `HOME`.
 The base build reads past `forked_from`. The preview refuses a fork for its title frame -- the
 refusal Phase 4's COMPAT recorded for every renamed session (`.prd/tui-phase4/receipts/compat/README.md`,
 point 4) -- and still opens every source.
+
+## FK1b — hardening after the security review (`edc64171`, MUST none)
+
+Each test was run first against `edc64171`'s behaviour (for the folder helper, `create_private_dir` stubbed
+as `edc64171`'s plain `fs::create_dir`):
+
+| Item | Test | On `edc64171` |
+|---|---|---|
+| a grant withdrawn after S stays withdrawn | `a_grant_the_source_withdrew_after_the_fork_point_stays_withdrawn` | `left: [terminal ls, write_file /w/a.txt]`, `right: [terminal ls]` |
+| the title takes C1 too (`char::is_control`) | `a_forks_title_takes_no_control_character_c1_included` | `left: Some("a\u{9b}2Jb (fork)")`, `right: Some("a 2Jb (fork)")` |
+| folders `0700` from creation | `a_forks_folders_are_private_from_creation_under_any_umask` (a copy of the test binary under `umask 0`) | `left: 511` (`0o777`), `right: 448` (`0o700`) |
+| a `sessions.staged` that is a link, open, or a file | `a_stage_folder_that_is_not_the_stores_own_is_refused_and_left_alone` | passes: coverage the review found missing; a mutant that skips the stage-root check forks through the link |
+
+A `sessions.staged` another account owns needs root to plant: the test tries `chown` and, refused (uid 501
+here), says so and does not count it.

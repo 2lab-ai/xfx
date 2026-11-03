@@ -3356,7 +3356,7 @@ fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
             fs::create_dir_all(parent).map_err(|err| io_error(parent, err))?;
         }
     }
-    match fs::create_dir(path) {
+    match create_private_dir(path) {
         Ok(()) => {
             set_private_dir_mode(path)?;
             verify_store_dir(path)
@@ -3433,6 +3433,20 @@ fn set_private_dir_mode(path: &Path) -> Result<(), SessionError> {
 #[cfg(not(unix))]
 fn set_private_dir_mode(_path: &Path) -> Result<(), SessionError> {
     Ok(())
+}
+
+/// Makes one directory, owner-only from the moment it exists: the mode is the
+/// creation's, not a chmod's after it, so no umask leaves it open to anyone
+/// in between. Callers chmod it to `0700` afterwards all the same.
+#[cfg(unix)]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    fs::create_dir(path)
 }
 
 /// Creates a new, empty, owner-only file, refusing to reuse an existing one.

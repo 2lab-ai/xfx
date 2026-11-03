@@ -36,10 +36,10 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use super::{
-    apply, create_private_file, ensure_private_dir, io_error, lock_exclusive, read_snapshot,
-    read_snapshots, set_private_dir_mode, sync_directory, validate_title, verify_private,
-    workspace_key, DurableState, SessionError, SessionId, SessionStore, TurnStep, WritableSession,
-    EVENTS_FILE, IMAGES_DIR, MAX_EVENT_LOG_BYTES, MAX_RENAMED_TITLE_BYTES,
+    apply, create_private_dir, create_private_file, ensure_private_dir, io_error, lock_exclusive,
+    read_snapshot, read_snapshots, set_private_dir_mode, sync_directory, validate_title,
+    verify_private, workspace_key, DurableState, SessionError, SessionId, SessionStore, TurnStep,
+    WritableSession, EVENTS_FILE, IMAGES_DIR, MAX_EVENT_LOG_BYTES, MAX_RENAMED_TITLE_BYTES,
 };
 use crate::session::event::{
     new_identifier, EventEnvelope, ForkOrigin, SessionEvent, TitleSource, EVENT_SCHEMA_VERSION,
@@ -75,7 +75,9 @@ impl SessionStore {
     ///   roots, model, mode and provider as the source began, a new id, and
     ///   `forked_from` naming the source and the last frame kept. Then each
     ///   kept event at its own number and time, re-framed (see the module).
-    ///   Then the source's title as the source is called now, marked
+    ///   When the source has withdrawn a grant those events recorded, a clear
+    ///   and the grants it still holds. Then the source's title as the
+    ///   source is called now, marked
     ///   ` (fork)` once -- a fork of a fork carries one -- and, when the
     ///   session was bound elsewhere at that frame, a rebind to `workspace`,
     ///   as a resume writes one.
@@ -180,6 +182,30 @@ impl SessionStore {
             };
             log.push(at, event)?;
         }
+        // An "always" the source has withdrawn since S stays withdrawn: the
+        // grants the copied frames recorded are cleared and the ones the
+        // source still holds given again. Upstream copies lines 2..S as they
+        // are; a withdrawn answer must not come back under a new id.
+        let held = &replay.state.grants;
+        if log.state.grants.iter().any(|grant| !held.contains(grant)) {
+            let kept: Vec<_> = log
+                .state
+                .grants
+                .iter()
+                .filter(|grant| held.contains(grant))
+                .cloned()
+                .collect();
+            log.push(now, SessionEvent::PermissionGrantsCleared)?;
+            for grant in kept {
+                log.push(
+                    now,
+                    SessionEvent::PermissionGrantRecorded {
+                        tool: grant.tool,
+                        target: grant.target,
+                    },
+                )?;
+            }
+        }
         if let Some(title) = replay.state.title().as_deref().and_then(fork_title) {
             log.push(
                 now,
@@ -215,7 +241,7 @@ impl SessionStore {
                 Err(err) => return Err(io_error(&theirs, err)),
             }
             let ours = stage.path.join(IMAGES_DIR);
-            fs::create_dir(&ours).map_err(|err| io_error(&ours, err))?;
+            create_private_dir(&ours).map_err(|err| io_error(&ours, err))?;
             set_private_dir_mode(&ours)?;
             for (name, sha256, size) in &images {
                 carry_image(
@@ -333,27 +359,30 @@ fn kept_images(state: &DurableState, kept: usize) -> Vec<(String, String, u64)> 
 /// reducer refuses a title past [`MAX_RENAMED_TITLE_BYTES`] or with a control
 /// character ([`validate_title`]), and a title derived from a prompt can be
 /// either -- clipped to the limit already, or holding an escape -- so the base
-/// is cut where a character ends to leave room for the mark, and a control
-/// character in it is a space.
+/// is cut where a character ends to leave room for the mark, and every control
+/// character in it is a space: C0 and DEL, which the reducer refuses, and C1
+/// (U+0080-U+009F, a CSI among them), which it does not and a terminal may
+/// read. A title already marked is cleaned the same way.
 fn fork_title(title: &str) -> Option<String> {
-    let marked = if title.ends_with(FORK_MARK) {
-        title.to_string()
+    let clean: String = title
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect();
+    let clean = clean.trim_matches(' ');
+    let marked = if clean.ends_with(FORK_MARK) {
+        clean.to_string()
     } else {
-        let base: String = title
-            .chars()
-            .map(|character| {
-                if character.is_ascii_control() {
-                    ' '
-                } else {
-                    character
-                }
-            })
-            .collect();
-        let mut end = base.len().min(MAX_RENAMED_TITLE_BYTES - FORK_MARK.len());
-        while !base.is_char_boundary(end) {
+        let mut end = clean.len().min(MAX_RENAMED_TITLE_BYTES - FORK_MARK.len());
+        while !clean.is_char_boundary(end) {
             end -= 1;
         }
-        format!("{}{FORK_MARK}", base[..end].trim_end())
+        format!("{}{FORK_MARK}", clean[..end].trim_end())
     };
     (validate_title(&marked) == Ok(marked.as_str())).then_some(marked)
 }
@@ -481,7 +510,7 @@ struct Stage {
 
 impl Stage {
     fn create(path: PathBuf) -> Result<Self, SessionError> {
-        if let Err(err) = fs::create_dir(&path) {
+        if let Err(err) = create_private_dir(&path) {
             return Err(io_error(&path, err));
         }
         let stage = Self {

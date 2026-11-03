@@ -110,7 +110,15 @@ impl Bench {
                             .into_owned()
                     })
                     .collect(),
-                Err(err) if err.kind() == io::ErrorKind::NotFound => Vec::new(),
+                // Absent, or a plant that is not a folder: no name in it.
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                    ) =>
+                {
+                    Vec::new()
+                }
                 Err(err) => panic!("cannot read {}: {err}", dir.display()),
             };
             names.sort();
@@ -1093,5 +1101,277 @@ fn a_fork_origin_xfx_would_not_have_written_is_refused() {
             apply(&mut DurableState::empty(), &started(bad.clone())).is_err(),
             "{bad:?}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FK1b: what a fork must not bring back, and what it must not expose
+// ---------------------------------------------------------------------------
+
+fn grant(tool: &str, target: &str) -> SessionEvent {
+    SessionEvent::PermissionGrantRecorded {
+        tool: tool.to_string(),
+        target: target.to_string(),
+    }
+}
+
+#[test]
+fn a_grant_the_source_withdrew_after_the_fork_point_stays_withdrawn() {
+    // An "always" is the user's answer to this session (`store.rs`'s
+    // `PermissionGrantsCleared` withdraws every one before it). Upstream
+    // copies lines 2..S as they are, which would bring back one the source
+    // has withdrawn since; xfx carries only the ones the source still holds.
+    let bench = bench();
+    let a = crate::permission::Grant::new("terminal", "ls");
+    let b = crate::permission::Grant::new("write_file", "/w/a.txt");
+    let (mut recorder, source) = bench.open(&bench.workspace);
+    recorder.commit(user("one"));
+    recorder.commit(grant(&a.tool, &a.target));
+    recorder.commit(answer("ONE", &[]));
+    recorder.commit(concluded());
+    recorder.commit(user("two"));
+    recorder.commit(grant(&b.tool, &b.target));
+    recorder.commit(answer("TWO", &[]));
+    recorder.commit(concluded());
+    // After S of a fork before turn 3: every grant withdrawn, then `a` given
+    // again.
+    recorder.commit(SessionEvent::PermissionGrantsCleared);
+    recorder.commit(user("three"));
+    recorder.commit(grant(&a.tool, &a.target));
+    recorder.commit(answer("THREE", &[]));
+    recorder.commit(concluded());
+    assert_eq!(recorder.failure(), None);
+    drop(recorder);
+    let through = bench.state(&source).turns[1].seqs.last;
+    assert_eq!(
+        state_through(&bench.store, &source, through).grants,
+        [a.clone(), b.clone()]
+    );
+
+    let fork = bench.fork(&source, 3).expect("forked");
+    let id = fork.id().clone();
+    assert_eq!(fork.state().grants, std::slice::from_ref(&a));
+    drop(fork);
+    assert_eq!(
+        bench.state(&id).grants,
+        std::slice::from_ref(&a),
+        "the withdrawn grant came back"
+    );
+    let resumed = bench
+        .store
+        .resume(&Selector::Id(id.clone()), &bench.workspace)
+        .expect("resumed");
+    assert_eq!(resumed.session.state().grants, std::slice::from_ref(&a));
+    drop(resumed);
+    // Withdrawn after S in the log's own words: a clear, then what is held.
+    let kinds: Vec<&str> = bench.log(&id)[through as usize..]
+        .iter()
+        .map(|frame| frame.event.kind())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            "permission_grants_cleared",
+            "permission_grant_recorded",
+            "session_renamed"
+        ]
+    );
+
+    // Nothing withdrawn, nothing added: before turn 2 the fork holds `a`,
+    // which the source still holds, and its frames are upstream's.
+    let fork = bench.fork(&source, 2).expect("forked");
+    assert_eq!(bench.state(fork.id()).grants, std::slice::from_ref(&a));
+    let kinds: Vec<&str> = bench
+        .log(fork.id())
+        .iter()
+        .map(|frame| frame.event.kind())
+        .collect();
+    assert_eq!(kinds.last(), Some(&"session_renamed"));
+    assert!(!kinds.contains(&"permission_grants_cleared"), "{kinds:?}");
+
+    // All withdrawn and none given again: none.
+    let (mut recorder, source) = bench.open(&bench.workspace);
+    recorder.commit(user("one"));
+    recorder.commit(grant(&a.tool, &a.target));
+    recorder.commit(concluded());
+    recorder.commit(SessionEvent::PermissionGrantsCleared);
+    drop(recorder);
+    let fork = bench.fork(&source, 2).expect("forked");
+    assert_eq!(bench.state(fork.id()).grants, []);
+}
+
+#[test]
+fn a_forks_title_takes_no_control_character_c1_included() {
+    // `char::is_control`: C0, DEL and C1 (U+0080-U+009F) -- U+009B is a CSI
+    // to a terminal that reads C1 -- each a space, the mark kept once.
+    for (title, forked) in [
+        ("a\u{9b}2Jb", "a 2Jb (fork)"),
+        ("a\u{85}b", "a b (fork)"),
+        ("x\u{1b}[31my", "x [31my (fork)"),
+        ("x\u{9b}y (fork)", "x y (fork)"),
+        ("\u{9b}lead", "lead (fork)"),
+    ] {
+        assert_eq!(
+            super::fork_title(title).as_deref(),
+            Some(forked),
+            "{title:?}"
+        );
+    }
+    // Nothing left but controls: no title, rather than a mark alone.
+    assert_eq!(super::fork_title("\u{9b}\u{85}"), None);
+
+    // Through a fork: a rename the source holds -- `validate_title` takes
+    // every byte at or above 0x80 -- is not carried as it is.
+    let bench = bench();
+    let (mut recorder, source) = bench.open(&bench.workspace);
+    turn(&mut recorder, "one", "ONE");
+    recorder.commit(renamed("named \u{9b}2J here"));
+    assert_eq!(recorder.failure(), None);
+    drop(recorder);
+    let fork = bench.fork(&source, 2).expect("forked");
+    let title = bench.state(fork.id()).title().expect("a title");
+    assert!(!title.chars().any(char::is_control), "{title:?}");
+    assert_eq!(title, "named  2J here (fork)");
+}
+
+/// The case below, in a copy of this test binary started under `umask 0`.
+#[cfg(unix)]
+const UNDER_OPEN_UMASK_CASE: &str =
+    "session::store::fork::tests::under_an_open_umask_a_forks_folders_are_private_from_creation";
+
+/// Set in the copy, which alone runs the case's body.
+#[cfg(unix)]
+const UNDER_OPEN_UMASK: &str = "XFX_TEST_UNDER_OPEN_UMASK";
+
+#[cfg(unix)]
+#[test]
+fn under_an_open_umask_a_forks_folders_are_private_from_creation() {
+    if std::env::var_os(UNDER_OPEN_UMASK).is_none() {
+        return;
+    }
+    let root = tempfile::TempDir::new().expect("a root");
+    let mode_of = |path: &Path| mode(&fs::symlink_metadata(path).expect("stat"));
+    // The umask took: a folder made the plain way is open to everyone.
+    let plain = root.path().join("plain");
+    fs::create_dir(&plain).expect("a plain folder");
+    assert_eq!(mode_of(&plain), 0o777, "the copy is not under umask 0");
+    // Every folder the fork makes is made by this, and is owner-only the
+    // moment it exists -- before the chmod that follows it.
+    let made = root.path().join("made");
+    super::super::create_private_dir(&made).expect("made");
+    assert_eq!(
+        mode_of(&made),
+        0o700,
+        "open between its creation and its chmod"
+    );
+
+    // And a whole fork made here: every folder 0700, every file 0600.
+    let bench = bench();
+    let (recorder, source) = rich(&bench);
+    drop(recorder);
+    let fork = bench.fork(&source, 3).expect("forked");
+    for dir in [
+        bench.store.session_dir(fork.id()),
+        bench.store.profile_dir().join(FORK_STAGE_DIR),
+    ] {
+        for (path, (bytes, _, mode)) in tree(&dir) {
+            let want = if bytes.is_some() { 0o600 } else { 0o700 };
+            assert_eq!(mode, want, "{}", path.display());
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_forks_folders_are_private_from_creation_under_any_umask() {
+    use std::os::unix::process::CommandExt;
+    let mut runner = crate::process::command(std::env::current_exe().expect("this test binary"));
+    runner.args(["--exact", "--test-threads=1", UNDER_OPEN_UMASK_CASE]);
+    runner.env(UNDER_OPEN_UMASK, "1");
+    // SAFETY: `umask` is async-signal-safe and touches nothing of the parent.
+    unsafe {
+        runner.pre_exec(|| {
+            libc::umask(0);
+            Ok(())
+        });
+    }
+    let output = runner.output().expect("a runner");
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Counted, not only exited zero: a filter that matched nothing passes.
+    assert!(
+        output.status.success() && report.contains("test result: ok. 1 passed"),
+        "{report}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_folder_that_is_not_the_stores_own_is_refused_and_left_alone() {
+    // `sessions.staged` is where every fork is built, so it is held to what
+    // `~/.xfx` and `sessions` are held to (`verify_store_dir`).
+    let bench = bench();
+    let (recorder, source) = rich(&bench);
+    drop(recorder);
+    let stage = bench.store.profile_dir().join(FORK_STAGE_DIR);
+    let outside = bench.root.path().join("outside-stage");
+    fs::create_dir(&outside).expect("a folder outside the store");
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o700)).expect("private");
+
+    type Plant = fn(&Path, &Path);
+    let plants: [(&str, Plant); 3] = [
+        ("a symlink out of the store", |stage, outside| {
+            std::os::unix::fs::symlink(outside, stage).expect("plant a link");
+        }),
+        ("open to the group", |stage, _| {
+            fs::create_dir(stage).expect("a folder");
+            fs::set_permissions(stage, fs::Permissions::from_mode(0o750)).expect("open it");
+        }),
+        ("a file", |stage, _| {
+            fs::write(stage, b"").expect("a file");
+        }),
+    ];
+    for (what, plant) in plants {
+        plant(&stage, &outside);
+        let sessions = bench.names().0;
+        match bench.fork(&source, 3) {
+            Err(SessionError::InsecureParent { path, .. }) => assert_eq!(path, stage, "{what}"),
+            Err(other) => panic!("{what}: refused as {other:?}"),
+            Ok(fork) => panic!("{what}: forked {}", fork.id()),
+        }
+        // Nothing made: no session, nothing where the link points.
+        assert_eq!(bench.names().0, sessions, "{what}");
+        assert_eq!(
+            fs::read_dir(&outside).expect("the outside folder").count(),
+            0,
+            "{what}"
+        );
+        if fs::symlink_metadata(&stage).is_ok_and(|meta| meta.is_dir()) {
+            fs::remove_dir(&stage).expect("clear the plant");
+        } else {
+            fs::remove_file(&stage).expect("clear the plant");
+        }
+    }
+
+    // One another account owns can be made only by root; where the tests
+    // run as anyone else it cannot be planted, and this part says so.
+    fs::create_dir(&stage).expect("a folder");
+    fs::set_permissions(&stage, fs::Permissions::from_mode(0o700)).expect("private");
+    let euid = rustix::process::geteuid().as_raw();
+    match std::os::unix::fs::chown(&stage, Some(euid.wrapping_add(1)), None) {
+        Ok(()) => match bench.fork(&source, 3) {
+            Err(SessionError::InsecureParent { path, detail }) => {
+                assert_eq!(path, stage);
+                assert!(detail.contains("owned by uid"), "{detail}");
+            }
+            other => panic!("a stage another account owns: {other:?}"),
+        },
+        Err(err) => eprintln!(
+            "not planted: a stage another account owns needs root to make ({err}); \
+             uid {euid} runs these tests"
+        ),
     }
 }
