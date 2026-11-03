@@ -62,6 +62,7 @@
 //! be a surface whose answer depends on how it was feeling.
 
 use crate::interactive::{SlashSpec, SLASH_REGISTRY};
+use crate::skills::Skill;
 
 use super::theme::Palette;
 
@@ -136,8 +137,16 @@ pub(crate) enum Rank {
 /// dismissal of a slash one, nor the other way round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Trigger {
-    /// The draft is one word beginning with `/`.
+    /// The draft is one word beginning with `/` -- or, for the ghost after
+    /// the caret, its last word is one with words before it
+    /// (`super::inline_completion::slash_word`): upstream's one `.slash`
+    /// kind covers the popup and that ghost both (`InlinePickerKind`,
+    /// `picker_state.zig:28-34`).
     Slash,
+    /// The caret ends a `$word` (`super::inline_completion::skill_word`):
+    /// the skill ghost's, which Escape on the `$` menu dismisses too
+    /// (`cancelSkillsMenu`, `app_input_runtime.zig:3230-3242`).
+    Skill,
     /// The caret is in an `@` word (`super::file_picker::query_at`). Upstream
     /// asks for it before the slash word (`inlinePickerTriggerKind`,
     /// `picker_state.zig:233-242`), and the two cannot both hold: an `@` that
@@ -185,6 +194,18 @@ impl Dismissed {
         self.0 = None;
         trigger.is_some()
     }
+
+    /// Whether `trigger` is the one dismissed, asked without reconciling: what
+    /// the paint asks between edits (`isInlinePickerDismissed`).
+    pub(crate) fn holds(&self, trigger: Trigger) -> bool {
+        self.0 == Some(trigger)
+    }
+
+    /// Forgets the dismissal: a new episode (`resetInlinePickerEpisode`,
+    /// `picker_state.zig:142-147`).
+    pub(crate) fn forget(&mut self) {
+        self.0 = None;
+    }
 }
 
 /// One command the query found, and why.
@@ -199,6 +220,50 @@ struct Match {
     /// menu that listed `/quit` for the letters `ex` without saying why would
     /// look like a bug -- and the alias says why by being the row.
     label: &'static str,
+}
+
+/// One row of the menu: a command the query found, or a skill.
+///
+/// Upstream's popup lists the commands and then the skills the query finds
+/// (`MixedSlashCompletionEntry`, `picker_presentation.zig:1067-1100`;
+/// `mixedSlashCompletionEntry`, `:1178-1185`): each skill by its name, its
+/// description and its source, in the skills menu's own order on `All`
+/// (`fillSkillMenuRangeAtQuery`, `.all`, the query without its slash).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Entry {
+    Command(Match),
+    Skill(Skill),
+}
+
+impl Entry {
+    /// The row's first column: the command's name, or the skill's name with
+    /// no slash (`slashMenuRowContent`, `:1242-1266`).
+    fn label(&self) -> &str {
+        match self {
+            Self::Command(found) => found.label,
+            Self::Skill(skill) => &skill.name,
+        }
+    }
+
+    fn summary(&self) -> &str {
+        match self {
+            Self::Command(found) => found.spec.summary,
+            Self::Skill(skill) => &skill.description,
+        }
+    }
+
+    /// The last column, while the menu shows one: a command's category, a
+    /// skill's short source (`skillSourceShortLabel`,
+    /// `skill_runtime.zig:1156-1172`).
+    fn category(&self, categories: bool) -> &str {
+        if !categories {
+            return "";
+        }
+        match self {
+            Self::Command(found) => found.spec.category,
+            Self::Skill(skill) => skill.source.short_label(),
+        }
+    }
 }
 
 /// What one keystroke means to an open menu.
@@ -238,7 +303,7 @@ impl PickerAction {
 }
 
 /// What one keystroke did to it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PickerOutcome {
     /// The marked row moved. A frame, and nothing else.
     Changed,
@@ -249,6 +314,11 @@ pub(crate) enum PickerOutcome {
     /// and `:1806-1811`): the menu is gone, and **the keystroke goes on** to
     /// submit it, so one Return runs the marked command.
     Run(&'static str),
+    /// A skill row was chosen, by Tab or by Enter: the slash word becomes the
+    /// skill's token and nothing is submitted (`bindSelectedSlashSkill`,
+    /// `app_input_runtime.zig:2895-2919`, from Tab at `:1519-1521` and Enter
+    /// at `:2820-2839`; `fx-skills-slash-40x120-slash-dem-tab`, `-rel-enter`).
+    Bind(Skill),
     /// The menu is gone and the draft is untouched. Escape.
     Dismiss,
 }
@@ -292,7 +362,11 @@ pub(crate) struct Picker {
     trigger: Trigger,
     /// Never empty: [`Self::over`] is the only constructor and it refuses a
     /// query nothing matches, which is what makes the arithmetic below total.
-    matches: Vec<Match>,
+    /// The commands first, then the skills.
+    matches: Vec<Entry>,
+    /// How many of [`Self::matches`] are commands: the header says
+    /// `Commands` while that is all of them and `Results` otherwise.
+    commands: usize,
     /// An index into [`Self::matches`].
     selected: usize,
     /// The first match in view, as the last move left it.
@@ -305,9 +379,10 @@ pub(crate) struct Picker {
 }
 
 impl Picker {
-    /// The menu `query` deserves, or `None` when it names nothing.
-    pub(crate) fn open(query: &str) -> Option<Self> {
-        Self::over(SLASH_REGISTRY, query)
+    /// The menu `query` deserves over the commands and `skills`, or `None`
+    /// when it names nothing.
+    pub(crate) fn open(query: &str, skills: &[Skill]) -> Option<Self> {
+        Self::over(SLASH_REGISTRY, query, skills)
     }
 
     /// The same, over a registry named by the caller.
@@ -315,19 +390,27 @@ impl Picker {
     /// The seam the ranking is tested through: the live registry has no
     /// command whose name begins with an alias's first letters, so the whole
     /// three-tier order cannot be produced from it.
-    fn over(registry: &'static [SlashSpec], query: &str) -> Option<Self> {
+    fn over(registry: &'static [SlashSpec], query: &str, skills: &[Skill]) -> Option<Self> {
         let trigger = Trigger::of(query)?;
-        let mut matches: Vec<Match> = registry
+        let mut commands: Vec<Match> = registry
             .iter()
             .filter_map(|spec| found(spec, query))
             .collect();
         // Stable, so the tie inside a rank is the registry's order rather than
         // whatever the sort happened to do with it.
-        matches.sort_by_key(|found| found.rank);
+        commands.sort_by_key(|found| found.rank);
+        let count = commands.len();
+        let mut matches: Vec<Entry> = commands.into_iter().map(Entry::Command).collect();
+        matches.extend(
+            super::skills_menu::matching(skills, &query[1..])
+                .into_iter()
+                .map(Entry::Skill),
+        );
         (!matches.is_empty()).then(|| Self {
             query: query.to_string(),
             trigger,
             matches,
+            commands: count,
             selected: 0,
             window_start: 0,
         })
@@ -405,23 +488,17 @@ impl Picker {
         let in_view = &self.matches[layout.window.start..layout.window.end];
         // Measured over the window, not over every match: the name column is
         // as wide as the names **on the screen**, so it moves as the window
-        // scrolls and as the query narrows it.
-        let category = |found: &Match| {
-            if categories {
-                found.spec.category
-            } else {
-                ""
-            }
-        };
+        // scrolls and as the query narrows it -- skill names included
+        // (`mixedSlashMenuColumnWidths`, `:1291-1306`).
         let columns = Columns {
-            label: widest(in_view.iter().map(|found| found.label)),
-            category: widest(in_view.iter().map(category)),
+            label: widest(in_view.iter().map(Entry::label)),
+            category: widest(in_view.iter().map(|entry| entry.category(categories))),
         };
-        for (offset, found) in in_view.iter().enumerate() {
+        for (offset, entry) in in_view.iter().enumerate() {
             let marked = layout.window.start + offset == self.selected;
             rows.push(item_row(
-                found,
-                category(found),
+                entry,
+                entry.category(categories),
                 marked,
                 columns,
                 cols,
@@ -450,10 +527,55 @@ impl Picker {
                 self.advance(true);
                 PickerOutcome::Changed
             }
-            PickerAction::Complete => PickerOutcome::Complete(self.matches[self.selected].label),
-            PickerAction::Submit => PickerOutcome::Run(self.matches[self.selected].label),
+            PickerAction::Complete => match &self.matches[self.selected] {
+                Entry::Skill(skill) => PickerOutcome::Bind(skill.clone()),
+                Entry::Command(found) => PickerOutcome::Complete(found.label),
+            },
+            PickerAction::Submit => match &self.matches[self.selected] {
+                // A query that **is** a command's name runs a command on
+                // Enter, whichever row is marked: upstream binds a skill row
+                // only when no command matches exactly
+                // (`submitSlashPickerSelection`'s `matchExact`,
+                // `app_input_runtime.zig:2810-2818`), and its submit takes the
+                // mark modulo the commands (`resolveSlashSubmission`,
+                // `input_submit_runtime.zig:1806-1811`).
+                Entry::Skill(_) if self.names_a_command() => {
+                    match &self.matches[self.selected % self.commands] {
+                        Entry::Command(found) => PickerOutcome::Run(found.label),
+                        Entry::Skill(skill) => PickerOutcome::Bind(skill.clone()),
+                    }
+                }
+                Entry::Skill(skill) => PickerOutcome::Bind(skill.clone()),
+                Entry::Command(found) => PickerOutcome::Run(found.label),
+            },
             PickerAction::Escape => PickerOutcome::Dismiss,
         }
+    }
+
+    /// Whether the query is a command's name or an alias, exactly.
+    fn names_a_command(&self) -> bool {
+        self.matches[..self.commands]
+            .iter()
+            .any(|entry| matches!(entry, Entry::Command(found) if found.rank == Rank::Exact))
+    }
+
+    /// Reads the skills again -- a list that landed after the menu opened --
+    /// keeping the commands, the mark and the window, the mark held to what
+    /// is listed; `false` when nothing is listed any more.
+    pub(crate) fn replace_skills(&mut self, skills: &[Skill]) -> bool {
+        self.matches.truncate(self.commands);
+        self.matches.extend(
+            super::skills_menu::matching(skills, &self.query[1..])
+                .into_iter()
+                .map(Entry::Skill),
+        );
+        let count = self.matches.len();
+        if count == 0 {
+            return false;
+        }
+        self.selected = self.selected.min(count - 1);
+        self.window_start = edge_start(self.window_start, count, self.selected, MOST_COMMAND_ROWS);
+        true
     }
 
     /// Moves the mark a page of `rows` (`routeComposerVertical` with `page`,
@@ -483,15 +605,21 @@ impl Picker {
     /// How many commands match, and which of them are in view
     /// (`composeSlashMenuHeaderRow`, `picker_presentation.zig:1194-1232`).
     ///
+    /// `Results` rather than `Commands` once a skill is among them;
     /// `· type to filter` while the query is a bare slash; the range, in
     /// upstream's en dash, only while there are more matches than rows, and
     /// ending one cell short of the right-hand edge like every row of the menu.
     fn header(&self, layout: &Layout, cols: u16, palette: Palette) -> String {
         let count = self.matches.len();
-        let left = if self.query == "/" {
-            format!("Commands {count} \u{b7} type to filter")
+        let noun = if self.commands == count {
+            "Commands"
         } else {
-            format!("Commands {count}")
+            "Results"
+        };
+        let left = if self.query == "/" {
+            format!("{noun} {count} \u{b7} type to filter")
+        } else {
+            format!("{noun} {count}")
         };
         let range = if count > usize::from(layout.selectable) {
             format!("{}\u{2013}{}", layout.window.start + 1, layout.window.end)
@@ -528,7 +656,7 @@ impl Picker {
 /// while the summary keeps [`MIN_SUMMARY_CELLS`] beside it, and a summary too
 /// long for its room is cut with an ellipsis rather than run into it.
 fn item_row(
-    found: &Match,
+    found: &Entry,
     category: &str,
     marked: bool,
     columns: Columns,
@@ -549,12 +677,12 @@ fn item_row(
         row.push_str(palette.reset());
         return row;
     }
-    row.push_str(&ellipsized(found.label, content - indent));
+    row.push_str(&ellipsized(found.label(), content - indent));
 
-    let summary_start = content.min(indent + columns.label.max(cells(found.label)) + COLUMN_GAP);
+    let summary_start = content.min(indent + columns.label.max(cells(found.label())) + COLUMN_GAP);
     pad_to(&mut row, summary_start);
 
-    let summary = found.spec.summary;
+    let summary = found.summary();
     let category_start = content.saturating_sub(columns.category);
     let category_fits = !category.is_empty() && columns.category > 0 && columns.category <= content;
     let category_shown = if summary.is_empty() {
@@ -845,12 +973,27 @@ mod tests {
         }
     }
 
+    fn command(entry: &Entry) -> &Match {
+        match entry {
+            Entry::Command(found) => found,
+            Entry::Skill(skill) => panic!("a skill row, {}, where a command was meant", skill.name),
+        }
+    }
+
     fn labels(picker: &Picker) -> Vec<&'static str> {
-        picker.matches.iter().map(|found| found.label).collect()
+        picker
+            .matches
+            .iter()
+            .map(|entry| command(entry).label)
+            .collect()
     }
 
     fn ranks(picker: &Picker) -> Vec<Rank> {
-        picker.matches.iter().map(|found| found.rank).collect()
+        picker
+            .matches
+            .iter()
+            .map(|entry| command(entry).rank)
+            .collect()
     }
 
     /// The text of a row with its colours taken out.
@@ -881,7 +1024,7 @@ mod tests {
 
     /// A picker on the live registry with the mark moved `downs` rows.
     fn walked(query: &str, downs: usize) -> Picker {
-        let mut picker = Picker::open(query).expect("a query that matches");
+        let mut picker = Picker::open(query, &[]).expect("a query that matches");
         for _ in 0..downs {
             assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         }
@@ -890,7 +1033,7 @@ mod tests {
 
     #[test]
     fn an_exact_name_ranks_before_a_prefix_before_a_substring() {
-        let picker = Picker::over(THREE_TIERS, "/ex").expect("four matches");
+        let picker = Picker::over(THREE_TIERS, "/ex", &[]).expect("four matches");
         // The prefix tier is the alias and the name together, in registry
         // order: an alias is not a lesser kind of name.
         assert_eq!(labels(&picker), vec!["/ex", "/exit", "/exercise", "/annex"]);
@@ -902,14 +1045,14 @@ mod tests {
         // The live alias, through the same function: `/e` names no command, so
         // `/quit` is on the screen **as** `/exit` because `/exit` reaches it --
         // above every command that merely has an `e` after its slash.
-        let live = Picker::open("/e").expect("the alias and the substrings");
-        assert_eq!(live.matches[0].spec.name, "/quit");
-        assert_eq!(live.matches[0].label, "/exit");
-        assert_eq!(live.matches[0].rank, Rank::Prefix);
+        let live = Picker::open("/e", &[]).expect("the alias and the substrings");
+        assert_eq!(command(&live.matches[0]).spec.name, "/quit");
+        assert_eq!(command(&live.matches[0]).label, "/exit");
+        assert_eq!(command(&live.matches[0]).rank, Rank::Prefix);
         assert!(
             live.matches[1..]
                 .iter()
-                .all(|found| found.rank == Rank::Substring),
+                .all(|found| command(found).rank == Rank::Substring),
             "{:?}",
             ranks(&live)
         );
@@ -924,7 +1067,7 @@ mod tests {
         assert_eq!(labels(&live)[1..], substrings[..]);
         assert!(substrings.contains(&"/help") && substrings.contains(&"/version"));
         // The slash is not a letter of any name: a second one finds nothing.
-        assert!(Picker::open("//").is_none());
+        assert!(Picker::open("//", &[]).is_none());
     }
 
     #[test]
@@ -944,7 +1087,7 @@ mod tests {
     fn picker_rows_and_height_come_from_one_layout() {
         for (rows, cols) in [(24_u16, 80_u16), (7, 20), (40, 200), (10, 24), (13, 30)] {
             for query in ["/", "/e", "/q", "/exit"] {
-                let picker = Picker::open(query).expect("a query that matches");
+                let picker = Picker::open(query, &[]).expect("a query that matches");
                 let painted = picker.rows(cols, rows, PALETTE, true);
                 assert_eq!(
                     usize::from(picker.height(rows)),
@@ -981,7 +1124,7 @@ mod tests {
         ] {
             assert_eq!(row_budget(rows), budget, "{rows} rows");
         }
-        let picker = Picker::open("/").expect("every command");
+        let picker = Picker::open("/", &[]).expect("every command");
         assert_eq!(picker.height(40), 8, "header, blank, six commands");
         assert_eq!(picker.height(12), 2, "two commands and no header");
         assert_eq!(picker.height(7), 1, "the shortest screen still has one");
@@ -989,7 +1132,7 @@ mod tests {
 
     #[test]
     fn a_bare_slash_has_a_header_a_blank_row_and_six_commands() {
-        let picker = Picker::open("/").expect("every command");
+        let picker = Picker::open("/", &[]).expect("every command");
         let rows = picker.rows(120, 40, PALETTE, true);
         assert_eq!(rows.len(), 8);
         // The header: dim, the range in an en dash against the last column but
@@ -1100,7 +1243,7 @@ mod tests {
     fn the_name_column_is_as_wide_as_the_names_in_view() {
         // `/quit` alone: the summary starts past four letters and a slash,
         // plus the gap.
-        let quit = Picker::open("/q").expect("one command");
+        let quit = Picker::open("/q", &[]).expect("one command");
         assert_eq!(
             summary_column(&quit.rows(120, 40, PALETTE, true)[2]),
             2 + 5 + 3
@@ -1108,7 +1251,7 @@ mod tests {
 
         // A list whose widest name is in view at the top and scrolls out of
         // it: the column follows the window, not the list.
-        let mut picker = Picker::over(SCROLLING, "/").expect("every name");
+        let mut picker = Picker::over(SCROLLING, "/", &[]).expect("every name");
         let top = picker.rows(120, 40, PALETTE, true);
         assert_eq!(summary_column(&top[2]), 2 + "/the-widest".len() + 3);
         for _ in 0..7 {
@@ -1122,7 +1265,7 @@ mod tests {
 
     #[test]
     fn a_filtered_menu_keeps_its_height_with_blank_rows() {
-        let picker = Picker::open("/q").expect("one command");
+        let picker = Picker::open("/q", &[]).expect("one command");
         let rows = picker.rows(120, 40, PALETTE, true);
         assert_eq!(rows.len(), 8, "the menu shrank with the list");
         // No `type to filter` once something is typed, and no range while
@@ -1142,7 +1285,7 @@ mod tests {
 
     #[test]
     fn a_screen_with_two_rows_or_fewer_drops_the_header() {
-        let picker = Picker::open("/").expect("every command");
+        let picker = Picker::open("/", &[]).expect("every command");
         let rows = picker.rows(80, 12, PALETTE, true);
         assert_eq!(rows.len(), 2);
         assert!(rows[0].starts_with(MARKED), "{rows:?}");
@@ -1167,14 +1310,16 @@ mod tests {
         // 42 columns: the summary cannot keep 24 cells beside a category, so
         // the category goes and the summary is cut with an ellipsis
         // (`tui-slash-menu.test.ts`, "remains alive when descriptions clip").
-        let picker = Picker::open("/mo").expect("one command");
+        let picker = Picker::open("/mo", &[]).expect("one command");
         let rows = picker.rows(42, 18, PALETTE, true);
         let row = plain(&rows[2]);
         assert!(!row.contains("Model"), "{row:?}");
         assert!(row.ends_with('\u{2026}'), "{row:?}");
         assert_eq!(row.chars().count(), 41, "{row:?}");
         // The header is cut the same way rather than run off the row.
-        let rows = Picker::open("/").expect("all").rows(20, 40, PALETTE, true);
+        let rows = Picker::open("/", &[])
+            .expect("all")
+            .rows(20, 40, PALETTE, true);
         assert!(plain(&rows[0]).contains('\u{2026}'), "{:?}", rows[0]);
         assert!(plain(&rows[0]).ends_with("1\u{2013}6"), "{:?}", rows[0]);
         assert!(super::super::wrap::width(&rows[0]) < 20);
@@ -1185,7 +1330,7 @@ mod tests {
         // `/settings`' `Slash menu categories` off
         // (`fx-settings-cats-40x120-popup-off`: `  /help     show available
         // slash commands` and nothing at the right).
-        let picker = Picker::open("/").expect("all");
+        let picker = Picker::open("/", &[]).expect("all");
         let shown = picker.rows(120, 40, PALETTE, true);
         let hidden = picker.rows(120, 40, PALETTE, false);
         assert_eq!(shown[0], hidden[0], "the header does not change");
@@ -1206,7 +1351,7 @@ mod tests {
         );
         // On a narrow screen the summary keeps the room a category would have
         // taken.
-        let narrow = Picker::open("/mo").expect("one command");
+        let narrow = Picker::open("/mo", &[]).expect("one command");
         let row = plain(&narrow.rows(42, 18, PALETTE, false)[2]);
         assert_eq!(row.chars().count(), 41, "{row:?}");
     }
@@ -1230,9 +1375,9 @@ mod tests {
 
     #[test]
     fn a_query_that_names_nothing_opens_no_picker() {
-        assert!(Picker::open("/zzz").is_none());
+        assert!(Picker::open("/zzz", &[]).is_none());
         assert!(
-            Picker::open("/login").is_none(),
+            Picker::open("/login", &[]).is_none(),
             "no xfx name has `login` in it"
         );
         assert!(Trigger::of("say /help to me").is_none());
@@ -1251,7 +1396,7 @@ mod tests {
 
     #[test]
     fn the_marked_row_is_the_one_tab_and_enter_take() {
-        let mut picker = Picker::open("/").expect("every command");
+        let mut picker = Picker::open("/", &[]).expect("every command");
         assert_eq!(
             picker.apply(PickerAction::Complete),
             PickerOutcome::Complete("/help")
@@ -1274,10 +1419,74 @@ mod tests {
         );
         assert_eq!(picker.apply(PickerAction::Escape), PickerOutcome::Dismiss);
         // An alias row takes the alias, which is the name it is shown as.
-        let mut exit = Picker::open("/ex").expect("the alias");
+        let mut exit = Picker::open("/ex", &[]).expect("the alias");
         assert_eq!(
             exit.apply(PickerAction::Submit),
             PickerOutcome::Run("/exit")
         );
+    }
+
+    fn skill(name: &str, description: &str, source: crate::skills::Source) -> Skill {
+        Skill {
+            name: name.to_string(),
+            description: description.to_string(),
+            path: std::path::PathBuf::from(format!("/w/skills/{name}")),
+            source,
+        }
+    }
+
+    #[test]
+    fn skills_follow_the_commands_with_their_description_and_source() {
+        // `fx-skills-slash-40x120-slash-de`, `-slash-dem`, `-slash-all`.
+        use crate::skills::Source;
+        let skills = [
+            skill(
+                "demo",
+                "Demo workspace skill for the capture",
+                Source::WorkspaceXfx,
+            ),
+            skill(
+                "release-notes",
+                "Write release notes from the git log",
+                Source::WorkspaceShared,
+            ),
+        ];
+        let picker = Picker::open("/dem", &skills).expect("a skill row");
+        let rows: Vec<String> = picker
+            .rows(120, 40, PALETTE, true)
+            .iter()
+            .map(|row| plain(row))
+            .collect();
+        assert_eq!(rows[0].trim_end(), "Results 1");
+        assert_eq!(
+            rows[2],
+            format!(
+                "  demo   Demo workspace skill for the capture{}workspace .xfx",
+                " ".repeat(119 - 2 - 4 - 3 - 36 - 14)
+            )
+        );
+        // The commands first, then the skills, in one name column.
+        let picker = Picker::open("/", &skills).expect("everything");
+        let all = picker.rows(120, 40, PALETTE, true);
+        assert!(plain(&all[0]).starts_with(&format!(
+            "Results {} \u{b7} type to filter",
+            SLASH_REGISTRY.len() + 2
+        )));
+        assert!(
+            matches!(picker.matches.last(), Some(Entry::Skill(found)) if found.name == "release-notes")
+        );
+        // Tab and Enter on a skill bind it.
+        let mut bound = Picker::open("/rel", &skills).expect("one skill");
+        assert_eq!(
+            bound.apply(PickerAction::Submit),
+            PickerOutcome::Bind(skills[1].clone())
+        );
+        assert_eq!(
+            bound.apply(PickerAction::Complete),
+            PickerOutcome::Bind(skills[1].clone())
+        );
+        // Commands alone are still `Commands`.
+        let only = Picker::open("/he", &[]).expect("a command");
+        assert!(plain(&only.rows(120, 40, PALETTE, true)[0]).starts_with("Commands "));
     }
 }

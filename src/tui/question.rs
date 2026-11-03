@@ -715,6 +715,15 @@ impl QuestionPanel {
         true
     }
 
+    /// Drops a paste refused for the input behind its end marker
+    /// (`super::shell::Shell::paste_refused`): nothing of it reaches the
+    /// answer. Always the shell's sentence about that input, never a limit:
+    /// this panel's paste has no capture bound, and its budget refuses
+    /// silently at the insert ([`Self::insert`]).
+    pub(crate) fn refuse_paste(&mut self) {
+        self.paste = None;
+    }
+
     /// The rows the document keeps once every question is answered: each
     /// question under its ordinal, and the answer hung beneath it in the
     /// answer grey (`writeQuestionAnswerResolution`, `question_ui.zig:465-501`).
@@ -1428,11 +1437,15 @@ impl QuestionRequester for TuiQuestioner {
                         self.control.defer_rename(title, false, announced);
                         continue;
                     }
-                    // `/model`'s menu asking for the catalog: handed back to the
-                    // work's own loop, as the approval prompter does
-                    // (`super::approval`), and the batch stays up.
+                    // `/model`'s menu asking for the catalog: the read starts
+                    // now, on a thread of its own this wait does not hold, as
+                    // the approval prompter's does
+                    // (`super::approval::ControlChannel::ask_catalog`), and the
+                    // batch stays up.
                     Some(TurnControl::Catalog) => {
-                        self.control.give_back(TurnControl::Catalog);
+                        if let Some(answer) = self.control.ask_catalog() {
+                            let _ = send_ui(&self.events, &token, answer).await;
+                        }
                         continue;
                     }
                     // The interrupt and the shutdown belong to the loop that can

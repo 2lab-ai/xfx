@@ -43,6 +43,7 @@ pub mod permission;
 pub mod process;
 pub mod provider;
 pub mod session;
+pub mod skills;
 pub mod sound;
 pub mod tools;
 pub mod trace;

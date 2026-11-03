@@ -153,6 +153,19 @@ const ENV_MAX_AGENT_STEPS: &str = "XFX_MAX_AGENT_STEPS";
 /// saves what it moved it to. A harness that must stay silent sets
 /// `XFX_SOUND=off`, as fx's own sets `FX_SOUND=0`.
 pub const ENV_SOUND: &str = "XFX_SOUND";
+
+/// The directories outside a workspace a skill root's link may resolve into,
+/// colon-separated absolute paths: upstream's `FX_SKILL_SYMLINK_AUTHORITIES`
+/// (`vercel-labs/fx@c1db9191 src/core/skills/skill_runtime.zig:652-681`).
+pub const ENV_SKILL_SYMLINK_AUTHORITIES: &str = "XFX_SKILL_SYMLINK_AUTHORITIES";
+
+/// The profile's list of those directories (`skill_symlink_authorities`,
+/// `src/core/config/config_runtime.zig:1784-1788`, `:1853-1877`).
+pub const SKILL_SYMLINK_AUTHORITIES_KEY: &str = "skill_symlink_authorities";
+
+/// The most entries that list may have (`max_skill_symlink_authorities`,
+/// `config_runtime.zig:264-265`).
+pub const MAX_SKILL_SYMLINK_AUTHORITIES: usize = 32;
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
 const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 
@@ -189,6 +202,7 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     PROMPT_HISTORY_KEY,
     "provider",
     SESSION_TITLES_KEY,
+    SKILL_SYMLINK_AUTHORITIES_KEY,
     SLASH_MENU_CATEGORIES_KEY,
     STARTUP_SCROLLBACK_KEY,
     STATUS_LINE_KEY,
@@ -684,6 +698,7 @@ impl Environment {
             ENV_PERMISSION_MODE,
             ENV_MAX_AGENT_STEPS,
             ENV_SOUND,
+            ENV_SKILL_SYMLINK_AUTHORITIES,
             ENV_OIDC_TOKEN,
             ENV_GATEWAY_KEY,
             // Not xfx knobs and not read by any layer below: `xfx setup llmux`
@@ -847,6 +862,17 @@ pub struct RuntimeConfig {
     /// (`crate::workspace::access`). Profile-only, because `workspaces` is: a
     /// repository cannot add a directory to its cloner's session.
     pub additional_directories: Vec<String>,
+    /// The directories outside a workspace a link in one of its skill roots
+    /// may resolve into, as the profile lists them
+    /// ([`SKILL_SYMLINK_AUTHORITIES_KEY`]): the workspace's own entry's list
+    /// in place of the global one when it has one. Profile-only -- a
+    /// repository cannot widen what its cloner's skills may read -- and empty
+    /// unless every layer that names it names it validly
+    /// (`crate::skills::discovery`'s authorities).
+    pub skill_symlink_authorities: Vec<String>,
+    /// The same, from [`ENV_SKILL_SYMLINK_AUTHORITIES`]: its absolute entries
+    /// without `..`, the rest skipped as upstream skips them.
+    pub skill_symlink_authorities_env: Vec<String>,
     /// The configured permission tables ([`PERMISSION_KEY`]), user and this
     /// workspace's, and which one is in force.
     pub permission: PermissionTables,
@@ -856,6 +882,13 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// The home directory the profile is under: what the managed skill root
+    /// `~/.xfx/skills` hangs off, and where the walk for workspace skill
+    /// roots stops (`crate::skills::discovery`).
+    pub fn home(&self) -> Option<&Path> {
+        self.profile_dir.as_deref().and_then(Path::parent)
+    }
+
     /// Loads configuration for `workspace` from the real process environment.
     pub fn load(workspace: &Path) -> Result<Self, ConfigError> {
         Self::load_with(&Environment::from_process(), workspace)
@@ -1196,6 +1229,14 @@ impl RuntimeConfig {
                 && sources.fast_mode == sources.fast_mode_model_bound,
             ultrafast_mode: settings.ultrafast_mode.unwrap_or(false),
             additional_directories,
+            skill_symlink_authorities: match settings.skill_symlink_authorities {
+                Some(Ok(list)) => list,
+                Some(Err(())) | None => Vec::new(),
+            },
+            skill_symlink_authorities_env: env
+                .var(ENV_SKILL_SYMLINK_AUTHORITIES)
+                .map(skill_symlink_authorities_env)
+                .unwrap_or_default(),
             permission,
             sources,
             diagnostics,
@@ -1222,6 +1263,9 @@ impl RuntimeConfig {
 #[derive(Debug, Default)]
 struct Settings {
     model: Option<String>,
+    /// [`SKILL_SYMLINK_AUTHORITIES_KEY`]: `Some(Ok)` a valid list, `Some(Err)`
+    /// one that was not.
+    skill_symlink_authorities: Option<Result<Vec<String>, ()>>,
     permission_mode: Option<PermissionMode>,
     yolo_acknowledged: Option<bool>,
     max_agent_steps: Option<u32>,
@@ -1280,6 +1324,20 @@ impl Settings {
         if let Some(model) = incoming.model {
             self.model = Some(model);
             sources.model = source;
+        }
+        // A newer layer's list replaces the older one's whole, as upstream's
+        // workspace entry replaces the global list
+        // (`config_runtime.zig:1986-1990`) -- and a list that could not be read
+        // anywhere leaves none at all: authority is never widened by a typo.
+        match (
+            self.skill_symlink_authorities.take(),
+            incoming.skill_symlink_authorities,
+        ) {
+            (Some(Err(())), _) | (_, Some(Err(()))) => {
+                self.skill_symlink_authorities = Some(Err(()));
+            }
+            (_, Some(Ok(list))) => self.skill_symlink_authorities = Some(Ok(list)),
+            (kept, None) => self.skill_symlink_authorities = kept,
         }
         // Per item, as upstream merges them (`config_runtime.zig:1999-2001`).
         // No provenance is kept: nothing reports which layer turned a segment
@@ -1422,6 +1480,20 @@ fn parse_layer(
     let mut settings = Settings::default();
 
     if kind == LayerKind::Profile {
+        if let Some(value) = object.get(SKILL_SYMLINK_AUTHORITIES_KEY) {
+            let parsed = skill_symlink_authorities(value);
+            if parsed.is_err() {
+                diagnostics.push(Diagnostic::with_note(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    SKILL_SYMLINK_AUTHORITIES_KEY,
+                    format!(
+                        "skill_symlink_authorities must be an array of at most {MAX_SKILL_SYMLINK_AUTHORITIES} absolute directory paths without .. components"
+                    ),
+                ));
+            }
+            settings.skill_symlink_authorities = Some(parsed);
+        }
         if let Some(value) = object.get("model") {
             match value.as_str().map(str::trim) {
                 Some(model) if !model.is_empty() => settings.model = Some(model.to_string()),
@@ -1679,6 +1751,43 @@ fn parse_prompt_history(
             &format!("{PROMPT_HISTORY_KEY}.enabled"),
         )),
     }
+}
+
+/// A profile's [`SKILL_SYMLINK_AUTHORITIES_KEY`]: an array of at most
+/// [`MAX_SKILL_SYMLINK_AUTHORITIES`] absolute paths with no `..` component,
+/// or nothing (`parseSkillSymlinkAuthorities`, `config_runtime.zig:1853-1877`).
+fn skill_symlink_authorities(value: &Value) -> Result<Vec<String>, ()> {
+    let items = value.as_array().ok_or(())?;
+    if items.len() > MAX_SKILL_SYMLINK_AUTHORITIES {
+        return Err(());
+    }
+    items
+        .iter()
+        .map(|item| {
+            let path = item.as_str().ok_or(())?;
+            (Path::new(path).is_absolute() && !has_dot_dot(path))
+                .then(|| path.to_string())
+                .ok_or(())
+        })
+        .collect()
+}
+
+/// [`ENV_SKILL_SYMLINK_AUTHORITIES`]'s entries: colon-separated, blanks
+/// trimmed, and an empty, relative or `..` one skipped
+/// (`externalSymlinkAuthorities`, `skill_runtime.zig:652-681`).
+fn skill_symlink_authorities_env(raw: &str) -> Vec<String> {
+    raw.split(':')
+        .map(|entry| entry.trim_matches([' ', '\t']))
+        .filter(|entry| !entry.is_empty() && Path::new(entry).is_absolute() && !has_dot_dot(entry))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether `path` has a `..` component (`pathContainsDotDot`).
+fn has_dot_dot(path: &str) -> bool {
+    Path::new(path)
+        .components()
+        .any(|component| component == std::path::Component::ParentDir)
 }
 
 fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Settings {
@@ -2292,10 +2401,114 @@ mod tests {
         assert_eq!(env.nonblank("XFX_ABSENT"), None);
     }
 
+    /// Writes `settings` as the profile under `home`.
+    fn write_user_settings(home: &Path, settings: &serde_json::Value) {
+        std::fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        std::fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            settings.to_string(),
+        )
+        .expect("a profile");
+    }
+
+    #[test]
+    fn skill_symlink_authorities_are_profile_only_and_a_workspace_entry_replaces_the_global_list() {
+        // `skill_symlink_authorities is profile-only and workspace overrides
+        // replace the global list` (`config_runtime.zig:2790-2828`).
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let key = workspace
+            .path()
+            .canonicalize()
+            .expect("canonical")
+            .to_string_lossy()
+            .into_owned();
+        write_user_settings(
+            home.path(),
+            &serde_json::json!({
+                "skill_symlink_authorities": ["/opt/global-skills"],
+                "workspaces": {key: {"skill_symlink_authorities": ["/opt/workspace-skills"]}}
+            }),
+        );
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"skill_symlink_authorities":["/opt/project-skills"]}"#,
+        )
+        .expect("project");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            [(
+                ENV_SKILL_SYMLINK_AUTHORITIES.to_string(),
+                "/nix/store:/opt/skills: relative :/bad/../path".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(config.skill_symlink_authorities, ["/opt/workspace-skills"]);
+        assert!(config.diagnostics.iter().any(|diagnostic| {
+            diagnostic.ignored_setting_key() == Some(SKILL_SYMLINK_AUTHORITIES_KEY)
+        }));
+        // `externalSymlinkAuthorities`' case (`skill_runtime.zig:5841`).
+        assert_eq!(
+            config.skill_symlink_authorities_env,
+            ["/nix/store", "/opt/skills"]
+        );
+        // Another workspace has the global list.
+        let other = tempfile::tempdir().expect("other");
+        let config = RuntimeConfig::load_with(&env, other.path()).expect("load");
+        assert_eq!(config.skill_symlink_authorities, ["/opt/global-skills"]);
+    }
+
+    #[test]
+    fn an_unreadable_skill_symlink_authorities_names_no_authority_and_says_why() {
+        // `invalid skill_symlink_authorities reports a specific diagnostic`
+        // (`config_runtime.zig:2830-2858`) and the four shapes it refuses.
+        for bad in [
+            serde_json::json!("/nix/store"),
+            serde_json::json!([7]),
+            serde_json::json!(["relative/skills"]),
+            serde_json::json!(["/opt/../etc"]),
+            serde_json::json!(vec!["/a"; MAX_SKILL_SYMLINK_AUTHORITIES + 1]),
+        ] {
+            let home = tempfile::tempdir().expect("home");
+            let workspace = tempfile::tempdir().expect("workspace");
+            let key = workspace
+                .path()
+                .canonicalize()
+                .expect("canonical")
+                .to_string_lossy()
+                .into_owned();
+            // A valid workspace list does not stand in for a global one that
+            // could not be read: authority is never widened by a typo.
+            write_user_settings(
+                home.path(),
+                &serde_json::json!({
+                    "skill_symlink_authorities": bad,
+                    "workspaces": {key: {"skill_symlink_authorities": ["/opt/ok"]}}
+                }),
+            );
+            let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+            let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+            assert!(config.skill_symlink_authorities.is_empty(), "{bad}");
+            let diagnostic = config
+                .diagnostics
+                .iter()
+                .find(|diagnostic| {
+                    diagnostic.setting_key.as_deref() == Some(SKILL_SYMLINK_AUTHORITIES_KEY)
+                })
+                .expect("a diagnostic");
+            assert!(diagnostic.detail().contains(
+                "skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components"
+            ));
+        }
+    }
+
     #[test]
     fn a_later_layer_only_overrides_the_keys_it_sets() {
         let mut settings = Settings {
             model: Some("first".to_string()),
+            skill_symlink_authorities: None,
             permission_mode: Some(PermissionMode::Ask),
             yolo_acknowledged: Some(true),
             max_agent_steps: Some(1),

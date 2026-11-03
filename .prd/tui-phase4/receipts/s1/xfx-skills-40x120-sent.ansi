@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-0e78888 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;250m* skills: Skill 'nope' not found.[39m
+
+[38;5;250m* skills: xfx workspace roots are auto-discovered from .xfx/skills and skills/.[39m
+  [38;5;250mxfx managed install root: /private/tmp/claude-501/fxcap.XXXXXX/home/.xfx/skills[39m
+
+[38;5;250m* skills: Created /private/tmp/claude-501/fxcap.XXXXXX/home/.xfx/skills/made/SKILL.md[39m
+
+[38;5;250m* skills: Invalid skill name. Use a single directory name without '/' or '\'.[39m
+
+[38;5;250m* skills: Installing from ./skill-src...[39m
+
+[38;5;250m* skills: Installed: foo[39m
+
+[38;5;250m* skills: Removed skill 'made'.[39m
+
+[38;5;250m* skills: Skill 'demo' comes from workspace .xfx/skills, not the xfx managed install root. Remove it from /private/tmp/[39m
+  [38;5;250mclaude-501/fxcap.XXXXXX/work/.xfx/skills/demo.[39m
+
+[38;5;250m* usage: /skills [list|add|install|show|create|remove|path] [name|url|path][39m
+
+[38;5;255m┃[39m [1m[38;5;252mdemo[39m run it[0m
+
+[38;5;250m* 1 requested skill loaded[39m
+[38;5;250m└ Loaded skill demo[39m
+
+  Used the skill.
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+

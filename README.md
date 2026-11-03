@@ -302,6 +302,13 @@ when it stops to ask you something -- and any other value starts it on;
 otherwise the profile's `notifications` decides, and on a machine that never
 set it the bell is on for macOS and off elsewhere, as upstream's sounds are.
 
+A link in a workspace skill root (`.xfx/skills`, `skills/`) is followed only
+when it resolves inside that workspace, or inside a directory you name: the
+profile-only `skill_symlink_authorities` (an array of absolute paths, which a
+workspace's own entry replaces) or `XFX_SKILL_SYMLINK_AUTHORITIES`
+(colon-separated absolute paths). None is named by default, and an unreadable
+list names none at all.
+
 Five keys are read, because those are the five the runtime consumes:
 `max_agent_steps`, and the four that are **profile-only** -- `model`,
 `permission_mode`, `backend`, and `llmux_url`. Profile-only means a project
