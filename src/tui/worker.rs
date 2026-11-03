@@ -1343,9 +1343,11 @@ impl Resumption {
     /// ([`crate::provider::model::model_id_problem`]): the log is file input,
     /// and the model chosen here reaches the band's hint row and `/settings`
     /// at launch with no channel to make it inert on the way. Such a model is
-    /// not restored, on either branch: `current` is used in its place, and the
-    /// first turn records it (`record_resumed_selection`), so the log is clean
-    /// again once a turn runs.
+    /// not restored, on either branch: `current` is used in its place. Opening
+    /// the session writes nothing ([`Runtime::resume`]); its first turn
+    /// records the model it runs under ([`record_resumed_selection`]), so the
+    /// log is clean again once a turn runs, and until then every resume makes
+    /// the same substitution.
     /// Upstream refuses the frame that carries such a model as invalid
     /// instead (`parsePreferences`, `session_event.zig:1972-1976`, over
     /// `validateModel`, `session_codec.zig:67,3165`; `docs/parity.md`).
@@ -10452,7 +10454,7 @@ mod tests {
                 drop(resumed);
                 // The configured provider's, with no model chosen: the
                 // session's model (the second branch).
-                let resumed = opened(&unchosen, on_gateway);
+                let resumed = opened(&unchosen, on_gateway.clone());
                 let (provider, model) = resumed.selection(&unchosen, &unchosen.model);
                 assert!(!model.chars().any(char::is_control), "{context}: {model:?}");
                 assert_eq!(
@@ -10460,15 +10462,49 @@ mod tests {
                     (ProviderId::Gateway, unchosen.model.as_str()),
                     "{context}"
                 );
-                // And the launch's next step writes the model it runs under
-                // into the log, so the next resume reads a clean one.
+                // Opening it writes nothing ([`Runtime::resume`]): the log
+                // still holds the hostile model, byte for byte.
                 let mut launched = unchosen.clone();
                 (launched.provider, launched.model) = (provider, model);
                 let store = open_store(&launched).expect("a store");
+                let events = store
+                    .sessions_dir()
+                    .join(on_gateway.as_str())
+                    .join(crate::session::store::EVENTS_FILE);
+                let before = std::fs::read(&events).expect("the log");
                 let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
                 state.resume(resumed, &CancelToken::new());
-                let recorder = &state.conversation.as_ref().expect("bound").recorder;
-                assert_eq!(recorder.state().model, unchosen.model, "{context}");
+                assert_eq!(
+                    std::fs::read(&events).expect("the log"),
+                    before,
+                    "{context}: the open wrote to the log"
+                );
+                let recorded = |state: &Runtime| {
+                    let conversation = state.conversation.as_ref().expect("bound");
+                    conversation.recorder.state().model.clone()
+                };
+                assert_eq!(recorded(&state), hostile, "{context}");
+                // The first turn's step writes the model it runs under into
+                // the log ([`record_resumed_selection`]) ...
+                let model = state.model().to_string();
+                let (mode, provider) = (state.config.permission_mode, state.config.provider);
+                record_resumed_selection(
+                    state.conversation.as_mut().expect("bound"),
+                    &mut state.unrecorded_resume,
+                    &model,
+                    mode,
+                    provider,
+                );
+                assert_eq!(recorded(&state), unchosen.model, "{context}");
+                drop(state);
+                // ... so the next resume reads a clean one.
+                let again = opened(&unchosen, on_gateway);
+                assert_eq!(again.model(), unchosen.model, "{context}");
+                assert_eq!(
+                    again.selection(&unchosen, &unchosen.model),
+                    (ProviderId::Gateway, unchosen.model.clone()),
+                    "{context}"
+                );
             }
         }
     }
