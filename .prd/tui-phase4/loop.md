@@ -19,8 +19,8 @@ Program: [`../07-fx-parity-program.md`](../07-fx-parity-program.md) (trinity una
 
 | ID | Status | Scope | Branch | Next |
 |---|---|---|---|---|
-| SEC-C4 | 🟡 | MCP trust bound to a digest of the entry; the prompt shows command/URL/env names/header sources, spelled; `terminal_safe` = fx `encodeTerminalSafe(..,256)` | `fix/p2sec-mcp-approval-bind` @ `c0ca4338` | merging batch 25 into it → batch 26 |
-| SEC-C5 | 🟡 | auto writes to execution-config paths ask (shell rc, `.ssh`, git config, editor/tmux rc, `.xfx`, `.mcp.json`), names case-folded as APFS folds them, links followed to their targets | `fix/p2sec-exec-config-writes` @ `5f203950` | batch 26 |
+| SEC-C4 | 🟡 | MCP trust bound to a digest of the entry as written; the prompt shows command/URL/env names/header sources, spelled; `terminal_safe` = fx `encodeTerminalSafe(..,256)` — landed batch 26 | `fix/p2sec-mcp-approval-bind` | round 2: `headers` `${VAR}` sources not shown → SEC-C4c |
+| SEC-C5 | 🟡 | auto writes to execution-config paths ask (case-folded as APFS folds, links followed) — landed batch 26 | `fix/p2sec-exec-config-writes` | round 2: links inside protected dirs, missing entries under linked parents, fail-open errors → SEC-C5c |
 | SWEEP | 🟡 | sweep tooling landed (batch 25); r2 at `1a94cdff`: 624/861 pass, approved 22 + cascade 15, unresolved 198 — every snap has a cause (`receipts/sweep/README.md`) | `feat/fxcap-sweep` @ `194b97a1` | re-sweep at the final SHA for the receipt |
 | P2-RECEIPT | 🔴 | final-SHA gates, CI, SM1, sweep vs `c1db9191` (run and reported), security fixes re-reviewed, frames read, public-suitability scan, COMPAT, RED/GREEN | — | after the SEC units, SWEEP, SM1 |
 | SHIP | 🚪 | PR → `main` → preview + tap → real-profile run (sessions backed up; MCP servers checked for inherited variables they lose under SEC-C1), label "Phase 4 integration preview — fx c1db919 baseline, before the 0.0.16 transition" | — | after P2-RECEIPT |

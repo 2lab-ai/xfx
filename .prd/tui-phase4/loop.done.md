@@ -238,3 +238,16 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 ### Round section (as it was in loop.md)
 
 - Follow-ups the units found and closed in the same round: hidden tails in every approval field (A4b), model text leaving terminal state before the TTY question (A1b), the line shell's `/model` listing (B1b), an unset `${VAR}` now stops the entry (C2b), group signals after reaping (C3b), the check scripts' SIGPIPE false results — two failed open.
+
+## R26 — closed 2026-11-03
+
+- result: batch 26 (`ad4220bc`): SEC-C5 + C5b, SEC-C4 + C4b, the C4 test restated over C5 (a person's own `edit` rule admits the write; the changed entry still asks). Gates on `ad4220bc`: lib 3564, tui 162, permissions 144; fault-injection lib 3571, tui 176; 0 failed; clippy 0 both. Round 2 of the security review opened follow-ups on C3, C4, C5, D2, A1 (blockers) and A2, D1, SIGINT (cheap should-fixes); rows stay open in loop.md until those land.
+
+### Closed rows
+
+| ID | Status | Scope | Branch | Next |
+|---|---|---|---|---|
+
+### Round section (as it was in loop.md)
+
+- Batch 26 landed the last two first-round fixes; no row closed this round because round 2 reopened both.
