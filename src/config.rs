@@ -122,18 +122,61 @@ pub struct PermissionTables {
     /// This workspace's entry carries a readable `permission` key, so `local`
     /// is the table in force and `user` is not consulted.
     pub user_shadowed_by_local: bool,
+    /// Why a table this workspace is judged by did not read, when one did
+    /// not: the profile is there and does not read, or its `permission`, its
+    /// `workspaces`, this workspace's entry or that entry's `permission` is not
+    /// what it must be. While it is set, [`Self::effective`] refuses every
+    /// tool -- the rules that did not read may have been denies.
+    ///
+    /// Upstream drops such a layer and goes on with no table from it
+    /// (`mergeDetailedSettingsLayer`, `vercel-labs/fx@c1db9191
+    /// src/core/config/config_runtime.zig:1009-1022`), so a typo beside a deny
+    /// takes the deny away; xfx does not copy that (`docs/parity.md`).
+    pub unreadable: Option<String>,
 }
 
 impl PermissionTables {
-    /// The table every decision in this workspace reads.
+    /// The table every decision in this workspace reads: the one in force, or
+    /// `"permission": "deny"` while a table did not read ([`Self::unreadable`]).
     pub fn effective(&self) -> &crate::permission::rules::RuleSet {
-        if self.user_shadowed_by_local {
+        if self.unreadable.is_some() {
+            refuse_every_tool()
+        } else if self.user_shadowed_by_local {
             &self.local
         } else {
             &self.user
         }
     }
+
+    /// What a launch says while a table did not read: one line, safe for a
+    /// terminal.
+    pub fn refusal(&self) -> Option<String> {
+        self.unreadable.as_ref().map(|reason| {
+            crate::output::safe_one_line(
+                &format!("every tool is refused: a permission table did not read ({reason})"),
+                STARTUP_LINE_BYTES,
+            )
+        })
+    }
+
+    /// Keeps the first reason a table did not read.
+    fn refuse(&mut self, reason: String) {
+        self.unreadable.get_or_insert(reason);
+    }
 }
+
+/// `"permission": "deny"`: one rule refusing every tool at every target.
+fn refuse_every_tool() -> &'static crate::permission::rules::RuleSet {
+    use crate::permission::rules::{ConfiguredRule, RuleAction, RuleSet};
+    static TABLE: std::sync::LazyLock<RuleSet> = std::sync::LazyLock::new(|| {
+        RuleSet::new(vec![ConfiguredRule::new("*", "*", RuleAction::Deny)])
+    });
+    &TABLE
+}
+
+/// The most a launch's line about one diagnostic holds: a note can quote what
+/// the file says, and the file is as large as [`MAX_SETTINGS_BYTES`].
+const STARTUP_LINE_BYTES: usize = 256;
 
 /// The environment override for the model.
 ///
@@ -600,6 +643,25 @@ impl Diagnostic {
         }
         detail
     }
+
+    /// The diagnostic as upstream's launch says it -- `<layer>: <cause>`, then
+    /// `; key=<key>` (`vercel-labs/fx@c1db9191
+    /// src/core/app/app_bootstrap_runtime.zig:671-678`, `cli_ask.zig:1716-1727`,
+    /// `writeDiagnosticMetadata`, `config_runtime.zig:238-239`) -- and xfx's
+    /// note after that, as one line safe for a terminal: the note can quote
+    /// the file.
+    pub fn startup_line(&self) -> String {
+        let mut line = format!("{}: {}", self.layer.label(), self.cause.label());
+        if let Some(key) = &self.setting_key {
+            line.push_str("; key=");
+            line.push_str(key);
+        }
+        if let Some(note) = &self.note {
+            line.push_str("; ");
+            line.push_str(note);
+        }
+        crate::output::safe_one_line(&line, STARTUP_LINE_BYTES)
+    }
 }
 
 /// A provider selection xfx could not read, and which key wrote it.
@@ -927,6 +989,7 @@ impl RuntimeConfig {
             settings.merge(layer, SettingSource::Project, &mut sources);
         }
 
+        let before_user = diagnostics.len();
         let user = match user_settings_path.as_ref() {
             Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
             None => LayerRead::absent(),
@@ -935,6 +998,14 @@ impl RuntimeConfig {
         let user_settings_loaded = user.object.is_some();
         let mut additional_directories = Vec::new();
         let mut permission = PermissionTables::default();
+        // Fail closed (`PermissionTables::unreadable`): a profile that is there
+        // and does not read holds a table nobody can say is empty.
+        if user.present && user.object.is_none() {
+            permission.refuse(diagnostics.get(before_user).map_or_else(
+                || "the profile settings file did not read".to_string(),
+                Diagnostic::detail,
+            ));
+        }
         if let Some(object) = &user.object {
             let layer = parse_layer(
                 object,
@@ -943,11 +1014,20 @@ impl RuntimeConfig {
                 &mut diagnostics,
             );
             settings.merge(layer, SettingSource::UserGlobal, &mut sources);
-            if let Some(table) = permission_table(object, &mut diagnostics) {
-                permission.user = table;
+            match permission_table(object, &mut diagnostics) {
+                Ok(Some(table)) => permission.user = table,
+                Ok(None) => {}
+                Err(reason) => permission.refuse(reason),
             }
 
-            if let Some(entry) = exact_workspace_entry(object, &workspace_root, &mut diagnostics) {
+            let entry = match exact_workspace_entry(object, &workspace_root, &mut diagnostics) {
+                Ok(entry) => entry,
+                Err(reason) => {
+                    permission.refuse(reason);
+                    None
+                }
+            };
+            if let Some(entry) = entry {
                 let layer = parse_layer(
                     entry,
                     LayerKind::Profile,
@@ -965,9 +1045,13 @@ impl RuntimeConfig {
                         crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
                     )),
                 }
-                if let Some(table) = permission_table(entry, &mut diagnostics) {
-                    permission.local = table;
-                    permission.user_shadowed_by_local = true;
+                match permission_table(entry, &mut diagnostics) {
+                    Ok(Some(table)) => {
+                        permission.local = table;
+                        permission.user_shadowed_by_local = true;
+                    }
+                    Ok(None) => {}
+                    Err(reason) => permission.refuse(reason),
                 }
             }
         }
@@ -1875,74 +1959,75 @@ fn parse_notifications(
 
 /// The permission tables the profile at `settings` holds for the workspace
 /// at `workspace_root`, read afresh -- what `/allowlist` puts in force after
-/// it has written the file (`loadDetailedSettingsForNotice`,
+/// it has written the file, and what its view lists (`loadDetailedSettingsForNotice`,
 /// `session_commands.zig:137-142`).
 ///
 /// No file is no tables. A file that cannot be read, or a table in it that
 /// does not parse, is an error naming why: upstream's post-commit resolution
 /// treats both as a reload that failed (`postCommitResolutionError`,
-/// `:144-165`), and the caller says so rather than putting half a table in
-/// force.
+/// `:144-165`), and the caller says so and keeps the table in force rather than
+/// putting half a table -- or none -- in its place.
 pub fn read_permission_tables(
     settings: &Path,
     workspace_root: &Path,
 ) -> Result<PermissionTables, String> {
-    let (tables, diagnostics) = read_permission_tables_as_loaded(settings, workspace_root);
-    match diagnostics.first() {
-        Some(diagnostic) => Err(diagnostic.detail()),
-        None => Ok(tables),
-    }
-}
-
-/// The tables a launch would load from the profile at `settings` -- a file or
-/// a table that does not read contributes nothing, as at launch -- and the
-/// diagnostics that say what was dropped.
-pub fn read_permission_tables_as_loaded(
-    settings: &Path,
-    workspace_root: &Path,
-) -> (PermissionTables, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
     let read = read_layer(settings, ConfigLayer::User, &mut diagnostics);
+    if let Some(diagnostic) = diagnostics.first() {
+        return Err(diagnostic.detail());
+    }
     let mut tables = PermissionTables::default();
-    if let Some(object) = &read.object {
-        if let Some(table) = permission_table(object, &mut diagnostics) {
-            tables.user = table;
-        }
-        if let Some(entry) = exact_workspace_entry(object, workspace_root, &mut diagnostics) {
-            if let Some(table) = permission_table(entry, &mut diagnostics) {
-                tables.local = table;
-                tables.user_shadowed_by_local = true;
-            }
+    let Some(object) = &read.object else {
+        return Ok(tables);
+    };
+    if let Some(table) = permission_table(object, &mut diagnostics)? {
+        tables.user = table;
+    }
+    if let Some(entry) = exact_workspace_entry(object, workspace_root, &mut diagnostics)? {
+        if let Some(table) = permission_table(entry, &mut diagnostics)? {
+            tables.local = table;
+            tables.user_shadowed_by_local = true;
         }
     }
-    (tables, diagnostics)
+    Ok(tables)
 }
 
-/// One profile layer's permission table, when it has a readable one.
+/// One profile layer's permission table: `Ok(None)` when it names none,
+/// `Err` -- with the reason, also pushed as a diagnostic naming the key --
+/// when the one it names does not parse.
 ///
-/// A table that does not parse is a diagnostic naming the key, and the layer
-/// contributes **no** table -- which is what upstream's atomic layer parse
-/// makes of it too (`mergeDetailedSettingsLayer`, `config_runtime.zig:966-1027`:
-/// a layer that fails to parse sets no `permission_sources` entry). In
-/// particular a broken workspace table does not shadow the user's: the rules
-/// in force are the ones a file that reads cleanly says.
+/// Upstream's atomic layer parse makes such a layer contribute no table
+/// (`mergeDetailedSettingsLayer`, `config_runtime.zig:966-1027`). xfx's
+/// callers do not take it as absent: a launch refuses every tool
+/// ([`PermissionTables::unreadable`]) and `/allowlist` keeps the table in
+/// force, so the deny beside a typo cannot lapse.
 fn permission_table(
     object: &serde_json::Map<String, Value>,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Option<crate::permission::rules::RuleSet> {
-    let value = object.get(PERMISSION_KEY)?;
-    match crate::permission::rules::RuleSet::parse(value) {
-        Ok(table) => Some(table),
-        Err(err) => {
-            diagnostics.push(Diagnostic::with_note(
-                ConfigLayer::User,
-                DiagnosticCause::InvalidValue,
-                PERMISSION_KEY,
-                err.to_string(),
-            ));
-            None
-        }
-    }
+) -> Result<Option<crate::permission::rules::RuleSet>, String> {
+    let Some(value) = object.get(PERMISSION_KEY) else {
+        return Ok(None);
+    };
+    crate::permission::rules::RuleSet::parse(value)
+        .map(Some)
+        .map_err(|err| {
+            refused(
+                diagnostics,
+                Diagnostic::with_note(
+                    ConfigLayer::User,
+                    DiagnosticCause::InvalidValue,
+                    PERMISSION_KEY,
+                    err.to_string(),
+                ),
+            )
+        })
+}
+
+/// Pushes `diagnostic` and returns what it says.
+fn refused(diagnostics: &mut Vec<Diagnostic>, diagnostic: Diagnostic) -> String {
+    let detail = diagnostic.detail();
+    diagnostics.push(diagnostic);
+    detail
 }
 
 /// Records one diagnostic per profile-only key found in the project file.
@@ -1964,7 +2049,10 @@ fn report_ignored_profile_keys(
     }
 }
 
-/// The `workspaces` entry whose key is exactly this workspace root.
+/// The `workspaces` entry whose key is exactly this workspace root:
+/// `Ok(None)` when there is none, `Err` -- with the reason, also pushed as a
+/// diagnostic -- when `workspaces` or this workspace's entry is not an object,
+/// since then whether the entry holds a table cannot be told.
 ///
 /// Exact match only: a prefix match would let a parent directory's entry govern
 /// an unrelated nested repository.
@@ -1972,27 +2060,30 @@ fn exact_workspace_entry<'a>(
     object: &'a serde_json::Map<String, Value>,
     workspace_root: &Path,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Option<&'a serde_json::Map<String, Value>> {
-    let workspaces = object.get("workspaces")?;
-    let Some(map) = workspaces.as_object() else {
-        diagnostics.push(Diagnostic::with_key(
-            ConfigLayer::User,
-            DiagnosticCause::InvalidValue,
-            "workspaces",
-        ));
-        return None;
-    };
-    let entry = map.get(workspace_root.to_str()?)?;
-    match entry.as_object() {
-        Some(object) => Some(object),
-        None => {
-            diagnostics.push(Diagnostic::with_key(
+) -> Result<Option<&'a serde_json::Map<String, Value>>, String> {
+    let not_an_object = |diagnostics: &mut Vec<Diagnostic>| {
+        refused(
+            diagnostics,
+            Diagnostic::with_key(
                 ConfigLayer::User,
                 DiagnosticCause::InvalidValue,
                 "workspaces",
-            ));
-            None
-        }
+            ),
+        )
+    };
+    let Some(workspaces) = object.get("workspaces") else {
+        return Ok(None);
+    };
+    let Some(map) = workspaces.as_object() else {
+        return Err(not_an_object(diagnostics));
+    };
+    // A root that is not UTF-8 keys no entry; it is not a broken one.
+    let Some(entry) = workspace_root.to_str().and_then(|key| map.get(key)) else {
+        return Ok(None);
+    };
+    match entry.as_object() {
+        Some(object) => Ok(Some(object)),
+        None => Err(not_an_object(diagnostics)),
     }
 }
 
@@ -3439,15 +3530,121 @@ mod tests {
             .any(|diagnostic| diagnostic.ignored_setting_key() == Some(PERMISSION_KEY)));
     }
 
+    /// What a session launched on `config` makes of a read of `secrets/key`.
+    fn a_secret_read(config: &RuntimeConfig) -> crate::permission::PolicyDecision {
+        use crate::permission::{PermissionSession, ProposedAction, ReadPlan};
+        let read = ReadPlan::new(
+            "read_file",
+            PathBuf::from("/w/secrets/key"),
+            "secrets/key".to_string(),
+            b"secrets/key".to_vec(),
+            "secrets/key".to_string(),
+            Vec::new(),
+        );
+        PermissionSession::new(config.permission_mode)
+            .with_rules(config.permission.effective().clone())
+            .evaluate(ProposedAction::Read(&read))
+    }
+
     #[test]
-    fn a_table_that_does_not_read_is_reported_and_contributes_nothing() {
-        use crate::permission::rules::RuleAction::Allow;
-        // A broken user table: no rules at all, and a diagnostic that says why.
+    fn a_permission_table_that_does_not_read_refuses_every_tool_at_launch() {
+        use crate::permission::{DenyCause, PolicyDecision};
+        // Each of these is a profile whose table this workspace should have
+        // been judged by and was not read: the deny beside the typo, or the
+        // workspace's own table, would lapse if the launch took it as absent.
+        for (profile, mode) in [
+            (
+                r#"{"permission_mode":"ask","permission":{"read":{"secrets/*":"deny"},"bash":{"ls":"allow","rm":"sure"}}}"#,
+                PermissionMode::Ask,
+            ),
+            (
+                r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":{"{ROOT}":{"permission":["x"]}}}"#,
+                PermissionMode::Ask,
+            ),
+            (
+                r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":{"{ROOT}":"x"}}"#,
+                PermissionMode::Ask,
+            ),
+            (
+                r#"{"permission_mode":"ask","permission":{"read":"allow"},"workspaces":["x"]}"#,
+                PermissionMode::Ask,
+            ),
+            // A file that does not read at all: its mode goes with it.
+            ("{not json", PermissionMode::Auto),
+        ] {
+            let config = loaded_tables(profile, None);
+            assert_eq!(config.permission_mode, mode, "{profile}");
+            assert!(
+                matches!(
+                    a_secret_read(&config),
+                    PolicyDecision::Deny {
+                        cause: DenyCause::ConfiguredRule,
+                        ..
+                    }
+                ),
+                "{profile}: {:?}",
+                a_secret_read(&config)
+            );
+            // And the model is offered no tool it could only be refused.
+            assert!(
+                config
+                    .permission
+                    .effective()
+                    .denies_every_target_of_tool("terminal"),
+                "{profile}"
+            );
+            // The reason is the first diagnostic about a permission source.
+            let reason = config.permission.unreadable.as_deref().expect("a reason");
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.detail() == reason),
+                "{profile}: {reason}"
+            );
+        }
+        let broken = loaded_tables(r#"{"permission":{"bash":"sure"}}"#, None);
+        assert_eq!(
+            broken.permission.refusal().as_deref(),
+            Some(
+                "every tool is refused: a permission table did not read (user config diagnostic: \
+                 invalid_value key=permission `sure` is not a permission action; use allow, ask or deny)"
+            )
+        );
+        assert_eq!(
+            broken.diagnostics[0].startup_line(),
+            "user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny"
+        );
+    }
+
+    #[test]
+    fn a_startup_line_is_one_bounded_line_whatever_the_file_quotes() {
+        let config = loaded_tables(
+            &format!(
+                "{{\"permission\":{{\"bash\":\"x\\u001b]0;owned\\u0007\\n{}\"}}}}",
+                "y".repeat(400)
+            ),
+            None,
+        );
+        let line = config.diagnostics[0].startup_line();
+        assert!(!line.chars().any(char::is_control), "{line:?}");
+        assert!(line.len() <= STARTUP_LINE_BYTES + 3, "{}", line.len());
+        assert!(line.ends_with('\u{2026}'), "{line:?}");
+        let refusal = config.permission.refusal().expect("a refusal");
+        assert!(!refusal.chars().any(char::is_control), "{refusal:?}");
+        // A file that does not read at all is said by its cause alone.
+        assert_eq!(
+            loaded_tables("{not json", None).diagnostics[0].startup_line(),
+            "user: malformed_settings"
+        );
+    }
+
+    #[test]
+    fn a_table_that_does_not_read_is_reported_by_its_key() {
         let broken = loaded_tables(
             r#"{"permission":{"bash":{"ls":"allow","rm":"sure"}}}"#,
             None,
         );
-        assert!(broken.permission.effective().is_empty());
         let diagnostic = broken
             .diagnostics
             .iter()
@@ -3457,15 +3654,48 @@ mod tests {
         assert!(diagnostic
             .detail()
             .contains("`sure` is not a permission action"));
-        // A broken workspace table does not shadow a readable user table.
-        let shadow = loaded_tables(
-            r#"{"permission":{"read":"allow"},"workspaces":{"{ROOT}":{"permission":["x"]}}}"#,
-            None,
+    }
+
+    #[test]
+    fn what_is_not_a_permission_source_does_not_close_the_table() {
+        use crate::permission::rules::RuleAction::Deny;
+        // A bad value of another key in the profile, a project file that does
+        // not read, and a project file that names a table: none of them is a
+        // table this workspace is judged by, so the readable one stays in force.
+        let config = loaded_tables(
+            r#"{"max_agent_steps":"seven","permission":{"read":{"secrets/*":"deny"}}}"#,
+            Some("{not json"),
         );
-        assert!(!shadow.permission.user_shadowed_by_local);
+        for (layer, key) in [
+            (ConfigLayer::User, Some("max_agent_steps")),
+            (ConfigLayer::Project, None),
+        ] {
+            assert!(
+                config
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.layer == layer
+                        && diagnostic.setting_key.as_deref() == key),
+                "{layer:?} {key:?}: {:?}",
+                config.diagnostics
+            );
+        }
+        assert_eq!(config.permission.unreadable, None);
         assert_eq!(
-            shadow.permission.effective(),
-            &table(&[("read", "*", Allow)])
+            config.permission.effective(),
+            &table(&[("read", "secrets/*", Deny)])
         );
+        let config = loaded_tables("{}", Some(r#"{"permission":"deny"}"#));
+        assert!(config.permission.effective().is_empty());
+        // No profile at all is no table, not a broken one.
+        let root = tempfile::tempdir().expect("a root");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let bare = RuntimeConfig::load_with(
+            &Environment::new(Some(root.path().join("home")), BTreeMap::new()),
+            &workspace,
+        )
+        .expect("load");
+        assert!(bare.permission.effective().is_empty());
     }
 }

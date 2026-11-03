@@ -319,6 +319,17 @@ async fn ask(
     if mode == PermissionMode::Yolo {
         writeln!(stderr, "{YOLO_WARNING}")?;
     }
+    // Then what the configuration could not use, one line each, as upstream's
+    // headless run says it (`vercel-labs/fx@c1db9191
+    // src/core/cli/cli_ask.zig:1716-1727`) -- and, when a permission table was
+    // among it, that every tool is refused
+    // ([`crate::config::PermissionTables::unreadable`]).
+    for diagnostic in &config.diagnostics {
+        writeln!(stderr, "xfx ask: config {}", diagnostic.startup_line())?;
+    }
+    if let Some(refusal) = config.permission.refusal() {
+        writeln!(stderr, "xfx ask: permissions: {refusal}")?;
+    }
 
     // The sink borrows both streams in text mode, so the whole turn happens in
     // here and anything that still has to be said afterwards comes back out.

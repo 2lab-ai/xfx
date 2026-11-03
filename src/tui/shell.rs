@@ -3140,6 +3140,43 @@ impl Shell {
         ));
     }
 
+    /// What the configuration could not use, said once at launch as upstream
+    /// says it (`writeCollapsedStartupNotice`, `app_bootstrap_runtime.zig:267-272`,
+    /// written from `:666-687`): `* config: <n> configuration issue(s) (ctrl+o
+    /// to view)` in the document, and the diagnostics one per row on the full
+    /// transcript only (`visibility = .full_only`).
+    ///
+    /// A permission table that did not read is said in the document too, as
+    /// a warning, because xfx refuses every tool until it reads
+    /// ([`crate::config::PermissionTables::unreadable`]) where upstream goes
+    /// on without the table: the way back is `/allowlist`, which reads the
+    /// file again and puts a table that reads in force.
+    pub(crate) fn config_issues(&mut self, config: &RuntimeConfig) {
+        let count = config.diagnostics.len();
+        if count > 0 {
+            self.announce(notice::Notice::neutral(
+                "config",
+                format!(
+                    "{count} configuration issue{} (ctrl+o to view)",
+                    if count == 1 { "" } else { "s" }
+                ),
+            ));
+            let lines: Vec<String> = config
+                .diagnostics
+                .iter()
+                .map(crate::config::Diagnostic::startup_line)
+                .collect();
+            self.full
+                .full_detail(notice::Notice::neutral("config", lines.join("\n")));
+        }
+        if let Some(refusal) = config.permission.refusal() {
+            self.announce(notice::Notice::warning(
+                "permissions",
+                format!("{refusal}; fix it, then /allowlist reads it again"),
+            ));
+        }
+    }
+
     /// Says that this session continues a saved one, as upstream's resume does
     /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
     /// notice under `session resumed` whose body is the session's title, and
@@ -21058,6 +21095,101 @@ mod tests {
             ],
             "{document:?}"
         );
+    }
+
+    #[test]
+    fn a_view_of_a_profile_that_does_not_read_leaves_a_deny_in_force() {
+        use crate::permission::{
+            ConfiguredRule, PermissionSession, PolicyDecision, ProposedAction, ReadPlan,
+            RuleAction, RuleSet,
+        };
+        let (home, _workspace, mut shell) = allowlist_shell();
+        let deny = RuleSet::new(vec![ConfiguredRule::new(
+            "read",
+            "secrets/*",
+            RuleAction::Deny,
+        )]);
+        shell.work.rules().replace(deny.clone());
+        let session = PermissionSession::new(crate::permission::PermissionMode::Ask)
+            .with_live_rules(shell.work.rules().clone());
+        let read = ReadPlan::new(
+            "read_file",
+            std::path::PathBuf::from("/w/secrets/key"),
+            "secrets/key".to_string(),
+            b"secrets/key".to_vec(),
+            "secrets/key".to_string(),
+            Vec::new(),
+        );
+        let denied = |session: &PermissionSession| {
+            matches!(
+                session.evaluate(ProposedAction::Read(&read)),
+                PolicyDecision::Deny { .. }
+            )
+        };
+        assert!(denied(&session), "the deny decides before the view");
+        let settings = home.path().join(".xfx").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, "{\"permission\": {\"bash\": \"perhaps\"}}").unwrap();
+        shell.route_bytes(b"/allowlist\r");
+        assert_eq!(*shell.work.rules().current(), deny);
+        assert!(denied(&session), "the deny still decides after the view");
+        let document = shell.document();
+        assert_eq!(
+            [document[0].as_str(), document[1].trim_start()].join(" "),
+            "\u{2717} settings: Failed to load settings: user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny; the permission rules in force are unchanged",
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn a_launch_says_what_the_configuration_could_not_use_as_upstream_does() {
+        // `writeCollapsedStartupNotice` (`app_bootstrap_runtime.zig:267-272`,
+        // `:666-687`): one neutral line in the document, the diagnostics on
+        // the full transcript only -- and here, since the table did not read,
+        // the refusal of every tool and the way back.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let settings = home.path().join(".xfx").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, r#"{"permission":{"bash":"sure"}}"#).unwrap();
+        let broken = config(home.path(), workspace.path());
+        let (work, sent, control, _changes) = WorkHandle::detached_with_changes();
+        let mut shell = Fixture {
+            shell: Shell::new(
+                &broken,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        shell.config_issues(&broken);
+        // The diagnostics are the full transcript's, not the document's.
+        assert_eq!(
+            shell.document(),
+            [
+                "* config: 1 configuration issue (ctrl+o to view)",
+                "",
+                "! permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value",
+                "  key=permission `sure` is not a permission action; use allow, ask or deny); fix it, then /allowlist reads it again",
+                "",
+            ]
+        );
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        assert!(
+            screen.iter().any(|row| row
+                == "* config: user: invalid_value; key=permission; `sure` is not a permission action; use allow, ask or deny"),
+            "{screen:#?}"
+        );
+        // A configuration with nothing to say says nothing.
+        let (home, workspace, mut quiet) = allowlist_shell();
+        let clean = config(home.path(), workspace.path());
+        quiet.config_issues(&clean);
+        assert!(quiet.document().is_empty(), "{:?}", quiet.document());
     }
 
     /// `row` with every SGR sequence taken out: what a confirmation's rows
